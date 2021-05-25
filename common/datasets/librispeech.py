@@ -46,8 +46,11 @@ def get_bliss_corpus_dict(audio_format="flac", create_alias_with_prefix=None):
         - 'train-other-960'
     :rtype: dict[str, Path]
     """
-
-    create_alias_with_prefix = os.path.join(create_alias_with_prefix, "LibriSpeech")
+    create_alias_with_prefix = (
+        os.path.join(create_alias_with_prefix, "LibriSpeech")
+        if create_alias_with_prefix
+        else None
+    )
 
     download_metadata_job = DownloadLibriSpeechMetadataJob()
     if create_alias_with_prefix:
