@@ -1,6 +1,6 @@
 # RWTH I6 Experiments
 
-This repository contains all public [Sisyphus](https://https://github.com/rwth-i6/sisyphus) recipes/jobs as well as
+This repository contains all public [Sisyphus](https://github.com/rwth-i6/sisyphus) recipes/jobs as well as
 Sisyphus pipeline code that is shared among i6 assistants and with other interested users.
 The repository contains two parts: `common` and `users`:
 
