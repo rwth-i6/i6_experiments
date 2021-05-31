@@ -21,15 +21,17 @@ All functions return a dict with the following keys:
 
 If you want to use other subsets (especially with .ogg zips),
 please consider to use segment lists to avoid creating new corpus files.
+
+For i6-users: physical jobs are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
 """
 import os
 
 from sisyphus import tk
 
-from recipe.i6_core.audio.encoding import BlissChangeEncodingJob
-from recipe.i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
-from recipe.i6_core.datasets.librispeech import *
-from recipe.i6_core.meta.system import CorpusObject
+from i6_core.audio.encoding import BlissChangeEncodingJob
+from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
+from i6_core.datasets.librispeech import *
+from i6_core.meta.system import CorpusObject
 
 
 durations = {
@@ -71,7 +73,7 @@ def get_bliss_corpus_dict(audio_format="flac", create_alias_with_prefix=None):
         - 'train-other-960'
     :rtype: dict[str, Path]
     """
-    assert audio_format in ['flac', 'ogg', 'wav']
+    assert audio_format in ["flac", "ogg", "wav"]
 
     create_alias_with_prefix = (
         os.path.join(create_alias_with_prefix, "LibriSpeech")
@@ -150,7 +152,9 @@ def get_bliss_corpus_dict(audio_format="flac", create_alias_with_prefix=None):
         )
         if create_alias_with_prefix:
             merge_job.add_alias(
-                os.path.join(create_alias_with_prefix, "%s_merge_job" % audio_format, name)
+                os.path.join(
+                    create_alias_with_prefix, "%s_merge_job" % audio_format, name
+                )
             )
         return merge_job.out_merged_corpus
 
@@ -232,15 +236,20 @@ def get_ogg_zip_dict(create_alias_with_prefix=None):
         - 'train-other-960'
     :rtype: dict[str, Path]
     """
-    from recipe.i6_core.returnn.oggzip import BlissToOggZipJob
-
+    from i6_core.returnn.oggzip import BlissToOggZipJob
 
     ogg_zip_dict = {}
-    bliss_corpus_dict = get_bliss_corpus_dict(audio_format="ogg", create_alias_with_prefix=create_alias_with_prefix)
+    bliss_corpus_dict = get_bliss_corpus_dict(
+        audio_format="ogg", create_alias_with_prefix=create_alias_with_prefix
+    )
     for name, bliss_corpus in bliss_corpus_dict.items():
         ogg_zip_job = BlissToOggZipJob(bliss_corpus, no_conversion=True)
         if create_alias_with_prefix:
-            ogg_zip_job.add_alias(os.path.join(create_alias_with_prefix, "LibriSpeech", "%s_ogg_zip_job" % name))
+            ogg_zip_job.add_alias(
+                os.path.join(
+                    create_alias_with_prefix, "LibriSpeech", "%s_ogg_zip_job" % name
+                )
+            )
         ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
 
     return ogg_zip_dict
@@ -250,19 +259,28 @@ def export_all_datasets(path_prefix):
     """
     export all datasets to path_prefix/LibriSpeech/<corpus_name>.xml.gz
 
+    For i6-users: physical jobs are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
+
     :param str path_prefix:
     :return:
     """
 
     # export all bliss corpora
-    for audio_format in ['flac', 'ogg', 'wav']:
-        bliss_corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, create_alias_with_prefix=path_prefix)
+    for audio_format in ["flac", "ogg", "wav"]:
+        bliss_corpus_dict = get_bliss_corpus_dict(
+            audio_format=audio_format, create_alias_with_prefix=path_prefix
+        )
         for name, bliss_corpus in bliss_corpus_dict.items():
-            tk.register_output(os.path.join(path_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)),
-                               bliss_corpus)
-
+            tk.register_output(
+                os.path.join(
+                    path_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)
+                ),
+                bliss_corpus,
+            )
 
     # export all ogg zip corpora
     ogg_corpus_dict = get_ogg_zip_dict(create_alias_with_prefix=path_prefix)
     for name, ogg_corpus in ogg_corpus_dict.items():
-        tk.register_output(os.path.join(path_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus)
+        tk.register_output(
+            os.path.join(path_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus
+        )
