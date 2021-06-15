@@ -1,4 +1,5 @@
-__all__ = ["GmmDataInput", "GmmPipelineArgs", "NnArgs"]
+__all__ = ["GmmDataInput", "GmmInitArgs", "GmmMonophoneArgs", "GmmTriphoneArgs",
+           "GmmVtlnArgs", "GmmSatArgs", "GmmVtlnSatArgs", "NnArgs"]
 
 import i6_core.meta as meta
 
@@ -23,27 +24,27 @@ class GmmDataInput:
         self.concurrent = concurrent
 
 
-class GmmPipelineArgs:
+"""
+when getting an zero weights error, set:
+
+extra_config = sprint.SprintConfig()
+extra_config.allow_zero_weights = True
+{accumulate,split,align}_extra_args = {'extra_config': extra_config}
+
+'{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
+
+vtln align time = 8
+
+if not using the run function -> name and corpus almost always to be added
+"""
+
+
+class GmmInitArgs:
     def __init__(
         self,
         costa_args: dict = None,
         am_args: dict = None,
         feature_extraction_args: dict = None,
-        linear_alignment_args: dict = None,
-        monophone_training_args: dict = None,
-        monophone_recognition_args: dict = None,
-        cart_questions=None,
-        cart_lda_args: dict = None,
-        triphone_training_args: dict = None,
-        triphone_recognition_args: dict = None,
-        sdm_tri_args: dict = None,
-        vtln_training_args: dict = None,
-        vtln_recognition_args: dict = None,
-        sat_training_args: dict = None,
-        sat_recognition_args: dict = None,
-        sdm_vtln_args: dict = None,
-        vtln_sat_training_args: dict = None,
-        vtln_sat_recognition_args: dict = None,
     ):
         """
         ##################################################
@@ -131,6 +132,21 @@ class GmmPipelineArgs:
               'fft_options': {},
           }
         ##################################################
+        """
+        self.costa_args = costa_args
+        self.am_args = am_args
+        self.feature_extraction_args = feature_extraction_args
+
+
+class GmmMonophoneArgs:
+    def __init__(
+        self,
+        linear_alignment_args: dict = None,
+        monophone_training_args: dict = None,
+        monophone_recognition_args: dict = None,
+    ):
+        """
+        ##################################################
         :param linear_alignment_args:
           'minimum_segment_length': 0,
           'maximum_segment_length': 6000,
@@ -163,9 +179,9 @@ class GmmPipelineArgs:
                           'eval_single_best': True,
                           'eval_best_in_lattice': True,
                           'search_parameters': {
-                            'beam_pruning': 18.0,
+                            'beam_pruning': 14.0,
                             'beam-pruning-limit': 100000,
-                            'word-end-pruning': 0.75,
+                            'word-end-pruning': 0.5,
                             'word-end-pruning-limit': 15000
                           },
                           'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
@@ -173,10 +189,26 @@ class GmmPipelineArgs:
                           'scorer': recog.Sclite,
                           'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
                           'scorer_hyp_args': "hyp",
-                          'rtf': 50,
+                          'rtf': 20,
                           'mem': 8,
                           'use_gpu': False,
                         }
+        ##################################################
+        """
+        self.linear_alignment_args = linear_alignment_args
+        self.monophone_training_args = monophone_training_args
+        self.monophone_recognition_args = monophone_recognition_args
+
+
+class GmmTriphoneArgs:
+    def __init__(
+        self,
+        cart_questions=None,
+        cart_lda_args: dict = None,
+        triphone_training_args: dict = None,
+        triphone_recognition_args: dict = None,
+    ):
+        """
         ##################################################
         :param cart_questions:
           - cart generation class
@@ -200,6 +232,22 @@ class GmmPipelineArgs:
           'initial_alignment': "train_mono",  # if using run function not needed
         :param triphone_recognition_args:
         ##################################################
+        """
+        self.cart_questions = cart_questions
+        self.cart_lda_args = cart_lda_args
+        self.triphone_training_args = triphone_training_args
+        self.triphone_recognition_args = triphone_recognition_args
+
+
+class GmmVtlnArgs:
+    def __init__(
+        self,
+        sdm_tri_args: dict = None,
+        vtln_training_args: dict = None,
+        vtln_recognition_args: dict = None,
+    ):
+        """
+        ##################################################
         :param sdm_tri_args:
           'feature_flow': "mfcc+context+lda",
           'alignment': "train_tri",   # if using run function not needed
@@ -222,6 +270,21 @@ class GmmPipelineArgs:
                     }
         :param vtln_recognition_args:
         ##################################################
+        """
+        self.sdm_tri_args = sdm_tri_args
+        self.vtln_training_args = vtln_training_args
+        self.vtln_recognition_args = vtln_recognition_args
+
+
+class GmmSatArgs:
+    def __init__(
+        self,
+        sat_training_args: dict = None,
+        sat_recognition_args: dict = None,
+        sdm_vtln_args: dict = None,
+    ):
+        """
+        ##################################################
         :param sat_training_args:
           'feature_cache': 'mfcc+context+lda',
           'cache_regex': '^mfcc.*$',
@@ -232,6 +295,36 @@ class GmmPipelineArgs:
           'feature_flow': "mfcc+context+lda",
           'alignment': "train_tri",   # if using run function not needed
         :param sat_recognition_args:
+        ##################################################
+        """
+        self.sat_training_args = sat_training_args
+        self.sat_recognition_args = sat_recognition_args
+        self.sdm_vtln_args = sdm_vtln_args
+
+
+class GmmVtlnSatArgs:
+    def __init__(
+        self,
+        costa_args: dict = None,
+        am_args: dict = None,
+        feature_extraction_args: dict = None,
+        linear_alignment_args: dict = None,
+        monophone_training_args: dict = None,
+        monophone_recognition_args: dict = None,
+        cart_questions=None,
+        cart_lda_args: dict = None,
+        triphone_training_args: dict = None,
+        triphone_recognition_args: dict = None,
+        sdm_tri_args: dict = None,
+        vtln_training_args: dict = None,
+        vtln_recognition_args: dict = None,
+        sat_training_args: dict = None,
+        sat_recognition_args: dict = None,
+        sdm_vtln_args: dict = None,
+        vtln_sat_training_args: dict = None,
+        vtln_sat_recognition_args: dict = None,
+    ):
+        """
         ##################################################
         :param sdm_vtln_args:
           'feature_flow': "mfcc+context+lda+vtln",
@@ -246,19 +339,6 @@ class GmmPipelineArgs:
           'alignment': "train_vtln",  # if using run function not needed
         :param vtln_sat_recognition_args:
         ##################################################
-
-        if necessary set:
-
-        extra_config = sprint.SprintConfig()
-        extra_config.allow_zero_weights = True
-        {accumulate,split,align}_extra_args = {'extra_config': extra_config}
-
-        '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
-
-        vtln align time = 8
-
-        if not using the run function -> name and corpus almost always to be added
-
         """
         self.costa_args = costa_args
         self.am_args = am_args
@@ -392,9 +472,9 @@ class NnArgs:
                           'eval_single_best': True,
                           'eval_best_in_lattice': True,
                           'search_parameters': {
-                            'beam_pruning': 18.0,
+                            'beam_pruning': 14.0,
                             'beam-pruning-limit': 100000,
-                            'word-end-pruning': 0.75,
+                            'word-end-pruning': 0.5,
                             'word-end-pruning-limit': 15000
                           },
                           'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
@@ -402,7 +482,7 @@ class NnArgs:
                           'scorer': recog.Sclite,
                           'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
                           'scorer_hyp_args': "hyp",
-                          'rtf': 50,
+                          'rtf': 20,
                           'mem': 8,
                           'use_gpu': False,
                         }

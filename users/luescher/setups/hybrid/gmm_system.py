@@ -23,7 +23,7 @@ import i6_core.rasr as rasr
 import i6_core.util as util
 import i6_core.vtln as vtln
 
-from .util import GmmDataInput, GmmPipelineArgs
+from .util import GmmDataInput, GmmInitArgs, GmmMonophoneArgs, GmmTriphoneArgs, GmmVtlnArgs, GmmSatArgs, GmmVtlnSatArgs
 
 # -------------------- Init --------------------
 
@@ -69,7 +69,12 @@ class GmmSystem(meta.System):
         self.crp["base"].python_home = gs.RASR_PYTHON_HOME
         self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
 
-        self.gmm_args = None
+        self.gmm_init_args = None
+        self.gmm_monophone_args = None
+        self.gmm_triphone_args = None
+        self.gmm_vtln_args = None
+        self.gmm_sat_args = None
+        self.gmm_vtln_sat_args = None
 
         self.train_corpora = []
         self.dev_corpora = []
@@ -91,21 +96,37 @@ class GmmSystem(meta.System):
 
     # -------------------- Setup --------------------
     def init_system(
-        self,
-        gmm_args: GmmPipelineArgs,
-        train_data: Dict[str, GmmDataInput],
-        dev_data: Dict[str, GmmDataInput],
-        test_data: Dict[str, GmmDataInput],
+            self,
+            gmm_init_args: GmmInitArgs,
+            gmm_monophone_args: GmmMonophoneArgs,
+            gmm_triphone_args: GmmTriphoneArgs,
+            gmm_vtln_args: GmmVtlnArgs,
+            gmm_sat_args: GmmSatArgs,
+            gmm_vtln_sat_args: GmmVtlnSatArgs,
+            train_data: Dict[str, GmmDataInput],
+            dev_data: Dict[str, GmmDataInput],
+            test_data: Dict[str, GmmDataInput],
     ):
         """
-        :param gmm_args: parameters for the different Gmm-HMM steps
+        :param gmm_init_args: parameters for am and feature extraction
+        :param gmm_monophone_args: parameters for lin align and monophone
+        :param gmm_triphone_args: parameters for cart and triphone
+        :param gmm_vtln_args: parameters for VTLN
+        :param gmm_sat_args: parameters for SAT
+        :param gmm_vtln_sat_args: parameters for VTLN+SAT
         :param dict[str, GmmInput] train_data:
         :param dict[str, GmmInput] dev_data:
         :param dict[str, GmmInput] test_data:
         :return:
         """
-        self.gmm_args = gmm_args
-        self._init_am(**gmm_args.am_args)
+        self.gmm_init_args = gmm_init_args
+        self.gmm_monophone_args = gmm_monophone_args
+        self.gmm_triphone_args= gmm_triphone_args
+        self.gmm_vtln_args = gmm_vtln_args
+        self.gmm_sat_args = gmm_sat_args
+        self.gmm_vtln_sat_args = gmm_vtln_sat_args
+
+        self._init_am(**self.gmm_init_args.am_args)
         for name, v in sorted(train_data.items()):
             self.add_corpus(name, corpus=v, add_lm=False)
             self.train_corpora.append(name)
@@ -118,7 +139,7 @@ class GmmSystem(meta.System):
             self.add_corpus(name, corpus=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = gmm_args.cart_questions
+        self.cart_questions = self.gmm_triphone_args_args.cart_questions
 
     @tk.block()
     def _init_am(self, **kwargs):
@@ -185,29 +206,26 @@ class GmmSystem(meta.System):
     def extract_features(self, feat_args: dict, **kwargs):
         corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
 
-        if "mfcc" in feat_args.keys():
+        for k, v in feat_args.items():
             for c in corpus_list:
-                self.mfcc_features(c, **feat_args["mfcc"])
-                self.energy_features(c, **feat_args["energy"])
-            for t in self.train_corpora:
-                self.add_energy_to_features(t, "mfcc+deriv")
-
-        if "gt" in feat_args.keys():
-            for c in corpus_list:
-                self.gt_features(c, **feat_args["gt"])
-                self.energy_features(c, **feat_args["energy"])
-            for t in self.train_corpora:
-                self.add_energy_to_features(t, "gt")
-
-        if "fb" in feat_args.keys():
-            for c in corpus_list:
-                self.fb_features(c, **feat_args["fb"])
-
-        unknown_features = set(feat_args.keys()).difference(
-            {"mfcc", "gt", "fb", "energy"}
-        )
-        if len(unknown_features) > 0:
-            raise ValueError("Invalid features: {}".format(unknown_features))
+                if k == "mfcc":
+                    self.mfcc_features(c, **v)
+                if k == "gt":
+                    self.gt_features(c, **v)
+                if k == "fb":
+                    self.fb_features(c, **v)
+                if k == "energy":
+                    self.energy_features(c, **v)
+                if k not in ("mfcc", "gt", "fb", " energy"):
+                    self.generic_features(c, k, **v)
+            if "energy" in feat_args.keys():
+                for t in self.train_corpora:
+                    if k == "mfcc":
+                        self.add_energy_to_features(t, "mfcc+deriv")
+                    if k == "gt":
+                        self.add_energy_to_features(t, "gt")
+                    if k == "fb":
+                        self.add_energy_to_features(t, "fb")
 
     # -------------------- Mono Training --------------------
 
@@ -681,7 +699,7 @@ class GmmSystem(meta.System):
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
-            optimize_am_lm_scale = self.gmm_args.monophone_recognition_args.pop(
+            optimize_am_lm_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
                 "optimize_am_lm_scale", False
             )
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
@@ -712,12 +730,12 @@ class GmmSystem(meta.System):
 
         if "init" in steps:
             print(
-                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
+                "init needs to be run manually. provide at least: gmm_init_args, {train,dev,test}_inputs"
             )
             sys.exit(-1)
 
         if "extract" in steps:
-            self.extract_features(feat_args=self.gmm_args.feature_extraction_args)
+            self.extract_features(feat_args=self.gmm_init_args.feature_extraction_args)
 
         # ---------- Monophone ----------
         if "mono" in steps:
@@ -725,8 +743,8 @@ class GmmSystem(meta.System):
                 self.monophone_training(
                     "mono",
                     trn_c,
-                    self.gmm_args.linear_alignment_args,
-                    **self.gmm_args.monophone_training_args,
+                    self.gmm_monphone_args.linear_alignment_args,
+                    **self.gmm_monphone_args.monophone_training_args,
                 )
 
                 for dev_c in self.dev_corpora:
@@ -739,7 +757,7 @@ class GmmSystem(meta.System):
         if "cart" in steps:
             for c in self.train_corpora:
                 self.cart_and_lda(
-                    "mono", c, alignment="train_mono", **self.gmm_args.cart_lda_args
+                    "mono", c, alignment="train_mono", **self.gmm_triphone_args.cart_lda_args
                 )
 
         # ---------- Triphone ----------
@@ -749,7 +767,7 @@ class GmmSystem(meta.System):
                     "tri",
                     c,
                     initial_alignment="train_mono",
-                    **self.gmm_args.triphone_training_args,
+                    **self.gmm_triphone_args.triphone_training_args,
                 )
 
             for c in self.dev_corpora:
@@ -763,7 +781,7 @@ class GmmSystem(meta.System):
         if any(x in steps for x in ["vtln", "sat", "sdm"]):
             for c in self.train_corpora:
                 self.single_density_mixtures(
-                    "sdm.tri", c, alignment="train_tri", **self.gmm_args.sdm_tri_args
+                    "sdm.tri", c, alignment="train_tri", **self.gmm_vtln_args.sdm_tri_args
                 )
 
         # ---------- VTLN ----------
@@ -773,24 +791,24 @@ class GmmSystem(meta.System):
                     "uncached_mfcc+context+lda",
                     c,
                     lda_matrix="",
-                    **self.gmm_args.vtln_feature_flow_args,
+                    **self.gmm_triphone_args.vtln_feature_flow_args,
                 )
                 self.vtln_warping_mixtures(
                     "vtln",
                     c,
                     feature_scorer="estimate_mixtures_sdm.tri",
-                    **self.gmm_args.vtln_warping_mixtures_args,
+                    **self.gmm_triphone_args.vtln_warping_mixtures_args,
                 )
                 self.vtln_training(
                     "vtln",
                     c,
                     initial_alignment="train_tri",
-                    **self.gmm_args.vtln_training_args,
+                    **self.gmm_triphone_args.vtln_training_args,
                 )
 
             for c in self.dev_corpora + self.test_corpora:
                 self.extract_vtln_features(
-                    self.gmm_args.triphone_training_args["feature_flow"],
+                    self.gmm_triphone_args.triphone_training_args["feature_flow"],
                     self.train_corpora[0],
                     c,
                     raw_feature_flow="uncached_mfcc+context+lda",
@@ -811,7 +829,7 @@ class GmmSystem(meta.System):
                     c,
                     mixtures="estimate_mixtures_sdm.tri",
                     alignment="train_tri",
-                    **self.gmm_args.sat_training_args,
+                    **self.gmm_sat_args.sat_training_args,
                 )
 
             for c in self.dev_corpora:
@@ -825,14 +843,14 @@ class GmmSystem(meta.System):
         if "vtln+sat" in steps:
             for c in self.train_corpora:
                 self.single_density_mixtures(
-                    "sdm.vtln", c, alignment="train_vtln", **self.gmm_args.sdm_vtln_args
+                    "sdm.vtln", c, alignment="train_vtln", **self.gmm_vtln_sat_args.sdm_vtln_args
                 )
                 self.sat_training(
                     "vtln_sat",
                     c,
                     mixtures="estimate_mixtures_sdm.vtln",
                     alignment="train_vtln",
-                    **self.gmm_args.vtln_sat_training_args,
+                    **self.gmm_vtln_sat_args.vtln_sat_training_args,
                 )
 
             for c in self.dev_corpora:
