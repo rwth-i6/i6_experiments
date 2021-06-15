@@ -99,35 +99,25 @@ class GmmSystem(meta.System):
     ):
         """
         :param gmm_args: parameters for the different Gmm-HMM steps
-        :param train_data: dict(str: GmmInput)
-        :param dev_data: dict(str: GmmInput)
-        :param test_data: dict(str: GmmInput)
+        :param dict[str, GmmInput] train_data:
+        :param dict[str, GmmInput] dev_data:
+        :param dict[str, GmmInput] test_data:
         :return:
         """
         self.gmm_args = gmm_args
         self._init_am(**gmm_args.am_args)
         for name, v in sorted(train_data.items()):
-            self.corpora[name] = v.corpus_object
-            self.concurrent[name] = v.concurrent
-            self._init_corpora(name)
-            self._init_lexica(name, **v.lexicon)
+            self.add_corpus(name, corpus=v, add_lm=False)
             self.train_corpora.append(name)
 
         for name, v in sorted(dev_data.items()):
-            self.corpora[name] = v.corpus_object
-            self.concurrent[name] = v.concurrent
-            self._init_corpora(name)
-            self._init_lexica(name, **v.lexicon)
-            self._init_lm(name, **v.lm)
+            self.add_corpus(name, corpus=v, add_lm=True)
             self.dev_corpora.append(name)
 
         for name, v in sorted(test_data.items()):
-            self.corpora[name] = v.corpus_object
-            self.concurrent[name] = v.concurrent
-            self._init_corpora(name)
-            self._init_lexica(name, **v.lexicon)
-            self._init_lm(name, **v.lm)
+            self.add_corpus(name, corpus=v, add_lm=True)
             self.test_corpora.append(name)
+
         self.cart_questions = gmm_args.cart_questions
 
     @tk.block()
@@ -135,7 +125,7 @@ class GmmSystem(meta.System):
         self.crp["base"].acoustic_model_config = am.acoustic_model_config(**kwargs)
 
     @tk.block()
-    def _init_corpora(self, name):
+    def _init_corpus(self, name):
         segm_corpus_job = corpus_recipes.SegmentCorpusJob(
             self.corpora[name].corpus_file, self.concurrent[name]
         )
@@ -155,7 +145,7 @@ class GmmSystem(meta.System):
         self.crp[name].language_model_config.scale = scale
 
     @tk.block()
-    def _init_lexica(self, name, file, normalize_pronunciation, **kwargs):
+    def _init_lexicon(self, name, file, normalize_pronunciation, **kwargs):
         self.crp[name].lexicon_config = rasr.RasrConfig()
         self.crp[name].lexicon_config.file = file
         self.crp[name].lexicon_config.normalize_pronunciation = normalize_pronunciation
@@ -182,6 +172,14 @@ class GmmSystem(meta.System):
         )
         self.feature_flows[corpus][name] = features.basic_cache_flow(feature_path)
         self.feature_flows[corpus][f"uncached_{name}"] = feature_job.feature_flow
+
+    def add_corpus(self, name: str, corpus: meta.system.Corpus, add_lm: bool):
+        self.corpora[name] = corpus.corpus_object
+        self.concurrent[name] = corpus.concurrent
+        self._init_corpus(name)
+        self._init_lexicon(name, **corpus.lexicon)
+        if add_lm:
+            self._init_lm(name, **corpus.lm)
 
     @tk.block()
     def extract_features(self, feat_args: dict, **kwargs):
@@ -255,12 +253,12 @@ class GmmSystem(meta.System):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_alnt_last".format(name))
+        ].add_alias("train_{}_align_last".format(name))
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
             "train_{}_mix_last".format(name)
         )
         tk.register_output(
-            "train_{}_{}_alnt_bundle_last".format(corpus, name),
+            "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .alignment_bundle,
@@ -370,12 +368,12 @@ class GmmSystem(meta.System):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_alnt_last".format(name))
+        ].add_alias("train_{}_align_last".format(name))
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
             "train_{}_mix_last".format(name)
         )
         tk.register_output(
-            "train_{}_{}_alnt_bundle_last".format(corpus, name),
+            "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .alignment_bundle,
@@ -505,12 +503,12 @@ class GmmSystem(meta.System):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_alnt_last".format(name))
+        ].add_alias("train_{}_align_last".format(name))
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
             "train_{}_mix_last".format(name)
         )
         tk.register_output(
-            "train_{}_{}_alnt_bundle_last".format(corpus, name),
+            "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .alignment_bundle,
@@ -647,12 +645,12 @@ class GmmSystem(meta.System):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_alnt_last".format(name))
+        ].add_alias("train_{}_align_last".format(name))
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
             "train_{}_mix_last".format(name)
         )
         tk.register_output(
-            "train_{}_alnt_bundle_last".format(name),
+            "train_{}_align_bundle_last".format(name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .alignment_bundle,
