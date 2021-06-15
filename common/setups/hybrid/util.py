@@ -1,5 +1,13 @@
-__all__ = ["GmmDataInput", "GmmInitArgs", "GmmMonophoneArgs", "GmmTriphoneArgs",
-           "GmmVtlnArgs", "GmmSatArgs", "GmmVtlnSatArgs", "NnArgs"]
+__all__ = [
+    "GmmDataInput",
+    "GmmInitArgs",
+    "GmmMonophoneArgs",
+    "GmmTriphoneArgs",
+    "GmmVtlnArgs",
+    "GmmSatArgs",
+    "GmmVtlnSatArgs",
+    "NnArgs",
+]
 
 import i6_core.meta as meta
 

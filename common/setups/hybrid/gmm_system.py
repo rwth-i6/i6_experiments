@@ -23,7 +23,15 @@ import i6_core.rasr as rasr
 import i6_core.util as util
 import i6_core.vtln as vtln
 
-from .util import GmmDataInput, GmmInitArgs, GmmMonophoneArgs, GmmTriphoneArgs, GmmVtlnArgs, GmmSatArgs, GmmVtlnSatArgs
+from .util import (
+    GmmDataInput,
+    GmmInitArgs,
+    GmmMonophoneArgs,
+    GmmTriphoneArgs,
+    GmmVtlnArgs,
+    GmmSatArgs,
+    GmmVtlnSatArgs,
+)
 
 # -------------------- Init --------------------
 
@@ -96,16 +104,16 @@ class GmmSystem(meta.System):
 
     # -------------------- Setup --------------------
     def init_system(
-            self,
-            gmm_init_args: GmmInitArgs,
-            gmm_monophone_args: GmmMonophoneArgs,
-            gmm_triphone_args: GmmTriphoneArgs,
-            gmm_vtln_args: GmmVtlnArgs,
-            gmm_sat_args: GmmSatArgs,
-            gmm_vtln_sat_args: GmmVtlnSatArgs,
-            train_data: Dict[str, GmmDataInput],
-            dev_data: Dict[str, GmmDataInput],
-            test_data: Dict[str, GmmDataInput],
+        self,
+        gmm_init_args: GmmInitArgs,
+        gmm_monophone_args: GmmMonophoneArgs,
+        gmm_triphone_args: GmmTriphoneArgs,
+        gmm_vtln_args: GmmVtlnArgs,
+        gmm_sat_args: GmmSatArgs,
+        gmm_vtln_sat_args: GmmVtlnSatArgs,
+        train_data: Dict[str, GmmDataInput],
+        dev_data: Dict[str, GmmDataInput],
+        test_data: Dict[str, GmmDataInput],
     ):
         """
         :param gmm_init_args: parameters for am and feature extraction
@@ -121,7 +129,7 @@ class GmmSystem(meta.System):
         """
         self.gmm_init_args = gmm_init_args
         self.gmm_monophone_args = gmm_monophone_args
-        self.gmm_triphone_args= gmm_triphone_args
+        self.gmm_triphone_args = gmm_triphone_args
         self.gmm_vtln_args = gmm_vtln_args
         self.gmm_sat_args = gmm_sat_args
         self.gmm_vtln_sat_args = gmm_vtln_sat_args
@@ -699,8 +707,10 @@ class GmmSystem(meta.System):
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
-            optimize_am_lm_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
-                "optimize_am_lm_scale", False
+            optimize_am_lm_scale = (
+                self.gmm_monophone_args.monophone_recognition_args.pop(
+                    "optimize_am_lm_scale", False
+                )
             )
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
@@ -757,7 +767,10 @@ class GmmSystem(meta.System):
         if "cart" in steps:
             for c in self.train_corpora:
                 self.cart_and_lda(
-                    "mono", c, alignment="train_mono", **self.gmm_triphone_args.cart_lda_args
+                    "mono",
+                    c,
+                    alignment="train_mono",
+                    **self.gmm_triphone_args.cart_lda_args,
                 )
 
         # ---------- Triphone ----------
@@ -781,7 +794,10 @@ class GmmSystem(meta.System):
         if any(x in steps for x in ["vtln", "sat", "sdm"]):
             for c in self.train_corpora:
                 self.single_density_mixtures(
-                    "sdm.tri", c, alignment="train_tri", **self.gmm_vtln_args.sdm_tri_args
+                    "sdm.tri",
+                    c,
+                    alignment="train_tri",
+                    **self.gmm_vtln_args.sdm_tri_args,
                 )
 
         # ---------- VTLN ----------
@@ -843,7 +859,10 @@ class GmmSystem(meta.System):
         if "vtln+sat" in steps:
             for c in self.train_corpora:
                 self.single_density_mixtures(
-                    "sdm.vtln", c, alignment="train_vtln", **self.gmm_vtln_sat_args.sdm_vtln_args
+                    "sdm.vtln",
+                    c,
+                    alignment="train_vtln",
+                    **self.gmm_vtln_sat_args.sdm_vtln_args,
                 )
                 self.sat_training(
                     "vtln_sat",
