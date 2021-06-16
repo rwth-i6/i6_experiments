@@ -175,7 +175,7 @@ class GmmMonophoneArgs:
           'accs_per_split': 2,
         :param monophone_recognition_args:
           'eval_iter': [7, 8, 9, 10]
-          'pronunciation_scales': [10.0, 11.0, 12.0, 13.0, 14.0]
+          'pronunciation_scales': [1.0]
           'lm_scales': [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50]
           'recog_args': {
                           'feature_flow': dev_corpus_name,
@@ -197,7 +197,7 @@ class GmmMonophoneArgs:
                           'scorer': recog.Sclite,
                           'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
                           'scorer_hyp_args': "hyp",
-                          'rtf': 20,
+                          'rtf': 30,
                           'mem': 8,
                           'use_gpu': False,
                         }
@@ -371,8 +371,6 @@ class GmmVtlnSatArgs:
 class NnArgs:
     def __init__(
         self,
-        am_args: dict = None,
-        feature_extraction_args: dict = None,
         nn_ce_training_args: dict = None,
         nn_ce_count_recognition_args: dict = None,
         nn_ce_lstm_recognition_args: dict = None,
@@ -386,117 +384,9 @@ class NnArgs:
     ):
         """
         ##################################################
-        :param am_args:
-        {
-          state_tying="monophone",
-          states_per_phone=3,
-          state_repetitions=1,
-          across_word_model=True,
-          early_recombination=False,
-          tdp_scale=1.0,
-          tdp_transition=(3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
-          tdp_silence=(0.0, 3.0, "infinity", 20.0),
-          tying_type="global",
-          nonword_phones="",
-          tdp_nonword=(0.0, 3.0, "infinity", 6.0)  # only used when tying_type = global-and-nonword
-        }
+        TODO probably this can be reused for the different stages in some form
         ##################################################
-        :param feature_extraction_args:
-          'mfcc':
-          {
-            'num_deriv': 2,
-            'num_features': None,  # confusing name: number of max features, above number -> clipped
-            'mfcc_options':
-            {
-              'warping_function': "mel",
-              'filter_width': 268.258,  # 80
-              'normalize': True,
-              'normalization_options': None,
-              'without_samples': False,
-              'samples_options': {'audio_format': "wav",
-                                  'dc_detection': True,},
-              'cepstrum_options': {'normalize': False,
-                                   'outputs': 16,
-                                   'add_epsilon': False,},
-              'fft_options': None,
-            }
-          }
-          'gt':
-          {
-            'minfreq': 100,
-            'maxfreq': 7500,
-            'channels': 50,
-            'warp_freqbreak': None,  # 3700
-            'tempint_type': 'hanning',
-            'tempint_shift': .01,
-            'tempint_length': .025,
-            'flush_before_gap': True,
-            'do_specint': False,
-            'specint_type': 'hanning',
-            'specint_shift': 4,
-            'specint_length': 9,
-            'normalize': True,
-            'preemphasis': True,
-            'legacy_scaling': False,
-            'without_samples': False,
-            'samples_options': {'audio_format': "wav",
-                                'dc_detection': True},
-            'normalization_options': {},
-          }
-          'fb':
-          {
-            'warping_function': "mel",
-            'filter_width': 80,
-            'normalize': True,
-            'normalization_options': None,
-            'without_samples': False,
-            'samples_options': {'audio_format': "wav",
-                                'dc_detection': True},
-            'fft_options': None,
-            'apply_log': True,
-            'add_epsilon': False,
-          }
-          'energy':
-          {
-              'without_samples': False,
-              'samples_options': {'audio_format': "wav",
-                          'dc_detection': True},
-              'fft_options': {},
-          }
-        ##################################################
-
-        ##################################################
-        :param monophone_recognition_args:
-          'eval_iter': [7, 8, 9, 10]
-          'pronunciation_scales': [10.0, 11.0, 12.0, 13.0, 14.0]
-          'lm_scales': [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50]
-          'recog_args': {
-                          'feature_flow': dev_corpus_name,
-                          'pronunciation_scale': pronunciation_scale,
-                          'lm_scale': lm_scale,
-                          'lm_lookahead': True,
-                          'lookahead_options': None,
-                          'create_lattice': True,
-                          'eval_single_best': True,
-                          'eval_best_in_lattice': True,
-                          'search_parameters': {
-                            'beam_pruning': 14.0,
-                            'beam-pruning-limit': 100000,
-                            'word-end-pruning': 0.5,
-                            'word-end-pruning-limit': 15000
-                          },
-                          'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
-                          'fill_empty_segments': False,
-                          'scorer': recog.Sclite,
-                          'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
-                          'scorer_hyp_args': "hyp",
-                          'rtf': 20,
-                          'mem': 8,
-                          'use_gpu': False,
-                        }
         """
-        self.am_args = am_args
-        self.feature_extraction_args = feature_extraction_args
         self.nn_ce_training_args = nn_ce_training_args
         self.nn_ce_count_recognition_args = nn_ce_count_recognition_args
         self.nn_ce_lstm_recognition_args = nn_ce_lstm_recognition_args
