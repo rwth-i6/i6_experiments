@@ -152,6 +152,10 @@ class GmmSystem(meta.System):
     @tk.block()
     def _init_am(self, **kwargs):
         self.crp["base"].acoustic_model_config = am.acoustic_model_config(**kwargs)
+        allow_zero_weights = kwargs.get("allow_zero_weights", False)
+        if allow_zero_weights:
+            self.crp["base"].acoustic_model_config.mixture_sew.allow_zero_weights = True
+            self.crp["base"].acoustic_model_config.old_mixture_set.allow_zero_weights = True
 
     @tk.block()
     def _init_corpus(self, name):
@@ -178,14 +182,6 @@ class GmmSystem(meta.System):
         self.crp[name].lexicon_config = rasr.RasrConfig()
         self.crp[name].lexicon_config.file = file
         self.crp[name].lexicon_config.normalize_pronunciation = normalize_pronunciation
-
-    def allow_zero_weights(self, name: str = "base"):
-        if self.crp[name].acoustic_model_post_config is None:
-            self.crp[name].acoustic_model_post_config = rasr.RasrConfig()
-        self.crp[name].acoustic_model_post_config.mixture_set.allow_zero_weights = True
-        self.crp[
-            name
-        ].acoustic_model_post_config.old_mixture_set.allow_zero_weights = True
 
     def _add_features(self, name, corpus, feature_job, prefix=""):
         self.jobs[corpus][name] = feature_job
