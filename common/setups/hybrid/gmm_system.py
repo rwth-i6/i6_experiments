@@ -155,7 +155,9 @@ class GmmSystem(meta.System):
         allow_zero_weights = kwargs.get("allow_zero_weights", False)
         if allow_zero_weights:
             self.crp["base"].acoustic_model_config.mixture_sew.allow_zero_weights = True
-            self.crp["base"].acoustic_model_config.old_mixture_set.allow_zero_weights = True
+            self.crp[
+                "base"
+            ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
 
     @tk.block()
     def _init_corpus(self, name):
