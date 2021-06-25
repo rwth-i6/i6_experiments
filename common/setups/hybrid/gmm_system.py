@@ -2,13 +2,14 @@ __all__ = ["GmmSystem"]
 
 import itertools
 import sys
-from typing import Dict
+from typing import Dict, List, Optional, Type
 
 # -------------------- Sisyphus --------------------
 
-from sisyphus import *
-import sisyphus.toolkit as tk
 import sisyphus.global_settings as gs
+import sisyphus.toolkit as tk
+
+from sisyphus import Job
 
 # -------------------- Recipes --------------------
 
@@ -115,18 +116,6 @@ class GmmSystem(meta.System):
         dev_data: Dict[str, GmmDataInput],
         test_data: Dict[str, GmmDataInput],
     ):
-        """
-        :param gmm_init_args: parameters for am and feature extraction
-        :param gmm_monophone_args: parameters for lin align and monophone
-        :param gmm_triphone_args: parameters for cart and triphone
-        :param gmm_vtln_args: parameters for VTLN
-        :param gmm_sat_args: parameters for SAT
-        :param gmm_vtln_sat_args: parameters for VTLN+SAT
-        :param dict[str, GmmInput] train_data:
-        :param dict[str, GmmInput] dev_data:
-        :param dict[str, GmmInput] test_data:
-        :return:
-        """
         self.gmm_init_args = gmm_init_args
         self.gmm_monophone_args = gmm_monophone_args
         self.gmm_triphone_args = gmm_triphone_args
@@ -160,7 +149,7 @@ class GmmSystem(meta.System):
             ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
 
     @tk.block()
-    def _init_corpus(self, name):
+    def _init_corpus(self, name: str):
         segm_corpus_job = corpus_recipes.SegmentCorpusJob(
             self.corpora[name].corpus_file, self.concurrent[name]
         )
@@ -173,19 +162,27 @@ class GmmSystem(meta.System):
         self.jobs[name]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
-    def _init_lm(self, name, file, type, scale, **kwargs):
+    def _init_lm(self, name: str, filename: Path, type: str, scale: int, **kwargs):
         self.crp[name].language_model_config = rasr.RasrConfig()
         self.crp[name].language_model_config.type = type
-        self.crp[name].language_model_config.file = file
+        self.crp[name].language_model_config.file = filename
         self.crp[name].language_model_config.scale = scale
 
     @tk.block()
-    def _init_lexicon(self, name, file, normalize_pronunciation, **kwargs):
+    def _init_lexicon(
+        self, name: str, filename: Path, normalize_pronunciation: bool, **kwargs
+    ):
         self.crp[name].lexicon_config = rasr.RasrConfig()
-        self.crp[name].lexicon_config.file = file
+        self.crp[name].lexicon_config.file = filename
         self.crp[name].lexicon_config.normalize_pronunciation = normalize_pronunciation
 
-    def _add_features(self, name, corpus, feature_job, prefix=""):
+    def _add_features(
+        self,
+        name: str,
+        corpus: str,
+        feature_job: Type[features.FeatureExtractionJob],
+        prefix: str = "",
+    ):
         self.jobs[corpus][name] = feature_job
         feature_job.add_alias(f"{prefix}{corpus}_{name}_features")
         self.feature_caches[corpus][name] = feature_job.out_feature_path[name]
@@ -238,15 +235,15 @@ class GmmSystem(meta.System):
     @tk.block()
     def monophone_training(
         self,
-        name,
-        corpus,
-        linear_alignment_args,
-        feature_energy_flow,
-        feature_flow,
-        align_iter,
-        splits,
-        accs_per_split,
-        align_keep_values=None,
+        name: str,
+        corpus: str,
+        linear_alignment_args: dict,
+        feature_energy_flow: str,
+        feature_flow: str,
+        align_iter: int,
+        splits: int,
+        accs_per_split: int,
+        align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
         self.linear_alignment(
@@ -298,16 +295,16 @@ class GmmSystem(meta.System):
 
     def cart_and_lda(
         self,
-        name,
-        corpus,
-        initial_flow,
-        context_flow,
-        context_size,
-        alignment,
-        num_dim,
-        num_iter,
-        eigenvalue_args,
-        generalized_eigenvalue_args,
+        name: str,
+        corpus: str,
+        initial_flow: str,
+        context_flow: str,
+        context_size: int,
+        alignment: str,
+        num_dim: int,
+        num_iter: int,
+        eigenvalue_args: dict,
+        generalized_eigenvalue_args: dict,
         **kwargs,
     ):
         for f in self.feature_flows.values():
@@ -358,13 +355,13 @@ class GmmSystem(meta.System):
     @tk.block()
     def triphone_training(
         self,
-        name,
-        corpus,
-        feature_flow,
-        initial_alignment,
-        splits,
-        accs_per_split,
-        align_keep_values=None,
+        name: str,
+        corpus: str,
+        feature_flow: str,
+        initial_alignment: str,
+        splits: int,
+        accs_per_split: int,
+        align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
         action_sequence = (
@@ -411,7 +408,9 @@ class GmmSystem(meta.System):
 
     # -------------------- Single Density Mixtures --------------------
 
-    def single_density_mixtures(self, name, corpus, feature_flow, alignment):
+    def single_density_mixtures(
+        self, name: str, corpus: str, feature_flow: str, alignment: str
+    ):
         self.estimate_mixtures(
             name=name,
             corpus=corpus,
@@ -423,32 +422,34 @@ class GmmSystem(meta.System):
     # -------------------- Vocal Tract Length Normalization --------------------
 
     def vtln_feature_flow(
-        self, name, corpora, base_flow, context_size=None, lda_matrix=None
+        self,
+        name: str,
+        corpus: str,
+        base_flow: str,
+        context_size: Optional[int] = None,
+        lda_matrix: Optional[str] = None,
     ):
-        for corpus in corpora:
-            flow = self.feature_flows[corpus][base_flow]
-            if context_size is not None:
-                flow = lda.add_context_flow(
-                    feature_net=flow,
-                    max_size=context_size,
-                    right=int(context_size / 2.0),
-                )
-            if lda_matrix is not None:
-                flow = features.add_linear_transform(
-                    flow, self.lda_matrices[lda_matrix]
-                )
-            self.feature_flows[corpus][name] = flow
+        flow = self.feature_flows[corpus][base_flow]
+        if context_size is not None:
+            flow = lda.add_context_flow(
+                feature_net=flow,
+                max_size=context_size,
+                right=int(context_size / 2.0),
+            )
+        if lda_matrix is not None:
+            flow = features.add_linear_transform(flow, self.lda_matrices[lda_matrix])
+        self.feature_flows[corpus][name] = flow
 
     @tk.block()
     def vtln_warping_mixtures(
         self,
-        name,
-        corpus,
-        feature_flow,
-        feature_scorer,
-        alignment,
-        splits,
-        accs_per_split,
+        name: str,
+        corpus: str,
+        feature_flow: str,
+        feature_scorer: str,
+        alignment: str,
+        splits: int,
+        accs_per_split: int,
     ):
         feature_flow = self.feature_flows[corpus][feature_flow]
         warp = vtln.ScoreFeaturesWithWarpingFactorsJob(
@@ -477,7 +478,13 @@ class GmmSystem(meta.System):
 
     @tk.block()
     def extract_vtln_features(
-        self, name, train_corpus, eval_corpus, raw_feature_flow, vtln_files, **kwargs
+        self,
+        name: str,
+        train_corpus: str,
+        eval_corpus: str,
+        raw_feature_flow: str,
+        vtln_files: str,
+        **kwargs,
     ):
         self.vtln_features(
             name=name,
@@ -497,13 +504,13 @@ class GmmSystem(meta.System):
     @tk.block()
     def vtln_training(
         self,
-        name,
-        corpus,
-        initial_alignment,
-        feature_flow,
-        splits,
-        accs_per_split,
-        align_keep_values=None,
+        name: str,
+        corpus: str,
+        initial_alignment: str,
+        feature_flow: str,
+        splits: int,
+        accs_per_split: int,
+        align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
         action_sequence = (
@@ -548,14 +555,14 @@ class GmmSystem(meta.System):
 
     def estimate_cmllr(
         self,
-        name,
-        corpus,
-        feature_cache,
-        feature_flow,
-        cache_regex,
-        alignment,
-        mixtures,
-        overlay=None,
+        name: str,
+        corpus: str,
+        feature_cache: rasr.FlagDependentFlowAttribute,
+        feature_flow: str,
+        cache_regex: str,
+        alignment: rasr.FlagDependentFlowAttribute,
+        mixtures: rasr.FlagDependentFlowAttribute,
+        overlay: Optional[str] = None,
     ):
         speaker_seg = corpus_recipes.SegmentCorpusBySpeakerJob(
             self.corpora[corpus].corpus_file
@@ -622,16 +629,16 @@ class GmmSystem(meta.System):
     @tk.block()
     def sat_training(
         self,
-        name,
-        corpus,
-        feature_cache,
-        feature_flow,
-        cache_regex,
-        alignment,
-        mixtures,
-        splits,
-        accs_per_split,
-        align_keep_values=None,
+        name: str,
+        corpus: str,
+        feature_cache: str,
+        feature_flow: str,
+        cache_regex: str,
+        alignment: str,
+        mixtures: str,
+        splits: int,
+        accs_per_split: int,
+        align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
         self.estimate_cmllr(
@@ -690,18 +697,18 @@ class GmmSystem(meta.System):
 
     def recognition(
         self,
-        name,
-        iters,
-        corpus,
-        feature_flow,
+        name: str,
+        iters: List[int],
+        corpus: str,
+        feature_flow: str,
         feature_scorer,
-        pronunciation_scale,
-        lm_scale,
-        search_params,
-        rtf,
-        mem,
-        parallelize_conversion,
-        lattice_to_ctm_kwargs,
+        pronunciation_scale: List[int],
+        lm_scale: List[int],
+        search_params: dict,
+        rtf: int,
+        mem: int,
+        parallelize_conversion: bool,
+        lattice_to_ctm_kwargs: dict,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -731,9 +738,25 @@ class GmmSystem(meta.System):
 
     # -------------------- run setup  --------------------
 
-    def run(self, steps=tuple("all")):
+    def run(self, steps=("all",)):
+        """
+        allowed steps:
+            - all
+            - extract
+            - mono
+            - cart
+            - tri
+            - sdm
+            - vtln
+            - sat
+            - vtln+sat
+        some steps might depend on other steps
+
+        :param tuple steps:
+        :return:
+        """
         assert len(steps) > 0
-        if len(steps) == 1 and steps[0] == "all":
+        if list(steps) == ["all"]:
             steps = ["extract", "mono", "cart", "tri", "vtln", "sat", "vtln+sat"]
 
         if "init" in steps:
@@ -800,33 +823,35 @@ class GmmSystem(meta.System):
 
         # ---------- VTLN ----------
         if "vtln" in steps:
-            for c in self.train_corpora:
+            for c in self.train_corpora + self.dev_corpora + self.test_corpora:
                 self.vtln_feature_flow(
                     "uncached_mfcc+context+lda",
                     c,
                     lda_matrix="",
-                    **self.gmm_triphone_args.vtln_feature_flow_args,
+                    **self.gmm_vtln_args.vtln_feature_flow_args,
                 )
+            for c in self.train_corpora:
                 self.vtln_warping_mixtures(
                     "vtln",
                     c,
                     feature_scorer="estimate_mixtures_sdm.tri",
-                    **self.gmm_triphone_args.vtln_warping_mixtures_args,
+                    **self.gmm_vtln_args.vtln_warping_mixtures_args,
                 )
+
+                for cc in self.dev_corpora + self.test_corpora:
+                    self.extract_vtln_features(
+                        self.gmm_vtln_args.triphone_training_args["feature_flow"],
+                        train_corpus=c,
+                        eval_corpus=cc,
+                        raw_feature_flow="uncached_mfcc+context+lda",
+                        vtln_files="vtln",
+                    )
+
                 self.vtln_training(
                     "vtln",
                     c,
                     initial_alignment="train_tri",
-                    **self.gmm_triphone_args.vtln_training_args,
-                )
-
-            for c in self.dev_corpora + self.test_corpora:
-                self.extract_vtln_features(
-                    self.gmm_triphone_args.triphone_training_args["feature_flow"],
-                    self.train_corpora[0],
-                    c,
-                    raw_feature_flow="uncached_mfcc+context+lda",
-                    vtln_files="vtln",
+                    **self.gmm_vtln_args.vtln_training_args,
                 )
 
             for c in self.test_corpora:
