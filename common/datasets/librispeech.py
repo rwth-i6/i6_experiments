@@ -148,7 +148,7 @@ def get_bliss_corpus_dict(audio_format="flac", create_alias_with_prefix=None):
 
     def _merge_corpora(corpora, name):
         merge_job = MergeCorporaJob(
-            corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
+            bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
         )
         if create_alias_with_prefix:
             merge_job.add_alias(
