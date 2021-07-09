@@ -569,13 +569,13 @@ class GmmSystem(BaseSystem):
             "train_{}_align_bundle_last".format(name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
-            .alignment_bundle,
+            .out_alignment_bundle,
         )
         tk.register_output(
             "train_{}_mix_last".format(name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
-            .mixtures,
+            .out_mixtures,
         )
 
     # -------------------- recognition  --------------------
