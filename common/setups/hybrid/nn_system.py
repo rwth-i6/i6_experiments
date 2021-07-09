@@ -31,9 +31,13 @@ Path = tk.setup_path(__package__)
 class NnSystem(BaseSystem):
     """
     - 5 corpora types: train, devtrain, cv, dev and test
+        devtrain is a small split from the train set which is evaluated like
+        the cv but not used for error calculating. Since we can have different
+        datasubsets per subepoch, we do not caculate the tran score/error on
+        a consistent datasubset
     - two training data settings: defined in returnn config or not
-    - 3 different types of decoding: returnn, rasr, rasr-wei
-    - 3 different lm: count, lstm, trafo
+    - 3 different types of decoding: returnn, rasr, rasr-label-sync
+    - 2 different lm: count, neural
     - cv is dev for returnn training
     - dev for lm param tuning
     - test corpora for final eval
@@ -43,14 +47,10 @@ class NnSystem(BaseSystem):
     - lm
     - lexicon
     - ce training
-    - ce count lm recognition
-    - ce lstm lm recognition
-    - ce trafo lm recognition
+    - ce recognition
     - ce rescoring
     - smbr training
-    - smbr count lm recognition
-    - smbr lstm lm recognition
-    - smbr trafo lm recognition
+    - smbr recognition
     - smbr rescoring
     """
 
@@ -146,9 +146,7 @@ class NnSystem(BaseSystem):
             returnn_config=returnn_config,
         )
 
-    # -------------------- Count LM Recognition --------------------
-    # -------------------- LSTM LM Recognition --------------------
-    # -------------------- Trafo LM Recognition --------------------
+    # -------------------- Recognition --------------------
     # -------------------- Rescoring  --------------------
     # -------------------- run setup  --------------------
 

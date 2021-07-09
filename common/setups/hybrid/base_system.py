@@ -42,24 +42,14 @@ class BaseSystem(meta.System):
     - lm
     - lexicon
     - feature extraction
-    - linear alignement
-    - monophone training
-    - monophone recognition
-    - triphone training
-    - triphone recognition
-    - vtln training
-    - vtln recognition
-    - sat training
-    - sat recognition
-    - vtln+sat training
-    - vtln+sat recognition
     """
 
     def __init__(self):
         super().__init__()
 
-        self.crp["base"].python_home = gs.RASR_PYTHON_HOME
-        self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
+        if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
+            self.crp["base"].python_home = gs.RASR_PYTHON_HOME
+            self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
 
         self.hybrid_init_args = None
 
