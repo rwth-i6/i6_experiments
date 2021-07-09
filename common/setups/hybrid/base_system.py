@@ -49,6 +49,7 @@ class BaseSystem(meta.System):
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
             self.crp["base"].python_home = gs.RASR_PYTHON_HOME
+        if hasattr(gs, "RASR_PYTHON_EXE") and gs.RASR_PYTHON_EXE is not None:
             self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
 
         self.hybrid_init_args = None

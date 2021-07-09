@@ -97,19 +97,14 @@ class NnSystem(BaseSystem):
         for name, v in sorted(train_data.items()):
             self.add_corpus(name, data=v, add_lm=False)
             self.train_corpora.append(name)
-            assert self.concurrent[name] == 1, "concurrency for train data should be 1"
 
         for name, v in sorted(devtrain_data.items()):
             self.add_corpus(name, data=v, add_lm=False)
             self.devtrain_corpora.append(name)
-            assert (
-                self.concurrent[name] == 1
-            ), "concurrency for devtrain data should be 1"
 
         for name, v in sorted(cv_data.items()):
             self.add_corpus(name, data=v, add_lm=False)
             self.cv_corpora.append(name)
-            assert self.concurrent[name] == 1, "concurrency for cv data should be 1"
 
         for name, v in sorted(dev_data.items()):
             self.add_corpus(name, data=v, add_lm=True)
@@ -134,6 +129,7 @@ class NnSystem(BaseSystem):
         horovod_num_processes: int,
         returnn_config: returnn.ReturnnConfig,
     ):
+        # TODO verify concurrency 1 !?
 
         self.train_nn(
             name=name,
