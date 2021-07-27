@@ -121,11 +121,16 @@ def export(path_prefix):
     """
     ljspeech_22khz_bliss_corpus = get_22khz_bliss_corpus(create_alias_with_prefix=path_prefix)
     ljspeech_16khz_bliss_corpus = get_16khz_bliss_corpus(create_alias_with_prefix=path_prefix)
+    ljspeech_sequitur_model = get_g2p(create_alias_with_prefix=path_prefix)
+
     tk.register_output(
         os.path.join(path_prefix, "LJSpeech", "ljspeech_22khz.xml.gz",), ljspeech_22khz_bliss_corpus
     )
     tk.register_output(
         os.path.join(path_prefix, "LJSpeech", "ljspeech_16khz.xml.gz",), ljspeech_16khz_bliss_corpus
+    )
+    tk.register_output(
+        os.path.join(path_prefix, "LJSpeech", "ljspeech_sequitur_g2p.model"), ljspeech_sequitur_model
     )
 
 
