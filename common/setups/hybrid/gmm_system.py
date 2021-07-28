@@ -146,7 +146,11 @@ class GmmSystem(RasrSystem):
         **kwargs,
     ):
         self.linear_alignment(
-            name, corpus, feature_energy_flow, prefix=f"{corpus}_", **linear_alignment_args
+            name,
+            corpus,
+            feature_energy_flow,
+            prefix=f"{corpus}_",
+            **linear_alignment_args,
         )
 
         action_sequence = meta.align_and_accumulate_sequence(
