@@ -172,18 +172,19 @@ class GmmSystem(RasrSystem):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_align_last".format(name))
+        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train_{}_mix_last".format(name)
+            "train/{}_{}_mix_last".format(corpus, name)
         )
         tk.register_output(
-            "train_{}_{}_align_bundle_last".format(corpus, name),
+            "train/{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train_{}_{}_mix_last".format(corpus, name),
+            "train/{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
@@ -287,18 +288,19 @@ class GmmSystem(RasrSystem):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_align_last".format(name))
+        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train_{}_mix_last".format(name)
+            "train/{}_{}_mix_last".format(corpus, name)
         )
         tk.register_output(
-            "train_{}_{}_align_bundle_last".format(corpus, name),
+            "train/{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train_{}_{}_mix_last".format(corpus, name),
+            "train/{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
@@ -419,18 +421,19 @@ class GmmSystem(RasrSystem):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_align_last".format(name))
+        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train_{}_mix_last".format(name)
+            "train/{}_{}_mix_last".format(corpus, name)
         )
         tk.register_output(
-            "train_{}_{}_align_bundle_last".format(corpus, name),
+            "train/{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train_{}_{}_mix_last".format(corpus, name),
+            "train/{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
@@ -561,18 +564,19 @@ class GmmSystem(RasrSystem):
         )
         self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train_{}_align_last".format(name))
+        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+
         self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train_{}_mix_last".format(name)
+            "train/{}_{}_mix_last".format(corpus, name)
         )
         tk.register_output(
-            "train_{}_align_bundle_last".format(name),
+            "train/{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train_{}_mix_last".format(name),
+            "train/{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
