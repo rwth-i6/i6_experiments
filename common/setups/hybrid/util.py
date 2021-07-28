@@ -1,6 +1,6 @@
 __all__ = [
-    "GmmDataInput",
-    "GmmInitArgs",
+    "RasrDataInput",
+    "RasrInitArgs",
     "GmmMonophoneArgs",
     "GmmTriphoneArgs",
     "GmmVtlnArgs",
@@ -14,10 +14,10 @@ from typing import Optional, Type, Union
 from sisyphus import tk
 
 import i6_core.meta as meta
-from i5_core.cart.questions import BasicCartQuestions, PythonCartQuestions
+from i6_core.cart.questions import BasicCartQuestions, PythonCartQuestions
 
 
-class GmmDataInput:
+class RasrDataInput:
     """
     this class holds the data information for a hybrid gmm setup:
     - corpus
@@ -35,7 +35,7 @@ class GmmDataInput:
         """
         :param corpus_object: corpus_file: Path, audio_dir: Path, audio_format: str, duration: float
         :param lexicon: file: Path, normalize_pronunciation: bool
-        :param lm: file: Path, type: str, scale: float
+        :param lm: filename: Path, type: str, scale: float
         :param concurrent: concurrency for gmm hmm pipeline
         """
         self.corpus_object = corpus_object
@@ -57,7 +57,7 @@ class GmmDataInput:
 # if not using the run function -> name and corpus almost always to be added
 
 
-class GmmInitArgs:
+class RasrInitArgs:
     """
     feature extraction, AM information
     """
@@ -334,6 +334,7 @@ class GmmSatArgs:
         self,
         sat_training_args: dict,
         sat_recognition_args: dict,
+        sdm_sat_args: Optional[dict] = None,
     ):
         """
         ##################################################
@@ -353,6 +354,7 @@ class GmmSatArgs:
         """
         self.sat_training_args = sat_training_args
         self.sat_recognition_args = sat_recognition_args
+        self.sdm_sat_args = sdm_sat_args
 
 
 class GmmVtlnSatArgs:
@@ -360,6 +362,7 @@ class GmmVtlnSatArgs:
         self,
         vtln_sat_training_args: dict,
         vtln_sat_recognition_args: dict,
+        sdm_vtln_sat_args: Optional[dict] = None,
     ):
         """
         ##################################################
@@ -378,6 +381,7 @@ class GmmVtlnSatArgs:
         """
         self.vtln_sat_training_args = vtln_sat_training_args
         self.vtln_sat_recognition_args = vtln_sat_recognition_args
+        self.sdm_vtln_sat_args = sdm_vtln_sat_args
 
 
 class NnArgs:

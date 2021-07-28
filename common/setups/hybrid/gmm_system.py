@@ -1,6 +1,5 @@
 __all__ = ["GmmSystem"]
 
-import itertools
 import sys
 from typing import Dict, List, Optional, Type
 
@@ -8,8 +7,6 @@ from typing import Dict, List, Optional, Type
 
 import sisyphus.global_settings as gs
 import sisyphus.toolkit as tk
-
-from sisyphus import Job
 
 # -------------------- Recipes --------------------
 
@@ -24,9 +21,11 @@ import i6_core.rasr as rasr
 import i6_core.util as util
 import i6_core.vtln as vtln
 
+from .rasr_system import RasrSystem
+
 from .util import (
-    GmmDataInput,
-    GmmInitArgs,
+    RasrDataInput,
+    RasrInitArgs,
     GmmMonophoneArgs,
     GmmTriphoneArgs,
     GmmVtlnArgs,
@@ -38,11 +37,10 @@ from .util import (
 
 Path = tk.setup_path(__package__)
 
-
 # -------------------- System --------------------
 
 
-class GmmSystem(meta.System):
+class GmmSystem(RasrSystem):
     """
     - 3 corpora types: train, dev and test
     - only train corpora will be aligned
@@ -75,22 +73,11 @@ class GmmSystem(meta.System):
     def __init__(self):
         super().__init__()
 
-        self.crp["base"].python_home = gs.RASR_PYTHON_HOME
-        self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
-
-        self.gmm_init_args = None
         self.gmm_monophone_args = None
         self.gmm_triphone_args = None
         self.gmm_vtln_args = None
         self.gmm_sat_args = None
         self.gmm_vtln_sat_args = None
-
-        self.train_corpora = []
-        self.dev_corpora = []
-        self.test_corpora = []
-
-        self.corpora = {}
-        self.concurrent = {}
 
         self.cart_questions = None
         self.lda_matrices = {}
@@ -106,129 +93,40 @@ class GmmSystem(meta.System):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        gmm_init_args: GmmInitArgs,
+        hybrid_init_args: RasrInitArgs,
         gmm_monophone_args: GmmMonophoneArgs,
         gmm_triphone_args: GmmTriphoneArgs,
         gmm_vtln_args: GmmVtlnArgs,
         gmm_sat_args: GmmSatArgs,
         gmm_vtln_sat_args: GmmVtlnSatArgs,
-        train_data: Dict[str, GmmDataInput],
-        dev_data: Dict[str, GmmDataInput],
-        test_data: Dict[str, GmmDataInput],
+        train_data: Dict[str, RasrDataInput],
+        dev_data: Dict[str, RasrDataInput],
+        test_data: Dict[str, RasrDataInput],
     ):
-        self.gmm_init_args = gmm_init_args
+        self.hybrid_init_args = hybrid_init_args
         self.gmm_monophone_args = gmm_monophone_args
         self.gmm_triphone_args = gmm_triphone_args
         self.gmm_vtln_args = gmm_vtln_args
         self.gmm_sat_args = gmm_sat_args
         self.gmm_vtln_sat_args = gmm_vtln_sat_args
 
-        self._init_am(**self.gmm_init_args.am_args)
+        self._init_am(**self.hybrid_init_args.am_args)
+
+        self._assert_corpus_name_unique(train_data, dev_data, test_data)
+
         for name, v in sorted(train_data.items()):
-            self.add_corpus(name, corpus=v, add_lm=False)
+            self.add_corpus(name, data=v, add_lm=False)
             self.train_corpora.append(name)
 
         for name, v in sorted(dev_data.items()):
-            self.add_corpus(name, corpus=v, add_lm=True)
+            self.add_corpus(name, data=v, add_lm=True)
             self.dev_corpora.append(name)
 
         for name, v in sorted(test_data.items()):
-            self.add_corpus(name, corpus=v, add_lm=True)
+            self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = self.gmm_triphone_args_args.cart_questions
-
-    @tk.block()
-    def _init_am(self, **kwargs):
-        self.crp["base"].acoustic_model_config = am.acoustic_model_config(**kwargs)
-        allow_zero_weights = kwargs.get("allow_zero_weights", False)
-        if allow_zero_weights:
-            self.crp["base"].acoustic_model_config.mixture_sew.allow_zero_weights = True
-            self.crp[
-                "base"
-            ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
-
-    @tk.block()
-    def _init_corpus(self, name: str):
-        segm_corpus_job = corpus_recipes.SegmentCorpusJob(
-            self.corpora[name].corpus_file, self.concurrent[name]
-        )
-        self.set_corpus(
-            name=name,
-            corpus=self.corpora[name],
-            concurrent=self.concurrent[name],
-            segment_path=segm_corpus_job.segment_path,
-        )
-        self.jobs[name]["segment_corpus"] = segm_corpus_job
-
-    @tk.block()
-    def _init_lm(self, name: str, filename: Path, type: str, scale: int, **kwargs):
-        self.crp[name].language_model_config = rasr.RasrConfig()
-        self.crp[name].language_model_config.type = type
-        self.crp[name].language_model_config.file = filename
-        self.crp[name].language_model_config.scale = scale
-
-    @tk.block()
-    def _init_lexicon(
-        self, name: str, filename: Path, normalize_pronunciation: bool, **kwargs
-    ):
-        self.crp[name].lexicon_config = rasr.RasrConfig()
-        self.crp[name].lexicon_config.file = filename
-        self.crp[name].lexicon_config.normalize_pronunciation = normalize_pronunciation
-
-    def _add_features(
-        self,
-        name: str,
-        corpus: str,
-        feature_job: Type[features.FeatureExtractionJob],
-        prefix: str = "",
-    ):
-        self.jobs[corpus][name] = feature_job
-        feature_job.add_alias(f"{prefix}{corpus}_{name}_features")
-        self.feature_caches[corpus][name] = feature_job.out_feature_path[name]
-        self.feature_bundles[corpus][name] = feature_job.out_feature_bundle[name]
-        feature_path = rasr.FlagDependentFlowAttribute(
-            "cache_mode",
-            {
-                "task_dependent": self.feature_caches[corpus][name],
-                "bundle": self.feature_bundles[corpus][name],
-            },
-        )
-        self.feature_flows[corpus][name] = features.basic_cache_flow(feature_path)
-        self.feature_flows[corpus][f"uncached_{name}"] = feature_job.feature_flow
-
-    def add_corpus(self, name: str, corpus: meta.system.Corpus, add_lm: bool):
-        self.corpora[name] = corpus.corpus_object
-        self.concurrent[name] = corpus.concurrent
-        self._init_corpus(name)
-        self._init_lexicon(name, **corpus.lexicon)
-        if add_lm:
-            self._init_lm(name, **corpus.lm)
-
-    @tk.block()
-    def extract_features(self, feat_args: dict, **kwargs):
-        corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
-
-        for k, v in feat_args.items():
-            for c in corpus_list:
-                if k == "mfcc":
-                    self.mfcc_features(c, **v)
-                if k == "gt":
-                    self.gt_features(c, **v)
-                if k == "fb":
-                    self.fb_features(c, **v)
-                if k == "energy":
-                    self.energy_features(c, **v)
-                if k not in ("mfcc", "gt", "fb", " energy"):
-                    self.generic_features(c, k, **v)
-            if "energy" in feat_args.keys():
-                for t in self.train_corpora:
-                    if k == "mfcc":
-                        self.add_energy_to_features(t, "mfcc+deriv")
-                    if k == "gt":
-                        self.add_energy_to_features(t, "gt")
-                    if k == "fb":
-                        self.add_energy_to_features(t, "fb")
+        self.cart_questions = self.gmm_triphone_args.cart_questions
 
     # -------------------- Mono Training --------------------
 
@@ -282,13 +180,13 @@ class GmmSystem(meta.System):
             "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
-            .alignment_bundle,
+            .out_alignment_bundle,
         )
         tk.register_output(
             "train_{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
-            .mixtures,
+            .out_mixtures,
         )
 
     # -------------------- CaRT and LDA --------------------
@@ -347,7 +245,7 @@ class GmmSystem(meta.System):
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus])
         tk.register_output(
-            "{}_{}_state_tying".format(corpus, name), state_tying_job.state_tying
+            "{}_{}_state_tying".format(corpus, name), state_tying_job.out_state_tying
         )
 
     # -------------------- Tri Training --------------------
@@ -397,26 +295,13 @@ class GmmSystem(meta.System):
             "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
-            .alignment_bundle,
+            .out_alignment_bundle,
         )
         tk.register_output(
             "train_{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
-            .mixtures,
-        )
-
-    # -------------------- Single Density Mixtures --------------------
-
-    def single_density_mixtures(
-        self, name: str, corpus: str, feature_flow: str, alignment: str
-    ):
-        self.estimate_mixtures(
-            name=name,
-            corpus=corpus,
-            flow=feature_flow,
-            alignment=meta.select_element(self.alignments, corpus, alignment),
-            split_first=False,
+            .out_mixtures,
         )
 
     # -------------------- Vocal Tract Length Normalization --------------------
@@ -542,13 +427,13 @@ class GmmSystem(meta.System):
             "train_{}_{}_align_bundle_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
-            .alignment_bundle,
+            .out_alignment_bundle,
         )
         tk.register_output(
             "train_{}_{}_mix_last".format(corpus, name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
-            .mixtures,
+            .out_mixtures,
         )
 
     # -------------------- Speaker Adaptive Training  --------------------
@@ -684,13 +569,13 @@ class GmmSystem(meta.System):
             "train_{}_align_bundle_last".format(name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
-            .alignment_bundle,
+            .out_alignment_bundle,
         )
         tk.register_output(
             "train_{}_mix_last".format(name),
             self.jobs[corpus]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
-            .mixtures,
+            .out_mixtures,
         )
 
     # -------------------- recognition  --------------------
@@ -766,7 +651,7 @@ class GmmSystem(meta.System):
             sys.exit(-1)
 
         if "extract" in steps:
-            self.extract_features(feat_args=self.gmm_init_args.feature_extraction_args)
+            self.extract_features(feat_args=self.hybrid_init_args.feature_extraction_args)
 
         # ---------- Monophone ----------
         if "mono" in steps:
