@@ -1,4 +1,4 @@
-__all__ = ["BaseSystem"]
+__all__ = ["RasrSystem"]
 
 import itertools
 import sys
@@ -16,7 +16,7 @@ import i6_core.corpus as corpus_recipes
 import i6_core.meta as meta
 import i6_core.rasr as rasr
 
-from .util import HybridDataInput
+from .util import RasrDataInput
 
 # -------------------- Init --------------------
 
@@ -25,7 +25,7 @@ Path = tk.setup_path(__package__)
 # -------------------- System --------------------
 
 
-class BaseSystem(meta.System):
+class RasrSystem(meta.System):
     """
     - 3 corpora types: train, dev and test
     - only train corpora will be aligned
@@ -107,7 +107,7 @@ class BaseSystem(meta.System):
             name_list.extend(list(i.keys()))
         assert len(name_list) == len(set(name_list)), "corpus names are not unique"
 
-    def add_corpus(self, name: str, data: HybridDataInput, add_lm: bool):
+    def add_corpus(self, name: str, data: RasrDataInput, add_lm: bool):
         self.corpora[name] = data.corpus_object
         self.concurrent[name] = data.concurrent
         self._init_corpus(name)

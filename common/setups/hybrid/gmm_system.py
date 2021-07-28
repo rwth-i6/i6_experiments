@@ -21,11 +21,11 @@ import i6_core.rasr as rasr
 import i6_core.util as util
 import i6_core.vtln as vtln
 
-from .base_system import BaseSystem
+from .rasr_system import RasrSystem
 
 from .util import (
-    HybridDataInput,
-    HybridInitArgs,
+    RasrDataInput,
+    RasrInitArgs,
     GmmMonophoneArgs,
     GmmTriphoneArgs,
     GmmVtlnArgs,
@@ -40,7 +40,7 @@ Path = tk.setup_path(__package__)
 # -------------------- System --------------------
 
 
-class GmmSystem(BaseSystem):
+class GmmSystem(RasrSystem):
     """
     - 3 corpora types: train, dev and test
     - only train corpora will be aligned
@@ -93,15 +93,15 @@ class GmmSystem(BaseSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: HybridInitArgs,
+        hybrid_init_args: RasrInitArgs,
         gmm_monophone_args: GmmMonophoneArgs,
         gmm_triphone_args: GmmTriphoneArgs,
         gmm_vtln_args: GmmVtlnArgs,
         gmm_sat_args: GmmSatArgs,
         gmm_vtln_sat_args: GmmVtlnSatArgs,
-        train_data: Dict[str, HybridDataInput],
-        dev_data: Dict[str, HybridDataInput],
-        test_data: Dict[str, HybridDataInput],
+        train_data: Dict[str, RasrDataInput],
+        dev_data: Dict[str, RasrDataInput],
+        test_data: Dict[str, RasrDataInput],
     ):
         self.hybrid_init_args = hybrid_init_args
         self.gmm_monophone_args = gmm_monophone_args

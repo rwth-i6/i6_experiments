@@ -17,9 +17,9 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 import i6_core.util as util
 
-from .base_system import BaseSystem
+from .rasr_system import RasrSystem
 
-from .util import HybridInitArgs, HybridDataInput, NnArgs
+from .util import RasrInitArgs, RasrDataInput, NnArgs
 
 # -------------------- Init --------------------
 
@@ -28,7 +28,7 @@ Path = tk.setup_path(__package__)
 # -------------------- System --------------------
 
 
-class NnSystem(BaseSystem):
+class NnSystem(RasrSystem):
     """
     - 5 corpora types: train, devtrain, cv, dev and test
         devtrain is a small split from the train set which is evaluated like
@@ -77,13 +77,13 @@ class NnSystem(BaseSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: HybridInitArgs,
+        hybrid_init_args: RasrInitArgs,
         nn_args: NnArgs,
-        train_data: Dict[str, HybridDataInput],
-        devtrain_data: Dict[str, HybridDataInput],
-        cv_data: Dict[str, HybridDataInput],
-        dev_data: Dict[str, HybridDataInput],
-        test_data: Dict[str, HybridDataInput],
+        train_data: Dict[str, RasrDataInput],
+        devtrain_data: Dict[str, RasrDataInput],
+        cv_data: Dict[str, RasrDataInput],
+        dev_data: Dict[str, RasrDataInput],
+        test_data: Dict[str, RasrDataInput],
     ):
         self.hybrid_init_args = hybrid_init_args
         self.nn_args = nn_args

@@ -1,6 +1,6 @@
 __all__ = [
-    "HybridDataInput",
-    "HybridInitArgs",
+    "RasrDataInput",
+    "RasrInitArgs",
     "GmmMonophoneArgs",
     "GmmTriphoneArgs",
     "GmmVtlnArgs",
@@ -17,7 +17,7 @@ import i6_core.meta as meta
 from i6_core.cart.questions import BasicCartQuestions, PythonCartQuestions
 
 
-class HybridDataInput:
+class RasrDataInput:
     """
     this class holds the data information for a hybrid gmm setup:
     - corpus
@@ -57,7 +57,7 @@ class HybridDataInput:
 # if not using the run function -> name and corpus almost always to be added
 
 
-class HybridInitArgs:
+class RasrInitArgs:
     """
     feature extraction, AM information
     """
