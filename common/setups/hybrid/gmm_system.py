@@ -1,7 +1,7 @@
 __all__ = ["GmmSystem"]
 
 import sys
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -115,7 +115,8 @@ class GmmSystem(RasrSystem):
         self._assert_corpus_name_unique(train_data, dev_data, test_data)
 
         for name, v in sorted(train_data.items()):
-            self.add_corpus(name, data=v, add_lm=False)
+            add_lm = True if v.lm is not None else False
+            self.add_corpus(name, data=v, add_lm=add_lm)
             self.train_corpora.append(name)
 
         for name, v in sorted(dev_data.items()):
@@ -126,7 +127,7 @@ class GmmSystem(RasrSystem):
             self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = self.gmm_triphone_args.cart_questions
+        self.cart_questions = self.gmm_triphone_args.get("cart_questions", None)
 
     # -------------------- Mono Training --------------------
 
@@ -145,7 +146,7 @@ class GmmSystem(RasrSystem):
         **kwargs,
     ):
         self.linear_alignment(
-            name, corpus, feature_energy_flow, **linear_alignment_args
+            name, corpus, feature_energy_flow, prefix=f"{corpus}_", **linear_alignment_args
         )
 
         action_sequence = meta.align_and_accumulate_sequence(
@@ -627,35 +628,39 @@ class GmmSystem(RasrSystem):
 
     # -------------------- run setup  --------------------
 
-    def run(self, steps=("all",)):
+    def run(self, steps: Union[List, Tuple] = ("all",)):
         """
-        allowed steps:
-            - all
-            - extract
-            - mono
-            - cart
-            - tri
-            - sdm
-            - vtln
-            - sat
-            - vtln+sat
-        some steps might depend on other steps
+        run setup
 
-        :param tuple steps:
+        add tone features since Vietnamese is a tonal language
+
+        :param steps:
         :return:
         """
         assert len(steps) > 0
-        if list(steps) == ["all"]:
+        if len(steps) == 1 and steps[0] == "all":
             steps = ["extract", "mono", "cart", "tri", "vtln", "sat", "vtln+sat"]
 
         if "init" in steps:
             print(
-                "init needs to be run manually. provide at least: gmm_init_args, {train,dev,test}_inputs"
+                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
             )
             sys.exit(-1)
 
+        for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
+            self.costa(all_c, prefix="costa/", **self.hybrid_init_args.costa_args)
+
+        for trn_c in self.train_corpora:
+            self.store_allophones(trn_c)
+
+        for eval_c in self.dev_corpora + self.test_corpora:
+            self.create_stm_from_corpus(eval_c)
+            self.set_sclite_scorer(eval_c)
+
         if "extract" in steps:
-            self.extract_features(feat_args=self.hybrid_init_args.feature_extraction_args)
+            self.extract_features(
+                feat_args=self.hybrid_init_args.feature_extraction_args
+            )
 
         # ---------- Monophone ----------
         if "mono" in steps:
@@ -663,12 +668,29 @@ class GmmSystem(RasrSystem):
                 self.monophone_training(
                     "mono",
                     trn_c,
-                    self.gmm_monphone_args.linear_alignment_args,
-                    **self.gmm_monphone_args.monophone_training_args,
+                    self.gmm_monophone_args.linear_alignment_args,
+                    **self.gmm_monophone_args.monophone_training_args,
                 )
 
                 for dev_c in self.dev_corpora:
-                    pass
+                    feature_scorer = (trn_c, "train_mono")
+
+                    pr_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
+                        "pronunciation_scale"
+                    )
+                    lm_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
+                        "lm_scale"
+                    )
+
+                    for p, l in itertools.product(pr_scale, lm_scale):
+                        self.recognition(
+                            f"mono-{trn_c}-{dev_c}-am{p}-lm{l}",
+                            corpus=dev_c,
+                            feature_scorer=feature_scorer,
+                            pronunciation_scale=p,
+                            lm_scale=l,
+                            **self.gmm_monophone_args.monophone_recognition_args,
+                        )
 
                 for tst_c in self.test_corpora:
                     pass
@@ -700,36 +722,43 @@ class GmmSystem(RasrSystem):
             for c in self.test_corpora:
                 pass
 
-        # ---------- SDM Tri ----------
-        if any(x in steps for x in ["vtln", "sat", "sdm"]):
+            # ---------- SDM Tri ----------
             for c in self.train_corpora:
                 self.single_density_mixtures(
                     "sdm.tri",
                     c,
                     alignment="train_tri",
-                    **self.gmm_vtln_args.sdm_tri_args,
+                    **self.gmm_triphone_args.sdm_tri_args,
                 )
 
         # ---------- VTLN ----------
         if "vtln" in steps:
-            for c in self.train_corpora + self.dev_corpora + self.test_corpora:
+            for c in self.dev_corpora + self.test_corpora:
                 self.vtln_feature_flow(
                     "uncached_mfcc+context+lda",
                     c,
-                    lda_matrix="",
-                    **self.gmm_vtln_args.vtln_feature_flow_args,
+                    lda_matrix="batch1+2.train_mono",
+                    **self.gmm_vtln_args.vtln_training_args["feature_flow"],
                 )
+
             for c in self.train_corpora:
+                self.vtln_feature_flow(
+                    "uncached_mfcc+context+lda",
+                    c,
+                    lda_matrix="batch1+2.train_mono",
+                    **self.gmm_vtln_args.vtln_training_args["feature_flow"],
+                )
+
                 self.vtln_warping_mixtures(
                     "vtln",
                     c,
                     feature_scorer="estimate_mixtures_sdm.tri",
-                    **self.gmm_vtln_args.vtln_warping_mixtures_args,
+                    **self.gmm_vtln_args.vtln_training_args["warp_mix"],
                 )
 
                 for cc in self.dev_corpora + self.test_corpora:
                     self.extract_vtln_features(
-                        self.gmm_vtln_args.triphone_training_args["feature_flow"],
+                        "mfcc+context+lda",
                         train_corpus=c,
                         eval_corpus=cc,
                         raw_feature_flow="uncached_mfcc+context+lda",
@@ -740,7 +769,7 @@ class GmmSystem(RasrSystem):
                     "vtln",
                     c,
                     initial_alignment="train_tri",
-                    **self.gmm_vtln_args.vtln_training_args,
+                    **self.gmm_vtln_args.vtln_training_args["train"],
                 )
 
             for c in self.test_corpora:
@@ -748,6 +777,15 @@ class GmmSystem(RasrSystem):
 
             for c in self.test_corpora:
                 pass
+
+            # ---------- SDM VTLN ----------
+            for c in self.train_corpora:
+                self.single_density_mixtures(
+                    "sdm.vtln",
+                    c,
+                    alignment="train_vtln",
+                    **self.gmm_vtln_args.sdm_vtln_args,
+                )
 
         # ---------- SAT ----------
         if "sat" in steps:
@@ -766,6 +804,15 @@ class GmmSystem(RasrSystem):
 
             for c in self.test_corpora:
                 pass
+
+            # ---------- SDM Sat ----------
+            for c in self.train_corpora:
+                self.single_density_mixtures(
+                    "sdm.sat",
+                    c,
+                    alignment="train_sat",
+                    **self.gmm_sat_args.sdm_sat_args,
+                )
 
         # ---------- VTLN+SAT ----------
         if "vtln+sat" in steps:
@@ -790,3 +837,12 @@ class GmmSystem(RasrSystem):
 
             for c in self.test_corpora:
                 pass
+
+            # ---------- SDM VTLN+SAT ----------
+            for c in self.train_corpora:
+                self.single_density_mixtures(
+                    "sdm.sat_vtln",
+                    c,
+                    alignment="train_vtln_sat",
+                    **self.gmm_triphone_args.sdm_tri_args,
+                )
