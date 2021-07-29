@@ -1,6 +1,8 @@
 __all__ = ["GmmSystem"]
 
+import itertools
 import sys
+
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 # -------------------- Sisyphus --------------------
