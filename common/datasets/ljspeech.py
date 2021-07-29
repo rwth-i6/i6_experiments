@@ -4,7 +4,11 @@ from sisyphus import tk
 
 from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.datasets.ljspeech import DownloadLJSpeechCorpusJob, LJSpeechCreateBlissCorpusJob
+from i6_core.g2p.train import TrainG2PModelJob
+from i6_core.lexicon.cmu import DownloadCMUDictJob
+from i6_core.lib import lexicon
 from i6_core.meta.system import CorpusObject
+from i6_core.text import PipelineJob
 
 
 def get_22khz_bliss_corpus(create_alias_with_prefix=None):
@@ -81,19 +85,53 @@ def get_16khz_corpus_object(create_alias_with_prefix=None):
     corpus_object.duration = 24.0
 
 
-def get_g2p(create_alias_with_prefix=None):
+def get_static_lexicon():
     """
-    Create a default Sequitur-G2P model based on the CMU dict
+    Add the phoneme and lemma entries for special and punctuation
 
-    This G2P model can onle be used with "uppercase" data
+    :return: the lexicon with special lemmas and phonemes
+    :rtype: lexicon.Lexicon
+    """
+    lex = lexicon.Lexicon()
+
+    def add_punctuation_lemma(lex, symbol):
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=[symbol],
+                phon=[symbol],
+                synt=[symbol],
+            )
+        )
+        lex.add_phoneme(symbol, variation="none")
+
+    add_punctuation_lemma(lex, "#")
+    add_punctuation_lemma(lex, "_")
+    
+    # add unknown explicitly as unknown for RASR compatibility
+    lex.add_lemma(
+        lexicon.Lemma(
+            orth=["[UNKNOWN]"],
+            phon=["[UNKNOWN]"],
+            synt=[["<UNK>"]],
+            special="unknown",
+        )
+    )
+    lex.add_phoneme("[UNKNOWN]", variation="none")
+
+    for symbol in ['.', ',', '!', '?', '~']:
+        add_punctuation_lemma(lex, symbol)
+
+    return lex
+
+
+def get_uppercase_lexicon(create_alias_with_prefix=None):
+    """
+    Get the uppercase CMU dict that is used for the LJSpeech default setup
 
     :param create_alias_with_prefix:
-    :return: a sequitur model trained on the uppercased CMU lexicon
+    :return: a text-based CMU lexicon (uppercased)
     :rtype: Path
     """
-    from i6_core.lexicon.cmu import DownloadCMUDictJob
-    from i6_core.text import PipelineJob
-
     download_cmu_lexicon_job = DownloadCMUDictJob()
     cmu_lexicon_lowercase = download_cmu_lexicon_job.out_cmu_lexicon
     convert_cmu_lexicon_uppercase_job = PipelineJob(
@@ -102,14 +140,31 @@ def get_g2p(create_alias_with_prefix=None):
         mini_task=True)
     cmu_lexicon_uppercase = convert_cmu_lexicon_uppercase_job.out
 
-    from i6_core.g2p.train import TrainG2PModelJob
+    if create_alias_with_prefix:
+        path_prefix = os.path.join(create_alias_with_prefix, "LJSpeech", "G2P")
+        download_cmu_lexicon_job.add_alias(os.path.join(path_prefix, "download_cmu"))
+        convert_cmu_lexicon_uppercase_job.add_alias(os.path.join(path_prefix, "convert_cmu"))
+
+    return cmu_lexicon_uppercase
+
+
+def get_uppercase_cmu_g2p(create_alias_with_prefix=None):
+    """
+    Create a default Sequitur-G2P model based on the CMU dict
+
+    This G2P model can only be used with "uppercase" data
+
+    :param create_alias_with_prefix:
+    :return: a sequitur model trained on the uppercased CMU lexicon
+    :rtype: Path
+    """
+    cmu_lexicon_uppercase = get_uppercase_lexicon(create_alias_with_prefix)
+
     train_cmu_default_sequitur = TrainG2PModelJob(cmu_lexicon_uppercase)
     sequitur_cmu_uppercase_model = train_cmu_default_sequitur.out_best_model
 
     if create_alias_with_prefix:
         path_prefix = os.path.join(create_alias_with_prefix, "LJSpeech", "G2P")
-        download_cmu_lexicon_job.add_alias(os.path.join(path_prefix, "download_cmu"))
-        convert_cmu_lexicon_uppercase_job.add_alias(os.path.join(path_prefix, "convert_cmu"))
         train_cmu_default_sequitur.add_alias(os.path.join(path_prefix, "train_sequitur"))
 
     return sequitur_cmu_uppercase_model
@@ -121,7 +176,7 @@ def export(path_prefix):
     """
     ljspeech_22khz_bliss_corpus = get_22khz_bliss_corpus(create_alias_with_prefix=path_prefix)
     ljspeech_16khz_bliss_corpus = get_16khz_bliss_corpus(create_alias_with_prefix=path_prefix)
-    ljspeech_sequitur_model = get_g2p(create_alias_with_prefix=path_prefix)
+    ljspeech_sequitur_model = get_uppercase_cmu_g2p(create_alias_with_prefix=path_prefix)
 
     tk.register_output(
         os.path.join(path_prefix, "LJSpeech", "ljspeech_22khz.xml.gz",), ljspeech_22khz_bliss_corpus
