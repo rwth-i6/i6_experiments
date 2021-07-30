@@ -85,10 +85,11 @@ def get_16khz_corpus_object(create_alias_with_prefix=None):
     corpus_object.duration = 24.0
 
 
-def get_static_lexicon():
+def get_static_lexicon(include_punctuation):
     """
     Add the phoneme and lemma entries for special and punctuation
 
+    :param bool include_punctuation:
     :return: the lexicon with special lemmas and phonemes
     :rtype: lexicon.Lexicon
     """
@@ -118,8 +119,9 @@ def get_static_lexicon():
     )
     lex.add_phoneme("[UNKNOWN]", variation="none")
 
-    for symbol in ['.', ',', '!', '?', '~']:
-        add_punctuation_lemma(lex, symbol)
+    if include_punctuation:
+        for symbol in ['.', ',', '!', '?', '~']:
+            add_punctuation_lemma(lex, symbol)
 
     return lex
 
