@@ -129,7 +129,7 @@ class GmmSystem(RasrSystem):
             self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = self.gmm_triphone_args.get("cart_questions", None)
+        self.cart_questions = self.gmm_triphone_args.cart_questions
 
     # -------------------- Mono Training --------------------
 
