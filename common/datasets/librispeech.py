@@ -28,7 +28,7 @@ please consider to use segment lists to avoid creating new corpus files.
 
 All alias and output paths will be under: ``<subdir_prefix>/LibriSpeech/....``
 
-For i6-users: physical jobs generate via the "export" functions
+For i6-users: physical jobs generated via the "export" functions
 are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
 """
 import os
