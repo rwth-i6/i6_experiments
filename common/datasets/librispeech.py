@@ -280,20 +280,25 @@ def get_arpa_lm_dict(create_alias_with_path_prefix=None):
     download_arpa_4gram_lm_job = DownloadJob(
         url="https://www.openslr.org/resources/11/4-gram.arpa.gz",
         target_filename="4-gram.arpa.gz",
-        checksum="f2b2d1507637ddf459d3579159f7e8099ed7d77452ff1059aeeeaea33d274613")
+        checksum="f2b2d1507637ddf459d3579159f7e8099ed7d77452ff1059aeeeaea33d274613",
+    )
     lm_dict["4gram"] = download_arpa_4gram_lm_job.out_file
 
     download_arpa_3gram_lm_job = DownloadJob(
         url="https://www.openslr.org/resources/11/3-gram.arpa.gz",
         target_filename="3-gram.arpa.gz",
-        checksum="263649573475c2991d3e755eb4e690c9d2656f2b3283a1eb589e1e4e174bf874"
+        checksum="263649573475c2991d3e755eb4e690c9d2656f2b3283a1eb589e1e4e174bf874",
     )
     lm_dict["3gram"] = download_arpa_3gram_lm_job.out_file
 
     if create_alias_with_path_prefix:
         lm_prefix = os.path.join(create_alias_with_path_prefix, "LibriSpeech", "lm")
-        download_arpa_3gram_lm_job.add_alias(os.path.join(lm_prefix, "download_3gram_lm_job"))
-        download_arpa_4gram_lm_job.add_alias(os.path.join(lm_prefix, "download_4gram_lm_job"))
+        download_arpa_3gram_lm_job.add_alias(
+            os.path.join(lm_prefix, "download_3gram_lm_job")
+        )
+        download_arpa_4gram_lm_job.add_alias(
+            os.path.join(lm_prefix, "download_4gram_lm_job")
+        )
     return lm_dict
 
 
@@ -311,9 +316,9 @@ def get_static_lexicon():
         lexicon.Lemma(
             orth=["[SILENCE]", ""],
             phon=["[SILENCE]"],
-            synt=[""],
+            synt=[[]],
             special="silence",
-            eval=[""],
+            eval=[[]],
         )
     )
     lex.add_lemma(
@@ -322,9 +327,7 @@ def get_static_lexicon():
         )
     )
     lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[SENTENCE-END]"], synt=[["</s>"]], special="sentence-end"
-        )
+        lexicon.Lemma(orth=["[SENTENCE-END]"], synt=[["</s>"]], special="sentence-end")
     )
     lex.add_lemma(
         lexicon.Lemma(
@@ -355,34 +358,39 @@ def get_bliss_lexicon(create_alias_with_path_prefix=None):
     :rtype: Path
     """
     static_lexicon = get_static_lexicon()
-    static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
+    static_lexicon_job = WriteLexiconJob(
+        static_lexicon, sort_phonemes=True, sort_lemmata=False
+    )
 
     download_lexicon_job = DownloadJob(
         url="https://www.openslr.org/resources/11/librispeech-lexicon.txt",
         target_filename="librispeech-lexicon.txt",
-        checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71")
+        checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71",
+    )
 
     convert_lexicon_job = LexiconFromTextFileJob(
         text_file=download_lexicon_job.out_file, compressed=True
     )
 
     merge_lexicon_job = MergeLexiconJob(
-        bliss_lexica=[static_lexicon_job.out_bliss_lexicon,
-                      convert_lexicon_job.out_bliss_lexicon],
+        bliss_lexica=[
+            static_lexicon_job.out_bliss_lexicon,
+            convert_lexicon_job.out_bliss_lexicon,
+        ],
         sort_phonemes=True,
         sort_lemmata=False,
-        compressed=True
+        compressed=True,
     )
 
     if create_alias_with_path_prefix:
         alias_path = os.path.join(
-            create_alias_with_path_prefix,
-            "LibriSpeech",
-            "lexicon"
+            create_alias_with_path_prefix, "LibriSpeech", "lexicon"
         )
         static_lexicon_job.add_alias(os.path.join(alias_path, "static_lexicon_job"))
         download_lexicon_job.add_alias(os.path.join(alias_path, "download_lexicon_job"))
-        convert_lexicon_job.add_alias(os.path.join(alias_path, "convert_text_to_bliss_lexicon_job"))
+        convert_lexicon_job.add_alias(
+            os.path.join(alias_path, "convert_text_to_bliss_lexicon_job")
+        )
         merge_lexicon_job.add_alias(os.path.join(alias_path, "merge_lexicon_job"))
 
     return merge_lexicon_job.out_bliss_lexicon
@@ -397,14 +405,12 @@ def get_lm_vocab(create_alias_with_path_prefix=None):
     download_lm_vocab_job = DownloadJob(
         url="https://www.openslr.org/resources/11/librispeech-vocab.txt",
         target_filename="librispeech-vocab.txt",
-        checksum="3014e72dffff09cb1a9657f31cfe2e04c1301610a6127a807d1d708b986b5474"
+        checksum="3014e72dffff09cb1a9657f31cfe2e04c1301610a6127a807d1d708b986b5474",
     )
     if create_alias_with_path_prefix:
         download_lm_vocab_job.add_alias(
             os.path.join(
-                create_alias_with_path_prefix,
-                "LibriSpeech",
-                "download_lm_vocab_job"
+                create_alias_with_path_prefix, "LibriSpeech", "download_lm_vocab_job"
             )
         )
     return download_lm_vocab_job.out_file
@@ -441,8 +447,14 @@ def _export_lm_data(path_prefix):
     :param str path_prefix:
     """
     lm_dict = get_arpa_lm_dict(create_alias_with_path_prefix=path_prefix)
-    tk.register_output(os.path.join(path_prefix, "LibriSpeech", "lm", "3-gram.arpa.gz"), lm_dict['3gram'])
-    tk.register_output(os.path.join(path_prefix, "LibriSpeech", "lm", "4-gram.arpa.gz"), lm_dict['4gram'])
+    tk.register_output(
+        os.path.join(path_prefix, "LibriSpeech", "lm", "3-gram.arpa.gz"),
+        lm_dict["3gram"],
+    )
+    tk.register_output(
+        os.path.join(path_prefix, "LibriSpeech", "lm", "4-gram.arpa.gz"),
+        lm_dict["4gram"],
+    )
 
 
 def _export_lexicon_and_vocab(path_prefix):
@@ -450,7 +462,10 @@ def _export_lexicon_and_vocab(path_prefix):
     :param str path_prefix:
     """
     bliss_lexicon = get_bliss_lexicon(create_alias_with_path_prefix=path_prefix)
-    tk.register_output(os.path.join(path_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"), bliss_lexicon)
+    tk.register_output(
+        os.path.join(path_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"),
+        bliss_lexicon,
+    )
 
 
 def export_all(path_prefix):
