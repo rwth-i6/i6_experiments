@@ -97,10 +97,10 @@ class GmmSystem(RasrSystem):
         self,
         hybrid_init_args: RasrInitArgs,
         gmm_monophone_args: GmmMonophoneArgs,
-        gmm_triphone_args: GmmTriphoneArgs,
-        gmm_vtln_args: GmmVtlnArgs,
-        gmm_sat_args: GmmSatArgs,
-        gmm_vtln_sat_args: GmmVtlnSatArgs,
+        gmm_triphone_args: Optional[GmmTriphoneArgs],
+        gmm_vtln_args: Optional[GmmVtlnArgs],
+        gmm_sat_args: Optional[GmmSatArgs],
+        gmm_vtln_sat_args: Optional[GmmVtlnSatArgs],
         train_data: Dict[str, RasrDataInput],
         dev_data: Dict[str, RasrDataInput],
         test_data: Dict[str, RasrDataInput],
@@ -129,7 +129,7 @@ class GmmSystem(RasrSystem):
             self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = self.gmm_triphone_args.cart_questions
+        self.cart_questions = self.gmm_triphone_args.cart_questions if self.gmm_triphone_args else None
 
     # -------------------- Mono Training --------------------
 

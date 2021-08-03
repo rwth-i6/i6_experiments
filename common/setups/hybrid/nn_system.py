@@ -56,15 +56,15 @@ class NnSystem(RasrSystem):
 
     def __init__(
         self,
-        returnn_root: str = gs.RETURNN_ROOT,
-        returnn_python_home: str = gs.RETURNN_PYTHON_HOME,
-        returnn_python_exe: str = gs.RETURNN_PYTHON_EXE,
+        returnn_root: Optional[str] = None,
+        returnn_python_home: Optional[str] = None,
+        returnn_python_exe: Optional[str] = None,
     ):
         super().__init__()
 
-        self.returnn_root = returnn_root
-        self.returnn_python_home = returnn_python_home
-        self.return_python_exe = returnn_python_exe
+        self.returnn_root = returnn_root or gs.RETURNN_ROOT
+        self.returnn_python_home = returnn_python_home or gs.RETURNN_PYTHON_HOME
+        self.return_python_exe = returnn_python_exe or gs.RETURNN_PYTHON_EXE
 
         self.nn_args = None
 
