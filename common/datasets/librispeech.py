@@ -86,11 +86,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
     """
     assert audio_format in ["flac", "ogg", "wav"]
 
-    subdir_prefix = (
-        os.path.join(subdir_prefix, "LibriSpeech")
-        if subdir_prefix
-        else None
-    )
+    subdir_prefix = os.path.join(subdir_prefix, "LibriSpeech")
 
     download_metadata_job = DownloadLibriSpeechMetadataJob()
     download_metadata_job.add_alias(
