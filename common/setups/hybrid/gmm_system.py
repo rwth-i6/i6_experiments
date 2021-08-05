@@ -595,27 +595,29 @@ class GmmSystem(RasrSystem):
         self,
         name: str,
         iters: List[int],
-        lm_scales: List[int],
+        lm_scales: List[float],
         feature_scorer: Tuple[str, str],
         optimize_am_lm_scale: bool,
         # parameters just for passing through
         corpus: str,
         feature_flow: str,
-        pronunciation_scale: int,
+        pronunciation_scale: float,
         search_parameters: dict,
-        rtf: int,
-        mem: int,
+        rtf: float,
+        mem: float,
         parallelize_conversion: bool,
         lattice_to_ctm_kwargs: dict,
         **kwargs,
     ):
         """
+        A small wrapper around the meta.System.recog function that will set a Sisyphus block and
+        run over all specified model iterations and lm scales.
 
-        :param name:
-        :param iters:
-        :param lm_scales:
+        :param name: name for the recognition, note that iteration and lm will be named by the function
+        :param iters: which training iterations to use for recognition
+        :param lm_scales: all lm scales that should be used for recognition
         :param feature_scorer: (training_corpus_name, training_name)
-        :param optimize_am_lm_scale:
+        :param optimize_am_lm_scale: will optimize the lm-scale and re-run recognition with the optimal value
         :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
         :return:
         """
