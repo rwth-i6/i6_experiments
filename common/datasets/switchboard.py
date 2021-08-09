@@ -197,5 +197,5 @@ def export_all(subdir_prefix=""):
     """
     :param subdir_prefix: alias prefix name
     """
-    _export_train_bliss_coprus(subdir_prefix)
+    _export_train_bliss_corpus(subdir_prefix)
     _export_lexicon(subdir_prefix)
