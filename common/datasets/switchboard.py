@@ -166,7 +166,7 @@ def get_bliss_lexicon(subdir_prefix=""):
     return merge_lexicon_job.out_bliss_lexicon
 
 
-def _export_train_bliss_coprus(subdir_prefix=""):
+def _export_train_bliss_corpus(subdir_prefix=""):
     """
     Registers output for switchboard training corpus based on i6 internal audio directory
 
