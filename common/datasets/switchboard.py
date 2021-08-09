@@ -9,6 +9,7 @@ def get_speakers_list(subdir_prefix=""):
     Returns speakers list
 
     :param str subdir_prefix: alias name prefix
+    :return: Path to switchboard recording to speakers mapping list
     :rtype: tk.Path
     """
     alias_name = os.path.join(subdir_prefix, "Switchboard")
@@ -28,6 +29,7 @@ def get_train_bliss_corpus(audio_dir, subdir_prefix=""):
 
     :param tk.Path audio_dir: path for audio data
     :param str subdir_prefix: alias name prefix
+    :return: Path to switchboard training corpus
     :rtype: tk.Path
     """
     alias_name = os.path.join(subdir_prefix, "Switchboard")
@@ -125,6 +127,7 @@ def get_bliss_lexicon(subdir_prefix=""):
     http://www.openslr.org/resources/5/switchboard_word_alignments.tar.gz
 
     :param str subdir_prefix: alias prefix name
+    :return: Path to switchboard bliss lexicon
     :rtype tk.Path
     """
     alias_name = os.path.join(subdir_prefix, "Switchboard")
