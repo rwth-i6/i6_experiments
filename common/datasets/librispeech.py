@@ -36,13 +36,19 @@ import os
 from sisyphus import tk
 
 from i6_core.audio.encoding import BlissChangeEncodingJob
+from i6_core.corpus.stats import ExtractOovWordsFromCorpusJob
 from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
 from i6_core.datasets.librispeech import *
+from i6_core.g2p.apply import ApplyG2PModelJob
+from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob, G2POutputToBlissLexiconJob
+from i6_core.g2p.train import TrainG2PModelJob
 from i6_core.lib import lexicon
 from i6_core.lexicon.conversion import LexiconFromTextFileJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.meta.system import CorpusObject
 from i6_core.tools.download import DownloadJob
+
+from i6_experiments.common.helpers.g2p import *
 
 
 durations = {
@@ -371,6 +377,60 @@ def get_bliss_lexicon(subdir_prefix=""):
     merge_lexicon_job.add_alias(os.path.join(alias_path, "merge_lexicon_job"))
 
     return merge_lexicon_job.out_bliss_lexicon
+
+
+def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
+    """
+    Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
+    out of vocabulary (OOV) words for each of the LbriSpeech training corpora. Here, we create a dictionary
+    that has different train corpora as keys and the corresponding g2p augmented bliss lexicon as values
+
+    :param st subdir_prefix:
+    :return: dictionary of Paths to augmented bliss_lexicon
+    :rtype: dict[str, Path]
+    """
+    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
+    augmented_bliss_corpora = {}
+
+    original_bliss_lexicon =  get_bliss_lexicon(subdir_prefix=subdir_prefix)
+    g2p_args = get_g2p_parameters()
+
+    g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=original_bliss_lexicon)
+
+    g2p_train_job = TrainG2PModelJob(
+        g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon,
+        **g2p_args["train"])
+    g2p_train_job.add_alias(os.path.join(alias_path, "train_g2p_model"))
+
+    def get_g2p_augmented_bliss_lexicon(corpus_name, bliss_corpus):
+        extract_oov_job = ExtractOovWordsFromCorpusJob(
+            bliss_corpus=bliss_corpus,
+            bliss_lexicon=original_bliss_lexicon
+        )
+        extract_oov_job.add_alias(os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name)))
+
+        g2p_apply_job = ApplyG2PModelJob(
+            g2p_model=g2p_train_job.out_best_model,
+            word_list_file=extract_oov_job.out_oov_words,
+            **g2p_args["apply"]
+        )
+        g2p_apply_job.add_alias(os.path.join(alias_path, "apply-g2p-for-{}".format(corpus_name)))
+
+        g2p_final_lex_job = G2POutputToBlissLexiconJob(
+            iv_bliss_lexicon=original_bliss_lexicon,
+            g2p_lexicon=g2p_apply_job.out_g2p_lexicon
+        )
+        g2p_final_lex_job.add_alias(os.path.join(alias_path, "g2p-output-to-bliss-{}".format(corpus_name)))
+
+        return g2p_final_lex_job.out_oov_lexicon
+
+
+    bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
+    for corpus_name, bliss_corpus in bliss_corpus_dict.items():
+        if "train" in corpus_name:
+            augmented_bliss_corpora[corpus_name] = get_g2p_augmented_bliss_lexicon(corpus_name, bliss_corpus)
+
+    return augmented_bliss_corpora
 
 
 def get_lm_vocab(subdir_prefix=""):
