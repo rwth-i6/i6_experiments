@@ -36,19 +36,15 @@ import os
 from sisyphus import tk
 
 from i6_core.audio.encoding import BlissChangeEncodingJob
-from i6_core.corpus.stats import ExtractOovWordsFromCorpusJob
 from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
 from i6_core.datasets.librispeech import *
-from i6_core.g2p.apply import ApplyG2PModelJob
-from i6_core.g2p.convert import BlissLexiconToG2PLexiconJob, G2POutputToBlissLexiconJob
-from i6_core.g2p.train import TrainG2PModelJob
 from i6_core.lib import lexicon
 from i6_core.lexicon.conversion import LexiconFromTextFileJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.meta.system import CorpusObject
 from i6_core.tools.download import DownloadJob
 
-from i6_experiments.common.helpers.g2p import *
+from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 
 durations = {
@@ -393,42 +389,16 @@ def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
     augmented_bliss_corpora = {}
 
     original_bliss_lexicon =  get_bliss_lexicon(subdir_prefix=subdir_prefix)
-    g2p_args = get_g2p_parameters()
-
-    g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=original_bliss_lexicon)
-
-    g2p_train_job = TrainG2PModelJob(
-        g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon,
-        **g2p_args["train"])
-    g2p_train_job.add_alias(os.path.join(alias_path, "train_g2p_model"))
-
-    def get_g2p_augmented_bliss_lexicon(corpus_name, bliss_corpus):
-        extract_oov_job = ExtractOovWordsFromCorpusJob(
-            bliss_corpus=bliss_corpus,
-            bliss_lexicon=original_bliss_lexicon
-        )
-        extract_oov_job.add_alias(os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name)))
-
-        g2p_apply_job = ApplyG2PModelJob(
-            g2p_model=g2p_train_job.out_best_model,
-            word_list_file=extract_oov_job.out_oov_words,
-            **g2p_args["apply"]
-        )
-        g2p_apply_job.add_alias(os.path.join(alias_path, "apply-g2p-for-{}".format(corpus_name)))
-
-        g2p_final_lex_job = G2POutputToBlissLexiconJob(
-            iv_bliss_lexicon=original_bliss_lexicon,
-            g2p_lexicon=g2p_apply_job.out_g2p_lexicon
-        )
-        g2p_final_lex_job.add_alias(os.path.join(alias_path, "g2p-output-to-bliss-{}".format(corpus_name)))
-
-        return g2p_final_lex_job.out_oov_lexicon
-
+    g2p_augmenter = G2PBasedOovAugmenter(original_bliss_lexicon=original_bliss_lexicon)
 
     bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
     for corpus_name, bliss_corpus in bliss_corpus_dict.items():
         if "train" in corpus_name:
-            augmented_bliss_corpora[corpus_name] = get_g2p_augmented_bliss_lexicon(corpus_name, bliss_corpus)
+            augmented_bliss_corpora[corpus_name] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
+                bliss_corpus=bliss_corpus,
+                corpus_name=corpus_name,
+                alias_path=alias_path
+            )
 
     return augmented_bliss_corpora
 
