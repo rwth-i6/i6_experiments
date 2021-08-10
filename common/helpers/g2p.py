@@ -46,7 +46,7 @@ class G2PBasedOovAugmenter():
             self.train_args.update(train_args)
 
         if apply_args is not None:
-            self.train_args.update(apply_args)
+            self.apply_args.update(apply_args)
 
 
     def train_and_set_g2p_model(self, alias_path:str):
