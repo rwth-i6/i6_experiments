@@ -595,36 +595,46 @@ class GmmSystem(RasrSystem):
         self,
         name: str,
         iters: List[int],
+        lm_scales: List[float],
+        feature_scorer: Tuple[str, str],
+        optimize_am_lm_scale: bool,
+        # parameters just for passing through
         corpus: str,
         feature_flow: str,
-        feature_scorer,
-        pronunciation_scale: List[int],
-        lm_scale: List[int],
-        search_params: dict,
-        rtf: int,
-        mem: int,
+        pronunciation_scale: float,
+        search_parameters: dict,
+        rtf: float,
+        mem: float,
         parallelize_conversion: bool,
         lattice_to_ctm_kwargs: dict,
         **kwargs,
     ):
+        """
+        A small wrapper around the meta.System.recog function that will set a Sisyphus block and
+        run over all specified model iterations and lm scales.
+
+        :param name: name for the recognition, note that iteration and lm will be named by the function
+        :param iters: which training iterations to use for recognition
+        :param lm_scales: all lm scales that should be used for recognition
+        :param feature_scorer: (training_corpus_name, training_name)
+        :param optimize_am_lm_scale: will optimize the lm-scale and re-run recognition with the optimal value
+        :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
+        :return:
+        """
+        assert "lm_scale" not in kwargs, "please use lm_scales for GmmSystem.recognition()"
         with tk.block(f"{name}_recognition"):
-            optimize_am_lm_scale = (
-                self.gmm_monophone_args.monophone_recognition_args.pop(
-                    "optimize_am_lm_scale", False
-                )
-            )
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
-            for it in iters:
+            for it, l in itertools.product(iters, lm_scales):
                 recog_func(
-                    name=f"{name}-{it:02d}",
-                    prefix=f"recog_{corpus}_{name}/",
+                    name=f"iter{it:02d}-lm{l}",
+                    prefix=f"recognition/{name}/",
                     corpus=corpus,
                     flow=feature_flow,
                     feature_scorer=list(feature_scorer) + [it - 1],
                     pronunciation_scale=pronunciation_scale,
-                    lm_scale=lm_scale,
-                    search_parameters=search_params,
+                    lm_scale=l,
+                    search_parameters=search_parameters,
                     rtf=rtf,
                     mem=mem,
                     parallelize_conversion=parallelize_conversion,
@@ -637,8 +647,6 @@ class GmmSystem(RasrSystem):
     def run(self, steps: Union[List, Tuple] = ("all",)):
         """
         run setup
-
-        add tone features since Vietnamese is a tonal language
 
         :param steps:
         :return:
@@ -680,23 +688,12 @@ class GmmSystem(RasrSystem):
 
                 for dev_c in self.dev_corpora:
                     feature_scorer = (trn_c, "train_mono")
-
-                    pr_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
-                        "pronunciation_scale"
+                    self.recognition(
+                        f"mono-{trn_c}-{dev_c}",
+                        corpus=dev_c,
+                        feature_scorer=feature_scorer,
+                        **self.gmm_monophone_args.monophone_recognition_args,
                     )
-                    lm_scale = self.gmm_monophone_args.monophone_recognition_args.pop(
-                        "lm_scale"
-                    )
-
-                    for p, l in itertools.product(pr_scale, lm_scale):
-                        self.recognition(
-                            f"mono-{trn_c}-{dev_c}-am{p}-lm{l}",
-                            corpus=dev_c,
-                            feature_scorer=feature_scorer,
-                            pronunciation_scale=p,
-                            lm_scale=l,
-                            **self.gmm_monophone_args.monophone_recognition_args,
-                        )
 
                 for tst_c in self.test_corpora:
                     pass
