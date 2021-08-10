@@ -473,17 +473,17 @@ class GmmSystem(RasrSystem):
 
         mapped_alignment = rasr.MapSegmentsWithBundlesJob(
             old_segments=old_segment_path,
-            cluster_map=speaker_seg.cluster_map_file,
+            cluster_map=speaker_seg.out_cluster_map_file,
             files=alignment,
             filename="cluster.$(TASK).bundle",
         )
         mapped_features = rasr.MapSegmentsWithBundlesJob(
             old_segments=old_segment_path,
-            cluster_map=speaker_seg.cluster_map_file,
+            cluster_map=speaker_seg.out_cluster_map_file,
             files=feature_cache.hidden_paths,
             filename="cluster.$(TASK).bundle",
         )
-        new_segments = rasr.ClusterMapToSegmentListJob(speaker_seg.cluster_map_file)
+        new_segments = rasr.ClusterMapToSegmentListJob(speaker_seg.out_cluster_map_file)
 
         overlay = "%s_cmllr_%s" % (corpus, name) if overlay is None else overlay
         self.add_overlay(corpus, overlay)
@@ -497,8 +497,8 @@ class GmmSystem(RasrSystem):
             feature_flow=self.feature_flows[overlay][feature_flow],
             mixtures=mixtures,
             alignment=mapped_alignment.bundle_path,
-            cluster_map=speaker_seg.cluster_map_file,
-            num_clusters=speaker_seg.num_speakers,
+            cluster_map=speaker_seg.out_cluster_map_file,
+            num_clusters=speaker_seg.out_num_speakers,
         )
         cmllr.rqmt = {
             "time": max(
@@ -511,7 +511,7 @@ class GmmSystem(RasrSystem):
         }
         self.feature_flows[corpus]["%s+cmllr" % feature_flow] = sat.add_cmllr_transform(
             self.feature_flows[corpus][feature_flow],
-            speaker_seg.cluster_map_file,
+            speaker_seg.out_cluster_map_file,
             cmllr.transforms,
         )
 
