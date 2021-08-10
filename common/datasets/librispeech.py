@@ -441,13 +441,22 @@ def _export_lm_data(subdir_prefix):
     )
 
 
-def _export_lexicon_and_vocab(subdir_prefix, use_stress_marker=False):
+def _export_lexicon_and_vocab(subdir_prefix):
     """
     :param str subdir_prefix:
     """
     bliss_lexicon = get_bliss_lexicon(
         subdir_prefix=subdir_prefix,
-        use_stress_marker=use_stress_marker
+        use_stress_marker=True
+    )
+    tk.register_output(
+        os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.folded.xml.gz"),
+        bliss_lexicon,
+    )
+
+    bliss_lexicon = get_bliss_lexicon(
+        subdir_prefix=subdir_prefix,
+        use_stress_marker=False
     )
     tk.register_output(
         os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"),
@@ -455,7 +464,7 @@ def _export_lexicon_and_vocab(subdir_prefix, use_stress_marker=False):
     )
 
 
-def export_all(subdir_prefix, use_stress_marker=False):
+def export_all(subdir_prefix):
     """
     Registers all LibriSpeech related data as output.
 
@@ -467,4 +476,4 @@ def export_all(subdir_prefix, use_stress_marker=False):
     """
     _export_datasets(subdir_prefix)
     _export_lm_data(subdir_prefix)
-    _export_lexicon_and_vocab(subdir_prefix, use_stress_marker)
+    _export_lexicon_and_vocab(subdir_prefix)
