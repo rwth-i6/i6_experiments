@@ -378,17 +378,17 @@ def get_bliss_lexicon(subdir_prefix=""):
 def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
-    out of vocabulary (OOV) words for each of the LbriSpeech training corpora. Here, we create a dictionary
+    out of vocabulary (OOV) words for each of the LibriSpeech training corpora. Here, we create a dictionary
     that has different train corpora as keys and the corresponding g2p augmented bliss lexicon as values
 
-    :param st subdir_prefix:
+    :param str subdir_prefix:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
     alias_path = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
     augmented_bliss_corpora = {}
 
-    original_bliss_lexicon =  get_bliss_lexicon(subdir_prefix=subdir_prefix)
+    original_bliss_lexicon = get_bliss_lexicon(subdir_prefix=subdir_prefix)
     g2p_augmenter = G2PBasedOovAugmenter(original_bliss_lexicon=original_bliss_lexicon)
 
     bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)

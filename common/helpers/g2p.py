@@ -14,14 +14,16 @@ from i6_core.g2p.train import TrainG2PModelJob
 
 class G2PBasedOovAugmenter():
     def __init__(self,
-                 original_bliss_lexicon,
-                 g2p_model_path:Optional[str] = None,
+                 original_bliss_lexicon:str,
+                 train_lexicon:Optional[str] = None,
+                 g2p_model_path:Optional[Path] = None,
                  train_args:Optional[dict] = None,
                  apply_args:Optional[dict] = None,
                  ):
         """
-        :param original_bliss_lexicon: path to the original lexicon with OOV
-        :param g2p_model_path: path to the g2p model, if none a g2p model is trained
+        :param original_bliss_lexicon: path to the original lexicon that will be augmented with OOVs
+        :param train_lexicon: path to the train lexicon in case it differs from the original lexicon
+        :param g2p_model_path: path to the g2p model, if None a g2p model is trained
         #######################################
         :param train_args = {
         "num_ramp_ups"   :4,
@@ -38,6 +40,7 @@ class G2PBasedOovAugmenter():
         """
         super().__init__()
         self.original_bliss_lexicon = original_bliss_lexicon
+        self.train_lexicon = original_bliss_lexicon if train_lexicon is None else train_lexicon
         self.g2p_model_path = g2p_model_path
         self.train_args = {}
         self.apply_args = {}
@@ -49,8 +52,8 @@ class G2PBasedOovAugmenter():
             self.apply_args.update(apply_args)
 
 
-    def train_and_set_g2p_model(self, train_lexicon:str, alias_path:str):
-        g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=train_lexicon)
+    def _train_and_set_g2p_model(self, alias_path:str):
+        g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=self.train_lexicon)
 
         g2p_train_job = TrainG2PModelJob(
             g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon,
@@ -62,13 +65,9 @@ class G2PBasedOovAugmenter():
     def get_g2p_augmented_bliss_lexicon(
             self,
             bliss_corpus:Path,
-            corpus_name: str,
-            alias_path:str,
-            train_lexicon:Optional[str] = None,
+            corpus_name:str,
+            alias_path:str
     ):
-        if train_lexicon is None:
-            train_lexicon = self.original_bliss_lexicon
-
         extract_oov_job = ExtractOovWordsFromCorpusJob(
             bliss_corpus=bliss_corpus,
             bliss_lexicon=self.original_bliss_lexicon
@@ -76,7 +75,7 @@ class G2PBasedOovAugmenter():
         extract_oov_job.add_alias(os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name)))
 
         if self.g2p_model_path is None:
-            self.train_and_set_g2p_model(train_lexicon, alias_path)
+            self._train_and_set_g2p_model(alias_path)
 
         g2p_apply_job = ApplyG2PModelJob(
             g2p_model=self.g2p_model_path,
