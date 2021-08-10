@@ -81,7 +81,7 @@ class RasrSystem(meta.System):
             name=name,
             corpus=self.corpora[name],
             concurrent=self.concurrent[name],
-            segment_path=segm_corpus_job.segment_path,
+            segment_path=segm_corpus_job.out_segment_path,
         )
         self.jobs[name]["segment_corpus"] = segm_corpus_job
 
