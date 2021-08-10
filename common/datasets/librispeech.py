@@ -386,7 +386,7 @@ def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
     :rtype: dict[str, Path]
     """
     alias_path = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
-    augmented_bliss_corpora = {}
+    augmented_bliss_lexica = {}
 
     original_bliss_lexicon = get_bliss_lexicon(subdir_prefix=subdir_prefix)
     g2p_augmenter = G2PBasedOovAugmenter(original_bliss_lexicon=original_bliss_lexicon)
@@ -394,13 +394,13 @@ def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
     bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
     for corpus_name, bliss_corpus in bliss_corpus_dict.items():
         if "train" in corpus_name:
-            augmented_bliss_corpora[corpus_name] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
+            augmented_bliss_lexica[corpus_name] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
                 bliss_corpus=bliss_corpus,
                 corpus_name=corpus_name,
                 alias_path=alias_path
             )
 
-    return augmented_bliss_corpora
+    return augmented_bliss_lexica
 
 
 def get_lm_vocab(subdir_prefix=""):
