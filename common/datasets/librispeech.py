@@ -324,7 +324,7 @@ def get_special_lemma_lexicon():
     return lex
 
 
-def get_bliss_lexicon(subdir_prefix="", use_stress_marker=False):
+def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
     with special lemmas and the converted official lexicon from OpenSLR
@@ -333,9 +333,11 @@ def get_bliss_lexicon(subdir_prefix="", use_stress_marker=False):
     The phoneme inventory is ordered alphabetically, with the special phonemes for silence and unknown at the end,
     while the special lemmas come first. This way the result resembles the "legacy" lexicon closely, and all
     "special" entries are at one position.
+    Librispeech standard phoneme inventorory contains also phonemes with stress. By not including these variants,
+    the phoneme inventory is reduced from to 42 phonemes.
 
-    :param str subdir_prefix:
     :param bool use_stress_marker:
+    :param str subdir_prefix:
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
@@ -351,7 +353,7 @@ def get_bliss_lexicon(subdir_prefix="", use_stress_marker=False):
     )
 
     text_lexicon = download_lexicon_job.out_file
-    if use_stress_marker:
+    if not use_stress_marker:
         from i6_core.text import PipelineJob
         eliminate_stress_job = PipelineJob(
             text_lexicon,
