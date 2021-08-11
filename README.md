@@ -27,10 +27,12 @@ Any code changed here should go through a PR, or be only about changes that do n
 the existing API or the resulting pipeline.
 
 As this is still under construction, what kind of pipelines are grouped here is still not decided.
-So far there is `datasets` which will contain pipelines related to specific corpora.
+So far there is:
+ - `datasets` which will contain pipelines related to specific corpora.
+ - `setups` which contain corpus independed pipeline helpers for specific systems (e.g. Hybrid-ASR)
 
 For i6 users: if pipelines have a related `export` function,
-pre-computed jobs may be found under `/work/common/asr` and can be imported via the console.
+pre-computed jobs may be found under `/work/common/asr` and can be imported via the console via `tk.import_work_directory()`.
 For further details on the exact location please look into the export function docstring.
 
 
