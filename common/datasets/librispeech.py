@@ -326,7 +326,7 @@ def get_special_lemma_lexicon():
     return lex
 
 
-def get_bliss_lexicon(subdir_prefix=""):
+def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
     with special lemmas and the converted official lexicon from OpenSLR
@@ -335,8 +335,11 @@ def get_bliss_lexicon(subdir_prefix=""):
     The phoneme inventory is ordered alphabetically, with the special phonemes for silence and unknown at the end,
     while the special lemmas come first. This way the result resembles the "legacy" lexicon closely, and all
     "special" entries are at one position.
+    Librispeech standard phoneme inventorory contains also phonemes with stress. By not including these variants,
+    the phoneme inventory is reduced from to 42 phonemes.
 
-    :param st subdir_prefix:
+    :param bool use_stress_marker:
+    :param str subdir_prefix:
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
@@ -351,8 +354,20 @@ def get_bliss_lexicon(subdir_prefix=""):
         checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71",
     )
 
+    text_lexicon = download_lexicon_job.out_file
+    if not use_stress_marker:
+        from i6_core.text import PipelineJob
+        eliminate_stress_job = PipelineJob(
+            text_lexicon,
+            ["sed 's/[0-9]//g'"],
+            zip_output=False,
+            mini_task=True
+        )
+        text_lexicon = eliminate_stress_job.out
+
+
     convert_lexicon_job = LexiconFromTextFileJob(
-        text_file=download_lexicon_job.out_file, compressed=True
+        text_file=text_lexicon, compressed=True
     )
 
     merge_lexicon_job = MergeLexiconJob(
@@ -465,7 +480,19 @@ def _export_lexicon_and_vocab(subdir_prefix):
     """
     :param str subdir_prefix:
     """
-    bliss_lexicon = get_bliss_lexicon(subdir_prefix=subdir_prefix)
+    bliss_lexicon = get_bliss_lexicon(
+        subdir_prefix=subdir_prefix,
+        use_stress_marker=True
+    )
+    tk.register_output(
+        os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.folded.xml.gz"),
+        bliss_lexicon,
+    )
+
+    bliss_lexicon = get_bliss_lexicon(
+        subdir_prefix=subdir_prefix,
+        use_stress_marker=False
+    )
     tk.register_output(
         os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"),
         bliss_lexicon,
