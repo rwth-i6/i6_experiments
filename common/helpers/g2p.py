@@ -32,16 +32,16 @@ class G2PBasedOovAugmenter():
         :param g2p_model_path: path to the g2p model, if None a g2p model is trained
         #######################################
         :param train_args = {
-        "num_ramp_ups"   :4,
-        "min_iter"       :1,
-        "max_iter"       :60,
-        "devel"          :"5%",
-        "size_constrains":"0,1,0,1"
+        "num_ramp_ups"   : 4,
+        "min_iter"       : 1,
+        "max_iter"       : 60,
+        "devel"          : "5%",
+        "size_constrains": "0,1,0,1"
         }
         #######################################
         :param apply_args = {
-        "variants_mass"  :1.0,
-        "variants_number":1
+        "variants_mass"  : 1.0,
+        "variants_number": 1
         }
         """
         self.original_bliss_lexicon = original_bliss_lexicon
@@ -63,9 +63,9 @@ class G2PBasedOovAugmenter():
 
     def get_g2p_augmented_bliss_lexicon(
             self,
-            bliss_corpus:Path,
-            corpus_name:str,
-            alias_path:str
+            bliss_corpus: Path,
+            corpus_name: str,
+            alias_path: str
     ):
         extract_oov_job = ExtractOovWordsFromCorpusJob(
             bliss_corpus=bliss_corpus,
