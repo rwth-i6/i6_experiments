@@ -18,8 +18,8 @@ from i6_core.lexicon.conversion import LexiconFromTextFileJob
 from i6_core.lexicon.modification import MergeLexiconJob, WriteLexiconJob
 
 from i6_experiments.users.rossenbach.scripts.tokenizer import tokenizer_tts
-from i6_experiments.users.rossenbach.g2p.number_conversion.tacotron import TacotronNumberConversionJob
 from i6_experiments.users.rossenbach.text.pipeline_commands import *
+from i6_experiments.users.rossenbach.corpus.transform import ApplyLexiconToTranscriptions
 
 
 def get_static_lexicon():
@@ -122,9 +122,13 @@ def get_uppercase_cmu_g2p(create_alias_with_prefix=None):
 def apply_uppercase_cmu_corpus_processing(bliss_corpus):
     """
 
+    Applies the LJSpeech processing pipeline using the CMU dictionary, default Sequitur G2P and the
+    the special symbols as defined in `get_static_lexicon()`
+
     :param Path bliss_corpus:
     :param path_prefix:
-    :return:
+    :return: the fully preprocess bliss corpus, ready to be used with a word-based RETURNN vocabulary
+    :rtype: Path
     """
 
     cmu_wordlist_lexicon = get_uppercase_lexicon()
@@ -141,6 +145,10 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
     whitelist_filter_list = list(".,?!-")
     whitelist_pipe = get_whitelist_filter_pipe(allow_list=whitelist_filter_list)
     tokenizer_command = DelayedFormat("{} -a -l en -no-escape", tokenizer_tts)
+
+    add_start_command = "sed 's/^/[start] /g'"
+    add_end_command = "sed 's/$/ [end]/g'"
+
     tokenized_text = PipelineJob(
         bliss_text,
         [whitelist_pipe,
@@ -148,7 +156,9 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
          "tr '[:lower:]' '[:upper:]'",
          pipe_normalize_double_hyphen,
          pipe_split_dots,
-         pipe_squeeze_repeating_whitespaces]).out
+         pipe_squeeze_repeating_whitespaces,
+         add_start_command,
+         add_end_command]).out
     processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(bliss_corpus, tokenized_text).out_corpus
 
     tk.register_output("ljspeech_test/processed_corpus.xml.gz", processed_bliss_corpus)
@@ -159,16 +169,10 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
 
     tk.register_output("ljspeech_test/complete-lexicon.xml.gz", complete_bliss_lexcion)
 
-    # phoneme_text = ApplySequitur(tokenized_text, cmu_lexicon_uppercase, sequitur_cmu_uppercase_v1).out
-    # bliss_corpus = BlissMergeText(bliss_corpus, phoneme_text).out
-    # # text processing
-    # process_text_job = ProcessBlissText(bliss_corpus, [('uppercase', {}),
-    #                                                    ('end_token', {'token': ' ~'})],
-    #                                     vocabulary=self.vocabulary,
-    #                                     vocabulary_mode="word")
-    # self.job_alias(process_text_job, "text_preprocessing_%s" % name)
-    # bliss_corpus = process_text_job.out
+    converted_bliss_corpus = ApplyLexiconToTranscriptions(processed_bliss_corpus, complete_bliss_lexcion, word_separation_orth="[space]").out_corpus
+    tk.register_output("ljspeech_test/converted_corpus.xml.gz", converted_bliss_corpus)
 
+    return converted_bliss_corpus
 
 
 

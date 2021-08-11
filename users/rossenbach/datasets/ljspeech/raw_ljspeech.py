@@ -32,7 +32,7 @@ def get_raw_ljspeech_dataset_group(sample_rate, create_alias_with_prefix=None):
 
     # generate a single segment file from corpus
     create_segment_file_job = SegmentCorpusJob(corpus_object.corpus_file, 1)
-    segment_file = create_segment_file_job.single_segment_files[1]
+    segment_file = create_segment_file_job.out_single_segment_files[1]
 
     # only shuffle, this is deterministic
     shuffle_segment_file_job = ShuffleAndSplitSegmentsJob(
@@ -40,7 +40,7 @@ def get_raw_ljspeech_dataset_group(sample_rate, create_alias_with_prefix=None):
         split={"ljspeech": 1.0},
         shuffle=True
     )
-    segment_file = shuffle_segment_file_job.new_segments["ljspeech"]
+    segment_file = shuffle_segment_file_job.out_segments["ljspeech"]
 
     dev_segments = HeadJob(segment_file, num_lines=600).out
     train_segments = TailJob(segment_file, num_lines=12500).out
