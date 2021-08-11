@@ -14,11 +14,11 @@ from i6_core.g2p.train import TrainG2PModelJob
 
 class G2PBasedOovAugmenter():
     def __init__(self,
-                 original_bliss_lexicon:str,
-                 train_lexicon:Optional[str] = None,
-                 g2p_model_path:Optional[Path] = None,
-                 train_args:Optional[dict] = None,
-                 apply_args:Optional[dict] = None,
+                 original_bliss_lexicon: str,
+                 train_lexicon: Optional[str] = None,
+                 g2p_model_path: Optional[Path] = None,
+                 train_args: Optional[dict] = None,
+                 apply_args: Optional[dict] = None,
                  ):
         """
         This is a class that augment a bliss lexicon with OOV tokens/words for a specific corpus .
