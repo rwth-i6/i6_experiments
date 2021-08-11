@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 import os
+import typing
 
 from sisyphus import tk
 
@@ -14,6 +15,7 @@ class BPESettings:
     bpe_codes: tk.Path
     bpe_vocab: tk.Path
     bpe_vocab_size: tk.Variable
+    unk_label: typing.Optional[str]
 
 
 @lru_cache()
@@ -61,4 +63,4 @@ def get_bpe_settings(bliss_corpus, bpe_size, subword_nmt_repo_path, unk_label="U
     tk.register_output(os.path.join(output_prefix, "bpe.vocab"), train_bpe_job.out_bpe_vocab)
     tk.register_output(os.path.join(output_prefix, "bpe.vocab.size"), train_bpe_job.out_vocab_size)
 
-    return BPESettings(train_bpe_job.out_bpe_codes, train_bpe_job.out_bpe_vocab, train_bpe_job.out_vocab_size)
+    return BPESettings(train_bpe_job.out_bpe_codes, train_bpe_job.out_bpe_vocab, train_bpe_job.out_vocab_size, unk_label)

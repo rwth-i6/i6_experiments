@@ -7,7 +7,8 @@ class AudioFeaturesOpts:
 
     _default_options = dict(window_len=0.025, step_len=0.010, features='mfcc')
 
-    def __init__(self, **kwargs):
+    def __init__(self, available_for_inference, **kwargs):
+        self.available_for_inference = available_for_inference
         self.options = kwargs.copy()
         for k, v in self._default_options.items():
             self.options.setdefault(k, v)
@@ -20,8 +21,13 @@ class AudioFeaturesOpts:
         return 40  # some default value
 
     def as_returnn_data_opts(self):
+        """
+
+        :return:
+        :rtype: dict[str, Any]
+        """
         feat_dim = self.get_feat_dim()
-        return {'shape': (None, feat_dim), 'dim': feat_dim}
+        return {'shape': (None, feat_dim), 'dim': feat_dim, 'available_for_inference': self.available_for_inference}
 
     def as_returnn_extract_opts(self):
         return self.options
