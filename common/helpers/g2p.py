@@ -21,6 +21,12 @@ class G2PBasedOovAugmenter():
                  apply_args:Optional[dict] = None,
                  ):
         """
+        This is a class that augment a bliss lexicon with OOV tokens/words for a specific corpus .
+        It is possible to train a g2p model for this purpose or give a path to a pre-trained model.
+        By default, if no model path is provided, the class will train a g2p model relying on Sequitur.
+        Furthermore, it is possible to use a different bliss lexicon for training the g2p model. 
+        If no train_lexicon is provided, original bliss lexicon is used for training and will be augmented.
+
         :param original_bliss_lexicon: path to the original lexicon that will be augmented with OOVs
         :param train_lexicon: path to the train lexicon in case it differs from the original lexicon
         :param g2p_model_path: path to the g2p model, if None a g2p model is trained
@@ -38,18 +44,11 @@ class G2PBasedOovAugmenter():
         "variants_number":1
         }
         """
-        super().__init__()
         self.original_bliss_lexicon = original_bliss_lexicon
         self.train_lexicon = original_bliss_lexicon if train_lexicon is None else train_lexicon
         self.g2p_model_path = g2p_model_path
-        self.train_args = {}
-        self.apply_args = {}
-
-        if train_args is not None:
-            self.train_args.update(train_args)
-
-        if apply_args is not None:
-            self.apply_args.update(apply_args)
+        self.train_args = train_args if train_args else {}
+        self.apply_args = apply_args if apply_args else {}
 
 
     def _train_and_set_g2p_model(self, alias_path:str):
