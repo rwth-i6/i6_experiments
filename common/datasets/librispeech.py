@@ -410,18 +410,21 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=
     original_bliss_lexicon = get_bliss_lexicon(
         use_stress_marker=use_stress_marker, subdir_prefix=subdir_prefix
     )
-    g2p_augmenter = G2PBasedOovAugmenter(original_bliss_lexicon=original_bliss_lexicon)
+    current_bliss_lexicon = original_bliss_lexicon
 
     bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
-    for corpus_name, bliss_corpus in bliss_corpus_dict.items():
+    for corpus_name, bliss_corpus in sorted(bliss_corpus_dict.items()):
         if "train" in corpus_name:
-            augmented_bliss_lexica[
-                corpus_name
-            ] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
+            g2p_augmenter = G2PBasedOovAugmenter(
+                original_bliss_lexicon=updated_bliss_lexicon,
+                train_lexicon=original_bliss_lexicon,
+            )
+            current_bliss_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
                 bliss_corpus=bliss_corpus,
                 corpus_name=corpus_name,
                 alias_path=alias_path,
             )
+            augmented_bliss_lexica[corpus_name] = current_bliss_lexicon
 
     return augmented_bliss_lexica
 
