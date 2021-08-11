@@ -129,7 +129,9 @@ class GmmSystem(RasrSystem):
             self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-        self.cart_questions = self.gmm_triphone_args.cart_questions if self.gmm_triphone_args else None
+        self.cart_questions = (
+            self.gmm_triphone_args.cart_questions if self.gmm_triphone_args else None
+        )
 
     # -------------------- Mono Training --------------------
 
@@ -621,7 +623,9 @@ class GmmSystem(RasrSystem):
         :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
         :return:
         """
-        assert "lm_scale" not in kwargs, "please use lm_scales for GmmSystem.recognition()"
+        assert (
+            "lm_scale" not in kwargs
+        ), "please use lm_scales for GmmSystem.recognition()"
         with tk.block(f"{name}_recognition"):
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 

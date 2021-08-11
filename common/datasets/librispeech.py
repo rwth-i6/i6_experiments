@@ -156,7 +156,9 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
         merge_job = MergeCorporaJob(
             bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
         )
-        merge_job.add_alias(os.path.join(subdir_prefix, "%s_merge_job" % audio_format, name))
+        merge_job.add_alias(
+            os.path.join(subdir_prefix, "%s_merge_job" % audio_format, name)
+        )
         return merge_job.out_merged_corpus
 
     converted_bliss_corpus_dict["train-clean-460"] = _merge_corpora(
@@ -279,8 +281,12 @@ def get_arpa_lm_dict(subdir_prefix=""):
     lm_dict["3gram"] = download_arpa_3gram_lm_job.out_file
 
     lm_prefix = os.path.join(subdir_prefix, "LibriSpeech", "lm")
-    download_arpa_3gram_lm_job.add_alias(os.path.join(lm_prefix, "download_3gram_lm_job"))
-    download_arpa_4gram_lm_job.add_alias(os.path.join(lm_prefix, "download_4gram_lm_job"))
+    download_arpa_3gram_lm_job.add_alias(
+        os.path.join(lm_prefix, "download_3gram_lm_job")
+    )
+    download_arpa_4gram_lm_job.add_alias(
+        os.path.join(lm_prefix, "download_4gram_lm_job")
+    )
 
     return lm_dict
 
@@ -357,14 +363,11 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     text_lexicon = download_lexicon_job.out_file
     if not use_stress_marker:
         from i6_core.text import PipelineJob
+
         eliminate_stress_job = PipelineJob(
-            text_lexicon,
-            ["sed 's/[0-9]//g'"],
-            zip_output=False,
-            mini_task=True
+            text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True
         )
         text_lexicon = eliminate_stress_job.out
-
 
     convert_lexicon_job = LexiconFromTextFileJob(
         text_file=text_lexicon, compressed=True
@@ -409,10 +412,12 @@ def get_g2p_augmented_bliss_lexicon_dict(subdir_prefix=""):
     bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
     for corpus_name, bliss_corpus in bliss_corpus_dict.items():
         if "train" in corpus_name:
-            augmented_bliss_lexica[corpus_name] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
+            augmented_bliss_lexica[
+                corpus_name
+            ] = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
                 bliss_corpus=bliss_corpus,
                 corpus_name=corpus_name,
-                alias_path=alias_path
+                alias_path=alias_path,
             )
 
     return augmented_bliss_lexica
@@ -481,8 +486,7 @@ def _export_lexicon_and_vocab(subdir_prefix):
     :param str subdir_prefix:
     """
     bliss_lexicon = get_bliss_lexicon(
-        subdir_prefix=subdir_prefix,
-        use_stress_marker=True
+        subdir_prefix=subdir_prefix, use_stress_marker=True
     )
     tk.register_output(
         os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.folded.xml.gz"),
@@ -490,8 +494,7 @@ def _export_lexicon_and_vocab(subdir_prefix):
     )
 
     bliss_lexicon = get_bliss_lexicon(
-        subdir_prefix=subdir_prefix,
-        use_stress_marker=False
+        subdir_prefix=subdir_prefix, use_stress_marker=False
     )
     tk.register_output(
         os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"),

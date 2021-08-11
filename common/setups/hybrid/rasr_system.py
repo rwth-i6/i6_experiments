@@ -52,6 +52,8 @@ class RasrSystem(meta.System):
         if hasattr(gs, "RASR_PYTHON_EXE") and gs.RASR_PYTHON_EXE is not None:
             self.crp["base"].python_program_name = gs.RASR_PYTHON_EXE
 
+        rasr.FlowNetwork.default_flags["cache_mode"] = "task_dependent"
+
         self.hybrid_init_args = None
 
         self.train_corpora = []
