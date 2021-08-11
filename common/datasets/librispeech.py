@@ -399,6 +399,7 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=
     out of vocabulary (OOV) words for each of the LibriSpeech training corpora. Here, we create a dictionary
     that has different train corpora as keys and the corresponding g2p augmented bliss lexicon as values
 
+    :param bool use_stress_marker: uses phonem symbols with stress markers
     :param str subdir_prefix:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
