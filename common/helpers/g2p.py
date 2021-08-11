@@ -50,8 +50,7 @@ class G2PBasedOovAugmenter():
         self.train_args = train_args if train_args else {}
         self.apply_args = apply_args if apply_args else {}
 
-
-    def _train_and_set_g2p_model(self, alias_path:str):
+    def _train_and_set_g2p_model(self, alias_path: str):
         g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=self.train_lexicon)
 
         g2p_train_job = TrainG2PModelJob(
@@ -59,7 +58,6 @@ class G2PBasedOovAugmenter():
             **self.train_args)
         g2p_train_job.add_alias(os.path.join(alias_path, "train_g2p_model"))
         self.g2p_model_path = g2p_train_job.out_best_model
-
 
     def get_g2p_augmented_bliss_lexicon(
             self,
