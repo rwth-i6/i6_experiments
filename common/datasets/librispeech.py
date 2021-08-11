@@ -334,7 +334,8 @@ def get_bliss_lexicon(subdir_prefix="", use_stress_marker=False):
     while the special lemmas come first. This way the result resembles the "legacy" lexicon closely, and all
     "special" entries are at one position.
 
-    :param st subdir_prefix:
+    :param str subdir_prefix:
+    :param bool use_stress_marker:
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
@@ -353,9 +354,11 @@ def get_bliss_lexicon(subdir_prefix="", use_stress_marker=False):
     if use_stress_marker:
         from i6_core.text import PipelineJob
         eliminate_stress_job = PipelineJob(
-        text_lexicon, ["sed 's/[0-9]//g'"],
-        zip_output=False,
-        mini_task=True)
+            text_lexicon,
+            ["sed 's/[0-9]//g'"],
+            zip_output=False,
+            mini_task=True
+        )
         text_lexicon = eliminate_stress_job.out
 
 
