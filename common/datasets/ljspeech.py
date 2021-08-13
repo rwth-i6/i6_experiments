@@ -68,6 +68,8 @@ def get_22khz_corpus_object(create_alias_with_prefix=None):
     corpus_object.audio_dir = None
     corpus_object.duration = 24.0
 
+    return corpus_object
+
 
 def get_16khz_corpus_object(create_alias_with_prefix=None):
     """
@@ -80,6 +82,8 @@ def get_16khz_corpus_object(create_alias_with_prefix=None):
     corpus_object.audio_format = "wav"
     corpus_object.audio_dir = None
     corpus_object.duration = 24.0
+
+    return corpus_object
 
 
 def get_g2p(create_alias_with_prefix=None):
