@@ -73,7 +73,7 @@ def get_static_lexicon():
     return lex
 
 
-def get_uppercase_lexicon(create_alias_with_prefix=None):
+def get_uppercase_text_lexicon(create_alias_with_prefix=None):
     """
     Get the uppercase CMU dict that is used for the LJSpeech default setup
 
@@ -97,6 +97,16 @@ def get_uppercase_lexicon(create_alias_with_prefix=None):
     return cmu_lexicon_uppercase
 
 
+def get_uppercase_bliss_lexicon():
+    cmu_wordlist_lexicon = get_uppercase_text_lexicon()
+    cmu_bliss_lexicon = LexiconFromTextFileJob(cmu_wordlist_lexicon).out_bliss_lexicon
+    static_bliss_lexcion = WriteLexiconJob(get_static_lexicon()).out_bliss_lexicon
+    cmu_bliss_lexicon = MergeLexiconJob(bliss_lexica=[static_bliss_lexcion, cmu_bliss_lexicon],
+                                        sort_phonemes=True,
+                                        sort_lemmata=False).out_bliss_lexicon
+    return cmu_bliss_lexicon
+
+
 def get_uppercase_cmu_g2p(create_alias_with_prefix=None):
     """
     Create a default Sequitur-G2P model based on the CMU dict
@@ -107,7 +117,7 @@ def get_uppercase_cmu_g2p(create_alias_with_prefix=None):
     :return: a sequitur model trained on the uppercased CMU lexicon
     :rtype: Path
     """
-    cmu_lexicon_uppercase = get_uppercase_lexicon(create_alias_with_prefix)
+    cmu_lexicon_uppercase = get_uppercase_text_lexicon(create_alias_with_prefix)
 
     train_cmu_default_sequitur = TrainG2PModelJob(cmu_lexicon_uppercase)
     sequitur_cmu_uppercase_model = train_cmu_default_sequitur.out_best_model
@@ -131,13 +141,7 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
     :rtype: Path
     """
 
-    cmu_wordlist_lexicon = get_uppercase_lexicon()
-    tk.register_output("cmu_lexicon_test.txt", cmu_wordlist_lexicon)
-    cmu_bliss_lexicon = LexiconFromTextFileJob(cmu_wordlist_lexicon).out_bliss_lexicon
-    static_bliss_lexcion = WriteLexiconJob(get_static_lexicon()).out_bliss_lexicon
-    cmu_bliss_lexicon = MergeLexiconJob(bliss_lexica=[static_bliss_lexcion, cmu_bliss_lexicon],
-                                        sort_phonemes=True,
-                                        sort_lemmata=False).out_bliss_lexicon
+    cmu_bliss_lexicon = get_uppercase_bliss_lexicon()
     cmu_uppercase_g2p = get_uppercase_cmu_g2p()
 
     bliss_text = CorpusToTxtJob(bliss_corpus).out_txt
@@ -160,8 +164,6 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
          add_start_command,
          add_end_command]).out
     processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(bliss_corpus, tokenized_text).out_corpus
-
-    tk.register_output("ljspeech_test/processed_corpus.xml.gz", processed_bliss_corpus)
 
     oovs = ExtractOovWordsFromCorpusJob(processed_bliss_corpus, cmu_bliss_lexicon).out_oov_words
     g2p_oov_lexicon = ApplyG2PModelJob(cmu_uppercase_g2p, oovs).out_g2p_lexicon

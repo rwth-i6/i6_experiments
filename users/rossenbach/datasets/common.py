@@ -1,4 +1,5 @@
 import copy
+import typing
 
 from sisyphus import Path
 
@@ -17,11 +18,11 @@ class DatasetGroup():
         """
         # any bliss datasets
         self._corpus_objects = {}  # type: dict[str, CorpusObject]
-        self._zip_datasets = {}  # type: dict[str, Path]
+        self._zip_datasets = {}  # type: dict[str, list[Path]]
 
         self._segmented_datasets = {}  # type: dict[str, tuple[str, Path]]
 
-        self._file_format = None  # type: str|None
+        self._audio_format = None  # type: str|None
         self._name = name
 
     def add_corpus_object(self, name, corpus_object):
@@ -34,22 +35,22 @@ class DatasetGroup():
         assert name not in self._segmented_datasets.keys()
 
         # set file format if not set yet
-        if self._file_format:
-            assert corpus_object.audio_format == self._file_format
+        if self._audio_format:
+            assert corpus_object.audio_format == self._audio_format
         else:
-            self._file_format = corpus_object.audio_format
+            self._audio_format = corpus_object.audio_format
 
         self._corpus_objects[name] = corpus_object
 
     def add_zip_dataset(self, name, zip_dataset):
         """
         :param str name:
-        :param Path zip_dataset:
+        :param Path|list[Path] zip_dataset:
         :return:
         """
         assert name not in self._zip_datasets.keys()
         assert name not in self._segmented_datasets.keys()
-        self._zip_datasets[name] = zip_dataset
+        self._zip_datasets[name] = zip_dataset if isinstance(zip_dataset, list) else [zip_dataset]
 
     def add_segmented_dataset(self, segmented_dataset_name, original_dataset_name, segment_file):
         """
@@ -100,6 +101,26 @@ class DatasetGroup():
             dataset_name = name
             segment_file = None
         return self._zip_datasets[dataset_name], segment_file
+
+    def apply_bliss_processing_function(self, processing_function, args, new_name=None, new_format=None):
+        """
+
+        :param  typing.Callable[[Path, typing.Any], Path] processing_function:
+        :param dict[Any] args: additional arguments
+        :return: A new DatasetGroup
+        """
+        new_group = DatasetGroup(new_name if new_name else self._name)
+        new_group._segmented_datasets = copy.deepcopy(self._segmented_datasets)
+        audio_format = new_format if new_format else self._audio_format
+        new_group._audio_format = audio_format
+        for k, co in self._corpus_objects.items():
+            new_co = CorpusObject()
+            new_co.audio_format = audio_format
+            new_co.duration = co.duration
+            new_co.audio_dir = co.audio_dir
+            new_co.corpus_file = processing_function(co.corpus_file, **args)
+            new_group._corpus_objects[k] = new_co
+        return new_group
 
     def __str__(self):
         string = "<DatasetGroup name='%s'>\n" % self._name

@@ -1,4 +1,5 @@
 import copy
+import time
 
 from sisyphus import gs, tk, Path
 
@@ -182,6 +183,7 @@ def run_baseline_training():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'GMM-Mono-New-Baseline'
     system = gmm_system.GmmSystem()
+    start = time.time()
     system.init_system(hybrid_init_args=get_init_args(),
                        gmm_monophone_args=get_monophone_args(),
                        gmm_triphone_args=None,
@@ -191,7 +193,10 @@ def run_baseline_training():
                        train_data=train,
                        dev_data=dev,
                        test_data=test)
+    print("init_system took: %.1f" % (time.time()-start))
+    start = time.time()
     system.run(["extract", "mono"])
+    print("run took: %.1f" % (time.time()-start))
 
 
     # gs.ALIAS_AND_OUTPUT_SUBDIR = 'GMM-Mono-Old-Baseline'

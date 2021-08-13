@@ -8,22 +8,22 @@ from i6_experiments.users.rossenbach.datasets.common import DatasetGroup
 from i6_experiments.common.datasets.ljspeech import get_16khz_corpus_object, get_22khz_corpus_object
 
 
-def get_raw_ljspeech_dataset_group(sample_rate, create_alias_with_prefix=None):
+def get_raw_ljspeech_dataset_group(sample_rate, alias_path=None):
     """
     Uses fixed shuffling and fixed sizes for dev (600) and train (12500) to have a standardized LJSpeech corpus
 
     No oggzip is added.
 
     :param int sample_rate: 16000 or 22050
-    :param str create_alias_with_prefix:
+    :param str alias_path:
     :return: a dataset group with the "raw" corpus divided into "ljspeech-dev" and "ljspeech-train"
     :rtype: DatasetGroup
     """
     corpus_object = None
     if sample_rate == 16000:
-        corpus_object = get_16khz_corpus_object(create_alias_with_prefix)
+        corpus_object = get_16khz_corpus_object(alias_path)
     elif sample_rate == 22050:
-        corpus_object = get_22khz_corpus_object(create_alias_with_prefix)
+        corpus_object = get_22khz_corpus_object(alias_path)
     else:
         assert sample_rate in [16000, 22050]
 
@@ -42,10 +42,13 @@ def get_raw_ljspeech_dataset_group(sample_rate, create_alias_with_prefix=None):
     )
     segment_file = shuffle_segment_file_job.out_segments["ljspeech"]
 
-    dev_segments = HeadJob(segment_file, num_lines=600).out
-    train_segments = TailJob(segment_file, num_lines=12500).out
+    devtest_segments = HeadJob(segment_file, num_lines=1100).out
+    dev_segments = HeadJob(devtest_segments, num_lines=500).out
+    test_segments = TailJob(devtest_segments, num_lines=600).out
+    train_segments = TailJob(segment_file, num_lines=12000).out
 
     dataset_group.add_segmented_dataset("ljspeech-train", "ljspeech", train_segments)
     dataset_group.add_segmented_dataset("ljspeech-dev", "ljspeech", dev_segments)
+    dataset_group.add_segmented_dataset("ljspeech-test", "ljspeech", test_segments)
 
     return dataset_group
