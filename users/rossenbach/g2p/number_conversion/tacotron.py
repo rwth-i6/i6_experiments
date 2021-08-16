@@ -6,9 +6,8 @@ https://github.com/keithito/tacotron/blob/master/text/numbers.py
 
 Commit: 479976b6c532ccb0410f914ee7d2e879d0c7d205
 """
-from sisyphus import Job, Task
 
-from i6_experiments.users.rossenbach.text.common import PythonLineModificationJob
+from i6_experiments.users.rossenbach.text import PythonLineModificationJob
 
 try:
     import inflect

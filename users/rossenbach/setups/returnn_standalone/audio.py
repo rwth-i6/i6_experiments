@@ -1,6 +1,6 @@
 from i6_core.returnn import ReturnnConfig
 from i6_experiments.users.rossenbach.setups.returnn_standalone.datasets import OggZipDataset
-from i6_private.users.rossenbach.returnn.dataset import ExtractDatasetStatisticsJob
+from i6_experiments.users.rossenbach.returnn.dataset import ExtractDatasetStatisticsJob
 
 
 class AudioFeaturesOpts:

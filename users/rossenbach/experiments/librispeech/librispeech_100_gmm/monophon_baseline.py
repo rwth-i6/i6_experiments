@@ -144,7 +144,7 @@ def get_corpus_data_inputs():
         'scale': 10,
     }
     lexicon = {
-        'filename': get_bliss_lexicon(),
+        'filename': get_bliss_lexicon(use_stress_marker=True),
         'normalize_pronunciation': False,
     }
 

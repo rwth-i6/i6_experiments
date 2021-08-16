@@ -11,7 +11,7 @@ from i6_core.corpus.stats import ExtractOovWordsFromCorpusJob
 from i6_core.g2p.train import TrainG2PModelJob
 from i6_core.g2p.apply import ApplyG2PModelJob
 from i6_core.g2p.convert import G2POutputToBlissLexiconJob
-from i6_core.lexicon.cmu import DownloadCMUDictJob, CMUDictToBlissJob
+from i6_core.lexicon.cmu import DownloadCMUDictJob
 from i6_core.lib import lexicon
 from i6_core.text import PipelineJob
 from i6_core.lexicon.conversion import LexiconFromTextFileJob
