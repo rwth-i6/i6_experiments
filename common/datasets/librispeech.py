@@ -1,5 +1,5 @@
 """
-This file contains helper functions for the (common) pipeline steps needed to use the LibriSpeech corpus.
+This module contains helper functions for the (common) pipeline steps needed to use the LibriSpeech corpus.
 It will download and convert the corpus parts that are used in later steps.
 (and ONLY those, no unneeded corpus jobs will be registered as output)
 
@@ -23,6 +23,13 @@ Available language models can be accessed with ``get_arpa_lm_dict``:
  - "3gram" for the non-pruned 3-gram LM
  - "4gram" for the non-pruned 4-gram LM
 
+The available lexicas can be accessed with:
+ - ``get_bliss_lexicon()`` which returns the original lexicon from OpenSLR, optionally as "folded" version
+   with the stress markers removed. Use this lexicon for recognition,
+   as otherwise there will be a mismatch with the LM vocabualry.
+ - ``get_g2p_augmented_bliss_lexicon_dict()`` which returns a lexicon including the OOVs for the specific training
+   dataset. This should be used for training over the "vanilla" lexicon.
+
 If you want to use other subsets (especially with .ogg zips),
 please consider to use segment lists to avoid creating new corpus files.
 
@@ -32,6 +39,7 @@ For i6-users: physical jobs generated via the "export" functions
 are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
 """
 import os
+from functools import lru_cache
 
 from sisyphus import tk
 
@@ -65,6 +73,7 @@ durations["train-other-960"] = (
 )
 
 
+@lru_cache()
 def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
@@ -102,10 +111,10 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
             speaker_metadata=download_metadata_job.out_speakers,
         )
         download_corpus_job.add_alias(
-            os.path.join(subdir_prefix, "download_job", corpus_name)
+            os.path.join(subdir_prefix, "download", corpus_name)
         )
         create_bliss_corpus_job.add_alias(
-            os.path.join(subdir_prefix, "create_bliss_job", corpus_name)
+            os.path.join(subdir_prefix, "create_bliss", corpus_name)
         )
         return create_bliss_corpus_job.out_corpus
 
@@ -157,7 +166,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
             bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
         )
         merge_job.add_alias(
-            os.path.join(subdir_prefix, "%s_merge_job" % audio_format, name)
+            os.path.join(subdir_prefix, "%s_merge" % audio_format, name)
         )
         return merge_job.out_merged_corpus
 
@@ -181,6 +190,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
     return converted_bliss_corpus_dict
 
 
+@lru_cache()
 def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
@@ -220,6 +230,7 @@ def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
     return corpus_object_dict
 
 
+@lru_cache()
 def get_ogg_zip_dict(subdir_prefix=""):
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
@@ -255,6 +266,7 @@ def get_ogg_zip_dict(subdir_prefix=""):
     return ogg_zip_dict
 
 
+@lru_cache()
 def get_arpa_lm_dict(subdir_prefix=""):
     """
     Download the ARPA language models from OpenSLR,
@@ -291,6 +303,7 @@ def get_arpa_lm_dict(subdir_prefix=""):
     return lm_dict
 
 
+@lru_cache()
 def get_special_lemma_lexicon():
     """
     Generate the special lemmas for LibriSpeech
@@ -332,6 +345,7 @@ def get_special_lemma_lexicon():
     return lex
 
 
+@lru_cache()
 def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
@@ -349,6 +363,8 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
+    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
+
     static_lexicon = get_special_lemma_lexicon()
     static_lexicon_job = WriteLexiconJob(
         static_lexicon, sort_phonemes=True, sort_lemmata=False
@@ -367,6 +383,7 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
         eliminate_stress_job = PipelineJob(
             text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True
         )
+        eliminate_stress_job.add_alias(os.path.join(alias_path, "remove_stress_marker"))
         text_lexicon = eliminate_stress_job.out
 
     convert_lexicon_job = LexiconFromTextFileJob(
@@ -382,7 +399,6 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
         sort_lemmata=False,
         compressed=True,
     )
-    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
     static_lexicon_job.add_alias(os.path.join(alias_path, "static_lexicon_job"))
     download_lexicon_job.add_alias(os.path.join(alias_path, "download_lexicon_job"))
     convert_lexicon_job.add_alias(
@@ -393,6 +409,7 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     return merge_lexicon_job.out_bliss_lexicon
 
 
+@lru_cache()
 def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=""):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
@@ -404,7 +421,7 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
-    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
+    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
     augmented_bliss_lexica = {}
 
     original_bliss_lexicon = get_bliss_lexicon(
@@ -432,6 +449,7 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=
     return augmented_bliss_lexica
 
 
+@lru_cache()
 def get_lm_vocab(subdir_prefix=""):
     """
     :param str subdir_prefix:
@@ -494,21 +512,39 @@ def _export_lexicon_and_vocab(subdir_prefix):
     """
     :param str subdir_prefix:
     """
+
+    lexicon_subdir_prefix = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
+
+    # folded / without stress marker
     bliss_lexicon = get_bliss_lexicon(
         subdir_prefix=subdir_prefix, use_stress_marker=True
     )
     tk.register_output(
-        os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.folded.xml.gz"),
-        bliss_lexicon,
+        os.path.join(lexicon_subdir_prefix, "librispeech.lexicon.folded.xml.gz"), bliss_lexicon
     )
 
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, subdir_prefix=subdir_prefix)
+    for k, lexicon in g2p_lexicon_dict.items():
+        tk.register_output(
+            os.path.join(lexicon_subdir_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k),
+            lexicon
+        )
+
+    # with stress marker
     bliss_lexicon = get_bliss_lexicon(
         subdir_prefix=subdir_prefix, use_stress_marker=False
     )
     tk.register_output(
-        os.path.join(subdir_prefix, "LibriSpeech", "librispeech.lexicon.xml.gz"),
+        os.path.join(lexicon_subdir_prefix, "librispeech.lexicon.xml.gz"),
         bliss_lexicon,
     )
+
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=subdir_prefix)
+    for k, lexicon in g2p_lexicon_dict.items():
+        tk.register_output(
+            os.path.join(lexicon_subdir_prefix, "%s.lexicon_with_g2p.xml.gz" % k),
+            lexicon
+        )
 
 
 def export_all(subdir_prefix):
