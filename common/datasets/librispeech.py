@@ -74,7 +74,7 @@ durations["train-other-960"] = (
 
 
 @lru_cache()
-def get_bliss_corpus_dict(audio_format="flac", output_prefix=""):
+def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
     and return all corpora as a single corpus dict.
@@ -191,7 +191,7 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix=""):
 
 
 @lru_cache()
-def get_corpus_object_dict(audio_format="flac", output_prefix=""):
+def get_corpus_object_dict(audio_format="flac", output_prefix="datasets"):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
     and return all corpora as a dict of CorpusObjects.
@@ -231,7 +231,7 @@ def get_corpus_object_dict(audio_format="flac", output_prefix=""):
 
 
 @lru_cache()
-def get_ogg_zip_dict(output_prefix=""):
+def get_ogg_zip_dict(output_prefix="datasets"):
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
 
@@ -267,7 +267,7 @@ def get_ogg_zip_dict(output_prefix=""):
 
 
 @lru_cache()
-def get_arpa_lm_dict(output_prefix=""):
+def get_arpa_lm_dict(output_prefix="datasets"):
     """
     Download the ARPA language models from OpenSLR,
     valid keys are: "3gram" and "4gram".
@@ -346,7 +346,7 @@ def get_special_lemma_lexicon():
 
 
 @lru_cache()
-def get_bliss_lexicon(use_stress_marker=False, output_prefix=""):
+def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets"):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
     with special lemmas and the converted official lexicon from OpenSLR
@@ -410,7 +410,7 @@ def get_bliss_lexicon(use_stress_marker=False, output_prefix=""):
 
 
 @lru_cache()
-def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=""):
+def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets"):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
     out of vocabulary (OOV) words for each of the LibriSpeech training corpora. Here, we create a dictionary
@@ -450,7 +450,7 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=
 
 
 @lru_cache()
-def get_lm_vocab(output_prefix=""):
+def get_lm_vocab(output_prefix="datasets"):
     """
     :param str output_prefix:
     :return: Path to LibriSpeech vocab file (one word per line)
@@ -551,7 +551,7 @@ def export_all(output_prefix):
     """
     Registers all LibriSpeech related data as output.
 
-    For internal i6 purposes only:
+    For internal i6 purposes only, as this will create all jobs no matter if they are actually needed:
 
     physical jobs are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
 
