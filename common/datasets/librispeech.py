@@ -146,7 +146,7 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
             bliss_change_encoding_job = BlissChangeEncodingJob(
                 corpus_file=flac_corpus,
                 sample_rate=16000,
-                **audio_format_options[audio_format]
+                **audio_format_options[audio_format],
             )
             bliss_change_encoding_job.add_alias(
                 os.path.join(
@@ -363,7 +363,11 @@ def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets"):
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
-    alias_path = os.path.join(output_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
+    alias_path = os.path.join(
+        output_prefix,
+        "LibriSpeech",
+        "%s_lexicon" % ("regular" if use_stress_marker else "folded"),
+    )
 
     static_lexicon = get_special_lemma_lexicon()
     static_lexicon_job = WriteLexiconJob(
@@ -410,7 +414,9 @@ def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets"):
 
 
 @lru_cache()
-def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix="datasets"):
+def get_g2p_augmented_bliss_lexicon_dict(
+    use_stress_marker=False, output_prefix="datasets"
+):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
     out of vocabulary (OOV) words for each of the LibriSpeech training corpora. Here, we create a dictionary
@@ -421,7 +427,11 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
-    alias_path = os.path.join(output_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
+    alias_path = os.path.join(
+        output_prefix,
+        "LibriSpeech",
+        "%s_lexicon" % ("regular" if use_stress_marker else "folded"),
+    )
     augmented_bliss_lexica = {}
 
     original_bliss_lexicon = get_bliss_lexicon(
@@ -520,14 +530,19 @@ def _export_lexicon_and_vocab(output_prefix):
         output_prefix=output_prefix, use_stress_marker=True
     )
     tk.register_output(
-        os.path.join(lexicon_output_prefix, "librispeech.lexicon.folded.xml.gz"), bliss_lexicon
+        os.path.join(lexicon_output_prefix, "librispeech.lexicon.folded.xml.gz"),
+        bliss_lexicon,
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, output_prefix=output_prefix)
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(
+        use_stress_marker=True, output_prefix=output_prefix
+    )
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
-            os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k),
-            lexicon
+            os.path.join(
+                lexicon_output_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k
+            ),
+            lexicon,
         )
 
     # with stress marker
@@ -539,11 +554,13 @@ def _export_lexicon_and_vocab(output_prefix):
         bliss_lexicon,
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=output_prefix)
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(
+        use_stress_marker=False, output_prefix=output_prefix
+    )
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
             os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.xml.gz" % k),
-            lexicon
+            lexicon,
         )
 
 

@@ -61,7 +61,9 @@ class G2PBasedOovAugmenter:
         g2p_train_job = TrainG2PModelJob(
             g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon, **self.train_args
         )
-        g2p_lexicon_job.add_alias(os.path.join(alias_path, "convert_bliss_lexicon_to_g2p_lexicon"))
+        g2p_lexicon_job.add_alias(
+            os.path.join(alias_path, "convert_bliss_lexicon_to_g2p_lexicon")
+        )
         g2p_train_job.add_alias(os.path.join(alias_path, "train_g2p_model"))
         self.g2p_model_path = g2p_train_job.out_best_model
 
