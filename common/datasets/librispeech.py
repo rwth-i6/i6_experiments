@@ -33,7 +33,7 @@ The available lexicas can be accessed with:
 If you want to use other subsets (especially with .ogg zips),
 please consider to use segment lists to avoid creating new corpus files.
 
-All alias and output paths will be under: ``<subdir_prefix>/LibriSpeech/....``
+All alias and output paths will be under: ``<output_prefix>/LibriSpeech/....``
 
 For i6-users: physical jobs generated via the "export" functions
 are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
@@ -74,7 +74,7 @@ durations["train-other-960"] = (
 
 
 @lru_cache()
-def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
+def get_bliss_corpus_dict(audio_format="flac", output_prefix=""):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
     and return all corpora as a single corpus dict.
@@ -82,7 +82,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
     No outputs will be registered.
 
     :param str audio_format: flac (no re-encoding), wav or ogg
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: A corpus dict with the following entries:
         - 'dev-clean'
         - 'dev-other'
@@ -97,11 +97,11 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
     """
     assert audio_format in ["flac", "ogg", "wav"]
 
-    subdir_prefix = os.path.join(subdir_prefix, "LibriSpeech")
+    output_prefix = os.path.join(output_prefix, "LibriSpeech")
 
     download_metadata_job = DownloadLibriSpeechMetadataJob()
     download_metadata_job.add_alias(
-        os.path.join(subdir_prefix, "download", "metadata_job")
+        os.path.join(output_prefix, "download", "metadata_job")
     )
 
     def _get_corpus(corpus_name):
@@ -111,10 +111,10 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
             speaker_metadata=download_metadata_job.out_speakers,
         )
         download_corpus_job.add_alias(
-            os.path.join(subdir_prefix, "download", corpus_name)
+            os.path.join(output_prefix, "download", corpus_name)
         )
         create_bliss_corpus_job.add_alias(
-            os.path.join(subdir_prefix, "create_bliss", corpus_name)
+            os.path.join(output_prefix, "create_bliss", corpus_name)
         )
         return create_bliss_corpus_job.out_corpus
 
@@ -150,7 +150,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
             )
             bliss_change_encoding_job.add_alias(
                 os.path.join(
-                    subdir_prefix,
+                    output_prefix,
                     "%s_conversion" % audio_format,
                     corpus_name,
                 )
@@ -166,7 +166,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
             bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
         )
         merge_job.add_alias(
-            os.path.join(subdir_prefix, "%s_merge" % audio_format, name)
+            os.path.join(output_prefix, "%s_merge" % audio_format, name)
         )
         return merge_job.out_merged_corpus
 
@@ -191,7 +191,7 @@ def get_bliss_corpus_dict(audio_format="flac", subdir_prefix=""):
 
 
 @lru_cache()
-def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
+def get_corpus_object_dict(audio_format="flac", output_prefix=""):
     """
     Download and create a bliss corpus for each of the LibriSpeech training corpora and test sets,
     and return all corpora as a dict of CorpusObjects.
@@ -199,7 +199,7 @@ def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
     No outputs will be registered.
 
     :param str audio_format: flac (no re-encoding), wav or ogg
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: A corpus dict with the following entries:
         - 'dev-clean'
         - 'dev-other'
@@ -213,7 +213,7 @@ def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
     :rtype: dict[str, CorpusObject]
     """
     bliss_corpus_dict = get_bliss_corpus_dict(
-        audio_format=audio_format, subdir_prefix=subdir_prefix
+        audio_format=audio_format, output_prefix=output_prefix
     )
 
     corpus_object_dict = {}
@@ -231,13 +231,13 @@ def get_corpus_object_dict(audio_format="flac", subdir_prefix=""):
 
 
 @lru_cache()
-def get_ogg_zip_dict(subdir_prefix=""):
+def get_ogg_zip_dict(output_prefix=""):
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
 
     No outputs will be registered.
 
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: dictionary with ogg zip paths for:
         - 'dev-clean'
         - 'dev-other'
@@ -254,12 +254,12 @@ def get_ogg_zip_dict(subdir_prefix=""):
 
     ogg_zip_dict = {}
     bliss_corpus_dict = get_bliss_corpus_dict(
-        audio_format="ogg", subdir_prefix=subdir_prefix
+        audio_format="ogg", output_prefix=output_prefix
     )
     for name, bliss_corpus in bliss_corpus_dict.items():
         ogg_zip_job = BlissToOggZipJob(bliss_corpus, no_conversion=True)
         ogg_zip_job.add_alias(
-            os.path.join(subdir_prefix, "LibriSpeech", "%s_ogg_zip_job" % name)
+            os.path.join(output_prefix, "LibriSpeech", "%s_ogg_zip_job" % name)
         )
         ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
 
@@ -267,12 +267,12 @@ def get_ogg_zip_dict(subdir_prefix=""):
 
 
 @lru_cache()
-def get_arpa_lm_dict(subdir_prefix=""):
+def get_arpa_lm_dict(output_prefix=""):
     """
     Download the ARPA language models from OpenSLR,
     valid keys are: "3gram" and "4gram".
 
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: A dictionary with Paths to the arpa lm files
     :rtype: dict[str, Path]
     """
@@ -292,7 +292,7 @@ def get_arpa_lm_dict(subdir_prefix=""):
     )
     lm_dict["3gram"] = download_arpa_3gram_lm_job.out_file
 
-    lm_prefix = os.path.join(subdir_prefix, "LibriSpeech", "lm")
+    lm_prefix = os.path.join(output_prefix, "LibriSpeech", "lm")
     download_arpa_3gram_lm_job.add_alias(
         os.path.join(lm_prefix, "download_3gram_lm_job")
     )
@@ -346,7 +346,7 @@ def get_special_lemma_lexicon():
 
 
 @lru_cache()
-def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
+def get_bliss_lexicon(use_stress_marker=False, output_prefix=""):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
     with special lemmas and the converted official lexicon from OpenSLR
@@ -359,11 +359,11 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
     the phoneme inventory is reduced from to 42 phonemes.
 
     :param bool use_stress_marker:
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
     """
-    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
+    alias_path = os.path.join(output_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
 
     static_lexicon = get_special_lemma_lexicon()
     static_lexicon_job = WriteLexiconJob(
@@ -410,26 +410,26 @@ def get_bliss_lexicon(use_stress_marker=False, subdir_prefix=""):
 
 
 @lru_cache()
-def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=""):
+def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=""):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
     out of vocabulary (OOV) words for each of the LibriSpeech training corpora. Here, we create a dictionary
     that has different train corpora as keys and the corresponding g2p augmented bliss lexicon as values
 
     :param bool use_stress_marker: uses phoneme symbols with stress markers
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
-    alias_path = os.path.join(subdir_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
+    alias_path = os.path.join(output_prefix, "LibriSpeech", "%s_lexicon" % ("regular" if use_stress_marker else "folded"))
     augmented_bliss_lexica = {}
 
     original_bliss_lexicon = get_bliss_lexicon(
-        use_stress_marker=use_stress_marker, subdir_prefix=subdir_prefix
+        use_stress_marker=use_stress_marker, output_prefix=output_prefix
     )
     current_bliss_lexicon = original_bliss_lexicon
 
-    bliss_corpus_dict = get_bliss_corpus_dict(subdir_prefix=subdir_prefix)
+    bliss_corpus_dict = get_bliss_corpus_dict(output_prefix=output_prefix)
     for corpus_name, bliss_corpus in sorted(bliss_corpus_dict.items()):
         if "train" in corpus_name:
             if corpus_name in ["train-clean-460", "train-other-960"]:
@@ -450,9 +450,9 @@ def get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=
 
 
 @lru_cache()
-def get_lm_vocab(subdir_prefix=""):
+def get_lm_vocab(output_prefix=""):
     """
-    :param str subdir_prefix:
+    :param str output_prefix:
     :return: Path to LibriSpeech vocab file (one word per line)
     :rtype: Path
     """
@@ -462,92 +462,92 @@ def get_lm_vocab(subdir_prefix=""):
         checksum="3014e72dffff09cb1a9657f31cfe2e04c1301610a6127a807d1d708b986b5474",
     )
     download_lm_vocab_job.add_alias(
-        os.path.join(subdir_prefix, "LibriSpeech", "download_lm_vocab_job")
+        os.path.join(output_prefix, "LibriSpeech", "download_lm_vocab_job")
     )
     return download_lm_vocab_job.out_file
 
 
-def _export_datasets(subdir_prefix):
+def _export_datasets(output_prefix):
     """
-    :param str subdir_prefix:
+    :param str output_prefix:
     """
 
     # export all bliss corpora
     for audio_format in ["flac", "ogg", "wav"]:
         bliss_corpus_dict = get_bliss_corpus_dict(
-            audio_format=audio_format, subdir_prefix=subdir_prefix
+            audio_format=audio_format, output_prefix=output_prefix
         )
         for name, bliss_corpus in bliss_corpus_dict.items():
             tk.register_output(
                 os.path.join(
-                    subdir_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)
+                    output_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)
                 ),
                 bliss_corpus,
             )
 
     # export all ogg zip corpora
-    ogg_corpus_dict = get_ogg_zip_dict(subdir_prefix=subdir_prefix)
+    ogg_corpus_dict = get_ogg_zip_dict(output_prefix=output_prefix)
     for name, ogg_corpus in ogg_corpus_dict.items():
         tk.register_output(
-            os.path.join(subdir_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus
+            os.path.join(output_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus
         )
 
 
-def _export_lm_data(subdir_prefix):
+def _export_lm_data(output_prefix):
     """
-    :param str subdir_prefix:
+    :param str output_prefix:
     """
-    lm_dict = get_arpa_lm_dict(subdir_prefix=subdir_prefix)
+    lm_dict = get_arpa_lm_dict(output_prefix=output_prefix)
     tk.register_output(
-        os.path.join(subdir_prefix, "LibriSpeech", "lm", "3-gram.arpa.gz"),
+        os.path.join(output_prefix, "LibriSpeech", "lm", "3-gram.arpa.gz"),
         lm_dict["3gram"],
     )
     tk.register_output(
-        os.path.join(subdir_prefix, "LibriSpeech", "lm", "4-gram.arpa.gz"),
+        os.path.join(output_prefix, "LibriSpeech", "lm", "4-gram.arpa.gz"),
         lm_dict["4gram"],
     )
 
 
-def _export_lexicon_and_vocab(subdir_prefix):
+def _export_lexicon_and_vocab(output_prefix):
     """
-    :param str subdir_prefix:
+    :param str output_prefix:
     """
 
-    lexicon_subdir_prefix = os.path.join(subdir_prefix, "LibriSpeech", "lexicon")
+    lexicon_output_prefix = os.path.join(output_prefix, "LibriSpeech", "lexicon")
 
     # folded / without stress marker
     bliss_lexicon = get_bliss_lexicon(
-        subdir_prefix=subdir_prefix, use_stress_marker=True
+        output_prefix=output_prefix, use_stress_marker=True
     )
     tk.register_output(
-        os.path.join(lexicon_subdir_prefix, "librispeech.lexicon.folded.xml.gz"), bliss_lexicon
+        os.path.join(lexicon_output_prefix, "librispeech.lexicon.folded.xml.gz"), bliss_lexicon
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, subdir_prefix=subdir_prefix)
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, output_prefix=output_prefix)
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
-            os.path.join(lexicon_subdir_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k),
+            os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k),
             lexicon
         )
 
     # with stress marker
     bliss_lexicon = get_bliss_lexicon(
-        subdir_prefix=subdir_prefix, use_stress_marker=False
+        output_prefix=output_prefix, use_stress_marker=False
     )
     tk.register_output(
-        os.path.join(lexicon_subdir_prefix, "librispeech.lexicon.xml.gz"),
+        os.path.join(lexicon_output_prefix, "librispeech.lexicon.xml.gz"),
         bliss_lexicon,
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, subdir_prefix=subdir_prefix)
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=output_prefix)
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
-            os.path.join(lexicon_subdir_prefix, "%s.lexicon_with_g2p.xml.gz" % k),
+            os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.xml.gz" % k),
             lexicon
         )
 
 
-def export_all(subdir_prefix):
+def export_all(output_prefix):
     """
     Registers all LibriSpeech related data as output.
 
@@ -555,8 +555,8 @@ def export_all(subdir_prefix):
 
     physical jobs are located in: `/work/common/asr/librispeech/data/sisyphus_work_dir/`
 
-    :param str subdir_prefix:
+    :param str output_prefix:
     """
-    _export_datasets(subdir_prefix)
-    _export_lm_data(subdir_prefix)
-    _export_lexicon_and_vocab(subdir_prefix)
+    _export_datasets(output_prefix)
+    _export_lm_data(output_prefix)
+    _export_lexicon_and_vocab(output_prefix)
