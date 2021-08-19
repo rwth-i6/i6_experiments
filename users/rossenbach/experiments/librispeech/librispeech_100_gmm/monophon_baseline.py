@@ -136,7 +136,7 @@ def get_corpus_data_inputs():
     :return:
     """
 
-    corpus_object_dict = get_corpus_object_dict(audio_format="wav", subdir_prefix="corpora")
+    corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
 
     lm = {
         "filename": get_arpa_lm_dict()['4gram'],
