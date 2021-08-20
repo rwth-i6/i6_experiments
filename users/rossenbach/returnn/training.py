@@ -80,16 +80,29 @@ class GetBestCheckpointJob(GetBestEpochJob):
     def run(self):
         super().run()
 
-        shutil.copy(
+        os.link(
             os.path.join(self.model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get())
+        )
+        os.link(
+            os.path.join(self.model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get())
+        )
+        os.link(
+            os.path.join(self.model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get())
+        )
+
+        os.symlink(
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),
             os.path.join(self._out_model_dir.get_path(), "checkpoint.index")
         )
-        shutil.copy(
-            os.path.join(self.model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
+        os.symlink(
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
             os.path.join(self._out_model_dir.get_path(), "checkpoint.meta")
         )
-        shutil.copy(
-            os.path.join(self.model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
+        os.symlink(
+            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
             os.path.join(self._out_model_dir.get_path(), "checkpoint.data-00000-of-00001")
         )
 

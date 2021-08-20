@@ -6,7 +6,7 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.bpe import get_bp
 
 
 @lru_cache()
-def get_librispeech_100h_bpe(bpe_size, unk_label="UNK", output_prefix=""):
+def get_librispeech_100h_bpe(bpe_size, unk_label="<unk>", output_prefix=""):
     """
 
     :param int bpe_size:
