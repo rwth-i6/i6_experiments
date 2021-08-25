@@ -32,16 +32,6 @@ def get_static_lexicon():
     """
     lex = lexicon.Lexicon()
 
-    # def add_punctuation_lemma(lex, symbol):
-    #     lex.add_lemma(
-    #         lexicon.Lemma(
-    #             orth=[symbol],
-    #             phon=[symbol],
-    #             synt=[symbol],
-    #         )
-    #     )
-    #     lex.add_phoneme(symbol, variation="none")
-
     lex.add_lemma(
         lexicon.Lemma(orth=["[space]"], phon=["[space]"])
     )

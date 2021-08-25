@@ -1,5 +1,5 @@
 """
-This is a test setup for RETURNN standalone ASR system
+This package contains setup helpers for all RETURNN standalone systems (for now E2E-ASR and TTS)
 
 Currently under construction
 """
