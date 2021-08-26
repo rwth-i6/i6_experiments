@@ -9,14 +9,16 @@ from i6_core.util import uopen
 class ReturnnVocabFromBlissLexicon(Job):
     """
     Create a pickled vocab for RETURNN based on the phoneme-inventory of a bliss lexicon
-    """
 
+    Outputs:
+
+    tk.Path out_vocab: path to the pickled returnn vocabulary (``vocab.pkl``)
+    tk.Variable out_vocab_size: integer variable containing the vocabulary size (``vocab_length``)
+    """
     def __init__(self, bliss_lexicon):
         """
-
-        :param tk.Path bliss_lexicon:
+        :param tk.Path bliss_lexicon: a bliss lexicon xml file
         """
-
         self.bliss_lexicon = bliss_lexicon
 
         self.out_vocab = self.output_path("vocab.pkl")
