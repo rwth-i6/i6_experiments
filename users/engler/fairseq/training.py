@@ -93,7 +93,7 @@ class FairseqHydraTrainingJob(Job):
             tk.uncached_path(self.fairseq_python_exe),
             tk.uncached_path(self.fairseq_hydra_exe),
             "--config-dir",
-            tk.uncached_path(self.output_path("")),
+            os.path.dirname(self.out_returnn_config_file.get_path()),
             "--config-name",
             self.yaml_config_name,
         ]
