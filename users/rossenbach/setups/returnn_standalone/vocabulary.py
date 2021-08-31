@@ -82,3 +82,36 @@ class BpeDatastream(VocabularyDatastream):
             opts['seq_postfix'] = [self.seq_postfix]
         return opts
 
+
+class SentencePieceDatastream():
+    """
+
+    """
+    def __init__(
+            self,
+            available_for_inference,
+            spm_model,
+            vocab_size
+    ):
+        self.available_for_inference = available_for_inference
+        self.vocab_size = vocab_size
+        self.spm_model = spm_model
+
+    def as_returnn_data_opts(self, **kwargs):
+        """
+        :param tk.Variable|int vocab_size: number of labels
+        :rtype: dict[str]
+        """
+        d = {
+            'shape': (None,), 'dim': self.vocab_size, 'sparse': True,
+            'available_for_inference': self.available_for_inference
+        }
+        d.update(kwargs)
+        return d
+
+    def as_returnn_targets_opts(self):
+        opts = {
+            'class': 'SentencePieces',
+            'model_file': self.spm_model,
+        }
+        return opts
