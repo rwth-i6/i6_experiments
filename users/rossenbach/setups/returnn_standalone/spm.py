@@ -24,7 +24,7 @@ def get_spm_settings(bliss_corpus, vocab_size, model_type, **opts):
     :return:
     """
 
-    text = CorpusToTxtJob(bliss_corpus, gzip=False).out_text
+    text = CorpusToTxtJob(bliss_corpus, gzip=False).out_txt
     train_job = TrainSentencePiece(
         training_text=text,
         vocab_size=vocab_size,

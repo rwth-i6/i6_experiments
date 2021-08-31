@@ -83,7 +83,7 @@ class BpeDatastream(VocabularyDatastream):
         return opts
 
 
-class SentencePieceDatastream():
+class SentencePieceDatastream:
     """
 
     """
