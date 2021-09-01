@@ -1,15 +1,16 @@
 from enum import Enum
 from typing import *
+import shutil
 import subprocess
 
 from sisyphus import *
 
 
 class SentencePieceType(Enum):
-    UNIGRAM = "unigram",
-    BPE = "bpe",
-    CHAR = "char",
-    WORD = "word",
+    UNIGRAM = "unigram"
+    BPE = "bpe"
+    CHAR = "char"
+    WORD = "word"
 
 
 class TrainSentencePiece(Job):
@@ -58,6 +59,8 @@ class TrainSentencePiece(Job):
 
         #processor = sentencepiece.SentencePieceProcessor(model_file=training_text_path)
         #self.out_vocab_size.set(processor.vocab_size())
+
+        shutil.copy("spm_out.model", self.out_model.get_path())
 
         self.out_vocab_size.set(self.vocab_size)
 

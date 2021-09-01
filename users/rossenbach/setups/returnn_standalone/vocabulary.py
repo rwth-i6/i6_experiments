@@ -113,5 +113,6 @@ class SentencePieceDatastream:
         opts = {
             'class': 'SentencePieces',
             'model_file': self.spm_model,
+            'add_eos': True,
         }
         return opts
