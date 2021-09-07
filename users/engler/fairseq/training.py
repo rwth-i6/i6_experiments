@@ -40,6 +40,9 @@ class FairseqHydraTrainingJob(Job):
         fairseq_hydra_config,
         *,  # args below are keyword only
         command_line_args=None,
+        max_epoch=1,
+        save_interval=1,
+        keep_epochs=None,
         time_rqmt=4,
         mem_rqmt=4,
         cpu_rqmt=2,
@@ -50,6 +53,9 @@ class FairseqHydraTrainingJob(Job):
         """
         :param FairseqHydraConfig fairseq_hydra_config:
         :param list command_line_args: Additional command line arguments (starting with "--*") to configure the Fairseq-hydra task
+        :param int max_epoch: maximum number of epochs to run. Note that this value IS currently HASHED.
+        :param int save_interval: save a checkpoint each n-th epoch
+        :param list[int]|set[int]|None keep_epochs: specify which checkpoints are kept in self.out_models, use None for each save_interval-th epoch
         :param int|float time_rqmt: Overall time requirements
         :param int|float mem_rqmt: Memory requirements (per GPU)
         :param int cpu_rqmt: Required number of CPUs (per GPU)
@@ -60,14 +66,29 @@ class FairseqHydraTrainingJob(Job):
         """
         self.fairseq_hydra_config = fairseq_hydra_config
         self.command_line_args = command_line_args or []
+
+        stored_epochs = list(range(save_interval, max_epoch, save_interval)) + [
+            max_epoch
+        ]
+        if keep_epochs is None:
+            self.keep_epochs = set(stored_epochs)
+        else:
+            self.keep_epochs = set(keep_epochs)
+        self.max_epoch = max_epoch
+        self.save_interval = save_interval
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
         self.out_checkpoint_dir = self.output_path("checkpoints", directory=True)
+        self.out_models = {
+            k: str(self.out_checkpoint_dir) + "/checkpoint{}.pt".format(k)
+            for k in stored_epochs
+            if k in self.keep_epochs
+        }
+
         self.gpu_rqmt = gpu_rqmt
         self.fairseq_python_exe = fairseq_python_exe
         self.fairseq_hydra_exe = (
             fairseq_hydra_exe if fairseq_hydra_exe is not None else gs.FAIRSEQ_HYDRA_EXE
         )
-
         self.rqmt = {
             "gpu": gpu_rqmt,
             "cpu": cpu_rqmt,
@@ -100,6 +121,8 @@ class FairseqHydraTrainingJob(Job):
         ]
         run_cmd += self.command_line_args
         run_cmd += ["checkpoint.save_dir=" + str(self.out_checkpoint_dir)]
+        run_cmd += ["checkpoint.save_interval=" + str(self.save_interval)]
+        run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
         if self.fairseq_python_exe is not None:
-            run_cmd.insert(0,tk.uncached_path(self.fairseq_python_exe))
+            run_cmd.insert(0, tk.uncached_path(self.fairseq_python_exe))
         return run_cmd
