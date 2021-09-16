@@ -66,7 +66,8 @@ class MetaDataset(GenericDataset):
 
     def __init__(self, data_map, datasets, seq_order_control_dataset, other_opts=None):
         """
-        :param list[tuple(str, str)] data_map:
+        :param dict[str, tuple(str, str)] data_map: datastream -> (dataset_name, datastream),
+            mappings of the datastream of specific datasets to a global datastream identifier
         :param dict[str, Union[dict, GenericDataset]] datasets:
         :param str seq_order_control_dataset:
         :param dict other_opts:
