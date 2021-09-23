@@ -1,10 +1,8 @@
-import copy
 import time
 
 from sisyphus import gs, tk, Path
 
 from i6_core.features.filterbank import filter_width_from_channels
-from i6_core.corpus.stats import ExtractOovWordsFromCorpusJob
 
 from i6_experiments.common.setups.hybrid.util import RasrInitArgs, RasrDataInput
 from i6_experiments.common.setups.hybrid import gmm_system
@@ -181,7 +179,7 @@ def run_baseline_training():
 
     train, dev, test = get_corpus_data_inputs()
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = 'GMM-Mono-New-Baseline'
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_gmm/GMM-Mono-New-Baseline'
     system = gmm_system.GmmSystem()
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(),
@@ -197,23 +195,20 @@ def run_baseline_training():
     start = time.time()
     system.run(["extract", "mono"])
     print("run took: %.1f" % (time.time()-start))
-
-
-    # gs.ALIAS_AND_OUTPUT_SUBDIR = 'GMM-Mono-Old-Baseline'
-    # system = gmm_system.GmmSystem()
-    # mono_args = get_monophone_args()
-    # mono_args.monophone_recognition_args['lm_scale'] = 7.0
-    # mono_args.monophone_recognition_args['search_parameters']['beam-pruning'] = 16.0
-    # mono_args.monophone_recognition_args['rtf'] = 20
-    # system.init_system(hybrid_init_args=get_init_args(),
-    #                gmm_monophone_args=mono_args,
-    #                gmm_triphone_args=None,
-    #                gmm_vtln_args=None,
-    #                gmm_sat_args=None,
-    #                gmm_vtln_sat_args=None,
-    #                train_data=train,
-    #                dev_data=dev,
-    #                test_data=test)
-    # system.run(["extract", "mono"])
     gs.ALIAS_AND_OUTPUT_SUBDIR = ''
+
+    return system
+
+monophone_aligner_system = None
+
+def get_monophone_aligner_system():
+    """
+    :return: default moinophone GMM baseline system for aligning librispeech
+    :rtype: gmm_system.GmmSystem
+    """
+    global monophone_aligner_system
+    if monophone_aligner_system is None:
+        monophone_aligner_system = run_baseline_training()
+    return monophone_aligner_system
+
 

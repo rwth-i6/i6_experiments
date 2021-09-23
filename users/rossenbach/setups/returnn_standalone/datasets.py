@@ -21,7 +21,10 @@ class OggZipDataset(GenericDataset):
         :param List[Path|str]|Path|str path: ogg zip files path
         :param dict[str]|None audio_opts: used to for feature extraction
         :param dict[str]|None target_opts: used to create target labels
+        :param int|None subset: only use a subset of random N sequences
         :param int|None partition_epoch: set explicitly here otherwise it is set to 1 later
+        :param Path|None segment_file: path to a line based segment file
+        :param str|None seq_ordering: sequence ordering mode definition
         :param dict[str]|None other_opts: other opts for OggZipDataset RETURNN class
         """
         self.path = path
