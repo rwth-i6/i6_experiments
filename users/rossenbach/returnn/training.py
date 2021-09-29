@@ -12,6 +12,9 @@ class GetBestEpochJob(Job):
     Provided a RETURNN model directory and an optional score key, finds the best epoch.
     The sorting is lower=better, so to acces the model with the highest values use negative index values (e.g. -1 for
     the model with the highest score)
+
+    If no key is provided, will search for a key prefixed with "dev_score_output", and default to the first key
+    starting with "dev_score" otherwise.
     """
 
     def __init__(self, model_dir, learning_rates, index=0, key=None):
@@ -42,13 +45,18 @@ class GetBestEpochJob(Job):
 
         epochs = list(sorted(data.keys()))
 
+        error_key = None
         if self.key == None:
             dev_score_keys = [k for k in data[epochs[-1]]['error'] if k.startswith('dev_score')]
-            dsk = dev_score_keys[0]
+            for key in dev_score_keys:
+                if key.startswith("dev_score_output"):
+                    error_key = key
+            if not error_key:
+                error_key = dev_score_keys[0]
         else:
-            dsk = self.key
+            error_key = self.key
 
-        scores = [(epoch, data[epoch]['error'][dsk]) for epoch in epochs if dsk in data[epoch]['error']]
+        scores = [(epoch, data[epoch]['error'][error_key]) for epoch in epochs if error_key in data[epoch]['error']]
         sorted_scores = list(sorted(scores, key=lambda x: x[1]))
 
         self.out_epoch.set(sorted_scores[self.index][0])
@@ -85,18 +93,34 @@ class GetBestCheckpointJob(GetBestEpochJob):
     def run(self):
         super().run()
 
-        os.link(
-            os.path.join(self.model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),
-            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get())
-        )
-        os.link(
-            os.path.join(self.model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
-            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get())
-        )
-        os.link(
-            os.path.join(self.model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
-            os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get())
-        )
+        try:
+            os.link(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get())
+            )
+            os.link(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get())
+            )
+            os.link(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get())
+            )
+        except OSError:
+            # the hardlink will fail when there was an imported job on a different filesystem,
+            # thus do a copy instead then
+            shutil.copy(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get())
+            )
+            shutil.copy(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.meta" % self.out_epoch.get())
+            )
+            shutil.copy(
+                os.path.join(self.model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get()),
+                os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.data-00000-of-00001" % self.out_epoch.get())
+            )
 
         os.symlink(
             os.path.join(self._out_model_dir.get_path(), "epoch.%.3d.index" % self.out_epoch.get()),

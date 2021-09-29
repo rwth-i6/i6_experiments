@@ -3,3 +3,4 @@ This package contains setup helpers for all RETURNN standalone systems (for now 
 
 Currently under construction
 """
+from . import data
