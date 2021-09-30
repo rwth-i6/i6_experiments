@@ -3,6 +3,8 @@ import os
 import pprint
 import string
 
+from sisyphus.hash import sis_hash_helper
+
 from i6_core.returnn.config import ReturnnConfig, instanciate_delayed
 
 
@@ -97,7 +99,7 @@ class ExtendedReturnnConfig(ReturnnConfig):
         python_prolog_code = self._parse_python(self.python_prolog)
         python_epilog_code = self._parse_python(self.python_epilog)
 
-        get_network_string = "def get_network(epoch, **kwargs):\n"
+        get_network_string = "\ndef get_network(epoch, **kwargs):\n"
         get_network_string += "  from networks import networks_dict\n"
         get_network_string += "  while(True):\n"
         get_network_string += "    if epoch in networks_dict:\n"
@@ -120,3 +122,12 @@ class ExtendedReturnnConfig(ReturnnConfig):
             }
         )
         return python_code
+
+    def _sis_hash(self):
+        h = {
+            "returnn_config": self.config,
+            "python_epilog_hash": self.python_epilog_hash,
+            "python_prolog_hash": self.python_prolog_hash,
+            "returnn_networks": self.staged_network_dict,
+        }
+        return sis_hash_helper(h)

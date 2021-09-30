@@ -1,6 +1,6 @@
 from typing import Union, Optional, Tuple, List, Dict, Any
 
-from returnn_common.models.base import LayerRef, Module, LayerDictRaw, get_root_extern_data, get_extern_data
+from returnn_common.models.base import LayerRef, Module, LayerDictRaw, get_root_extern_data, get_extern_data, get_special_layer
 import returnn_common.models._generated_layers as layers
 from returnn.util.basic import NotSpecified
 
@@ -9,7 +9,7 @@ from .specaugment_clean import SpecAugmentBlock
 
 class Encoder2DConvBlock(Module):
 
-    def __init__(self, l2=1e-07, dropout=0.5, act='relu', filter_sizes=[(3, 3)],
+    def __init__(self, l2=1e-07, dropout=0.3, act='relu', filter_sizes=[(3, 3)],
                  pool_sizes=[(1, 2)], channel_sizes=[32], padding='same'):
         super().__init__()
         self.split_feature_layer = layers.SplitDims(axis="F", dims=(-1, 1))
@@ -21,6 +21,7 @@ class Encoder2DConvBlock(Module):
                 l2=l2, activation=act, filter_size=filter_size, n_out=channel_size, padding=padding))
             self.pool_layers.append(layers.Pool(pool_size=pool_size, padding='same', mode="max"))
         self.dropout = layers.Dropout(dropout=dropout)
+        self.merge_features_layer = layers.MergeDims(axes="static")
 
     def forward(self, inp: LayerRef) -> LayerRef:
         x = self.split_feature_layer(inp)
@@ -28,12 +29,13 @@ class Encoder2DConvBlock(Module):
             x = conv_layer(x)
             x = pool_layer(x)
             x = self.dropout(x)
-        return x
+        out = self.merge_features_layer(x)
+        return out
 
 
 class BLSTMPoolBlock(Module):
 
-    def __init__(self, l2=1e-07, lstm_n_out=256, dropout=0.5, pool_size=1, rec_unit='nativelstm2'):
+    def __init__(self, l2=1e-07, lstm_n_out=256, dropout=0.3, pool_size=1, rec_unit='nativelstm2'):
         super().__init__()
         self.lstm_fw = layers.RecUnit(direction=1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)
         self.lstm_bw = layers.RecUnit(direction=-1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)
@@ -79,7 +81,7 @@ class SoftmaxCtcLossLayer(layers.Copy):
         return {'class': 'softmax',
                 'from': source,
                 'loss': 'ctc',
-                "beam_width": 1, "ctc_opts": {"ignore_longer_outputs_than_inputs": True},
+                "loss_opts": {"beam_width": 1, "ctc_opts": {"ignore_longer_outputs_than_inputs": True}},
                 'target': target,
                 **self.get_opts()}
 
@@ -87,15 +89,18 @@ class SoftmaxCtcLossLayer(layers.Copy):
 class ConvBLSTMEncoder(Module):
 
     def __init__(self, l2=1e-07, audio_feature_key="audio_features", target_label_key="bpe_labels",
-                 conv_dropout=0.5, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
-                 conv_channel_sizes=[32, 32], num_lstm_layers=6, lstm_single_dim=512, lstm_dropout=0.5,
-                 lstm_pool_sizes=[3, 2]):
+                 conv_dropout=0.3, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
+                 conv_channel_sizes=[32, 32], num_lstm_layers=6, lstm_single_dim=1024, lstm_dropout=0.3,
+                 lstm_pool_sizes=[3, 2], enable_specaugment=True):
         super().__init__()
         self.audio_feauture_key = audio_feature_key
         self.target_label_key = target_label_key
         assert num_lstm_layers >= 2, "Needs two lstm layers as the last layer lstm layer is special"
 
-        self.specaug_block = SpecAugmentBlock()
+        if enable_specaugment:
+            self.specaug_block = SpecAugmentBlock()
+        else:
+            self.specaug_block = None
 
         self.conv_block = Encoder2DConvBlock(
             l2=l2, dropout=conv_dropout, filter_sizes=conv_filter_sizes,
@@ -118,15 +123,26 @@ class ConvBLSTMEncoder(Module):
 
     def forward(self) -> LayerRef:
         x = layers.Copy()(get_root_extern_data(self.audio_feauture_key), name="encoder_in")
-        x = self.specaug_block(x)
+        if self.specaug_block:
+            x = self.specaug_block(x)
         x = self.conv_block(x)
         for i, lstm_layer in enumerate(self.lstm_layers):
             x  = lstm_layer(x, name="blstm_block_%i" % i)
         lstm_last = self.last_lstm_layer(x, name="final_lstm")
         encoder_state = self.encoder_state_copy_layer(lstm_last, name="encoder_state")
-        self.ctc_loss_block(source=encoder_state, target=get_extern_data(self.target_label_key))
+        self.ctc_loss_block(source=encoder_state, target=get_root_extern_data(self.target_label_key))
         return encoder_state
 
+
+class EncoderWrapper(Module):
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.encoder = ConvBLSTMEncoder(**kwargs)
+
+    def forward(self) -> LayerRef:
+        out = self.encoder()
+        return out
 
 
 static_decoder = {
@@ -136,10 +152,11 @@ static_decoder = {
                 'target': 'bpe_labels',
                 'unit': { 'accum_att_weights': { 'class': 'eval',
                                                  'eval': 'source(0) + source(1) * source(2) * 0.5',
-                                                 'from': ['prev:accum_att_weights', 'att_weights', 'base:inv_fertility'],
+                                                 'from': ['prev:accum_att_weights', 'att_weights', 'inv_fertility'],
                                                  'out_type': {'dim': 1, 'shape': (None, 1)}},
                           'att': {'axes': 'except_batch', 'class': 'merge_dims', 'from': 'att0'},
                           'enc_transformed': {'class': 'linear', 'from': 'base:encoder/encoder_state', 'n_out': 1024},
+                          'inv_fertility': {'class': 'linear', 'activation': 'sigmoid', 'from': 'base:encoder/encoder_state', 'n_out': 1},
                           'att0': {'base': 'base:encoder/encoder_state', 'class': 'generic_attention', 'weights': 'att_weights'},
                           'att_weights': {'class': 'dropout', 'dropout': 0.3, 'dropout_noise_shape': {'*': None}, 'from': 'att_weights0'},
                           'att_weights0': {'class': 'softmax_over_spatial', 'from': 'energy'},

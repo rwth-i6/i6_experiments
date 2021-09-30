@@ -1,3 +1,4 @@
+import copy
 from functools import lru_cache
 import numpy
 
@@ -79,7 +80,8 @@ def build_training_datasets(returnn_python_exe, returnn_root, output_path):
         audio_opts=audio_datastream.as_returnn_audio_opts(),
         target_opts=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=3,
-        seq_ordering="laplace:.1000"
+        seq_ordering="laplace:.1000",
+        other_opts={"epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}}}  # still hardcoded, future work
     )
     train_dataset = returnn_standalone.data.datasets.MetaDataset(
         data_map=data_map,
@@ -157,11 +159,8 @@ def get_config():
     }
 
 
-    from .prototype_network import ConvBLSTMEncoder, static_decoder
+    from .prototype_network import EncoderWrapper, static_decoder
 
-    # stage 1
-    import time
-    start = time.time()
     stage_nets = []
     for i in range(5):
         # pooling pretraing
@@ -171,16 +170,26 @@ def get_config():
             lstm_pool_sizes = [3, 2]
         # dropout from 0 to 0.3
         lstm_dropout = (i/4.0 * 0.3)
-        # grow lstm dim from 256 to 512
-        lstm_dim = int(256 + (i/4.0 * 256))
+        # grow lstm dim from 512 to 1024
+        lstm_dim = int(512 + (i/4.0 * 512))
+        #enable specaugment after epoch 10
+        enable_specaugment = i >= 2
 
-        encoder = ConvBLSTMEncoder(audio_feature_key="audio_features", target_label_key="bpe_labels",
-                                   num_lstm_layers=2 + i, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
-                                   lstm_single_dim=lstm_dim)
-        encoder_dict = {'encoder': {'class': 'subnetwork', 'from': [], 'subnetwork': encoder.make_root_net_dict()}}
-        print("constructing took %f" % (time.time() - start))
-        stage_net = {**encoder_dict, **static_decoder}
+        encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
+                                 num_lstm_layers=2 + i, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
+                                 lstm_single_dim=lstm_dim, enable_specaugment=enable_specaugment)
+        encoder_dict = encoder.make_root_net_dict()
+        # Eval layer hack for specaugment
+        if enable_specaugment:
+            encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
+
+        local_static_decoder = copy.deepcopy(static_decoder)
+        if i < 4:
+            local_static_decoder["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
+
+        stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
         stage_nets.append(stage_net)
+
     network_dict = {
         1: stage_nets[0],
         6: stage_nets[1],

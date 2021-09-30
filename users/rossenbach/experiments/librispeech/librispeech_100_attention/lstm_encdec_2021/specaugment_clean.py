@@ -74,7 +74,7 @@ def specaugment_eval_func(data, network,
         x_masked = _random_mask(
             x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
             min_num=min_frame_masks,
-            max_num=tf.round(tf.maximum(tf.shape(x)[data.time_dim_axis] / mask_each_n_frames), min_frame_masks),
+            max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // mask_each_n_frames, min_frame_masks),
             max_dims=max_frames_per_mask)
         x_masked = _random_mask(
             x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
