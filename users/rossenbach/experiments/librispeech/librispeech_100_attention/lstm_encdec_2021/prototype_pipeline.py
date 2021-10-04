@@ -135,7 +135,7 @@ def get_config():
     wup_start_lr = 0.0003
     initial_lr = 0.0008
 
-    learning_rates = list(numpy.linspace(wup_start_lr, initial_lr, num=10))
+    learning_rates = [wup_start_lr] * 10 + list(numpy.linspace(wup_start_lr, initial_lr, num=10))
 
     config = {
         'gradient_clip': 0,
@@ -188,14 +188,17 @@ def get_config():
             local_static_decoder["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
 
         stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
+        if i < 4:
+            stage_net["#config"] = {}
+            stage_net["#config"]["batch_size"] = 15000
         stage_nets.append(stage_net)
 
     network_dict = {
         1: stage_nets[0],
-        6: stage_nets[1],
-        11: stage_nets[2],
-        16: stage_nets[3],
-        21: stage_nets[4],
+        11: stage_nets[1],
+        16: stage_nets[2],
+        21: stage_nets[3],
+        26: stage_nets[4],
     }
 
     from .specaugment_clean import get_funcs
@@ -205,6 +208,7 @@ def get_config():
         post_config=post_config,
         staged_network_dict=network_dict,
         python_prolog=get_funcs(),
+        hash_full_python_code=True,
     )
     return returnn_config
 
@@ -228,7 +232,7 @@ def test():
 
     default_rqmt = {
         'mem_rqmt': 15,
-        'time_rqmt': 80,
+        'time_rqmt': 168,
         'log_verbosity': 5,
         'returnn_python_exe': returnn_exe,
         'returnn_root': returnn_root,

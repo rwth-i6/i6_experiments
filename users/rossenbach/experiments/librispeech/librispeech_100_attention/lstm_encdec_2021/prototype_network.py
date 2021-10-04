@@ -1,15 +1,23 @@
 from typing import Union, Optional, Tuple, List, Dict, Any
 
-from returnn_common.models.base import LayerRef, Module, LayerDictRaw, get_root_extern_data, get_extern_data, get_special_layer
-import returnn_common.models._generated_layers as layers
+from returnn.import_ import import_
+# common = import_("github.com/rwth-i6/returnn_common", "models/base", "20210805-a44e7fa4209663c4ea6f71a7406d6839ed699df2")
+# from returnn_import.github_com.rwth_i6.returnn_common.v20210805202428_a44e7fa42096.models.base import\
+#     LayerRef, LayerDictRaw, Module, get_root_extern_data
+# import returnn_import.github_com.rwth_i6.returnn_common.v20210805202428_a44e7fa42096.models._generated_layers as layers
+common = import_("github.com/rwth-i6/returnn_common", "models/base", "20210929-2243f105ba0befb2eba63f53a2350d4e26639532")
+from returnn_import.github_com.rwth_i6.returnn_common.v20210929142536_2243f105ba0b.models.base import \
+    LayerRef, LayerDictRaw, Module, get_root_extern_data
+import returnn_import.github_com.rwth_i6.returnn_common.v20210929142536_2243f105ba0b.models._generated_layers as layers
+
+
 from returnn.util.basic import NotSpecified
 
 from .specaugment_clean import SpecAugmentBlock
 
-
 class Encoder2DConvBlock(Module):
 
-    def __init__(self, l2=1e-07, dropout=0.3, act='relu', filter_sizes=[(3, 3)],
+    def __init__(self, l2=0.001, dropout=0.3, act='relu', filter_sizes=[(3, 3)],
                  pool_sizes=[(1, 2)], channel_sizes=[32], padding='same'):
         super().__init__()
         self.split_feature_layer = layers.SplitDims(axis="F", dims=(-1, 1))
@@ -20,7 +28,7 @@ class Encoder2DConvBlock(Module):
             self.conv_layers.append(layers.Conv(
                 l2=l2, activation=act, filter_size=filter_size, n_out=channel_size, padding=padding))
             self.pool_layers.append(layers.Pool(pool_size=pool_size, padding='same', mode="max"))
-        self.dropout = layers.Dropout(dropout=dropout)
+        self.dropout = layers.Dropout(dropout=dropout) if dropout > 0.0 else None
         self.merge_features_layer = layers.MergeDims(axes="static")
 
     def forward(self, inp: LayerRef) -> LayerRef:
@@ -28,17 +36,18 @@ class Encoder2DConvBlock(Module):
         for conv_layer, pool_layer in zip(self.conv_layers, self.pool_layers):
             x = conv_layer(x)
             x = pool_layer(x)
-            x = self.dropout(x)
+            if self.dropout:
+                x = self.dropout(x)
         out = self.merge_features_layer(x)
         return out
 
 
 class BLSTMPoolBlock(Module):
 
-    def __init__(self, l2=1e-07, lstm_n_out=256, dropout=0.3, pool_size=1, rec_unit='nativelstm2'):
+    def __init__(self, l2=0.001, lstm_n_out=256, dropout=0.3, pool_size=1, rec_unit='nativelstm2', unit_opts=NotSpecified):
         super().__init__()
-        self.lstm_fw = layers.RecUnit(direction=1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)
-        self.lstm_bw = layers.RecUnit(direction=-1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)
+        self.lstm_fw = layers.Rec(direction=1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout, unit_opts=unit_opts)
+        self.lstm_bw = layers.Rec(direction=-1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout, unit_opts=unit_opts)
 
         if pool_size > 1:
             self.pool = layers.Pool(pool_size=(pool_size,), padding="same", mode="max")
@@ -88,8 +97,8 @@ class SoftmaxCtcLossLayer(layers.Copy):
 
 class ConvBLSTMEncoder(Module):
 
-    def __init__(self, l2=1e-07, audio_feature_key="audio_features", target_label_key="bpe_labels",
-                 conv_dropout=0.3, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
+    def __init__(self, l2=0.001, audio_feature_key="audio_features", target_label_key="bpe_labels",
+                 conv_dropout=0.0, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
                  conv_channel_sizes=[32, 32], num_lstm_layers=6, lstm_single_dim=1024, lstm_dropout=0.3,
                  lstm_pool_sizes=[3, 2], enable_specaugment=True):
         super().__init__()
@@ -111,7 +120,9 @@ class ConvBLSTMEncoder(Module):
         for i in range(num_lstm_layers - 1):
             pool_size = lstm_pool_sizes[i] if i < len(lstm_pool_sizes) else 1
             self.lstm_layers.append(
-                BLSTMPoolBlock(l2=l2, lstm_n_out=lstm_single_dim, dropout=lstm_dropout, pool_size=pool_size)
+                BLSTMPoolBlock(
+                    l2=l2, lstm_n_out=lstm_single_dim, dropout=lstm_dropout, pool_size=pool_size,
+                    unit_opts={"rec_weight_dropout": 0.3})
             )
 
         self.last_lstm_layer = BLSTMPoolBlock(
@@ -197,4 +208,5 @@ static_decoder = {
                                                'from': 'prev:accum_att_weights',
                                                'n_out': 1024,
                                                'with_bias': False}}},
+    'decision': {'class': 'decide', 'from': 'output', 'loss': 'edit_distance', 'target': 'bpe_labels'},
 }
