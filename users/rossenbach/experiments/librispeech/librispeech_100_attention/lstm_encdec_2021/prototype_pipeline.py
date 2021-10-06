@@ -12,6 +12,8 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech
 from i6_experiments.users.rossenbach.setups import returnn_standalone
 from i6_experiments.users.rossenbach.returnn.config import ExtendedReturnnConfig
 
+from .specaugment_clean import SpecAugmentSettings
+
 
 
 @lru_cache()
@@ -121,7 +123,64 @@ def build_training_datasets(returnn_python_exe, returnn_root, output_path):
 
 
 
-def get_config():
+def trainig_network_mohammad():
+    """
+    Network derived from Mohammads Librispeech-100h system with new encoder pre-training
+
+    :return:
+    """
+    from .prototype_network import EncoderWrapper, static_decoder
+
+    specaug_settings = SpecAugmentSettings(
+        min_frame_masks=1,
+        mask_each_n_frames=100,
+        max_feature_masks=4
+    )
+
+    stage_nets = []
+    for i in range(5):
+        # pooling pretraing
+        if i == 0:
+            lstm_pool_sizes = [6]
+        else:
+            lstm_pool_sizes = [3, 2]
+        # dropout from 0 to 0.3
+        lstm_dropout = (i/4.0 * 0.3)
+        # grow lstm dim from 512 to 1024
+        lstm_dim = int(512 + (i/4.0 * 512))
+        #enable specaugment after epoch 10
+        enable_specaugment = i >= 2
+
+        encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
+                                 num_lstm_layers=2 + i, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
+                                 lstm_single_dim=lstm_dim,
+                                 specaugment_settings=specaug_settings if enable_specaugment else None)
+        encoder_dict = encoder.make_root_net_dict()
+        # Eval layer hack for specaugment
+        if enable_specaugment:
+            encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
+
+        local_static_decoder = copy.deepcopy(static_decoder)
+        if i < 4:
+            local_static_decoder["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
+
+        stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
+        if i < 4:
+            stage_net["#config"] = {}
+            stage_net["#config"]["batch_size"] = 15000
+        stage_nets.append(stage_net)
+
+    network_dict = {
+        1: stage_nets[0],
+        11: stage_nets[1],
+        16: stage_nets[2],
+        21: stage_nets[3],
+        26: stage_nets[4],
+    }
+    return network_dict
+
+
+def get_config(with_pretraining=True):
 
     # changing these does not change the hash
     post_config = {
@@ -159,57 +218,20 @@ def get_config():
     }
 
 
-    from .prototype_network import EncoderWrapper, static_decoder
-
-    stage_nets = []
-    for i in range(5):
-        # pooling pretraing
-        if i == 0:
-            lstm_pool_sizes = [6]
-        else:
-            lstm_pool_sizes = [3, 2]
-        # dropout from 0 to 0.3
-        lstm_dropout = (i/4.0 * 0.3)
-        # grow lstm dim from 512 to 1024
-        lstm_dim = int(512 + (i/4.0 * 512))
-        #enable specaugment after epoch 10
-        enable_specaugment = i >= 2
-
-        encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
-                                 num_lstm_layers=2 + i, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
-                                 lstm_single_dim=lstm_dim, enable_specaugment=enable_specaugment)
-        encoder_dict = encoder.make_root_net_dict()
-        # Eval layer hack for specaugment
-        if enable_specaugment:
-            encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
-
-        local_static_decoder = copy.deepcopy(static_decoder)
-        if i < 4:
-            local_static_decoder["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
-
-        stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
-        if i < 4:
-            stage_net["#config"] = {}
-            stage_net["#config"]["batch_size"] = 15000
-        stage_nets.append(stage_net)
-
-    network_dict = {
-        1: stage_nets[0],
-        11: stage_nets[1],
-        16: stage_nets[2],
-        21: stage_nets[3],
-        26: stage_nets[4],
-    }
+    network_dict = trainig_network_mohammad()
 
     from .specaugment_clean import get_funcs
 
-    returnn_config = ExtendedReturnnConfig(
-        config=config,
-        post_config=post_config,
-        staged_network_dict=network_dict,
-        python_prolog=get_funcs(),
-        hash_full_python_code=True,
-    )
+    if with_pretraining:
+        returnn_config = ExtendedReturnnConfig(
+            config=config,
+            post_config=post_config,
+            staged_network_dict=network_dict,
+            python_prolog=get_funcs(),
+            hash_full_python_code=True,
+        )
+    else:
+        returnn_config = ExtendedReturnnConfig()
     return returnn_config
 
 def test():

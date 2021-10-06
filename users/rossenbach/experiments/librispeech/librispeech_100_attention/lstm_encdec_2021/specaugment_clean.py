@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from returnn.import_ import import_
 # common = import_("github.com/rwth-i6/returnn_common", "models/base", "20210805-a44e7fa4209663c4ea6f71a7406d6839ed699df2")
 # from returnn_import.github_com.rwth_i6.returnn_common.v20210805202428_a44e7fa42096.models.base import Module
@@ -91,10 +93,23 @@ def specaugment_eval_func(data, network,
     return x
 
 
+@dataclass(eq=False, frozen=True)
+class SpecAugmentSettings:
+    min_frame_masks: int = 2
+    mask_each_n_frames: int = 25
+    max_frames_per_mask: int = 20
+    min_feature_masks: int = 2
+    max_feature_masks: int = 5
+    max_features_per_mask: int = 8
+
+    def get_options(self):
+        return self.__dict__
+
+
 class SpecAugmentBlock(Module):
 
-    def __init__(self, min_frame_masks=1, mask_each_n_frames=100, max_frames_per_mask=20,
-                 min_feature_masks=2, max_feature_masks=4, max_features_per_mask=8):
+    def __init__(self, min_frame_masks=2, mask_each_n_frames=25, max_frames_per_mask=20,
+                 min_feature_masks=2, max_feature_masks=5, max_features_per_mask=8):
         super().__init__()
         # self.min_frame_masks = min_frame_masks
         # self.mask_each_n_frames = mask_each_n_frames

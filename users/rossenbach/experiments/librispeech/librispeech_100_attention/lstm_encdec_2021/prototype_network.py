@@ -13,7 +13,7 @@ import returnn_import.github_com.rwth_i6.returnn_common.v20210929142536_2243f105
 
 from returnn.util.basic import NotSpecified
 
-from .specaugment_clean import SpecAugmentBlock
+from .specaugment_clean import SpecAugmentBlock, SpecAugmentSettings
 
 class Encoder2DConvBlock(Module):
 
@@ -100,14 +100,29 @@ class ConvBLSTMEncoder(Module):
     def __init__(self, l2=0.001, audio_feature_key="audio_features", target_label_key="bpe_labels",
                  conv_dropout=0.0, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
                  conv_channel_sizes=[32, 32], num_lstm_layers=6, lstm_single_dim=1024, lstm_dropout=0.3,
-                 lstm_pool_sizes=[3, 2], enable_specaugment=True):
+                 lstm_pool_sizes=[3, 2], specaugment_settings=None):
+        """
+
+        :param l2:
+        :param audio_feature_key:
+        :param target_label_key:
+        :param conv_dropout:
+        :param conv_filter_sizes:
+        :param conv_pool_sizes:
+        :param conv_channel_sizes:
+        :param num_lstm_layers:
+        :param lstm_single_dim:
+        :param lstm_dropout:
+        :param lstm_pool_sizes:
+        :param SpecAugmentSettings specaugment_settings:
+        """
         super().__init__()
         self.audio_feauture_key = audio_feature_key
         self.target_label_key = target_label_key
         assert num_lstm_layers >= 2, "Needs two lstm layers as the last layer lstm layer is special"
 
-        if enable_specaugment:
-            self.specaug_block = SpecAugmentBlock()
+        if specaugment_settings:
+            self.specaug_block = SpecAugmentBlock(**specaugment_settings.get_options())
         else:
             self.specaug_block = None
 
