@@ -1,3 +1,4 @@
+import copy
 import time
 
 from sisyphus import gs, tk, Path
@@ -179,7 +180,7 @@ def run_baseline_training():
 
     train, dev, test = get_corpus_data_inputs()
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_gmm/GMM-Mono-New-Baseline'
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_gmm/monophone_baseline'
     system = gmm_system.GmmSystem()
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(),
@@ -203,7 +204,7 @@ monophone_aligner_system = None
 
 def get_monophone_aligner_system():
     """
-    :return: default moinophone GMM baseline system for aligning librispeech
+    :return: default monophone GMM baseline system for aligning librispeech
     :rtype: gmm_system.GmmSystem
     """
     global monophone_aligner_system
@@ -211,4 +212,47 @@ def get_monophone_aligner_system():
         monophone_aligner_system = run_baseline_training()
     return monophone_aligner_system
 
+
+def get_monophone_ls100_training_alignment_and_allophones():
+    aligner_system = get_monophone_aligner_system()
+    return aligner_system.alignments["train-clean-100"]["train_mono"][0].alternatives["bundle"], aligner_system.allophone_files["base"]
+
+
+def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True):
+    """
+
+    :param CorpusObject corpus_object
+    :param str name:
+    :param int concurrent:
+    :return:
+    """
+    system = get_monophone_aligner_system()
+    train_corpus_name = system.train_corpora[0]
+
+    if name not in system.crp.keys():
+        if lexicon is None:
+            lexicon = system.crp[train_corpus_name].lexicon_config.file
+
+        rasr_input = RasrDataInput(corpus_object=corpus_object, concurrent=concurrent, lexicon={'filename': lexicon, 'normalize_pronunciation': False})
+        system.add_corpus(name, rasr_input, add_lm=False)
+
+        system.crp[name].lexicon_config = system.crp[train_corpus_name].lexicon_config
+        system.crp[name].lexicon_config.file = lexicon
+
+        feature_extraction_args = copy.deepcopy(system.hybrid_init_args.feature_extraction_args)
+        feature_extraction_args['mfcc']['mfcc_options']['samples_options']["audio_format"] = corpus_object.audio_format
+        if corpus_object.audio_format == "ogg":
+            feature_extraction_args['mfcc']['mfcc_options']['samples_options']["scale_input"] = 32768
+        elif corpus_object.audio_format == "wav":
+            pass
+        else:
+            assert False, "Currently unsupported audio format for aligning %s" % corpus_object.audio_format
+        system.extract_features_for_corpus(name, feature_extraction_args)
+        system.feature_scorers[name] = system.feature_scorers[train_corpus_name]
+    else:
+        print("Corpus with name %s already added" % name)
+    prefix = "uncached_" if uncached and name not in system.train_corpora else ""
+    system.align(name + "_align", name, prefix + system.gmm_monophone_args.monophone_training_args['feature_flow'], "train_mono")
+    alignment = system.alignments[name][name + '_align'][0].alternatives['bundle']
+    return alignment
 
