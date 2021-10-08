@@ -46,7 +46,8 @@ class ApplyLexiconToTranscriptions(Job):
         for lemma in lex.lemmata:
             for orth in lemma.orth:
                 if orth and self.strategy == LexiconStrategy.PICK_FIRST:
-                    lookup_dict[orth] = lemma.phon[0]
+                    if len(lemma.phon) > 0:
+                        lookup_dict[orth] = lemma.phon[0]
 
         word_separation_phon = lookup_dict[self.word_separation_orth]
         print("using word separation symbold: %s" % word_separation_phon)

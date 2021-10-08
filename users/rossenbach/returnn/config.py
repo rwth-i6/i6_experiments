@@ -13,7 +13,7 @@ class ExtendedReturnnConfig(ReturnnConfig):
     def __init__(
             self,
             config,
-            staged_network_dict,
+            staged_network_dict=None,
             post_config=None,
             *,
             python_prolog=None,
@@ -68,7 +68,8 @@ class ExtendedReturnnConfig(ReturnnConfig):
             f.write(init_import_code + init_dict_code)
 
     def write(self, path):
-        self.write_network(path)
+        if self.staged_network_dict:
+            self.write_network(path)
         with open(path, "wt", encoding="utf-8") as f:
             f.write(self.serialize())
 
@@ -99,18 +100,18 @@ class ExtendedReturnnConfig(ReturnnConfig):
         python_prolog_code = self._parse_python(self.python_prolog)
         python_epilog_code = self._parse_python(self.python_epilog)
 
-        get_network_string = "\ndef get_network(epoch, **kwargs):\n"
-        get_network_string += "  from networks import networks_dict\n"
-        get_network_string += "  while(True):\n"
-        get_network_string += "    if epoch in networks_dict:\n"
-        get_network_string += "      return networks_dict[epoch]\n"
-        get_network_string += "    else:\n"
-        get_network_string += "      epoch -= 1\n"
-        get_network_string += "      assert epoch > 0, \"Error, no networks found\"\n"
-
-        config_lines.append(get_network_string)
-
         if self.staged_network_dict:
+            get_network_string = "\ndef get_network(epoch, **kwargs):\n"
+            get_network_string += "  from networks import networks_dict\n"
+            get_network_string += "  while(True):\n"
+            get_network_string += "    if epoch in networks_dict:\n"
+            get_network_string += "      return networks_dict[epoch]\n"
+            get_network_string += "    else:\n"
+            get_network_string += "      epoch -= 1\n"
+            get_network_string += "      assert epoch > 0, \"Error, no networks found\"\n"
+
+            config_lines.append(get_network_string)
+
             python_prolog_code = (
                     "import os\nimport sys\nsys.path.insert(0, os.path.dirname(__file__))\n\n" + python_prolog_code)
 

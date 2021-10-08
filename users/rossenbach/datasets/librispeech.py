@@ -1,5 +1,9 @@
+from collections import defaultdict
+import random
 from functools import lru_cache
 import os
+
+from sisyphus import Job, Task, tk
 
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.text.processing import HeadJob, PipelineJob
@@ -12,7 +16,7 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import g
 def get_librispeech_bpe(corpus_key="train-other-960", bpe_size=10000, unk_label="<unk>", output_prefix=""):
     """
     Get the BPE tokens via the subword-nmt fork for a librispeech setup.
-    When using the default settings this will give a 100% compatible BPE settings to
+    When using the default settings this will give 100% compatible BPE settings to
     Albert Zeyers and Kazuki Iries setups.
 
     :param str corpus_key:
@@ -67,3 +71,74 @@ def get_mixed_cv_segments(output_prefix="datasets"):
     dev_cv_segments = PipelineJob([dev_clean_subset, dev_other_subset], [], mini_task=True).out
 
     return dev_cv_segments
+
+
+class GenerateBalancedSpeakerDevSegmentFileJob(Job):
+    """
+
+    Generates specific train and dev segment files for TTS training with fixed speaker embeddings.
+
+    To guarantee an even distribution, a fixed number of dev segments is chosen per speaker/book combination
+
+    :return:
+    """
+    def __init__(self, segment_file, dev_segments_per_speaker):
+        """
+
+        :param tk.Path segment_file:
+        :param int dev_segments_per_speaker:
+        """
+        self.segment_file = segment_file
+        self.dev_segments_per_speaker = dev_segments_per_speaker
+
+        self.out_dev_segments = self.output_path("dev.segments")
+        self.out_train_segments = self.output_path("train.segments")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        random.seed(42)
+        segment_file = open(self.segment_file.get_path(), "rt")
+
+        segments = []
+        speaker_segments = defaultdict(lambda :list())
+        for line in segment_file.readlines():
+            segment = line.strip()
+            segments.append(segment)
+            speaker = segment.split("/")[-1].split("-")[0]
+            speaker_segments[speaker].append(segment)
+
+        dev_segments = []
+
+        for sb in speaker_segments.keys():
+            segs = speaker_segments[sb]
+            random.shuffle(segs)
+            dev_segments.extend(segs[:self.dev_segments_per_speaker])
+
+        with open(self.out_dev_segments.get_path(), "wt") as f:
+            for dev_segment in dev_segments:
+                f.write(dev_segment + "\n")
+
+        dev_segments = set(dev_segments)
+
+        with open(self.out_train_segments.get_path(), "wt") as f:
+            for segment in segments:
+                if segment not in dev_segments:
+                    f.write(segment + "\n")
+
+
+@lru_cache()
+def get_librispeech_tts_segments():
+    """
+    Generate the fixed train and dev segments for fixed speaker TTS training
+
+    :return:
+    """
+    bliss_corpus_dict = get_bliss_corpus_dict()
+    ls100_segments = SegmentCorpusJob(bliss_corpus_dict['train-clean-100'], 1).out_single_segment_files[1]
+    generate_tts_segments_job = GenerateBalancedSpeakerDevSegmentFileJob(
+        segment_file=ls100_segments,
+        dev_segments_per_speaker=4
+    )
+    return generate_tts_segments_job.out_train_segments, generate_tts_segments_job.out_dev_segments

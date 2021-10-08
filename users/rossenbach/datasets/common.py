@@ -105,9 +105,11 @@ class DatasetGroup():
     def apply_bliss_processing_function(self, processing_function, args, new_name=None, new_format=None):
         """
 
-        :param  typing.Callable[[Path, typing.Any], Path] processing_function:
+        :param  typing.Callable[[Path, typing.Any], Path] processing_function: the first parameter
+            needs to be bliss_corpus file, and the return value is also a bliss_corpus
         :param dict[Any] args: additional arguments
         :return: A new DatasetGroup
+        :rtype: DatasetGroup
         """
         new_group = DatasetGroup(new_name if new_name else self._name)
         new_group._segmented_datasets = copy.deepcopy(self._segmented_datasets)

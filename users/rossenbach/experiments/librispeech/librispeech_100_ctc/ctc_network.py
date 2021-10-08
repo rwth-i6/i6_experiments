@@ -13,3 +13,12 @@ def make_network_config(fdim, num_classes, dropout=0.1, **kwargs):
         else: assert False, 'unknown maxpool_pos %s' %maxpool_pos
     else: max_pool = []
     network, fromList = nn_setup.build_encoder_network(num_layers=encoder_layers, size=encoder_size, max_pool=max_pool, dropout=dropout)
+
+
+class BLSTMCTCModel(Module):
+
+    def __init__(self, num_layers, size, max_pool, dropout):
+        super().__init__()
+
+        self.blstm_layers = []
+        for i in range(num_layers):
