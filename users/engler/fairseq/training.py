@@ -137,7 +137,7 @@ class FairseqHydraTrainingJob(Job):
         my_env = os.environ
         if self.fairseq_git is not None:
             my_env["PYTHONPATH"] = self.fairseq_git
-        sp.check_call(self._get_run_cmd(),env=my_env)
+        sp.check_call(self._get_run_cmd(), env=my_env)
 
     def _get_run_cmd(self):
         run_cmd = [
@@ -152,7 +152,7 @@ class FairseqHydraTrainingJob(Job):
         run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
         if self.fairseq_git is not None:
             sys.path.insert(0, self.fairseq_git)
-            hydra_train_entry = self.fairseq_git +"fairseq_cli/hydra_train.py"
+            hydra_train_entry = self.fairseq_git + "fairseq_cli/hydra_train.py"
             run_cmd.insert(0, tk.uncached_path(self.fairseq_python_exe))
             run_cmd.insert(1, tk.uncached_path(hydra_train_entry))
         else:
