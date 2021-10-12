@@ -2,11 +2,11 @@ import os.path
 from functools import lru_cache
 
 from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
-from i6_experiments.users.rossenbach.setups.returnn_standalone.bpe import get_bpe_settings, get_returnn_subword_nmt
+from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import get_bpe_settings, get_returnn_subword_nmt
 
 
 @lru_cache()
-def get_librispeech_100h_bpe(bpe_size, unk_label="UNK", output_prefix=""):
+def get_librispeech_100h_bpe(bpe_size, unk_label="<unk>", output_prefix=""):
     """
 
     :param int bpe_size:
@@ -27,4 +27,5 @@ def get_librispeech_100h_bpe(bpe_size, unk_label="UNK", output_prefix=""):
         output_prefix=output_prefix,
         subword_nmt_repo_path=subword_nmt_repo)
     return bpe_settings
+
 
