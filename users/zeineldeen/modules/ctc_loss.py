@@ -1,4 +1,9 @@
-from returnn_common.models import layers
+from typing import Union, List, Tuple
+
+import returnn_common.models.layers as layers
+from returnn_common.models.base import LayerRef, LayerDictRaw
+
+from returnn.util.basic import NotSpecified
 
 
 class SoftmaxCtcLossLayer(layers.Copy):
