@@ -7,7 +7,7 @@ class BLSTMPoolBlock(Module):
     Bi-directional LSTM layer with optional max-pooling
     """
 
-    def __init__(self, l2=0.0, lstm_n_out=512, dropout=0.3, pool_size=1, rec_unit='nativelstm2'):
+    def __init__(self, lstm_n_out=512, dropout=0.3, l2=0.0, pool_size=1, rec_unit='nativelstm2'):
         super().__init__()
         self.lstm_fw = layers.Rec(direction=1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)
         self.lstm_bw = layers.Rec(direction=-1, n_out=lstm_n_out, unit=rec_unit, l2=l2, dropout=dropout)

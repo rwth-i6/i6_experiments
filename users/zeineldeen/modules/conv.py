@@ -32,3 +32,26 @@ class Conv2dBlock(Module):
             x = layers.dropout(x, dropout=self.dropout)
         out = layers.merge_dims(x, axes='static')  # [B,T,F]
         return out
+
+
+class ConformerConvBlock(Module):
+    """
+    Conformer convolution block
+    FF -> GLU -> depthwise conv -> BN -> Swish -> FF
+    """
+
+    def __init__(self, d_model, kernel_size, l2=0.0):
+        super().__init__()
+
+        self.positionwise_conv1 = layers.Linear(n_out=d_model * 2, l2=l2)
+        self.depthwise_conv = layers.Conv(n_out=d_model, filter_size=kernel_size, groups=d_model, l2=l2, padding='same')
+        self.positionwise_conv2 = layers.Linear(n_out=d_model, l2=l2)
+
+    def forward(self, inp: LayerRef) -> LayerRef:
+        x_conv1 = self.positionwise_conv1(inp)
+        x_act = layers.activation(x_conv1, activation='glu')
+        x_depthwise_conv = self.depthwise_conv(x_act)
+        x_bn = layers.batch_norm(x_depthwise_conv)
+        x_swish = layers.activation(x_bn, activation='swish')
+        x_conv2 = self.positionwise_conv2(x_swish)
+        return x_conv2
