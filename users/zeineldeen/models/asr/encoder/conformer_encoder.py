@@ -62,6 +62,8 @@ class ConformerEncoder(Module):
         self.audio_feature_key = audio_feature_key
         self.target_label_key = target_label_key
 
+        self.dropout = dropout
+
         self.specaug_block = None
         if enable_specaugment:
             self.specaug_block = SpecAugmentBlock()
@@ -88,7 +90,7 @@ class ConformerEncoder(Module):
         ]
 
     def forward(self) -> LayerRef:
-        x = layers.copy(get_root_extern_data(self.audio_feauture_key), name="encoder_in")
+        x = layers.copy(get_root_extern_data(self.audio_feature_key), name="encoder_in")
         if self.specaug_block:
             x = self.specaug_block(x)
         if self.subsample_layer:
