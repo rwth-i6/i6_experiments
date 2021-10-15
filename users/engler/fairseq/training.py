@@ -38,7 +38,6 @@ class PytorchHydraModel:
 
     def __init__(self, fairseq_hydra_config_file, model, epoch):
         """
-
         :param Path fairseq_hydra_config_file: Path to a returnn config file
         :param Path model: Path to a pytorch checkpoint
         :param int epoch:
@@ -104,12 +103,14 @@ class FairseqHydraTrainingJob(Job):
         self.fairseq_python_exe = (
             fairseq_python_exe
             if fairseq_python_exe is not None
-            else gs.FAIRSEQ_PYTHON_EXE
+            else getattr(gs, "FAIRSEQ_PYTHON_EXE", None)
         )
-        self.fairseq_hydra_exe = (
-            fairseq_hydra_exe if fairseq_hydra_exe is not None else gs.FAIRSEQ_HYDRA_EXE
-        )
+        self.fairseq_hydra_exe = fairseq_hydra_exe
         self.fairseq_root = fairseq_root
+        # We assume that only one of the two possible entry points is given as an input
+        assert (self.fairseq_root is not None) ^ (self.fairseq_hydra_exe is not None)
+        if self.fairseq_root is not None:
+            assert self.fairseq_python_exe is not None
 
         # Outputs:
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
@@ -161,12 +162,13 @@ class FairseqHydraTrainingJob(Job):
         run_cmd += ["checkpoint.save_dir=" + self.out_checkpoint_dir.get_path()]
         run_cmd += ["checkpoint.save_interval=" + str(self.save_interval)]
         run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
+
         if self.fairseq_root is not None:
             sys.path.insert(0, self.fairseq_root)
             hydra_train_entry = self.fairseq_root + "fairseq_cli/hydra_train.py"
-            run_cmd.insert(0, tk.uncached_path(self.fairseq_python_exe))
-            run_cmd.insert(1, tk.uncached_path(hydra_train_entry))
+            run_cmd.insert(0, tk.uncached_path(hydra_train_entry))
         else:
+            run_cmd.insert(0, tk.uncached_path(self.fairseq_hydra_exe))
+        if self.fairseq_python_exe is not None:
             run_cmd.insert(0, tk.uncached_path(self.fairseq_python_exe))
-            run_cmd.insert(1, tk.uncached_path(self.fairseq_hydra_exe))
         return run_cmd
