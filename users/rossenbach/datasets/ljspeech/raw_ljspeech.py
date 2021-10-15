@@ -10,7 +10,7 @@ from i6_experiments.common.datasets.ljspeech import get_16khz_corpus_object, get
 
 def get_raw_ljspeech_dataset_group(sample_rate, alias_path=None):
     """
-    Uses fixed shuffling and fixed sizes for dev (600) and train (12500) to have a standardized LJSpeech corpus
+    Uses fixed shuffling and fixed sizes for dev (500) test (600) and train (12500) to have a standardized LJSpeech corpus
 
     No oggzip is added.
 

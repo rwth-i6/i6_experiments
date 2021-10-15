@@ -1,16 +1,21 @@
 from sisyphus import tk
 
-from i6_experiments.users.rossenbach.setups.returnn_standalone.bpe import BPESettings
+from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import BPESettings
+
+from .common import Datastream
 
 
-class VocabularyDatastream:
+class VocabularyDatastream(Datastream):
     """
     Defines a datastream using the default `Vocabulary` class of RETURNN
 
     this defines a word-(unit)-based vocabulary
     """
 
-    def __init__(self, available_for_inference, vocab, vocab_size, unk_label=None):
+    def __init__(self,
+                 available_for_inference: bool,
+                 vocab: tk.Path,
+                 vocab_size: tk.Variable, unk_label=None):
         """
 
         :param bool available_for_inference:
@@ -18,7 +23,7 @@ class VocabularyDatastream:
         :Param tk.Variable|int vocab_size:
         :param str unk_label: unknown label
         """
-        self.available_for_inference = available_for_inference
+        super().__init__(available_for_inference)
         self.vocab = vocab
         self.vocab_size = vocab_size
         self.unk_label = unk_label
@@ -80,5 +85,40 @@ class BpeDatastream(VocabularyDatastream):
         }
         if self.seq_postfix is not None:
             opts['seq_postfix'] = [self.seq_postfix]
+        return opts
+
+
+class SentencePieceDatastream:
+    """
+
+    """
+    def __init__(
+            self,
+            available_for_inference,
+            spm_model,
+            vocab_size
+    ):
+        self.available_for_inference = available_for_inference
+        self.vocab_size = vocab_size
+        self.spm_model = spm_model
+
+    def as_returnn_data_opts(self, **kwargs):
+        """
+        :param tk.Variable|int vocab_size: number of labels
+        :rtype: dict[str]
+        """
+        d = {
+            'shape': (None,), 'dim': self.vocab_size, 'sparse': True,
+            'available_for_inference': self.available_for_inference
+        }
+        d.update(kwargs)
+        return d
+
+    def as_returnn_targets_opts(self):
+        opts = {
+            'class': 'SentencePieces',
+            'model_file': self.spm_model,
+            'add_eos': True,
+        }
         return opts
 
