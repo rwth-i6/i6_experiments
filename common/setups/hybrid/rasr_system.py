@@ -1,9 +1,5 @@
 __all__ = ["RasrSystem"]
 
-import itertools
-import sys
-from typing import Dict, List, Optional, Type
-
 # -------------------- Sisyphus --------------------
 
 import sisyphus.global_settings as gs
@@ -14,6 +10,7 @@ import sisyphus.toolkit as tk
 import i6_core.am as am
 import i6_core.corpus as corpus_recipes
 import i6_core.meta as meta
+import i6_core.mm as mm
 import i6_core.rasr as rasr
 
 from .util import RasrDataInput
@@ -69,7 +66,7 @@ class RasrSystem(meta.System):
         self.crp["base"].acoustic_model_config = am.acoustic_model_config(**kwargs)
         allow_zero_weights = kwargs.get("allow_zero_weights", False)
         if allow_zero_weights:
-            self.crp["base"].acoustic_model_config.mixture_sew.allow_zero_weights = True
+            self.crp["base"].acoustic_model_config.mixture_set.allow_zero_weights = True
             self.crp[
                 "base"
             ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
@@ -131,14 +128,24 @@ class RasrSystem(meta.System):
                     self.fb_features(c, **v)
                 if k == "energy":
                     self.energy_features(c, **v)
-                if k not in ("mfcc", "gt", "fb", "energy"):
+                if k == "voiced":
+                    self.voiced_features(c, **v)
+                if k == "plp":
+                    self.plp_features(c, **v)
+                if k == "tone":
+                    self.tone_features(c, **v)
+                if k not in ("mfcc", "gt", "fb", "energy", "voiced", "tone", "plp"):
                     self.generic_features(c, k, **v)
+            if k == "mfcc":
+                for trn_c in self.train_corpora:
+                    self.normalize(trn_c, "mfcc+deriv", corpus_list)
 
         for kk in feat_args.keys():
             if "energy" in feat_args.keys():
                 for t in self.train_corpora:
                     if kk == "mfcc":
                         self.add_energy_to_features(t, "mfcc+deriv")
+                        self.add_energy_to_features(t, "mfcc+deriv+norm")
                     if kk == "gt":
                         self.add_energy_to_features(t, "gt")
                     if kk == "fb":
@@ -153,6 +160,50 @@ class RasrSystem(meta.System):
             name=name,
             corpus=corpus,
             flow=feature_flow,
-            alignment=meta.select_element(self.alignments, corpus, alignment),
+            alignment=meta.select_element(
+                self.alignments, corpus, (corpus, alignment, -1)
+            ),
             split_first=False,
+        )
+
+    # -------------------- Forced Alignment --------------------
+
+    def forced_align(self, name, corpus, target_corpus, flow, feature_scorer, **kwargs):
+        align_job = mm.AlignmentJob(
+            crp=self.crp[target_corpus],
+            feature_flow=meta.select_element(self.feature_flows, target_corpus, flow),
+            feature_scorer=meta.select_element(
+                self.feature_scorers, corpus, feature_scorer
+            ),
+            **kwargs,
+        )
+
+        self.jobs[target_corpus]["alignment_%s" % name] = align_job
+        align_job.add_alias("forced_alignment/alignment_%s" % name)
+        tk.register_output(
+            "forced_alignment/alignment_%s.bundle" % name,
+            align_job.out_alignment_bundle,
+        )
+        self.alignments[target_corpus][name] = [
+            rasr.FlagDependentFlowAttribute(
+                "cache_mode",
+                {
+                    "task_dependent": align_job.out_alignment_path,
+                    "bundle": align_job.out_alignment_bundle,
+                },
+            )
+        ]
+
+        dump_job = mm.DumpAlignmentJob(
+            crp=self.crp[target_corpus],
+            feature_flow=meta.select_element(self.feature_flows, target_corpus, flow),
+            original_alignment=meta.select_element(
+                self.alignments, target_corpus, name
+            ),
+        )
+        self.jobs[target_corpus]["alignment_dump_%s" % name] = dump_job
+        dump_job.add_alias("forced_alignment/alignment_dump_%s" % name)
+        tk.register_output(
+            "forced_alignment/alignment_dump_%s.bundle" % name,
+            dump_job.out_alignment_bundle,
         )

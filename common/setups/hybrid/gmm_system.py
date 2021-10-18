@@ -1,5 +1,6 @@
 __all__ = ["GmmSystem"]
 
+import copy
 import itertools
 import sys
 
@@ -18,6 +19,7 @@ import i6_core.corpus as corpus_recipes
 import i6_core.features as features
 import i6_core.lda as lda
 import i6_core.meta as meta
+import i6_core.mm as mm
 import i6_core.sat as sat
 import i6_core.rasr as rasr
 import i6_core.util as util
@@ -29,10 +31,12 @@ from .util import (
     RasrDataInput,
     RasrInitArgs,
     GmmMonophoneArgs,
+    GmmCartArgs,
     GmmTriphoneArgs,
     GmmVtlnArgs,
     GmmSatArgs,
     GmmVtlnSatArgs,
+    RasrSteps,
 )
 
 # -------------------- Init --------------------
@@ -75,17 +79,19 @@ class GmmSystem(RasrSystem):
     def __init__(self):
         super().__init__()
 
-        self.gmm_monophone_args = None
-        self.gmm_triphone_args = None
-        self.gmm_vtln_args = None
-        self.gmm_sat_args = None
-        self.gmm_vtln_sat_args = None
+        self.monophone_args = None
+        self.cart_lda_args = None
+        self.triphone_args = None
+        self.vtln_args = None
+        self.sat_args = None
+        self.vtln_sat_args = None
 
         self.cart_questions = None
-        self.lda_matrices = {}
         self.cart_trees = {}
-
+        self.lda_matrices = {}
         self.vtln_files = {}
+
+        self.opt_scales = {}
 
         self.default_align_keep_values = {
             "default": 5,
@@ -96,21 +102,24 @@ class GmmSystem(RasrSystem):
     def init_system(
         self,
         hybrid_init_args: RasrInitArgs,
-        gmm_monophone_args: GmmMonophoneArgs,
-        gmm_triphone_args: Optional[GmmTriphoneArgs],
-        gmm_vtln_args: Optional[GmmVtlnArgs],
-        gmm_sat_args: Optional[GmmSatArgs],
-        gmm_vtln_sat_args: Optional[GmmVtlnSatArgs],
         train_data: Dict[str, RasrDataInput],
         dev_data: Dict[str, RasrDataInput],
         test_data: Dict[str, RasrDataInput],
+        # set pipeline step args via init or via steps param in run function
+        monophone_args: Optional[GmmMonophoneArgs] = None,
+        cart_args: Optional[GmmCartArgs] = None,
+        triphone_args: Optional[GmmTriphoneArgs] = None,
+        vtln_args: Optional[GmmVtlnArgs] = None,
+        sat_args: Optional[GmmSatArgs] = None,
+        vtln_sat_args: Optional[GmmVtlnSatArgs] = None,
     ):
         self.hybrid_init_args = hybrid_init_args
-        self.gmm_monophone_args = gmm_monophone_args
-        self.gmm_triphone_args = gmm_triphone_args
-        self.gmm_vtln_args = gmm_vtln_args
-        self.gmm_sat_args = gmm_sat_args
-        self.gmm_vtln_sat_args = gmm_vtln_sat_args
+        self.monophone_args = monophone_args
+        self.cart_lda_args = cart_args.cart_lda_args if cart_args is not None else None
+        self.triphone_args = triphone_args
+        self.vtln_args = vtln_args
+        self.sat_args = sat_args
+        self.vtln_sat_args = vtln_sat_args
 
         self._init_am(**self.hybrid_init_args.am_args)
 
@@ -130,8 +139,13 @@ class GmmSystem(RasrSystem):
             self.test_corpora.append(name)
 
         self.cart_questions = (
-            self.gmm_triphone_args.cart_questions if self.gmm_triphone_args else None
+            cart_args.cart_questions if cart_args is not None else None
         )
+
+        for name in self.train_corpora:
+            self.cart_trees[name] = {}
+            self.lda_matrices[name] = {}
+            self.vtln_files[name] = {}
 
     # -------------------- Mono Training --------------------
 
@@ -149,13 +163,14 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
-        self.linear_alignment(
-            name,
-            corpus,
-            feature_energy_flow,
-            prefix=f"{corpus}_",
-            **linear_alignment_args,
-        )
+        if linear_alignment_args is not None:
+            self.linear_alignment(
+                name,
+                corpus,
+                feature_energy_flow,
+                prefix=f"{corpus}_",
+                **linear_alignment_args,
+            )
 
         action_sequence = meta.align_and_accumulate_sequence(
             align_iter, 1, mark_accumulate=False, mark_align=False
@@ -234,8 +249,8 @@ class GmmSystem(RasrSystem):
             generalized_eigenvalue_args=generalized_eigenvalue_args,
         )
         self.jobs[corpus]["cart_and_lda_{}_{}".format(corpus, name)] = cart_lda
-        self.lda_matrices["{}_{}".format(corpus, name)] = cart_lda.last_lda_matrix
-        self.cart_trees["{}_{}".format(corpus, name)] = cart_lda.last_cart_tree
+        self.lda_matrices[corpus][name] = cart_lda.last_lda_matrix
+        self.cart_trees[corpus][name] = cart_lda.last_cart_tree
         tk.register_output(
             "{}_{}_last_num_cart_labels".format(corpus, name),
             cart_lda.last_num_cart_labels,
@@ -320,21 +335,25 @@ class GmmSystem(RasrSystem):
     def vtln_feature_flow(
         self,
         name: str,
-        corpus: str,
+        train_corpora: str,
+        corpora: [str],
         base_flow: str,
         context_size: Optional[int] = None,
         lda_matrix: Optional[str] = None,
     ):
-        flow = self.feature_flows[corpus][base_flow]
-        if context_size is not None:
-            flow = lda.add_context_flow(
-                feature_net=flow,
-                max_size=context_size,
-                right=int(context_size / 2.0),
-            )
-        if lda_matrix is not None:
-            flow = features.add_linear_transform(flow, self.lda_matrices[lda_matrix])
-        self.feature_flows[corpus][name] = flow
+        for c in corpora:
+            flow = self.feature_flows[c][base_flow]
+            if context_size is not None:
+                flow = lda.add_context_flow(
+                    feature_net=flow,
+                    max_size=context_size,
+                    right=int(context_size / 2.0),
+                )
+            if lda_matrix is not None:
+                flow = features.add_linear_transform(
+                    flow, self.lda_matrices[train_corpora][lda_matrix]
+                )
+            self.feature_flows[c][name] = flow
 
     @tk.block()
     def vtln_warping_mixtures(
@@ -368,34 +387,35 @@ class GmmSystem(RasrSystem):
             ["accumulate"] + meta.split_and_accumulate_sequence(splits, accs_per_split),
         )
         self.mixtures[corpus]["vtln_warping_mix_%s" % name] = seq.selected_mixtures
-        self.vtln_files[name + "_alphas_file"] = warp.alphas_file
-        self.vtln_files[name + "_warping_map"] = warp.warping_map
-        self.vtln_files[name + "_mixtures"] = seq.selected_mixtures
+        self.vtln_files[corpus][name + "_alphas_file"] = warp.alphas_file
+        self.vtln_files[corpus][name + "_warping_map"] = warp.warping_map
+        self.vtln_files[corpus][name + "_mixtures"] = seq.selected_mixtures
 
     @tk.block()
     def extract_vtln_features(
         self,
         name: str,
         train_corpus: str,
-        eval_corpus: str,
+        eval_corpus: [str],
         raw_feature_flow: str,
         vtln_files: str,
         **kwargs,
     ):
-        self.vtln_features(
-            name=name,
-            corpus=train_corpus,
-            raw_feature_flow=self.feature_flows[eval_corpus][raw_feature_flow],
-            warping_map=self.vtln_files[vtln_files + "_warping_map"],
-            **kwargs,
-        )
-        self.feature_flows[eval_corpus][
-            raw_feature_flow + "+vtln"
-        ] = vtln.recognized_warping_factor_flow(
-            self.feature_flows[eval_corpus][raw_feature_flow],
-            self.vtln_files[vtln_files + "_alphas_file"],
-            self.vtln_files[vtln_files + "_mixtures"][-1],
-        )
+        for c in eval_corpus:
+            self.vtln_features(
+                name=name,
+                corpus=train_corpus,
+                raw_feature_flow=self.feature_flows[c][raw_feature_flow],
+                warping_map=self.vtln_files[train_corpus][vtln_files + "_warping_map"],
+                **kwargs,
+            )
+            self.feature_flows[c][
+                raw_feature_flow + "+vtln"
+            ] = vtln.recognized_warping_factor_flow(
+                self.feature_flows[c][raw_feature_flow],
+                self.vtln_files[train_corpus][vtln_files + "_alphas_file"],
+                self.vtln_files[train_corpus][vtln_files + "_mixtures"][-1],
+            )
 
     @tk.block()
     def vtln_training(
@@ -489,16 +509,16 @@ class GmmSystem(RasrSystem):
 
         overlay = "%s_cmllr_%s" % (corpus, name) if overlay is None else overlay
         self.add_overlay(corpus, overlay)
-        self.crp[overlay].segment_path = new_segments.segment_path
+        self.crp[overlay].out_segment_path = new_segments.out_segment_path
         self.replace_named_flow_attr(
-            overlay, cache_regex, "cache", mapped_features.bundle_path
+            overlay, cache_regex, "cache", mapped_features.out_bundle_path
         )
 
         cmllr = sat.EstimateCMLLRJob(
             crp=self.crp[overlay],
             feature_flow=self.feature_flows[overlay][feature_flow],
             mixtures=mixtures,
-            alignment=mapped_alignment.bundle_path,
+            alignment=mapped_alignment.out_bundle_path,
             cluster_map=speaker_seg.out_cluster_map_file,
             num_clusters=speaker_seg.out_num_speakers,
         )
@@ -603,12 +623,13 @@ class GmmSystem(RasrSystem):
         # parameters just for passing through
         corpus: str,
         feature_flow: str,
-        pronunciation_scale: float,
+        pronunciation_scale: Union[float, List[float]],
         search_parameters: dict,
         rtf: float,
         mem: float,
         parallelize_conversion: bool,
         lattice_to_ctm_kwargs: dict,
+        reestimate_prior=False,
         **kwargs,
     ):
         """
@@ -621,6 +642,15 @@ class GmmSystem(RasrSystem):
         :param feature_scorer: (training_corpus_name, training_name)
         :param optimize_am_lm_scale: will optimize the lm-scale and re-run recognition with the optimal value
         :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
+        :param corpus: corpus to run recognition on
+        :param feature_flow:
+        :param pronunciation_scale:
+        :param search_parameters:
+        :param rtf:
+        :param mem:
+        :param parallelize_conversion:
+        :param lattice_to_ctm_kwargs:
+        :param reestimate_prior: not implemented yet
         :return:
         """
         assert (
@@ -629,14 +659,20 @@ class GmmSystem(RasrSystem):
         with tk.block(f"{name}_recognition"):
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
-            for it, l in itertools.product(iters, lm_scales):
+            pronunciation_scale = (
+                [pronunciation_scale]
+                if isinstance(pronunciation_scale, float)
+                else pronunciation_scale
+            )
+
+            for it, p, l in itertools.product(iters, pronunciation_scale, lm_scales):
                 recog_func(
-                    name=f"iter{it:02d}-lm{l}",
+                    name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
                     prefix=f"recognition/{name}/",
                     corpus=corpus,
                     flow=feature_flow,
                     feature_scorer=list(feature_scorer) + [it - 1],
-                    pronunciation_scale=pronunciation_scale,
+                    pronunciation_scale=p,
                     lm_scale=l,
                     search_parameters=search_parameters,
                     rtf=rtf,
@@ -646,210 +682,535 @@ class GmmSystem(RasrSystem):
                     **kwargs,
                 )
 
+    def sat_recognition(
+        self,
+        prev_ctm: str,
+        feature_cache: str,
+        cache_regex: str,
+        cmllr_mixtures: str,
+        train_corpus: str,
+        name: str,
+        iters: List[int],
+        lm_scales: List[float],
+        feature_scorer: Tuple[str, str],
+        optimize_am_lm_scale: bool,
+        corpus: str,
+        feature_flow: str,
+        pronunciation_scale: Union[float, List[float]],
+        search_parameters: dict,
+        rtf: float,
+        mem: float,
+        parallelize_conversion: bool,
+        lattice_to_ctm_kwargs: dict,
+        **kwargs,
+    ):
+        pronunciation_scale = (
+            [pronunciation_scale]
+            if isinstance(pronunciation_scale, float)
+            else pronunciation_scale
+        )
+
+        for it, p, l in itertools.product(iters, pronunciation_scale, lm_scales):
+            recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
+                self.corpora[corpus].corpus_file,
+                self.ctm_files[corpus][
+                    f"recog_{train_corpus}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
+                ],
+            )
+            speaker_seq = corpus_recipes.SegmentCorpusBySpeakerJob(
+                self.corpora[corpus].corpus_file
+            )
+
+            overlay = "%s_sat" % corpus
+            self.add_overlay(corpus, overlay)
+            self.crp[overlay].corpus_config = copy.deepcopy(
+                self.crp[corpus].corpus_config
+            )
+            self.crp[overlay].corpus_config.file = recognized_corpus.output_corpus_path
+            self.crp[overlay].segment_path = copy.deepcopy(
+                self.crp[corpus].segment_path
+            )
+
+            self.corpora[overlay] = copy.deepcopy(self.corpora[corpus])
+            self.corpora[overlay].corpus_file = recognized_corpus.output_corpus_path
+
+            alignment = mm.AlignmentJob(
+                crp=self.crp[overlay],
+                feature_flow=self.feature_flows[overlay][feature_flow],
+                feature_scorer=self.default_mixture_scorer(
+                    meta.select_element(
+                        self.mixtures, corpus, (train_corpus, cmllr_mixtures)
+                    ),
+                ),
+            )
+
+            self.estimate_cmllr(
+                name=name,
+                corpus=overlay,
+                feature_cache=meta.select_element(
+                    self.feature_caches, corpus, feature_cache
+                ),
+                feature_flow=feature_flow,
+                cache_regex=cache_regex,
+                alignment=alignment.out_alignment_path,
+                mixtures=meta.select_element(
+                    self.mixtures, corpus, (train_corpus, cmllr_mixtures)
+                ),
+                overlay=overlay,
+            )
+            self.feature_flows[corpus][
+                "%s+cmllr" % feature_flow
+            ] = sat.add_cmllr_transform(
+                feature_net=self.feature_flows[corpus][feature_flow],
+                map_file=speaker_seq.out_cluster_map_file,
+                transform_dir=self.jobs[overlay]["cmllr"].transforms,
+            )
+
+            with tk.block(f"{name}_recognition"):
+                recog_func = (
+                    self.recog_and_optimize if optimize_am_lm_scale else self.recog
+                )
+
+                for l in lm_scales:
+                    recog_func(
+                        name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
+                        prefix=f"recognition/{name}/",
+                        corpus=corpus,
+                        flow=feature_flow,
+                        feature_scorer=list(feature_scorer) + [it - 1],
+                        pronunciation_scale=p,
+                        lm_scale=l,
+                        search_parameters=search_parameters,
+                        rtf=rtf,
+                        mem=mem,
+                        parallelize_conversion=parallelize_conversion,
+                        lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                        **kwargs,
+                    )
+
     # -------------------- run setup  --------------------
 
-    def run(self, steps: Union[List, Tuple] = ("all",)):
+    def run(self, steps: Union[List[str], RasrSteps]):
         """
-        run setup
-
-        :param steps:
-        :return:
+        order is important!
+        if list: the parameters passed to function "init_system" will be used
+        allowed steps: extract, mono, cart, tri, vtln, sat, vtln+sat, forced_align
+        step name string must have an allowed step as prefix
         """
-        assert len(steps) > 0
-        if len(steps) == 1 and steps[0] == "all":
-            steps = ["extract", "mono", "cart", "tri", "vtln", "sat", "vtln+sat"]
+        if isinstance(steps, List):
+            steps_tmp = steps
+            steps = RasrSteps()
+            for s in steps_tmp:
+                if s == "extract":
+                    steps.add_step(s, self.hybrid_init_args.feature_extraction_args)
+                elif s == "mono":
+                    steps.add_step(s, self.monophone_args)
+                elif s == "cart":
+                    steps.add_step(
+                        s,
+                        GmmCartArgs(
+                            cart_questions=self.cart_questions,
+                            cart_lda_args=self.cart_lda_args,
+                        ),
+                    )
+                elif s == "tri":
+                    steps.add_step(s, self.triphone_args)
+                elif s == "vtln":
+                    steps.add_step(s, self.vtln_args)
+                elif s == "sat":
+                    steps.add_step(s, self.sat_args)
+                elif s == "vtln+sat":
+                    steps.add_step(s, self.vtln_sat_args)
+                else:
+                    raise NotImplementedError
+            del steps_tmp
 
-        if "init" in steps:
+        if "init" in steps.get_step_names_as_list():
             print(
                 "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
             )
             sys.exit(-1)
 
+        # ---------- Corpus statistics, allophones, scoring: stm and sclite ----------
         for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
-            self.costa(all_c, prefix="costa/", **self.hybrid_init_args.costa_args)
+            costa_args = copy.deepcopy(self.hybrid_init_args.costa_args)
+            if self.crp[all_c].language_model_config is None:
+                costa_args["eval_lm"] = False
+            self.costa(all_c, prefix="costa/", **costa_args)
+            if costa_args["eval_lm"]:
+                self.jobs[all_c]["costa"].update_rqmt("run", {"mem": 8, "time": 24})
 
         for trn_c in self.train_corpora:
             self.store_allophones(trn_c)
 
         for eval_c in self.dev_corpora + self.test_corpora:
             self.create_stm_from_corpus(eval_c)
-            self.set_sclite_scorer(eval_c)
-
-        if "extract" in steps:
-            self.extract_features(
-                feat_args=self.hybrid_init_args.feature_extraction_args
-            )
-
-        # ---------- Monophone ----------
-        if "mono" in steps:
-            for trn_c in self.train_corpora:
-                self.monophone_training(
-                    "mono",
-                    trn_c,
-                    self.gmm_monophone_args.linear_alignment_args,
-                    **self.gmm_monophone_args.monophone_training_args,
+            if self.hybrid_init_args.scorer == "kaldi":
+                self.set_kaldi_scorer(
+                    corpus=eval_c,
+                    mapping={"[SILENCE]": ""},
+                )
+            else:
+                self.set_sclite_scorer(
+                    corpus=eval_c,
+                    sort_files=False,
                 )
 
-                for dev_c in self.dev_corpora:
-                    feature_scorer = (trn_c, "train_mono")
-                    self.recognition(
-                        f"mono-{trn_c}-{dev_c}",
-                        corpus=dev_c,
-                        feature_scorer=feature_scorer,
-                        **self.gmm_monophone_args.monophone_recognition_args,
+        for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
+            # ---------- Feature Extraction ----------
+            if step_name.startswith("extract"):
+                self.extract_features(feat_args=step_args)
+                if (
+                    "voiced" in self.hybrid_init_args.feature_extraction_args.keys()
+                    and "tone" in self.hybrid_init_args.feature_extraction_args.keys()
+                ):
+                    for all_c in (
+                        self.train_corpora + self.dev_corpora + self.test_corpora
+                    ):
+                        gt_based_net = rasr.FlowNetwork()
+                        gt_based_net.add_output("features")
+                        mapping_gt = gt_based_net.add_net(
+                            self.feature_flows[all_c]["gt"]
+                        )
+                        mapping_gt_voiced = gt_based_net.add_net(
+                            self.feature_flows[all_c]["voiced"]
+                        )
+                        mapping_gt_tone = gt_based_net.add_net(
+                            self.feature_flows[all_c]["tone"]
+                        )
+
+                        gt_merge_1 = gt_based_net.add_node(
+                            "generic-vector-f32-concat",
+                            "concat-1",
+                            {"check-same-length": True, "timestamp-port": "feature-1"},
+                        )
+                        gt_based_net.link(
+                            mapping_gt[
+                                self.feature_flows[all_c]["gt"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            gt_merge_1 + ":feature-1",
+                        )
+                        gt_based_net.link(
+                            mapping_gt_voiced[
+                                self.feature_flows[all_c]["voiced"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            gt_merge_1 + ":features-2",
+                        )
+                        gt_based_net.link(
+                            mapping_gt_tone[
+                                self.feature_flows[all_c]["tone"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            gt_merge_1 + ":features-3",
+                        )
+
+                        gt_based_net.link(gt_merge_1, "network:features")
+
+                        self.feature_flows[all_c]["gt+voiced+tone"] = gt_based_net
+
+                        mfcc_based_net = rasr.FlowNetwork()
+                        mfcc_based_net.add_output("features")
+                        mapping_mfcc = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["mfcc"]
+                        )
+                        mapping_mfcc_voiced = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["voiced"]
+                        )
+                        mapping_mfcc_tone = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["tone"]
+                        )
+
+                        mfcc_merge_1 = mfcc_based_net.add_node(
+                            "generic-vector-f32-concat",
+                            "concat-1",
+                            {"check-same-length": True, "timestamp-port": "feature-1"},
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc[
+                                self.feature_flows[all_c]["mfcc"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            mfcc_merge_1 + ":feature-1",
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc_voiced[
+                                self.feature_flows[all_c]["voiced"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            mfcc_merge_1 + ":feature-2",
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc_tone[
+                                self.feature_flows[all_c]["tone"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            mfcc_merge_1 + ":feature-3",
+                        )
+
+                        mfcc_based_net.link(mfcc_merge_1, "network:features")
+
+                        self.feature_flows[all_c]["mfcc+voiced+tone"] = mfcc_based_net
+
+                        mfcc_based_net = rasr.FlowNetwork()
+                        mfcc_based_net.add_output("features")
+                        mapping_mfcc = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["mfcc+deriv+norm"]
+                        )
+                        mapping_mfcc_voiced = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["voiced"]
+                        )
+                        mapping_mfcc_tone = mfcc_based_net.add_net(
+                            self.feature_flows[all_c]["tone"]
+                        )
+
+                        mfcc_merge_1 = mfcc_based_net.add_node(
+                            "generic-vector-f32-concat",
+                            "concat-1",
+                            {"check-same-length": True, "timestamp-port": "feature-1"},
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc[
+                                self.feature_flows[all_c][
+                                    "mfcc+deriv+norm"
+                                ].get_output_links("features")[0]
+                            ],
+                            mfcc_merge_1 + ":feature-1",
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc_voiced[
+                                self.feature_flows[all_c]["voiced"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            mfcc_merge_1 + ":feature-2",
+                        )
+                        mfcc_based_net.link(
+                            mapping_mfcc_tone[
+                                self.feature_flows[all_c]["tone"].get_output_links(
+                                    "features"
+                                )[0]
+                            ],
+                            mfcc_merge_1 + ":feature-3",
+                        )
+
+                        mfcc_based_net.link(mfcc_merge_1, "network:features")
+
+                        self.feature_flows[all_c][
+                            "mfcc+deriv+norm+voiced+tone"
+                        ] = mfcc_based_net
+                        self.add_energy_to_features(
+                            all_c, "mfcc+deriv+norm+voiced+tone"
+                        )
+
+            # ---------- Monophone ----------
+            if step_name.startswith("mono"):
+                for trn_c in self.train_corpora:
+                    self.monophone_training(
+                        corpus=trn_c,
+                        linear_alignment_args=step_args.linear_alignment_args,
+                        **step_args.training_args,
                     )
 
-                for tst_c in self.test_corpora:
-                    pass
+                    for dev_c in self.dev_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
 
-        # ---------- CaRT ----------
-        if "cart" in steps:
-            for c in self.train_corpora:
-                self.cart_and_lda(
-                    "mono",
-                    c,
-                    alignment="train_mono",
-                    **self.gmm_triphone_args.cart_lda_args,
-                )
+                        self.recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=dev_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
 
-        # ---------- Triphone ----------
-        if "tri" in steps:
-            for c in self.train_corpora:
-                self.triphone_training(
-                    "tri",
-                    c,
-                    initial_alignment="train_mono",
-                    **self.gmm_triphone_args.triphone_training_args,
-                )
+                    for tst_c in self.test_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
 
-            for c in self.dev_corpora:
-                # recog and optimize
-                pass
+                        self.recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=tst_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
 
-            for c in self.test_corpora:
-                pass
+                    # ---------- SDM Mono ----------
+                    if step_args is not None:
+                        self.single_density_mixtures(
+                            corpus=trn_c,
+                            **step_args.sdm_args,
+                        )
 
-            # ---------- SDM Tri ----------
-            for c in self.train_corpora:
-                self.single_density_mixtures(
-                    "sdm.tri",
-                    c,
-                    alignment="train_tri",
-                    **self.gmm_triphone_args.sdm_tri_args,
-                )
+            # ---------- CaRT ----------
+            if step_name.startswith("cart"):
+                self.cart_questions = step_args.cart_questions
+                for trn_c in self.train_corpora:
+                    self.cart_and_lda(
+                        corpus=trn_c,
+                        **step_args.cart_lda_args,
+                    )
 
-        # ---------- VTLN ----------
-        if "vtln" in steps:
-            for c in self.dev_corpora + self.test_corpora:
-                self.vtln_feature_flow(
-                    "uncached_mfcc+context+lda",
-                    c,
-                    lda_matrix="batch1+2.train_mono",
-                    **self.gmm_vtln_args.vtln_training_args["feature_flow"],
-                )
+            # ---------- Triphone ----------
+            if step_name.startswith("tri"):
+                for trn_c in self.train_corpora:
+                    self.triphone_training(
+                        corpus=trn_c,
+                        **step_args.training_args,
+                    )
 
-            for c in self.train_corpora:
-                self.vtln_feature_flow(
-                    "uncached_mfcc+context+lda",
-                    c,
-                    lda_matrix="batch1+2.train_mono",
-                    **self.gmm_vtln_args.vtln_training_args["feature_flow"],
-                )
+                    for dev_c in self.dev_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
 
-                self.vtln_warping_mixtures(
-                    "vtln",
-                    c,
-                    feature_scorer="estimate_mixtures_sdm.tri",
-                    **self.gmm_vtln_args.vtln_training_args["warp_mix"],
-                )
+                        self.recognition(
+                            f"{trn_c}-{name}",
+                            corpus=dev_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
 
-                for cc in self.dev_corpora + self.test_corpora:
+                    for tst_c in self.test_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
+
+                        self.recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=tst_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
+
+                    # ---------- SDM Tri ----------
+                    if step_args.sdm_args is not None:
+                        self.single_density_mixtures(
+                            corpus=trn_c,
+                            **step_args.sdm_args,
+                        )
+
+            # ---------- VTLN ----------
+            if step_name.startswith("vtln") and not step_name.startswith("vtln+sat"):
+                for trn_c in self.train_corpora:
+                    self.vtln_feature_flow(
+                        train_corpora=trn_c,
+                        corpora=[trn_c] + self.dev_corpora + self.test_corpora,
+                        **step_args.training_args["feature_flow"],
+                    )
+
+                    self.vtln_warping_mixtures(
+                        corpus=trn_c,
+                        feature_flow=step_args.training_args["feature_flow"]["name"],
+                        **step_args.training_args["warp_mix"],
+                    )
+
                     self.extract_vtln_features(
-                        "mfcc+context+lda",
-                        train_corpus=c,
-                        eval_corpus=cc,
-                        raw_feature_flow="uncached_mfcc+context+lda",
-                        vtln_files="vtln",
+                        name=steps.get_args_via_idx(step_idx - 1).training_args[
+                            "feature_flow"
+                        ],
+                        train_corpus=trn_c,
+                        eval_corpus=self.dev_corpora + self.test_corpora,
+                        raw_feature_flow=step_args.training_args["feature_flow"][
+                            "name"
+                        ],
+                        vtln_files=step_args.training_args["warp_mix"]["name"],
                     )
 
-                self.vtln_training(
-                    "vtln",
-                    c,
-                    initial_alignment="train_tri",
-                    **self.gmm_vtln_args.vtln_training_args["train"],
-                )
+                    self.vtln_training(
+                        corpus=trn_c,
+                        **step_args.training_args["train"],
+                    )
 
-            for c in self.test_corpora:
-                pass
+                    for dev_c in self.dev_corpora:
+                        name = step_args.training_args["train"]["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
 
-            for c in self.test_corpora:
-                pass
+                        self.recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=dev_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
 
-            # ---------- SDM VTLN ----------
-            for c in self.train_corpora:
-                self.single_density_mixtures(
-                    "sdm.vtln",
-                    c,
-                    alignment="train_vtln",
-                    **self.gmm_vtln_args.sdm_vtln_args,
-                )
+                    for tst_c in self.test_corpora:
+                        pass
 
-        # ---------- SAT ----------
-        if "sat" in steps:
-            for c in self.train_corpora:
-                self.sat_training(
-                    "sat",
-                    c,
-                    mixtures="estimate_mixtures_sdm.tri",
-                    alignment="train_tri",
-                    **self.gmm_sat_args.sat_training_args,
-                )
+                    # ---------- SDM VTLN ----------
+                    if step_args.sdm_args is not None:
+                        self.single_density_mixtures(
+                            corpus=trn_c,
+                            **step_args.sdm_args,
+                        )
 
-            for c in self.dev_corpora:
-                # recog and optimize
-                pass
+            # ---------- SAT ----------
+            if step_name.startswith("sat"):
+                for trn_c in self.train_corpora:
+                    self.sat_training(
+                        corpus=trn_c,
+                        **step_args.training_args,
+                    )
 
-            for c in self.test_corpora:
-                pass
+                    for dev_c in self.dev_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
 
-            # ---------- SDM Sat ----------
-            for c in self.train_corpora:
-                self.single_density_mixtures(
-                    "sdm.sat",
-                    c,
-                    alignment="train_sat",
-                    **self.gmm_sat_args.sdm_sat_args,
-                )
+                        self.sat_recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=dev_c,
+                            train_corpus=trn_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
 
-        # ---------- VTLN+SAT ----------
-        if "vtln+sat" in steps:
-            for c in self.train_corpora:
-                self.single_density_mixtures(
-                    "sdm.vtln",
-                    c,
-                    alignment="train_vtln",
-                    **self.gmm_vtln_sat_args.sdm_vtln_args,
-                )
-                self.sat_training(
-                    "vtln_sat",
-                    c,
-                    mixtures="estimate_mixtures_sdm.vtln",
-                    alignment="train_vtln",
-                    **self.gmm_vtln_sat_args.vtln_sat_training_args,
-                )
+                    for tst_c in self.test_corpora:
+                        pass
 
-            for c in self.dev_corpora:
-                # recog and optimize
-                pass
+                    # ---------- SDM Sat ----------
+                    if step_args.sdm_args is not None:
+                        self.single_density_mixtures(
+                            corpus=trn_c,
+                            **step_args.sdm_args,
+                        )
 
-            for c in self.test_corpora:
-                pass
+            # ---------- VTLN+SAT ----------
+            if step_name.startswith("vtln+sat"):
+                for trn_c in self.train_corpora:
+                    self.sat_training(
+                        corpus=trn_c,
+                        **step_args.training_args,
+                    )
 
-            # ---------- SDM VTLN+SAT ----------
-            for c in self.train_corpora:
-                self.single_density_mixtures(
-                    "sdm.sat_vtln",
-                    c,
-                    alignment="train_vtln_sat",
-                    **self.gmm_triphone_args.sdm_tri_args,
-                )
+                    for dev_c in self.dev_corpora:
+                        name = step_args.training_args["name"]
+                        feature_scorer = (trn_c, f"train_{name}")
+
+                        self.sat_recognition(
+                            name=f"{trn_c}-{name}",
+                            corpus=dev_c,
+                            train_corpus=trn_c,
+                            feature_scorer=feature_scorer,
+                            **step_args.recognition_args,
+                        )
+
+                    for tst_c in self.test_corpora:
+                        pass
+
+                    # ---------- SDM VTLN+SAT ----------
+                    if step_args.sdm_args is not None:
+                        self.single_density_mixtures(
+                            corpus=trn_c,
+                            **step_args.sdm_args,
+                        )
+
+            # ---------- Forced Alignment ----------
+            if step_name.startswith("forced_align"):
+                for trn_c in self.train_corpora:
+                    self.forced_align(
+                        corpus=trn_c,
+                        **step_args,
+                    )
