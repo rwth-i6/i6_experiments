@@ -132,52 +132,60 @@ def trainig_network_mohammad(specaug_settings=None):
     """
     from .prototype_network import EncoderWrapper, static_decoder
 
-    if specaug_settings is None:
-        specaug_settings = SpecAugmentSettings(
-            min_frame_masks=1,
-            mask_each_n_frames=100,
-            max_feature_masks=4
-        )
+    specaug_settings_full = SpecAugmentSettings()
+
+
+    specaug_settings_light = SpecAugmentSettings(
+        min_frame_masks=0,
+        mask_each_n_frames=100,
+        max_frames_per_mask=10,
+        min_feature_masks=0,
+        max_feature_masks=2,
+        max_features_per_mask=4,
+    )
 
     stage_nets = []
-    for i in range(5):
+    for i in range(6):
         # pooling pretraing
-        if i == 0:
+
+        network_stage = 0 if i == 0 else i - 1
+        if network_stage == 0:
             lstm_pool_sizes = [6]
         else:
             lstm_pool_sizes = [3, 2]
         # dropout from 0 to 0.3
-        lstm_dropout = (i/4.0 * 0.3)
+        lstm_dropout = (i/5.0 * 0.3)
+
+        l2 = (i/5.0 * 0.001)
         # grow lstm dim from 512 to 1024
-        lstm_dim = int(512 + (i/4.0 * 512))
+        lstm_dim = int(512 + (network_stage/4.0 * 512))
         #enable specaugment after epoch 10
-        enable_specaugment = i >= 2
 
         encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
-                                 num_lstm_layers=2 + i, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
-                                 lstm_single_dim=lstm_dim,
-                                 specaugment_settings=specaug_settings if enable_specaugment else None)
+                                 num_lstm_layers=2 + network_stage, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
+                                 lstm_single_dim=lstm_dim, l2=l2,
+                                 specaugment_settings=specaug_settings_light if i < 3 else specaug_settings_full)
         encoder_dict = encoder.make_root_net_dict()
         # Eval layer hack for specaugment
-        if enable_specaugment:
-            encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
+        encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
 
         local_static_decoder = copy.deepcopy(static_decoder)
-        if i < 4:
+        if i < 5:
             local_static_decoder["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
 
         stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
-        if i < 4:
+        if i < 5:
             stage_net["#config"] = {}
             stage_net["#config"]["batch_size"] = 15000
         stage_nets.append(stage_net)
 
     network_dict = {
-        1: stage_nets[0],
-        11: stage_nets[1],
-        16: stage_nets[2],
-        21: stage_nets[3],
-        26: stage_nets[4],
+        1: stage_nets[0], # network 0
+        11: stage_nets[1], # still network 0, only specaug
+        26: stage_nets[2], # network 1
+        31: stage_nets[3], # network 2
+        36: stage_nets[4], # network 3
+        41: stage_nets[5], # network 4
     }
     return network_dict
 
@@ -200,8 +208,7 @@ def get_config(with_pretraining=True, **kwargs):
 
     config = {
         'gradient_clip': 0,
-        'optimizer': {'class': 'Adam'},
-        'optimizer_epsilon': 1e-8,
+        'optimizer': {'class': 'Adam', 'epsilon': 1e-8},
         'accum_grad_multiple_step': 2,
         'gradient_noise': 0.0,
         'learning_rates': learning_rates,
@@ -214,7 +221,6 @@ def get_config(with_pretraining=True, **kwargs):
         'newbob_multi_update_interval': 1,
         'newbob_learning_rate_decay': 0.9,
         'batch_size': 10000,
-        'max_seq_len': {'bpe_labels': 75},  # just for security
         'max_seqs': 200,
         # 'truncation': -1
     }
@@ -269,10 +275,9 @@ def training(prefix_name, returnn_exe, returnn_root, **kwargs):
 def test():
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher_custom.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="f4f88b02f8e50996eedc475e4ce9006206a52394").out_repository
+                                         commit="e799984d109029c42816e6d5e0b5361b8bd7f05d").out_repository
 
     prefix_name = "experiments/librispeech/librispeech_100_attention/lstm_encdec_2021/prototype_pipelines"
-    training(prefix_name + "/test_enc_only_broken_specaug", returnn_exe, returnn_root)
 
     specaug_settings = SpecAugmentSettings()
     training(prefix_name + "/test_enc_only_fixed_specaug", returnn_exe, returnn_root, specaug_settings=specaug_settings)

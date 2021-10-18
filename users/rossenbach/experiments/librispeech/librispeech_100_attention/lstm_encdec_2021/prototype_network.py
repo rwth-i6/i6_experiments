@@ -26,7 +26,7 @@ class Encoder2DConvBlock(Module):
         self.dropout_layers = []
         for filter_size, pool_size, channel_size in zip(filter_sizes, pool_sizes, channel_sizes):
             self.conv_layers.append(layers.Conv(
-                l2=l2, activation=act, filter_size=filter_size, n_out=channel_size, padding=padding))
+                l2=l2, activation=act, filter_size=filter_size, n_out=channel_size, padding=padding, with_bias=True))
             self.pool_layers.append(layers.Pool(pool_size=pool_size, padding='same', mode="max"))
         self.dropout = layers.Dropout(dropout=dropout) if dropout > 0.0 else None
         self.merge_features_layer = layers.MergeDims(axes="static")
@@ -182,7 +182,7 @@ static_decoder = {
                                                  'out_type': {'dim': 1, 'shape': (None, 1)}},
                           'att': {'axes': 'except_batch', 'class': 'merge_dims', 'from': 'att0'},
                           'enc_transformed': {'class': 'linear', 'from': 'base:encoder/encoder_state', 'n_out': 1024},
-                          'inv_fertility': {'class': 'linear', 'activation': 'sigmoid', 'from': 'base:encoder/encoder_state', 'n_out': 1},
+                          'inv_fertility': {'class': 'linear', 'activation': 'sigmoid', 'from': 'base:encoder/encoder_state', 'n_out': 1, 'with_bias': False},
                           'att0': {'base': 'base:encoder/encoder_state', 'class': 'generic_attention', 'weights': 'att_weights'},
                           'att_weights': {'class': 'dropout', 'dropout': 0.3, 'dropout_noise_shape': {'*': None}, 'from': 'att_weights0'},
                           'att_weights0': {'class': 'softmax_over_spatial', 'from': 'energy'},
