@@ -5,6 +5,7 @@ import numpy
 from sisyphus import tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
+from i6_core.returnn.config import ReturnnConfig
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict
 
@@ -124,7 +125,7 @@ def build_training_datasets(returnn_python_exe, returnn_root, output_path):
 
 
 
-def trainig_network_mohammad(specaug_settings=None):
+def trainig_network_mohammad(specaug_settings=None, stronger_pt_reg=False):
     """
     Network derived from Mohammads Librispeech-100h system with new encoder pre-training
 
@@ -154,9 +155,12 @@ def trainig_network_mohammad(specaug_settings=None):
         else:
             lstm_pool_sizes = [3, 2]
         # dropout from 0 to 0.3
-        lstm_dropout = (i/5.0 * 0.3)
-
-        l2 = (i/5.0 * 0.001)
+        if stronger_pt_reg:
+            lstm_dropout = 0.15 + (i/5.0 * 0.15)
+            l2 = 0.0005 + (i/5.0 * 0.0005)
+        else:
+            lstm_dropout = (i/5.0 * 0.3)
+            l2 = (i/5.0 * 0.001)
         # grow lstm dim from 512 to 1024
         lstm_dim = int(512 + (network_stage/4.0 * 512))
         #enable specaugment after epoch 10
@@ -164,7 +168,7 @@ def trainig_network_mohammad(specaug_settings=None):
         encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
                                  num_lstm_layers=2 + network_stage, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
                                  lstm_single_dim=lstm_dim, l2=l2,
-                                 specaugment_settings=specaug_settings_light if i < 3 else specaug_settings_full)
+                                 specaugment_settings=specaug_settings_light if i < (1 if stronger_pt_reg else 3) else specaug_settings_full)
         encoder_dict = encoder.make_root_net_dict()
         # Eval layer hack for specaugment
         encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
@@ -226,12 +230,13 @@ def get_config(with_pretraining=True, **kwargs):
     }
 
 
-    network_dict = trainig_network_mohammad(specaug_settings=kwargs.get("specaug_settings", None))
+    network_dict = trainig_network_mohammad(specaug_settings=kwargs.get("specaug_settings", None),
+                                            stronger_pt_reg=kwargs.get("stronger_pt_reg", False))
 
     from .specaugment_clean import get_funcs
 
     if with_pretraining:
-        returnn_config = ExtendedReturnnConfig(
+        returnn_config = ReturnnConfig(
             config=config,
             post_config=post_config,
             staged_network_dict=network_dict,
@@ -281,6 +286,8 @@ def test():
 
     specaug_settings = SpecAugmentSettings()
     training(prefix_name + "/test_enc_only_fixed_specaug", returnn_exe, returnn_root, specaug_settings=specaug_settings)
+
+    training(prefix_name + "/test_enc_only_fixed_specaug_stronger_pt_reg", returnn_exe, returnn_root, specaug_settings=specaug_settings, stronger_pt_reg=True)
 
 
 
