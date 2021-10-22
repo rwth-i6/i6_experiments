@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import *
 import shutil
 import subprocess
 
@@ -15,7 +14,7 @@ class SentencePieceType(Enum):
 
 class TrainSentencePiece(Job):
     """
-
+    Text tokenizer based on SentencePiece software (https://github.com/google/sentencepiece#train-sentencepiece-model)
     """
 
     def __init__(self, training_text, vocab_size, model_type, **opts):
@@ -54,12 +53,10 @@ class TrainSentencePiece(Job):
             model_prefix="spm_out",
             model_type=self.model_type.value,
             vocab_size=self.vocab_size,
+            character_coverage=1.0,
             **self.opts
         )
 
         shutil.copy("spm_out.model", self.out_model.get_path())
 
         self.out_vocab_size.set(self.vocab_size)
-
-
-
