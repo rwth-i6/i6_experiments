@@ -29,7 +29,8 @@ class Conv2dBlock(Module):
         for i, conv_layer in enumerate(self.conv_layers):
             x = conv_layer(x)
             x = layers.pool(x, pool_size=self.pool_sizes[i], padding='same', mode='max')
-            x = layers.dropout(x, dropout=self.dropout)
+            if self.dropout:
+                x = layers.dropout(x, dropout=self.dropout)
         out = layers.merge_dims(x, axes='static')  # [B,T,F]
         return out
 
