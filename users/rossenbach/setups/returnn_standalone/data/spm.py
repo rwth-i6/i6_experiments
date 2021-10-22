@@ -23,7 +23,7 @@ def get_spm_settings(bliss_corpus, vocab_size, model_type, **opts):
     :param SentencePieceType model_type:
     :return:
     """
-
+    opts.setdefault('character_coverage', 1.0)
     text = CorpusToTxtJob(bliss_corpus, gzip=False).out_txt
     train_job = TrainSentencePiece(
         training_text=text,

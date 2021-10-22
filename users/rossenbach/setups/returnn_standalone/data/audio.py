@@ -90,18 +90,19 @@ def add_global_statistics_to_audio_features(
     return audio_datastream
 
 
-def add_global_statistics_to_audio_features_v2(
-        audio_options,
-        ogg_zip_dataset,
+def add_global_statistics_to_audio_datastream(
+        audio_datastream,
+        zip_dataset,
         segment_file=None,
         use_scalar_only=False,
         returnn_python_exe=None,
         returnn_root=None,
         output_prefix=""):
     """
+    updated compared to  add_global_statistics_to_audio_features
 
     :param AudioFeaturesOpts audio_options:
-    :param tk.Path ogg_zip_dataset:
+    :param tk.Path|List[tk.Path] zip_dataset:
     :param tk.Path segment_file
     :param returnn_python_exe:
     :param returnn_root:
@@ -110,19 +111,20 @@ def add_global_statistics_to_audio_features_v2(
     """
 
     extraction_dataset = OggZipDataset(
-        path=ogg_zip_dataset,
+        path=zip_dataset,
         segment_file=segment_file,
-        audio_opts=audio_options.as_returnn_extract_opts(),
+        audio_opts=audio_datastream.as_returnn_audio_opts(),
         target_opts=None
     )
 
     extraction_config = ReturnnConfig(config={'train': extraction_dataset.as_returnn_opts()})
     extract_dataset_statistics_job = ExtractDatasetMeanStddevJob(extraction_config, returnn_python_exe, returnn_root)
+    extract_dataset_statistics_job.add_alias(os.path.join(output_prefix, "extract_dataset_statistics_job"))
     if use_scalar_only:
-        audio_options.options['norm_mean'] = extract_dataset_statistics_job.out_mean
-        audio_options.options['norm_std_dev'] = extract_dataset_statistics_job.out_std_dev
+        audio_datastream.options['norm_mean'] = extract_dataset_statistics_job.out_mean
+        audio_datastream.options['norm_std_dev'] = extract_dataset_statistics_job.out_std_dev
     else:
-        audio_options.options['norm_mean'] = extract_dataset_statistics_job.out_mean_file
-        audio_options.options['norm_std_dev'] = extract_dataset_statistics_job.out_std_dev_file
+        audio_datastream.options['norm_mean'] = extract_dataset_statistics_job.out_mean_file
+        audio_datastream.options['norm_std_dev'] = extract_dataset_statistics_job.out_std_dev_file
 
-    return audio_options
+    return audio_datastream
