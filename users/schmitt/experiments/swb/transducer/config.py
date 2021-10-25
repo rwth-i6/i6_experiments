@@ -9,7 +9,7 @@ from i6_experiments.users.schmitt.vocab import *
 from i6_experiments.users.schmitt.switchout import *
 from i6_experiments.users.schmitt.targetb import *
 
-from i6_core.returnn.config import ReturnnConfig
+from recipe.i6_core.returnn.config import ReturnnConfig
 
 class TransducerSWBBaseConfig:
   def __init__(self, vocab, target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40,
