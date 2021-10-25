@@ -10,11 +10,6 @@ from i6_experiments.users.schmitt.switchout import *
 from i6_experiments.users.schmitt.targetb import *
 
 from i6_core.returnn.config import ReturnnConfig
-from i6_core.returnn.training import *
-from i6_core.returnn.search import *
-from i6_core.recognition.scoring import Hub5ScoreJob
-from sisyphus import *
-
 
 class TransducerSWBBaseConfig:
   def __init__(self, vocab, target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40,
@@ -193,89 +188,3 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
   def set_for_search(self, dataset_key):
     super().set_for_search(dataset_key)
     self.extern_data[self.target] = {"dim": self.target_num_labels, "sparse": True}
-
-
-def run_experiment(config: TransducerSWBBaseConfig, name, num_epochs, is_pretrain, mem_rqmt, time_rqmt):
-  train_job = ReturnnTrainingJob(
-    config.get_config(),
-    num_epochs=num_epochs,
-    log_verbosity=5,
-    returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
-    returnn_root="/u/schmitt/src/returnn",
-    mem_rqmt=mem_rqmt,
-    time_rqmt=time_rqmt)
-  train_job.add_alias(name + "/train")
-  alias = train_job.get_one_alias()
-  tk.register_output(alias + "/config", train_job.out_returnn_config_file)
-  tk.register_output(alias + "/models", train_job.out_model_dir)
-  tk.register_output(alias + "/learning_rates", train_job.out_learning_rates)
-  tk.register_output(alias + "/plot_se", train_job.out_plot_se)
-  tk.register_output(alias + "/plot_lr", train_job.out_plot_lr)
-
-  checkpoint = train_job.out_checkpoints[num_epochs]
-
-  if is_pretrain:
-    index_path = tk.uncached_path(checkpoint.index_path)
-    suffix = index_path[-len(".000.index"):]
-    model_path = index_path[: -len(suffix)]
-    model_path += ".pretrain" + suffix[:len(".000")]
-
-  # remove the pretraining and load previously trained model
-  config.network_epilog.pop(2)
-  config.network_epilog += ["import_model_train_epoch1 = %r" % model_path]
-
-  retrain_job = ReturnnTrainingJob(
-    config.get_config(),
-    num_epochs=num_epochs,
-    log_verbosity=5,
-    returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
-    returnn_root="/u/schmitt/src/returnn",
-    mem_rqmt=mem_rqmt,
-    time_rqmt=time_rqmt)
-  retrain_job.add_input(train_job.out_checkpoints[num_epochs].index_path)
-  retrain_job.add_alias(name + "/retrain")
-  alias = retrain_job.get_one_alias()
-  tk.register_output(alias + "/config", retrain_job.out_returnn_config_file)
-  tk.register_output(alias + "/models", retrain_job.out_model_dir)
-  tk.register_output(alias + "/learning_rates", retrain_job.out_learning_rates)
-  tk.register_output(alias + "/plot_se", retrain_job.out_plot_se)
-  tk.register_output(alias + "/plot_lr", retrain_job.out_plot_lr)
-
-  return retrain_job.out_checkpoints, config
-
-
-def eval_model(config, checkpoint, stm_job, reference, name, dataset_key, mem_rqmt, time_rqmt):
-  config.set_for_search(dataset_key)
-  search_job = ReturnnSearchJob(
-    search_data={},
-    model_checkpoint=checkpoint,
-    returnn_config=config.get_config(),
-    returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
-    returnn_root="/u/schmitt/src/returnn",
-    mem_rqmt=mem_rqmt,
-    time_rqmt=time_rqmt)
-
-  search_job.add_alias(name + "/search_%s" % dataset_key)
-  alias = search_job.get_one_alias()
-  tk.register_output(alias + "/bpe_search_results", search_job.out_search_file)
-  tk.register_output(alias + "/config", search_job.out_returnn_config_file)
-
-  bpe_to_words_job = SearchBPEtoWordsJob(search_job.out_search_file)
-  bpe_to_words_job.add_alias(name + "/words_%s" % dataset_key)
-  alias = bpe_to_words_job.get_one_alias()
-  tk.register_output(alias + "/word_search_results", bpe_to_words_job.out_word_search_results)
-
-  ctm_job = SearchWordsToCTMJob(
-    bpe_to_words_job.out_word_search_results,
-    stm_job.bliss_corpus)
-  ctm_job.add_alias(name + "/ctm_%s" % dataset_key)
-  alias = ctm_job.get_one_alias()
-  tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
-
-  score_job = Hub5ScoreJob(
-    reference, "/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm", ctm_job.out_ctm_file
-  )
-  score_job.add_alias(name + "/scores_%s" % dataset_key)
-  alias = score_job.get_one_alias()
-  tk.register_output(alias + "/score_reports", score_job.report_dir)
-
