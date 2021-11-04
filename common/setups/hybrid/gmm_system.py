@@ -807,9 +807,6 @@ class GmmSystem(RasrSystem):
 
     # -------------------- run functions  --------------------
 
-    def run_feature_extraction_step(self):
-        pass
-
     def run_monophone_step(self, step_args):
         for trn_c in self.train_corpora:
             self.monophone_training(
@@ -883,7 +880,7 @@ class GmmSystem(RasrSystem):
                     **step_args.sdm_args,
                 )
 
-    def run_vtln_step(self, step_args):
+    def run_vtln_step(self, step_args, step_idx, steps):
         for trn_c in self.train_corpora:
             self.vtln_feature_flow(
                 train_corpus_key=trn_c,
@@ -1063,155 +1060,6 @@ class GmmSystem(RasrSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 self.extract_features(feat_args=step_args)
-                if (
-                    "voiced" in self.hybrid_init_args.feature_extraction_args.keys()
-                    and "tone" in self.hybrid_init_args.feature_extraction_args.keys()
-                ):
-                    for all_c in (
-                        self.train_corpora + self.dev_corpora + self.test_corpora
-                    ):
-                        gt_based_net = rasr.FlowNetwork()
-                        gt_based_net.add_output("features")
-                        mapping_gt = gt_based_net.add_net(
-                            self.feature_flows[all_c]["gt"]
-                        )
-                        mapping_gt_voiced = gt_based_net.add_net(
-                            self.feature_flows[all_c]["voiced"]
-                        )
-                        mapping_gt_tone = gt_based_net.add_net(
-                            self.feature_flows[all_c]["tone"]
-                        )
-
-                        gt_merge_1 = gt_based_net.add_node(
-                            "generic-vector-f32-concat",
-                            "concat-1",
-                            {"check-same-length": True, "timestamp-port": "feature-1"},
-                        )
-                        gt_based_net.link(
-                            mapping_gt[
-                                self.feature_flows[all_c]["gt"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            gt_merge_1 + ":feature-1",
-                        )
-                        gt_based_net.link(
-                            mapping_gt_voiced[
-                                self.feature_flows[all_c]["voiced"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            gt_merge_1 + ":features-2",
-                        )
-                        gt_based_net.link(
-                            mapping_gt_tone[
-                                self.feature_flows[all_c]["tone"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            gt_merge_1 + ":features-3",
-                        )
-
-                        gt_based_net.link(gt_merge_1, "network:features")
-
-                        self.feature_flows[all_c]["gt+voiced+tone"] = gt_based_net
-
-                        mfcc_based_net = rasr.FlowNetwork()
-                        mfcc_based_net.add_output("features")
-                        mapping_mfcc = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["mfcc"]
-                        )
-                        mapping_mfcc_voiced = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["voiced"]
-                        )
-                        mapping_mfcc_tone = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["tone"]
-                        )
-
-                        mfcc_merge_1 = mfcc_based_net.add_node(
-                            "generic-vector-f32-concat",
-                            "concat-1",
-                            {"check-same-length": True, "timestamp-port": "feature-1"},
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc[
-                                self.feature_flows[all_c]["mfcc"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            mfcc_merge_1 + ":feature-1",
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc_voiced[
-                                self.feature_flows[all_c]["voiced"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            mfcc_merge_1 + ":feature-2",
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc_tone[
-                                self.feature_flows[all_c]["tone"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            mfcc_merge_1 + ":feature-3",
-                        )
-
-                        mfcc_based_net.link(mfcc_merge_1, "network:features")
-
-                        self.feature_flows[all_c]["mfcc+voiced+tone"] = mfcc_based_net
-
-                        mfcc_based_net = rasr.FlowNetwork()
-                        mfcc_based_net.add_output("features")
-                        mapping_mfcc = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["mfcc+deriv+norm"]
-                        )
-                        mapping_mfcc_voiced = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["voiced"]
-                        )
-                        mapping_mfcc_tone = mfcc_based_net.add_net(
-                            self.feature_flows[all_c]["tone"]
-                        )
-
-                        mfcc_merge_1 = mfcc_based_net.add_node(
-                            "generic-vector-f32-concat",
-                            "concat-1",
-                            {"check-same-length": True, "timestamp-port": "feature-1"},
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc[
-                                self.feature_flows[all_c][
-                                    "mfcc+deriv+norm"
-                                ].get_output_links("features")[0]
-                            ],
-                            mfcc_merge_1 + ":feature-1",
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc_voiced[
-                                self.feature_flows[all_c]["voiced"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            mfcc_merge_1 + ":feature-2",
-                        )
-                        mfcc_based_net.link(
-                            mapping_mfcc_tone[
-                                self.feature_flows[all_c]["tone"].get_output_links(
-                                    "features"
-                                )[0]
-                            ],
-                            mfcc_merge_1 + ":feature-3",
-                        )
-
-                        mfcc_based_net.link(mfcc_merge_1, "network:features")
-
-                        self.feature_flows[all_c][
-                            "mfcc+deriv+norm+voiced+tone"
-                        ] = mfcc_based_net
-                        self.add_energy_to_features(
-                            all_c, "mfcc+deriv+norm+voiced+tone"
-                        )
 
             # ---------- Monophone ----------
             if step_name.startswith("mono"):
@@ -1232,7 +1080,11 @@ class GmmSystem(RasrSystem):
 
             # ---------- VTLN ----------
             if step_name.startswith("vtln") and not step_name.startswith("vtln+sat"):
-                self.run_vtln_step(step_args)
+                self.run_vtln_step(
+                    step_args=step_args,
+                    step_idx=step_idx,
+                    steps=steps,
+                )
 
             # ---------- SAT ----------
             if step_name.startswith("sat"):
