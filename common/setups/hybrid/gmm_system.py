@@ -898,14 +898,10 @@ class GmmSystem(RasrSystem):
             )
 
             self.extract_vtln_features(
-                name=steps.get_args_via_idx(step_idx - 1).training_args[
-                    "feature_flow"
-                ],
+                name=steps.get_args_via_idx(step_idx - 1).training_args["feature_flow"],
                 train_corpus_key=trn_c,
                 eval_corpora_keys=self.dev_corpora + self.test_corpora,
-                raw_feature_flow=step_args.training_args["feature_flow"][
-                    "name"
-                ],
+                raw_feature_flow=step_args.training_args["feature_flow"]["name"],
                 vtln_files=step_args.training_args["warp_mix"]["name"],
             )
 
