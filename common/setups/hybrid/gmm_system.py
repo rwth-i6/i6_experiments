@@ -805,6 +805,194 @@ class GmmSystem(RasrSystem):
                     **kwargs,
                 )
 
+    # -------------------- run functions  --------------------
+
+    def run_feature_extraction_step(self):
+        pass
+
+    def run_monophone_step(self, step_args):
+        for trn_c in self.train_corpora:
+            self.monophone_training(
+                corpus_key=trn_c,
+                linear_alignment_args=step_args.linear_alignment_args,
+                **step_args.training_args,
+            )
+
+            for dev_c in self.dev_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=dev_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            for tst_c in self.test_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=tst_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            # ---------- SDM Mono ----------
+            if step_args.sdm_args is not None:
+                self.single_density_mixtures(
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
+                )
+
+    def run_triphone_step(self, step_args):
+        for trn_c in self.train_corpora:
+            self.triphone_training(
+                corpus_key=trn_c,
+                **step_args.training_args,
+            )
+
+            for dev_c in self.dev_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    f"{trn_c}-{name}",
+                    corpus=dev_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            for tst_c in self.test_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=tst_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            # ---------- SDM Tri ----------
+            if step_args.sdm_args is not None:
+                self.single_density_mixtures(
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
+                )
+
+    def run_vtln_step(self, step_args):
+        for trn_c in self.train_corpora:
+            self.vtln_feature_flow(
+                train_corpus_key=trn_c,
+                corpora_keys=[trn_c] + self.dev_corpora + self.test_corpora,
+                **step_args.training_args["feature_flow"],
+            )
+
+            self.vtln_warping_mixtures(
+                corpus_key=trn_c,
+                feature_flow=step_args.training_args["feature_flow"]["name"],
+                **step_args.training_args["warp_mix"],
+            )
+
+            self.extract_vtln_features(
+                name=steps.get_args_via_idx(step_idx - 1).training_args[
+                    "feature_flow"
+                ],
+                train_corpus_key=trn_c,
+                eval_corpora_keys=self.dev_corpora + self.test_corpora,
+                raw_feature_flow=step_args.training_args["feature_flow"][
+                    "name"
+                ],
+                vtln_files=step_args.training_args["warp_mix"]["name"],
+            )
+
+            self.vtln_training(
+                corpus_key=trn_c,
+                **step_args.training_args["train"],
+            )
+
+            for dev_c in self.dev_corpora:
+                name = step_args.training_args["train"]["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=dev_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            for tst_c in self.test_corpora:
+                pass
+
+            # ---------- SDM VTLN ----------
+            if step_args.sdm_args is not None:
+                self.single_density_mixtures(
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
+                )
+
+    def run_sat_step(self, step_args):
+        for trn_c in self.train_corpora:
+            self.sat_training(
+                corpus_key=trn_c,
+                **step_args.training_args,
+            )
+
+            for dev_c in self.dev_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=dev_c,
+                    train_corpus=trn_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            for tst_c in self.test_corpora:
+                pass
+
+            # ---------- SDM Sat ----------
+            if step_args.sdm_args is not None:
+                self.single_density_mixtures(
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
+                )
+
+    def run_vtln_sat_step(self, step_args):
+        for trn_c in self.train_corpora:
+            self.sat_training(
+                corpus_key=trn_c,
+                **step_args.training_args,
+            )
+
+            for dev_c in self.dev_corpora:
+                name = step_args.training_args["name"]
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus=dev_c,
+                    train_corpus=trn_c,
+                    feature_scorer=feature_scorer,
+                    **step_args.recognition_args,
+                )
+
+            for tst_c in self.test_corpora:
+                pass
+
+            # ---------- SDM VTLN+SAT ----------
+            if step_args.sdm_args is not None:
+                self.single_density_mixtures(
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
+                )
+
     # -------------------- run setup  --------------------
 
     def run(self, steps: Union[List[str], RasrSteps]):
@@ -1031,41 +1219,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- Monophone ----------
             if step_name.startswith("mono"):
-                for trn_c in self.train_corpora:
-                    self.monophone_training(
-                        corpus_key=trn_c,
-                        linear_alignment_args=step_args.linear_alignment_args,
-                        **step_args.training_args,
-                    )
-
-                    for dev_c in self.dev_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=dev_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    for tst_c in self.test_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=tst_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    # ---------- SDM Mono ----------
-                    if step_args is not None:
-                        self.single_density_mixtures(
-                            corpus_key=trn_c,
-                            **step_args.sdm_args,
-                        )
+                self.run_monophone_step(step_args)
 
             # ---------- CaRT ----------
             if step_name.startswith("cart"):
@@ -1078,153 +1232,19 @@ class GmmSystem(RasrSystem):
 
             # ---------- Triphone ----------
             if step_name.startswith("tri"):
-                for trn_c in self.train_corpora:
-                    self.triphone_training(
-                        corpus_key=trn_c,
-                        **step_args.training_args,
-                    )
-
-                    for dev_c in self.dev_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.recognition(
-                            f"{trn_c}-{name}",
-                            corpus=dev_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    for tst_c in self.test_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=tst_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    # ---------- SDM Tri ----------
-                    if step_args.sdm_args is not None:
-                        self.single_density_mixtures(
-                            corpus_key=trn_c,
-                            **step_args.sdm_args,
-                        )
+                self.run_triphone_step(step_args)
 
             # ---------- VTLN ----------
             if step_name.startswith("vtln") and not step_name.startswith("vtln+sat"):
-                for trn_c in self.train_corpora:
-                    self.vtln_feature_flow(
-                        train_corpus_key=trn_c,
-                        corpora_keys=[trn_c] + self.dev_corpora + self.test_corpora,
-                        **step_args.training_args["feature_flow"],
-                    )
-
-                    self.vtln_warping_mixtures(
-                        corpus_key=trn_c,
-                        feature_flow=step_args.training_args["feature_flow"]["name"],
-                        **step_args.training_args["warp_mix"],
-                    )
-
-                    self.extract_vtln_features(
-                        name=steps.get_args_via_idx(step_idx - 1).training_args[
-                            "feature_flow"
-                        ],
-                        train_corpus_key=trn_c,
-                        eval_corpora_keys=self.dev_corpora + self.test_corpora,
-                        raw_feature_flow=step_args.training_args["feature_flow"][
-                            "name"
-                        ],
-                        vtln_files=step_args.training_args["warp_mix"]["name"],
-                    )
-
-                    self.vtln_training(
-                        corpus_key=trn_c,
-                        **step_args.training_args["train"],
-                    )
-
-                    for dev_c in self.dev_corpora:
-                        name = step_args.training_args["train"]["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=dev_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    for tst_c in self.test_corpora:
-                        pass
-
-                    # ---------- SDM VTLN ----------
-                    if step_args.sdm_args is not None:
-                        self.single_density_mixtures(
-                            corpus_key=trn_c,
-                            **step_args.sdm_args,
-                        )
+                self.run_vtln_step(step_args)
 
             # ---------- SAT ----------
             if step_name.startswith("sat"):
-                for trn_c in self.train_corpora:
-                    self.sat_training(
-                        corpus_key=trn_c,
-                        **step_args.training_args,
-                    )
-
-                    for dev_c in self.dev_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.sat_recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=dev_c,
-                            train_corpus=trn_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    for tst_c in self.test_corpora:
-                        pass
-
-                    # ---------- SDM Sat ----------
-                    if step_args.sdm_args is not None:
-                        self.single_density_mixtures(
-                            corpus_key=trn_c,
-                            **step_args.sdm_args,
-                        )
+                self.run_sat_step(step_args)
 
             # ---------- VTLN+SAT ----------
             if step_name.startswith("vtln+sat"):
-                for trn_c in self.train_corpora:
-                    self.sat_training(
-                        corpus_key=trn_c,
-                        **step_args.training_args,
-                    )
-
-                    for dev_c in self.dev_corpora:
-                        name = step_args.training_args["name"]
-                        feature_scorer = (trn_c, f"train_{name}")
-
-                        self.sat_recognition(
-                            name=f"{trn_c}-{name}",
-                            corpus=dev_c,
-                            train_corpus=trn_c,
-                            feature_scorer=feature_scorer,
-                            **step_args.recognition_args,
-                        )
-
-                    for tst_c in self.test_corpora:
-                        pass
-
-                    # ---------- SDM VTLN+SAT ----------
-                    if step_args.sdm_args is not None:
-                        self.single_density_mixtures(
-                            corpus_key=trn_c,
-                            **step_args.sdm_args,
-                        )
+                self.run_vtln_sat_step(step_args)
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
