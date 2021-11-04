@@ -447,26 +447,22 @@ class NnArgs:
     def __init__(
         self,
         returnn_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: Optional[dict] = None,
-        count_recognition_args: Optional[dict] = None,
-        neural_recognition_args: Optional[dict] = None,
-        rescoring_args: Optional[dict] = None,
+        training_args: Optional[Dict] = None,
+        recognition_args: Optional[Dict[str, Dict]] = None,
+        rescoring_args: Optional[Dict[str, Dict]] = None,
     ):
         """
         ##################################################
         :param training_args:
         ##################################################
-        :param count_recognition_args:
-        ##################################################
-        :param lm_recognition_args:
+        :param recognition_args:
         ##################################################
         :param rescoring_args:
         ##################################################
         """
         self.returnn_configs = returnn_configs
         self.training_args = training_args
-        self.count_recognition_args = count_recognition_args
-        self.neural_recognition_args = neural_recognition_args
+        self.recognition_args = recognition_args
         self.rescoring_args = rescoring_args
 
 
