@@ -29,7 +29,7 @@ from i6_core.util import MultiPath
 
 class RasrDataInput:
     """
-    this class holds the data information for a hybrid gmm setup:
+    this class holds the data information for a rasr gmm setup:
     - corpus
     - lexicon
     - lm
@@ -416,9 +416,9 @@ class GmmVtlnSatArgs:
 
 
 class ForcedAlignmentArgs:
-    def __init__(self, name, target_corpus, flow, feature_scorer):
+    def __init__(self, name, target_corpus_key, flow, feature_scorer):
         self.name = name
-        self.target_corpus = target_corpus
+        self.target_corpus_key = target_corpus_key
         self.flow = flow
         self.feature_scorer = feature_scorer
 
@@ -449,7 +449,7 @@ class NnArgs:
         returnn_configs: Dict[str, returnn.ReturnnConfig],
         training_args: Optional[dict] = None,
         count_recognition_args: Optional[dict] = None,
-        lm_recognition_args: Optional[dict] = None,
+        neural_recognition_args: Optional[dict] = None,
         rescoring_args: Optional[dict] = None,
     ):
         """
@@ -466,7 +466,7 @@ class NnArgs:
         self.returnn_configs = returnn_configs
         self.training_args = training_args
         self.count_recognition_args = count_recognition_args
-        self.lm_recognition_args = lm_recognition_args
+        self.neural_recognition_args = neural_recognition_args
         self.rescoring_args = rescoring_args
 
 

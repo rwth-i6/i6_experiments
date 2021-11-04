@@ -39,6 +39,11 @@ class RasrSystem(meta.System):
     - lm
     - lexicon
     - feature extraction
+
+    corpus_key -> str (basically corpus identifier, corpus_name would also be an option)
+    corpus_object -> CorpusObject
+    corpus_file -> str (would be filepath)
+    corpus -> Path
     """
 
     def __init__(self):
@@ -72,32 +77,36 @@ class RasrSystem(meta.System):
             ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
 
     @tk.block()
-    def _init_corpus(self, name: str):
+    def _init_corpus(self, corpus_key: str):
         segm_corpus_job = corpus_recipes.SegmentCorpusJob(
-            self.corpora[name].corpus_file, self.concurrent[name]
+            self.corpora[corpus_key].corpus_file, self.concurrent[corpus_key]
         )
         self.set_corpus(
-            name=name,
-            corpus=self.corpora[name],
-            concurrent=self.concurrent[name],
+            name=corpus_key,
+            corpus=self.corpora[corpus_key],
+            concurrent=self.concurrent[corpus_key],
             segment_path=segm_corpus_job.out_segment_path,
         )
-        self.jobs[name]["segment_corpus"] = segm_corpus_job
+        self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
-    def _init_lm(self, name: str, filename: Path, type: str, scale: int, **kwargs):
-        self.crp[name].language_model_config = rasr.RasrConfig()
-        self.crp[name].language_model_config.type = type
-        self.crp[name].language_model_config.file = filename
-        self.crp[name].language_model_config.scale = scale
+    def _init_lm(
+        self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs
+    ):
+        self.crp[corpus_key].language_model_config = rasr.RasrConfig()
+        self.crp[corpus_key].language_model_config.type = type
+        self.crp[corpus_key].language_model_config.file = filename
+        self.crp[corpus_key].language_model_config.scale = scale
 
     @tk.block()
     def _init_lexicon(
-        self, name: str, filename: Path, normalize_pronunciation: bool, **kwargs
+        self, corpus_key: str, filename: Path, normalize_pronunciation: bool, **kwargs
     ):
-        self.crp[name].lexicon_config = rasr.RasrConfig()
-        self.crp[name].lexicon_config.file = filename
-        self.crp[name].lexicon_config.normalize_pronunciation = normalize_pronunciation
+        self.crp[corpus_key].lexicon_config = rasr.RasrConfig()
+        self.crp[corpus_key].lexicon_config.file = filename
+        self.crp[
+            corpus_key
+        ].lexicon_config.normalize_pronunciation = normalize_pronunciation
 
     @staticmethod
     def _assert_corpus_name_unique(*args):
@@ -106,13 +115,13 @@ class RasrSystem(meta.System):
             name_list.extend(list(i.keys()))
         assert len(name_list) == len(set(name_list)), "corpus names are not unique"
 
-    def add_corpus(self, name: str, data: RasrDataInput, add_lm: bool):
-        self.corpora[name] = data.corpus_object
-        self.concurrent[name] = data.concurrent
-        self._init_corpus(name)
-        self._init_lexicon(name, **data.lexicon)
+    def add_corpus(self, corpus_key: str, data: RasrDataInput, add_lm: bool):
+        self.corpora[corpus_key] = data.corpus_object
+        self.concurrent[corpus_key] = data.concurrent
+        self._init_corpus(corpus_key)
+        self._init_lexicon(corpus_key, **data.lexicon)
         if add_lm:
-            self._init_lm(name, **data.lm)
+            self._init_lm(corpus_key, **data.lm)
 
     @tk.block()
     def extract_features(self, feat_args: dict, **kwargs):
@@ -154,56 +163,61 @@ class RasrSystem(meta.System):
     # -------------------- Single Density Mixtures --------------------
 
     def single_density_mixtures(
-        self, name: str, corpus: str, feature_flow: str, alignment: str
+        self, name: str, corpus_key: str, feature_flow: str, alignment: str
     ):
         self.estimate_mixtures(
             name=name,
-            corpus=corpus,
+            corpus=corpus_key,
             flow=feature_flow,
             alignment=meta.select_element(
-                self.alignments, corpus, (corpus, alignment, -1)
+                self.alignments, corpus_key, (corpus_key, alignment, -1)
             ),
             split_first=False,
         )
 
     # -------------------- Forced Alignment --------------------
 
-    def forced_align(self, name, corpus, target_corpus, flow, feature_scorer, **kwargs):
-        align_job = mm.AlignmentJob(
-            crp=self.crp[target_corpus],
-            feature_flow=meta.select_element(self.feature_flows, target_corpus, flow),
-            feature_scorer=meta.select_element(
-                self.feature_scorers, corpus, feature_scorer
-            ),
-            **kwargs,
+    def forced_align(
+        self,
+        name,
+        target_corpus_key,
+        flow,
+        feature_scorer,
+        feature_scorer_corpus_key=None,
+        dump_alignment=False,
+        **kwargs
+    ):
+        selected_feature_scorer = meta.select_element(
+            self.feature_scorers, feature_scorer_corpus_key, feature_scorer
+        )
+        self.align(
+            name=name,
+            corpus=target_corpus_key,
+            flow=flow,
+            feature_scorer=selected_feature_scorer,
+            kwargs=kwargs,
         )
 
-        self.jobs[target_corpus]["alignment_%s" % name] = align_job
+        align_job = self.jobs[target_corpus_key]["alignment_%s" % name]
         align_job.add_alias("forced_alignment/alignment_%s" % name)
         tk.register_output(
             "forced_alignment/alignment_%s.bundle" % name,
             align_job.out_alignment_bundle,
         )
-        self.alignments[target_corpus][name] = [
-            rasr.FlagDependentFlowAttribute(
-                "cache_mode",
-                {
-                    "task_dependent": align_job.out_alignment_path,
-                    "bundle": align_job.out_alignment_bundle,
-                },
-            )
-        ]
 
-        dump_job = mm.DumpAlignmentJob(
-            crp=self.crp[target_corpus],
-            feature_flow=meta.select_element(self.feature_flows, target_corpus, flow),
-            original_alignment=meta.select_element(
-                self.alignments, target_corpus, name
-            ),
-        )
-        self.jobs[target_corpus]["alignment_dump_%s" % name] = dump_job
-        dump_job.add_alias("forced_alignment/alignment_dump_%s" % name)
-        tk.register_output(
-            "forced_alignment/alignment_dump_%s.bundle" % name,
-            dump_job.out_alignment_bundle,
-        )
+        if dump_alignment:
+            dump_job = mm.DumpAlignmentJob(
+                crp=self.crp[target_corpus_key],
+                feature_flow=meta.select_element(
+                    self.feature_flows, target_corpus_key, flow
+                ),
+                original_alignment=meta.select_element(
+                    self.alignments, target_corpus_key, name
+                ),
+            )
+            self.jobs[target_corpus_key]["alignment_dump_%s" % name] = dump_job
+            dump_job.add_alias("forced_alignment/alignment_dump_%s" % name)
+            tk.register_output(
+                "forced_alignment/alignment_dump_%s.bundle" % name,
+                dump_job.out_alignment_bundle,
+            )

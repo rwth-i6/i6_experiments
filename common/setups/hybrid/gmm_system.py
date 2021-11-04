@@ -74,6 +74,11 @@ class GmmSystem(RasrSystem):
     - sat recognition
     - vtln+sat training
     - vtln+sat recognition
+
+    corpus_key -> str (basically corpus identifier, corpus_name would also be an option)
+    corpus_object -> CorpusObject
+    corpus_file -> str (would be filepath)
+    corpus -> Path
     """
 
     def __init__(self):
@@ -125,27 +130,27 @@ class GmmSystem(RasrSystem):
 
         self._assert_corpus_name_unique(train_data, dev_data, test_data)
 
-        for name, v in sorted(train_data.items()):
-            add_lm = True if v.lm is not None else False
-            self.add_corpus(name, data=v, add_lm=add_lm)
-            self.train_corpora.append(name)
+        for corpus_key, rasr_data_input in sorted(train_data.items()):
+            add_lm = True if rasr_data_input.lm is not None else False
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=add_lm)
+            self.train_corpora.append(corpus_key)
 
-        for name, v in sorted(dev_data.items()):
-            self.add_corpus(name, data=v, add_lm=True)
-            self.dev_corpora.append(name)
+        for corpus_key, rasr_data_input in sorted(dev_data.items()):
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            self.dev_corpora.append(corpus_key)
 
-        for name, v in sorted(test_data.items()):
-            self.add_corpus(name, data=v, add_lm=True)
-            self.test_corpora.append(name)
+        for corpus_key, rasr_data_input in sorted(test_data.items()):
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            self.test_corpora.append(corpus_key)
 
         self.cart_questions = (
             cart_args.cart_questions if cart_args is not None else None
         )
 
-        for name in self.train_corpora:
-            self.cart_trees[name] = {}
-            self.lda_matrices[name] = {}
-            self.vtln_files[name] = {}
+        for corpus_key in self.train_corpora:
+            self.cart_trees[corpus_key] = {}
+            self.lda_matrices[corpus_key] = {}
+            self.vtln_files[corpus_key] = {}
 
     # -------------------- Mono Training --------------------
 
@@ -153,7 +158,7 @@ class GmmSystem(RasrSystem):
     def monophone_training(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         linear_alignment_args: dict,
         feature_energy_flow: str,
         feature_flow: str,
@@ -166,9 +171,9 @@ class GmmSystem(RasrSystem):
         if linear_alignment_args is not None:
             self.linear_alignment(
                 name,
-                corpus,
+                corpus_key,
                 feature_energy_flow,
-                prefix=f"{corpus}_",
+                prefix=f"{corpus_key}_",
                 **linear_alignment_args,
             )
 
@@ -185,31 +190,31 @@ class GmmSystem(RasrSystem):
 
         self.train(
             name=name,
-            corpus=corpus,
+            corpus=corpus_key,
             sequence=action_sequence,
             flow=feature_flow,
             initial_mixtures=meta.select_element(
-                self.mixtures, corpus, "linear_alignment_{}".format(name)
+                self.mixtures, corpus_key, "linear_alignment_{}".format(name)
             ),
             align_keep_values=akv,
             **kwargs,
         )
-        self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
+        self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+        ].add_alias("train/{}_{}_align_last".format(corpus_key, name))
 
-        self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train/{}_{}_mix_last".format(corpus, name)
-        )
+        self.jobs[corpus_key]["train_{}".format(name)].selected_mixture_jobs[
+            -1
+        ].add_alias("train/{}_{}_mix_last".format(corpus_key, name))
         tk.register_output(
-            "train/{}_{}_align_bundle_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_align_bundle_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train/{}_{}_mix_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_mix_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
@@ -219,7 +224,7 @@ class GmmSystem(RasrSystem):
     def cart_and_lda(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         initial_flow: str,
         context_flow: str,
         context_size: int,
@@ -238,25 +243,27 @@ class GmmSystem(RasrSystem):
             )
 
         cart_lda = meta.CartAndLDA(
-            original_crp=self.crp[corpus],
-            initial_flow=self.feature_flows[corpus][initial_flow],
-            context_flow=self.feature_flows[corpus]["{}+context".format(context_flow)],
-            alignment=meta.select_element(self.alignments, corpus, alignment),
+            original_crp=self.crp[corpus_key],
+            initial_flow=self.feature_flows[corpus_key][initial_flow],
+            context_flow=self.feature_flows[corpus_key][
+                "{}+context".format(context_flow)
+            ],
+            alignment=meta.select_element(self.alignments, corpus_key, alignment),
             questions=self.cart_questions,
             num_dim=num_dim,
             num_iter=num_iter,
             eigenvalue_args=eigenvalue_args,
             generalized_eigenvalue_args=generalized_eigenvalue_args,
         )
-        self.jobs[corpus]["cart_and_lda_{}_{}".format(corpus, name)] = cart_lda
-        self.lda_matrices[corpus][name] = cart_lda.last_lda_matrix
-        self.cart_trees[corpus][name] = cart_lda.last_cart_tree
+        self.jobs[corpus_key]["cart_and_lda_{}_{}".format(corpus_key, name)] = cart_lda
+        self.lda_matrices[corpus_key][name] = cart_lda.last_lda_matrix
+        self.cart_trees[corpus_key][name] = cart_lda.last_cart_tree
         tk.register_output(
-            "{}_{}_last_num_cart_labels".format(corpus, name),
+            "{}_{}_last_num_cart_labels".format(corpus_key, name),
             cart_lda.last_num_cart_labels,
         )
         tk.register_output(
-            "{}_{}.tree.xml.gz".format(corpus, name), cart_lda.last_cart_tree
+            "{}_{}.tree.xml.gz".format(corpus_key, name), cart_lda.last_cart_tree
         )
 
         for f in self.feature_flows.values():
@@ -268,9 +275,10 @@ class GmmSystem(RasrSystem):
             crp.acoustic_model_config.state_tying.type = "cart"
             crp.acoustic_model_config.state_tying.file = cart_lda.last_cart_tree
 
-        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus])
+        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
         tk.register_output(
-            "{}_{}_state_tying".format(corpus, name), state_tying_job.out_state_tying
+            "{}_{}_state_tying".format(corpus_key, name),
+            state_tying_job.out_state_tying,
         )
 
     # -------------------- Tri Training --------------------
@@ -279,7 +287,7 @@ class GmmSystem(RasrSystem):
     def triphone_training(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         feature_flow: str,
         initial_alignment: str,
         splits: int,
@@ -301,31 +309,31 @@ class GmmSystem(RasrSystem):
 
         self.train(
             name=name,
-            corpus=corpus,
+            corpus=corpus_key,
             sequence=action_sequence,
             flow=feature_flow,
             initial_alignment=meta.select_element(
-                self.alignments, corpus, initial_alignment
+                self.alignments, corpus_key, initial_alignment
             ),
             align_keep_values=akv,
             **kwargs,
         )
-        self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
+        self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+        ].add_alias("train/{}_{}_align_last".format(corpus_key, name))
 
-        self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train/{}_{}_mix_last".format(corpus, name)
-        )
+        self.jobs[corpus_key]["train_{}".format(name)].selected_mixture_jobs[
+            -1
+        ].add_alias("train/{}_{}_mix_last".format(corpus_key, name))
         tk.register_output(
-            "train/{}_{}_align_bundle_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_align_bundle_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train/{}_{}_mix_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_mix_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
@@ -335,13 +343,13 @@ class GmmSystem(RasrSystem):
     def vtln_feature_flow(
         self,
         name: str,
-        train_corpora: str,
-        corpora: [str],
+        train_corpus_key: str,
+        corpora_keys: [str],
         base_flow: str,
         context_size: Optional[int] = None,
-        lda_matrix: Optional[str] = None,
+        lda_matrix_name: Optional[str] = None,
     ):
-        for c in corpora:
+        for c in corpora_keys:
             flow = self.feature_flows[c][base_flow]
             if context_size is not None:
                 flow = lda.add_context_flow(
@@ -349,9 +357,9 @@ class GmmSystem(RasrSystem):
                     max_size=context_size,
                     right=int(context_size / 2.0),
                 )
-            if lda_matrix is not None:
+            if lda_matrix_name is not None:
                 flow = features.add_linear_transform(
-                    flow, self.lda_matrices[train_corpora][lda_matrix]
+                    flow, self.lda_matrices[train_corpus_key][lda_matrix_name]
                 )
             self.feature_flows[c][name] = flow
 
@@ -359,69 +367,71 @@ class GmmSystem(RasrSystem):
     def vtln_warping_mixtures(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         feature_flow: str,
         feature_scorer: str,
         alignment: str,
         splits: int,
         accs_per_split: int,
     ):
-        feature_flow = self.feature_flows[corpus][feature_flow]
+        feature_flow = self.feature_flows[corpus_key][feature_flow]
         warp = vtln.ScoreFeaturesWithWarpingFactorsJob(
-            crp=self.crp[corpus],
+            crp=self.crp[corpus_key],
             feature_flow=feature_flow,
             feature_scorer=meta.select_element(
-                self.feature_scorers, corpus, feature_scorer
+                self.feature_scorers, corpus_key, feature_scorer
             ),
-            alignment=meta.select_element(self.alignments, corpus, alignment),
+            alignment=meta.select_element(self.alignments, corpus_key, alignment),
         )
         warp.rqmt = {"time": 24, "cpu": 1, "mem": 2}
-        self.jobs[corpus]["vtln_warping_map_%s" % name] = warp
+        self.jobs[corpus_key]["vtln_warping_map_%s" % name] = warp
 
         seq = meta.TrainWarpingFactorsSequence(
-            self.crp[corpus],
+            self.crp[corpus_key],
             None,
             feature_flow,
             warp.warping_map,
             warp.alphas_file,
             ["accumulate"] + meta.split_and_accumulate_sequence(splits, accs_per_split),
         )
-        self.mixtures[corpus]["vtln_warping_mix_%s" % name] = seq.selected_mixtures
-        self.vtln_files[corpus][name + "_alphas_file"] = warp.alphas_file
-        self.vtln_files[corpus][name + "_warping_map"] = warp.warping_map
-        self.vtln_files[corpus][name + "_mixtures"] = seq.selected_mixtures
+        self.mixtures[corpus_key]["vtln_warping_mix_%s" % name] = seq.selected_mixtures
+        self.vtln_files[corpus_key][name + "_alphas_file"] = warp.alphas_file
+        self.vtln_files[corpus_key][name + "_warping_map"] = warp.warping_map
+        self.vtln_files[corpus_key][name + "_mixtures"] = seq.selected_mixtures
 
     @tk.block()
     def extract_vtln_features(
         self,
         name: str,
-        train_corpus: str,
-        eval_corpus: [str],
+        train_corpus_key: str,
+        eval_corpora_keys: [str],
         raw_feature_flow: str,
         vtln_files: str,
         **kwargs,
     ):
-        for c in eval_corpus:
+        for c in eval_corpora_keys:
             self.vtln_features(
                 name=name,
-                corpus=train_corpus,
+                corpus=train_corpus_key,
                 raw_feature_flow=self.feature_flows[c][raw_feature_flow],
-                warping_map=self.vtln_files[train_corpus][vtln_files + "_warping_map"],
+                warping_map=self.vtln_files[train_corpus_key][
+                    vtln_files + "_warping_map"
+                ],
                 **kwargs,
             )
             self.feature_flows[c][
                 raw_feature_flow + "+vtln"
             ] = vtln.recognized_warping_factor_flow(
                 self.feature_flows[c][raw_feature_flow],
-                self.vtln_files[train_corpus][vtln_files + "_alphas_file"],
-                self.vtln_files[train_corpus][vtln_files + "_mixtures"][-1],
+                self.vtln_files[train_corpus_key][vtln_files + "_alphas_file"],
+                self.vtln_files[train_corpus_key][vtln_files + "_mixtures"][-1],
             )
 
     @tk.block()
     def vtln_training(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         initial_alignment: str,
         feature_flow: str,
         splits: int,
@@ -441,29 +451,29 @@ class GmmSystem(RasrSystem):
 
         self.train(
             name=name,
-            corpus=corpus,
+            corpus=corpus_key,
             sequence=action_sequence,
             flow=feature_flow,
-            initial_alignment=self.alignments[corpus][initial_alignment][-1],
+            initial_alignment=self.alignments[corpus_key][initial_alignment][-1],
             align_keep_values=akv,
             **kwargs,
         )
-        self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
+        self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+        ].add_alias("train/{}_{}_align_last".format(corpus_key, name))
 
-        self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train/{}_{}_mix_last".format(corpus, name)
-        )
+        self.jobs[corpus_key]["train_{}".format(name)].selected_mixture_jobs[
+            -1
+        ].add_alias("train/{}_{}_mix_last".format(corpus_key, name))
         tk.register_output(
-            "train/{}_{}_align_bundle_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_align_bundle_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train/{}_{}_mix_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_mix_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
@@ -473,18 +483,18 @@ class GmmSystem(RasrSystem):
     def estimate_cmllr(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         feature_cache: rasr.FlagDependentFlowAttribute,
         feature_flow: str,
         cache_regex: str,
         alignment: rasr.FlagDependentFlowAttribute,
         mixtures: rasr.FlagDependentFlowAttribute,
-        overlay: Optional[str] = None,
+        overlay_key: Optional[str] = None,
     ):
         speaker_seg = corpus_recipes.SegmentCorpusBySpeakerJob(
-            self.corpora[corpus].corpus_file
+            self.corpora[corpus_key].corpus_file
         )
-        old_segment_path = self.crp[corpus].segment_path.hidden_paths
+        old_segment_path = self.crp[corpus_key].segment_path.hidden_paths
 
         if isinstance(alignment, util.MultiOutputPath):
             alignment = alignment.hidden_paths
@@ -507,16 +517,18 @@ class GmmSystem(RasrSystem):
         )
         new_segments = rasr.ClusterMapToSegmentListJob(speaker_seg.out_cluster_map_file)
 
-        overlay = "%s_cmllr_%s" % (corpus, name) if overlay is None else overlay
-        self.add_overlay(corpus, overlay)
-        self.crp[overlay].out_segment_path = new_segments.out_segment_path
+        overlay_key = (
+            "%s_cmllr_%s" % (corpus_key, name) if overlay_key is None else overlay_key
+        )
+        self.add_overlay(corpus_key, overlay_key)
+        self.crp[overlay_key].segment_path = new_segments.out_segment_path
         self.replace_named_flow_attr(
-            overlay, cache_regex, "cache", mapped_features.out_bundle_path
+            overlay_key, cache_regex, "cache", mapped_features.out_bundle_path
         )
 
         cmllr = sat.EstimateCMLLRJob(
-            crp=self.crp[overlay],
-            feature_flow=self.feature_flows[overlay][feature_flow],
+            crp=self.crp[overlay_key],
+            feature_flow=self.feature_flows[overlay_key][feature_flow],
             mixtures=mixtures,
             alignment=mapped_alignment.out_bundle_path,
             cluster_map=speaker_seg.out_cluster_map_file,
@@ -524,30 +536,32 @@ class GmmSystem(RasrSystem):
         )
         cmllr.rqmt = {
             "time": max(
-                self.crp[overlay].corpus_duration
-                / (0.2 * self.crp[overlay].concurrent),
+                self.crp[overlay_key].corpus_duration
+                / (0.2 * self.crp[overlay_key].concurrent),
                 1.0,
             ),
             "cpu": 6,
             "mem": 16,
         }
-        self.feature_flows[corpus]["%s+cmllr" % feature_flow] = sat.add_cmllr_transform(
-            self.feature_flows[corpus][feature_flow],
+        self.feature_flows[corpus_key][
+            "%s+cmllr" % feature_flow
+        ] = sat.add_cmllr_transform(
+            self.feature_flows[corpus_key][feature_flow],
             speaker_seg.out_cluster_map_file,
             cmllr.transforms,
         )
 
-        self.jobs[corpus]["segment_corpus_by_speaker"] = speaker_seg
-        self.jobs[overlay]["mapped_alignment"] = mapped_alignment
-        self.jobs[overlay]["mapped_features"] = mapped_features
-        self.jobs[overlay]["new_segments"] = new_segments
-        self.jobs[overlay]["cmllr"] = cmllr
+        self.jobs[corpus_key]["segment_corpus_by_speaker"] = speaker_seg
+        self.jobs[overlay_key]["mapped_alignment"] = mapped_alignment
+        self.jobs[overlay_key]["mapped_features"] = mapped_features
+        self.jobs[overlay_key]["new_segments"] = new_segments
+        self.jobs[overlay_key]["cmllr"] = cmllr
 
     @tk.block()
     def sat_training(
         self,
         name: str,
-        corpus: str,
+        corpus_key: str,
         feature_cache: str,
         feature_flow: str,
         cache_regex: str,
@@ -560,14 +574,14 @@ class GmmSystem(RasrSystem):
     ):
         self.estimate_cmllr(
             name=name,
-            corpus=corpus,
+            corpus_key=corpus_key,
             feature_cache=meta.select_element(
-                self.feature_caches, corpus, feature_cache
+                self.feature_caches, corpus_key, feature_cache
             ),
             feature_flow=feature_flow,
             cache_regex=cache_regex,
-            alignment=meta.select_element(self.alignments, corpus, alignment),
-            mixtures=meta.select_element(self.mixtures, corpus, mixtures),
+            alignment=meta.select_element(self.alignments, corpus_key, alignment),
+            mixtures=meta.select_element(self.mixtures, corpus_key, mixtures),
         )
 
         action_sequence = (
@@ -584,29 +598,31 @@ class GmmSystem(RasrSystem):
 
         self.train(
             name=name,
-            corpus=corpus,
+            corpus=corpus_key,
             sequence=action_sequence,
             flow="%s+cmllr" % feature_flow,
-            initial_alignment=meta.select_element(self.alignments, corpus, alignment),
+            initial_alignment=meta.select_element(
+                self.alignments, corpus_key, alignment
+            ),
             align_keep_values=akv,
             **kwargs,
         )
-        self.jobs[corpus]["train_{}".format(name)].selected_alignment_jobs[
+        self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
             -1
-        ].add_alias("train/{}_{}_align_last".format(corpus, name))
+        ].add_alias("train/{}_{}_align_last".format(corpus_key, name))
 
-        self.jobs[corpus]["train_{}".format(name)].selected_mixture_jobs[-1].add_alias(
-            "train/{}_{}_mix_last".format(corpus, name)
-        )
+        self.jobs[corpus_key]["train_{}".format(name)].selected_mixture_jobs[
+            -1
+        ].add_alias("train/{}_{}_mix_last".format(corpus_key, name))
         tk.register_output(
-            "train/{}_{}_align_bundle_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_align_bundle_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_alignment_jobs[-1]
             .out_alignment_bundle,
         )
         tk.register_output(
-            "train/{}_{}_mix_last".format(corpus, name),
-            self.jobs[corpus]["train_{}".format(name)]
+            "train/{}_{}_mix_last".format(corpus_key, name),
+            self.jobs[corpus_key]["train_{}".format(name)]
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
@@ -617,19 +633,18 @@ class GmmSystem(RasrSystem):
         self,
         name: str,
         iters: List[int],
-        lm_scales: List[float],
+        lm_scales: Union[float, List[float]],
         feature_scorer: Tuple[str, str],
         optimize_am_lm_scale: bool,
         # parameters just for passing through
         corpus: str,
         feature_flow: str,
-        pronunciation_scale: Union[float, List[float]],
+        pronunciation_scales: Union[float, List[float]],
         search_parameters: dict,
         rtf: float,
         mem: float,
         parallelize_conversion: bool,
         lattice_to_ctm_kwargs: dict,
-        reestimate_prior=False,
         **kwargs,
     ):
         """
@@ -644,13 +659,12 @@ class GmmSystem(RasrSystem):
         :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
         :param corpus: corpus to run recognition on
         :param feature_flow:
-        :param pronunciation_scale:
+        :param pronunciation_scales:
         :param search_parameters:
         :param rtf:
         :param mem:
         :param parallelize_conversion:
         :param lattice_to_ctm_kwargs:
-        :param reestimate_prior: not implemented yet
         :return:
         """
         assert (
@@ -659,13 +673,15 @@ class GmmSystem(RasrSystem):
         with tk.block(f"{name}_recognition"):
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
-            pronunciation_scale = (
-                [pronunciation_scale]
-                if isinstance(pronunciation_scale, float)
-                else pronunciation_scale
+            pronunciation_scales = (
+                [pronunciation_scales]
+                if isinstance(pronunciation_scales, float)
+                else pronunciation_scales
             )
 
-            for it, p, l in itertools.product(iters, pronunciation_scale, lm_scales):
+            lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
+
+            for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
                 recog_func(
                     name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
                     prefix=f"recognition/{name}/",
@@ -691,12 +707,12 @@ class GmmSystem(RasrSystem):
         train_corpus: str,
         name: str,
         iters: List[int],
-        lm_scales: List[float],
+        lm_scales: Union[float, List[float]],
         feature_scorer: Tuple[str, str],
         optimize_am_lm_scale: bool,
         corpus: str,
         feature_flow: str,
-        pronunciation_scale: Union[float, List[float]],
+        pronunciation_scales: Union[float, List[float]],
         search_parameters: dict,
         rtf: float,
         mem: float,
@@ -704,13 +720,17 @@ class GmmSystem(RasrSystem):
         lattice_to_ctm_kwargs: dict,
         **kwargs,
     ):
-        pronunciation_scale = (
-            [pronunciation_scale]
-            if isinstance(pronunciation_scale, float)
-            else pronunciation_scale
+        recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
+
+        pronunciation_scales = (
+            [pronunciation_scales]
+            if isinstance(pronunciation_scales, float)
+            else pronunciation_scales
         )
 
-        for it, p, l in itertools.product(iters, pronunciation_scale, lm_scales):
+        lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
+
+        for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
             recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
                 self.corpora[corpus].corpus_file,
                 self.ctm_files[corpus][
@@ -721,22 +741,24 @@ class GmmSystem(RasrSystem):
                 self.corpora[corpus].corpus_file
             )
 
-            overlay = "%s_sat" % corpus
-            self.add_overlay(corpus, overlay)
-            self.crp[overlay].corpus_config = copy.deepcopy(
+            overlay_key = f"{corpus}_it{it}_ps{p}_lm{l}_sat"
+            self.add_overlay(corpus, overlay_key)
+            self.crp[overlay_key].corpus_config = copy.deepcopy(
                 self.crp[corpus].corpus_config
             )
-            self.crp[overlay].corpus_config.file = recognized_corpus.output_corpus_path
-            self.crp[overlay].segment_path = copy.deepcopy(
+            self.crp[
+                overlay_key
+            ].corpus_config.file = recognized_corpus.output_corpus_path
+            self.crp[overlay_key].segment_path = copy.deepcopy(
                 self.crp[corpus].segment_path
             )
 
-            self.corpora[overlay] = copy.deepcopy(self.corpora[corpus])
-            self.corpora[overlay].corpus_file = recognized_corpus.output_corpus_path
+            self.corpora[overlay_key] = copy.deepcopy(self.corpora[corpus])
+            self.corpora[overlay_key].corpus_file = recognized_corpus.output_corpus_path
 
             alignment = mm.AlignmentJob(
-                crp=self.crp[overlay],
-                feature_flow=self.feature_flows[overlay][feature_flow],
+                crp=self.crp[overlay_key],
+                feature_flow=self.feature_flows[overlay_key][feature_flow],
                 feature_scorer=self.default_mixture_scorer(
                     meta.select_element(
                         self.mixtures, corpus, (train_corpus, cmllr_mixtures)
@@ -746,7 +768,7 @@ class GmmSystem(RasrSystem):
 
             self.estimate_cmllr(
                 name=name,
-                corpus=overlay,
+                corpus_key=overlay_key,
                 feature_cache=meta.select_element(
                     self.feature_caches, corpus, feature_cache
                 ),
@@ -756,37 +778,32 @@ class GmmSystem(RasrSystem):
                 mixtures=meta.select_element(
                     self.mixtures, corpus, (train_corpus, cmllr_mixtures)
                 ),
-                overlay=overlay,
+                overlay_key=overlay_key,
             )
             self.feature_flows[corpus][
                 "%s+cmllr" % feature_flow
             ] = sat.add_cmllr_transform(
                 feature_net=self.feature_flows[corpus][feature_flow],
                 map_file=speaker_seq.out_cluster_map_file,
-                transform_dir=self.jobs[overlay]["cmllr"].transforms,
+                transform_dir=self.jobs[overlay_key]["cmllr"].transforms,
             )
 
             with tk.block(f"{name}_recognition"):
-                recog_func = (
-                    self.recog_and_optimize if optimize_am_lm_scale else self.recog
+                recog_func(
+                    name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
+                    prefix=f"recognition/{name}/",
+                    corpus=corpus,
+                    flow=feature_flow,
+                    feature_scorer=list(feature_scorer) + [it - 1],
+                    pronunciation_scale=p,
+                    lm_scale=l,
+                    search_parameters=search_parameters,
+                    rtf=rtf,
+                    mem=mem,
+                    parallelize_conversion=parallelize_conversion,
+                    lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                    **kwargs,
                 )
-
-                for l in lm_scales:
-                    recog_func(
-                        name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
-                        prefix=f"recognition/{name}/",
-                        corpus=corpus,
-                        flow=feature_flow,
-                        feature_scorer=list(feature_scorer) + [it - 1],
-                        pronunciation_scale=p,
-                        lm_scale=l,
-                        search_parameters=search_parameters,
-                        rtf=rtf,
-                        mem=mem,
-                        parallelize_conversion=parallelize_conversion,
-                        lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
-                        **kwargs,
-                    )
 
     # -------------------- run setup  --------------------
 
@@ -850,6 +867,8 @@ class GmmSystem(RasrSystem):
                     corpus=eval_c,
                     mapping={"[SILENCE]": ""},
                 )
+            elif self.hybrid_init_args.scorer == "hub5":
+                self.set_hub5_scorer(corpus=eval_c)
             else:
                 self.set_sclite_scorer(
                     corpus=eval_c,
@@ -1014,7 +1033,7 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("mono"):
                 for trn_c in self.train_corpora:
                     self.monophone_training(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         linear_alignment_args=step_args.linear_alignment_args,
                         **step_args.training_args,
                     )
@@ -1044,7 +1063,7 @@ class GmmSystem(RasrSystem):
                     # ---------- SDM Mono ----------
                     if step_args is not None:
                         self.single_density_mixtures(
-                            corpus=trn_c,
+                            corpus_key=trn_c,
                             **step_args.sdm_args,
                         )
 
@@ -1053,7 +1072,7 @@ class GmmSystem(RasrSystem):
                 self.cart_questions = step_args.cart_questions
                 for trn_c in self.train_corpora:
                     self.cart_and_lda(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         **step_args.cart_lda_args,
                     )
 
@@ -1061,7 +1080,7 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("tri"):
                 for trn_c in self.train_corpora:
                     self.triphone_training(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         **step_args.training_args,
                     )
 
@@ -1090,7 +1109,7 @@ class GmmSystem(RasrSystem):
                     # ---------- SDM Tri ----------
                     if step_args.sdm_args is not None:
                         self.single_density_mixtures(
-                            corpus=trn_c,
+                            corpus_key=trn_c,
                             **step_args.sdm_args,
                         )
 
@@ -1098,13 +1117,13 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("vtln") and not step_name.startswith("vtln+sat"):
                 for trn_c in self.train_corpora:
                     self.vtln_feature_flow(
-                        train_corpora=trn_c,
-                        corpora=[trn_c] + self.dev_corpora + self.test_corpora,
+                        train_corpus_key=trn_c,
+                        corpora_keys=[trn_c] + self.dev_corpora + self.test_corpora,
                         **step_args.training_args["feature_flow"],
                     )
 
                     self.vtln_warping_mixtures(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         feature_flow=step_args.training_args["feature_flow"]["name"],
                         **step_args.training_args["warp_mix"],
                     )
@@ -1113,8 +1132,8 @@ class GmmSystem(RasrSystem):
                         name=steps.get_args_via_idx(step_idx - 1).training_args[
                             "feature_flow"
                         ],
-                        train_corpus=trn_c,
-                        eval_corpus=self.dev_corpora + self.test_corpora,
+                        train_corpus_key=trn_c,
+                        eval_corpora_keys=self.dev_corpora + self.test_corpora,
                         raw_feature_flow=step_args.training_args["feature_flow"][
                             "name"
                         ],
@@ -1122,7 +1141,7 @@ class GmmSystem(RasrSystem):
                     )
 
                     self.vtln_training(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         **step_args.training_args["train"],
                     )
 
@@ -1143,7 +1162,7 @@ class GmmSystem(RasrSystem):
                     # ---------- SDM VTLN ----------
                     if step_args.sdm_args is not None:
                         self.single_density_mixtures(
-                            corpus=trn_c,
+                            corpus_key=trn_c,
                             **step_args.sdm_args,
                         )
 
@@ -1151,7 +1170,7 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("sat"):
                 for trn_c in self.train_corpora:
                     self.sat_training(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         **step_args.training_args,
                     )
 
@@ -1173,7 +1192,7 @@ class GmmSystem(RasrSystem):
                     # ---------- SDM Sat ----------
                     if step_args.sdm_args is not None:
                         self.single_density_mixtures(
-                            corpus=trn_c,
+                            corpus_key=trn_c,
                             **step_args.sdm_args,
                         )
 
@@ -1181,7 +1200,7 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("vtln+sat"):
                 for trn_c in self.train_corpora:
                     self.sat_training(
-                        corpus=trn_c,
+                        corpus_key=trn_c,
                         **step_args.training_args,
                     )
 
@@ -1203,7 +1222,7 @@ class GmmSystem(RasrSystem):
                     # ---------- SDM VTLN+SAT ----------
                     if step_args.sdm_args is not None:
                         self.single_density_mixtures(
-                            corpus=trn_c,
+                            corpus_key=trn_c,
                             **step_args.sdm_args,
                         )
 
@@ -1211,6 +1230,6 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("forced_align"):
                 for trn_c in self.train_corpora:
                     self.forced_align(
-                        corpus=trn_c,
+                        feature_scorer_corpus_key=trn_c,
                         **step_args,
                     )
