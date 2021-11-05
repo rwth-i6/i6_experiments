@@ -187,7 +187,7 @@ class RasrSystem(meta.System):
         feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
         feature_scorer_corpus_key: str = None,
         dump_alignment: bool = False,
-        **kwargs
+        **kwargs,
     ):
         selected_feature_scorer = meta.select_element(
             self.feature_scorers, feature_scorer_corpus_key, feature_scorer
