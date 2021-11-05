@@ -1,5 +1,7 @@
 __all__ = ["RasrSystem"]
 
+from typing import List, Tuple, Union
+
 # -------------------- Sisyphus --------------------
 
 import sisyphus.global_settings as gs
@@ -179,12 +181,12 @@ class RasrSystem(meta.System):
 
     def forced_align(
         self,
-        name,
-        target_corpus_key,
-        flow,
-        feature_scorer,
-        feature_scorer_corpus_key=None,
-        dump_alignment=False,
+        name: str,
+        target_corpus_key: str,
+        flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
+        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
+        feature_scorer_corpus_key: str = None,
+        dump_alignment: bool = False,
         **kwargs
     ):
         selected_feature_scorer = meta.select_element(
