@@ -165,12 +165,12 @@ class RasrSystem(meta.System):
     # -------------------- Single Density Mixtures --------------------
 
     def single_density_mixtures(
-        self, name: str, corpus_key: str, feature_flow: str, alignment: str
+        self, name: str, corpus_key: str, feature_flow_key: str, alignment: str
     ):
         self.estimate_mixtures(
             name=name,
             corpus=corpus_key,
-            flow=feature_flow,
+            flow=feature_flow_key,
             alignment=meta.select_element(
                 self.alignments, corpus_key, (corpus_key, alignment, -1)
             ),
