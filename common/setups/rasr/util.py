@@ -189,7 +189,7 @@ class GmmMonophoneArgs:
         linear_alignment_args: dict,
         training_args: dict,
         recognition_args: dict,
-        sdm_args: dict,
+        sdm_args: Optional[dict] = None,
     ):
         """
         ##################################################
