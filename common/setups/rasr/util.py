@@ -2,24 +2,34 @@ __all__ = [
     "RasrDataInput",
     "RasrInitArgs",
     "GmmMonophoneArgs",
+    "GmmCartArgs",
     "GmmTriphoneArgs",
     "GmmVtlnArgs",
     "GmmSatArgs",
     "GmmVtlnSatArgs",
+    "ForcedAlignmentArgs",
+    "ReturnnRasrDataInput",
     "NnArgs",
+    "RasrSteps",
 ]
 
-from typing import Optional, Type, Union
+
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
 import i6_core.meta as meta
+import i6_core.rasr as rasr
+import i6_core.returnn as returnn
+
 from i6_core.cart.questions import BasicCartQuestions, PythonCartQuestions
+from i6_core.util import MultiPath
 
 
 class RasrDataInput:
     """
-    this class holds the data information for a hybrid gmm setup:
+    this class holds the data information for a rasr gmm setup:
     - corpus
     - lexicon
     - lm
@@ -67,6 +77,8 @@ class RasrInitArgs:
         costa_args: dict,
         am_args: dict,
         feature_extraction_args: dict,
+        default_mixture_scorer_args: dict,
+        scorer: Optional[str] = None,
     ):
         """
         ##################################################
@@ -157,8 +169,16 @@ class RasrInitArgs:
                 'fft_options': {},
             }
         ##################################################
+        :param default_mixture_scorer_args:
+        {"scale": 0.3}
+        ##################################################
+        :param scorer:
+        "kaldi", "sclite", default is sclite
+        ##################################################
         """
         self.costa_args = costa_args
+        self.default_mixture_scorer_args = default_mixture_scorer_args
+        self.scorer = scorer
         self.am_args = am_args
         self.feature_extraction_args = feature_extraction_args
 
@@ -167,8 +187,9 @@ class GmmMonophoneArgs:
     def __init__(
         self,
         linear_alignment_args: dict,
-        monophone_training_args: dict,
-        monophone_recognition_args: dict,
+        training_args: dict,
+        recognition_args: dict,
+        sdm_args: dict,
     ):
         """
         ##################################################
@@ -185,7 +206,7 @@ class GmmMonophoneArgs:
             'extra_post_config': None,
         }
         ##################################################
-        :param monophone_training_args: {
+        :param training_args: {
             'feature_flow': 'mfcc+deriv+norm',
             'feature_energy_flow': 'energy,mfcc+deriv+norm',
             'align_iter': 75,
@@ -193,7 +214,7 @@ class GmmMonophoneArgs:
             'accs_per_split': 2,
         }
         ##################################################
-        :param monophone_recognition_args: {
+        :param recognition_args: {
             'eval_iter': [7, 8, 9, 10]
             'pronunciation_scales': [1.0]
             'lm_scales': [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50]
@@ -225,18 +246,16 @@ class GmmMonophoneArgs:
         ##################################################
         """
         self.linear_alignment_args = linear_alignment_args
-        self.monophone_training_args = monophone_training_args
-        self.monophone_recognition_args = monophone_recognition_args
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.sdm_args = sdm_args
 
 
-class GmmTriphoneArgs:
+class GmmCartArgs:
     def __init__(
         self,
         cart_questions: Union[Type[BasicCartQuestions], PythonCartQuestions, tk.Path],
         cart_lda_args: dict,
-        triphone_training_args: dict,
-        triphone_recognition_args: dict,
-        sdm_tri_args: Optional[dict] = None,
     ):
         """
         ##################################################
@@ -267,38 +286,50 @@ class GmmTriphoneArgs:
             'alignment': "train_mono",  # if using run function not needed
         }
         ##################################################
-        :param triphone_training_args: {
+        """
+        self.cart_questions = cart_questions
+        self.cart_lda_args = cart_lda_args
+
+
+class GmmTriphoneArgs:
+    def __init__(
+        self,
+        training_args: dict,
+        recognition_args: dict,
+        sdm_args: Optional[dict] = None,
+    ):
+        """
+        ##################################################
+        :param training_args: {
             'feature_flow': 'mfcc+context+lda',
             'splits': 10,
             'accs_per_split': 2,
             'initial_alignment': "train_mono",  # if using run function not needed
         }
         ##################################################
-        :param triphone_recognition_args:
+        :param recognition_args:
         ##################################################
-        :param sdm_tri_args: {
+        :param sdm_args: {
             'feature_flow': "mfcc+context+lda",
             'alignment': "train_tri",   # if using run function not needed
         }
         ##################################################
         """
-        self.cart_questions = cart_questions
-        self.cart_lda_args = cart_lda_args
-        self.triphone_training_args = triphone_training_args
-        self.triphone_recognition_args = triphone_recognition_args
-        self.sdm_tri_args = sdm_tri_args
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.sdm_args = sdm_args
 
 
 class GmmVtlnArgs:
     def __init__(
         self,
-        vtln_training_args: dict,
-        vtln_recognition_args: dict,
-        sdm_vtln_args: Optional[dict] = None,
+        training_args: dict,
+        recognition_args: dict,
+        sdm_args: Optional[dict] = None,
     ):
         """
         ##################################################
-        :param vtln_training_args: {
+        :param training_args: {
             'feature_flow': {
                 'base_flow': 'uncached_mfcc',
                 'context_size': 9,
@@ -316,29 +347,29 @@ class GmmVtlnArgs:
                 'feature_flow': "mfcc+context+lda+vtln",
             }
         ##################################################
-        :param vtln_recognition_args:
+        :param recognition_args:
         ##################################################
-        :param sdm_vtln_args: {
+        :param sdm_args: {
             'feature_flow': "mfcc+context+lda+vtln",
             'alignment': "train_vtln",  # if using run function not needed
         }
         ##################################################
         """
-        self.vtln_training_args = vtln_training_args
-        self.vtln_recognition_args = vtln_recognition_args
-        self.sdm_vtln_args = sdm_vtln_args
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.sdm_args = sdm_args
 
 
 class GmmSatArgs:
     def __init__(
         self,
-        sat_training_args: dict,
-        sat_recognition_args: dict,
-        sdm_sat_args: Optional[dict] = None,
+        training_args: dict,
+        recognition_args: dict,
+        sdm_args: Optional[dict] = None,
     ):
         """
         ##################################################
-        :param sat_training_args: {
+        :param training_args: {
             'feature_cache': 'mfcc+context+lda',
             'cache_regex': '^mfcc.*$',
             'splits': 10,
@@ -349,24 +380,24 @@ class GmmSatArgs:
             'alignment': "train_tri",   # if using run function not needed
         }
         ##################################################
-        :param sat_recognition_args:
+        :param recognition_args:
         ##################################################
         """
-        self.sat_training_args = sat_training_args
-        self.sat_recognition_args = sat_recognition_args
-        self.sdm_sat_args = sdm_sat_args
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.sdm_args = sdm_args
 
 
 class GmmVtlnSatArgs:
     def __init__(
         self,
-        vtln_sat_training_args: dict,
-        vtln_sat_recognition_args: dict,
-        sdm_vtln_sat_args: Optional[dict] = None,
+        training_args: dict,
+        recognition_args: dict,
+        sdm_args: Optional[dict] = None,
     ):
         """
         ##################################################
-        :param vtln_sat_training_args: {
+        :param training_args: {
             'feature_cache': "mfcc+context+lda+vtln",
             'cache_regex': '^.*\\+vtln$',
             'mixtures': "estimate_mixtures_sdm.vtln"  # if using run function not needed
@@ -376,34 +407,84 @@ class GmmVtlnSatArgs:
             'alignment': "train_vtln",  # if using run function not needed
         }
         ##################################################
-        :param vtln_sat_recognition_args:
+        :param recognition_args:
         ##################################################
         """
-        self.vtln_sat_training_args = vtln_sat_training_args
-        self.vtln_sat_recognition_args = vtln_sat_recognition_args
-        self.sdm_vtln_sat_args = sdm_vtln_sat_args
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.sdm_args = sdm_args
+
+
+class ForcedAlignmentArgs:
+    def __init__(
+        self,
+        name: str,
+        target_corpus_key: str,
+        flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
+        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
+    ):
+        self.name = name
+        self.target_corpus_key = target_corpus_key
+        self.flow = flow
+        self.feature_scorer = feature_scorer
+
+
+class ReturnnRasrDataInput(RasrDataInput):
+    def __init__(
+        self,
+        segment_path: Optional[Union[tk.Path, str]],
+        cart_tree: Optional[Union[tk.Path, str]],
+        alignments: Optional[
+            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+        ],
+        features: Optional[
+            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+        ],
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.segment_path = segment_path
+        self.cart_tree = cart_tree
+        self.alignments = alignments
+        self.features = features
+        # TODO add Lexicon and/or Allophone File to read external alignment
 
 
 class NnArgs:
     def __init__(
         self,
-        nn_training_args: Optional[dict] = None,
-        nn_count_recognition_args: Optional[dict] = None,
-        nn_nn_recognition_args: Optional[dict] = None,
-        nn_rescoring_args: Optional[dict] = None,
+        returnn_configs: Dict[str, returnn.ReturnnConfig],
+        training_args: Optional[Dict] = None,
+        recognition_args: Optional[Dict[str, Dict]] = None,
+        rescoring_args: Optional[Dict[str, Dict]] = None,
     ):
         """
         ##################################################
-        :param nn_training_args:
+        :param training_args:
         ##################################################
-        :param nn_count_recognition_args:
+        :param recognition_args:
         ##################################################
-        :param nn_nn_recognition_args:
-        ##################################################
-        :param nn_rescoring_args:
+        :param rescoring_args:
         ##################################################
         """
-        self.nn_training_args = nn_training_args
-        self.nn_count_recognition_args = nn_count_recognition_args
-        self.nn_nn_recognition_args = nn_nn_recognition_args
-        self.nn_rescoring_args = nn_rescoring_args
+        self.returnn_configs = returnn_configs
+        self.training_args = training_args
+        self.recognition_args = recognition_args
+        self.rescoring_args = rescoring_args
+
+
+class RasrSteps:
+    def __init__(self):
+        self._step_names_args = OrderedDict()
+
+    def add_step(self, name, arg):
+        self._step_names_args[name] = arg
+
+    def get_step_iter(self):
+        return self._step_names_args.items()
+
+    def get_step_names_as_list(self):
+        return list(self._step_names_args.keys())
+
+    def get_args_via_idx(self, idx):
+        return list(self._step_names_args.values())[idx]
