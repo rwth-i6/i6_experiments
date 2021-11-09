@@ -9,8 +9,8 @@ from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
 
-from i6_experiments.common.setups.hybrid.rasr_system import RasrSystem
-from i6_experiments.common.setups.hybrid.util import RasrInitArgs, RasrDataInput
+from i6_experiments.common.setups.rasr.rasr_system import RasrSystem
+from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
 
 
 class CtcSystem(RasrSystem):

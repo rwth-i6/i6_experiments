@@ -5,8 +5,8 @@ from sisyphus import gs, tk, Path
 
 from i6_core.features.filterbank import filter_width_from_channels
 
-from i6_experiments.common.setups.hybrid.util import RasrInitArgs, RasrDataInput
-from i6_experiments.common.setups.hybrid import gmm_system
+from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
+from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.datasets.librispeech import get_corpus_object_dict, get_bliss_lexicon, get_arpa_lm_dict
 
 
@@ -71,7 +71,9 @@ def get_init_args():
     return RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
-        feature_extraction_args=feature_extraction_args)
+        feature_extraction_args=feature_extraction_args,
+        default_mixture_scorer_args={"scale": 0.3}  # TODO what should this be?
+    )
 
 
 def get_monophone_args():
@@ -89,8 +91,9 @@ def get_monophone_args():
     }
 
     monophone_training_args = {
+        'name': 'mono',
         'feature_flow': 'mfcc+deriv', # +norm
-        'feature_energy_flow': 'energy,mfcc+deriv', # +norm
+        'feature_energy_flow_key': 'energy,mfcc+deriv', # +norm
         'align_iter': 75,
         'splits': 10,
         'accs_per_split': 2,
@@ -103,7 +106,7 @@ def get_monophone_args():
         'optimize_am_lm_scale': True,
         # meta.System.recog() args:
         'feature_flow': 'mfcc+deriv', # +norm
-        'pronunciation_scale': 1.0,
+        'pronunciation_scales': [1.0],
         'lm_lookahead': True,
         'lookahead_options': None,
         'create_lattice': True,
@@ -184,11 +187,11 @@ def run_baseline_training():
     system = gmm_system.GmmSystem()
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(),
-                       gmm_monophone_args=get_monophone_args(),
-                       gmm_triphone_args=None,
-                       gmm_vtln_args=None,
-                       gmm_sat_args=None,
-                       gmm_vtln_sat_args=None,
+                       monophone_args=get_monophone_args(),
+                       triphone_args=None,
+                       vtln_args=None,
+                       sat_args=None,
+                       vtln_sat_args=None,
                        train_data=train,
                        dev_data=dev,
                        test_data=test)
@@ -252,7 +255,7 @@ def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True)
     else:
         print("Corpus with name %s already added" % name)
     prefix = "uncached_" if uncached and name not in system.train_corpora else ""
-    system.align(name + "_align", name, prefix + system.gmm_monophone_args.monophone_training_args['feature_flow'], "train_mono")
+    system.align(name + "_align", name, prefix + system.monophone_args.training_args['feature_flow'], "train_mono")
     alignment = system.alignments[name][name + '_align'][0].alternatives['bundle']
     return alignment
 

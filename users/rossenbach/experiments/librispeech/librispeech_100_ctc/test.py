@@ -2,7 +2,7 @@ from sisyphus import gs, tk
 
 from i6_core.returnn.config import ReturnnConfig
 
-from i6_experiments.common.setups.hybrid.util import RasrDataInput, RasrInitArgs
+from i6_experiments.common.setups.rasr.util import RasrDataInput, RasrInitArgs
 
 from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict,\
     get_corpus_object_dict, get_arpa_lm_dict
@@ -32,7 +32,8 @@ rasr_args = RasrInitArgs(
                 'do_specint': False
             }
         }
-    }
+    },
+    default_mixture_scorer_args={"scale": 0.3}  # TODO is this needed for ctc?
 )
 
 
