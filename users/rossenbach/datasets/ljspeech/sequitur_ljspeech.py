@@ -33,17 +33,17 @@ def get_static_lexicon():
     lex = lexicon.Lexicon()
 
     lex.add_lemma(
-        lexicon.Lemma(orth=["[space]"], phon=["[space]"])
+        lexicon.Lemma(orth=["[space]", ""], phon=["[space]"], special="silence")
     )
     lex.add_phoneme("[space]", variation="none")
 
     lex.add_lemma(
-        lexicon.Lemma(orth=["[start]"], phon=["[start]"])
+        lexicon.Lemma(orth=["[start]"], phon=["[start]"], special="sentence-begin")
     )
     lex.add_phoneme("[start]", variation="none")
 
     lex.add_lemma(
-        lexicon.Lemma(orth=["[end]"], phon=["[end]"])
+        lexicon.Lemma(orth=["[end]"], phon=["[end]"], special="sentence-end")
     )
     lex.add_phoneme("[end]", variation="none")
 
@@ -87,13 +87,23 @@ def get_uppercase_text_lexicon(create_alias_with_prefix=None):
     return cmu_lexicon_uppercase
 
 
-def get_uppercase_bliss_lexicon():
+def get_uppercase_bliss_lexicon(apply_g2p=False, output_path=""):
+    output_path = os.path.join(output_path, "lexicon")
     cmu_wordlist_lexicon = get_uppercase_text_lexicon()
     cmu_bliss_lexicon = LexiconFromTextFileJob(cmu_wordlist_lexicon).out_bliss_lexicon
     static_bliss_lexcion = WriteLexiconJob(get_static_lexicon()).out_bliss_lexicon
     cmu_bliss_lexicon = MergeLexiconJob(bliss_lexica=[static_bliss_lexcion, cmu_bliss_lexicon],
                                         sort_phonemes=True,
                                         sort_lemmata=False).out_bliss_lexicon
+
+    if apply_g2p:
+        from i6_experiments.common.datasets.ljspeech import get_16khz_bliss_corpus
+        uppercase_corpus = apply_corpus_pre_processing(get_16khz_bliss_corpus(create_alias_with_prefix=""))
+        extract_oovs_job = ExtractOovWordsFromCorpusJob(uppercase_corpus, cmu_bliss_lexicon)
+        extract_oovs_job.add_alias(os.path.join(output_path, "extract_oovs_job"))
+        g2p_oov_lexicon = ApplyG2PModelJob(get_uppercase_cmu_g2p(), extract_oovs_job.out_oov_words).out_g2p_lexicon
+        cmu_bliss_lexicon = G2POutputToBlissLexiconJob(cmu_bliss_lexicon, g2p_oov_lexicon, merge=True).out_oov_lexicon
+
     return cmu_bliss_lexicon
 
 
@@ -119,21 +129,13 @@ def get_uppercase_cmu_g2p(create_alias_with_prefix=None):
     return sequitur_cmu_uppercase_model
 
 
-def apply_uppercase_cmu_corpus_processing(bliss_corpus):
+def apply_corpus_pre_processing(bliss_corpus):
     """
+    Applies the textual pre-processing for the sequitur style coprpus
 
-    Applies the LJSpeech processing pipeline using the CMU dictionary, default Sequitur G2P and the
-    the special symbols as defined in `get_static_lexicon()`
-
-    :param Path bliss_corpus:
-    :param path_prefix:
-    :return: the fully preprocess bliss corpus, ready to be used with a word-based RETURNN vocabulary
-    :rtype: Path
+    :param bliss_corpus:
+    :return:
     """
-
-    cmu_bliss_lexicon = get_uppercase_bliss_lexicon()
-    cmu_uppercase_g2p = get_uppercase_cmu_g2p()
-
     bliss_text = CorpusToTxtJob(bliss_corpus).out_txt
 
     whitelist_filter_list = list(".,?!-")
@@ -154,6 +156,25 @@ def apply_uppercase_cmu_corpus_processing(bliss_corpus):
          add_start_command,
          add_end_command]).out
     processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(bliss_corpus, tokenized_text).out_corpus
+    return processed_bliss_corpus
+
+
+def apply_uppercase_cmu_corpus_processing(bliss_corpus):
+    """
+
+    Applies the LJSpeech processing pipeline using the CMU dictionary, default Sequitur G2P and the
+    the special symbols as defined in `get_static_lexicon()`
+
+    :param Path bliss_corpus:
+    :param path_prefix:
+    :return: the fully preprocess bliss corpus, ready to be used with a word-based RETURNN vocabulary
+    :rtype: Path
+    """
+
+    cmu_bliss_lexicon = get_uppercase_bliss_lexicon(apply_g2p=False)
+    cmu_uppercase_g2p = get_uppercase_cmu_g2p()
+
+    processed_bliss_corpus = apply_corpus_pre_processing(bliss_corpus)
 
     oovs = ExtractOovWordsFromCorpusJob(processed_bliss_corpus, cmu_bliss_lexicon).out_oov_words
     g2p_oov_lexicon = ApplyG2PModelJob(cmu_uppercase_g2p, oovs).out_g2p_lexicon
