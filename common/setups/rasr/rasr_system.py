@@ -125,42 +125,56 @@ class RasrSystem(meta.System):
         if add_lm:
             self._init_lm(corpus_key, **data.lm)
 
+    def extract_features_for_corpus(self, corpus: str, feat_args: dict):
+        """
+        :param corpus:
+        :param feat_args:
+        :return:
+        """
+        for k, v in feat_args.items():
+            if k == "mfcc":
+                self.mfcc_features(corpus, **v)
+            if k == "gt":
+                self.gt_features(corpus, **v)
+            if k == "fb":
+                self.fb_features(corpus, **v)
+            if k == "energy":
+                self.energy_features(corpus, **v)
+            if k == "voiced":
+                self.voiced_features(corpus, **v)
+            if k == "plp":
+                self.plp_features(corpus, **v)
+            if k == "tone":
+                self.tone_features(corpus, **v)
+            if k not in ("mfcc", "gt", "fb", "energy", "voiced", "tone", "plp"):
+                self.generic_features(corpus, k, **v)
+
     @tk.block()
     def extract_features(self, feat_args: dict, **kwargs):
+        """
+        TODO: add more generic flow dependencies
+
+        :param feat_args: see RasrInitArgs.feature_extraction_args
+        :param kwargs:
+        :return:
+        """
         corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
 
-        for k, v in feat_args.items():
-            for c in corpus_list:
-                if k == "mfcc":
-                    self.mfcc_features(c, **v)
-                if k == "gt":
-                    self.gt_features(c, **v)
-                if k == "fb":
-                    self.fb_features(c, **v)
-                if k == "energy":
-                    self.energy_features(c, **v)
-                if k == "voiced":
-                    self.voiced_features(c, **v)
-                if k == "plp":
-                    self.plp_features(c, **v)
-                if k == "tone":
-                    self.tone_features(c, **v)
-                if k not in ("mfcc", "gt", "fb", "energy", "voiced", "tone", "plp"):
-                    self.generic_features(c, k, **v)
-            if k == "mfcc":
-                for trn_c in self.train_corpora:
-                    self.normalize(trn_c, "mfcc+deriv", corpus_list)
+        for c in corpus_list:
+            self.extract_features_for_corpus(c, feat_args)
 
-        for kk in feat_args.keys():
-            if "energy" in feat_args.keys():
-                for t in self.train_corpora:
-                    if kk == "mfcc":
-                        self.add_energy_to_features(t, "mfcc+deriv")
-                        self.add_energy_to_features(t, "mfcc+deriv+norm")
-                    if kk == "gt":
-                        self.add_energy_to_features(t, "gt")
-                    if kk == "fb":
-                        self.add_energy_to_features(t, "fb")
+        for tc in self.train_corpora:
+            for fk in feat_args.keys():
+                if fk == "mfcc":
+                    self.normalize(tc, "mfcc+deriv", corpus_list)
+                if "energy" in feat_args.keys():
+                    if fk == "mfcc":
+                        self.add_energy_to_features(tc, "mfcc+deriv")
+                        self.add_energy_to_features(tc, "mfcc+deriv+norm")
+                    if fk == "gt":
+                        self.add_energy_to_features(tc, "gt")
+                    if fk == "fb":
+                        self.add_energy_to_features(tc, "fb")
 
     # -------------------- Single Density Mixtures --------------------
 
