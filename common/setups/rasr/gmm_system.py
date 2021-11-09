@@ -15,6 +15,7 @@ import sisyphus.toolkit as tk
 
 import i6_core.lexicon.allophones as allophones
 import i6_core.am as am
+import i6_core.cart as cart
 import i6_core.corpus as corpus_recipes
 import i6_core.features as features
 import i6_core.lda as lda
@@ -84,14 +85,16 @@ class GmmSystem(RasrSystem):
     def __init__(self):
         super().__init__()
 
-        self.monophone_args = None
-        self.cart_lda_args = None
-        self.triphone_args = None
-        self.vtln_args = None
-        self.sat_args = None
-        self.vtln_sat_args = None
+        self.monophone_args: Optional[GmmMonophoneArgs] = None
+        self.cart_lda_args: Optional[GmmCartArgs] = None
+        self.triphone_args: Optional[GmmTriphoneArgs] = None
+        self.vtln_args: Optional[GmmVtlnArgs] = None
+        self.sat_args: Optional[GmmSatArgs] = None
+        self.vtln_sat_args: Optional[GmmVtlnSatArgs] = None
 
-        self.cart_questions = None
+        self.cart_questions: Union[
+            Type[cart.BasicCartQuestions], cart.PythonCartQuestions, tk.Path
+        ] = None
         self.cart_trees = {}
         self.lda_matrices = {}
         self.vtln_files = {}

@@ -15,7 +15,7 @@ __all__ = [
 
 
 from collections import OrderedDict
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
@@ -416,7 +416,13 @@ class GmmVtlnSatArgs:
 
 
 class ForcedAlignmentArgs:
-    def __init__(self, name, target_corpus_key, flow, feature_scorer):
+    def __init__(
+        self,
+        name: str,
+        target_corpus_key: str,
+        flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
+        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
+    ):
         self.name = name
         self.target_corpus_key = target_corpus_key
         self.flow = flow
@@ -441,6 +447,7 @@ class ReturnnRasrDataInput(RasrDataInput):
         self.cart_tree = cart_tree
         self.alignments = alignments
         self.features = features
+        # TODO add Lexicon and/or Allophone File to read external alignment
 
 
 class NnArgs:
