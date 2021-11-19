@@ -71,7 +71,9 @@ class G2PBasedOovAugmenter:
         self, bliss_corpus: Path, corpus_name: str, alias_path: str
     ):
         extract_oov_job = ExtractOovWordsFromCorpusJob(
-            bliss_corpus=bliss_corpus, bliss_lexicon=self.original_bliss_lexicon
+            bliss_corpus=bliss_corpus,
+            bliss_lexicon=self.original_bliss_lexicon,
+            casing=None,
         )
         extract_oov_job.add_alias(
             os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name))
