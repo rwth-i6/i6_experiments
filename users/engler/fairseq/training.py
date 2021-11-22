@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess as sp
 import yaml
@@ -57,8 +58,8 @@ class FairseqHydraTrainingJob(Job):
         fairseq_hydra_config,
         *,  # args below are keyword only
         command_line_args=None,
-        max_epoch=1,
-        save_interval=1,
+        max_epoch=None,
+        save_interval=None,
         keep_epochs=None,
         time_rqmt=4,
         mem_rqmt=4,
@@ -72,8 +73,8 @@ class FairseqHydraTrainingJob(Job):
         :param FairseqHydraConfig fairseq_hydra_config:
         :param list command_line_args: Additional command line arguments (starting with "--*"),
             to configure the Fairseq-hydra task
-        :param int max_epoch: maximum number of epochs to run. Note that this value IS currently HASHED.
-        :param int save_interval: save a checkpoint each n-th epoch
+        :param int|None max_epoch: maximum number of epochs to run. Note that this value IS currently HASHED.
+        :param int|None save_interval: save a checkpoint each n-th epoch
         :param list[int]|set[int]|None keep_epochs: specify which checkpoints are kept in self.out_models.
             Use None for each save_interval-th epoch
         :param int|float time_rqmt: Overall time requirements
@@ -91,15 +92,34 @@ class FairseqHydraTrainingJob(Job):
         # Inputs:
         self.fairseq_hydra_config = fairseq_hydra_config
         self.command_line_args = command_line_args or []
-        stored_epochs = list(range(save_interval, max_epoch, save_interval)) + [
-            max_epoch
-        ]
+        warning_text = "is specified as input arg and in fairseq_hydra_config. We take the input arg"
+        save_interval_config = fairseq_hydra_config.config_dict.get(
+            "checkpoint", {}
+        ).get("save_interval", None)
+        if save_interval is not None and save_interval_config is not None:
+            logging.warning(
+                "'save_interval' {}: {}".format(warning_text, save_interval)
+            )
+        self.save_interval = save_interval or save_interval_config
+        assert (
+            self.save_interval is not None
+        ), "save_interval has to be set explicitly or via fairseq_hydra_config"
+        max_epoch_config = fairseq_hydra_config.config_dict.get("optimization", {}).get(
+            "max_epoch", None
+        )
+        if max_epoch is not None and max_epoch_config is not None:
+            logging.warning("'max_epoch' {}: {}".format(warning_text, max_epoch))
+        self.max_epoch = max_epoch or max_epoch_config
+        assert (
+            self.max_epoch is not None
+        ), "max_epoch has to be set explicitly or via fairseq_hydra_config"
+        stored_epochs = list(
+            range(self.save_interval, self.max_epoch, self.save_interval)
+        ) + [self.max_epoch]
         if keep_epochs is None:
             self.keep_epochs = set(stored_epochs)
         else:
             self.keep_epochs = set(keep_epochs)
-        self.max_epoch = max_epoch
-        self.save_interval = save_interval
         self.fairseq_python_exe = (
             fairseq_python_exe
             if fairseq_python_exe is not None
@@ -160,8 +180,14 @@ class FairseqHydraTrainingJob(Job):
         ]
         run_cmd += self.command_line_args
         run_cmd += ["checkpoint.save_dir=" + self.out_checkpoint_dir.get_path()]
-        run_cmd += ["checkpoint.save_interval=" + str(self.save_interval)]
-        run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
+        if self.save_interval != self.fairseq_hydra_config.config_dict.get(
+            "checkpoint", {}
+        ).get("save_interval", None):
+            run_cmd += ["checkpoint.save_interval=" + str(self.save_interval)]
+        if self.max_epoch != self.fairseq_hydra_config.config_dict.get(
+            "optimization", {}
+        ).get("max_epoch", None):
+            run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
 
         if self.fairseq_root is not None:
             sys.path.insert(0, self.fairseq_root)
