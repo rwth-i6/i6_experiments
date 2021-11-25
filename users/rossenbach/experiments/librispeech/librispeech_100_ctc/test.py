@@ -1,6 +1,7 @@
 from sisyphus import gs, tk
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.setups.rasr.util import RasrDataInput, RasrInitArgs
 
@@ -20,8 +21,8 @@ rasr_args = RasrInitArgs(
     am_args={
         'states_per_phone'   : 1, # single state
         'state_tying'        : 'monophone-eow', # different class for final phoneme of a word
-        'tdp_transition'     : (0, 0, 0, 'infinity'), # no tdps
-        'tdp_silence'        : (0, 0, 0, 'infinity'),
+        'tdp_transition'     : (0, 0, 'infinity', 0), # skip on infinity
+        'tdp_silence'        : (0, 0, 'infinity', 0),
     },
     feature_extraction_args={
         'gt': {
@@ -39,14 +40,15 @@ rasr_args = RasrInitArgs(
 
 def create_eow_lexicon():
     ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
-    add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
-        bliss_lexicon=ls100_bliss_lexicon,
-        add_eow=True,
-        add_sow=False
-    )
-    ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
+    return ls100_bliss_lexicon
+    #add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
+    #    bliss_lexicon=ls100_bliss_lexicon,
+    #    add_eow=True,
+    #    add_sow=False
+    #)
+    #ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
 
-    return ls100_eow_bliss_lexicon
+    #return ls100_eow_bliss_lexicon
 
 
 def get_corpus_data_inputs():
@@ -103,13 +105,12 @@ def get_returnn_config():
         'batching'   : 'random',
 
         # optimization #
-        'nadam'             : True,
-        'learning_rates'     : [0.0001, 0.001],
-        'gradient_clip'     : 1,
+        'learning_rates'     : [0.001]*30,
+        'gradient_clip'     : 0,
         'gradient_noise'    : 0.1, # together with l2 and dropout for overfit
 
         # Note: (default 1e-8) likely not too much impact
-        'optimizer_epsilon' : 1e-8,
+        'optimizer': {'class': 'nadam', 'epsilon': 1e-8},
 
         # let it stop and adjust in time
         # Note: for inf or nan, sth. is too big (e.g. lr warm up)
@@ -143,15 +144,22 @@ def get_returnn_config():
         max_features_per_mask=5
     )
 
-    network = get_network(6, 512, [2], 139, dropout=0.1, l2=0.01, specaugment_settings=specaugment_settings)
+    network1 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=None)
+    network2 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=specaugment_settings)
 
-    staged_network_dict = {1: network}
+    staged_network_dict = {
+        1: network1,
+        2: network2
+    }
 
     return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
                          python_prolog=get_funcs(), hash_full_python_code=True)
 
 
 def get_default_training_args():
+    returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher_custom.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
+                                         commit="f3240381ec200e9b6b68fd4a6f588d7537431380").out_repository
     train_args  = {
         'partition_epochs'   : {'train': 3, 'dev': 1},
         'num_epochs'         : 180,
@@ -165,7 +173,9 @@ def get_default_training_args():
         'cpu_rqmt'           : 3,
         #'qsub_rqmt'          : '-l qname=!*980*',
         'log_verbosity'      : 5,
-        'use_python_control' : False
+        'use_python_control' : False,
+        'returnn_python_exe': returnn_exe,
+        'returnn_root': returnn_root,
     }
     return train_args
 

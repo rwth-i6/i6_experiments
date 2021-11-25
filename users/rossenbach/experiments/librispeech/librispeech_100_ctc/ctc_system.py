@@ -135,9 +135,6 @@ class CtcSystem(RasrSystem):
         config['*'].allow_for_silence_repetitions = False
         config['*'].number_of_classes             = num_classes
         #config['*'].normalize_lemma_sequence_scores = True
-        if skip_segments is not None:
-            config.neural_network_trainer['*'].segments_to_skip = skip_segments
-
 
         config._update(sprint_loss_config)
         post_config._update(sprint_loss_post_config)
@@ -201,12 +198,14 @@ class CtcSystem(RasrSystem):
         cv_segments = new_segments.out_segments['cv']
 
         self.add_overlay(corpus_key, train_corpus_key)
-        self.crp[train_corpus_key].segment_path = train_segments
+        self.crp[train_corpus_key].corpus_config = copy.deepcopy(self.crp[train_corpus_key].corpus_config)
+        self.crp[train_corpus_key].corpus_config.segments.file = train_segments
         self.crp[train_corpus_key].corpus_config.segment_order_shuffle = True
         self.crp[train_corpus_key].corpus_config.segment_order_sort_by_time_length = True
         self.crp[train_corpus_key].corpus_config.segment_order_sort_by_time_length_chunk_size = 384
         self.add_overlay(corpus_key, cv_corpus_key)
-        self.crp[cv_corpus_key].segment_path = cv_segments
+        self.crp[cv_corpus_key].corpus_config = copy.deepcopy(self.crp[train_corpus_key].corpus_config)
+        self.crp[cv_corpus_key].corpus_config.segments.file = cv_segments
 
         self.crp['loss'] = rasr.CommonRasrParameters(base=self.crp[corpus_key])
         config, post_config = self.create_full_sum_loss_config(num_classes)

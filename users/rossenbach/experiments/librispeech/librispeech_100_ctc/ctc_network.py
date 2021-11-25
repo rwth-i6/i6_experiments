@@ -34,10 +34,11 @@ class BLSTMPoolModule(Module):
     def forward(self, inp):
         fw_out, _ = self.fw_rec(inp)
         bw_out, _ = self.bw_rec(inp)
+        concat = nn.concat((fw_out, "F"), (bw_out, "F"))
         if self.pool is not None and self.pool > 1:
-            inp = nn.dropout(nn.pool(nn.concat(fw_out, bw_out), mode="max", pool_size=(self.pool,), padding="same"), self.dropout)
+            inp = nn.dropout(nn.pool(concat, mode="max", pool_size=(self.pool,), padding="same"), self.dropout)
         else:
-            inp = nn.dropout(nn.concat(fw_out, bw_out), self.dropout)
+            inp = nn.dropout(concat, self.dropout)
         return inp
 
 
