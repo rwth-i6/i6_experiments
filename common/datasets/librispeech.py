@@ -318,24 +318,22 @@ def get_special_lemma_lexicon():
         lexicon.Lemma(
             orth=["[SILENCE]", ""],
             phon=["[SILENCE]"],
-            synt=[[]],
+            synt=[],
             special="silence",
             eval=[[]],
         )
     )
     lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[SENTENCE-BEGIN]"], synt=[["<s>"]], special="sentence-begin"
-        )
+        lexicon.Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin")
     )
     lex.add_lemma(
-        lexicon.Lemma(orth=["[SENTENCE-END]"], synt=[["</s>"]], special="sentence-end")
+        lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end")
     )
     lex.add_lemma(
         lexicon.Lemma(
             orth=["[UNKNOWN]"],
             phon=["[UNKNOWN]"],
-            synt=[["<UNK>"]],
+            synt=["<UNK>"],
             special="unknown",
         )
     )
