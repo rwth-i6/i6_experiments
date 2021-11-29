@@ -16,7 +16,13 @@ class ApplyLexiconToTranscriptions(Job):
     Currently only supports picking the first phoneme
     """
 
-    def __init__(self, bliss_corpus, bliss_lexicon, word_separation_orth, strategy=LexiconStrategy.PICK_FIRST):
+    def __init__(
+        self,
+        bliss_corpus,
+        bliss_lexicon,
+        word_separation_orth,
+        strategy=LexiconStrategy.PICK_FIRST,
+    ):
         """
 
         :param bliss_corpus:
@@ -32,7 +38,7 @@ class ApplyLexiconToTranscriptions(Job):
         self.out_corpus = self.output_path("corpus.xml.gz")
 
     def tasks(self):
-        yield Task('run', mini_task=True)
+        yield Task("run", mini_task=True)
 
     def run(self):
         c = corpus.Corpus()
@@ -58,8 +64,8 @@ class ApplyLexiconToTranscriptions(Job):
                 words = [lookup_dict[w] for w in segment.orth.split(" ")]
                 segment.orth = separator.join(words)
             except LookupError:
-                raise LookupError("Out-of-vocabulary word detected, please make sure that there are no OOVs remaining by e.g. applying G2P")
+                raise LookupError(
+                    "Out-of-vocabulary word detected, please make sure that there are no OOVs remaining by e.g. applying G2P"
+                )
 
         c.dump(self.out_corpus.get_path())
-
-

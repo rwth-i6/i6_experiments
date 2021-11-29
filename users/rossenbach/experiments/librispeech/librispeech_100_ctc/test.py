@@ -9,9 +9,34 @@ from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_l
     get_corpus_object_dict, get_arpa_lm_dict
 from i6_experiments.users.rossenbach.lexicon.modification import AddBoundaryMarkerToLexiconJob
 
-from .ctc_system import CtcSystem
+from .ctc_system import CtcSystem, CtcRecognitionArgs
 from .ctc_network import BLSTMCTCModel, get_network
 from .specaugment_clean_v2 import SpecAugmentSettings, get_funcs
+
+
+def create_regular_lexicon():
+    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
+    return ls100_bliss_lexicon
+    #add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
+    #    bliss_lexicon=ls100_bliss_lexicon,
+    #    add_eow=True,
+    #    add_sow=False
+    #)
+    #ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
+
+    #return ls100_eow_bliss_lexicon
+
+
+def create_eow_lexicon():
+    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
+    add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
+        bliss_lexicon=ls100_bliss_lexicon,
+        add_eow=True,
+        add_sow=False
+    )
+    ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
+
+    return ls100_eow_bliss_lexicon
 
 rasr_args = RasrInitArgs(
     costa_args={
@@ -37,18 +62,38 @@ rasr_args = RasrInitArgs(
     default_mixture_scorer_args={"scale": 0.3}  # TODO is this needed for ctc?
 )
 
-
-def create_eow_lexicon():
-    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
-    return ls100_bliss_lexicon
-    #add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
-    #    bliss_lexicon=ls100_bliss_lexicon,
-    #    add_eow=True,
-    #    add_sow=False
-    #)
-    #ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
-
-    #return ls100_eow_bliss_lexicon
+recog_args = CtcRecognitionArgs(
+    eval_epochs=[50],
+    lm_scales=[1],
+    recog_args={
+        'feature_flow': 'gt',
+        'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
+        'lookahead_options': None, # TODO:
+        'create_lattice': True, # write lattice cache files
+        'eval_single_best': True, # show the evaluation of the best path in lattice in the log (model score)
+        'eval_best_in_lattice': True, # show the evaluation of the best path in lattice in the log (oracle)
+        'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
+        'fill_empty_segments': False, # insert dummy when transcription output is empty
+        'rtf': 30, # time estimation for jobs
+        'mem': 8, # memory for jobs
+        'use_gpu': False, # True makes no sense
+        'label_unit'      : 'phoneme',
+        'label_tree_args' : { 'skip_silence'   : True, # no silence in tree
+                              'lexicon_config' : {'filename': create_eow_lexicon(),
+                                                  'normalize_pronunciation': False,} # adjust eow-monophone
+                              },
+        'label_scorer_type': 'precomputed-log-posterior'
+    },
+    search_parameters={
+        'label-pruning': 12,
+        'label-pruning-limit': 5000,
+        'word-end-pruning': 0.5,
+        'word-end-pruning-limit': 1000,
+        # keep alternative paths in the lattice or not
+        #'create-lattice': True,
+        #'optimize-lattice': False,
+    }
+)
 
 
 def get_corpus_data_inputs():
@@ -65,7 +110,7 @@ def get_corpus_data_inputs():
         'scale': 10,
     }
     lexicon = {
-        'filename': create_eow_lexicon(),
+        'filename': create_regular_lexicon(),
         'normalize_pronunciation': False,
     }
 
@@ -181,14 +226,14 @@ def get_default_training_args():
 
 
 def ctc_test():
-    eow_lexicon = create_eow_lexicon()
+    eow_lexicon = create_regular_lexicon()
     tk.register_output("experiments/librispeech_100_ctc/eow_lexicon.xml", eow_lexicon)
-
 
 
     system = CtcSystem(
         returnn_config=get_returnn_config(),
         default_training_args=get_default_training_args(),
+        recognition_args=recog_args,
         rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
         rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
     )
@@ -201,6 +246,6 @@ def ctc_test():
         dev_data=dev_data,
         test_data=test_data
     )
-    system.run(("extract", "train"))
+    system.run(("extract", "train", "recog"))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

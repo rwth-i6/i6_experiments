@@ -1,16 +1,72 @@
 import copy
+import itertools
 import sys
 from typing import Dict, Union, List, Tuple
 
 from sisyphus import gs, tk
 
 from i6_core import rasr
+from i6_core import recognition as recog
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
+from i6_core.returnn.training import ReturnnModel
+from i6_core.meta.system import select_element
 
 from i6_experiments.common.setups.rasr.rasr_system import RasrSystem
 from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
+from i6_experiments.users.rossenbach.recognition.label_sync_search import (
+    LabelSyncSearchJob,
+)
+
+from i6_experiments.users.rossenbach import rasr as rasr_experimental
+
+
+class CtcRecognitionArgs:
+    def __init__(
+            self,
+            eval_epochs,
+            lm_scales,
+            recog_args,
+            search_parameters
+    ):
+        """"
+        :param eval_epochs: [7, 8, 9, 10] # iterations to evaluate corresponding to the "splits" iterations
+        :param pronunciation_scales: [1.0] # scales the pronunciation props (which are simply 1.0 in most cases), only relevant then when using "normalize-pronunciations"
+        :param lm_scales: [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50] # obviously
+        :param recog_args:
+            {
+                'feature_flow': dev_corpus_name,
+                'pronunciation_scale': pronunciation_scale, # ???
+                'lm_scale': lm_scale, # ???
+                'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
+                'lookahead_options': None, # TODO:
+                'create_lattice': True, # write lattice cache files
+                'eval_single_best': True, # show the evaluation of the best path in lattice in the log (model score)
+                'eval_best_in_lattice': True, # show the evaluation of the best path in lattice in the log (oracle)
+                'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
+                'fill_empty_segments': False, # insert dummy when transcription output is empty
+                'scorer': recog.Sclite,
+                'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
+                'scorer_hyp_args': "hyp",
+                'rtf': 30, # time estimation for jobs
+                'mem': 8, # memory for jobs
+                'use_gpu': False, # True makes no sense
+            }
+        :param search_parameters:
+            {
+                'beam_pruning': 14.0, # prob ratio of best path compared to pruned path
+                'beam-pruning-limit': 100000, # maximum number of paths
+                'word-end-pruning': 0.5, # pruning ratio at the end of completed words
+                'word-end-pruning-limit': 15000 # maximum number of paths at completed words
+            },
+        ##################################################
+        """
+        self.eval_epochs = eval_epochs
+        self.lm_scales = lm_scales
+        self.recognition_args = recog_args
+        self.search_parameters = search_parameters
 
 
 class CtcSystem(RasrSystem):
@@ -32,15 +88,14 @@ class CtcSystem(RasrSystem):
     - feature extraction
     """
 
-    def __init__(self,
-                 returnn_config,
-                 default_training_args,
-                 rasr_python_home,
-                 rasr_python_exe):
+    def __init__(
+        self, returnn_config, default_training_args, recognition_args, rasr_python_home, rasr_python_exe
+    ):
         """
 
         :param ReturnnConfig returnn_config:
         :param dict default_training_args:
+        :param CtcRecognitionArgs recognition_args:
         """
         super().__init__()
         self.crp["base"].python_home = rasr_python_home
@@ -48,6 +103,7 @@ class CtcSystem(RasrSystem):
 
         self.returnn_config = returnn_config
         self.defalt_training_args = default_training_args
+        self.recognition_args = recognition_args
 
         self.ctc_am_args = None
 
@@ -58,11 +114,11 @@ class CtcSystem(RasrSystem):
 
     # -------------------- Setup --------------------
     def init_system(
-            self,
-            rasr_init_args: RasrInitArgs,
-            train_data: Dict[str, RasrDataInput],
-            dev_data: Dict[str, RasrDataInput],
-            test_data: Dict[str, RasrDataInput],
+        self,
+        rasr_init_args: RasrInitArgs,
+        train_data: Dict[str, RasrDataInput],
+        dev_data: Dict[str, RasrDataInput],
+        test_data: Dict[str, RasrDataInput],
     ):
         self.rasr_init_args = rasr_init_args
 
@@ -108,51 +164,67 @@ class CtcSystem(RasrSystem):
             self.add_corpus(name, data=v, add_lm=True)
             self.test_corpora.append(name)
 
-    def create_full_sum_loss_config(self, num_classes,
-                                  sprint_loss_config=None, sprint_loss_post_config=None, skip_segments=None,
-                                   **kwargs):
-        crp = self.crp['loss']
-        mapping = { 'acoustic_model' : '*.model-combination.acoustic-model',
-                    'corpus'         : '*.corpus',
-                    'lexicon'        : '*.model-combination.lexicon'
-                    }
+    def create_full_sum_loss_config(
+        self,
+        num_classes,
+        sprint_loss_config=None,
+        sprint_loss_post_config=None,
+        skip_segments=None,
+        **kwargs,
+    ):
+        crp = self.crp["loss"]
+        mapping = {
+            "acoustic_model": "*.model-combination.acoustic-model",
+            "corpus": "*.corpus",
+            "lexicon": "*.model-combination.lexicon",
+        }
 
-        config, post_config = rasr.build_config_from_mapping(crp, mapping, parallelize=(crp.concurrent == 1))
+        config, post_config = rasr.build_config_from_mapping(
+            crp, mapping, parallelize=(crp.concurrent == 1)
+        )
         # concrete action in PythonControl called from RETURNN SprintErrorSignals.py derived from Loss/Layers
-        config.neural_network_trainer.action                   = 'python-control'
-        config.neural_network_trainer.python_control_loop_type = 'python-control-loop'
-        config.neural_network_trainer.extract_features         = False
+        config.neural_network_trainer.action = "python-control"
+        config.neural_network_trainer.python_control_loop_type = "python-control-loop"
+        config.neural_network_trainer.extract_features = False
         # allophone-state transducer
-        config['*'].transducer_builder_filter_out_invalid_allophones = True
-        config['*'].fix_allophone_context_at_word_boundaries         = True
+        config["*"].transducer_builder_filter_out_invalid_allophones = True
+        config["*"].fix_allophone_context_at_word_boundaries = True
         # Automaton manipulation (RASR): default CTC topology
-        config.neural_network_trainer.alignment_fsa_exporter.add_blank_transition = kwargs.get('add_blank_transition', True)
-        config.neural_network_trainer.alignment_fsa_exporter.allow_label_loop     = kwargs.get('allow_label_loop', True)
+        config.neural_network_trainer.alignment_fsa_exporter.add_blank_transition = (
+            kwargs.get("add_blank_transition", True)
+        )
+        config.neural_network_trainer.alignment_fsa_exporter.allow_label_loop = (
+            kwargs.get("allow_label_loop", True)
+        )
         # default blank replace silence
-        if kwargs.get('blank_label_index', None) is not None:
-            config.neural_network_trainer.alignment_fsa_exporter.blank_label_index = kwargs.get('blank_label_index', None)
+        if kwargs.get("blank_label_index", None) is not None:
+            config.neural_network_trainer.alignment_fsa_exporter.blank_label_index = (
+                kwargs.get("blank_label_index", None)
+            )
             # maybe not needed
-        config['*'].allow_for_silence_repetitions = False
-        config['*'].number_of_classes             = num_classes
-        #config['*'].normalize_lemma_sequence_scores = True
+        config["*"].allow_for_silence_repetitions = False
+        config["*"].number_of_classes = num_classes
+        # config['*'].normalize_lemma_sequence_scores = True
 
         config._update(sprint_loss_config)
         post_config._update(sprint_loss_post_config)
         return config, post_config
 
     def create_rasr_loss_opts(cls, sprint_exe=None, **kwargs):
-        trainer_exe = rasr.RasrCommand.select_exe(sprint_exe, 'nn-trainer')
-        python_seg_order = False # get automaton by segment name
-        sprint_opts = { 'sprintExecPath'  : trainer_exe,
-                        'sprintConfigStr' : '--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1',
-                        'minPythonControlVersion' : 4,
-                        'numInstances'            : kwargs.get('num_sprint_instance', 2),
-                        'usePythonSegmentOrder'   : python_seg_order
-                        }
+        trainer_exe = rasr.RasrCommand.select_exe(sprint_exe, "nn-trainer")
+        python_seg_order = False  # get automaton by segment name
+        sprint_opts = {
+            "sprintExecPath": trainer_exe,
+            "sprintConfigStr": "--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1",
+            "minPythonControlVersion": 4,
+            "numInstances": kwargs.get("num_sprint_instance", 2),
+            "usePythonSegmentOrder": python_seg_order,
+        }
         return sprint_opts
 
-
-    def make_loss_crp(self, ref_corpus_key, corpus_file=None, loss_am_config=None, **kwargs):
+    def make_loss_crp(
+        self, ref_corpus_key, corpus_file=None, loss_am_config=None, **kwargs
+    ):
         loss_crp = copy.deepcopy(self.crp[ref_corpus_key])
         if corpus_file is not None:
             crp_config = loss_crp.corpus_config
@@ -162,25 +234,25 @@ class CtcSystem(RasrSystem):
             loss_crp.segment_path = all_segments.out_segment_path
         if loss_am_config is not None:
             loss_crp.acoustic_model_config = loss_am_config
-        #if kwargs.get('sprint_loss_lm', None) is not None:
+        # if kwargs.get('sprint_loss_lm', None) is not None:
         #    lm_name = kwargs.pop('sprint_loss_lm', None)
         #    lm_scale = kwargs.pop('sprint_loss_lm_scale', 5.0)
         #    loss_crp.language_model_config = self.lm_setup.get_lm_config(name=lm_name, scale=lm_scale)
-        if kwargs.get('sprint_loss_lexicon', None) is not None:
+        if kwargs.get("sprint_loss_lexicon", None) is not None:
             # in case overwrite parent crp
             lexicon_config = copy.deepcopy(loss_crp.lexicon_config)
-            lexicon_config.file = tk.Path(kwargs.get('sprint_loss_lexicon', None))
+            lexicon_config.file = tk.Path(kwargs.get("sprint_loss_lexicon", None))
             loss_crp.lexicon_config = lexicon_config
         return loss_crp
 
     def train_nn(
-            self,
-            name,
-            corpus_key,
-            feature_flow,
-            returnn_config,
-            num_classes,
-            **kwargs,
+        self,
+        name,
+        corpus_key,
+        feature_flow,
+        returnn_config,
+        num_classes,
+        **kwargs,
     ):
         assert isinstance(
             returnn_config, ReturnnConfig
@@ -190,43 +262,54 @@ class CtcSystem(RasrSystem):
         train_corpus_key = corpus_key + "_train"
         cv_corpus_key = corpus_key + "_cv"
         cv_size = 0.005
-        all_segments = SegmentCorpusJob(self.corpora[corpus_key].corpus_file, 1).out_single_segment_files[1]
+        all_segments = SegmentCorpusJob(
+            self.corpora[corpus_key].corpus_file, 1
+        ).out_single_segment_files[1]
         new_segments = ShuffleAndSplitSegmentsJob(
-            segment_file=all_segments,
-            split={'train': 1.0 - cv_size, 'cv': cv_size})
-        train_segments = new_segments.out_segments['train']
-        cv_segments = new_segments.out_segments['cv']
+            segment_file=all_segments, split={"train": 1.0 - cv_size, "cv": cv_size}
+        )
+        train_segments = new_segments.out_segments["train"]
+        cv_segments = new_segments.out_segments["cv"]
 
         self.add_overlay(corpus_key, train_corpus_key)
-        self.crp[train_corpus_key].corpus_config = copy.deepcopy(self.crp[train_corpus_key].corpus_config)
+        self.crp[train_corpus_key].corpus_config = copy.deepcopy(
+            self.crp[train_corpus_key].corpus_config
+        )
         self.crp[train_corpus_key].corpus_config.segments.file = train_segments
         self.crp[train_corpus_key].corpus_config.segment_order_shuffle = True
-        self.crp[train_corpus_key].corpus_config.segment_order_sort_by_time_length = True
-        self.crp[train_corpus_key].corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+        self.crp[
+            train_corpus_key
+        ].corpus_config.segment_order_sort_by_time_length = True
+        self.crp[
+            train_corpus_key
+        ].corpus_config.segment_order_sort_by_time_length_chunk_size = 384
         self.add_overlay(corpus_key, cv_corpus_key)
-        self.crp[cv_corpus_key].corpus_config = copy.deepcopy(self.crp[train_corpus_key].corpus_config)
+        self.crp[cv_corpus_key].corpus_config = copy.deepcopy(
+            self.crp[train_corpus_key].corpus_config
+        )
         self.crp[cv_corpus_key].corpus_config.segments.file = cv_segments
 
-        self.crp['loss'] = rasr.CommonRasrParameters(base=self.crp[corpus_key])
+        self.crp["loss"] = rasr.CommonRasrParameters(base=self.crp[corpus_key])
         config, post_config = self.create_full_sum_loss_config(num_classes)
 
         def add_rasr_loss(network):
 
-            network['rasr_loss'] = {
-                'class': 'copy', 'from': 'output',
-                'loss_opts': {
+            network["rasr_loss"] = {
+                "class": "copy",
+                "from": "output",
+                "loss_opts": {
                     #'tdp_scale': 0.0,
-                    'sprint_opts': self.create_rasr_loss_opts()
+                    "sprint_opts": self.create_rasr_loss_opts()
                 },
-                'loss': 'fast_bw',
-                'target': None,
+                "loss": "fast_bw",
+                "target": None,
             }
 
         if returnn_config.staged_network_dict:
             for net in returnn_config.staged_network_dict.values():
                 add_rasr_loss(net)
         else:
-            add_rasr_loss(returnn_config.config['network'])
+            add_rasr_loss(returnn_config.config["network"])
 
         j = ReturnnRasrTrainingJob(
             train_crp=self.crp[train_corpus_key],
@@ -234,8 +317,8 @@ class CtcSystem(RasrSystem):
             feature_flow=self.feature_flows[corpus_key][feature_flow],
             returnn_config=returnn_config,
             num_classes=self.functor_value(num_classes),
-            additional_rasr_config_files={'rasr.loss': config},
-            additional_rasr_post_config_files={'rasr.loss': post_config},
+            additional_rasr_config_files={"rasr.loss": config},
+            additional_rasr_post_config_files={"rasr.loss": post_config},
             **kwargs,
         )
 
@@ -243,6 +326,292 @@ class CtcSystem(RasrSystem):
         self.jobs[corpus_key]["train_nn_%s" % name] = j
         self.nn_models[corpus_key][name] = j.out_models
         self.nn_configs[corpus_key][name] = j.out_returnn_config_file
+
+    # compile model graph from crnn config file
+    def make_model_graph(
+        self, returnn_config, labelSyncSearch=False, **kwargs
+    ):
+        """
+
+        :param ReturnnConfig returnn_config:
+        :param labelSyncSearch:
+        :param kwargs:
+        :return:
+        """
+        assert not isinstance(
+            returnn_config, dict
+        ), "require either config path or CRNNConfig"
+        args = {"returnn_config": returnn_config}
+        if labelSyncSearch:
+            args.update(
+                {
+                    "rec_step_by_step": kwargs.get("recName", "output"),
+                    "rec_json_info": kwargs.get("recJsonInfo", True),
+                }
+            )
+        compile_graph_job = CompileTFGraphJob(**args)
+        tf_graph = compile_graph_job.out_graph
+
+        return tf_graph
+
+    def make_tf_feature_flow(
+        self, corpus_key, feature_flow, returnn_config, returnn_model, **kwargs
+    ):
+        """
+
+        :param corpus_key:
+        :param feature_flow:
+        :param returnn_config:
+        :param ReturnnModel returnn_model:
+        :param kwargs:
+        :return:
+        """
+        if isinstance(returnn_config, dict):
+            config_dict = copy.deepcopy(returnn_config)
+            # set output to log-softmax
+            config_dict["network"]["output"]["class"] = "linear"
+            config_dict["network"]["output"]["activation"] = "log_softmax"
+            config_dict["target"] = "classes"
+
+            assert "num_outputs" in config_dict
+            if not isinstance(config_dict["num_outputs"], int):
+                assert "classes" in config_dict["num_outputs"]
+
+            returnn_config = ReturnnConfig(config_dict, {})
+
+        tf_graph = self.make_model_graph(
+            returnn_config
+        )
+
+        # tf flow (model scoring done in tf flow node) #
+        tf_flow = rasr.FlowNetwork()
+        tf_flow.add_input("input-features")
+        tf_flow.add_output("features")
+        tf_flow.add_param("id")
+
+        tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
+        tf_flow.link("network:input-features", tf_fwd + ":features")
+        tf_flow.link(tf_fwd + ":log-posteriors", "network:features")
+
+        tf_flow.config = rasr.RasrConfig()
+        tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
+        tf_flow.config[
+            tf_fwd
+        ].input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+        tf_flow.config[
+            tf_fwd
+        ].input_map.info_0.seq_length_tensor_name = (
+            "extern_data/placeholders/data/data_dim0_size"
+        )
+
+        tf_flow.config[tf_fwd].output_map.info_0.param_name = "log-posteriors"
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = kwargs.get(
+            "output_tensor_name", "output/output_batch_major"
+        )
+
+        # TODO: HACK
+        from sisyphus.delayed_ops import DelayedFunction
+        def _cut_ending(path):
+            return path[: -len(".meta")]
+
+        tf_flow.config[tf_fwd].loader.type = "meta"
+        tf_flow.config[tf_fwd].loader.meta_graph_file = tf_graph
+        tf_flow.config[tf_fwd].loader.saved_model_file = DelayedFunction(returnn_model.model, _cut_ending)
+
+
+        # TODO: HACK
+
+        from i6_core.returnn.compile import CompileNativeOpJob
+
+        native_op = CompileNativeOpJob(
+            "nativelstm2",
+            returnn_python_exe=self.defalt_training_args['returnn_python_exe'],
+            returnn_root=self.defalt_training_args['returnn_root'],
+            blas_lib=tk.Path(gs.BLAS_LIB, hash_overwrite="BLAS_LIB")).out_op,
+
+        tf_flow.config[tf_fwd].loader.required_libraries = native_op
+
+        # interconnect flows #
+        tf_feature_flow = rasr.FlowNetwork()
+        base_mapping = tf_feature_flow.add_net(feature_flow)
+        tf_mapping = tf_feature_flow.add_net(tf_flow)
+        tf_feature_flow.interconnect_inputs(feature_flow, base_mapping)
+        tf_feature_flow.interconnect(
+            feature_flow,
+            base_mapping,
+            tf_flow,
+            tf_mapping,
+            {"features": "input-features"},
+        )
+
+        if kwargs.get("append", False):
+            concat = tf_feature_flow.add_node(
+                "generic-vector-f32-concat",
+                "concat",
+                attr={"timestamp-port": "features"},
+            )
+            tf_feature_flow.link(
+                tf_mapping[tf_flow.get_output_links("features").pop()], concat + ":tf"
+            )
+            tf_feature_flow.link(
+                base_mapping[feature_flow.get_output_links("features").pop()],
+                concat + ":features",
+            )
+            tf_feature_flow.add_output("features")
+            tf_feature_flow.link(concat, "network:features")
+        else:
+            tf_feature_flow.interconnect_outputs(tf_flow, tf_mapping)
+        # ensure cache_mode as base feature net
+        tf_feature_flow.add_flags(feature_flow.flags)
+        return tf_feature_flow
+
+
+    def recog(
+            self,
+            name,
+            corpus,
+            flow,
+            # feature_scorer,
+            pronunciation_scale,
+            lm_scale,
+            parallelize_conversion=False,
+            lattice_to_ctm_kwargs=None,
+            prefix="",
+            **kwargs,
+    ):
+        """
+        :param str name:
+        :param str corpus:
+        :param str|list[str]|tuple[str]|rasr.FlagDependentFlowAttribute flow:
+        :param str|list[str]|tuple[str]|rasr.FeatureScorer feature_scorer:
+        :param float pronunciation_scale:
+        :param float lm_scale:
+        :param bool parallelize_conversion:
+        :param dict lattice_to_ctm_kwargs:
+        :param str prefix:
+        :param kwargs:
+        :return:
+        """
+        if lattice_to_ctm_kwargs is None:
+            lattice_to_ctm_kwargs = {}
+
+        self.crp[corpus].language_model_config.scale = lm_scale
+        model_combination_config = rasr.RasrConfig()
+        model_combination_config.pronunciation_scale = pronunciation_scale
+
+        # label tree #
+        label_unit = kwargs.get('label_unit', None)
+        assert label_unit, 'label_unit not given'
+        label_tree_args = kwargs.get('label_tree_args',{})
+        label_tree = rasr_experimental.LabelTree(label_unit, **label_tree_args)
+
+        scorer_type = kwargs.get('label_scorer_type', None)
+        assert scorer_type, 'label_scorer_type not given'
+        laber_scorer_args = kwargs.get('label_scorer_args',{})
+        am_scale = laber_scorer_args.get('scale', 1.0)
+
+        nn_model = self.nn_models[self.train_corpora[0]]["default"][32]
+        feature_flow = self.make_tf_feature_flow(corpus, self.feature_flows[corpus][flow], self.returnn_config, nn_model, **kwargs)
+
+        label_scorer = rasr_experimental.LabelScorer(scorer_type, **laber_scorer_args)
+
+        rec = LabelSyncSearchJob(
+            crp=self.crp[corpus],
+            feature_flow=feature_flow,
+            feature_scorer=label_scorer,
+            label_tree=label_tree,
+            **kwargs,
+        )
+        rec.set_vis_name("Recog %s%s" % (prefix, name))
+        rec.add_alias("%srecog_%s" % (prefix, name))
+        self.jobs[corpus]["recog_%s" % name] = rec
+
+        self.jobs[corpus]["lat2ctm_%s" % name] = lat2ctm = recog.LatticeToCtmJob(
+            crp=self.crp[corpus],
+            lattice_cache=rec.out_lattice_bundle,
+            parallelize=parallelize_conversion,
+            **lattice_to_ctm_kwargs,
+        )
+        self.ctm_files[corpus]["recog_%s" % name] = lat2ctm.out_ctm_file
+
+        kwargs = copy.deepcopy(self.scorer_args[corpus])
+        kwargs[self.scorer_hyp_arg[corpus]] = lat2ctm.out_ctm_file
+        scorer = self.scorers[corpus](**kwargs)
+
+        self.jobs[corpus]["scorer_%s" % name] = scorer
+        tk.register_output("%srecog_%s.reports" % (prefix, name), scorer.out_report_dir)
+
+    def recognition(
+            self,
+            name: str,
+            iters: List[int],
+            lm_scales: Union[float, List[float]],
+            feature_scorer_key: Tuple[str, str],
+            optimize_am_lm_scale: bool,
+            # parameters just for passing through
+            corpus_key: str,
+            feature_flow: Union[
+                str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute
+            ],
+            pronunciation_scales: Union[float, List[float]],
+            search_parameters: dict,
+            rtf: float,
+            mem: float,
+            parallelize_conversion: bool,
+            lattice_to_ctm_kwargs: dict,
+            **kwargs,
+    ):
+        """
+        A small wrapper around the meta.System.recog function that will set a Sisyphus block and
+        run over all specified model iterations and lm scales.
+
+        :param name: name for the recognition, note that iteration and lm will be named by the function
+        :param iters: which training iterations to use for recognition
+        :param lm_scales: all lm scales that should be used for recognition
+        :param feature_scorer_key: (training_corpus_name, training_name)
+        :param optimize_am_lm_scale: will optimize the lm-scale and re-run recognition with the optimal value
+        :param kwargs: see meta.System.recog and meta.System.recog_and_optimize
+        :param corpus_key: corpus to run recognition on
+        :param feature_flow:
+        :param pronunciation_scales:
+        :param search_parameters:
+        :param rtf:
+        :param mem:
+        :param parallelize_conversion:
+        :param lattice_to_ctm_kwargs:
+        :return:
+        """
+        assert (
+                "lm_scale" not in kwargs
+        ), "please use lm_scales for GmmSystem.recognition()"
+        with tk.block(f"{name}_recognition"):
+            recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
+
+            pronunciation_scales = (
+                [pronunciation_scales]
+                if isinstance(pronunciation_scales, float)
+                else pronunciation_scales
+            )
+
+            lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
+
+            for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
+                self.recog(
+                    name=f"{name}-{corpus_key}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
+                    prefix=f"recognition/{name}/",
+                    corpus=corpus_key,
+                    flow=feature_flow,
+                    # feature_scorer=list(feature_scorer_key) + [it - 1],
+                    pronunciation_scale=p,
+                    lm_scale=l,
+                    search_parameters=search_parameters,
+                    rtf=rtf,
+                    mem=mem,
+                    parallelize_conversion=parallelize_conversion,
+                    lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                    **kwargs,
+                )
+
 
     def run(self, steps: Union[List, Tuple] = ("all",)):
         """
@@ -272,12 +641,10 @@ class CtcSystem(RasrSystem):
             self.set_sclite_scorer(eval_c)
 
         if "extract" in steps:
-            self.extract_features(
-                feat_args=self.rasr_init_args.feature_extraction_args
-            )
+            self.extract_features(feat_args=self.rasr_init_args.feature_extraction_args)
 
         if "train" in steps:
-            num_classes = 139 # fixed for now
+            num_classes = 139  # fixed for now
 
             self.train_nn(
                 "default",
@@ -286,7 +653,29 @@ class CtcSystem(RasrSystem):
                 returnn_config=self.returnn_config,
                 num_classes=num_classes,
                 alignment=None,
-                **self.defalt_training_args
+                **self.defalt_training_args,
             )
             out_models = self.nn_models["train-clean-100"]["default"]
             tk.register_output("tests/ctc_training", out_models[180].model)
+
+        if "recog" in steps:
+            trn_c = self.train_corpora[0]
+            name = "default"
+            for dev_c in self.dev_corpora:
+                feature_scorer = (trn_c, f"train_{name}")
+
+                self.recognition(
+                    name=f"{trn_c}-{dev_c}",
+                    iters=self.recognition_args.eval_epochs,
+                    lm_scales=self.recognition_args.lm_scales,
+                    corpus_key=dev_c,
+                    feature_scorer_key=feature_scorer,
+                    search_parameters=self.recognition_args.search_parameters,
+                    optimize_am_lm_scale=False,
+                    pronunciation_scales=[1.0],
+                    parallelize_conversion=False,
+                    lattice_to_ctm_kwargs={},
+                    **self.recognition_args.recognition_args,
+                )
+                break
+
