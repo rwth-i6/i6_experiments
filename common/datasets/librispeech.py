@@ -354,8 +354,11 @@ def get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
 
 
 @lru_cache()
-def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets",
-                      add_unknown_phoneme_and_mapping=True):
+def get_bliss_lexicon(
+    use_stress_marker=False,
+    output_prefix="datasets",
+    add_unknown_phoneme_and_mapping=True,
+):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
     with special lemmas and the converted official lexicon from OpenSLR
@@ -378,7 +381,9 @@ def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets",
         "%s_lexicon" % ("regular" if use_stress_marker else "folded"),
     )
 
-    static_lexicon = get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+    static_lexicon = get_special_lemma_lexicon(
+        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
+    )
     static_lexicon_job = WriteLexiconJob(
         static_lexicon, sort_phonemes=True, sort_lemmata=False
     )
@@ -424,7 +429,8 @@ def get_bliss_lexicon(use_stress_marker=False, output_prefix="datasets",
 
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon_dict(
-    use_stress_marker=False, output_prefix="datasets",
+    use_stress_marker=False,
+    output_prefix="datasets",
     add_unknown_phoneme_and_mapping=True,
 ):
     """
@@ -445,7 +451,8 @@ def get_g2p_augmented_bliss_lexicon_dict(
     augmented_bliss_lexica = {}
 
     original_bliss_lexicon = get_bliss_lexicon(
-        use_stress_marker=use_stress_marker, output_prefix=output_prefix,
+        use_stress_marker=use_stress_marker,
+        output_prefix=output_prefix,
         add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
     )
     current_bliss_lexicon = original_bliss_lexicon
