@@ -55,7 +55,11 @@ class FoldedCartQuestions:
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary = [self.boundary] + self.phonemes
         self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
-        self.phonemes_boundary_extra = [self.boundary] + [self.silence] + [self.unknown] + self.phonemes if add_unknown else [self.boundary] + [self.silence] + self.phonemes
+        self.phonemes_boundary_extra = (
+            [self.boundary] + [self.silence] + [self.unknown] + self.phonemes
+            if add_unknown
+            else [self.boundary] + [self.silence] + self.phonemes
+        )
         self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
 
         self.steps = [
@@ -508,7 +512,11 @@ class UnfoldedCartQuestions:
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary = [self.boundary] + self.phonemes
         self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
-        self.phonemes_boundary_extra = [self.boundary] + [self.silence] + [self.unknown] + self.phonemes if add_unknown else [self.boundary] + [self.silence] + self.phonemes
+        self.phonemes_boundary_extra = (
+            [self.boundary] + [self.silence] + [self.unknown] + self.phonemes
+            if add_unknown
+            else [self.boundary] + [self.silence] + self.phonemes
+        )
         self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
 
         self.steps = [

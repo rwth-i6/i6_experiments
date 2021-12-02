@@ -118,7 +118,11 @@ def get_init_args(dc_detection=True, scorer=None):
     )
 
 
-def get_monophone_args(allow_zero_weights: bool = False, train_align_iter: int = 75, feature_flow: str = "mfcc+deriv+norm"):
+def get_monophone_args(
+    allow_zero_weights: bool = False,
+    train_align_iter: int = 75,
+    feature_flow: str = "mfcc+deriv+norm",
+):
     linear_alignment_args = {
         "minimum_segment_length": 0,
         "maximum_segment_length": 6000,
@@ -206,7 +210,13 @@ def get_monophone_args(allow_zero_weights: bool = False, train_align_iter: int =
     )
 
 
-def get_cart_args(max_leaves: int=12001, min_obs: int=1000, hmm_states: int=3, feature_flow: str = "mfcc+deriv+norm", add_unknown: bool = True):
+def get_cart_args(
+    max_leaves: int = 12001,
+    min_obs: int = 1000,
+    hmm_states: int = 3,
+    feature_flow: str = "mfcc+deriv+norm",
+    add_unknown: bool = True,
+):
     cart_questions_class = FoldedCartQuestions(
         max_leaves=max_leaves,
         min_obs=min_obs,
