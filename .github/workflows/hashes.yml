@@ -19,7 +19,7 @@ jobs:
         path: "recipe/i6_core"
     - uses: actions/checkout@v2
       with:
-        repository: "rwth-i6/sispyhus"
+        repository: "rwth-i6/sisyphus"
         path: "sisyphus"
     - uses: actions/setup-python@v2
       with:
