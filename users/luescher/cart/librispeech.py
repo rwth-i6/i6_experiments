@@ -5,9 +5,10 @@ __all__ = [
 
 
 class FoldedCartQuestions:
-    def __init__(self, max_leaves=9001, min_obs=1000):
+    def __init__(self, max_leaves=9001, min_obs=1000, add_unknown: bool = True):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
+        self.boundary = "#"
         self.silence = "[SILENCE]"
         self.unknown = "[UNKNOWN]"
         self.phonemes = [
@@ -51,8 +52,12 @@ class FoldedCartQuestions:
             "Z",
             "ZH",
         ]
-        self.phonemes_list = [self.silence] + [self.unknown] + self.phonemes
-        self.phonemes_str = " ".join(self.phonemes_list)
+        self.phonemes_str = " ".join(self.phonemes)
+        self.phonemes_boundary = [self.boundary] + self.phonemes
+        self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
+        self.phonemes_boundary_extra = [self.boundary] + [self.silence] + [self.unknown] + self.phonemes if add_unknown else [self.boundary] + [self.silence] + self.phonemes
+        self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
+
         self.steps = [
             {
                 "name": "silence",
@@ -127,7 +132,7 @@ class FoldedCartQuestions:
                         "questions": [
                             {
                                 "type": "for-each-value",
-                                "values": self.phonemes_str,
+                                "values": self.phonemes_boundary_str,
                                 "questions": [
                                     {"type": "question", "description": "context-phone"}
                                 ],
@@ -418,11 +423,15 @@ class FoldedCartQuestions:
             },
         ]
 
+        if not add_unknown:
+            self.steps[1]["questions"].pop(1)
+
 
 class UnfoldedCartQuestions:
-    def __init__(self, max_leaves=9001, min_obs=1000):
+    def __init__(self, max_leaves=9001, min_obs=1000, add_unknown: bool = True):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
+        self.boundary = "#"
         self.silence = "[SILENCE]"
         self.unknown = "[UNKNOWN]"
         self.phonemes = [
@@ -496,7 +505,12 @@ class UnfoldedCartQuestions:
             "Z",
             "ZH",
         ]
-        self.phonemes_plus = [self.silence] + [self.unknown] + self.phonemes
+        self.phonemes_str = " ".join(self.phonemes)
+        self.phonemes_boundary = [self.boundary] + self.phonemes
+        self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
+        self.phonemes_boundary_extra = [self.boundary] + [self.silence] + [self.unknown] + self.phonemes if add_unknown else [self.boundary] + [self.silence] + self.phonemes
+        self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
+
         self.steps = [
             {
                 "name": "silence",
@@ -517,12 +531,12 @@ class UnfoldedCartQuestions:
                 "questions": [
                     {
                         "type": "for-each-value",
-                        "values": self.phonemes_plus,
                         "questions": [
                             {
                                 "type": "question",
                                 "description": "central-phone",
                                 "key": "central",
+                                "values": self.phonemes_str,
                             }
                         ],
                     },
@@ -571,7 +585,7 @@ class UnfoldedCartQuestions:
                         "questions": [
                             {
                                 "type": "for-each-value",
-                                "values": self.phonemes_plus,
+                                "values": self.phonemes_boundary_str,
                                 "questions": [
                                     {"type": "question", "description": "context-phone"}
                                 ],

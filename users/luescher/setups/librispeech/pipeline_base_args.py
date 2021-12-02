@@ -6,6 +6,7 @@ __all__ = [
     "get_vtln_args",
     "get_sat_args",
     "get_vtln_sat_args",
+    "get_final_output",
     "get_data_inputs",
 ]
 
@@ -18,18 +19,10 @@ from sisyphus import tk
 import i6_core.features as features
 import i6_core.cart as cart
 import i6_core.rasr as rasr
+import i6_core.returnn as returnn
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
-from i6_experiments.common.setups.rasr.util import (
-    RasrDataInput,
-    RasrInitArgs,
-    GmmMonophoneArgs,
-    GmmCartArgs,
-    GmmTriphoneArgs,
-    GmmVtlnArgs,
-    GmmSatArgs,
-    GmmVtlnSatArgs,
-)
+from i6_experiments.common.setups.rasr.util import *
 from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
 # -------------------- functions --------------------
@@ -125,7 +118,7 @@ def get_init_args(dc_detection=True, scorer=None):
     )
 
 
-def get_monophone_args(allow_zero_weights: bool = False, train_align_iter=75):
+def get_monophone_args(allow_zero_weights: bool = False, train_align_iter: int = 75, feature_flow: str = "mfcc+deriv+norm"):
     linear_alignment_args = {
         "minimum_segment_length": 0,
         "maximum_segment_length": 6000,
@@ -141,8 +134,8 @@ def get_monophone_args(allow_zero_weights: bool = False, train_align_iter=75):
 
     monophone_training_args = {
         "name": "mono",
-        "feature_flow": "mfcc+deriv+norm",
-        "feature_energy_flow_key": "energy,mfcc+deriv+norm",
+        "feature_flow": feature_flow,
+        "feature_energy_flow_key": f"energy,{feature_flow}",
         "align_iter": train_align_iter,
         "splits": 10,
         "accs_per_split": 2,
@@ -151,11 +144,11 @@ def get_monophone_args(allow_zero_weights: bool = False, train_align_iter=75):
     monophone_recognition_args = {
         # GmmSystem.recognition() args:
         "iters": [8, 10],
-        "lm_scales": [10],
+        "lm_scales": [10.0, 12.5],
         "optimize_am_lm_scale": True,
         # meta.System.recog() args:
-        "feature_flow": "mfcc+deriv+norm",
-        "pronunciation_scales": [1.0],
+        "feature_flow": feature_flow,
+        "pronunciation_scales": [1.0, 6.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -201,7 +194,7 @@ def get_monophone_args(allow_zero_weights: bool = False, train_align_iter=75):
     sdm_args = {
         "name": "sdm.mono",
         "alignment": "train_mono",
-        "feature_flow_key": "mfcc+deriv+norm",
+        "feature_flow_key": feature_flow,
     }
 
     return GmmMonophoneArgs(
@@ -213,14 +206,15 @@ def get_monophone_args(allow_zero_weights: bool = False, train_align_iter=75):
     )
 
 
-def get_cart_args(max_leaves=9001, min_obs=1000, hmm_states=3):
+def get_cart_args(max_leaves: int=12001, min_obs: int=1000, hmm_states: int=3, feature_flow: str = "mfcc+deriv+norm", add_unknown: bool = True):
     cart_questions_class = FoldedCartQuestions(
         max_leaves=max_leaves,
         min_obs=min_obs,
+        add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
-        phonemes=cart_questions_class.phonemes_list,
+        phonemes=cart_questions_class.phonemes_boundary_extra,
         steps=cart_questions_class.steps,
         max_leaves=max_leaves,
         hmm_states=hmm_states,
@@ -229,8 +223,8 @@ def get_cart_args(max_leaves=9001, min_obs=1000, hmm_states=3):
     cart_lda_args = {
         "name": "mono",
         "alignment": "train_mono",
-        "initial_flow_key": "mfcc+deriv+norm",
-        "context_flow_key": "mfcc",
+        "initial_flow_key": feature_flow,
+        "context_flow_key": feature_flow.split("+")[0],
         "context_size": 9,
         "num_dim": 48,
         "num_iter": 2,
@@ -251,6 +245,7 @@ def get_triphone_args(allow_zero_weights: bool = False):
         "feature_flow": "mfcc+context+lda",
         "splits": 10,
         "accs_per_split": 2,
+        "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
     }
@@ -460,7 +455,7 @@ def get_sat_args(allow_zero_weights: bool = False):
 
 def get_vtln_sat_args(allow_zero_weights: bool = False):
     vtln_sat_training_args = {
-        "name": "vtln_sat",
+        "name": "vtln+sat",
         "mixtures": "estimate_mixtures_sdm.vtln",
         "alignment": "train_vtln",
         "feature_cache": "mfcc",
@@ -516,8 +511,8 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         vtln_sat_recognition_args["extra_config"] = allow_zero_weights_extra_config
 
     sdm_args = {
-        "name": "sdm.sat_vtln",
-        "alignment": "train_vtln_sat",
+        "name": "sdm.vtln+sat",
+        "alignment": "train_vtln+sat",
         "feature_flow_key": "mfcc+context+lda+vtln+cmllr",
     }
 
@@ -526,6 +521,40 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         recognition_args=vtln_sat_recognition_args,
         sdm_args=sdm_args,
     )
+
+
+def get_final_output():
+    output_args = OutputArgs("final")
+
+    output_args.add_corpus_key_type_pair("train-other-960", "train")
+    output_args.add_corpus_key_type_pair("dev-clean", "dev")
+    output_args.add_corpus_key_type_pair("dev-other", "dev")
+    output_args.add_corpus_key_type_pair("test-clean", "test")
+    output_args.add_corpus_key_type_pair("test-other", "test")
+
+    return output_args
+
+
+def get_nn_args():
+    base_config = {}
+
+    base_returnn_config = returnn.ReturnnConfig(
+        config=base_config,
+        hash_full_python_code=True,
+        pprint_kwargs={"sort_dicts": False},
+    )
+
+    returnn_configs = {"base": base_returnn_config}
+    training_args = {}
+    recognition_args = None
+
+    nn_args = NnArgs(
+        returnn_configs=returnn_configs,
+        training_args=training_args,
+        recognition_args=recognition_args,
+    )
+
+    return nn_args
 
 
 def get_data_inputs(
