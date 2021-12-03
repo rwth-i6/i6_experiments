@@ -36,7 +36,5 @@ jobs:
         ln -s recipe/i6_experiments/tests/check_jobs.py check_jobs.py
     - name: Test hashes
       run: |
-        find config -name '*.py' -exec python check_jobs.py  {} \;
-
-
+        find -L config -name '*.py' -exec python check_jobs.py  {} \;
 
