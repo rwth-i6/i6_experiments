@@ -34,6 +34,7 @@ jobs:
         pip install -r recipe/i6_core/requirements.txt
         ln -s recipe/i6_experiments/tests/hash_tests config
         ln -s recipe/i6_experiments/tests/check_jobs.py check_jobs.py
+        ln -s recipe/i6_experiments/tests/settings.py settings.py
     - name: Test hashes
       run: |
         shopt -s globstar
