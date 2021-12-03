@@ -310,6 +310,7 @@ def get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
 
     Librispeech uses silence, sentence begin/end and unknown, but no other special tokens.
 
+    :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
     :return: the lexicon with special lemmas and phonemes
     :rtype: lexicon.Lexicon
     """
@@ -356,8 +357,8 @@ def get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
 @lru_cache()
 def get_bliss_lexicon(
     use_stress_marker=False,
-    output_prefix="datasets",
     add_unknown_phoneme_and_mapping=True,
+    output_prefix="datasets",
 ):
     """
     Create the full LibriSpeech bliss lexicon based on the static lexicon
@@ -371,6 +372,7 @@ def get_bliss_lexicon(
     the phoneme inventory is reduced from to 42 phonemes.
 
     :param bool use_stress_marker:
+    :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
     :param str output_prefix:
     :return: Path to LibriSpeech bliss lexicon
     :rtype: Path
@@ -430,8 +432,8 @@ def get_bliss_lexicon(
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon_dict(
     use_stress_marker=False,
-    output_prefix="datasets",
     add_unknown_phoneme_and_mapping=True,
+    output_prefix="datasets",
 ):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
@@ -439,6 +441,7 @@ def get_g2p_augmented_bliss_lexicon_dict(
     that has different train corpora as keys and the corresponding g2p augmented bliss lexicon as values
 
     :param bool use_stress_marker: uses phoneme symbols with stress markers
+    :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
     :param str output_prefix:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
