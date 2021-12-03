@@ -11,8 +11,9 @@ from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
+from i6_core.returnn.extract_prior import ReturnnRasrComputePriorJob
 from i6_core.returnn.training import ReturnnModel
-from i6_core.meta.system import select_element
+from i6_core.lexicon.allophones import DumpStateTyingJob
 
 from i6_experiments.common.setups.rasr.rasr_system import RasrSystem
 from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
@@ -106,6 +107,8 @@ class CtcSystem(RasrSystem):
         self.recognition_args = recognition_args
 
         self.ctc_am_args = None
+
+        self.state_tying = None
 
         self.default_align_keep_values = {
             "default": 5,
@@ -327,6 +330,36 @@ class CtcSystem(RasrSystem):
         self.nn_models[corpus_key][name] = j.out_models
         self.nn_configs[corpus_key][name] = j.out_returnn_config_file
 
+        state_tying_job = DumpStateTyingJob(self.crp[corpus_key])
+        tk.register_output(
+            "{}_{}_state_tying".format(corpus_key, name),
+            state_tying_job.out_state_tying,
+        )
+        self.state_tying = state_tying_job.out_state_tying
+
+
+    @classmethod
+    def get_specific_returnn_config(cls, returnn_config, epoch=None):
+        if not returnn_config.staged_network_dict:
+            return returnn_config
+        training_returnn_config= returnn_config
+        config_dict = returnn_config.config.copy()
+        # TODO: only last network for now, fix with epoch
+        if epoch:
+            index = 0
+            raise NotImplementedError
+        else:
+            index = max(training_returnn_config.staged_network_dict.keys())
+        config_dict['network'] = training_returnn_config.staged_network_dict[index]
+        returnn_config = ReturnnConfig(config=config_dict,
+                                       post_config=training_returnn_config.post_config,
+                                       staged_network_dict=None,
+                                       python_prolog=training_returnn_config.python_prolog,
+                                       python_epilog=training_returnn_config.python_epilog,
+                                       python_epilog_hash=training_returnn_config.python_epilog_hash,
+                                       python_prolog_hash=training_returnn_config.python_prolog_hash)
+        return returnn_config
+
     # compile model graph from crnn config file
     def make_model_graph(
         self, returnn_config, labelSyncSearch=False, **kwargs
@@ -341,6 +374,8 @@ class CtcSystem(RasrSystem):
         assert not isinstance(
             returnn_config, dict
         ), "require either config path or CRNNConfig"
+        returnn_config = self.get_specific_returnn_config(returnn_config)
+
         args = {"returnn_config": returnn_config}
         if labelSyncSearch:
             args.update(
@@ -353,6 +388,10 @@ class CtcSystem(RasrSystem):
         tf_graph = compile_graph_job.out_graph
 
         return tf_graph
+
+    @classmethod
+    def _cut_ending(cls, path):
+        return path[: -len(".meta")]
 
     def make_tf_feature_flow(
         self, corpus_key, feature_flow, returnn_config, returnn_model, **kwargs
@@ -411,20 +450,15 @@ class CtcSystem(RasrSystem):
 
         # TODO: HACK
         from sisyphus.delayed_ops import DelayedFunction
-        def _cut_ending(path):
-            return path[: -len(".meta")]
-
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = tf_graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = DelayedFunction(returnn_model.model, _cut_ending)
-
+        tf_flow.config[tf_fwd].loader.saved_model_file = DelayedFunction(returnn_model.model, self._cut_ending)
 
         # TODO: HACK
-
         from i6_core.returnn.compile import CompileNativeOpJob
 
         native_op = CompileNativeOpJob(
-            "nativelstm2",
+            "NativeLstm2",
             returnn_python_exe=self.defalt_training_args['returnn_python_exe'],
             returnn_root=self.defalt_training_args['returnn_root'],
             blas_lib=tk.Path(gs.BLAS_LIB, hash_overwrite="BLAS_LIB")).out_op,
@@ -465,6 +499,53 @@ class CtcSystem(RasrSystem):
         tf_feature_flow.add_flags(feature_flow.flags)
         return tf_feature_flow
 
+    # if gpu full, use cpu for more queue slots so that recognition exps can start earlier
+    def estimate_nn_prior(self, corpus_key, nn_name, feature_flow, epoch, **kwargs):
+        assert epoch in self.nn_models[corpus_key][nn_name].keys(), "epoch %d not saved in %s" %(epoch, nn_name)
+
+        if kwargs.get('use_exist_prior', False):
+            assert self.nn_priors[corpus_key][nn_name][epoch], 'No existing prior found'
+            return self.nn_priors[corpus_key][nn_name][epoch]
+        else:
+            args = {
+                'train_crp': self.crp[corpus_key + "_train"],
+                'dev_crp': self.crp[corpus_key + "_cv"],
+                'feature_flow': self.feature_flows[corpus_key][feature_flow],
+                'model_checkpoint': self.nn_models[corpus_key][nn_name][epoch].get_checkpoint(),
+                'time_rqmt': 8,
+                'mem_rqmt': 8,
+                'cpu_rqmt': 2,
+                'device': kwargs.get('nn_prior_device','gpu'),
+                'returnn_config': self.get_specific_returnn_config(self.returnn_config),
+                'returnn_python_exe': self.defalt_training_args['returnn_python_exe'],
+                'returnn_root': self.defalt_training_args['returnn_root'],
+            }
+            # context-dependent prior
+            # if kwargs.get('prior_context_size', 0) > 0:
+            #     # CRNNConfig
+            #     prior_config = copy.deepcopy(self.jobs[corpus_key][nn_name].crnn_config)
+            #     if kwargs.get('prior_network', None) is not None:
+            #         prior_config.config['network'] = kwargs.get('prior_network', None)
+            #     if kwargs.get('prior_crnn_args', {}):
+            #         prior_config.config.update(kwargs.get('prior_crnn_args', {}))
+            #     if kwargs.get('prior_extra_python', ''):
+            #         prior_config.extra_python_code += kwargs.get('prior_extra_python', '')
+            #     if kwargs.get('prior_code_replacement', {}):
+            #         prior_config.add_code_replacement(kwargs.get('prior_code_replacement', {}))
+            #     for k in ['chunking', 'learning_rates', 'dev']:
+            #         if k in prior_config.config:
+            #             del prior_config.config[k]
+            #     prior_config.config['train']['partitionEpoch'] = 1
+
+            #     args.update({
+            #         'context_size' : kwargs.get('prior_context_size', 0),
+            #         'valid_context': kwargs.get('prior_valid_context', []),
+            #         'prior_config' : prior_config,
+            #         'num_classes'  : kwargs.get('prior_num_classes', None)
+            #     })
+
+            prior_job = ReturnnRasrComputePriorJob(**args)
+            return prior_job.out_prior_xml_file
 
     def recog(
             self,
@@ -500,26 +581,47 @@ class CtcSystem(RasrSystem):
         model_combination_config.pronunciation_scale = pronunciation_scale
 
         # label tree #
-        label_unit = kwargs.get('label_unit', None)
+        label_unit = kwargs.pop('label_unit', None)
         assert label_unit, 'label_unit not given'
-        label_tree_args = kwargs.get('label_tree_args',{})
+        label_tree_args = kwargs.pop('label_tree_args',{})
         label_tree = rasr_experimental.LabelTree(label_unit, **label_tree_args)
 
-        scorer_type = kwargs.get('label_scorer_type', None)
+        scorer_type = kwargs.pop('label_scorer_type', None)
         assert scorer_type, 'label_scorer_type not given'
-        laber_scorer_args = kwargs.get('label_scorer_args',{})
-        am_scale = laber_scorer_args.get('scale', 1.0)
+        label_scorer_args = kwargs.pop('label_scorer_args',{})
+        # add vocab file
+        from i6_experiments.users.rossenbach.rasr.vocabulary import GenerateLabelFileFromStateTying
+        label_scorer_args['labelFile'] = GenerateLabelFileFromStateTying(self.state_tying, add_eow=True).out_label_file
 
-        nn_model = self.nn_models[self.train_corpora[0]]["default"][32]
+        label_scorer_args['usePrior'] = True
+        label_scorer_args['priorScale'] = 0.5
+        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], nn_name="default", feature_flow=flow, epoch=160, **kwargs)
+        am_scale = label_scorer_args.get('scale', 1.0)
+
+        nn_model = self.nn_models[self.train_corpora[0]]["default"][160]
         feature_flow = self.make_tf_feature_flow(corpus, self.feature_flows[corpus][flow], self.returnn_config, nn_model, **kwargs)
 
-        label_scorer = rasr_experimental.LabelScorer(scorer_type, **laber_scorer_args)
+        label_scorer = rasr_experimental.LabelScorer(scorer_type, **label_scorer_args)
+
+        extra_config = rasr.RasrConfig()
+        extra_config.flf_lattice_tool.network.recognizer.reduction_factors = kwargs.pop('reduction_factor')
+        if pronunciation_scale > 0:
+            extra_config.flf_lattice_tool.network.recognizer.pronunciation_scale = pronunciation_scale
+
+
+        # Fixed CTC settings:
+        extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_label_loop = True
+        extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_blank_label = True
+
+        extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_label_recombination = True
+        extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_word_end_recombination = True
 
         rec = LabelSyncSearchJob(
             crp=self.crp[corpus],
             feature_flow=feature_flow,
-            feature_scorer=label_scorer,
+            label_scorer=label_scorer,
             label_tree=label_tree,
+            extra_config=extra_config,
             **kwargs,
         )
         rec.set_vis_name("Recog %s%s" % (prefix, name))

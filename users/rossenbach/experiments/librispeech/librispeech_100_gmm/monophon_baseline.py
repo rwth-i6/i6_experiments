@@ -3,6 +3,7 @@ import time
 
 from sisyphus import gs, tk, Path
 
+from i6_core.meta.system import select_element
 from i6_core.features.filterbank import filter_width_from_channels
 
 from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
@@ -256,6 +257,6 @@ def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True)
         print("Corpus with name %s already added" % name)
     prefix = "uncached_" if uncached and name not in system.train_corpora else ""
     system.align(name + "_align", name, prefix + system.monophone_args.training_args['feature_flow'], "train_mono")
-    alignment = system.alignments[name][name + '_align'][0].alternatives['bundle']
+    alignment = select_element(system.alignments, name, name + '_align').alternatives['bundle']
     return alignment
 

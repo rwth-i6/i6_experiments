@@ -68,12 +68,14 @@ recog_args = CtcRecognitionArgs(
     recog_args={
         'feature_flow': 'gt',
         'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
-        'lookahead_options': None, # TODO:
-        'create_lattice': True, # write lattice cache files
+        'lookahead_options': {
+            'history-limit': 1
+        }, # the lookahead rasr options
+        #'create_lattice': True, # write lattice cache files
         'eval_single_best': True, # show the evaluation of the best path in lattice in the log (model score)
         'eval_best_in_lattice': True, # show the evaluation of the best path in lattice in the log (oracle)
-        'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
-        'fill_empty_segments': False, # insert dummy when transcription output is empty
+        #'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
+        #'fill_empty_segments': False, # insert dummy when transcription output is empty
         'rtf': 30, # time estimation for jobs
         'mem': 8, # memory for jobs
         'use_gpu': False, # True makes no sense
@@ -82,7 +84,14 @@ recog_args = CtcRecognitionArgs(
                               'lexicon_config' : {'filename': create_eow_lexicon(),
                                                   'normalize_pronunciation': False,} # adjust eow-monophone
                               },
-        'label_scorer_type': 'precomputed-log-posterior'
+        'label_scorer_type': 'precomputed-log-posterior',
+        'label_scorer_args' : { 'scale'      : 1.0,
+                                'usePrior'   : False,
+                                'priorScale' : 0.3,
+                                'extraArgs'  : {'blank-label-index' : 0}
+                                },
+        'reduction_factor': 2,
+        'lm_gc_job_mem': 16,
     },
     search_parameters={
         'label-pruning': 12,
@@ -202,7 +211,7 @@ def get_returnn_config():
 
 
 def get_default_training_args():
-    returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher_custom.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+    returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                          commit="f3240381ec200e9b6b68fd4a6f588d7537431380").out_repository
     train_args  = {
