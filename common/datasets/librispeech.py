@@ -380,9 +380,10 @@ def get_bliss_lexicon(
     alias_path = os.path.join(
         output_prefix,
         "LibriSpeech",
-        "%s_lexicon_%s" % (
+        "%s_lexicon_%s"
+        % (
             "regular" if use_stress_marker else "folded",
-            "with_unknown" if add_unknown_phoneme_and_mapping else "without_unknown"
+            "with_unknown" if add_unknown_phoneme_and_mapping else "without_unknown",
         ),
     )
 
