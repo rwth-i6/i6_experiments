@@ -57,9 +57,7 @@ def get_init_args(dc_detection=True, scorer=None):
             "num_features": None,  # 33 (confusing name: # max features, above -> clipped)
             "mfcc_options": {
                 "warping_function": "mel",
-                "filter_width": features.filter_width_from_channels(
-                    channels=16, warping_function="mel", f_max=16000, f_min=0
-                ),  # 268.258
+                "filter_width": 268.258,
                 "normalize": True,
                 "normalization_options": None,
                 "without_samples": False,

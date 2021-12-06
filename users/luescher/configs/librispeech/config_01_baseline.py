@@ -15,14 +15,14 @@ import i6_experiments.common.setups.rasr.nn_system as nn_system
 import i6_experiments.common.setups.rasr.util as hybrid_util
 import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_setups
 
-# -------------------- Settings --------------------
 
-filename_handle = os.path.splitext(os.path.basename(__file__))[0]
-gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
-rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
+def run():
+    # -------------------- Settings --------------------
 
+    filename_handle = os.path.splitext(os.path.basename(__file__))[0]
+    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
+    rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-def py():
     # -------------------- GMM Init --------------------
 
     train_data_inputs, dev_data_inputs, test_data_inputs = lbs_setups.get_data_inputs()
@@ -112,3 +112,9 @@ def py():
         train_cv_pairing=[tuple(["train-other-960", "train-other-960-subsample"])],
     )
     lbs_nn_system.run(nn_steps)
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+
+
+run()
+
