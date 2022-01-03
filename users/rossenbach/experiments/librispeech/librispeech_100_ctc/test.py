@@ -10,33 +10,29 @@ from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_l
 from i6_experiments.users.rossenbach.lexicon.modification import AddBoundaryMarkerToLexiconJob
 
 from .ctc_system import CtcSystem, CtcRecognitionArgs
-from .ctc_network import BLSTMCTCModel, get_network
+from .ctc_network import BLSTMCTCModel, get_network, legacy_network
 from .specaugment_clean_v2 import SpecAugmentSettings, get_funcs
 
+from i6_experiments.users.rossenbach.lexicon.modification import EnsureSilenceFirst
 
-def create_regular_lexicon():
-    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
+
+def create_regular_lexicon(delete_empty_orth=False):
+    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, add_unknown_phoneme_and_mapping=False)['train-clean-100']
+    ls100_bliss_lexicon = EnsureSilenceFirst(ls100_bliss_lexicon, delete_empty_orth=delete_empty_orth).out_lexicon
     return ls100_bliss_lexicon
-    #add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
-    #    bliss_lexicon=ls100_bliss_lexicon,
-    #    add_eow=True,
-    #    add_sow=False
-    #)
-    #ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
-
-    #return ls100_eow_bliss_lexicon
 
 
-def create_eow_lexicon():
-    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)['train-clean-100']
+def create_eow_lexicon(delete_empty_orth=False):
+    ls100_bliss_lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, add_unknown_phoneme_and_mapping=False)['train-clean-100']
     add_boundary_marker_job = AddBoundaryMarkerToLexiconJob(
         bliss_lexicon=ls100_bliss_lexicon,
         add_eow=True,
         add_sow=False
     )
     ls100_eow_bliss_lexicon = add_boundary_marker_job.out_lexicon
-
+    ls100_eow_bliss_lexicon = EnsureSilenceFirst(ls100_eow_bliss_lexicon, delete_empty_orth=delete_empty_orth).out_lexicon
     return ls100_eow_bliss_lexicon
+
 
 rasr_args = RasrInitArgs(
     costa_args={
@@ -64,7 +60,7 @@ rasr_args = RasrInitArgs(
 
 recog_args = CtcRecognitionArgs(
     eval_epochs=[50],
-    lm_scales=[1],
+    lm_scales=[1.1],
     recog_args={
         'feature_flow': 'gt',
         'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
@@ -81,31 +77,31 @@ recog_args = CtcRecognitionArgs(
         'use_gpu': False, # True makes no sense
         'label_unit'      : 'phoneme',
         'label_tree_args' : { 'skip_silence'   : True, # no silence in tree
-                              'lexicon_config' : {'filename': create_eow_lexicon(),
+                              'lexicon_config' : {'filename': create_eow_lexicon(delete_empty_orth=True),
                                                   'normalize_pronunciation': False,} # adjust eow-monophone
                               },
         'label_scorer_type': 'precomputed-log-posterior',
         'label_scorer_args' : { 'scale'      : 1.0,
-                                'usePrior'   : False,
-                                'priorScale' : 0.3,
-                                'extraArgs'  : {'blank-label-index' : 0}
+                                'usePrior'   : True,
+                                'priorScale' : 0.5,
+                                'extraArgs'  : {'blank-label-index' : 0,
+                                                'reduction_factors': 2,}
                                 },
-        'reduction_factor': 2,
         'lm_gc_job_mem': 16,
     },
     search_parameters={
-        'label-pruning': 12,
-        'label-pruning-limit': 5000,
+        'label-pruning': 16,
+        'label-pruning-limit': 20000,
         'word-end-pruning': 0.5,
-        'word-end-pruning-limit': 1000,
+        'word-end-pruning-limit': 20000,
         # keep alternative paths in the lattice or not
         #'create-lattice': True,
-        #'optimize-lattice': False,
+        'optimize-lattice': False,
     }
 )
 
 
-def get_corpus_data_inputs():
+def get_corpus_data_inputs(delete_empty_orth=False):
     """
 
     :return:
@@ -119,9 +115,15 @@ def get_corpus_data_inputs():
         'scale': 10,
     }
     lexicon = {
-        'filename': create_regular_lexicon(),
+        'filename': create_regular_lexicon(delete_empty_orth=delete_empty_orth),
         'normalize_pronunciation': False,
     }
+
+    eow_lexicon = {
+        'filename': create_regular_lexicon(delete_empty_orth=delete_empty_orth),
+        'normalize_pronunciation': False,
+    }
+
 
     train_data_inputs = {}
     dev_data_inputs = {}
@@ -138,23 +140,23 @@ def get_corpus_data_inputs():
         dev_data_inputs[dev_key] = RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=10,
-            lexicon=lexicon,
+            lexicon=eow_lexicon,
             lm=lm
         )
 
     test_data_inputs['test-clean'] = RasrDataInput(
         corpus_object=corpus_object_dict['test-clean'],
         concurrent=10,
-        lexicon=lexicon,
+        lexicon=eow_lexicon,
         lm=lm,
     )
 
     return train_data_inputs, dev_data_inputs, test_data_inputs
 
 
-def get_returnn_config():
+def get_returnn_config(use_legacy_network=False):
     config = {
-        'batch_size' : 10000,
+        'batch_size' : 20000,
         'max_seqs'   : 128,
         'batching'   : 'random',
 
@@ -198,29 +200,38 @@ def get_returnn_config():
         max_features_per_mask=5
     )
 
-    network1 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=None)
-    network2 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=specaugment_settings)
+    if use_legacy_network:
+        config['network'] = legacy_network
+        return ReturnnConfig(config, post_config,
+                             python_prolog=get_funcs(), hash_full_python_code=True)
+    else:
+        network1 = get_network(4, 512, [1, 1, 2], 139, dropout=0.1, l2=0.001, specaugment_settings=None)
+        network2 = get_network(5, 512, [1, 1, 2], 139, dropout=0.1, l2=0.05, specaugment_settings=None)
+        network3 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=None)
+        network4 = get_network(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=specaugment_settings)
 
-    staged_network_dict = {
-        1: network1,
-        2: network2
-    }
+        staged_network_dict = {
+            1: network1,
+            2: network2,
+            3: network3,
+            4: network4
+        }
 
-    return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
-                         python_prolog=get_funcs(), hash_full_python_code=True)
+        return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
+                             python_prolog=get_funcs(), hash_full_python_code=True)
 
 
 def get_default_training_args():
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="f3240381ec200e9b6b68fd4a6f588d7537431380").out_repository
+                                         commit="7efd41f470c74fe70fc75bec1383bca6da81fbc1").out_repository
     train_args  = {
         'partition_epochs'   : {'train': 3, 'dev': 1},
         'num_epochs'         : 180,
         # only keep every n epoch (RETURNN) #
         'save_interval'      : 1,
         # additional clean up (Sisyphus) Best epoch is always kept #
-        'keep_epochs'        : [32, 64, 96, 112, 128, 144, 160, 170, 180],
+        'keep_epochs'        : [40, 64, 80, 96, 112, 120, 128, 144, 160, 170, 180],
         'device'             : 'gpu',
         'time_rqmt'          : 168, # maximum one week
         'mem_rqmt'           : 15,
@@ -235,8 +246,8 @@ def get_default_training_args():
 
 
 def ctc_test():
-    eow_lexicon = create_regular_lexicon()
-    tk.register_output("experiments/librispeech_100_ctc/eow_lexicon.xml", eow_lexicon)
+    ctc_lexicon = create_regular_lexicon()
+    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
 
 
     system = CtcSystem(
@@ -256,5 +267,56 @@ def ctc_test():
         test_data=test_data
     )
     system.run(("extract", "train", "recog"))
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+
+
+def ctc_test_no_empty_orth():
+    ctc_lexicon = create_regular_lexicon()
+    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
+
+
+    system = CtcSystem(
+        returnn_config=get_returnn_config(),
+        default_training_args=get_default_training_args(),
+        recognition_args=recog_args,
+        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
+        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
+    )
+    train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth"
+    system.init_system(
+        rasr_init_args=rasr_args,
+        train_data=train_data,
+        dev_data=dev_data,
+        test_data=test_data
+    )
+    system.run(("extract", "train", "recog"))
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+
+
+def ctc_test_legacy_network():
+    ctc_lexicon = create_regular_lexicon()
+    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
+
+
+    system = CtcSystem(
+        returnn_config=get_returnn_config(use_legacy_network=True),
+        default_training_args=get_default_training_args(),
+        recognition_args=recog_args,
+        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
+        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
+    )
+    train_data, dev_data, test_data = get_corpus_data_inputs()
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_legacy_network"
+    system.init_system(
+        rasr_init_args=rasr_args,
+        train_data=train_data,
+        dev_data=dev_data,
+        test_data=test_data
+    )
+    #system.run(("extract", "train", "recog"))
+    system.run(("extract", "train"))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

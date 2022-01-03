@@ -1,21 +1,80 @@
-from itertools import zip_longest
 
-def make_network_config(fdim, num_classes, dropout=0.1, **kwargs):
-    # -- encoder (default: 6 * 512 BLSTM) -- #
-    encoder_layers = kwargs.get('encoder_layers', 6)
-    encoder_size   = kwargs.get('encoder_size', 512)
-    if kwargs.get('subsampling', True):
-        maxpool_pos = kwargs.get('maxpool_pos', 'middle')
-        if maxpool_pos == 'bottom': max_pool = [2]
-        elif maxpool_pos == 'middle': max_pool = [1]*int(encoder_layers/2-1) + [2]
-        elif maxpool_pos == 'top': max_pool = [1]*int(encoder_layers-1) + [2]
-        elif isinstance(maxpool_pos, list):
-            assert len(maxpool_pos) <= encoder_layers, 'invalid maxpool_pos'
-            max_pool = maxpool_pos
-        else: assert False, 'unknown maxpool_pos %s' %maxpool_pos
-    else: max_pool = []
-    network, fromList = nn_setup.build_encoder_network(num_layers=encoder_layers, size=encoder_size, max_pool=max_pool, dropout=dropout)
-
+legacy_network = {
+    'bwd_lstm_1': {'L2': 0.01, 'class': 'rec', 'direction': -1, 'dropout': 0.1, 'from': 'source', 'n_out': 512, 'unit': 'nativelstm2'},
+    'bwd_lstm_2': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': -1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_1', 'bwd_lstm_1'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'bwd_lstm_3': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': -1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_2', 'bwd_lstm_2'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'bwd_lstm_4': {'L2': 0.01, 'class': 'rec', 'direction': -1, 'dropout': 0.1, 'from': 'max_pool_3', 'n_out': 512, 'unit': 'nativelstm2'},
+    'bwd_lstm_5': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': -1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_4', 'bwd_lstm_4'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'bwd_lstm_6': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': -1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_5', 'bwd_lstm_5'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'fwd_lstm_1': {'L2': 0.01, 'class': 'rec', 'direction': 1, 'dropout': 0.1, 'from': 'source', 'n_out': 512, 'unit': 'nativelstm2'},
+    'fwd_lstm_2': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': 1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_1', 'bwd_lstm_1'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'fwd_lstm_3': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': 1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_2', 'bwd_lstm_2'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'fwd_lstm_4': {'L2': 0.01, 'class': 'rec', 'direction': 1, 'dropout': 0.1, 'from': 'max_pool_3', 'n_out': 512, 'unit': 'nativelstm2'},
+    'fwd_lstm_5': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': 1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_4', 'bwd_lstm_4'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'fwd_lstm_6': { 'L2': 0.01,
+                    'class': 'rec',
+                    'direction': 1,
+                    'dropout': 0.1,
+                    'from': ['fwd_lstm_5', 'bwd_lstm_5'],
+                    'n_out': 512,
+                    'unit': 'nativelstm2'},
+    'max_pool_3': {'class': 'pool', 'from': ['fwd_lstm_3', 'bwd_lstm_3'], 'mode': 'max', 'padding': 'same', 'pool_size': (2,), 'trainable': False},
+    'output': { 'class': 'softmax',
+                'from': ['fwd_lstm_6', 'bwd_lstm_6'],
+                'loss': 'fast_bw',
+                'loss_opts': { 'sprint_opts': { 'minPythonControlVersion': 4,
+                                                'numInstances': 2,
+                                                'sprintConfigStr': '--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1',
+                                                'sprintExecPath': '/u/rossenbach/src/rasr_wei/arch/linux-x86_64-standard/nn-trainer.linux-x86_64-standard',
+                                                'usePythonSegmentOrder': False},
+                               'tdp_scale': 0.0},
+                'n_out': 139,
+                'target': None},
+    #'source': {'class': 'eval', 'eval': "self.network.get_config().typed_value('_specaugment_eval_func')(source(0, as_data=True), network=self.network)"}
+    'source': {'class': 'copy', 'from': ["data"]}
+}
 
 from returnn_common.nn import Module, LayerRef, get_extern_data, get_root_extern_data, NameCtx, make_root_net_dict
 from returnn_common import nn
@@ -58,8 +117,11 @@ class BLSTMCTCModel(Module):
         self.specaugment_settings = specaugment_settings
 
         modules = []
-        for i, pool in zip_longest(range(num_nn), max_pool):
+        for i in range(num_nn - 1):
+            pool = max_pool[i] if i < len(max_pool) else 1
             modules.append(BLSTMPoolModule(size, pool, dropout=dropout, l2=l2))
+        last_pool = max_pool[-1] if len(max_pool) == num_nn else 1
+        self.last_blstm = BLSTMPoolModule(size, last_pool, dropout=dropout, l2=l2)
         self.blstms = nn.Sequential(modules)
         self.linear = nn.Linear(n_out=num_labels, with_bias=True)
 
@@ -68,6 +130,7 @@ class BLSTMCTCModel(Module):
         if self.specaugment_settings:
             inp = specaugment(inp, **self.specaugment_settings.get_options())
         inp = self.blstms(inp)
+        inp = self.last_blstm(inp)
         out = self.linear(inp)
         out = nn.softmax(out, name="output", axis="F")
         return out

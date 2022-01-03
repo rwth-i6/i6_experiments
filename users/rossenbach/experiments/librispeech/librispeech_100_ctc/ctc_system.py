@@ -301,7 +301,7 @@ class CtcSystem(RasrSystem):
                 "class": "copy",
                 "from": "output",
                 "loss_opts": {
-                    #'tdp_scale': 0.0,
+                    'tdp_scale': 0.0,
                     "sprint_opts": self.create_rasr_loss_opts()
                 },
                 "loss": "fast_bw",
@@ -312,7 +312,8 @@ class CtcSystem(RasrSystem):
             for net in returnn_config.staged_network_dict.values():
                 add_rasr_loss(net)
         else:
-            add_rasr_loss(returnn_config.config["network"])
+            if returnn_config.config['network']['output'].get("loss", None) != "fast_bw":
+                add_rasr_loss(returnn_config.config["network"])
 
         j = ReturnnRasrTrainingJob(
             train_crp=self.crp[train_corpus_key],
@@ -339,7 +340,14 @@ class CtcSystem(RasrSystem):
 
 
     @classmethod
-    def get_specific_returnn_config(cls, returnn_config, epoch=None):
+    def get_specific_returnn_config(cls, returnn_config, epoch=None, log_activation=False):
+        """
+        converts a config with a staged network into a config for a specific epoch
+
+        :param ReturnnConfig returnn_config:
+        :param epoch: epoch, if None use last one
+        :return:
+        """
         if not returnn_config.staged_network_dict:
             return returnn_config
         training_returnn_config= returnn_config
@@ -351,6 +359,8 @@ class CtcSystem(RasrSystem):
         else:
             index = max(training_returnn_config.staged_network_dict.keys())
         config_dict['network'] = training_returnn_config.staged_network_dict[index]
+        if log_activation:
+            config_dict['network']['output'] = {'class': 'activation', 'from': 'output_0', 'activation': 'log'}
         returnn_config = ReturnnConfig(config=config_dict,
                                        post_config=training_returnn_config.post_config,
                                        staged_network_dict=None,
@@ -365,18 +375,18 @@ class CtcSystem(RasrSystem):
         self, returnn_config, labelSyncSearch=False, **kwargs
     ):
         """
-
         :param ReturnnConfig returnn_config:
         :param labelSyncSearch:
         :param kwargs:
         :return:
         """
-        assert not isinstance(
-            returnn_config, dict
-        ), "require either config path or CRNNConfig"
-        returnn_config = self.get_specific_returnn_config(returnn_config)
+        returnn_config = self.get_specific_returnn_config(returnn_config, log_activation=True)
 
-        args = {"returnn_config": returnn_config}
+        args = {
+            "returnn_config": returnn_config,
+            'returnn_python_exe': self.defalt_training_args['returnn_python_exe'],
+            'returnn_root': self.defalt_training_args['returnn_root'],
+        }
         if labelSyncSearch:
             args.update(
                 {
@@ -577,6 +587,9 @@ class CtcSystem(RasrSystem):
             lattice_to_ctm_kwargs = {}
 
         self.crp[corpus].language_model_config.scale = lm_scale
+        self.crp[corpus].acoustic_model_config.tdp["*"].skip = 0
+        self.crp[corpus].acoustic_model_config.tdp.silence.skip = 0
+
         model_combination_config = rasr.RasrConfig()
         model_combination_config.pronunciation_scale = pronunciation_scale
 
@@ -592,19 +605,15 @@ class CtcSystem(RasrSystem):
         # add vocab file
         from i6_experiments.users.rossenbach.rasr.vocabulary import GenerateLabelFileFromStateTying
         label_scorer_args['labelFile'] = GenerateLabelFileFromStateTying(self.state_tying, add_eow=True).out_label_file
-
-        label_scorer_args['usePrior'] = True
-        label_scorer_args['priorScale'] = 0.5
-        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], nn_name="default", feature_flow=flow, epoch=160, **kwargs)
+        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], nn_name="default", feature_flow=flow, epoch=80, **kwargs)
         am_scale = label_scorer_args.get('scale', 1.0)
 
-        nn_model = self.nn_models[self.train_corpora[0]]["default"][160]
+        nn_model = self.nn_models[self.train_corpora[0]]["default"][80]
         feature_flow = self.make_tf_feature_flow(corpus, self.feature_flows[corpus][flow], self.returnn_config, nn_model, **kwargs)
 
         label_scorer = rasr_experimental.LabelScorer(scorer_type, **label_scorer_args)
 
         extra_config = rasr.RasrConfig()
-        extra_config.flf_lattice_tool.network.recognizer.reduction_factors = kwargs.pop('reduction_factor')
         if pronunciation_scale > 0:
             extra_config.flf_lattice_tool.network.recognizer.pronunciation_scale = pronunciation_scale
 

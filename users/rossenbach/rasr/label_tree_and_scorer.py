@@ -8,10 +8,10 @@ class LabelTree:
     def __init__(self, label_unit, lexicon_config=None, **kwargs):
         self.config         = RasrConfig()
         self.post_config    = RasrConfig()
-
+        config = lexicon_config
         lexicon_config = RasrConfig()
-        lexicon_config.file = lexicon_config['filename']
-        lexicon_config.normalize_pronunciation = lexicon_config['normalize_pronunciation']
+        lexicon_config.file = config['filename']
+        lexicon_config.normalize_pronunciation = config['normalize_pronunciation']
         self.lexicon_config = lexicon_config # allow overwrite csp lexicon
 
         self.config.label_unit = label_unit

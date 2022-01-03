@@ -12,7 +12,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech
 from i6_experiments.users.rossenbach.audio.silence_removal import AlignmentCacheSilenceRemoval
 from i6_experiments.users.rossenbach.corpus.transform import ApplyLexiconToTranscriptions
 
-from ..librispeech_100_gmm.monophon_baseline import get_monophone_ls100_training_alignment_and_allophones,\
+from ..librispeech_100_gmm.unfolded_monophon_baseline import get_monophone_ls100_training_alignment_and_allophones,\
     align_any_data
 
 FFMPEG_BINARY = tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG_BINARY")

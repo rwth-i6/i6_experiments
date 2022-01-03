@@ -286,9 +286,6 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             self.out_lattice_bundle, self.out_single_lattice_caches.values()
         )
         extra_code = (
-            ":${{THEANO_FLAGS:="
-            "}}\n"
-            'export THEANO_FLAGS="$THEANO_FLAGS,device={0},force_device=True"\n'
             'export TF_DEVICE="{0}"'.format("gpu" if self.use_gpu else "cpu")
         )
         # sometimes crash without this
@@ -341,7 +338,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         feature_flow,
         label_tree,
         label_scorer,
-        search_options=None,
+        search_parameters=None,
         lm_lookahead=True,
         lookahead_options=None,
         eval_single_best=True,
@@ -416,9 +413,9 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         # search settings #
         lm_scale = config.flf_lattice_tool.network.recognizer.lm.scale
         search_config = cls.get_default_search_config(lm_scale)
-        if search_options is not None:
-            for key in search_options.keys():
-                search_config[key] = search_options[key]
+        if search_parameters is not None:
+            for key in search_parameters.keys():
+                search_config[key] = search_parameters[key]
         config.flf_lattice_tool.network.recognizer.recognizer._update(search_config)
 
         # lookahead settings #
@@ -508,159 +505,3 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             }
         )
 
-
-# prior computation using exact settings from training (default using cpu only) #
-class LabelSyncComputePriorJob(ReturnnComputePriorJob):
-    def __init__(self,
-                 model_checkpoint,
-                 returnn_config,
-                 train_path, num_classes=None,
-                 context_size=0, valid_context=[], prior_config=None, plot_prior=True,
-                 *,  # args below are keyword only
-                 log_verbosity=3, device='cpu',
-                 time_rqmt=4, mem_rqmt=12, cpu_rqmt=3, qsub_rqmt=None,
-                 returnn_python_exe=None, returnn_root=None):
-        """
-
-        :param Checkpoint model_checkpoint:
-        :param train_path:
-        :param num_classes:
-        :param context_size:
-        :param valid_context:
-        :param prior_config:
-        :param plot_prior:
-        :param log_verbosity:
-        :param device:
-        :param time_rqmt:
-        :param mem_rqmt:
-        :param cpu_rqmt:
-        :param qsub_rqmt:
-        :param returnn_python_exe:
-        :param returnn_root:
-        """
-
-        super().__init__(model_checkpoint=model_checkpoint,
-                         returnn_config=returnn_config,
-                         log_verbosity=log_verbosity, device=device,
-                         time_rqmt=time_rqmt, mem_rqmt=mem_rqmt, cpu_rqmt=cpu_rqmt,
-                         returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
-
-        self.train_path = train_path
-
-        # possible context-dependent prior
-        self.context_size = context_size
-        if self.context_size > 0:
-            if not valid_context:
-                assert num_classes is not None
-                import itertools
-                self.valid_context = list(itertools.permutations(range(num_classes), self.context_size))
-            else: self.valid_context = valid_context
-            if isinstance(prior_config, dict):
-                prior_config = CRNNConfig(prior_config)
-            assert isinstance(prior_config, (str, tk.Path, CRNNConfig))
-            self.prior_config = prior_config
-            self.prior = self.output_path('prior') # overwrite original
-            self.plot_prior=plot_prior
-
-        if qsub_rqmt is not None:
-            self.rqmt['qsub_args'] = qsub_rqmt
-        self.device = device
-        if device != 'gpu':
-            self.rqmt['gpu'] = 0
-            self.rqmt['time'] = 168
-            self.rqmt['qsub_args'] = '-q 40C*' # somehow crashes with older cpus
-
-    def tasks(self):
-        yield Task('create_files', mini_task=True)
-        if self.context_size > 0:
-            yield Task('run_prior', resume='run_prior', rqmt=self.rqmt, args=range(1, len(self.valid_context)+1))
-            yield Task('finalize', resume='finalize', mini_task=True)
-        else:
-            yield Task('run_prior', resume='run_prior', rqmt=self.rqmt)
-            yield Task('plot', resume='plot', mini_task=True)
-
-    def create_run_file(self):
-        msg = script_header(tk.uncached_path(self.crnn_python_exe))
-
-        if self.context_size > 0:
-            if isinstance(self.prior_config, CRNNConfig):
-                config_path = 'crnn.config'
-                self.prior_config.write(config_path)
-            else:
-                config_path = self.prior_config
-            name = ''
-            post_msg = ''
-            for ctx in range(1, self.context_size+1):
-                name += '$%d-' %ctx
-                post_msg += ' ++label_context%d $%d' %(ctx, ctx)
-            output_path = self.prior.get_path() + '.' + name[:-1] + '.txt'
-        else:
-            config_path = self.crnn_config_file.get_path()
-            output_path = self.prior_txt.get_path()
-            post_msg = ''
-
-        msg += ' '.join(['$PY', os.path.join(tk.uncached_path(self.crnn_root), 'rnn.py'), config_path, '--task', 'compute_priors', '--output_file', output_path, '++load_epoch', str(self.epoch), '++tf_log_dir', 'None', '++device', self.device])
-        msg += post_msg
-        with open('rnn.sh', 'wt') as f:
-            f.write(msg)
-
-    def create_files(self):
-        self.create_run_file()
-        os.chmod('rnn.sh', stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH | stat.S_IWUSR | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        # copy sprint config and flow (same as used in training) #
-        for f in os.listdir(self.train_path):
-            if f.endswith('.flow') or f.endswith('.config'):
-                shutil.copy(os.path.join(self.train_path, f), '.')
-
-    def run_prior(self, task_id=None):
-        if self.context_size > 0:
-            assert task_id is not None
-            args = list( map(str, self.valid_context[task_id-1]) )
-            sp.check_call(['./rnn.sh'] + args)
-        else:
-            sp.check_call(['./rnn.sh'])
-
-    def finalize(self):
-        assert self.context_size > 0
-        import numpy as np
-        for ctx in self.valid_context:
-            # fixed format to match RASR
-            output = self.prior.get_path() + '.' + '-'.join(list(map(str, ctx))) + '.txt'
-            with open(output, 'rt') as f:
-                merged_scores = np.loadtxt(f, delimiter=' ')
-            with open(output.replace('txt', 'xml'), 'wt') as f:
-                f.write('<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="%d">\n' % len(merged_scores))
-                f.write(' '.join('%.20e' % s for s in merged_scores) + '\n')
-                f.write('</vector-f32>')
-
-            if self.plot_prior:
-                import matplotlib
-                matplotlib.use('Agg')
-                import matplotlib.pyplot as plt
-                plt.clf()
-                xdata = range(len(merged_scores))
-                plt.semilogy(xdata, np.exp(merged_scores))
-                plt.xlabel('emission idx')
-                plt.ylabel('prior')
-                plt.grid(True)
-                plt.savefig(output.replace('txt', 'png'))
-
-        # just for sisyphus dependency
-        open(self.prior.get_path(), 'a').close()
-
-    @classmethod
-    def hash(cls, kwargs):
-        d = { 'model'           : kwargs['model'],
-              'train_path'      : kwargs['train_path'],
-              'crnn_python_exe' : kwargs['crnn_python_exe'],
-              'crnn_root'       : kwargs['crnn_root']
-              }
-        if kwargs['context_size'] > 0:
-            d.update({
-                'context_size' : kwargs['context_size'],
-                'valid_context': kwargs['valid_context'],
-                'prior_config' : kwargs['prior_config']
-            })
-            if not kwargs['valid_context']:
-                d['num_classes'] = kwargs['num_classes']
-        return Job.hash(d)
