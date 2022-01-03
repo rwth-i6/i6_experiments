@@ -478,6 +478,7 @@ def get_g2p_augmented_bliss_lexicon_dict(
                     bliss_corpus=bliss_corpus,
                     corpus_name=corpus_name,
                     alias_path=alias_path,
+                    casing="upper",
                 )
                 augmented_bliss_lexica[corpus_name] = current_bliss_lexicon
 

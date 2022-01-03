@@ -68,10 +68,16 @@ class G2PBasedOovAugmenter:
         self.g2p_model_path = g2p_train_job.out_best_model
 
     def get_g2p_augmented_bliss_lexicon(
-        self, bliss_corpus: Path, corpus_name: str, alias_path: str
+        self,
+        bliss_corpus: Path,
+        corpus_name: str,
+        alias_path: str,
+        casing: str = "none",
     ):
         extract_oov_job = ExtractOovWordsFromCorpusJob(
-            bliss_corpus=bliss_corpus, bliss_lexicon=self.original_bliss_lexicon
+            bliss_corpus=bliss_corpus,
+            bliss_lexicon=self.original_bliss_lexicon,
+            casing=casing,
         )
         extract_oov_job.add_alias(
             os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name))
