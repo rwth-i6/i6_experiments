@@ -76,8 +76,12 @@ legacy_network = {
     'source': {'class': 'copy', 'from': ["data"]}
 }
 
-from returnn_common.nn import Module, LayerRef, get_extern_data, get_root_extern_data, NameCtx, make_root_net_dict
-from returnn_common import nn
+from returnn.import_ import import_
+common = import_("github.com/rwth-i6/returnn_common", "nn", "20211202-c025fdeef1843ab06e9888b6a17d217463b961bc")
+
+from returnn_import.github_com.rwth_i6.returnn_common.v20211202164723_c025fdeef184 import nn
+from returnn_import.github_com.rwth_i6.returnn_common.v20211202164723_c025fdeef184.nn \
+    import Module, LayerRef, get_extern_data, get_root_extern_data, NameCtx, make_root_net_dict
 
 from .specaugment_clean_v2 import specaugment, SpecAugmentSettings
 
@@ -103,7 +107,7 @@ class BLSTMPoolModule(Module):
 
 class BLSTMCTCModel(Module):
 
-    def __init__(self, num_nn, size, max_pool, num_labels, dropout=None, l2=None, specaugment_settings=None):
+    def __init__(self, num_nn, size, max_pool, num_labels, dropout=None, l2=None, feature_dropout=False, specaugment_settings=None):
         """
 
         :param num_nn:
@@ -115,6 +119,8 @@ class BLSTMCTCModel(Module):
         super().__init__()
 
         self.specaugment_settings = specaugment_settings
+        self.dropout = dropout
+        self.feature_dropout = feature_dropout
 
         modules = []
         for i in range(num_nn - 1):
@@ -129,6 +135,8 @@ class BLSTMCTCModel(Module):
         inp = get_root_extern_data("data")
         if self.specaugment_settings:
             inp = specaugment(inp, **self.specaugment_settings.get_options())
+        if self.feature_dropout:
+            inp = nn.dropout(inp, self.dropout)
         inp = self.blstms(inp)
         inp = self.last_blstm(inp)
         out = self.linear(inp)

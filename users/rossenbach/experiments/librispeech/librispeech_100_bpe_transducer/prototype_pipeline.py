@@ -5,13 +5,12 @@ import numpy
 from sisyphus import tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
+from i6_core.returnn.config import ReturnnConfig
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_bpe
 from i6_experiments.users.rossenbach.setups import returnn_standalone
-from i6_experiments.users.rossenbach.returnn.config import ExtendedReturnnConfig
-
 
 
 @lru_cache()
@@ -188,7 +187,7 @@ def get_config():
 
     from .specaugment_clean import get_funcs
 
-    returnn_config = ExtendedReturnnConfig(
+    returnn_config = ReturnnConfig(
         config=config,
         post_config=post_config,
         staged_network_dict=network_dict,

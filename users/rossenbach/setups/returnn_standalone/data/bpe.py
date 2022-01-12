@@ -1,3 +1,8 @@
+"""
+Contains helper functions for the legacy BPE pipeline
+
+This pipeline is compatible with old BPE setups, and thus with (probably all) of Kazukis trained LMs
+"""
 from dataclasses import dataclass
 from functools import lru_cache
 import os
@@ -12,6 +17,10 @@ from i6_core.tools.git import CloneGitRepositoryJob
 
 @dataclass(frozen=True)
 class BPESettings:
+    """
+    Dataclass managing setting variables for BPE, do not create by hand but use `get_bpe_settings`
+    unless for debugging purposes.
+    """
     bpe_codes: tk.Path
     bpe_vocab: tk.Path
     bpe_vocab_size: tk.Variable
@@ -21,6 +30,7 @@ class BPESettings:
 @lru_cache()
 def get_returnn_subword_nmt(commit_hash, output_prefix=""):
     """
+    clones the legacy subword-nmt reposity from "albertz" and returns the path
 
     :param str commit_hash:
     :return: subword-nmt repo path
@@ -40,13 +50,16 @@ def get_returnn_subword_nmt(commit_hash, output_prefix=""):
 @lru_cache()
 def get_bpe_settings(bliss_corpus, bpe_size, subword_nmt_repo_path, unk_label="UNK", output_prefix=""):
     """
+    Creates a BPESettings object containing codec and vocab files based on the provided parameters.
 
-    :param Path bliss_corpus
-    :param int bpe_size:
-    :param Path subword_nmt_repo_path:
-    :param str unk_label:
-    :param str output_prefix
-    :return:
+    As this helper is targeted for ASR, it directly accepts a bliss_corpus as input for the BPE estimation
+
+    :param Path bliss_corpus: bliss corpus xml as training data for the BPE estimation
+    :param int bpe_size: size of the BPE merge operations
+    :param Path subword_nmt_repo_path: path to the subword_nmt_repo, can be filled with the result of `get_returnn_subword_nmt`
+    :param str unk_label: unknown label, this should in most cases only be used for training, but maybe someone needs it.
+    :param str output_prefix:
+    :return: Filled BPESettings object
     :rtype: BPESettings
     """
     to_text_job = CorpusToTxtJob(bliss_corpus)

@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 
-from returnn.import_ import import_
-common = import_("github.com/rwth-i6/returnn_common", "nn", "20211202-c025fdeef1843ab06e9888b6a17d217463b961bc")
-
-from returnn_import.github_com.rwth_i6.returnn_common.v20211202164723_c025fdeef184 import nn as layers
-from returnn_import.github_com.rwth_i6.returnn_common.v20211202164723_c025fdeef184.nn import Module
+from returnn_common import nn
+from returnn_common.nn import Module
 
 #from returnn_common import nn as layers
 #from returnn_common.nn import Module
@@ -31,7 +28,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
-    from TFUtil import where_bc
+    from returnn.tf.util import where_bc
     x = where_bc(cond, 0.0, x)
     return x
 
@@ -139,7 +136,7 @@ class _SpecAugment(Module):
         self.max_features_per_mask = max_features_per_mask
 
     def forward(self, inp):
-        out = layers.eval(
+        out = nn.eval(
             source=inp,
             eval=("self.network.get_config().typed_value('_specaugment_eval_func')("
                   "source(0, as_data=True), "

@@ -1,7 +1,7 @@
 import copy
 import itertools
 import sys
-from typing import Dict, Union, List, Tuple
+from typing import Dict, Union, List, Tuple, Optional
 
 from sisyphus import gs, tk
 
@@ -12,7 +12,7 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
 from i6_core.returnn.extract_prior import ReturnnRasrComputePriorJob
-from i6_core.returnn.training import ReturnnModel
+from i6_core.returnn.training import Checkpoint
 from i6_core.lexicon.allophones import DumpStateTyingJob
 
 from i6_experiments.common.setups.rasr.rasr_system import RasrSystem
@@ -114,6 +114,8 @@ class CtcSystem(RasrSystem):
             "default": 5,
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
+
+        self.tf_checkpoints = {}  # type: Dict[str, Dict[int, Checkpoint]]
 
     # -------------------- Setup --------------------
     def init_system(
@@ -328,7 +330,8 @@ class CtcSystem(RasrSystem):
 
         j.add_alias("train_nn_%s_%s" % (corpus_key, name))
         self.jobs[corpus_key]["train_nn_%s" % name] = j
-        self.nn_models[corpus_key][name] = j.out_models
+        self.tf_checkpoints[name] = j.out_checkpoints
+        #self.nn_models[corpus_key][name] = j.out_models
         self.nn_configs[corpus_key][name] = j.out_returnn_config_file
 
         state_tying_job = DumpStateTyingJob(self.crp[corpus_key])
@@ -349,16 +352,17 @@ class CtcSystem(RasrSystem):
         :return:
         """
         if not returnn_config.staged_network_dict:
+            # THIS IS WRONG! the log_activation fix is missing!
             return returnn_config
-        training_returnn_config= returnn_config
-        config_dict = returnn_config.config.copy()
+        training_returnn_config = returnn_config
+        config_dict = copy.deepcopy(returnn_config.config)
         # TODO: only last network for now, fix with epoch
         if epoch:
             index = 0
             raise NotImplementedError
         else:
             index = max(training_returnn_config.staged_network_dict.keys())
-        config_dict['network'] = training_returnn_config.staged_network_dict[index]
+        config_dict['network'] = copy.deepcopy(training_returnn_config.staged_network_dict[index])
         if log_activation:
             config_dict['network']['output'] = {'class': 'activation', 'from': 'output_0', 'activation': 'log'}
         returnn_config = ReturnnConfig(config=config_dict,
@@ -404,33 +408,15 @@ class CtcSystem(RasrSystem):
         return path[: -len(".meta")]
 
     def make_tf_feature_flow(
-        self, corpus_key, feature_flow, returnn_config, returnn_model, **kwargs
+        self, feature_flow, tf_graph, tf_checkpoint, **kwargs
     ):
         """
-
-        :param corpus_key:
         :param feature_flow:
-        :param returnn_config:
-        :param ReturnnModel returnn_model:
+        :param Path tf_graph
+        :param Checkpoint tf_checkpoint:
         :param kwargs:
         :return:
         """
-        if isinstance(returnn_config, dict):
-            config_dict = copy.deepcopy(returnn_config)
-            # set output to log-softmax
-            config_dict["network"]["output"]["class"] = "linear"
-            config_dict["network"]["output"]["activation"] = "log_softmax"
-            config_dict["target"] = "classes"
-
-            assert "num_outputs" in config_dict
-            if not isinstance(config_dict["num_outputs"], int):
-                assert "classes" in config_dict["num_outputs"]
-
-            returnn_config = ReturnnConfig(config_dict, {})
-
-        tf_graph = self.make_model_graph(
-            returnn_config
-        )
 
         # tf flow (model scoring done in tf flow node) #
         tf_flow = rasr.FlowNetwork()
@@ -458,20 +444,22 @@ class CtcSystem(RasrSystem):
             "output_tensor_name", "output/output_batch_major"
         )
 
-        # TODO: HACK
         from sisyphus.delayed_ops import DelayedFunction
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = tf_graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = DelayedFunction(returnn_model.model, self._cut_ending)
+        tf_flow.config[tf_fwd].loader.saved_model_file = tf_checkpoint.get_delayed_checkpoint_path()
 
         # TODO: HACK
         from i6_core.returnn.compile import CompileNativeOpJob
 
+        # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
         native_op = CompileNativeOpJob(
             "NativeLstm2",
             returnn_python_exe=self.defalt_training_args['returnn_python_exe'],
             returnn_root=self.defalt_training_args['returnn_root'],
-            blas_lib=tk.Path(gs.BLAS_LIB, hash_overwrite="BLAS_LIB")).out_op,
+            # blas_lib=tk.Path(gs.BLAS_LIB, hash_overwrite="BLAS_LIB")).out_op,
+            blas_lib=None,
+            search_numpy_blas=False).out_op
 
         tf_flow.config[tf_fwd].loader.required_libraries = native_op
 
@@ -510,18 +498,20 @@ class CtcSystem(RasrSystem):
         return tf_feature_flow
 
     # if gpu full, use cpu for more queue slots so that recognition exps can start earlier
-    def estimate_nn_prior(self, corpus_key, nn_name, feature_flow, epoch, **kwargs):
-        assert epoch in self.nn_models[corpus_key][nn_name].keys(), "epoch %d not saved in %s" %(epoch, nn_name)
+    # def estimate_nn_prior(self, corpus_key, nn_name, feature_flow, epoch, **kwargs):
+    def estimate_nn_prior(self, corpus_key, feature_flow, tf_checkpoint, **kwargs):
+        #assert epoch in self.nn_models[corpus_key][nn_name].keys(), "epoch %d not saved in %s" %(epoch, nn_name)
 
         if kwargs.get('use_exist_prior', False):
-            assert self.nn_priors[corpus_key][nn_name][epoch], 'No existing prior found'
-            return self.nn_priors[corpus_key][nn_name][epoch]
+            assert False
+            #assert self.nn_priors[corpus_key][nn_name][epoch], 'No existing prior found'
+            #return self.nn_priors[corpus_key][nn_name][epoch]
         else:
             args = {
                 'train_crp': self.crp[corpus_key + "_train"],
                 'dev_crp': self.crp[corpus_key + "_cv"],
                 'feature_flow': self.feature_flows[corpus_key][feature_flow],
-                'model_checkpoint': self.nn_models[corpus_key][nn_name][epoch].get_checkpoint(),
+                'model_checkpoint': tf_checkpoint,
                 'time_rqmt': 8,
                 'mem_rqmt': 8,
                 'cpu_rqmt': 2,
@@ -562,7 +552,7 @@ class CtcSystem(RasrSystem):
             name,
             corpus,
             flow,
-            # feature_scorer,
+            tf_checkpoint,
             pronunciation_scale,
             lm_scale,
             parallelize_conversion=False,
@@ -574,7 +564,7 @@ class CtcSystem(RasrSystem):
         :param str name:
         :param str corpus:
         :param str|list[str]|tuple[str]|rasr.FlagDependentFlowAttribute flow:
-        :param str|list[str]|tuple[str]|rasr.FeatureScorer feature_scorer:
+        :param Checkpoint tf_checkpoint:
         :param float pronunciation_scale:
         :param float lm_scale:
         :param bool parallelize_conversion:
@@ -605,11 +595,14 @@ class CtcSystem(RasrSystem):
         # add vocab file
         from i6_experiments.users.rossenbach.rasr.vocabulary import GenerateLabelFileFromStateTying
         label_scorer_args['labelFile'] = GenerateLabelFileFromStateTying(self.state_tying, add_eow=True).out_label_file
-        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], nn_name="default", feature_flow=flow, epoch=80, **kwargs)
+        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], feature_flow=flow, tf_checkpoint=tf_checkpoint, **kwargs)
         am_scale = label_scorer_args.get('scale', 1.0)
 
-        nn_model = self.nn_models[self.train_corpora[0]]["default"][80]
-        feature_flow = self.make_tf_feature_flow(corpus, self.feature_flows[corpus][flow], self.returnn_config, nn_model, **kwargs)
+        tf_graph = self.make_model_graph(
+            self.returnn_config
+        )
+
+        feature_flow = self.make_tf_feature_flow(self.feature_flows[corpus][flow], tf_graph, tf_checkpoint, **kwargs)
 
         label_scorer = rasr_experimental.LabelScorer(scorer_type, **label_scorer_args)
 
@@ -655,9 +648,9 @@ class CtcSystem(RasrSystem):
     def recognition(
             self,
             name: str,
+            training_name: str,
             iters: List[int],
             lm_scales: Union[float, List[float]],
-            feature_scorer_key: Tuple[str, str],
             optimize_am_lm_scale: bool,
             # parameters just for passing through
             corpus_key: str,
@@ -677,6 +670,7 @@ class CtcSystem(RasrSystem):
         run over all specified model iterations and lm scales.
 
         :param name: name for the recognition, note that iteration and lm will be named by the function
+        :param training_name: name of the already defined training
         :param iters: which training iterations to use for recognition
         :param lm_scales: all lm scales that should be used for recognition
         :param feature_scorer_key: (training_corpus_name, training_name)
@@ -712,7 +706,7 @@ class CtcSystem(RasrSystem):
                     prefix=f"recognition/{name}/",
                     corpus=corpus_key,
                     flow=feature_flow,
-                    # feature_scorer=list(feature_scorer_key) + [it - 1],
+                    tf_checkpoint=self.tf_checkpoints[training_name][it],
                     pronunciation_scale=p,
                     lm_scale=l,
                     search_parameters=search_parameters,
@@ -766,21 +760,19 @@ class CtcSystem(RasrSystem):
                 alignment=None,
                 **self.defalt_training_args,
             )
-            out_models = self.nn_models["train-clean-100"]["default"]
-            tk.register_output("tests/ctc_training", out_models[180].model)
+            #out_models = self.nn_models["train-clean-100"]["default"]
+            #tk.register_output("tests/ctc_training", out_models[180].model)
 
         if "recog" in steps:
             trn_c = self.train_corpora[0]
             name = "default"
             for dev_c in self.dev_corpora:
-                feature_scorer = (trn_c, f"train_{name}")
-
                 self.recognition(
                     name=f"{trn_c}-{dev_c}",
+                    training_name="default",
                     iters=self.recognition_args.eval_epochs,
                     lm_scales=self.recognition_args.lm_scales,
                     corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
                     search_parameters=self.recognition_args.search_parameters,
                     optimize_am_lm_scale=False,
                     pronunciation_scales=[1.0],
