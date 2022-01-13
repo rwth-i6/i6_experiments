@@ -241,7 +241,7 @@ def get_default_training_args():
         'device'             : 'gpu',
         'time_rqmt'          : 168, # maximum one week
         'mem_rqmt'           : 15,
-        'cpu_rqmt'           : 3,
+        'cpu_rqmt'           : 4,
         #'qsub_rqmt'          : '-l qname=!*980*',
         'log_verbosity'      : 5,
         'use_python_control' : False,

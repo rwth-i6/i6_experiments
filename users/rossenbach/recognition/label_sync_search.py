@@ -262,7 +262,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
 
         self.rqmt = {
             "time": max(crp.corpus_duration * rtf / crp.concurrent, 4.5),
-            "cpu": 2,
+            "cpu": 4,
             "gpu": 1 if self.use_gpu else 0,
             "mem": mem,
         }
@@ -291,6 +291,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         # sometimes crash without this
         if not self.use_gpu:
             extra_code += "\nexport CUDA_VISIBLE_DEVICES="
+        extra_code += "\nexport OMP_NUM_THREADS=%i" % self.rqmt["cpu"]
         self.write_run_script(self.exe, "recognition.config", extra_code=extra_code)
 
     # TODO maybe not needed

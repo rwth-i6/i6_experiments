@@ -1,5 +1,7 @@
 import os.path
+from functools import lru_cache
 
+from i6_experiments.users.rossenbach.setups import returnn_standalone
 from sisyphus import tk
 from typing import *
 
@@ -42,7 +44,7 @@ class AudioFeatureDatastream(Datastream):
             return 1
         return 40  # some default value
 
-    def as_returnn_data_opts(self) -> Dict[str, Any]:
+    def as_returnn_extern_data_opts(self) -> Dict[str, Any]:
         feat_dim = self.get_feat_dim()
         return {'shape': (None, feat_dim), 'dim': feat_dim, 'available_for_inference': self.available_for_inference}
 
@@ -127,4 +129,36 @@ def add_global_statistics_to_audio_datastream(
         audio_datastream.options['norm_mean'] = extract_dataset_statistics_job.out_mean_file
         audio_datastream.options['norm_std_dev'] = extract_dataset_statistics_job.out_std_dev_file
 
+    return audio_datastream
+
+
+@lru_cache()
+def get_default_asr_audio_datastream(statistics_ogg_zip, returnn_python_exe, returnn_root, output_path):
+    """
+    Returns the AudioFeatureDatastream using the default feature parameters
+    (non-adjustable for now) based on statistics calculated over the provided dataset
+
+    This function serves as an example for ASR Systems, and should be copied and modified in the
+    specific experiments if changes to the default parameters are needed
+
+    :param Path statistics_ogg_zip: ogg zip file of the training corpus for statistics
+    :param Path returnn_python_exe:
+    :param Path returnn_root:
+    :param str output_path:
+    :return: returnn_standalone.data.audio.AudioFeatureDatastream
+    """
+    # default: mfcc-40-dim
+    extract_audio_opts = returnn_standalone.data.audio.AudioFeatureDatastream(
+        available_for_inference=True,
+        window_len=0.025,
+        step_len=0.010,
+        num_feature_filters=40,
+        features="mfcc")
+
+    audio_datastream = returnn_standalone.data.audio.add_global_statistics_to_audio_features(
+        extract_audio_opts, statistics_ogg_zip,
+        returnn_python_exe=returnn_python_exe,
+        returnn_root=returnn_root,
+        alias_path=output_path,
+    )
     return audio_datastream

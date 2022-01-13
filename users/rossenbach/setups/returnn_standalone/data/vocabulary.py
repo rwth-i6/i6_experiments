@@ -28,7 +28,7 @@ class VocabularyDatastream(Datastream):
         self.vocab_size = vocab_size
         self.unk_label = unk_label
 
-    def as_returnn_data_opts(self, **kwargs):
+    def as_returnn_extern_data_opts(self, **kwargs):
         """
         :param tk.Variable|int vocab_size: number of labels
         :rtype: dict[str]

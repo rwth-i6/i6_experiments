@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict
 
+from i6_experiments.users.rossenbach.setups.returnn_standalone.data.audio import get_default_asr_audio_datastream
 from sisyphus import tk
 
 from i6_core.returnn.config import ReturnnConfig
@@ -11,35 +12,6 @@ from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bli
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_bpe
 from i6_experiments.users.rossenbach.setups import returnn_standalone
-
-
-@lru_cache()
-def get_audio_datastream(statistics_ogg_zip, returnn_python_exe, returnn_root, output_path):
-    """
-    Returns the AudioFeatureDatastream using the default feature parameters
-    (non-adjustable for now) based on statistics calculated over the provided dataset
-
-    :param Path statistics_ogg_zip: ogg zip file of the training corpus for statistics
-    :param Path returnn_python_exe:
-    :param Path returnn_root:
-    :param str output_path:
-    :return: returnn_standalone.data.audio.AudioFeatureDatastream
-    """
-    # default: mfcc-40-dim
-    extract_audio_opts = returnn_standalone.data.audio.AudioFeatureDatastream(
-        available_for_inference=True,
-        window_len=0.025,
-        step_len=0.010,
-        num_feature_filters=40,
-        features="mfcc")
-
-    audio_datastream = returnn_standalone.data.audio.add_global_statistics_to_audio_features(
-        extract_audio_opts, statistics_ogg_zip,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        alias_path=output_path,
-    )
-    return audio_datastream
 
 
 @lru_cache()
@@ -64,11 +36,11 @@ def get_bpe_datastream(bpe_size, is_recog):
 
 
 @lru_cache()
-def build_audio_datastream(returnn_python_exe, returnn_root, output_path):
+def get_audio_datastream(returnn_python_exe, returnn_root, output_path):
     ogg_zip_dict = get_ogg_zip_dict("corpora")
     train_clean_100_ogg = ogg_zip_dict['train-clean-100']
 
-    audio_datastream = get_audio_datastream(
+    audio_datastream = get_default_asr_audio_datastream(
         statistics_ogg_zip=train_clean_100_ogg,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
@@ -109,7 +81,6 @@ def build_training_datasets(
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
 
     audio_datastream = get_audio_datastream(
-        statistics_ogg_zip=train_clean_100_ogg,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
         output_path=output_path,
@@ -184,7 +155,7 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
 
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
 
-    audio_datastream = build_audio_datastream(returnn_python_exe, returnn_root, output_path)
+    audio_datastream = get_audio_datastream(returnn_python_exe, returnn_root, output_path)
 
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}
