@@ -40,25 +40,56 @@ def run_baseline_training():
 
     return system
 
-monophone_aligner_system = None
+def run_non_dc_training():
 
-def get_monophone_aligner_system():
+    train, dev, test = get_corpus_data_inputs()
+
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_gmm/unfolded_monophone_non_dc'
+    system = gmm_system.GmmSystem()
+    start = time.time()
+    system.init_system(hybrid_init_args=get_init_args(dc_detection=False),
+                       monophone_args=get_monophone_args(),
+                       triphone_args=None,
+                       vtln_args=None,
+                       sat_args=None,
+                       vtln_sat_args=None,
+                       train_data=train,
+                       dev_data=dev,
+                       test_data=test)
+    print("init_system took: %.1f" % (time.time()-start))
+    start = time.time()
+    system.run(["extract", "mono"])
+    print("run took: %.1f" % (time.time()-start))
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ''
+
+    return system
+
+monophone_aligner_system = None
+monophone_aligner_system_nodc = None
+
+def get_monophone_aligner_system(no_dc_version=False):
     """
     :return: default monophone GMM baseline system for aligning librispeech
     :rtype: gmm_system.GmmSystem
     """
-    global monophone_aligner_system
-    if monophone_aligner_system is None:
-        monophone_aligner_system = run_baseline_training()
-    return monophone_aligner_system
+    if no_dc_version:
+        global monophone_aligner_system_nodc
+        if monophone_aligner_system_nodc is None:
+            monophone_aligner_system_nodc = run_non_dc_training()
+        return monophone_aligner_system_nodc
+    else:
+        global monophone_aligner_system
+        if monophone_aligner_system is None:
+            monophone_aligner_system = run_baseline_training()
+        return monophone_aligner_system
 
 
-def get_monophone_ls100_training_alignment_and_allophones():
-    aligner_system = get_monophone_aligner_system()
+def get_monophone_ls100_training_alignment_and_allophones(no_dc_version=False):
+    aligner_system = get_monophone_aligner_system(no_dc_version=no_dc_version)
     return aligner_system.alignments["train-clean-100"]["train_mono"][0].alternatives["bundle"], aligner_system.allophone_files["base"]
 
 
-def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True):
+def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True, system=None):
     """
 
     :param CorpusObject corpus_object
@@ -66,7 +97,7 @@ def align_any_data(corpus_object, name, concurrent, lexicon=None, uncached=True)
     :param int concurrent:
     :return:
     """
-    system = get_monophone_aligner_system()
+    system = system or get_monophone_aligner_system()
     train_corpus_name = system.train_corpora[0]
 
     if name not in system.crp.keys():

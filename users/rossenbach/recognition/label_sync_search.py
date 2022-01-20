@@ -262,7 +262,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
 
         self.rqmt = {
             "time": max(crp.corpus_duration * rtf / crp.concurrent, 4.5),
-            "cpu": 4,
+            "cpu": 3,
             "gpu": 1 if self.use_gpu else 0,
             "mem": mem,
         }
@@ -473,6 +473,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         config.flf_lattice_tool.network.sink.type = "sink"
         post_config.flf_lattice_tool.network.sink.warn_on_empty_lattice = True
         post_config.flf_lattice_tool.network.sink.error_on_empty_lattice = False
+        post_config["*"].output_channel.unbuffered = True
 
         # update parameters #
         config._update(extra_config)

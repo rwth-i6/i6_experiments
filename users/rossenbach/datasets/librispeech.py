@@ -46,7 +46,8 @@ def get_mixed_cv_segments(output_prefix="datasets"):
     Create a mixed crossvalidation set containing
     1500 lines of dev-clean and 1500 lines of dev-other
 
-    :return:
+    :return: line based segment file
+    :rtype: Path
     """
     bliss_corpus_dict = get_bliss_corpus_dict(output_prefix=output_prefix)
     dev_clean = bliss_corpus_dict['dev-clean']

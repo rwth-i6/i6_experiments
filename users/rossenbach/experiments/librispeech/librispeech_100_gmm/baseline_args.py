@@ -7,7 +7,7 @@ from i6_experiments.common.setups.rasr.util import *
 from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
 
-def get_init_args():
+def get_init_args(dc_detection=True):
     """
     :return:
     :rtype: hybrid.GmmInitArgs
@@ -43,7 +43,7 @@ def get_init_args():
                 'without_samples': False,
                 'samples_options': {
                     'audio_format': "wav",
-                    'dc_detection': True,
+                    'dc_detection': dc_detection,
                 },
                 'cepstrum_options': {
                     'normalize': False,
@@ -58,7 +58,7 @@ def get_init_args():
                 'without_samples': False,
                 'samples_options': {
                     'audio_format': "wav",
-                    'dc_detection': True
+                    'dc_detection': dc_detection
                 },
                 'fft_options': {},
             }

@@ -780,5 +780,4 @@ class CtcSystem(RasrSystem):
                     lattice_to_ctm_kwargs={},
                     **self.recognition_args.recognition_args,
                 )
-                break
 

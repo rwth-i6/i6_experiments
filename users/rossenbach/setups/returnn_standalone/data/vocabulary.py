@@ -1,4 +1,5 @@
 from sisyphus import tk
+from typing import  Any, Dict, Optional
 
 from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import BPESettings
 
@@ -28,14 +29,14 @@ class VocabularyDatastream(Datastream):
         self.vocab_size = vocab_size
         self.unk_label = unk_label
 
-    def as_returnn_extern_data_opts(self, **kwargs):
+    def as_returnn_extern_data_opts(self, available_for_inference: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
         :param tk.Variable|int vocab_size: number of labels
         :rtype: dict[str]
         """
         d = {
+            **super().as_returnn_extern_data_opts(available_for_inference=available_for_inference),
             'shape': (None,), 'dim': self.vocab_size, 'sparse': True,
-            'available_for_inference': self.available_for_inference
         }
         d.update(kwargs)
         return d
@@ -88,7 +89,7 @@ class BpeDatastream(VocabularyDatastream):
         return opts
 
 
-class SentencePieceDatastream:
+class SentencePieceDatastream(Datastream):
     """
 
     """
@@ -98,18 +99,18 @@ class SentencePieceDatastream:
             spm_model,
             vocab_size
     ):
-        self.available_for_inference = available_for_inference
+        super().__init__(available_for_inference)
         self.vocab_size = vocab_size
         self.spm_model = spm_model
 
-    def as_returnn_data_opts(self, **kwargs):
+    def as_returnn_extern_data_opts(self, available_for_inference: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
         :param tk.Variable|int vocab_size: number of labels
         :rtype: dict[str]
         """
         d = {
+            **super().as_returnn_extern_data_opts(available_for_inference=available_for_inference),
             'shape': (None,), 'dim': self.vocab_size, 'sparse': True,
-            'available_for_inference': self.available_for_inference
         }
         d.update(kwargs)
         return d
