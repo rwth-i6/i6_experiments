@@ -308,30 +308,6 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         util.backup_if_exists("recognition.log.%d" % task_id)
         util.delete_if_exists("lattice.cache.%d" % task_id)
 
-    # other hidden params set in extra_config #
-    @classmethod
-    def get_default_search_config(cls, lm_scale=1.0, **kwargs):
-        search_config = rasr.RasrConfig()
-        # TODO relation not clear yet, so far like this
-        search_config.label_pruning = 10.0
-        search_config.label_pruning_limit = 20000
-        search_config.word_end_pruning = 0.5
-        search_config.word_end_pruning_limit = 5000
-
-        search_config.create_lattice = True
-        search_config.optimize_lattice = True
-        return search_config
-
-    @classmethod
-    def get_default_lookahead_config(cls, scale=1.0, **kwargs):
-        lookahead_config = rasr.RasrConfig()
-        lookahead_config.history_limit = -1
-        lookahead_config.cache_size_low = 2000
-        lookahead_config.cache_size_high = 3000
-        # lookahead scale has to be explicitly set now (independent of lm.scale) #
-        lookahead_config.scale = scale
-        return lookahead_config
-
     @classmethod
     def create_config(
         cls,
@@ -412,8 +388,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         )
 
         # search settings #
-        lm_scale = config.flf_lattice_tool.network.recognizer.lm.scale
-        search_config = cls.get_default_search_config(lm_scale)
+        search_config = rasr.RasrConfig()
         if search_parameters is not None:
             for key in search_parameters.keys():
                 search_config[key] = search_parameters[key]
@@ -424,7 +399,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
             lm_lookahead
         )
         if lm_lookahead:
-            lookahead_config = cls.get_default_lookahead_config(lm_scale)
+            lookahead_config = rasr.RasrConfig()
             if lookahead_options is not None:
                 for key in lookahead_options.keys():
                     lookahead_config[key] = lookahead_options[key]
