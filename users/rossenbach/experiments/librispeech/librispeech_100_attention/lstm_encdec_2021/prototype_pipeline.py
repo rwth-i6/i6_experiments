@@ -1,3 +1,4 @@
+import os.path
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict
@@ -175,7 +176,7 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
     return test_dataset, test_reference_dict_file
 
 
-def training(prefix_name, returnn_config, returnn_exe, returnn_root):
+def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
     """
 
     :param prefix_name:
@@ -194,13 +195,28 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root):
 
     train_job = ReturnnTrainingJob(
         returnn_config=returnn_config,
-        num_epochs=250,
+        num_epochs=num_epochs,
         **default_rqmt
     )
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
     return train_job
+
+
+def get_best_checkpoint(training_job, output_path):
+    """
+    :param ReturnnTrainingJob training_job:
+    :return:
+    """
+    from i6_experiments.users.rossenbach.returnn.training import GetBestCheckpointJob
+    best_checkpoint_job = GetBestCheckpointJob(
+        training_job.out_model_dir,
+        training_job.out_learning_rates,
+        key="dev_score_output/output_prob",
+        index=0)
+    best_checkpoint_job.add_alias(os.path.join(output_path, "get_best_checkpoint"))
+    return best_checkpoint_job.out_checkpoint
 
 
 def search_single(
@@ -244,19 +260,18 @@ def search_single(
     tk.register_output(prefix_name + "/wer", wer.out_wer)
 
 
-def search(prefix_name, returnn_config, train_job, test_dataset_tuples, returnn_exe, returnn_root):
+def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root):
     """
 
     :param str prefix_name:
     :param ReturnnConfig returnn_config:
-    :param ReturnnTrainingJob train_job:
+    :param Checkpoint checkpoint:
     :param test_dataset_tuples:
     :param returnn_exe:
     :param returnn_root:
     :return:
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
-    checkpoint = train_job.out_checkpoints[250]
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
 

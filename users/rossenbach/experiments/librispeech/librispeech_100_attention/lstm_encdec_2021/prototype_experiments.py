@@ -8,12 +8,12 @@ from i6_core.tools import CloneGitRepositoryJob
 from i6_core.returnn import ReturnnConfig
 
 from .prototype_pipeline import \
-    build_training_datasets, build_test_dataset, training, search
+    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint
 from .specaugment_clean import \
     SpecAugmentSettings
 
 
-def trainig_network_mohammad(specaug_settings=None, fix_regularization=False):
+def trainig_network_mohammad(specaug_settings=None, fix_regularization=False, fix_act=False):
     """
     Network derived from Mohammads Librispeech-100h system with new encoder pre-training
 
@@ -56,7 +56,8 @@ def trainig_network_mohammad(specaug_settings=None, fix_regularization=False):
         encoder = EncoderWrapper(audio_feature_key="audio_features", target_label_key="bpe_labels",
                                  num_lstm_layers=2 + network_stage, lstm_pool_sizes=lstm_pool_sizes, lstm_dropout=lstm_dropout,
                                  lstm_single_dim=lstm_dim, l2=l2,
-                                 specaugment_settings=specaug_settings_light if i < 3 else specaug_settings_full)
+                                 specaugment_settings=specaug_settings_light if i < 3 else specaug_settings_full,
+                                 conv_activation=None if fix_act else 'relu')
         encoder_dict = encoder.make_root_net_dict()
         # Eval layer hack for specaugment
         encoder_dict['encoder']['subnetwork']['specaug_block']['subnetwork']['eval_layer'].pop("kind")
@@ -173,11 +174,20 @@ def test():
     exp_prefix = prefix_name + "/test_enc_only_fixed_specaug"
     returnn_config = get_config(training_datasets, specaug_settings=specaug_settings)
     train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
-    search(exp_prefix + "/default", returnn_config, train_job, test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
 
     # Initial experiment
     exp_prefix = prefix_name + "/test_enc_only_fixed_regularizaion"
     returnn_config = get_config(training_datasets, specaug_settings=specaug_settings, fix_regularization=True)
     train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
-    search(exp_prefix + "/default", returnn_config, train_job, test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
+
+    # Initial experiment
+    exp_prefix = prefix_name + "/test_enc_only_fixed_act"
+    returnn_config = get_config(training_datasets, specaug_settings=specaug_settings, fix_regularization=True, fix_act=True)
+    train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
 

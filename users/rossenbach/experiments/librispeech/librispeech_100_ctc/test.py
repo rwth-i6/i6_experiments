@@ -65,7 +65,10 @@ recog_args = CtcRecognitionArgs(
         'feature_flow': 'gt',
         'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
         'lookahead_options': {
-            'history-limit': 1
+            'history-limit': 1,
+            'cache-size-low': 2000,
+            'cache-size-high': 3000,
+            'scale': None, # use lm scale also for lookahead
         }, # the lookahead rasr options
         #'create_lattice': True, # write lattice cache files
         'eval_single_best': True, # show the evaluation of the best path in lattice in the log (model score)
@@ -95,7 +98,7 @@ recog_args = CtcRecognitionArgs(
         'word-end-pruning': 0.5,
         'word-end-pruning-limit': 20000,
         # keep alternative paths in the lattice or not
-        #'create-lattice': True,
+        'create-lattice': True,
         'optimize-lattice': False,
     }
 )
@@ -193,7 +196,7 @@ def get_returnn_config(use_legacy_network=False, feature_dropout=False, stronger
 
     specaugment_settings = SpecAugmentSettings(
         min_frame_masks=0,
-        max_mask_each_n_frames=30 if stronger_specaug else 200,
+        max_mask_each_n_frames=22 if stronger_specaug else 200,
         max_frames_per_mask=15 if stronger_specaug else 5,
         min_feature_masks=0,
         max_feature_masks=1,
@@ -212,9 +215,9 @@ def get_returnn_config(use_legacy_network=False, feature_dropout=False, stronger
                              python_prolog=get_funcs(), hash_full_python_code=True)
     else:
         network1 = network_func(4, 512, [1, 1, 2], 139, dropout=0.1, l2=0.001, specaugment_settings=None, feature_dropout=False)
-        network2 = network_func(5, 512, [1, 1, 2], 139, dropout=0.2, l2=0.05, specaugment_settings=None, feature_dropout=False)
-        network3 = network_func(6, 512, [1, 1, 2], 139, dropout=0.2, l2=0.01, specaugment_settings=None, feature_dropout=feature_dropout)
-        network4 = network_func(6, 512, [1, 1, 2], 139, dropout=0.2, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout)
+        network2 = network_func(5, 512, [1, 1, 2], 139, dropout=0.1, l2=0.05, specaugment_settings=None, feature_dropout=False)
+        network3 = network_func(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=None, feature_dropout=feature_dropout)
+        network4 = network_func(6, 512, [1, 1, 2], 139, dropout=0.1, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout)
 
         staged_network_dict = {
             1: network1,
@@ -244,7 +247,7 @@ def get_default_training_args():
         'cpu_rqmt'           : 4,
         #'qsub_rqmt'          : '-l qname=!*980*',
         'log_verbosity'      : 5,
-        'use_python_control' : False,
+        'use_python_control' : True,
         'returnn_python_exe': returnn_exe,
         'returnn_root': returnn_root,
     }
@@ -311,7 +314,7 @@ def ctc_test_no_empty_orth():
     )
     train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth_featdrop_v2"
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth_featdrop_v3"
     system.init_system(
         rasr_init_args=rasr_args,
         train_data=train_data,

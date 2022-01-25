@@ -137,23 +137,6 @@ class CtcSystem(RasrSystem):
         self.crp["base"].acoustic_model_config.phonology.future_length = 0
         self.crp["base"].acoustic_model_config.phonology.history_length = 0
 
-        # make traindev
-        # from i6_core.corpus.transform import MergeCorporaJob
-        # bliss_corpora = []
-        # lexica = []
-        # for name, v in sorted(train_data.items()):
-        #     bliss_corpora.append(v.corpus_object.corpus_file)
-        #     lexica.append(v.corpus_object)
-        # for name, v in sorted(dev_data.items()):
-        #     bliss_corpora.append(v.corpus_object.corpus_file)
-
-        # merged_bliss = MergeCorporaJob(bliss_corpora, "merged_train_dev")
-        # RasrDataInput()
-        # self.add_corpus("merged_train_dev", )
-
-        # train_segments = {}
-        # for name, v in sorted(train_data.items()):
-
         for name, v in sorted(train_data.items()):
             add_lm = True if v.lm is not None else False
             self.add_corpus(name, data=v, add_lm=add_lm)
@@ -447,7 +430,8 @@ class CtcSystem(RasrSystem):
         from sisyphus.delayed_ops import DelayedFunction
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = tf_graph
-        tf_flow.config[tf_fwd].loader.saved_model_file = tf_checkpoint.get_delayed_checkpoint_path()
+        #tf_flow.config[tf_fwd].loader.saved_model_file = tf_checkpoint.get_delayed_checkpoint_path()
+        tf_flow.config[tf_fwd].loader.saved_model_file = tf_checkpoint
 
         # TODO: HACK
         from i6_core.returnn.compile import CompileNativeOpJob
@@ -555,6 +539,8 @@ class CtcSystem(RasrSystem):
             tf_checkpoint,
             pronunciation_scale,
             lm_scale,
+            lm_lookahead,
+            lookahead_options=None,
             parallelize_conversion=False,
             lattice_to_ctm_kwargs=None,
             prefix="",
@@ -567,8 +553,10 @@ class CtcSystem(RasrSystem):
         :param Checkpoint tf_checkpoint:
         :param float pronunciation_scale:
         :param float lm_scale:
+        :param bool lm_lookahead:
+        :param dict|None lookahead_options:
         :param bool parallelize_conversion:
-        :param dict lattice_to_ctm_kwargs:
+        :param dict|None lattice_to_ctm_kwargs:
         :param str prefix:
         :param kwargs:
         :return:
@@ -610,6 +598,12 @@ class CtcSystem(RasrSystem):
         if pronunciation_scale > 0:
             extra_config.flf_lattice_tool.network.recognizer.pronunciation_scale = pronunciation_scale
 
+        if lm_lookahead:
+            assert lookahead_options is not None
+            # we want to alter this now
+            lookahead_options = copy.deepcopy(lookahead_options)
+            if lookahead_options.get("scale", None) is None:
+                lookahead_options["scale"] = lm_scale
 
         # Fixed CTC settings:
         extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_label_loop = True
@@ -623,6 +617,8 @@ class CtcSystem(RasrSystem):
             feature_flow=feature_flow,
             label_scorer=label_scorer,
             label_tree=label_tree,
+            lm_lookahead=lm_lookahead,
+            lookahead_options=lookahead_options,
             extra_config=extra_config,
             **kwargs,
         )

@@ -12,7 +12,7 @@ from i6_core.meta.system import select_element
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.common.setups.rasr import gmm_system
 
-from .baseline_args import get_init_args, get_monophone_args
+from .baseline_args import get_init_args, get_monophone_args, get_cart_args, get_triphone_args
 from .data import get_corpus_data_inputs
 
 
@@ -49,7 +49,8 @@ def run_non_dc_training():
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(dc_detection=False),
                        monophone_args=get_monophone_args(),
-                       triphone_args=None,
+                       cart_args=get_cart_args(folded=False),
+                       triphone_args=get_triphone_args(),
                        vtln_args=None,
                        sat_args=None,
                        vtln_sat_args=None,
@@ -58,7 +59,7 @@ def run_non_dc_training():
                        test_data=test)
     print("init_system took: %.1f" % (time.time()-start))
     start = time.time()
-    system.run(["extract", "mono"])
+    system.run(["extract", "mono", "cart", "tri"])
     print("run took: %.1f" % (time.time()-start))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ''
 

@@ -1,10 +1,11 @@
 from i6_core.features.filterbank import filter_width_from_channels
+from i6_core import cart
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrInitArgs
 
 from i6_experiments.common.setups.rasr.util import *
-from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
+from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions, UnfoldedCartQuestions
 
 
 def get_init_args(dc_detection=True):
@@ -48,7 +49,8 @@ def get_init_args(dc_detection=True):
                 'cepstrum_options': {
                     'normalize': False,
                     'outputs': 16, # this is the actual output feature dimension
-                    'add_epsilon': False,
+                    'add_epsilon': not dc_detection, # when there is no dc-detection we can have log(0) otherwise
+                    'epsilon': 1e-10,
                 },
                 'fft_options': None,
             }
@@ -129,13 +131,17 @@ def get_monophone_args():
     )
 
 def get_cart_args(
+        folded=False,
         max_leaves: int = 12001,
         min_obs: int = 1000,
         hmm_states: int = 3,
         feature_flow: str = "mfcc+deriv+norm",
         add_unknown: bool = True,
 ):
-    cart_questions_class = FoldedCartQuestions(
+
+    CartQuestions = FoldedCartQuestions if folded else UnfoldedCartQuestions
+
+    cart_questions_class = CartQuestions(
         max_leaves=max_leaves,
         min_obs=min_obs,
         add_unknown=add_unknown,

@@ -99,7 +99,7 @@ class ConvBLSTMEncoder(Module):
 
     def __init__(self, l2=0.001, audio_feature_key="audio_features", target_label_key="bpe_labels",
                  conv_dropout=0.0, conv_filter_sizes=[(3, 3), (3, 3)], conv_pool_sizes=[(1, 2), (1, 2)],
-                 conv_channel_sizes=[32, 32], num_lstm_layers=6, lstm_single_dim=1024, lstm_dropout=0.3,
+                 conv_channel_sizes=[32, 32], conv_activation='relu', num_lstm_layers=6, lstm_single_dim=1024, lstm_dropout=0.3,
                  lstm_pool_sizes=[3, 2], specaugment_settings=None):
         """
 
@@ -128,7 +128,8 @@ class ConvBLSTMEncoder(Module):
 
         self.conv_block = Encoder2DConvBlock(
             l2=l2, dropout=conv_dropout, filter_sizes=conv_filter_sizes,
-            pool_sizes=conv_pool_sizes, channel_sizes=conv_channel_sizes
+            pool_sizes=conv_pool_sizes, channel_sizes=conv_channel_sizes,
+            act=conv_activation
         )
 
         self.lstm_layers = []
