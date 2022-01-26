@@ -912,27 +912,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
-
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=tst_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM Mono ----------
             if step_args.sdm_args is not None:
@@ -948,27 +935,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
-
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=tst_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM Tri ----------
             if step_args.sdm_args is not None:
@@ -1004,19 +978,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args["train"],
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["train"]["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["train"]["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                pass
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM VTLN ----------
             if step_args.sdm_args is not None:
@@ -1032,10 +1001,10 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
+            for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
                     corpus=dev_c,
@@ -1045,7 +1014,18 @@ class GmmSystem(RasrSystem):
                 )
 
             for tst_c in self.test_corpora:
-                pass
+                recog_args = copy.deepcopy(step_args.recognition_args)
+                if step_args.test_recognition_args is None:
+                    break
+                recog_args.update(step_args.test_recognition_args)
+                recog_args["optimize_am_lm_scale"] = False
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus_key=tst_c,
+                    feature_scorer_key=feature_scorer,
+                    **recog_args,
+                )
 
             # ---------- SDM Sat ----------
             if step_args.sdm_args is not None:
@@ -1061,10 +1041,10 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
+            for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
                     corpus=dev_c,
@@ -1074,7 +1054,18 @@ class GmmSystem(RasrSystem):
                 )
 
             for tst_c in self.test_corpora:
-                pass
+                recog_args = copy.deepcopy(step_args.recognition_args)
+                if step_args.test_recognition_args is None:
+                    break
+                recog_args.update(step_args.test_recognition_args)
+                recog_args["optimize_am_lm_scale"] = False
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus_key=tst_c,
+                    feature_scorer_key=feature_scorer,
+                    **recog_args,
+                )
 
             # ---------- SDM VTLN+SAT ----------
             if step_args.sdm_args is not None:
@@ -1082,6 +1073,53 @@ class GmmSystem(RasrSystem):
                     corpus_key=trn_c,
                     **step_args.sdm_args,
                 )
+
+    def run_recognition_step(
+        self,
+        step_args,
+        name: Optional[str] = None,
+        feature_scorer: Optional[Tuple[str, str]] = None,
+    ):
+        assert (
+            name is None
+            and feature_scorer is None
+            and isinstance(step_args, RecognitionArgs)
+        ) ^ (
+            isinstance(name, str)
+            and isinstance(feature_scorer, Tuple)
+            and not isinstance(step_args, RecognitionArgs)
+        ), (
+            "please check that vairables are not specified in two places. type (name, feature_scorer, step_args):",
+            type(name),
+            type(feature_scorer),
+            type(step_args),
+        )
+
+        if isinstance(step_args, RecognitionArgs):
+            name = step_args.name
+            feature_scorer = step_args.recognition_args.pop("feature_scorer_key")
+
+        for dev_c in self.dev_corpora:
+            self.recognition(
+                name=name,
+                corpus_key=dev_c,
+                feature_scorer_key=feature_scorer,
+                **step_args.recognition_args,
+            )
+
+        for tst_c in self.test_corpora:
+            recog_args = copy.deepcopy(step_args.recognition_args)
+            if step_args.test_recognition_args is None:
+                break
+            recog_args.update(step_args.test_recognition_args)
+            recog_args["optimize_am_lm_scale"] = False
+
+            self.recognition(
+                name=name,
+                corpus_key=tst_c,
+                feature_scorer_key=feature_scorer,
+                **recog_args,
+            )
 
     # -------------------- run setup  --------------------
 
@@ -1198,3 +1236,8 @@ class GmmSystem(RasrSystem):
                         feature_scorer_corpus_key=trn_c,
                         **step_args,
                     )
+
+            # ---------- Only Recognition ----------
+            if step_name.startswith("recog"):
+                self.run_recognition_step(step_args)
+
