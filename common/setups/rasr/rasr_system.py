@@ -124,6 +124,9 @@ class RasrSystem(meta.System):
         self._init_lexicon(corpus_key, **data.lexicon)
         if add_lm:
             self._init_lm(corpus_key, **data.lm)
+        tk.register_output(
+            f"corpora/{corpus_key}.xml.gz", data.corpus_object.corpus_file
+        )
 
     def extract_features_for_corpus(self, corpus: str, feat_args: dict):
         """

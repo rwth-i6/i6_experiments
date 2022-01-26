@@ -4,6 +4,7 @@ import copy
 import itertools
 import sys
 
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 # -------------------- Sisyphus --------------------
@@ -38,6 +39,8 @@ from .util import (
     GmmSatArgs,
     GmmVtlnSatArgs,
     RasrSteps,
+    GmmOutput,
+    RecognitionArgs,
 )
 
 # -------------------- Init --------------------
@@ -92,8 +95,8 @@ class GmmSystem(RasrSystem):
         self.sat_args: Optional[GmmSatArgs] = None
         self.vtln_sat_args: Optional[GmmVtlnSatArgs] = None
 
-        self.cart_questions: Union[
-            Type[cart.BasicCartQuestions], cart.PythonCartQuestions, tk.Path
+        self.cart_questions: Optional[
+            Union[Type[cart.BasicCartQuestions], cart.PythonCartQuestions, tk.Path]
         ] = None
         self.cart_trees = {}
         self.lda_matrices = {}
@@ -105,6 +108,8 @@ class GmmSystem(RasrSystem):
             "default": 5,
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
+
+        self.outputs = defaultdict(dict)
 
     # -------------------- Setup --------------------
     def init_system(
@@ -826,6 +831,77 @@ class GmmSystem(RasrSystem):
                     **kwargs,
                 )
 
+    # -------------------- output helpers  --------------------
+
+    def get_gmm_output(
+        self,
+        corpus_key: str,
+        corpus_type: str,
+        step_idx: int,
+        steps: RasrSteps,
+        extract_features: List,
+    ):
+        """
+        :param corpus_key: corpus name identifier
+        :param corpus_type: corpus used for: train, dev or test
+        :param step_idx: which iteration to take within one step
+        :param steps: all steps in pipeline
+        :param extract_features: list of features to extract for later usage
+        :return GmmOutput:
+        """
+        gmm_output = GmmOutput()
+        gmm_output.crp = self.crp[corpus_key]
+        gmm_output.corpus_file = self.corpora[corpus_key].corpus_file
+        gmm_output.corpus_object = self.corpora[corpus_key]
+        gmm_output.lexicon_file = self.crp[corpus_key].lexicon_config.file
+        gmm_output.lexicon = self.crp[corpus_key].lexicon_config
+        gmm_output.state_tying = self.crp[corpus_key].acoustic_model_config.state_tying
+        gmm_output.feature_flows = self.feature_flows[corpus_key]
+        gmm_output.features = self.feature_caches[corpus_key]
+        gmm_output.segment_path = self.crp[corpus_key].segment_path
+        gmm_output.allophone_file = self.allophone_files["base"]
+
+        for feat_name in extract_features:
+            tk.register_output(
+                f"features/{corpus_key}_{feat_name}_features.bundle",
+                self.feature_bundles[corpus_key][feat_name],
+            )
+
+        if corpus_type == "dev" or corpus_type == "test":
+            gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
+            gmm_output.lm = self.crp[corpus_key].language_model_config
+
+            scorer_key = (
+                f"estimate_mixtures_sdm.{steps.get_step_names_as_list()[step_idx - 1]}"
+            )
+            gmm_output.feature_scorers[scorer_key] = self.feature_scorers[
+                corpus_key
+            ].get(scorer_key, [None])[-1]
+            scorer_key = f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            gmm_output.feature_scorers[scorer_key] = self.feature_scorers[
+                corpus_key
+            ].get(scorer_key, [None])[-1]
+
+        if corpus_type == "dev" and self.alignments[corpus_key].get(
+            f"alignment_{steps.get_step_names_as_list()[step_idx - 1]}", False
+        ):
+            gmm_output.alignments = self.alignments[corpus_key][
+                f"alignment_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+
+        if corpus_type == "train":
+            gmm_output.alignments = self.alignments[corpus_key][
+                f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+            gmm_output.acoustic_mixtures = self.mixtures[corpus_key][
+                f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+            if self.crp[corpus_key].language_model_config is not None:
+                gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
+                gmm_output.lm = self.crp[corpus_key].language_model_config
+
+        return gmm_output
+
     # -------------------- run functions  --------------------
 
     def run_monophone_step(self, step_args):
@@ -1029,7 +1105,7 @@ class GmmSystem(RasrSystem):
                         s,
                         GmmCartArgs(
                             cart_questions=self.cart_questions,
-                            cart_lda_args=self.cart_lda_args,
+                            cart_lda_args=self.cart_lda_args.cart_lda_args,
                         ),
                     )
                 elif s == "tri":
