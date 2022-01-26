@@ -1121,6 +1121,16 @@ class GmmSystem(RasrSystem):
                 **recog_args,
             )
 
+    def run_output_step(self, step_args, step_idx, steps):
+        for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
+            self.outputs[corpus_key][step_args.name] = self.get_gmm_output(
+                corpus_key,
+                corpus_type,
+                step_idx,
+                steps,
+                step_args.extract_features,
+            )
+
     # -------------------- run setup  --------------------
 
     def run(self, steps: Union[List[str], RasrSteps]):
@@ -1241,3 +1251,6 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("recog"):
                 self.run_recognition_step(step_args)
 
+            # ---------- Step Output ----------
+            if step_name.startswith("output"):
+                self.run_output_step(step_args, step_idx=step_idx, steps=steps)
