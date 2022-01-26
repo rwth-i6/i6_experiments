@@ -292,6 +292,10 @@ class GmmVtlnSatArgs:
 
 
 class ForcedAlignmentArgs:
+    """
+    parameters for forceda alignment on the target corpus
+    """
+
     def __init__(
         self,
         name: str,
@@ -299,6 +303,12 @@ class ForcedAlignmentArgs:
         flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
         feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
     ):
+        """
+        :param name: experiment name
+        :param target_corpus_key: target corpus
+        :param flow: feature flow
+        :param feature_scorer: feature scorer (normally trained on different corpus)
+        """
         self.name = name
         self.target_corpus_key = target_corpus_key
         self.flow = flow
@@ -306,25 +316,58 @@ class ForcedAlignmentArgs:
 
 
 class RecognitionArgs:
+    """
+    stand alone recognition
+    """
+
     def __init__(self, name, recognition_args):
+        """
+        :param name: recognition name
+        :param recognition_args: recognition arguments. further doc: GmmMonophoneArgs.recognition_args
+        """
         self.name = name
         self.recognition_args = recognition_args
 
 
 class OutputArgs:
+    """
+    defines which output should be generated for the GMM pipeline
+    """
+
     def __init__(self, name):
+        """
+        :param name: name the outputs
+        """
         self.name = name
         self.corpus_type_mapping = {}
         self.extract_features = []
 
     def define_corpus_type(self, corpus_key, corpus_type):
+        """
+        Defines a mapping from corpus_key to corpus_type (train, dev, test).
+        This defines how the output is structured/selected.
+
+        :param corpus_key: any corpus key previously defined. see GmmSystem.init_system
+        :param corpus_type: train, dev or test
+        :return:
+        """
         self.corpus_type_mapping[corpus_key] = corpus_type
 
     def add_feature_to_extract(self, feature_key):
+        """
+        add feature keys for extraction and output
+
+        :param feature_key: for example mfcc or gt. see RasrInitArgs.feature_extraction_args
+        :return:
+        """
         self.extract_features.append(feature_key)
 
 
 class GmmOutput:
+    """
+    holds all the information generated as output to the GMM pipeline
+    """
+
     def __init__(self):
         self.crp: Optional[rasr.CommonRasrParameters] = None
         self.corpus_file: Optional[tk.Path] = None
@@ -352,6 +395,14 @@ class GmmOutput:
         feature_flow_key: str = "gt",
         shuffle_data: bool = True,
     ):
+        """
+        dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
+
+        :param name:
+        :param feature_flow_key:
+        :param shuffle_data:
+        :return:
+        """
         data = ReturnnRasrDataInput(
             name=name,
             corpus_object=self.corpus_object,
