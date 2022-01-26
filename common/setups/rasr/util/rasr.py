@@ -1,0 +1,204 @@
+__all__ = [
+    "RasrDataInput",
+    "RasrInitArgs",
+    "RescoreArgs",
+    "RasrSteps",
+]
+
+
+from collections import OrderedDict
+from typing import Dict, Optional
+
+import i6_core.meta as meta
+
+
+class RasrDataInput:
+    """
+    this class holds the data information for a rasr gmm setup:
+    - corpus object
+    - lexicon: file, normalization
+    - lm: file, scale, type
+    - concurrency
+    """
+
+    def __init__(
+        self,
+        corpus_object: meta.CorpusObject,
+        lexicon: dict,
+        lm: Optional[dict] = None,
+        concurrent: int = 10,
+    ):
+        """
+        :param corpus_object: corpus_file: Path, audio_dir: Path, audio_format: str, duration: float
+        :param lexicon: file: Path, normalize_pronunciation: bool
+        :param lm: filename: Path, type: str, scale: float
+        :param concurrent: concurrency for gmm hmm pipeline
+        """
+        self.corpus_object = corpus_object
+        self.lexicon = lexicon
+        self.lm = lm
+        self.concurrent = concurrent
+
+
+# when getting an zero weights error, set:
+#
+# extra_config = sprint.SprintConfig()
+# extra_config.allow_zero_weights = True
+# {accumulate,split,align}_extra_args = {'extra_config': extra_config}
+#
+# '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
+#
+# vtln align time = 8
+#
+# if not using the run function -> name and corpus almost always to be added
+
+
+class RasrInitArgs:
+    """
+    Class holds general information for the complete pipeline.
+    These values can/will change during the training process.
+
+    - acoustic modeling information: monophone, triphone, hmm states, ...
+    - feature extraction: MFCC, GT, ...
+    - corpus statistics settings
+    - scorer settings
+    """
+
+    def __init__(
+        self,
+        costa_args: dict,
+        am_args: dict,
+        feature_extraction_args: dict,
+        default_mixture_scorer_args: dict,
+        scorer: Optional[str] = None,
+    ):
+        """
+        ##################################################
+        :param costa_args: {
+            'eval_recordings': True,
+            'eval_lm': True
+        }
+        ##################################################
+        :param am_args: {
+            'state_tying': "monophone",
+            'states_per_phone': 3,
+            'state_repetitions': 1,
+            'across_word_model': True,
+            'early_recombination': False,
+            'tdp_scale': 1.0,
+            'tdp_transition': (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
+            'tdp_silence': (0.0, 3.0, "infinity", 20.0),
+            'tying_type': "global",
+            'nonword_phones': "",
+            'tdp_nonword': (0.0, 3.0, "infinity", 6.0)  # only used when tying_type = global-and-nonword
+        }
+        ##################################################
+        :param feature_extraction_args:
+            'mfcc': {
+                'num_deriv': 2,
+                'num_features': None,  # confusing name: number of max features, above number -> clipped
+                'mfcc_options': {
+                    'warping_function': "mel",
+                    'filter_width': 268.258,  # 80
+                    'normalize': True,
+                    'normalization_options': None,
+                    'without_samples': False,
+                    'samples_options': {
+                        'audio_format': "wav",
+                        'dc_detection': True,
+                    },
+                'cepstrum_options': {
+                    'normalize': False,
+                    'outputs': 16,
+                    'add_epsilon': False,
+                },
+                'fft_options': None,
+                }
+            }
+            'gt': {
+                'minfreq': 100,
+                'maxfreq': 7500,
+                'channels': 50,
+                'warp_freqbreak': None,  # 3700
+                'tempint_type': 'hanning',
+                'tempint_shift': .01,
+                'tempint_length': .025,
+                'flush_before_gap': True,
+                'do_specint': False,
+                'specint_type': 'hanning',
+                'specint_shift': 4,
+                'specint_length': 9,
+                'normalize': True,
+                'preemphasis': True,
+                'legacy_scaling': False,
+                'without_samples': False,
+                'samples_options': {
+                    'audio_format': "wav",
+                    'dc_detection': True
+                },
+                'normalization_options': {},
+            }
+            'fb': {
+                'warping_function': "mel",
+                'filter_width': 80,
+                'normalize': True,
+                'normalization_options': None,
+                'without_samples': False,
+                'samples_options': {
+                    'audio_format': "wav",
+                    'dc_detection': True
+                },
+                'fft_options': None,
+                'apply_log': True,
+                'add_epsilon': False,
+            }
+            'energy': {
+                'without_samples': False,
+                'samples_options': {
+                    'audio_format': "wav",
+                    'dc_detection': True
+                    },
+                'fft_options': {},
+            }
+        ##################################################
+        :param default_mixture_scorer_args:
+        {"scale": 0.3}
+        ##################################################
+        :param scorer:
+        "kaldi", "sclite", default is sclite
+        ##################################################
+        """
+        self.costa_args = costa_args
+        self.default_mixture_scorer_args = default_mixture_scorer_args
+        self.scorer = scorer
+        self.am_args = am_args
+        self.feature_extraction_args = feature_extraction_args
+
+
+class RescoreArgs:
+    def __init__(
+        self,
+        rescoring_args: Optional[Dict[str, Dict]] = None,
+    ):
+        """
+        :param rescoring_args:
+        ##################################################
+        """
+        self.rescoring_args = rescoring_args
+
+
+class RasrSteps:
+    def __init__(self):
+        self._step_names_args = OrderedDict()
+
+    def add_step(self, name, arg):
+        self._step_names_args[name] = arg
+
+    def get_step_iter(self):
+        return self._step_names_args.items()
+
+    def get_step_names_as_list(self):
+        return list(self._step_names_args.keys())
+
+    def get_args_via_idx(self, idx):
+        return list(self._step_names_args.values())[idx]
