@@ -29,7 +29,7 @@ class CutSpeechSegmentsFromAudio(Job):
         assert file_extension in ['.wav', '.flac', '.mp3']
 
         self.out_audio_path = self.output_path("audio/", directory=True)
-        self.cut_rqmt = {'time': 8, 'mem': 16, 'cpu': 4}
+        self.cut_rqmt = {'time': 8, 'mem': 16, 'cpu': self.n_workers}
 
     def tasks(self):
         yield Task("run", rqmt=self.cut_rqmt)
