@@ -30,10 +30,24 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         assert file_extension in ['wav', 'flac', 'mp3']
 
         self.out_audio_path = self.output_path("audio/", directory=True)
-        self.rqmt = {'time': 8, 'mem': 16, 'cpu': self.n_workers}
+        self.rqmt = {'time': 8, 'mem': 16, 'cpu': 4}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        self.corpus_object = corpus.Corpus()
+        self.corpus_object.load(self.bliss_corpus_file.get_path())
+        recordings = list(self.corpus_object.all_recordings())
+
+        print(f"{len(recordings)} recordings detected")
+        print(f"launching {self.n_workers} processes")
+
+        tasks = [(r, self.out_audio_path, self.target_length, self.file_extension) for r in recordings]
+        with multiprocessing.Pool(processes=self.n_workers) as pool:
+            for i, _ in enumerate(pool.imap_unordered(self.cut_file, tasks)):
+                if i % 100 == 0:
+                    logging.info(f"{i} of {len(tasks)} files done")
 
     def cut_file(self, task):
         recording, root_out, target_len_sec, extension = task
@@ -71,16 +85,11 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
             file_out = f"{root_out}/{recording_name}_{i}.{extension}"
             sf.write(file_out, np.hstack(to_stitch), samplerate=samplerate)
 
-    def run(self):
-        self.corpus_object = corpus.Corpus()
-        self.corpus_object.load(self.bliss_corpus_file.get_path())
-        recordings = list(self.corpus_object.all_recordings())
-
-        print(f"{len(recordings)} recordings detected")
-        print(f"launching {self.n_workers} processes")
-
-        tasks = [(r, self.out_audio_path, self.target_length, self.file_extension) for r in recordings]
-        with multiprocessing.Pool(processes=self.n_workers) as pool:
-            for i, _ in enumerate(pool.imap_unordered(self.cut_file, tasks)):
-                if i % 100 == 0:
-                    logging.info(f"{i} of {len(tasks)} files done")
+    @classmethod
+    def hash(cls, kwargs):
+        d = {
+            "bliss_corpus_file": kwargs["bliss_corpus_file"],
+            "target_length": kwargs["target_length"],
+            "file_extension": kwargs["file_extension"],
+        }
+        return super().hash(d)
