@@ -6,15 +6,15 @@ import tqdm
 
 from sisyphus import Job, Task, tk
 
-class CutSpeechSegmentsFromAudio(Job):
+class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
     """
-    This Job uses a transcription file to cut all segments containing speech from the audio files
+    This Job uses a bliss corpus to cut all segments containing speech from the audio files
     and stitches them together to files of a target length. Segments that are
     longer than the target_length are stored as individual files.
 
 
     """
-    def __init__(self, bliss_corpus, target_length=20, n_workers=16, file_extension='.wav'):
+    def __init__(self, bliss_corpus_file, target_length=20, n_workers=16, file_extension='wav'):
         """
 
         :param tk.Path bliss_corpus:
@@ -22,17 +22,17 @@ class CutSpeechSegmentsFromAudio(Job):
         :param int n_workers: number of threads for work on files in parallel
         :param str file_extension: currently supported are wav, flac and mp3
         """
-        self.bliss_corpus = bliss_corpus
+        self.bliss_corpus_file = bliss_corpus_file
         self.target_length = target_length
         self.n_workers = n_workers
         self.file_extension = file_extension
-        assert file_extension in ['.wav', '.flac', '.mp3']
+        assert file_extension in ['wav', 'flac', 'mp3']
 
         self.out_audio_path = self.output_path("audio/", directory=True)
-        self.cut_rqmt = {'time': 8, 'mem': 16, 'cpu': self.n_workers}
+        self.rqmt = {'time': 8, 'mem': 16, 'cpu': self.n_workers}
 
     def tasks(self):
-        yield Task("run", rqmt=self.cut_rqmt)
+        yield Task("run", rqmt=self.rqmt)
 
     def cut_file(self, task):
         recording, root_out, target_len_sec, extension = task
@@ -57,7 +57,7 @@ class CutSpeechSegmentsFromAudio(Job):
 
             # if a slice is longer than target_len_sec, we put it entirely in it's own piece
             if length_accumulated + (end - start) > target_len_sec and length_accumulated > 0:
-                file_out = f"{root_out}/{recording_name}_{i}{extension}"
+                file_out = f"{root_out}/{recording_name}_{i}.{extension}"
                 sf.write(file_out, np.hstack(to_stitch), samplerate=samplerate)
                 to_stitch = []
                 i += 1
@@ -67,13 +67,13 @@ class CutSpeechSegmentsFromAudio(Job):
             length_accumulated += end - start
 
         if to_stitch:
-            file_out = f"{root_out}/{recording_name}_{i}{extension}"
+            file_out = f"{root_out}/{recording_name}_{i}.{extension}"
             sf.write(file_out, np.hstack(to_stitch), samplerate=samplerate)
 
     def run(self):
-        self.corpus = corpus.Corpus()
-        self.corpus.load(self.bliss_corpus.get_path())
-        recordings = list(self.corpus.all_recordings())
+        self.corpus_object = corpus.Corpus()
+        self.corpus_object.load(self.bliss_corpus_file.get_path())
+        recordings = list(self.corpus_object.all_recordings())
 
         print(f"{len(recordings)} recordings detected")
         print(f"launching {self.n_workers} processes")
