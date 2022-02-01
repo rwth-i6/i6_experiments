@@ -15,7 +15,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
 
 
     """
-    def __init__(self, bliss_corpus_file, target_length=20, n_workers=16, file_extension='wav'):
+    def __init__(self, bliss_corpus_file, target_length=20, n_workers=4, file_extension='wav'):
         """
 
         :param tk.Path bliss_corpus:
