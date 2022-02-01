@@ -1,4 +1,5 @@
 import copy
+import numpy
 from sisyphus import gs, tk
 
 from i6_core.returnn.config import ReturnnConfig
@@ -6,12 +7,12 @@ from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.setups.rasr.util import RasrDataInput, RasrInitArgs
 
-from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict,\
+from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict, \
     get_corpus_object_dict, get_arpa_lm_dict
 from i6_experiments.users.rossenbach.lexicon.modification import AddBoundaryMarkerToLexiconJob
 
 from .ctc_system import CtcSystem, CtcRecognitionArgs
-from .ctc_network import BLSTMCTCModel, get_network, legacy_network
+from .ctc_network import BLSTMCTCModel, get_network, legacy_network, get_ctctts_network
 from .specaugment_clean_v2 import SpecAugmentSettings, get_funcs
 
 from i6_experiments.users.rossenbach.lexicon.modification import EnsureSilenceFirst
@@ -165,8 +166,7 @@ def get_returnn_config(
         use_legacy_network=False,
         feature_dropout=False,
         stronger_specaug=False,
-        use_dimtags=False,
-        subsampling=2,
+        use_tts=False,
         dropout=0.1):
     config = {
         'batch_size' : 20000,
@@ -174,7 +174,7 @@ def get_returnn_config(
         'batching'   : 'random',
 
         # optimization #
-        'learning_rates'     : [0.001]*30,
+        'learning_rates'     : list(numpy.linspace(0.0001, 0.001, num=10)) + [0.001]*20,
         'gradient_clip'     : 0,
         'gradient_noise'    : 0.1, # together with l2 and dropout for overfit
 
@@ -213,9 +213,9 @@ def get_returnn_config(
         max_features_per_mask=5
     )
 
-    if use_dimtags:
-        from .ctc_network_dimtag import get_network as get_network_dimtag
-        network_func = get_network_dimtag
+    if use_tts:
+        network_func = get_ctctts_network
+        config['extern_data']['speaker_name'] = {'shape': (None,), 'available_for_inference': False, 'dim': 251, 'sparse': True}
     else:
         network_func = get_network
 
@@ -224,17 +224,23 @@ def get_returnn_config(
         return ReturnnConfig(config, post_config,
                              python_prolog=get_funcs(), hash_full_python_code=True)
     else:
-        network1 = network_func(4, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.001, specaugment_settings=None, feature_dropout=False)
-        network2 = network_func(5, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.05, specaugment_settings=None, feature_dropout=False)
-        network3 = network_func(6, 512, [1, 1, subsampling], 139, dropout=dropout, l2=0.01, specaugment_settings=None, feature_dropout=feature_dropout)
-        network4 = network_func(6, 512, [1, 1, subsampling], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout)
+        network1 = network_func(4, 512, [1, 1, 1], 139, dropout=0.1, l2=0.001, specaugment_settings=None, feature_dropout=False, tts_loss_scale=0.0)
+        network2 = network_func(4, 512, [1, 1, 1], 139, dropout=0.1, l2=0.05, specaugment_settings=None, feature_dropout=False, tts_loss_scale=0.0)
+        network3 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=None, feature_dropout=feature_dropout, tts_loss_scale=0.0)
+        network4 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=0.0)
 
         staged_network_dict = {
             1: network1,
-            2: network2,
-            3: network3,
-            4: network4
+            3: network2,
+            5: network3,
+            7: network4
         }
+
+        if use_tts:
+            network5 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=0.1)
+            network6 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=0.5)
+            staged_network_dict[9] = network5
+            staged_network_dict[10] = network6
 
         return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
                              python_prolog=get_funcs(), hash_full_python_code=True)
@@ -264,90 +270,23 @@ def get_default_training_args():
     return train_args
 
 
-def ctc_test():
+
+def ctc_test_speaker_loss():
     ctc_lexicon = create_regular_lexicon()
     recog_args = get_default_recog_args()
     tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
 
-
-    system = CtcSystem(
-        returnn_config=get_returnn_config(),
-        default_training_args=get_default_training_args(),
-        recognition_args=recog_args,
-        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    )
-    train_data, dev_data, test_data = get_corpus_data_inputs()
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test"
-    system.init_system(
-        rasr_init_args=rasr_args,
-        train_data=train_data,
-        dev_data=dev_data,
-        test_data=test_data
-    )
-    system.run(("extract", "train", "recog"))
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-def ctc_test_no_empty_orth():
-    ctc_lexicon = create_regular_lexicon()
-    recog_args = get_default_recog_args()
-    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
-
-
-    # system = CtcSystem(
-    #     returnn_config=get_returnn_config(),
-    #     default_training_args=get_default_training_args(),
-    #     recognition_args=recog_args,
-    #     rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-    #     rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    # )
-    # train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
-
-    # gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth"
-    # system.init_system(
-    #     rasr_init_args=rasr_args,
-    #     train_data=train_data,
-    #     dev_data=dev_data,
-    #     test_data=test_data
-    # )
-    # system.run(("extract", "train", "recog"))
-    # gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-    # Test with feature dropout
-    system = CtcSystem(
-        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True),
-        default_training_args=get_default_training_args(),
-        recognition_args=recog_args,
-        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    )
-    train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth_featdrop_v3"
-    system.init_system(
-        rasr_init_args=rasr_args,
-        train_data=train_data,
-        dev_data=dev_data,
-        test_data=test_data
-    )
-    system.run(("extract", "train", "recog"))
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-    # Test with feature dropout
-
+    # common training and recog args
     training_args = get_default_training_args()
     training_args = copy.deepcopy(training_args)
     training_args['keep_epochs'] = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
     training_args['num_epochs'] = 250
     recog_args = copy.deepcopy(recog_args)
     recog_args.eval_epochs = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
-    recog_args.lm_scales = [1.1, 1.4]
+
+    # baseline with subsampling 0:
     system = CtcSystem(
-        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.2),
+        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.1),
         default_training_args=training_args,
         recognition_args=recog_args,
         rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
@@ -355,7 +294,7 @@ def ctc_test_no_empty_orth():
     )
     train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth_featdrop_v4"
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_nosub"
     system.init_system(
         rasr_init_args=rasr_args,
         train_data=train_data,
@@ -365,22 +304,18 @@ def ctc_test_no_empty_orth():
     system.run(("extract", "train", "recog"))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
-
-def ctc_test_hdf():
-    ctc_lexicon = create_regular_lexicon()
-    recog_args = get_default_recog_args()
-    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
     # Test with feature dropout
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="6dc85907ee92a874973c01eee2219abf6a21d853").out_repository
 
-    training_args = get_default_training_args()
     training_args = copy.deepcopy(training_args)
-    training_args['keep_epochs'] = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
-    training_args['num_epochs'] = 250
-    training_args['use_hdf'] = True
+    training_args['add_speaker_map'] = True
+    training_args['returnn_root'] = returnn_root
     recog_args = copy.deepcopy(recog_args)
     recog_args.eval_epochs = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
     system = CtcSystem(
-        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.2),
+        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.1, use_tts=True),
         default_training_args=training_args,
         recognition_args=recog_args,
         rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
@@ -388,7 +323,7 @@ def ctc_test_hdf():
     )
     train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_hdf"
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_speaker"
     system.init_system(
         rasr_init_args=rasr_args,
         train_data=train_data,
@@ -396,56 +331,5 @@ def ctc_test_hdf():
         test_data=test_data
     )
     system.run(("extract", "train", "recog"))
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-def ctc_test_dimtag():
-    ctc_lexicon = create_regular_lexicon()
-    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
-
-
-    system = CtcSystem(
-        returnn_config=get_returnn_config(use_dimtags=True),
-        default_training_args=get_default_training_args(),
-        recognition_args=recog_args,
-        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    )
-    train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_dimtag"
-    system.init_system(
-        rasr_init_args=rasr_args,
-        train_data=train_data,
-        dev_data=dev_data,
-        test_data=test_data
-    )
-    system.run(("extract", "train", "recog"))
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-def ctc_test_legacy_network():
-    ctc_lexicon = create_regular_lexicon()
-    tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
-
-
-    system = CtcSystem(
-        returnn_config=get_returnn_config(use_legacy_network=True),
-        default_training_args=get_default_training_args(),
-        recognition_args=recog_args,
-        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    )
-    train_data, dev_data, test_data = get_corpus_data_inputs()
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_legacy_network"
-    system.init_system(
-        rasr_init_args=rasr_args,
-        train_data=train_data,
-        dev_data=dev_data,
-        test_data=test_data
-    )
-    #system.run(("extract", "train", "recog"))
-    system.run(("extract", "train"))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

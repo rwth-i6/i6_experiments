@@ -4,12 +4,14 @@ import sys
 from typing import Dict, Union, List, Tuple, Optional
 
 from sisyphus import gs, tk
+from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core import rasr
 from i6_core import recognition as recog
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
+from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
 from i6_core.returnn.extract_prior import ReturnnRasrComputePriorJob
 from i6_core.returnn.training import Checkpoint
@@ -95,7 +97,7 @@ class CtcSystem(RasrSystem):
         """
 
         :param ReturnnConfig returnn_config:
-        :param dict default_training_args:
+        :param dict default_training_args: are passed to `train_nn`
         :param CtcRecognitionArgs recognition_args:
         """
         super().__init__()
@@ -160,6 +162,16 @@ class CtcSystem(RasrSystem):
         skip_segments=None,
         **kwargs,
     ):
+        """
+
+        :param num_classes:
+        :param sprint_loss_config:
+        :param sprint_loss_post_config:
+        :param skip_segments:
+        :param kwargs:
+        :return:
+        :rtype: (RasrConfig, RasrConfig)
+        """
         crp = self.crp["loss"]
         mapping = {
             "acoustic_model": "*.model-combination.acoustic-model",
@@ -198,16 +210,26 @@ class CtcSystem(RasrSystem):
         post_config._update(sprint_loss_post_config)
         return config, post_config
 
-    def create_rasr_loss_opts(cls, sprint_exe=None, **kwargs):
+    def create_rasr_loss_opts(cls, sprint_exe=None, custom_config=None, **kwargs):
+        """
+
+        :param sprint_exe:
+        :param custom_config:
+        :param kwargs:
+        :return:
+        """
         trainer_exe = rasr.RasrCommand.select_exe(sprint_exe, "nn-trainer")
         python_seg_order = False  # get automaton by segment name
         sprint_opts = {
             "sprintExecPath": trainer_exe,
-            "sprintConfigStr": "--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1",
             "minPythonControlVersion": 4,
             "numInstances": kwargs.get("num_sprint_instance", 2),
             "usePythonSegmentOrder": python_seg_order,
         }
+        if custom_config:
+            sprint_opts["sprintConfigStr"] = DelayedFormat("\"--config={} --*.LOGFILE=nn-trainer.loss.log --*.TASK=1\"", custom_config)
+        else:
+            sprint_opts["sprintConfigStr"] = "--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1"
         return sprint_opts
 
     def make_loss_crp(
@@ -240,6 +262,8 @@ class CtcSystem(RasrSystem):
         feature_flow,
         returnn_config,
         num_classes,
+        use_hdf=False,
+        add_speaker_map=False,
         **kwargs,
     ):
         assert isinstance(
@@ -280,14 +304,47 @@ class CtcSystem(RasrSystem):
         self.crp["loss"] = rasr.CommonRasrParameters(base=self.crp[corpus_key])
         config, post_config = self.create_full_sum_loss_config(num_classes)
 
-        def add_rasr_loss(network):
+        custom_config = None
+        if use_hdf:
+            from i6_core.returnn.hdf import ReturnnRasrDumpHDFJob
+            from i6_core.rasr.config import WriteRasrConfigJob
+            train_hdf_job = ReturnnRasrDumpHDFJob(
+                crp=self.crp[train_corpus_key],
+                feature_flow=self.feature_flows[corpus_key][feature_flow],
+                alignment=None,
+                num_classes=self.functor_value(num_classes)
+            )
+            cv_hdf_job = ReturnnRasrDumpHDFJob(
+                crp=self.crp[cv_corpus_key],
+                feature_flow=self.feature_flows[corpus_key][feature_flow],
+                alignment=None,
+                num_classes=self.functor_value(num_classes)
+            )
+            custom_config = WriteRasrConfigJob(config, post_config).out_config
+            returnn_config.config["train"] = {
+                "class": "HDFDataset",
+                "files": [train_hdf_job.out_hdf],
+                "seq_ordering": "laplace.1000",
+                "partition_epoch": kwargs.pop("partition_epochs", {'train': 1})["train"],
+                "use_cache_manager": True,
+                "cache_byte_size": 0,
+            }
+            returnn_config.config["dev"] = {
+                "class": "HDFDataset",
+                "files": [cv_hdf_job.out_hdf],
+                "seq_ordering": "sorted_reverse",
+                "use_cache_manager": True,
+                "cache_byte_size": 0,
+            }
 
+
+        def add_rasr_loss(network, custom_config=None):
             network["rasr_loss"] = {
                 "class": "copy",
                 "from": "output",
                 "loss_opts": {
                     'tdp_scale': 0.0,
-                    "sprint_opts": self.create_rasr_loss_opts()
+                    "sprint_opts": self.create_rasr_loss_opts(custom_config=custom_config)
                 },
                 "loss": "fast_bw",
                 "target": None,
@@ -295,21 +352,41 @@ class CtcSystem(RasrSystem):
 
         if returnn_config.staged_network_dict:
             for net in returnn_config.staged_network_dict.values():
-                add_rasr_loss(net)
+                add_rasr_loss(net, custom_config=custom_config)
         else:
             if returnn_config.config['network']['output'].get("loss", None) != "fast_bw":
-                add_rasr_loss(returnn_config.config["network"])
+                add_rasr_loss(returnn_config.config["network"], custom_config=custom_config)
 
-        j = ReturnnRasrTrainingJob(
-            train_crp=self.crp[train_corpus_key],
-            dev_crp=self.crp[cv_corpus_key],
-            feature_flow=self.feature_flows[corpus_key][feature_flow],
-            returnn_config=returnn_config,
-            num_classes=self.functor_value(num_classes),
-            additional_rasr_config_files={"rasr.loss": config},
-            additional_rasr_post_config_files={"rasr.loss": post_config},
-            **kwargs,
-        )
+
+        if add_speaker_map:
+            from i6_core.corpus.convert import CorpusToSpeakerMap
+            speaker_map = CorpusToSpeakerMap(self.corpora[corpus_key].corpus_file).out_speaker_target_map
+            if "dev" not in returnn_config.config:
+                returnn_config.config["dev"] = {}
+            if "train" not in returnn_config.config:
+                returnn_config.config["train"] = {}
+            returnn_config.config["train"]["target_maps"] = {'speaker_name': speaker_map}
+            returnn_config.config["dev"]["target_maps"] = {'speaker_name': speaker_map}
+
+
+        if use_hdf:
+            kwargs.pop("alignment")
+            kwargs.pop("use_python_control")
+            j = ReturnnTrainingJob(
+                returnn_config=returnn_config,
+                **kwargs,
+            )
+        else:
+            j = ReturnnRasrTrainingJob(
+                train_crp=self.crp[train_corpus_key],
+                dev_crp=self.crp[cv_corpus_key],
+                feature_flow=self.feature_flows[corpus_key][feature_flow],
+                returnn_config=returnn_config,
+                num_classes=self.functor_value(num_classes),
+                additional_rasr_config_files={"rasr.loss": config},
+                additional_rasr_post_config_files={"rasr.loss": post_config},
+                **kwargs,
+            )
 
         j.add_alias("train_nn_%s_%s" % (corpus_key, name))
         self.jobs[corpus_key]["train_nn_%s" % name] = j

@@ -107,7 +107,7 @@ class BLSTMPoolModule(Module):
 
 class BLSTMCTCModel(Module):
 
-    def __init__(self, num_nn, size, max_pool, num_labels, dropout=None, l2=None, feature_dropout=False, specaugment_settings=None):
+    def __init__(self, num_nn, size, max_pool, num_labels, dropout=None, l2=None, feature_dropout=False, specaugment_settings=None, **kwargs):
         """
 
         :param num_nn:
@@ -148,5 +148,68 @@ def get_network(*args, **kwargs):
     blstm_ctc = BLSTMCTCModel(*args, **kwargs)
     net_dict = make_root_net_dict(blstm_ctc)
 
+    return net_dict
+
+
+def get_ctctts_network(*args, tts_loss_scale, **kwargs):
+    blstm_ctc = BLSTMCTCModel(*args, **kwargs)
+    net_dict = make_root_net_dict(blstm_ctc)
+
+    tts_reconstruction = {
+        "speaker_embedding_raw": {
+            "class": "linear",
+            "from": "data:speaker_name",
+            "n_out": 128,
+            "with_bias": True,
+        },
+        "speaker_embedding": {
+            "class": "reinterpret_data",
+            "from": "speaker_embedding_raw",
+            "size_base": "output",
+        },
+        'fw0': {
+            'class': 'rec',
+            'L2': 0.001,
+            'n_out': 512,
+            'unit': 'nativelstm2',
+            'from': ['output', 'speaker_embedding'],
+            'direction': 1,
+        },
+        'bw0': {
+            'class': 'rec',
+            'L2': 0.001,
+            'n_out': 512,
+            'unit': 'nativelstm2',
+            'from': ['output', 'speaker_embedding'],
+            'direction': 1,
+        },
+        'fw1': {
+            'class': 'rec',
+            'L2': 0.001,
+            'n_out': 512,
+            'unit': 'nativelstm2',
+            'from': ['fw0', 'bw0'],
+            'direction': 1,
+        },
+        'bw1': {
+            'class': 'rec',
+            'L2': 0.001,
+            'n_out': 512,
+            'unit': 'nativelstm2',
+            'from': ['fw0', 'bw0'],
+            'direction': 1,
+        },
+        'audio_target': {
+            'class': 'linear',
+            'with_bias': True,
+            'loss': 'mean_l1',
+            'loss_scale': tts_loss_scale,
+            'target': 'data',
+            'n_out': 50,
+            'from': ['fw1','bw1']
+        }
+    }
+
+    net_dict.update(tts_reconstruction)
     return net_dict
 

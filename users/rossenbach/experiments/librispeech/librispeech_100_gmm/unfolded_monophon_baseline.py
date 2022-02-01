@@ -49,8 +49,8 @@ def run_non_dc_training():
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(dc_detection=False),
                        monophone_args=get_monophone_args(),
-                       cart_args=get_cart_args(folded=False),
-                       triphone_args=get_triphone_args(),
+                       cart_args=None,
+                       triphone_args=None,
                        vtln_args=None,
                        sat_args=None,
                        vtln_sat_args=None,
@@ -59,7 +59,7 @@ def run_non_dc_training():
                        test_data=test)
     print("init_system took: %.1f" % (time.time()-start))
     start = time.time()
-    system.run(["extract", "mono", "cart", "tri"])
+    system.run(["extract", "mono"])
     print("run took: %.1f" % (time.time()-start))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ''
 
