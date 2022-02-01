@@ -1,10 +1,11 @@
 import soundfile as sf
 import numpy as np
-from i6_core.lib import corpus
 import multiprocessing
-import tqdm
+import logging
 
 from sisyphus import Job, Task, tk
+
+from i6_core.lib import corpus
 
 class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
     """
@@ -79,7 +80,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         print(f"launching {self.n_workers} processes")
 
         tasks = [(r, self.out_audio_path, self.target_length, self.file_extension) for r in recordings]
-
         with multiprocessing.Pool(processes=self.n_workers) as pool:
-            for _ in tqdm.tqdm(pool.imap_unordered(self.cut_file, tasks), total=len(tasks)):
-                pass
+            for i, _ in enumerate(pool.imap_unordered(self.cut_file, tasks)):
+                if i % 100 == 0:
+                    logging.info(f"{i} of {len(tasks)} files done")
