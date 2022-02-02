@@ -7,8 +7,8 @@ from sisyphus import Job, Task, tk
 
 class FairseqAudioManifestCreationJob(Job):
     """
-    Creates required manifest files for wav2vec pretraining with fairseq. For the original
-    facebook script consider https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
+    Creates required manifest files for wav2vec pretraining with fairseq. For the
+    script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
     """
     def __init__(
         self, audio_dir_path, file_extension="wav", valid_percent=0.01, seed=42, path_must_contain=None
