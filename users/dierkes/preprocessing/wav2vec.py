@@ -29,7 +29,7 @@ class FairseqAudioManifestCreationJob(Job):
         self.path_must_contain = path_must_contain
 
         self.out_manifest_path = self.output_path("manifest/", directory=True)
-        self.rqmt = {"time": 8, "mem": 8, "cpu": 1}
+        self.rqmt = {"time": 2, "mem": 8, "cpu": 1}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
