@@ -126,12 +126,6 @@ def get_corpus_data_inputs(delete_empty_orth=False):
         'normalize_pronunciation': False,
     }
 
-    eow_lexicon = {
-        'filename': create_regular_lexicon(delete_empty_orth=delete_empty_orth),
-        'normalize_pronunciation': False,
-    }
-
-
     train_data_inputs = {}
     dev_data_inputs = {}
     test_data_inputs = {}
@@ -147,14 +141,14 @@ def get_corpus_data_inputs(delete_empty_orth=False):
         dev_data_inputs[dev_key] = RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=10,
-            lexicon=eow_lexicon,
+            lexicon=lexicon,
             lm=lm
         )
 
     test_data_inputs['test-clean'] = RasrDataInput(
         corpus_object=corpus_object_dict['test-clean'],
         concurrent=10,
-        lexicon=eow_lexicon,
+        lexicon=lexicon,
         lm=lm,
     )
 

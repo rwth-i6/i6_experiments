@@ -12,6 +12,7 @@ from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_l
 from i6_experiments.users.rossenbach.lexicon.modification import AddBoundaryMarkerToLexiconJob
 
 from .ctc_system import CtcSystem, CtcRecognitionArgs
+from .hacky_tts_ctc_system import HackyTTSCTCSystem
 from .ctc_network import BLSTMCTCModel, get_network, legacy_network, get_ctctts_network
 from .specaugment_clean_v2 import SpecAugmentSettings, get_funcs
 
@@ -313,8 +314,10 @@ def ctc_test_speaker_loss():
     training_args['add_speaker_map'] = True
     training_args['returnn_root'] = returnn_root
     recog_args = copy.deepcopy(recog_args)
+    recog_args.compile_exec = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh")
+    recog_args.blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so")
     recog_args.eval_epochs = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
-    system = CtcSystem(
+    system = HackyTTSCTCSystem(
         returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.1, use_tts=True),
         default_training_args=training_args,
         recognition_args=recog_args,

@@ -32,7 +32,9 @@ class CtcRecognitionArgs:
             eval_epochs,
             lm_scales,
             recog_args,
-            search_parameters
+            search_parameters,
+            compile_exec=None,
+            blas_lib=None,
     ):
         """"
         :param eval_epochs: [7, 8, 9, 10] # iterations to evaluate corresponding to the "splits" iterations
@@ -70,6 +72,8 @@ class CtcRecognitionArgs:
         self.lm_scales = lm_scales
         self.recognition_args = recog_args
         self.search_parameters = search_parameters
+        self.compile_exec = compile_exec
+        self.blas_lib = blas_lib
 
 
 class CtcSystem(RasrSystem):
@@ -516,10 +520,10 @@ class CtcSystem(RasrSystem):
         # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
         native_op = CompileNativeOpJob(
             "NativeLstm2",
-            returnn_python_exe=self.defalt_training_args['returnn_python_exe'],
+            returnn_python_exe=self.recognition_args.compile_exec or self.defalt_training_args['returnn_python_exe'],
             returnn_root=self.defalt_training_args['returnn_root'],
             # blas_lib=tk.Path(gs.BLAS_LIB, hash_overwrite="BLAS_LIB")).out_op,
-            blas_lib=None,
+            blas_lib=self.recognition_args.blas_lib,
             search_numpy_blas=False).out_op
 
         tf_flow.config[tf_fwd].loader.required_libraries = native_op
