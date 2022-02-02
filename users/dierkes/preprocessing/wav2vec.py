@@ -11,15 +11,16 @@ class FairseqWav2VecManifestCreationJob(Job):
 
 
     """
-    def __init__(self, audio_path, file_extension='wav', valid_percent=0.01, seed=42, path_must_contain=None):
+    def __init__(self, audio_path, file_extension='wav', valid_percent=0.01, seed=42, 
+            path_must_contain=None):
         """
 
         :param tk.Path audio_path: path to raw audio files to be included
         :param str file_extension: file extension to look for in audio_path
         :param float valid_percent: percentage of files to be in validation set
         :param int seed: random seed for splitting into train and valid set
-        :param str path_must_contain: if set, path must contain this substring for a file
-            to be included in the manifest
+        :param str path_must_contain: if set, path must contain this substring 
+            for a file to be included in the manifest
         """
         self.audio_path = audio_path
         self.file_extension = file_extension
@@ -61,7 +62,8 @@ class FairseqWav2VecManifestCreationJob(Job):
                 frames = soundfile.info(fname).frames
                 dest = train_f if rand.random() > self.valid_percent else valid_f
                 print(
-                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames), file=dest
+                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames), 
+                        file=dest
                 )
         if valid_f is not None:
             valid_f.close()
