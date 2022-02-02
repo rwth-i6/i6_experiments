@@ -7,37 +7,35 @@ from sisyphus import Job, Task, tk
 
 class FairseqWav2VecManifestCreationJob(Job):
     """
-    Creates required manifest files for wav2vec pretraining with fairseq
-
-
+    Creates required manifest files for wav2vec pretraining with fairseq. For the original
+    facebook script consider https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
     """
-    def __init__(self, audio_path, file_extension='wav', valid_percent=0.01, seed=42, 
-            path_must_contain=None):
+    def __init__(
+        self, audio_dir_path, file_extension="wav", valid_percent=0.01, seed=42, path_must_contain=None
+    ):
         """
-
-        :param tk.Path audio_path: path to raw audio files to be included
-        :param str file_extension: file extension to look for in audio_path
+        :param tk.Path audio_dir_path: path to raw audio files to be included
+        :param str file_extension: file extension to look for in audio_dir_path
         :param float valid_percent: percentage of files to be in validation set
         :param int seed: random seed for splitting into train and valid set
-        :param str path_must_contain: if set, path must contain this substring 
+        :param str|None path_must_contain: if set, path must contain this substring
             for a file to be included in the manifest
         """
-        self.audio_path = audio_path
+        self.audio_dir_path = audio_dir_path
         self.file_extension = file_extension
         self.valid_percent = valid_percent
+        assert 0 <= self.valid_percent <= 1.0
         self.seed = seed
         self.path_must_contain = path_must_contain
 
         self.out_manifest_path = self.output_path("manifest/", directory=True)
-        self.rqmt = {'time': 8, 'mem': 8, 'cpu': 1}
+        self.rqmt = {"time": 8, "mem": 8, "cpu": 1}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        assert self.valid_percent >= 0 and self.valid_percent <= 1.0
-
-        dir_path = os.path.realpath(self.audio_path.get_path())
+        dir_path = os.path.realpath(self.audio_dir_path.get_path())
         search_path = os.path.join(dir_path, "**/*." + self.file_extension)
         rand = random.Random(self.seed)
 
