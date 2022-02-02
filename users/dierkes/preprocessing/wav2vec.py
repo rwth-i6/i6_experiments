@@ -5,7 +5,7 @@ import random
 
 from sisyphus import Job, Task, tk
 
-class FairseqWav2VecManifestCreationJob(Job):
+class FairseqAudioManifestCreationJob(Job):
     """
     Creates required manifest files for wav2vec pretraining with fairseq. For the original
     facebook script consider https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
