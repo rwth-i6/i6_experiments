@@ -89,7 +89,7 @@ class GmmSystem(RasrSystem):
         super().__init__()
 
         self.monophone_args: Optional[GmmMonophoneArgs] = None
-        self.cart_lda_args: Optional[GmmCartArgs] = None
+        self.cart_args: Optional[GmmCartArgs] = None
         self.triphone_args: Optional[GmmTriphoneArgs] = None
         self.vtln_args: Optional[GmmVtlnArgs] = None
         self.sat_args: Optional[GmmSatArgs] = None
@@ -128,7 +128,7 @@ class GmmSystem(RasrSystem):
     ):
         self.hybrid_init_args = hybrid_init_args
         self.monophone_args = monophone_args
-        self.cart_lda_args = cart_args.cart_lda_args if cart_args is not None else None
+        self.cart_args = cart_args
         self.triphone_args = triphone_args
         self.vtln_args = vtln_args
         self.sat_args = sat_args
@@ -1155,7 +1155,7 @@ class GmmSystem(RasrSystem):
                         s,
                         GmmCartArgs(
                             cart_questions=self.cart_questions,
-                            cart_lda_args=self.cart_lda_args.cart_lda_args,
+                            cart_lda_args=self.cart_args.cart_lda_args,
                         ),
                     )
                 elif s == "tri":
