@@ -40,19 +40,6 @@ class RasrDataInput:
         self.concurrent = concurrent
 
 
-# when getting an zero weights error, set:
-#
-# extra_config = sprint.SprintConfig()
-# extra_config.allow_zero_weights = True
-# {accumulate,split,align}_extra_args = {'extra_config': extra_config}
-#
-# '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
-#
-# vtln align time = 8
-#
-# if not using the run function -> name and corpus almost always to be added
-
-
 class RasrInitArgs:
     """
     Class holds general information for the complete pipeline.

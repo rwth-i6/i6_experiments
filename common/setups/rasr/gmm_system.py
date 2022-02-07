@@ -1139,6 +1139,8 @@ class GmmSystem(RasrSystem):
         if list: the parameters passed to function "init_system" will be used
         allowed steps: extract, mono, cart, tri, vtln, sat, vtln+sat, forced_align
         step name string must have an allowed step as prefix
+
+        if not using the run function -> name and corpus almost always need to be added
         """
         if isinstance(steps, List):
             steps_tmp = steps

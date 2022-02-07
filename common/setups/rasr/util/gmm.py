@@ -85,6 +85,12 @@ class GmmMonophoneArgs:
                 'use_gpu': False,
             }
         }
+
+        when getting an zero weights error, set:
+
+        extra_config = sprint.SprintConfig()
+        extra_config.allow_zero_weights = True
+        {accumulate,split,align}_extra_args = {'extra_config': extra_config}
         ##################################################
         :param test_recognition_args:
         decoding parameters might change depending on whether dev or test sets are decoded.
@@ -155,6 +161,8 @@ class GmmTriphoneArgs:
             'accs_per_split': 2,
             'initial_alignment': "train_mono",  # if using run function not needed
         }
+
+        '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
         ##################################################
         :param recognition_args:
         ##################################################
@@ -202,6 +210,8 @@ class GmmVtlnArgs:
                 'initial_alignment': "train_tri",  # if using run function not needed
                 'feature_flow': "mfcc+context+lda+vtln",
             }
+
+        vtln align time = 8
         ##################################################
         :param recognition_args:
         ##################################################
