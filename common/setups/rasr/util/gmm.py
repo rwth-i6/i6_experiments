@@ -1,6 +1,4 @@
 __all__ = [
-    "RasrDataInput",
-    "RasrInitArgs",
     "GmmMonophoneArgs",
     "GmmCartArgs",
     "GmmTriphoneArgs",
@@ -8,179 +6,20 @@ __all__ = [
     "GmmSatArgs",
     "GmmVtlnSatArgs",
     "ForcedAlignmentArgs",
-    "ReturnnRasrDataInput",
-    "NnArgs",
-    "RasrSteps",
+    "RecognitionArgs",
+    "OutputArgs",
+    "GmmOutput",
 ]
 
-
-from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
 import i6_core.meta as meta
 import i6_core.rasr as rasr
-import i6_core.returnn as returnn
 
 from i6_core.cart.questions import BasicCartQuestions, PythonCartQuestions
 from i6_core.util import MultiPath
-
-
-class RasrDataInput:
-    """
-    this class holds the data information for a rasr gmm setup:
-    - corpus
-    - lexicon
-    - lm
-    """
-
-    def __init__(
-        self,
-        corpus_object: meta.CorpusObject,
-        lexicon: dict,
-        lm: Optional[dict] = None,
-        concurrent: int = 10,
-    ):
-        """
-        :param corpus_object: corpus_file: Path, audio_dir: Path, audio_format: str, duration: float
-        :param lexicon: file: Path, normalize_pronunciation: bool
-        :param lm: filename: Path, type: str, scale: float
-        :param concurrent: concurrency for gmm hmm pipeline
-        """
-        self.corpus_object = corpus_object
-        self.lexicon = lexicon
-        self.lm = lm
-        self.concurrent = concurrent
-
-
-# when getting an zero weights error, set:
-#
-# extra_config = sprint.SprintConfig()
-# extra_config.allow_zero_weights = True
-# {accumulate,split,align}_extra_args = {'extra_config': extra_config}
-#
-# '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
-#
-# vtln align time = 8
-#
-# if not using the run function -> name and corpus almost always to be added
-
-
-class RasrInitArgs:
-    """
-    feature extraction, AM information
-    """
-
-    def __init__(
-        self,
-        costa_args: dict,
-        am_args: dict,
-        feature_extraction_args: dict,
-        default_mixture_scorer_args: dict,
-        scorer: Optional[str] = None,
-    ):
-        """
-        ##################################################
-        :param costa_args: {
-            'eval_recordings': True,
-            'eval_lm': True
-        }
-        ##################################################
-        :param am_args: {
-            'state_tying': "monophone",
-            'states_per_phone': 3,
-            'state_repetitions': 1,
-            'across_word_model': True,
-            'early_recombination': False,
-            'tdp_scale': 1.0,
-            'tdp_transition': (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
-            'tdp_silence': (0.0, 3.0, "infinity", 20.0),
-            'tying_type': "global",
-            'nonword_phones': "",
-            'tdp_nonword': (0.0, 3.0, "infinity", 6.0)  # only used when tying_type = global-and-nonword
-        }
-        ##################################################
-        :param feature_extraction_args:
-            'mfcc': {
-                'num_deriv': 2,
-                'num_features': None,  # confusing name: number of max features, above number -> clipped
-                'mfcc_options': {
-                    'warping_function': "mel",
-                    'filter_width': 268.258,  # 80
-                    'normalize': True,
-                    'normalization_options': None,
-                    'without_samples': False,
-                    'samples_options': {
-                        'audio_format': "wav",
-                        'dc_detection': True,
-                    },
-                'cepstrum_options': {
-                    'normalize': False,
-                    'outputs': 16,
-                    'add_epsilon': False,
-                },
-                'fft_options': None,
-                }
-            }
-            'gt': {
-                'minfreq': 100,
-                'maxfreq': 7500,
-                'channels': 50,
-                'warp_freqbreak': None,  # 3700
-                'tempint_type': 'hanning',
-                'tempint_shift': .01,
-                'tempint_length': .025,
-                'flush_before_gap': True,
-                'do_specint': False,
-                'specint_type': 'hanning',
-                'specint_shift': 4,
-                'specint_length': 9,
-                'normalize': True,
-                'preemphasis': True,
-                'legacy_scaling': False,
-                'without_samples': False,
-                'samples_options': {
-                    'audio_format': "wav",
-                    'dc_detection': True
-                },
-                'normalization_options': {},
-            }
-            'fb': {
-                'warping_function': "mel",
-                'filter_width': 80,
-                'normalize': True,
-                'normalization_options': None,
-                'without_samples': False,
-                'samples_options': {
-                    'audio_format': "wav",
-                    'dc_detection': True
-                },
-                'fft_options': None,
-                'apply_log': True,
-                'add_epsilon': False,
-            }
-            'energy': {
-                'without_samples': False,
-                'samples_options': {
-                    'audio_format': "wav",
-                    'dc_detection': True
-                    },
-                'fft_options': {},
-            }
-        ##################################################
-        :param default_mixture_scorer_args:
-        {"scale": 0.3}
-        ##################################################
-        :param scorer:
-        "kaldi", "sclite", default is sclite
-        ##################################################
-        """
-        self.costa_args = costa_args
-        self.default_mixture_scorer_args = default_mixture_scorer_args
-        self.scorer = scorer
-        self.am_args = am_args
-        self.feature_extraction_args = feature_extraction_args
 
 
 class GmmMonophoneArgs:
@@ -189,6 +28,7 @@ class GmmMonophoneArgs:
         linear_alignment_args: dict,
         training_args: dict,
         recognition_args: dict,
+        test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
     ):
         """
@@ -243,11 +83,23 @@ class GmmMonophoneArgs:
                 'use_gpu': False,
             }
         }
+
+        when getting an zero weights error, set:
+
+        extra_config = sprint.SprintConfig()
+        extra_config.allow_zero_weights = True
+        {accumulate,split,align}_extra_args = {'extra_config': extra_config}
+        ##################################################
+        :param test_recognition_args:
+        decoding parameters might change depending on whether dev or test sets are decoded.
+        setting test_recognition_args to None means no test recognition!
+        test_recognition_args UPDATES recognition_args
         ##################################################
         """
         self.linear_alignment_args = linear_alignment_args
         self.training_args = training_args
         self.recognition_args = recognition_args
+        self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
 
 
@@ -296,6 +148,7 @@ class GmmTriphoneArgs:
         self,
         training_args: dict,
         recognition_args: dict,
+        test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
     ):
         """
@@ -306,8 +159,15 @@ class GmmTriphoneArgs:
             'accs_per_split': 2,
             'initial_alignment': "train_mono",  # if using run function not needed
         }
+
+        '{accumulate,split,align}_extra_rqmt': {'mem': 10, 'time': 8},
         ##################################################
         :param recognition_args:
+        ##################################################
+        :param test_recognition_args:
+        decoding parameters might change depending on whether dev or test sets are decoded.
+        setting test_recognition_args to None means no test recognition!
+        test_recognition_args UPDATES recognition_args
         ##################################################
         :param sdm_args: {
             'feature_flow': "mfcc+context+lda",
@@ -317,6 +177,7 @@ class GmmTriphoneArgs:
         """
         self.training_args = training_args
         self.recognition_args = recognition_args
+        self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
 
 
@@ -325,6 +186,7 @@ class GmmVtlnArgs:
         self,
         training_args: dict,
         recognition_args: dict,
+        test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
     ):
         """
@@ -346,8 +208,15 @@ class GmmVtlnArgs:
                 'initial_alignment': "train_tri",  # if using run function not needed
                 'feature_flow': "mfcc+context+lda+vtln",
             }
+
+        vtln align time = 8
         ##################################################
         :param recognition_args:
+        ##################################################
+        :param test_recognition_args:
+        decoding parameters might change depending on whether dev or test sets are decoded.
+        setting test_recognition_args to None means no test recognition!
+        test_recognition_args UPDATES recognition_args
         ##################################################
         :param sdm_args: {
             'feature_flow': "mfcc+context+lda+vtln",
@@ -357,6 +226,7 @@ class GmmVtlnArgs:
         """
         self.training_args = training_args
         self.recognition_args = recognition_args
+        self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
 
 
@@ -365,6 +235,7 @@ class GmmSatArgs:
         self,
         training_args: dict,
         recognition_args: dict,
+        test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
     ):
         """
@@ -382,9 +253,15 @@ class GmmSatArgs:
         ##################################################
         :param recognition_args:
         ##################################################
+        :param test_recognition_args:
+        decoding parameters might change depending on whether dev or test sets are decoded.
+        setting test_recognition_args to None means no test recognition!
+        test_recognition_args UPDATES recognition_args
+        ##################################################
         """
         self.training_args = training_args
         self.recognition_args = recognition_args
+        self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
 
 
@@ -393,6 +270,7 @@ class GmmVtlnSatArgs:
         self,
         training_args: dict,
         recognition_args: dict,
+        test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
     ):
         """
@@ -409,13 +287,23 @@ class GmmVtlnSatArgs:
         ##################################################
         :param recognition_args:
         ##################################################
+        :param test_recognition_args:
+        decoding parameters might change depending on whether dev or test sets are decoded.
+        setting test_recognition_args to None means no test recognition!
+        test_recognition_args UPDATES recognition_args
+        ##################################################
         """
         self.training_args = training_args
         self.recognition_args = recognition_args
+        self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
 
 
 class ForcedAlignmentArgs:
+    """
+    parameters for forced alignment on the target corpus
+    """
+
     def __init__(
         self,
         name: str,
@@ -423,68 +311,122 @@ class ForcedAlignmentArgs:
         flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
         feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
     ):
+        """
+        :param name: experiment name
+        :param target_corpus_key: target corpus
+        :param flow: feature flow
+        :param feature_scorer: feature scorer (normally trained on different corpus)
+        """
         self.name = name
         self.target_corpus_key = target_corpus_key
         self.flow = flow
         self.feature_scorer = feature_scorer
 
 
-class ReturnnRasrDataInput(RasrDataInput):
-    def __init__(
-        self,
-        segment_path: Optional[Union[tk.Path, str]],
-        cart_tree: Optional[Union[tk.Path, str]],
-        alignments: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
-        ],
-        features: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
-        ],
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.segment_path = segment_path
-        self.cart_tree = cart_tree
-        self.alignments = alignments
-        self.features = features
-        # TODO add Lexicon and/or Allophone File to read external alignment
+class RecognitionArgs:
+    """
+    stand alone recognition
+    """
 
-
-class NnArgs:
-    def __init__(
-        self,
-        returnn_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: Optional[Dict] = None,
-        recognition_args: Optional[Dict[str, Dict]] = None,
-        rescoring_args: Optional[Dict[str, Dict]] = None,
-    ):
+    def __init__(self, name, recognition_args):
         """
-        ##################################################
-        :param training_args:
-        ##################################################
-        :param recognition_args:
-        ##################################################
-        :param rescoring_args:
-        ##################################################
+        :param name: recognition name
+        :param recognition_args: recognition arguments. further doc: GmmMonophoneArgs.recognition_args
         """
-        self.returnn_configs = returnn_configs
-        self.training_args = training_args
+        self.name = name
         self.recognition_args = recognition_args
-        self.rescoring_args = rescoring_args
 
 
-class RasrSteps:
+class OutputArgs:
+    """
+    defines which output should be generated for the GMM pipeline
+    """
+
+    def __init__(self, name):
+        """
+        :param name: name the outputs
+        """
+        self.name = name
+        self.corpus_type_mapping = {}
+        self.extract_features = []
+
+    def define_corpus_type(self, corpus_key, corpus_type):
+        """
+        Defines a mapping from corpus_key to corpus_type (train, dev, test).
+        This defines how the output is structured/selected.
+
+        :param corpus_key: any corpus key previously defined. see GmmSystem.init_system
+        :param corpus_type: train, dev or test
+        :return:
+        """
+        self.corpus_type_mapping[corpus_key] = corpus_type
+
+    def add_feature_to_extract(self, feature_key):
+        """
+        add feature keys for extraction and output
+
+        :param feature_key: for example mfcc or gt. see RasrInitArgs.feature_extraction_args
+        :return:
+        """
+        self.extract_features.append(feature_key)
+
+
+class GmmOutput:
+    """
+    holds all the information generated as output to the GMM pipeline
+    """
+
     def __init__(self):
-        self._step_names_args = OrderedDict()
+        self.crp: Optional[rasr.CommonRasrParameters] = None
+        self.corpus_file: Optional[tk.Path] = None
+        self.corpus_object: Optional[meta.CorpusObject] = None
+        self.lexicon_file: Optional[tk.Path] = None
+        self.lexicon: Dict = {}
+        self.lm_file: Optional[tk.Path] = None
+        self.lm: Optional[Dict] = None
+        self.cart_tree: Optional[tk.Path] = None
+        self.acoustic_mixtures: Optional[tk.Path] = None
+        self.feature_scorers: Dict[str, Type[rasr.FeatureScorer]] = {}
+        self.alignments: Optional[
+            Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
+        ] = None
+        self.feature_flows: Dict[str, rasr.FlowNetwork] = {}
+        self.features: Dict[
+            str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
+        ] = {}
+        self.segment_path: Optional[tk.Path] = None
+        self.allophone_file: Optional[tk.Path] = None
 
-    def add_step(self, name, arg):
-        self._step_names_args[name] = arg
+    def as_returnn_rasr_data_input(
+        self,
+        name: str = "init",
+        feature_flow_key: str = "gt",
+        shuffle_data: bool = True,
+    ):
+        """
+        dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
 
-    def get_step_iter(self):
-        return self._step_names_args.items()
-
-    def get_step_names_as_list(self):
-        return list(self._step_names_args.keys())
-
-    def get_args_via_idx(self, idx):
-        return list(self._step_names_args.values())[idx]
+        :param name:
+        :param feature_flow_key:
+        :param shuffle_data:
+        :return:
+        """
+        raise NotImplementedError
+        data = ReturnnRasrDataInput(
+            name=name,
+            corpus_object=self.corpus_object,
+            lexicon=self.lexicon,
+            lm=self.lm,
+            concurrent=self.crp.concurrent,
+            cart_tree=self.cart_tree,
+            alignments=self.alignments,
+            crp=self.crp,
+            feature_flow=self.feature_flows[feature_flow_key],
+            features=self.features[feature_flow_key],
+            segment_path=self.segment_path,
+            allophone_file=self.allophone_file,
+            acoustic_mixtures=self.acoustic_mixtures,
+            feature_scorers=self.feature_scorers,
+            shuffle_data=shuffle_data,
+        )
+        return data

@@ -4,6 +4,7 @@ import copy
 import itertools
 import sys
 
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 # -------------------- Sisyphus --------------------
@@ -38,6 +39,8 @@ from .util import (
     GmmSatArgs,
     GmmVtlnSatArgs,
     RasrSteps,
+    GmmOutput,
+    RecognitionArgs,
 )
 
 # -------------------- Init --------------------
@@ -86,14 +89,14 @@ class GmmSystem(RasrSystem):
         super().__init__()
 
         self.monophone_args: Optional[GmmMonophoneArgs] = None
-        self.cart_lda_args: Optional[GmmCartArgs] = None
+        self.cart_args: Optional[GmmCartArgs] = None
         self.triphone_args: Optional[GmmTriphoneArgs] = None
         self.vtln_args: Optional[GmmVtlnArgs] = None
         self.sat_args: Optional[GmmSatArgs] = None
         self.vtln_sat_args: Optional[GmmVtlnSatArgs] = None
 
-        self.cart_questions: Union[
-            Type[cart.BasicCartQuestions], cart.PythonCartQuestions, tk.Path
+        self.cart_questions: Optional[
+            Union[Type[cart.BasicCartQuestions], cart.PythonCartQuestions, tk.Path]
         ] = None
         self.cart_trees = {}
         self.lda_matrices = {}
@@ -105,6 +108,8 @@ class GmmSystem(RasrSystem):
             "default": 5,
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
+
+        self.outputs = defaultdict(dict)
 
     # -------------------- Setup --------------------
     def init_system(
@@ -123,7 +128,7 @@ class GmmSystem(RasrSystem):
     ):
         self.hybrid_init_args = hybrid_init_args
         self.monophone_args = monophone_args
-        self.cart_lda_args = cart_args.cart_lda_args if cart_args is not None else None
+        self.cart_args = cart_args
         self.triphone_args = triphone_args
         self.vtln_args = vtln_args
         self.sat_args = sat_args
@@ -826,6 +831,77 @@ class GmmSystem(RasrSystem):
                     **kwargs,
                 )
 
+    # -------------------- output helpers  --------------------
+
+    def get_gmm_output(
+        self,
+        corpus_key: str,
+        corpus_type: str,
+        step_idx: int,
+        steps: RasrSteps,
+        extract_features: List,
+    ):
+        """
+        :param corpus_key: corpus name identifier
+        :param corpus_type: corpus used for: train, dev or test
+        :param step_idx: select a specific step from the defined list of steps
+        :param steps: all steps in pipeline
+        :param extract_features: list of features to extract for later usage
+        :return GmmOutput:
+        """
+        gmm_output = GmmOutput()
+        gmm_output.crp = self.crp[corpus_key]
+        gmm_output.corpus_file = self.corpora[corpus_key].corpus_file
+        gmm_output.corpus_object = self.corpora[corpus_key]
+        gmm_output.lexicon_file = self.crp[corpus_key].lexicon_config.file
+        gmm_output.lexicon = self.crp[corpus_key].lexicon_config
+        gmm_output.state_tying = self.crp[corpus_key].acoustic_model_config.state_tying
+        gmm_output.feature_flows = self.feature_flows[corpus_key]
+        gmm_output.features = self.feature_caches[corpus_key]
+        gmm_output.segment_path = self.crp[corpus_key].segment_path
+        gmm_output.allophone_file = self.allophone_files["base"]
+
+        for feat_name in extract_features:
+            tk.register_output(
+                f"features/{corpus_key}_{feat_name}_features.bundle",
+                self.feature_bundles[corpus_key][feat_name],
+            )
+
+        if corpus_type == "dev" or corpus_type == "test":
+            gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
+            gmm_output.lm = self.crp[corpus_key].language_model_config
+
+            scorer_key = (
+                f"estimate_mixtures_sdm.{steps.get_step_names_as_list()[step_idx - 1]}"
+            )
+            gmm_output.feature_scorers[scorer_key] = self.feature_scorers[
+                corpus_key
+            ].get(scorer_key, [None])[-1]
+            scorer_key = f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            gmm_output.feature_scorers[scorer_key] = self.feature_scorers[
+                corpus_key
+            ].get(scorer_key, [None])[-1]
+
+        if corpus_type == "dev" and self.alignments[corpus_key].get(
+            f"alignment_{steps.get_step_names_as_list()[step_idx - 1]}", False
+        ):
+            gmm_output.alignments = self.alignments[corpus_key][
+                f"alignment_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+
+        if corpus_type == "train":
+            gmm_output.alignments = self.alignments[corpus_key][
+                f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+            gmm_output.acoustic_mixtures = self.mixtures[corpus_key][
+                f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
+            ][-1]
+            if self.crp[corpus_key].language_model_config is not None:
+                gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
+                gmm_output.lm = self.crp[corpus_key].language_model_config
+
+        return gmm_output
+
     # -------------------- run functions  --------------------
 
     def run_monophone_step(self, step_args):
@@ -836,27 +912,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
-
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=tst_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM Mono ----------
             if step_args.sdm_args is not None:
@@ -872,27 +935,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
-
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=tst_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM Tri ----------
             if step_args.sdm_args is not None:
@@ -928,19 +978,14 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args["train"],
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["train"]["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["train"]["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
-                self.recognition(
-                    name=f"{trn_c}-{name}",
-                    corpus_key=dev_c,
-                    feature_scorer_key=feature_scorer,
-                    **step_args.recognition_args,
-                )
-
-            for tst_c in self.test_corpora:
-                pass
+            self.run_recognition_step(
+                step_args=step_args,
+                name=f"{trn_c}-{name}",
+                feature_scorer=feature_scorer,
+            )
 
             # ---------- SDM VTLN ----------
             if step_args.sdm_args is not None:
@@ -956,10 +1001,10 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
+            for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
                     corpus=dev_c,
@@ -969,7 +1014,18 @@ class GmmSystem(RasrSystem):
                 )
 
             for tst_c in self.test_corpora:
-                pass
+                recog_args = copy.deepcopy(step_args.recognition_args)
+                if step_args.test_recognition_args is None:
+                    break
+                recog_args.update(step_args.test_recognition_args)
+                recog_args["optimize_am_lm_scale"] = False
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus_key=tst_c,
+                    feature_scorer_key=feature_scorer,
+                    **recog_args,
+                )
 
             # ---------- SDM Sat ----------
             if step_args.sdm_args is not None:
@@ -985,10 +1041,10 @@ class GmmSystem(RasrSystem):
                 **step_args.training_args,
             )
 
-            for dev_c in self.dev_corpora:
-                name = step_args.training_args["name"]
-                feature_scorer = (trn_c, f"train_{name}")
+            name = step_args.training_args["name"]
+            feature_scorer = (trn_c, f"train_{name}")
 
+            for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
                     corpus=dev_c,
@@ -998,7 +1054,18 @@ class GmmSystem(RasrSystem):
                 )
 
             for tst_c in self.test_corpora:
-                pass
+                recog_args = copy.deepcopy(step_args.recognition_args)
+                if step_args.test_recognition_args is None:
+                    break
+                recog_args.update(step_args.test_recognition_args)
+                recog_args["optimize_am_lm_scale"] = False
+
+                self.sat_recognition(
+                    name=f"{trn_c}-{name}",
+                    corpus_key=tst_c,
+                    feature_scorer_key=feature_scorer,
+                    **recog_args,
+                )
 
             # ---------- SDM VTLN+SAT ----------
             if step_args.sdm_args is not None:
@@ -1006,6 +1073,63 @@ class GmmSystem(RasrSystem):
                     corpus_key=trn_c,
                     **step_args.sdm_args,
                 )
+
+    def run_recognition_step(
+        self,
+        step_args,
+        name: Optional[str] = None,
+        feature_scorer: Optional[Tuple[str, str]] = None,
+    ):
+        assert (
+            name is None
+            and feature_scorer is None
+            and isinstance(step_args, RecognitionArgs)
+        ) ^ (
+            isinstance(name, str)
+            and isinstance(feature_scorer, Tuple)
+            and not isinstance(step_args, RecognitionArgs)
+        ), (
+            "please check that variables are not specified in two places. type (name, feature_scorer, step_args):",
+            type(name),
+            type(feature_scorer),
+            type(step_args),
+        )
+
+        if isinstance(step_args, RecognitionArgs):
+            name = step_args.name
+            feature_scorer = step_args.recognition_args.pop("feature_scorer_key")
+
+        for dev_c in self.dev_corpora:
+            self.recognition(
+                name=name,
+                corpus_key=dev_c,
+                feature_scorer_key=feature_scorer,
+                **step_args.recognition_args,
+            )
+
+        for tst_c in self.test_corpora:
+            recog_args = copy.deepcopy(step_args.recognition_args)
+            if step_args.test_recognition_args is None:
+                break
+            recog_args.update(step_args.test_recognition_args)
+            recog_args["optimize_am_lm_scale"] = False
+
+            self.recognition(
+                name=name,
+                corpus_key=tst_c,
+                feature_scorer_key=feature_scorer,
+                **recog_args,
+            )
+
+    def run_output_step(self, step_args, step_idx, steps):
+        for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
+            self.outputs[corpus_key][step_args.name] = self.get_gmm_output(
+                corpus_key,
+                corpus_type,
+                step_idx,
+                steps,
+                step_args.extract_features,
+            )
 
     # -------------------- run setup  --------------------
 
@@ -1015,6 +1139,8 @@ class GmmSystem(RasrSystem):
         if list: the parameters passed to function "init_system" will be used
         allowed steps: extract, mono, cart, tri, vtln, sat, vtln+sat, forced_align
         step name string must have an allowed step as prefix
+
+        if not using the run function -> name and corpus almost always need to be added
         """
         if isinstance(steps, List):
             steps_tmp = steps
@@ -1029,7 +1155,7 @@ class GmmSystem(RasrSystem):
                         s,
                         GmmCartArgs(
                             cart_questions=self.cart_questions,
-                            cart_lda_args=self.cart_lda_args,
+                            cart_lda_args=self.cart_args.cart_lda_args,
                         ),
                     )
                 elif s == "tri":
@@ -1064,18 +1190,7 @@ class GmmSystem(RasrSystem):
 
         for eval_c in self.dev_corpora + self.test_corpora:
             self.create_stm_from_corpus(eval_c)
-            if self.hybrid_init_args.scorer == "kaldi":
-                self.set_kaldi_scorer(
-                    corpus=eval_c,
-                    mapping={"[SILENCE]": ""},
-                )
-            elif self.hybrid_init_args.scorer == "hub5":
-                self.set_hub5_scorer(corpus=eval_c)
-            else:
-                self.set_sclite_scorer(
-                    corpus=eval_c,
-                    sort_files=False,
-                )
+            self._set_scorer_for_corpus(eval_c)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------
@@ -1122,3 +1237,11 @@ class GmmSystem(RasrSystem):
                         feature_scorer_corpus_key=trn_c,
                         **step_args,
                     )
+
+            # ---------- Only Recognition ----------
+            if step_name.startswith("recog"):
+                self.run_recognition_step(step_args)
+
+            # ---------- Step Output ----------
+            if step_name.startswith("output"):
+                self.run_output_step(step_args, step_idx=step_idx, steps=steps)

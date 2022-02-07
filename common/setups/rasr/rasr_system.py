@@ -110,6 +110,30 @@ class RasrSystem(meta.System):
             corpus_key
         ].lexicon_config.normalize_pronunciation = normalize_pronunciation
 
+    def _set_scorer_for_corpus(self, eval_corpus_key: str):
+        if self.hybrid_init_args.scorer == "kaldi":
+            scorer_args = (
+                self.hybrid_init_args.scorer_args
+                if self.hybrid_init_args.scorer_args is not None
+                else dict(mapping={"[SILENCE]": ""})
+            )
+            self.set_kaldi_scorer(
+                corpus=eval_corpus_key,
+                **scorer_args,
+            )
+        elif self.hybrid_init_args.scorer == "hub5":
+            self.set_hub5_scorer(corpus=eval_corpus_key)
+        else:
+            scorer_args = (
+                self.hybrid_init_args.scorer_args
+                if self.hybrid_init_args.scorer_args is not None
+                else dict(sort_files=False)
+            )
+            self.set_sclite_scorer(
+                corpus=eval_corpus_key,
+                **scorer_args,
+            )
+
     @staticmethod
     def _assert_corpus_name_unique(*args):
         name_list = []
@@ -124,6 +148,9 @@ class RasrSystem(meta.System):
         self._init_lexicon(corpus_key, **data.lexicon)
         if add_lm:
             self._init_lm(corpus_key, **data.lm)
+        tk.register_output(
+            f"corpora/{corpus_key}.xml.gz", data.corpus_object.corpus_file
+        )
 
     def extract_features_for_corpus(self, corpus: str, feat_args: dict):
         """
