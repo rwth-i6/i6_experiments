@@ -229,6 +229,12 @@ class GmmSystem(RasrSystem):
             .out_mixtures,
         )
 
+        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        tk.register_output(
+            "{}_{}_state_tying".format(corpus_key, name),
+            state_tying_job.out_state_tying,
+        )
+
     # -------------------- CaRT and LDA --------------------
 
     def cart_and_lda(
@@ -757,11 +763,13 @@ class GmmSystem(RasrSystem):
         lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
 
         for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
+            prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
+            assert prev_ctm_key in self.ctm_files[corpus], (
+                "the previous recognition stage '%s' did not provide the required recognition: %s" % (prev_ctm, prev_ctm_key)
+            )
             recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
                 self.corpora[corpus].corpus_file,
-                self.ctm_files[corpus][
-                    f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
-                ],
+                self.ctm_files[corpus][prev_ctm_key],
             )
             speaker_seq = corpus_recipes.SegmentCorpusBySpeakerJob(
                 self.corpora[corpus].corpus_file
