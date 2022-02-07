@@ -301,7 +301,7 @@ class GmmVtlnSatArgs:
 
 class ForcedAlignmentArgs:
     """
-    parameters for forceda alignment on the target corpus
+    parameters for forced alignment on the target corpus
     """
 
     def __init__(
