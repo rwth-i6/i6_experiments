@@ -844,7 +844,7 @@ class GmmSystem(RasrSystem):
         """
         :param corpus_key: corpus name identifier
         :param corpus_type: corpus used for: train, dev or test
-        :param step_idx: which iteration to take within one step
+        :param step_idx: select a specific step from the defined list of steps
         :param steps: all steps in pipeline
         :param extract_features: list of features to extract for later usage
         :return GmmOutput:
