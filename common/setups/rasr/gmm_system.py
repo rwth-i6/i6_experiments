@@ -1089,7 +1089,7 @@ class GmmSystem(RasrSystem):
             and isinstance(feature_scorer, Tuple)
             and not isinstance(step_args, RecognitionArgs)
         ), (
-            "please check that vairables are not specified in two places. type (name, feature_scorer, step_args):",
+            "please check that variables are not specified in two places. type (name, feature_scorer, step_args):",
             type(name),
             type(feature_scorer),
             type(step_args),
