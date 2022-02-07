@@ -1190,18 +1190,7 @@ class GmmSystem(RasrSystem):
 
         for eval_c in self.dev_corpora + self.test_corpora:
             self.create_stm_from_corpus(eval_c)
-            if self.hybrid_init_args.scorer == "kaldi":
-                self.set_kaldi_scorer(
-                    corpus=eval_c,
-                    mapping={"[SILENCE]": ""},
-                )
-            elif self.hybrid_init_args.scorer == "hub5":
-                self.set_hub5_scorer(corpus=eval_c)
-            else:
-                self.set_sclite_scorer(
-                    corpus=eval_c,
-                    sort_files=False,
-                )
+            self._set_scorer_for_corpus(eval_c)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------
