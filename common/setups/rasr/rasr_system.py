@@ -73,6 +73,7 @@ class RasrSystem(meta.System):
     def _init_am(self, **kwargs):
         """
         TODO: docstring
+
         :param kwargs:
         :return:
         """
@@ -88,6 +89,7 @@ class RasrSystem(meta.System):
     def _init_corpus(self, corpus_key: str):
         """
         TODO: docstring
+
         :param corpus_key:
         :return:
         """
@@ -108,6 +110,7 @@ class RasrSystem(meta.System):
     ):
         """
         TODO: docstring
+
         :param corpus_key:
         :param filename:
         :param type:
@@ -126,6 +129,7 @@ class RasrSystem(meta.System):
     ):
         """
         TODO: docstring
+
         :param corpus_key:
         :param filename:
         :param normalize_pronunciation:
@@ -141,6 +145,7 @@ class RasrSystem(meta.System):
     def _set_scorer_for_corpus(self, eval_corpus_key: str):
         """
         TODO: docstring
+
         :param eval_corpus_key:
         :return:
         """
@@ -171,6 +176,7 @@ class RasrSystem(meta.System):
     def _assert_corpus_name_unique(*args):
         """
         TODO: docstring
+
         :param args:
         :return:
         """
@@ -182,6 +188,7 @@ class RasrSystem(meta.System):
     def add_corpus(self, corpus_key: str, data: RasrDataInput, add_lm: bool):
         """
         TODO: docstring
+
         :param corpus_key:
         :param data:
         :param add_lm:
@@ -200,6 +207,7 @@ class RasrSystem(meta.System):
     def extract_features_for_corpus(self, corpus: str, feat_args: dict):
         """
         TODO: docstring
+
         :param corpus:
         :param feat_args:
         :return:
@@ -227,6 +235,7 @@ class RasrSystem(meta.System):
         """
         TODO: docstring
         TODO: add more generic flow dependencies
+
         :param feat_args: see RasrInitArgs.feature_extraction_args
         :param kwargs:
         :return:
