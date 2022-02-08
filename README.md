@@ -29,7 +29,9 @@ the existing API or the resulting pipeline.
 As this is still under construction, what kind of pipelines are grouped here is still not decided.
 So far there is:
  - `datasets` which will contain pipelines related to specific corpora.
+   - This code is protected with hash-checks and thus can be treated as safe and stable 
  - `setups` which contain corpus independed pipeline helpers for specific systems (e.g. Hybrid-ASR)
+   - This code is still under developement. While the resulting graph should be stable, the API definitely is not. 
 
 For i6 users: if pipelines have a related `export` function,
 pre-computed jobs may be found under `/work/common/asr` and can be imported via the console via `tk.import_work_directory()`.
