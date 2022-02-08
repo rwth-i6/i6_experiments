@@ -52,6 +52,8 @@ Path = tk.setup_path(__package__)
 
 class GmmSystem(RasrSystem):
     """
+    This is very limited, so TODO: docstring
+
     - 3 corpora types: train, dev and test
     - only train corpora will be aligned
     - dev corpora for tuning
@@ -126,6 +128,20 @@ class GmmSystem(RasrSystem):
         sat_args: Optional[GmmSatArgs] = None,
         vtln_sat_args: Optional[GmmVtlnSatArgs] = None,
     ):
+        """
+        TODO: docstring
+        :param hybrid_init_args:
+        :param train_data:
+        :param dev_data:
+        :param test_data:
+        :param monophone_args:
+        :param cart_args:
+        :param triphone_args:
+        :param vtln_args:
+        :param sat_args:
+        :param vtln_sat_args:
+        :return:
+        """
         self.hybrid_init_args = hybrid_init_args
         self.monophone_args = monophone_args
         self.cart_args = cart_args
@@ -178,6 +194,20 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
+        """
+        TODO: docstring
+        :param name:
+        :param corpus_key:
+        :param linear_alignment_args:
+        :param feature_energy_flow_key:
+        :param feature_flow:
+        :param align_iter:
+        :param splits:
+        :param accs_per_split:
+        :param align_keep_values:
+        :param kwargs:
+        :return:
+        """
         if linear_alignment_args is not None:
             self.linear_alignment(
                 name,
@@ -229,6 +259,12 @@ class GmmSystem(RasrSystem):
             .out_mixtures,
         )
 
+        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        tk.register_output(
+            "{}_{}_state_tying".format(corpus_key, name),
+            state_tying_job.out_state_tying,
+        )
+
     # -------------------- CaRT and LDA --------------------
 
     def cart_and_lda(
@@ -245,6 +281,22 @@ class GmmSystem(RasrSystem):
         generalized_eigenvalue_args: dict,
         **kwargs,
     ):
+        """
+        TODO:  docstring
+
+        :param name:
+        :param corpus_key:
+        :param initial_flow_key:
+        :param context_flow_key:
+        :param context_size:
+        :param alignment:
+        :param num_dim:
+        :param num_iter:
+        :param eigenvalue_args:
+        :param generalized_eigenvalue_args:
+        :param kwargs:
+        :return:
+        """
         for f in self.feature_flows.values():
             f["{}+context".format(context_flow_key)] = lda.add_context_flow(
                 feature_net=f[context_flow_key],
@@ -311,6 +363,20 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param corpus_key:
+        :param feature_flow:
+        :param initial_alignment:
+        :param splits:
+        :param accs_per_split:
+        :param align_keep_values:
+        :param kwargs:
+        :return:
+        """
+
         action_sequence = (
             ["accumulate"]
             + meta.align_then_split_and_accumulate_sequence(
@@ -365,6 +431,17 @@ class GmmSystem(RasrSystem):
         context_size: Optional[int] = None,
         lda_matrix_key: Optional[str] = None,
     ):
+        """
+        TODO:  docstring
+
+        :param name:
+        :param train_corpus_key:
+        :param corpora_keys:
+        :param base_flow_key:
+        :param context_size:
+        :param lda_matrix_key:
+        :return:
+        """
         for c in corpora_keys:
             flow = self.feature_flows[c][base_flow_key]
             if context_size is not None:
@@ -390,6 +467,18 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
     ):
+        """
+        TODO:  docstring
+
+        :param name:
+        :param corpus_key:
+        :param feature_flow_key:
+        :param feature_scorer:
+        :param alignment:
+        :param splits:
+        :param accs_per_split:
+        :return:
+        """
         feature_flow_key = self.feature_flows[corpus_key][feature_flow_key]
         warp = vtln.ScoreFeaturesWithWarpingFactorsJob(
             crp=self.crp[corpus_key],
@@ -425,6 +514,17 @@ class GmmSystem(RasrSystem):
         vtln_files_key: str,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param train_corpus_key:
+        :param eval_corpora_keys:
+        :param raw_feature_flow_key:
+        :param vtln_files_key:
+        :param kwargs:
+        :return:
+        """
         for c in eval_corpora_keys:
             self.vtln_features(
                 name=name,
@@ -457,6 +557,19 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param corpus_key:
+        :param initial_alignment_key:
+        :param feature_flow:
+        :param splits:
+        :param accs_per_split:
+        :param align_keep_values:
+        :param kwargs:
+        :return:
+        """
         action_sequence = (
             ["accumulate"]
             + meta.align_then_split_and_accumulate_sequence(splits, accs_per_split)
@@ -509,6 +622,19 @@ class GmmSystem(RasrSystem):
         mixtures: rasr.FlagDependentFlowAttribute,
         overlay_key: Optional[str] = None,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param corpus_key:
+        :param feature_cache:
+        :param feature_flow_key:
+        :param cache_regex:
+        :param alignment:
+        :param mixtures:
+        :param overlay_key:
+        :return:
+        """
         speaker_seg = corpus_recipes.SegmentCorpusBySpeakerJob(
             self.corpora[corpus_key].corpus_file
         )
@@ -592,6 +718,22 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param corpus_key:
+        :param feature_cache:
+        :param feature_flow_key:
+        :param cache_regex:
+        :param alignment:
+        :param mixtures:
+        :param splits:
+        :param accs_per_split:
+        :param align_keep_values:
+        :param kwargs:
+        :return:
+        """
         self.estimate_cmllr(
             name=name,
             corpus_key=corpus_key,
@@ -746,6 +888,30 @@ class GmmSystem(RasrSystem):
         lattice_to_ctm_kwargs: dict,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param prev_ctm:
+        :param feature_cache:
+        :param cache_regex:
+        :param cmllr_mixtures:
+        :param train_corpus_key:
+        :param name:
+        :param iters:
+        :param lm_scales:
+        :param feature_scorer_key:
+        :param optimize_am_lm_scale:
+        :param corpus:
+        :param feature_flow:
+        :param pronunciation_scales:
+        :param search_parameters:
+        :param rtf:
+        :param mem:
+        :param parallelize_conversion:
+        :param lattice_to_ctm_kwargs:
+        :param kwargs:
+        :return:
+        """
         recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
         pronunciation_scales = (
@@ -757,11 +923,14 @@ class GmmSystem(RasrSystem):
         lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
 
         for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
+            prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
+            assert prev_ctm_key in self.ctm_files[corpus], (
+                "the previous recognition stage '%s' did not provide the required recognition: %s"
+                % (prev_ctm, prev_ctm_key)
+            )
             recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
                 self.corpora[corpus].corpus_file,
-                self.ctm_files[corpus][
-                    f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
-                ],
+                self.ctm_files[corpus][prev_ctm_key],
             )
             speaker_seq = corpus_recipes.SegmentCorpusBySpeakerJob(
                 self.corpora[corpus].corpus_file

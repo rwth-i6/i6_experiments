@@ -49,38 +49,37 @@ class GmmMonophoneArgs:
         :param training_args: {
             'feature_flow': 'mfcc+deriv+norm',
             'feature_energy_flow': 'energy,mfcc+deriv+norm',
-            'align_iter': 75,
-            'splits': 10,
-            'accs_per_split': 2,
+            'align_iter': 75, # single density EM iteration steps
+            'splits': 10, # number of density splits
+            'accs_per_split': 2, # re-estimations of sample assignments between splits?
         }
         ##################################################
         :param recognition_args: {
-            'eval_iter': [7, 8, 9, 10]
-            'pronunciation_scales': [1.0]
-            'lm_scales': [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50]
+            'eval_iter': [7, 8, 9, 10] # iterations to evaluate corresponding to the "splits" iterations
+            'pronunciation_scales': [1.0] # scales the pronunciation props (which are simply 1.0 in most cases), only relevant then when using "normalize-pronunciations"
+            'lm_scales': [9.0, 9.25, 9.50, 9.75, 10.0, 10.25, 10.50] # obviously
             'recog_args': {
                 'feature_flow': dev_corpus_name,
-                'pronunciation_scale': pronunciation_scale,
-                'lm_scale': lm_scale,
-                'lm_lookahead': True,
-                'lookahead_options': None,
-                'create_lattice': True,
-                'eval_single_best': True,
-                'eval_best_in_lattice': True,
+                'pronunciation_scale': pronunciation_scale, # scale for the pronunciation score,
+                    only relevant when normalize_pronunciation=True for the lexicon or there are different
+                    scores in the lexicon itself
+                'lm_scale': lm_scale, # language model scale
+                'lm_lookahead': True, # use lookahead, using the lm for pruning partial words
+                'lookahead_options': None, # TODO:
+                'create_lattice': True, # write lattice cache files
+                'eval_single_best': True, # show the evaluation of the best path in lattice in the log (model score)
+                'eval_best_in_lattice': True, # show the evaluation of the best path in lattice in the log (oracle)
                 'search_parameters': {
-                    'beam_pruning': 14.0,
-                    'beam-pruning-limit': 100000,
-                    'word-end-pruning': 0.5,
-                    'word-end-pruning-limit': 15000
+                    'beam_pruning': 14.0, # prob ratio of best path compared to pruned path
+                    'beam-pruning-limit': 100000, # maximum number of paths
+                    'word-end-pruning': 0.5, # pruning ratio at the end of completed words
+                    'word-end-pruning-limit': 15000 # maximum number of paths at completed words
                 },
                 'best_path_algo': 'bellman-ford',  # options: bellman-ford, dijkstra
-                'fill_empty_segments': False,
-                'scorer': recog.Sclite,
-                'scorer_args': {'ref': create_corpora.stm_files['dev-other']},
-                'scorer_hyp_args': "hyp",
-                'rtf': 30,
-                'mem': 8,
-                'use_gpu': False,
+                'fill_empty_segments': False, # insert dummy when transcription output is empty
+                'rtf': 30, # time estimation for jobs, which will be time=duration/concurrent*rtf
+                'mem': 8, # memory for jobs
+                'use_gpu': False, # True makes no sense
             }
         }
 
@@ -94,6 +93,8 @@ class GmmMonophoneArgs:
         decoding parameters might change depending on whether dev or test sets are decoded.
         setting test_recognition_args to None means no test recognition!
         test_recognition_args UPDATES recognition_args
+        ##################################################
+        :param sdm_args: TODO:
         ##################################################
         """
         self.linear_alignment_args = linear_alignment_args

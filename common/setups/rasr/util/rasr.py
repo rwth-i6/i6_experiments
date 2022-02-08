@@ -68,16 +68,16 @@ class RasrInitArgs:
         }
         ##################################################
         :param am_args: {
-            'state_tying': "monophone",
-            'states_per_phone': 3,
-            'state_repetitions': 1,
-            'across_word_model': True,
-            'early_recombination': False,
-            'tdp_scale': 1.0,
-            'tdp_transition': (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
-            'tdp_silence': (0.0, 3.0, "infinity", 20.0),
-            'tying_type': "global",
-            'nonword_phones': "",
+            'state_tying': "monophone", # "monophone", "cart", "monophon-eow", "dense-tying"
+            'states_per_phone': 3, # hidden states per phone
+            'state_repetitions': 1, # minimum state repetitions
+            'across_word_model': True, # phoneme context is across words
+            'early_recombination': False, # TODO:
+            'tdp_scale': 1.0, # global scale for all tdp scores
+            'tdp_transition': (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit as negative log-probs
+            'tdp_silence': (0.0, 3.0, "infinity", 20.0), # negative log-probs for silence
+            'tying_type': "global", # TODO:
+            'nonword_phones': "", # e.g. [noise]
             'tdp_nonword': (0.0, 3.0, "infinity", 6.0)  # only used when tying_type = global-and-nonword
         }
         ##################################################
@@ -166,6 +166,10 @@ class RasrInitArgs:
 
 
 class RescoreArgs:
+    """
+    TODO: docstring
+    """
+
     def __init__(
         self,
         rescoring_args: Optional[Dict[str, Dict]] = None,
@@ -178,6 +182,10 @@ class RescoreArgs:
 
 
 class RasrSteps:
+    """
+    TODO: docstring
+    """
+
     def __init__(self):
         self._step_names_args = OrderedDict()
 

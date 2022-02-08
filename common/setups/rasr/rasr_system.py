@@ -26,6 +26,7 @@ Path = tk.setup_path(__package__)
 
 class RasrSystem(meta.System):
     """
+    very limited, so TODO:
     - 3 corpora types: train, dev and test
     - only train corpora will be aligned
     - dev corpora for tuning
@@ -70,6 +71,12 @@ class RasrSystem(meta.System):
     # -------------------- base functions --------------------
     @tk.block()
     def _init_am(self, **kwargs):
+        """
+        TODO: docstring
+
+        :param kwargs:
+        :return:
+        """
         self.crp["base"].acoustic_model_config = am.acoustic_model_config(**kwargs)
         allow_zero_weights = kwargs.get("allow_zero_weights", False)
         if allow_zero_weights:
@@ -80,6 +87,12 @@ class RasrSystem(meta.System):
 
     @tk.block()
     def _init_corpus(self, corpus_key: str):
+        """
+        TODO: docstring
+
+        :param corpus_key:
+        :return:
+        """
         segm_corpus_job = corpus_recipes.SegmentCorpusJob(
             self.corpora[corpus_key].corpus_file, self.concurrent[corpus_key]
         )
@@ -95,6 +108,16 @@ class RasrSystem(meta.System):
     def _init_lm(
         self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs
     ):
+        """
+        TODO: docstring
+
+        :param corpus_key:
+        :param filename:
+        :param type:
+        :param scale:
+        :param kwargs:
+        :return:
+        """
         self.crp[corpus_key].language_model_config = rasr.RasrConfig()
         self.crp[corpus_key].language_model_config.type = type
         self.crp[corpus_key].language_model_config.file = filename
@@ -104,6 +127,15 @@ class RasrSystem(meta.System):
     def _init_lexicon(
         self, corpus_key: str, filename: Path, normalize_pronunciation: bool, **kwargs
     ):
+        """
+        TODO: docstring
+
+        :param corpus_key:
+        :param filename:
+        :param normalize_pronunciation:
+        :param kwargs:
+        :return:
+        """
         self.crp[corpus_key].lexicon_config = rasr.RasrConfig()
         self.crp[corpus_key].lexicon_config.file = filename
         self.crp[
@@ -111,6 +143,12 @@ class RasrSystem(meta.System):
         ].lexicon_config.normalize_pronunciation = normalize_pronunciation
 
     def _set_scorer_for_corpus(self, eval_corpus_key: str):
+        """
+        TODO: docstring
+
+        :param eval_corpus_key:
+        :return:
+        """
         if self.hybrid_init_args.scorer == "kaldi":
             scorer_args = (
                 self.hybrid_init_args.scorer_args
@@ -136,12 +174,26 @@ class RasrSystem(meta.System):
 
     @staticmethod
     def _assert_corpus_name_unique(*args):
+        """
+        TODO: docstring
+
+        :param args:
+        :return:
+        """
         name_list = []
         for i in args:
             name_list.extend(list(i.keys()))
         assert len(name_list) == len(set(name_list)), "corpus names are not unique"
 
     def add_corpus(self, corpus_key: str, data: RasrDataInput, add_lm: bool):
+        """
+        TODO: docstring
+
+        :param corpus_key:
+        :param data:
+        :param add_lm:
+        :return:
+        """
         self.corpora[corpus_key] = data.corpus_object
         self.concurrent[corpus_key] = data.concurrent
         self._init_corpus(corpus_key)
@@ -154,6 +206,8 @@ class RasrSystem(meta.System):
 
     def extract_features_for_corpus(self, corpus: str, feat_args: dict):
         """
+        TODO: docstring
+
         :param corpus:
         :param feat_args:
         :return:
@@ -179,6 +233,7 @@ class RasrSystem(meta.System):
     @tk.block()
     def extract_features(self, feat_args: dict, **kwargs):
         """
+        TODO: docstring
         TODO: add more generic flow dependencies
 
         :param feat_args: see RasrInitArgs.feature_extraction_args
@@ -208,6 +263,15 @@ class RasrSystem(meta.System):
     def single_density_mixtures(
         self, name: str, corpus_key: str, feature_flow_key: str, alignment: str
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param corpus_key:
+        :param feature_flow_key:
+        :param alignment:
+        :return:
+        """
         self.estimate_mixtures(
             name=name,
             corpus=corpus_key,
@@ -230,6 +294,18 @@ class RasrSystem(meta.System):
         dump_alignment: bool = False,
         **kwargs,
     ):
+        """
+        TODO: docstring
+
+        :param name:
+        :param target_corpus_key:
+        :param flow:
+        :param feature_scorer:
+        :param feature_scorer_corpus_key:
+        :param dump_alignment:
+        :param kwargs:
+        :return:
+        """
         selected_feature_scorer = meta.select_element(
             self.feature_scorers, feature_scorer_corpus_key, feature_scorer
         )
