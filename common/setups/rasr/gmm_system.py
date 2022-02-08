@@ -543,8 +543,6 @@ class GmmSystem(RasrSystem):
                 self.vtln_files[train_corpus_key][vtln_files_key + "_mixtures"][-1],
             )
 
-
-
     @tk.block()
     def vtln_training(
         self,
@@ -927,7 +925,8 @@ class GmmSystem(RasrSystem):
         for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
             prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
             assert prev_ctm_key in self.ctm_files[corpus], (
-                "the previous recognition stage '%s' did not provide the required recognition: %s" % (prev_ctm, prev_ctm_key)
+                "the previous recognition stage '%s' did not provide the required recognition: %s"
+                % (prev_ctm, prev_ctm_key)
             )
             recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
                 self.corpora[corpus].corpus_file,

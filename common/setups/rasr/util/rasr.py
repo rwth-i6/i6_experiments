@@ -169,6 +169,7 @@ class RescoreArgs:
     """
     TODO: docstring
     """
+
     def __init__(
         self,
         rescoring_args: Optional[Dict[str, Dict]] = None,
@@ -184,6 +185,7 @@ class RasrSteps:
     """
     TODO: docstring
     """
+
     def __init__(self):
         self._step_names_args = OrderedDict()
 
