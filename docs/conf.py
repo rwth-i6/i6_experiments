@@ -13,7 +13,7 @@
 import os
 import sys
 
-# code is used for automatic api generati code is used for automatic api generationon
+# code is used for automatic api generation
 
 # if not os.path.exists("i6_core"):
 #     os.mkdir("i6_core")
