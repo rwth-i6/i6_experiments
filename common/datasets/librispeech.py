@@ -304,7 +304,7 @@ def get_arpa_lm_dict(output_prefix="datasets"):
 
 
 @lru_cache()
-def get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
+def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
     """
     Generate the special lemmas for LibriSpeech
 
@@ -355,6 +355,50 @@ def get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
 
 
 @lru_cache()
+def _get_raw_bliss_lexicon(
+    use_stress_marker,
+    alias_path,
+):
+    """
+    helper function to download and convert the official lexicon from OpenSLR
+    here: https://www.openslr.org/resources/11/
+
+    No special lemmas are added
+
+    :param bool use_stress_marker:
+    :param str alias_path: alias_path already including the lexicon path passed from another function
+    :return: Path to LibriSpeech bliss lexicon
+    :rtype: Path
+    """
+    download_lexicon_job = DownloadJob(
+        url="https://www.openslr.org/resources/11/librispeech-lexicon.txt",
+        target_filename="librispeech-lexicon.txt",
+        checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71",
+    )
+
+    text_lexicon = download_lexicon_job.out_file
+    if not use_stress_marker:
+        from i6_core.text import PipelineJob
+
+        eliminate_stress_job = PipelineJob(
+            text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True
+        )
+        eliminate_stress_job.add_alias(os.path.join(alias_path, "remove_stress_marker"))
+        text_lexicon = eliminate_stress_job.out
+
+    convert_lexicon_job = LexiconFromTextFileJob(
+        text_file=text_lexicon, compressed=True
+    )
+
+    download_lexicon_job.add_alias(os.path.join(alias_path, "download_lexicon_job"))
+    convert_lexicon_job.add_alias(
+        os.path.join(alias_path, "convert_text_to_bliss_lexicon_job")
+    )
+
+    return convert_lexicon_job.out_bliss_lexicon
+
+
+@lru_cache()
 def get_bliss_lexicon(
     use_stress_marker=False,
     add_unknown_phoneme_and_mapping=True,
@@ -387,47 +431,27 @@ def get_bliss_lexicon(
         ),
     )
 
-    static_lexicon = get_special_lemma_lexicon(
+    static_lexicon = _get_special_lemma_lexicon(
         add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
     )
     static_lexicon_job = WriteLexiconJob(
         static_lexicon, sort_phonemes=True, sort_lemmata=False
     )
 
-    download_lexicon_job = DownloadJob(
-        url="https://www.openslr.org/resources/11/librispeech-lexicon.txt",
-        target_filename="librispeech-lexicon.txt",
-        checksum="d722bc29908cd338ae738edd70f61826a6fca29aaa704a9493f0006773f79d71",
-    )
-
-    text_lexicon = download_lexicon_job.out_file
-    if not use_stress_marker:
-        from i6_core.text import PipelineJob
-
-        eliminate_stress_job = PipelineJob(
-            text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True
-        )
-        eliminate_stress_job.add_alias(os.path.join(alias_path, "remove_stress_marker"))
-        text_lexicon = eliminate_stress_job.out
-
-    convert_lexicon_job = LexiconFromTextFileJob(
-        text_file=text_lexicon, compressed=True
+    raw_librispeech_lexicon = _get_raw_bliss_lexicon(
+        use_stress_marker=use_stress_marker, alias_path=alias_path
     )
 
     merge_lexicon_job = MergeLexiconJob(
         bliss_lexica=[
             static_lexicon_job.out_bliss_lexicon,
-            convert_lexicon_job.out_bliss_lexicon,
+            raw_librispeech_lexicon,
         ],
         sort_phonemes=True,
         sort_lemmata=False,
         compressed=True,
     )
     static_lexicon_job.add_alias(os.path.join(alias_path, "static_lexicon_job"))
-    download_lexicon_job.add_alias(os.path.join(alias_path, "download_lexicon_job"))
-    convert_lexicon_job.add_alias(
-        os.path.join(alias_path, "convert_text_to_bliss_lexicon_job")
-    )
     merge_lexicon_job.add_alias(os.path.join(alias_path, "merge_lexicon_job"))
 
     return merge_lexicon_job.out_bliss_lexicon
@@ -453,7 +477,11 @@ def get_g2p_augmented_bliss_lexicon_dict(
     alias_path = os.path.join(
         output_prefix,
         "LibriSpeech",
-        "%s_lexicon" % ("regular" if use_stress_marker else "folded"),
+        "%s_lexicon%s"
+        % (
+            "regular" if use_stress_marker else "folded",
+            "_with_unk" if add_unknown_phoneme_and_mapping else "",
+        ),
     )
     augmented_bliss_lexica = {}
 
