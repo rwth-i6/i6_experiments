@@ -1358,7 +1358,11 @@ class GmmSystem(RasrSystem):
             self.store_allophones(trn_c)
 
         for eval_c in self.dev_corpora + self.test_corpora:
-            stm_args = self.hybrid_init_args.stm_args if self.hybrid_init_args.stm_args is not None else {}
+            stm_args = (
+                self.hybrid_init_args.stm_args
+                if self.hybrid_init_args.stm_args is not None
+                else {}
+            )
             self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
