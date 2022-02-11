@@ -10,6 +10,8 @@ __all__ = [
     "get_data_inputs",
 ]
 
+from typing import Dict, Optional, Union
+
 # -------------------- Sisyphus --------------------
 
 from sisyphus import tk
@@ -22,13 +24,32 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
-from i6_experiments.common.setups.rasr.util import *
+import i6_experiments.common.setups.rasr.util as rasr_util
 from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
 # -------------------- functions --------------------
 
 
-def get_init_args(dc_detection=True, scorer=None):
+def get_init_args(
+    *,
+    dc_detection: bool = True,
+    scorer: Optional[str] = None,
+    mfcc_filter_width: Union[float, Dict] = 268.258,
+    am_extra_args: Optional[Dict] = None,
+    mfcc_cepstrum_options: Optional[Dict] = None,
+    mfcc_extra_args: Optional[Dict] = None,
+    gt_options_extra_args: Optional[Dict] = None,
+):
+    """
+    :param dc_detection:
+    :param scorer:
+    :param am_extra_args:
+    :param mfcc_filter_width: dict(channels=16, warping_function="mel", f_max=8000, f_min=0)
+    :param mfcc_cepstrum_options:
+    :param mfcc_extra_args:
+    :param gt_options_extra_args:
+    :return:
+    """
     am_args = {
         "state_tying": "monophone",
         "states_per_phone": 3,
@@ -47,9 +68,24 @@ def get_init_args(dc_detection=True, scorer=None):
             6.0,
         ),  # only used when tying_type = global-and-nonword
     }
+    if am_extra_args is not None:
+        am_args.update(am_extra_args)
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
     default_mixture_scorer_args = {"scale": 0.3}
+
+    mfcc_filter_width = (
+        features.filter_width_from_channels(**mfcc_filter_width)
+        if isinstance(mfcc_filter_width, Dict)
+        else mfcc_filter_width
+    )
+
+    if mfcc_cepstrum_options is None:
+        mfcc_cepstrum_options = {
+            "normalize": False,
+            "outputs": 16,
+            "add_epsilon": False,
+        }
 
     feature_extraction_args = {
         "mfcc": {
@@ -57,7 +93,7 @@ def get_init_args(dc_detection=True, scorer=None):
             "num_features": None,  # 33 (confusing name: # max features, above -> clipped)
             "mfcc_options": {
                 "warping_function": "mel",
-                "filter_width": 268.258,
+                "filter_width": mfcc_filter_width,
                 "normalize": True,
                 "normalization_options": None,
                 "without_samples": False,
@@ -65,11 +101,7 @@ def get_init_args(dc_detection=True, scorer=None):
                     "audio_format": "wav",
                     "dc_detection": dc_detection,
                 },
-                "cepstrum_options": {
-                    "normalize": False,
-                    "outputs": 16,
-                    "add_epsilon": False,
-                },
+                "cepstrum_options": mfcc_cepstrum_options,
                 "fft_options": None,
             },
         },
@@ -107,7 +139,12 @@ def get_init_args(dc_detection=True, scorer=None):
         },
     }
 
-    return RasrInitArgs(
+    if mfcc_extra_args is not None:
+        feature_extraction_args["mfcc"].update(mfcc_extra_args)
+    if gt_options_extra_args is not None:
+        feature_extraction_args["gt"]["gt_options"].update(gt_options_extra_args)
+
+    return rasr_util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
@@ -146,20 +183,20 @@ def get_monophone_args(
     monophone_recognition_args = {
         # GmmSystem.recognition() args:
         "iters": [8, 10],
-        "lm_scales": [10.0, 12.5],
+        "lm_scales": [10.5],
         "optimize_am_lm_scale": True,
         # meta.System.recog() args:
         "feature_flow": feature_flow,
-        "pronunciation_scales": [1.0, 6.0],
+        "pronunciation_scales": [6.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
         "eval_single_best": True,
         "eval_best_in_lattice": True,
         "search_parameters": {
-            "beam-pruning": 12.0,
+            "beam-pruning": 18.0,
             "beam-pruning-limit": 100000,
-            "word-end-pruning": 0.5,
+            "word-end-pruning": 0.75,
             "word-end-pruning-limit": 15000,
         },
         "parallelize_conversion": False,
@@ -167,16 +204,17 @@ def get_monophone_args(
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
-        "rtf": 10,
+        "rtf": 50,
         "mem": 8,
         "use_gpu": False,
     }
 
-    monophone_test_recognition_args = {
-        "optimize_am_lm_scale": False,
-        "pronunciation_scales": [1.0],
-        "lm_scales": [11.0],
-    }
+    monophone_test_recognition_args = None
+    # {
+    #    "optimize_am_lm_scale": False,
+    #    "pronunciation_scales": [1.0],
+    #    "lm_scales": [11.0],
+    # }
 
     if allow_zero_weights:
         allow_zero_weights_extra_config = rasr.RasrConfig()
@@ -199,7 +237,7 @@ def get_monophone_args(
         "feature_flow_key": feature_flow,
     }
 
-    return GmmMonophoneArgs(
+    return rasr_util.GmmMonophoneArgs(
         linear_alignment_args=linear_alignment_args,
         training_args=monophone_training_args,
         recognition_args=monophone_recognition_args,
@@ -240,7 +278,7 @@ def get_cart_args(
         "generalized_eigenvalue_args": {"all": {"verification_tolerance": 1e16}},
     }
 
-    return GmmCartArgs(
+    return rasr_util.GmmCartArgs(
         cart_questions=cart_questions,
         cart_lda_args=cart_lda_args,
     )
@@ -261,8 +299,8 @@ def get_triphone_args(allow_zero_weights: bool = False):
     triphone_recognition_args = {
         "iters": [8, 10],
         "feature_flow": "mfcc+context+lda",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [9.50],
+        "pronunciation_scales": [6.0],
+        "lm_scales": [24.9],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -305,7 +343,7 @@ def get_triphone_args(allow_zero_weights: bool = False):
         "feature_flow_key": "mfcc+context+lda",
     }
 
-    return GmmTriphoneArgs(
+    return rasr_util.GmmTriphoneArgs(
         training_args=triphone_training_args,
         recognition_args=triphone_recognition_args,
         sdm_args=sdm_args,
@@ -333,14 +371,17 @@ def get_vtln_args(allow_zero_weights: bool = False):
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": "mfcc+context+lda+vtln",
+            "accumulate_extra_rqmt": {"mem": 8},
+            "align_extra_rqmt": {"mem": 8},
+            "split_extra_rqmt": {"mem": 8},
         },
     }
 
     vtln_recognition_args = {
         "iters": [8, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [9.50],
+        "pronunciation_scales": [6.0],
+        "lm_scales": [21.5, 22.4],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -383,7 +424,7 @@ def get_vtln_args(allow_zero_weights: bool = False):
         "feature_flow_key": "mfcc+context+lda+vtln",
     }
 
-    return GmmVtlnArgs(
+    return rasr_util.GmmVtlnArgs(
         training_args=vtln_training_args,
         recognition_args=vtln_recognition_args,
         sdm_args=sdm_args,
@@ -401,17 +442,26 @@ def get_sat_args(allow_zero_weights: bool = False):
         "splits": 10,
         "accs_per_split": 2,
         "align_keep_values": {7: tk.gs.JOB_DEFAULT_KEEP_VALUE},
+        "accumulate_extra_rqmt": {"mem": 8},
+        "align_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8},
     }
 
     sat_recognition_args = {
-        "prev_ctm": "tri",
+        "prev_ctm": (
+            "tri",
+            6.0,
+            24.9,
+            10,
+            "-optlm",
+        ),  # (name, pron_scale, lm_scale, it, opt)
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
         "iters": [8, 10],
         "feature_flow": "uncached_mfcc+context+lda",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [9.50],
+        "pronunciation_scales": [14.0],
+        "lm_scales": [14.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -454,7 +504,7 @@ def get_sat_args(allow_zero_weights: bool = False):
         "feature_flow_key": "mfcc+context+lda+cmllr",
     }
 
-    return GmmSatArgs(
+    return rasr_util.GmmSatArgs(
         training_args=sat_training_args,
         recognition_args=sat_recognition_args,
         sdm_args=sdm_args,
@@ -466,22 +516,31 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         "name": "vtln+sat",
         "mixtures": "estimate_mixtures_sdm.vtln",
         "alignment": "train_vtln",
-        "feature_cache": "mfcc",
+        "feature_cache": "mfcc+context+lda+vtln",
         "feature_flow_key": "mfcc+context+lda+vtln",
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
+        "accumulate_extra_rqmt": {"mem": 8},
+        "align_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8},
     }
 
     vtln_sat_recognition_args = {
-        "prev_ctm": "vtln",
+        "prev_ctm": (
+            "vtln",
+            6.0,
+            21.5,
+            10,
+            "-optlm",
+        ),  # (name, pron_scale, lm_scale, it, opt)
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
         "iters": [8, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [9.50],
+        "pronunciation_scales": [6.0],
+        "lm_scales": [22.4],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -524,7 +583,7 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         "feature_flow_key": "mfcc+context+lda+vtln+cmllr",
     }
 
-    return GmmVtlnSatArgs(
+    return rasr_util.GmmVtlnSatArgs(
         training_args=vtln_sat_training_args,
         recognition_args=vtln_sat_recognition_args,
         sdm_args=sdm_args,
@@ -532,42 +591,23 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
 
 
 def get_final_output():
-    output_args = OutputArgs("final")
+    output_args = rasr_util.OutputArgs("final")
 
-    output_args.add_corpus_key_type_pair("train-other-960", "train")
-    output_args.add_corpus_key_type_pair("dev-clean", "dev")
-    output_args.add_corpus_key_type_pair("dev-other", "dev")
-    output_args.add_corpus_key_type_pair("test-clean", "test")
-    output_args.add_corpus_key_type_pair("test-other", "test")
+    output_args.define_corpus_type("train-other-960", "train")
+    # output_args.define_corpus_type("dev-clean", "dev")
+    output_args.define_corpus_type("dev-other", "dev")
+    # output_args.define_corpus_type("test-clean", "test")
+    # output_args.define_corpus_type("test-other", "test")
+
+    output_args.add_feature_to_extract("gt")
 
     return output_args
-
-
-def get_nn_args():
-    base_config = {}
-
-    base_returnn_config = returnn.ReturnnConfig(
-        config=base_config,
-        hash_full_python_code=True,
-        pprint_kwargs={"sort_dicts": False},
-    )
-
-    returnn_configs = {"base": base_returnn_config}
-    training_args = {}
-    recognition_args = None
-
-    nn_args = NnArgs(
-        returnn_configs=returnn_configs,
-        training_args=training_args,
-        recognition_args=recognition_args,
-    )
-
-    return nn_args
 
 
 def get_data_inputs(
     train_corpus="train-other-960",
     add_unknown_phoneme_and_mapping=True,
+    use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
@@ -592,22 +632,27 @@ def get_data_inputs(
     dev_data_inputs = {}
     test_data_inputs = {}
 
-    train_data_inputs[train_corpus] = RasrDataInput(
+    train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
         corpus_object=corpus_object_dict[train_corpus],
         concurrent=300,
         lexicon=lexicon,
     )
 
-    for dev_key in ["dev-clean", "dev-other"]:
-        dev_data_inputs[dev_key] = RasrDataInput(
+    dev_corpus_keys = (
+        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
+    )
+    test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
+
+    for dev_key in dev_corpus_keys:
+        dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=20,
             lexicon=lexicon,
             lm=lm,
         )
 
-    for tst_key in ["test-clean", "test-other"]:
-        test_data_inputs[tst_key] = RasrDataInput(
+    for tst_key in test_corpus_keys:
+        test_data_inputs[tst_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[tst_key],
             concurrent=20,
             lexicon=lexicon,

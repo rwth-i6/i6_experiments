@@ -59,6 +59,7 @@ class RasrInitArgs:
         default_mixture_scorer_args: dict,
         scorer: Optional[str] = None,
         scorer_args: Optional[Dict] = None,
+        stm_args: Optional[Dict] = None,
     ):
         """
         ##################################################
@@ -156,6 +157,9 @@ class RasrInitArgs:
         "kaldi", "sclite", default is sclite
         ##################################################
         :param scorer_args:
+        ##################################################
+        :param stm_args: arguments to influence stm creation from bliss corpus
+        ##################################################
         """
         self.costa_args = costa_args
         self.default_mixture_scorer_args = default_mixture_scorer_args
@@ -163,6 +167,7 @@ class RasrInitArgs:
         self.scorer_args = scorer_args
         self.am_args = am_args
         self.feature_extraction_args = feature_extraction_args
+        self.stm_args = stm_args
 
 
 class RescoreArgs:
