@@ -641,7 +641,8 @@ class NnSystem(RasrSystem):
             sys.exit(-1)
 
         for eval_c in self.dev_corpora + self.test_corpora:
-            self.create_stm_from_corpus(eval_c, **self.hybrid_init_args.stm_args)
+            stm_args = self.hybrid_init_args.stm_args if self.hybrid_init_args.stm_args is not None else {}
+            self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
