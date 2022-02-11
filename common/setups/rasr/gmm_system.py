@@ -923,7 +923,7 @@ class GmmSystem(RasrSystem):
         lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
 
         for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
-            prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}"
+            prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm[0]}-{corpus}-ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}"
             assert prev_ctm_key in self.ctm_files[corpus], (
                 "the previous recognition stage '%s' did not provide the required recognition: %s"
                 % (prev_ctm, prev_ctm_key)
@@ -936,7 +936,7 @@ class GmmSystem(RasrSystem):
                 self.corpora[corpus].corpus_file
             )
 
-            overlay_key = f"{corpus}_it{it}_ps{p}_lm{l}_sat"
+            overlay_key = f"{corpus}_{name}_it{it}_ps{p}_lm{l}_sat"
             self.add_overlay(corpus, overlay_key)
             self.crp[overlay_key].corpus_config = copy.deepcopy(
                 self.crp[corpus].corpus_config
@@ -1358,7 +1358,7 @@ class GmmSystem(RasrSystem):
             self.store_allophones(trn_c)
 
         for eval_c in self.dev_corpora + self.test_corpora:
-            self.create_stm_from_corpus(eval_c)
+            self.create_stm_from_corpus(eval_c, **self.hybrid_init_args.stm_args)
             self._set_scorer_for_corpus(eval_c)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):

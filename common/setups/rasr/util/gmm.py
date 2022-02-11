@@ -21,6 +21,8 @@ import i6_core.rasr as rasr
 from i6_core.cart.questions import BasicCartQuestions, PythonCartQuestions
 from i6_core.util import MultiPath
 
+from .nn import ReturnnRasrDataInput
+
 
 class GmmMonophoneArgs:
     def __init__(
@@ -412,7 +414,6 @@ class GmmOutput:
         :param shuffle_data:
         :return:
         """
-        raise NotImplementedError
         data = ReturnnRasrDataInput(
             name=name,
             corpus_object=self.corpus_object,
