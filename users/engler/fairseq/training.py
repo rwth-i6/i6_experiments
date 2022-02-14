@@ -3,6 +3,7 @@ import os
 import subprocess as sp
 import yaml
 import sys
+import copy
 
 from sisyphus import *
 
@@ -24,7 +25,17 @@ class FairseqHydraConfig:
         self.yaml_prefix = yaml_prefix
 
     def write(self, path):
-        config_yaml = yaml.dump(self.config_dict)
+        # recursively go through config dictionary to get all sisyphus paths inplace
+        def get_sis_paths(cnfg_d):
+            for k in cnfg_d.keys():
+                if type(cnfg_d[k]) == dict:
+                    get_sis_paths(cnfg_d[k])
+                elif type(cnfg_d[k]) == tk.Path:
+                    cnfg_d[k] = cnfg_d[k].get_path()
+        path_corrected_config = self.config_dict.copy()
+        get_sis_paths(path_corrected_config)
+
+        config_yaml = yaml.dump(path_corrected_config)
         # "# @package _group_" was written at the beginning in the example .yaml from fairseq:
         if self.yaml_prefix != "":
             config_yaml = self.yaml_prefix + "\n" + config_yaml
@@ -68,6 +79,7 @@ class FairseqHydraTrainingJob(Job):
         fairseq_python_exe=None,
         fairseq_hydra_exe=None,
         fairseq_root=None,
+        cached=True,
     ):
         """
         :param FairseqHydraConfig fairseq_hydra_config:
@@ -86,6 +98,7 @@ class FairseqHydraTrainingJob(Job):
             (usually in the same folder as python exe '.../bin/')
         :param Path|str fairseq_root: File path to the fairseq git for alternative call of fairseq-hydra-train
             (no need to install fairseq here)
+        :param bool cached: enables caching of the data given in the manifest
 
         """
 
@@ -131,6 +144,7 @@ class FairseqHydraTrainingJob(Job):
         assert (self.fairseq_root is not None) ^ (self.fairseq_hydra_exe is not None)
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
+        self.cached=cached
 
         # Outputs:
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
@@ -144,6 +158,7 @@ class FairseqHydraTrainingJob(Job):
             for k in stored_epochs
             if k in self.keep_epochs
         }
+        self.out_cached_audio_manifest = self.output_path("cached_audio_manifest", directory=True)
 
         # Requirements:
         self.gpu_rqmt = gpu_rqmt
@@ -166,6 +181,27 @@ class FairseqHydraTrainingJob(Job):
         util.create_executable("fairseq.sh", self._get_run_cmd())
 
     def run(self):
+        if self.cached:
+            manifest_path = self.fairseq_hydra_config.config_dict["task"]["data"].get_path()
+            for name in ["train.tsv", "valid.tsv"]:
+                with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                    manifest_lines = manifest_file.read().splitlines()
+                audio_path = manifest_lines[0]
+                bundle_lines = map(lambda line: audio_path + "/" + line.split("\t")[0], manifest_lines[1:])
+                with open(f"{name}.bundle", 'w') as bundle_file:
+                    bundle_file.write("\n".join(bundle_lines))
+                try:
+                    cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
+                except sp.CalledProcessError:
+                    print(f"Cache manager: Error occurred for {name}, using local file")
+
+                with open(cached_audio_fn) as local_bundle:
+                    bundle_lines = list(map(os.path.dirname, local_bundle.readlines()))
+                    assert bundle_lines.count(bundle_lines[0]) == len(bundle_lines), f"not all {name} files in same directory"
+                    manifest_lines[0] = bundle_lines[0]
+                with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
+                    cached_audio_manifest_file.write('\n'.join(manifest_lines))
+
         my_env = os.environ
         if self.fairseq_root is not None:
             my_env["PYTHONPATH"] = self.fairseq_root
@@ -189,6 +225,9 @@ class FairseqHydraTrainingJob(Job):
         ).get("max_epoch", None):
             run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
 
+        if self.cached:
+            run_cmd += ["task.data=" + self.out_cached_audio_manifest.get_path()]
+
         if self.fairseq_root is not None:
             sys.path.insert(0, self.fairseq_root)
             hydra_train_entry = self.fairseq_root + "fairseq_cli/hydra_train.py"
@@ -198,3 +237,9 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_python_exe is not None:
             run_cmd.insert(0, tk.uncached_path(self.fairseq_python_exe))
         return run_cmd
+
+    @classmethod
+    def hash(cls, kwargs):
+        d = copy.copy(kwargs)
+        d.pop("cached", None)
+        return super().hash(d)
