@@ -79,7 +79,7 @@ class FairseqHydraTrainingJob(Job):
         fairseq_python_exe=None,
         fairseq_hydra_exe=None,
         fairseq_root=None,
-        cached=True,
+        use_cache_manager=True,
     ):
         """
         :param FairseqHydraConfig fairseq_hydra_config:
@@ -98,7 +98,7 @@ class FairseqHydraTrainingJob(Job):
             (usually in the same folder as python exe '.../bin/')
         :param Path|str fairseq_root: File path to the fairseq git for alternative call of fairseq-hydra-train
             (no need to install fairseq here)
-        :param bool cached: enables caching of the data given in the manifest
+        :param bool use_cache_manager: enables caching of data given in the manifest with the i6 cache manager
 
         """
 
@@ -144,7 +144,7 @@ class FairseqHydraTrainingJob(Job):
         assert (self.fairseq_root is not None) ^ (self.fairseq_hydra_exe is not None)
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
-        self.cached=cached
+        self.use_cache_manager=use_cache_manager
 
         # Outputs:
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
@@ -181,7 +181,7 @@ class FairseqHydraTrainingJob(Job):
         util.create_executable("fairseq.sh", self._get_run_cmd())
 
     def run(self):
-        if self.cached:
+        if self.use_cache_manager:
             manifest_path = self.fairseq_hydra_config.config_dict["task"]["data"].get_path()
             for name in ["train.tsv", "valid.tsv"]:
                 with open(f"{manifest_path}/{name}", "r") as manifest_file:
@@ -194,6 +194,7 @@ class FairseqHydraTrainingJob(Job):
                     cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
                 except sp.CalledProcessError:
                     print(f"Cache manager: Error occurred for {name}, using local file")
+                    raise
 
                 with open(cached_audio_fn) as local_bundle:
                     bundle_lines = list(map(os.path.dirname, local_bundle.readlines()))
@@ -225,7 +226,7 @@ class FairseqHydraTrainingJob(Job):
         ).get("max_epoch", None):
             run_cmd += ["optimization.max_epoch=" + str(self.max_epoch)]
 
-        if self.cached:
+        if self.use_cache_manager:
             run_cmd += ["task.data=" + self.out_cached_audio_manifest.get_path()]
 
         if self.fairseq_root is not None:
