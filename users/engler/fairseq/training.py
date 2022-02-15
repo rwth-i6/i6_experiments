@@ -242,5 +242,10 @@ class FairseqHydraTrainingJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = copy.copy(kwargs)
-        d.pop("cached", None)
+        d.pop("use_cache_manager", None)
+        d.pop("time_rqmt", None)
+        d.pop("mem_rqmt", None)
+        d.pop("cpu_rqmt", None)
+        d.pop("gpu_rqmt", None)
         return super().hash(d)
+
