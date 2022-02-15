@@ -193,7 +193,7 @@ class FairseqHydraTrainingJob(Job):
                 try:
                     cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
                 except sp.CalledProcessError:
-                    print(f"Cache manager: Error occurred for {name}, using local file")
+                    print(f"Cache manager: Error occurred for files in {name}")
                     raise
 
                 with open(cached_audio_fn) as local_bundle:
