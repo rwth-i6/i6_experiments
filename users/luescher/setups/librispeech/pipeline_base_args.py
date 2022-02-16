@@ -228,7 +228,9 @@ def get_monophone_args(
         monophone_training_args["split_extra_args"] = {
             "extra_config": allow_zero_weights_extra_config
         }
-        monophone_recognition_args["extra_post_config"] = allow_zero_weights_extra_config
+        monophone_recognition_args[
+            "extra_post_config"
+        ] = allow_zero_weights_extra_config
 
     sdm_args = {
         "name": "sdm.mono",
