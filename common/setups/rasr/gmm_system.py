@@ -878,7 +878,7 @@ class GmmSystem(RasrSystem):
         lm_scales: Union[float, List[float]],
         feature_scorer_key: Tuple[str, str],
         optimize_am_lm_scale: bool,
-        corpus: str,
+        corpus_key: str,
         feature_flow: str,
         pronunciation_scales: Union[float, List[float]],
         search_parameters: dict,
@@ -901,7 +901,7 @@ class GmmSystem(RasrSystem):
         :param lm_scales:
         :param feature_scorer_key:
         :param optimize_am_lm_scale:
-        :param corpus:
+        :param corpus_key:
         :param feature_flow:
         :param pronunciation_scales:
         :param search_parameters:
@@ -912,93 +912,83 @@ class GmmSystem(RasrSystem):
         :param kwargs:
         :return:
         """
-        recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
-
-        pronunciation_scales = (
-            [pronunciation_scales]
-            if isinstance(pronunciation_scales, float)
-            else pronunciation_scales
+        prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm[0]}-{corpus_key}-ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}"
+        assert prev_ctm_key in self.ctm_files[corpus_key], (
+            "the previous recognition stage '%s' did not provide the required recognition: %s"
+            % (prev_ctm, prev_ctm_key)
+        )
+        recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
+            self.corpora[corpus_key].corpus_file,
+            self.ctm_files[corpus_key][prev_ctm_key],
+        )
+        speaker_seq = corpus_recipes.SegmentCorpusBySpeakerJob(
+            self.corpora[corpus_key].corpus_file
         )
 
-        lm_scales = [lm_scales] if isinstance(lm_scales, float) else lm_scales
+        overlay_key = f"{corpus_key}_{name}_ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}_sat"
+        self.add_overlay(corpus_key, overlay_key)
+        self.crp[overlay_key].corpus_config = copy.deepcopy(
+            self.crp[corpus_key].corpus_config
+        )
+        self.crp[
+            overlay_key
+        ].corpus_config.file = recognized_corpus.output_corpus_path
+        self.crp[overlay_key].segment_path = copy.deepcopy(
+            self.crp[corpus_key].segment_path
+        )
 
-        for it, p, l in itertools.product(iters, pronunciation_scales, lm_scales):
-            prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm[0]}-{corpus}-ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}"
-            assert prev_ctm_key in self.ctm_files[corpus], (
-                "the previous recognition stage '%s' did not provide the required recognition: %s"
-                % (prev_ctm, prev_ctm_key)
-            )
-            recognized_corpus = corpus_recipes.ReplaceTranscriptionFromCtmJob(
-                self.corpora[corpus].corpus_file,
-                self.ctm_files[corpus][prev_ctm_key],
-            )
-            speaker_seq = corpus_recipes.SegmentCorpusBySpeakerJob(
-                self.corpora[corpus].corpus_file
-            )
+        self.corpora[overlay_key] = copy.deepcopy(self.corpora[corpus_key])
+        self.corpora[overlay_key].corpus_file = recognized_corpus.output_corpus_path
 
-            overlay_key = f"{corpus}_{name}_it{it}_ps{p}_lm{l}_sat"
-            self.add_overlay(corpus, overlay_key)
-            self.crp[overlay_key].corpus_config = copy.deepcopy(
-                self.crp[corpus].corpus_config
-            )
-            self.crp[
-                overlay_key
-            ].corpus_config.file = recognized_corpus.output_corpus_path
-            self.crp[overlay_key].segment_path = copy.deepcopy(
-                self.crp[corpus].segment_path
-            )
-
-            self.corpora[overlay_key] = copy.deepcopy(self.corpora[corpus])
-            self.corpora[overlay_key].corpus_file = recognized_corpus.output_corpus_path
-
-            alignment = mm.AlignmentJob(
-                crp=self.crp[overlay_key],
-                feature_flow=self.feature_flows[overlay_key][feature_flow],
-                feature_scorer=self.default_mixture_scorer(
-                    meta.select_element(
-                        self.mixtures, corpus, (train_corpus_key, cmllr_mixtures)
-                    ),
+        alignment = mm.AlignmentJob(
+            crp=self.crp[overlay_key],
+            feature_flow=self.feature_flows[overlay_key][feature_flow],
+            feature_scorer=self.default_mixture_scorer(
+                meta.select_element(
+                    self.mixtures, corpus_key, (train_corpus_key, cmllr_mixtures)
                 ),
-            )
+            ),
+        )
 
-            self.estimate_cmllr(
+        self.estimate_cmllr(
+            name=name,
+            corpus_key=overlay_key,
+            feature_cache=meta.select_element(
+                self.feature_caches, corpus_key, feature_cache
+            ),
+            feature_flow_key=feature_flow,
+            cache_regex=cache_regex,
+            alignment=alignment.out_alignment_path,
+            mixtures=meta.select_element(
+                self.mixtures, corpus_key, (train_corpus_key, cmllr_mixtures)
+            ),
+            overlay_key=overlay_key,
+        )
+        self.feature_flows[corpus_key][
+            "%s+cmllr" % feature_flow
+        ] = sat.add_cmllr_transform(
+            feature_net=self.feature_flows[corpus_key][feature_flow],
+            map_file=speaker_seq.out_cluster_map_file,
+            transform_dir=self.jobs[overlay_key]["cmllr"].transforms,
+        )
+
+        with tk.block(f"{name}_recognition"):
+            self.recognition(
                 name=name,
-                corpus_key=overlay_key,
-                feature_cache=meta.select_element(
-                    self.feature_caches, corpus, feature_cache
-                ),
-                feature_flow_key=feature_flow,
-                cache_regex=cache_regex,
-                alignment=alignment.out_alignment_path,
-                mixtures=meta.select_element(
-                    self.mixtures, corpus, (train_corpus_key, cmllr_mixtures)
-                ),
-                overlay_key=overlay_key,
+                iters=iters,
+                lm_scales=lm_scales,
+                feature_scorer_key=feature_scorer_key,
+                optimize_am_lm_scale=optimize_am_lm_scale,
+                corpus_key=corpus_key,
+                feature_flow=feature_flow,
+                pronunciation_scales=pronunciation_scales,
+                search_parameters=search_parameters,
+                rtf=rtf,
+                mem=mem,
+                parallelize_conversion=parallelize_conversion,
+                lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
+                **kwargs,
             )
-            self.feature_flows[corpus][
-                "%s+cmllr" % feature_flow
-            ] = sat.add_cmllr_transform(
-                feature_net=self.feature_flows[corpus][feature_flow],
-                map_file=speaker_seq.out_cluster_map_file,
-                transform_dir=self.jobs[overlay_key]["cmllr"].transforms,
-            )
-
-            with tk.block(f"{name}_recognition"):
-                recog_func(
-                    name=f"{name}-{corpus}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
-                    prefix=f"recognition/{name}/",
-                    corpus=corpus,
-                    flow=feature_flow,
-                    feature_scorer=list(feature_scorer_key) + [it - 1],
-                    pronunciation_scale=p,
-                    lm_scale=l,
-                    search_parameters=search_parameters,
-                    rtf=rtf,
-                    mem=mem,
-                    parallelize_conversion=parallelize_conversion,
-                    lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
-                    **kwargs,
-                )
 
     # -------------------- output helpers  --------------------
 
@@ -1176,7 +1166,7 @@ class GmmSystem(RasrSystem):
             for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
-                    corpus=dev_c,
+                    corpus_key=dev_c,
                     train_corpus_key=trn_c,
                     feature_scorer_key=feature_scorer,
                     **step_args.recognition_args,
@@ -1216,7 +1206,7 @@ class GmmSystem(RasrSystem):
             for dev_c in self.dev_corpora:
                 self.sat_recognition(
                     name=f"{trn_c}-{name}",
-                    corpus=dev_c,
+                    corpus_key=dev_c,
                     train_corpus_key=trn_c,
                     feature_scorer_key=feature_scorer,
                     **step_args.recognition_args,
