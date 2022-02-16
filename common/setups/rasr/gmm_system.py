@@ -930,9 +930,7 @@ class GmmSystem(RasrSystem):
         self.crp[overlay_key].corpus_config = copy.deepcopy(
             self.crp[corpus_key].corpus_config
         )
-        self.crp[
-            overlay_key
-        ].corpus_config.file = recognized_corpus.output_corpus_path
+        self.crp[overlay_key].corpus_config.file = recognized_corpus.output_corpus_path
         self.crp[overlay_key].segment_path = copy.deepcopy(
             self.crp[corpus_key].segment_path
         )
