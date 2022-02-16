@@ -381,7 +381,7 @@ def get_vtln_args(allow_zero_weights: bool = False):
         "iters": [8, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
         "pronunciation_scales": [6.0],
-        "lm_scales": [21.5, 22.4],
+        "lm_scales": [22.4],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
