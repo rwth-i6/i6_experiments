@@ -21,7 +21,6 @@ from sisyphus import tk
 import i6_core.features as features
 import i6_core.cart as cart
 import i6_core.rasr as rasr
-import i6_core.returnn as returnn
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util

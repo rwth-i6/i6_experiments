@@ -7,7 +7,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from i6_private.users.luescher.helpers.search_params import get_search_parameters
+from i6_experiments.users.luescher.helpers.search_params import get_search_parameters
 
 import returnn_common.nn.encoder.blstm_specaug as net_blstm_specaug
 import returnn_common.nn.encoder.blstm_cnn_specaug as net_blstm_cnn_specaug
