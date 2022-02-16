@@ -510,7 +510,7 @@ class NnSystem(RasrSystem):
                 flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
 
                 recog_func(
-                    name=f"{name}-{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}",
+                    name=f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}",
                     prefix=f"nn_recognition/{name}/",
                     corpus=recognition_corpus_key,
                     flow=flow,
@@ -587,7 +587,7 @@ class NnSystem(RasrSystem):
         for recog_name, recog_args in step_args.recognition_args.items():
             for dev_c in self.dev_corpora:
                 self.nn_recognition(
-                    name=f"{train_name}-{recog_name}",
+                    name=f"{train_corpus_key}-{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
                     acoustic_mixture_path=self.train_input_data[
