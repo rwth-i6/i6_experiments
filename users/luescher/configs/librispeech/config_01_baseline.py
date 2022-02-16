@@ -38,7 +38,7 @@ def run():
     cart_args = lbs_gmm_setups.get_cart_args()
     tri_args = lbs_gmm_setups.get_triphone_args()
     vtln_args = lbs_gmm_setups.get_vtln_args(allow_zero_weights=True)
-    sat_args = lbs_gmm_setups.get_sat_args()
+    sat_args = lbs_gmm_setups.get_sat_args(allow_zero_weights=True)
     vtln_sat_args = lbs_gmm_setups.get_vtln_sat_args()
     final_output_args = lbs_gmm_setups.get_final_output()
 
