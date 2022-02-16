@@ -366,6 +366,8 @@ class NnSystem(RasrSystem):
 
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.return_python_exe,
             **nn_train_args,
         )
         self._add_output_alias_for_train_job(
@@ -441,6 +443,8 @@ class NnSystem(RasrSystem):
             feature_flow=feature_flow,
             alignment=alignments,
             returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.return_python_exe,
             **nn_train_args,
         )
         self._add_output_alias_for_train_job(
