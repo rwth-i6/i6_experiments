@@ -530,7 +530,7 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         "prev_ctm": (
             "vtln",
             6.0,
-            21.5,
+            22.4,
             10,
             "-optlm",
         ),  # (name, pron_scale, lm_scale, it, opt)
