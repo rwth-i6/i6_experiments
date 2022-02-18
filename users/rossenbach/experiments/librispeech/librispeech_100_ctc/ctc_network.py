@@ -76,6 +76,8 @@ legacy_network = {
     'source': {'class': 'copy', 'from': ["data"]}
 }
 
+import time
+start = time.time()
 from returnn.import_ import import_
 common = import_("github.com/rwth-i6/returnn_common", "nn", "20211202-c025fdeef1843ab06e9888b6a17d217463b961bc")
 
@@ -84,6 +86,8 @@ from returnn_import.github_com.rwth_i6.returnn_common.v20211202164723_c025fdeef1
     import Module, LayerRef, get_extern_data, get_root_extern_data, NameCtx, make_root_net_dict
 
 from .specaugment_clean_v2 import specaugment, SpecAugmentSettings
+
+print("old imports took %f" % (time.time() - start))
 
 class BLSTMPoolModule(Module):
 

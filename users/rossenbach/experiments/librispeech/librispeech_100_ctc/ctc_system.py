@@ -6,6 +6,7 @@ from typing import Dict, Union, List, Tuple, Optional
 from sisyphus import gs, tk
 from sisyphus.delayed_ops import DelayedFormat
 
+from i6_core import mm
 from i6_core import rasr
 from i6_core import recognition as recog
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
@@ -22,6 +23,7 @@ from i6_experiments.common.setups.rasr.util import RasrInitArgs, RasrDataInput
 from i6_experiments.users.rossenbach.recognition.label_sync_search import (
     LabelSyncSearchJob,
 )
+from i6_experiments.users.rossenbach.mm.alignment import LabelAlignmentJob
 
 from i6_experiments.users.rossenbach import rasr as rasr_experimental
 
@@ -615,7 +617,7 @@ class CtcSystem(RasrSystem):
     def recog(
             self,
             name,
-            corpus,
+            corpus_key,
             flow,
             tf_checkpoint,
             pronunciation_scale,
@@ -629,7 +631,7 @@ class CtcSystem(RasrSystem):
     ):
         """
         :param str name:
-        :param str corpus:
+        :param str corpus_key:
         :param str|list[str]|tuple[str]|rasr.FlagDependentFlowAttribute flow:
         :param Checkpoint tf_checkpoint:
         :param float pronunciation_scale:
@@ -645,9 +647,9 @@ class CtcSystem(RasrSystem):
         if lattice_to_ctm_kwargs is None:
             lattice_to_ctm_kwargs = {}
 
-        self.crp[corpus].language_model_config.scale = lm_scale
-        self.crp[corpus].acoustic_model_config.tdp["*"].skip = 0
-        self.crp[corpus].acoustic_model_config.tdp.silence.skip = 0
+        self.crp[corpus_key].language_model_config.scale = lm_scale
+        self.crp[corpus_key].acoustic_model_config.tdp["*"].skip = 0
+        self.crp[corpus_key].acoustic_model_config.tdp.silence.skip = 0
 
         model_combination_config = rasr.RasrConfig()
         model_combination_config.pronunciation_scale = pronunciation_scale
@@ -671,7 +673,7 @@ class CtcSystem(RasrSystem):
             self.returnn_config
         )
 
-        feature_flow = self.make_tf_feature_flow(self.feature_flows[corpus][flow], tf_graph, tf_checkpoint, **kwargs)
+        feature_flow = self.make_tf_feature_flow(self.feature_flows[corpus_key][flow], tf_graph, tf_checkpoint, **kwargs)
 
         label_scorer = rasr_experimental.LabelScorer(scorer_type, **label_scorer_args)
 
@@ -694,7 +696,7 @@ class CtcSystem(RasrSystem):
         extra_config.flf_lattice_tool.network.recognizer.recognizer.allow_word_end_recombination = True
 
         rec = LabelSyncSearchJob(
-            crp=self.crp[corpus],
+            crp=self.crp[corpus_key],
             feature_flow=feature_flow,
             label_scorer=label_scorer,
             label_tree=label_tree,
@@ -705,22 +707,116 @@ class CtcSystem(RasrSystem):
         )
         rec.set_vis_name("Recog %s%s" % (prefix, name))
         rec.add_alias("%srecog_%s" % (prefix, name))
-        self.jobs[corpus]["recog_%s" % name] = rec
+        self.jobs[corpus_key]["recog_%s" % name] = rec
 
-        self.jobs[corpus]["lat2ctm_%s" % name] = lat2ctm = recog.LatticeToCtmJob(
-            crp=self.crp[corpus],
+        self.jobs[corpus_key]["lat2ctm_%s" % name] = lat2ctm = recog.LatticeToCtmJob(
+            crp=self.crp[corpus_key],
             lattice_cache=rec.out_lattice_bundle,
             parallelize=parallelize_conversion,
             **lattice_to_ctm_kwargs,
         )
-        self.ctm_files[corpus]["recog_%s" % name] = lat2ctm.out_ctm_file
+        self.ctm_files[corpus_key]["recog_%s" % name] = lat2ctm.out_ctm_file
 
-        kwargs = copy.deepcopy(self.scorer_args[corpus])
-        kwargs[self.scorer_hyp_arg[corpus]] = lat2ctm.out_ctm_file
-        scorer = self.scorers[corpus](**kwargs)
+        kwargs = copy.deepcopy(self.scorer_args[corpus_key])
+        kwargs[self.scorer_hyp_arg[corpus_key]] = lat2ctm.out_ctm_file
+        scorer = self.scorers[corpus_key](**kwargs)
 
-        self.jobs[corpus]["scorer_%s" % name] = scorer
+        self.jobs[corpus_key]["scorer_%s" % name] = scorer
         tk.register_output("%srecog_%s.reports" % (prefix, name), scorer.out_report_dir)
+
+    def nn_align(
+            self,
+            name,
+            corpus_key,
+            flow,
+            tf_checkpoint,
+            pronunciation_scale,
+            alignment_options=None,
+            parallelize_conversion=False,
+            prefix="",
+            **kwargs,
+    ):
+        """
+        :param str name:
+        :param str corpus_key:
+        :param str|list[str]|tuple[str]|rasr.FlagDependentFlowAttribute flow:
+        :param Checkpoint tf_checkpoint:
+        :param float pronunciation_scale:
+        :param float lm_scale:
+        :param bool lm_lookahead:
+        :param dict|None lookahead_options:
+        :param bool parallelize_conversion:
+        :param dict|None lattice_to_ctm_kwargs:
+        :param str prefix:
+        :param kwargs:
+        :return:
+        """
+
+        # self.crp[corpus_key].language_model_config.scale = lm_scale
+        #self.crp[corpus_key].acoustic_model_config.tdp["*"].skip = 0
+        #self.crp[corpus_key].acoustic_model_config.tdp.silence.skip = 0
+
+        model_combination_config = rasr.RasrConfig()
+        model_combination_config.pronunciation_scale = pronunciation_scale
+
+        # label tree #
+        label_unit = kwargs.pop('label_unit', None)
+        assert label_unit, 'label_unit not given'
+        label_tree_args = kwargs.pop('label_tree_args',{})
+        # label_tree = rasr_experimental.LabelTree(label_unit, **label_tree_args)
+
+        scorer_type = kwargs.pop('label_scorer_type', None)
+        assert scorer_type, 'label_scorer_type not given'
+        label_scorer_args = kwargs.pop('label_scorer_args',{})
+        # add vocab file
+        from i6_experiments.users.rossenbach.rasr.vocabulary import GenerateLabelFileFromStateTying
+        label_scorer_args['labelFile'] = GenerateLabelFileFromStateTying(self.state_tying, add_eow=True).out_label_file
+        label_scorer_args['priorFile'] = self.estimate_nn_prior(self.train_corpora[0], feature_flow=flow, tf_checkpoint=tf_checkpoint, **kwargs)
+        am_scale = label_scorer_args.get('scale', 1.0)
+
+        tf_graph = self.make_model_graph(
+            self.returnn_config
+        )
+
+        feature_flow = self.make_tf_feature_flow(self.feature_flows[corpus_key][flow], tf_graph, tf_checkpoint, **kwargs)
+
+        label_scorer = rasr_experimental.LabelScorer(scorer_type, **label_scorer_args)
+
+        extra_config = rasr.RasrConfig()
+        if pronunciation_scale > 0:
+            extra_config.flf_lattice_tool.network.recognizer.pronunciation_scale = pronunciation_scale
+
+        # Fixed CTC settings:
+        extra_config.acoustic_model_trainer.aligning_feature_extractor.feature_extraction.alignment.allow_label_loop = True
+
+        if alignment_options is None:
+            alignment_options = {
+                'label-pruning'      : 10,
+                'label-pruning-limit': 10000,
+            }
+
+        # label alignment
+        align_args = {
+            'crp'           : self.crp[corpus_key],
+            'use_gpu'       : kwargs.get('use_gpu', True),
+            'feature_flow'  : feature_flow,
+            'label_scorer'  : label_scorer,
+            'alignment_options' : alignment_options, # aligner search option,
+            'extra_config': extra_config,
+        }
+        align_job = LabelAlignmentJob(**align_args)
+        #align_job.rqmt.update(job_rqmt)
+        alignment = rasr.FlagDependentFlowAttribute( 'cache_mode',
+                                                       { 'task_dependent' : align_job.out_alignment_path,
+                                                         'bundle'         : align_job.out_alignment_bundle
+                                                         }
+                                                       )
+        self.alignments[corpus_key][name] = [alignment]
+        if kwargs.get('register_output', False):
+            tk.register_output('%s_%s' %(corpus_key, name), align_job.out_alignment_bundle)
+        return name
+
+
 
     def recognition(
             self,
@@ -781,7 +877,7 @@ class CtcSystem(RasrSystem):
                 self.recog(
                     name=f"{name}-{corpus_key}-ps{p:02.2f}-lm{l:02.2f}-iter{it:02d}",
                     prefix=f"recognition/{name}/",
-                    corpus=corpus_key,
+                    corpus_key=corpus_key,
                     flow=feature_flow,
                     tf_checkpoint=self.tf_checkpoints[training_name][it],
                     pronunciation_scale=p,

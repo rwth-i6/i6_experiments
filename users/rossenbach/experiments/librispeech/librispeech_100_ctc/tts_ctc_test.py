@@ -167,7 +167,7 @@ def get_returnn_config(
         use_legacy_network=False,
         feature_dropout=False,
         stronger_specaug=False,
-        use_tts=False,
+        use_tts=0,
         dropout=0.1):
     config = {
         'batch_size' : 20000,
@@ -239,7 +239,7 @@ def get_returnn_config(
 
         if use_tts:
             network5 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=0.1)
-            network6 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=0.5)
+            network6 = network_func(4, 512, [1, 1, 1], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout, tts_loss_scale=use_tts)
             staged_network_dict[9] = network5
             staged_network_dict[10] = network6
 
@@ -310,29 +310,60 @@ def ctc_test_speaker_loss():
         "https://github.com/rwth-i6/returnn",
         commit="6dc85907ee92a874973c01eee2219abf6a21d853").out_repository
 
-    training_args = copy.deepcopy(training_args)
-    training_args['add_speaker_map'] = True
-    training_args['returnn_root'] = returnn_root
-    recog_args = copy.deepcopy(recog_args)
-    recog_args.compile_exec = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh")
-    recog_args.blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so")
-    recog_args.eval_epochs = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
-    system = HackyTTSCTCSystem(
-        returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.1, use_tts=True),
-        default_training_args=training_args,
-        recognition_args=recog_args,
-        rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-        rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    )
-    train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
+    for tts_scale in [0.5, 1.0, 5.0, 10.0]:
+        training_args = copy.deepcopy(training_args)
+        training_args['add_speaker_map'] = True
+        training_args['returnn_root'] = returnn_root
+        recog_args = copy.deepcopy(recog_args)
+        recog_args.compile_exec = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh")
+        recog_args.blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so")
+        recog_args.eval_epochs = [40, 80, 120, 160, 200, 210, 220, 230, 240, 250]
+        system = HackyTTSCTCSystem(
+            returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True, dropout=0.1, use_tts=tts_scale),
+            default_training_args=training_args,
+            recognition_args=recog_args,
+            rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
+            rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
+        )
+        train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_speaker"
-    system.init_system(
-        rasr_init_args=rasr_args,
-        train_data=train_data,
-        dev_data=dev_data,
-        test_data=test_data
-    )
-    system.run(("extract", "train", "recog"))
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+        gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_speaker_scale_%.1f" % tts_scale
+        system.init_system(
+            rasr_init_args=rasr_args,
+            train_data=train_data,
+            dev_data=dev_data,
+            test_data=test_data
+        )
+        system.run(("extract", "train", "recog"))
+
+        test_align_args = {
+            'label_unit'      : 'phoneme',
+            'label_tree_args' : { 'skip_silence'   : True, # no silence in tree
+                                  'lexicon_config' : {'filename': create_regular_lexicon(delete_empty_orth=True),
+                                                      'normalize_pronunciation': False,} # adjust eow-monophone
+                                  },
+            'label_scorer_type': 'precomputed-log-posterior',
+            'label_scorer_args' : { 'scale'      : 1.0,
+                                    'usePrior'   : True,
+                                    'priorScale' : 0.5,
+                                    'extraArgs'  : {'blank-label-index' : 0,
+                                                    'reduction_factors': 2,}
+                                    },
+
+            "register_output": True,
+        }
+
+        system.nn_align(
+            "align",
+            "train-clean-100",
+            flow="gt",
+            tf_checkpoint=system.tf_checkpoints["default"][250],
+            pronunciation_scale=1.0,
+            alignment_options={
+                'label-pruning'      : 50,
+                'label-pruning-limit': 100000
+            },
+            **test_align_args
+        )
+        gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

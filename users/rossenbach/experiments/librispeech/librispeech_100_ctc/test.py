@@ -108,6 +108,8 @@ def get_default_recog_args():
     return recog_args
 
 
+
+
 def get_corpus_data_inputs(delete_empty_orth=False):
     """
 
@@ -213,10 +215,56 @@ def get_returnn_config(
     else:
         network_func = get_network
 
+    prolog = get_funcs()
     if use_legacy_network:
         config['network'] = legacy_network
         return ReturnnConfig(config, post_config,
                              python_prolog=get_funcs(), hash_full_python_code=True)
+    if use_dimtags:
+        from returnn_common import nn
+        from .ctc_network_dimtag import _map
+        time_dim = nn.SpatialDim("time")
+        in_dim = nn.FeatureDim("input", dimension=50)
+        ext_data = nn.Data("data", dim_tags=[nn.batch_dim, time_dim, in_dim])
+        extern_data = {'data': ext_data}
+
+        extern_data = {
+            data_key: {
+                key: getattr(data, key)
+                for key in [*data.get_kwargs(include_special_axes=False).keys(), "available_for_inference"]
+                if key not in {"name"}}
+            for (data_key, data) in extern_data.items()}
+
+
+        dim_tags_proxy = nn.ReturnnDimTagsProxy()
+        ed_config = dim_tags_proxy.collect_dim_tags_and_transform_config(extern_data)
+        ed_config = _map(ed_config)
+
+        network1 = network_func(dim_tags_proxy, ext_data, time_dim, 4, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.001, specaugment_settings=None, feature_dropout=False)
+        network2 = network_func(dim_tags_proxy, ext_data, time_dim, 5, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.05, specaugment_settings=None, feature_dropout=False)
+        network3 = network_func(dim_tags_proxy, ext_data, time_dim, 6, 512, [1, 1, subsampling], 139, dropout=dropout, l2=0.01, specaugment_settings=None, feature_dropout=feature_dropout)
+        network4 = network_func(dim_tags_proxy, ext_data, time_dim, 6, 512, [1, 1, subsampling], 139, dropout=dropout, l2=0.01, specaugment_settings=specaugment_settings, feature_dropout=feature_dropout)
+
+        staged_network_dict = {
+            1: network1,
+            2: network2,
+            3: network3,
+            4: network4
+        }
+
+        config["extern_data"] = ed_config
+        prolog.append("from returnn.tf.util.data import Dim, batch_dim, single_step_dim, SpatialDim, FeatureDim\n\n%s" % dim_tags_proxy.py_code_str())
+
+        if "prolog" in network1:
+            config["behavior_version"] = 12
+
+            for key, entry in network1["extern_data"].items():
+                assert key in config["extern_data"]
+                config["extern_data"][key]["dim_tags"] = entry["dim_tags"]
+
+        return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
+                             python_prolog=prolog, hash_full_python_code=True)
+
     else:
         network1 = network_func(4, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.001, specaugment_settings=None, feature_dropout=False)
         network2 = network_func(5, 512, [1, 1, subsampling], 139, dropout=0.1, l2=0.05, specaugment_settings=None, feature_dropout=False)
@@ -231,7 +279,7 @@ def get_returnn_config(
         }
 
         return ReturnnConfig(config, post_config, staged_network_dict=staged_network_dict,
-                             python_prolog=get_funcs(), hash_full_python_code=True)
+                             python_prolog=prolog, hash_full_python_code=True)
 
 
 def get_default_training_args():
@@ -357,6 +405,36 @@ def ctc_test_no_empty_orth():
         test_data=test_data
     )
     system.run(("extract", "train", "recog"))
+
+    test_align_args = {
+        'label_unit'      : 'phoneme',
+        'label_tree_args' : { 'skip_silence'   : True, # no silence in tree
+                              'lexicon_config' : {'filename': create_regular_lexicon(delete_empty_orth=True),
+                                                  'normalize_pronunciation': False,} # adjust eow-monophone
+                              },
+        'label_scorer_type': 'precomputed-log-posterior',
+        'label_scorer_args' : { 'scale'      : 1.0,
+                                'usePrior'   : True,
+                                'priorScale' : 0.5,
+                                'extraArgs'  : {'blank-label-index' : 0,
+                                                'reduction_factors': 2,}
+                                },
+
+        "register_output": True,
+    }
+
+    system.nn_align(
+        "align",
+        "train-clean-100",
+        flow="gt",
+        tf_checkpoint=system.tf_checkpoints["default"][250],
+        pronunciation_scale=1.0,
+        alignment_options={
+            'label-pruning'      : 50,
+            'label-pruning-limit': 100000
+        },
+        **test_align_args
+    )
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
 
@@ -397,10 +475,14 @@ def ctc_test_dimtag():
     ctc_lexicon = create_regular_lexicon()
     tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
 
-
+    recog_args = get_default_recog_args()
+    recog_args = copy.deepcopy(recog_args)
+    training_args = copy.deepcopy(get_default_training_args())
+    training_args["returnn_root"] = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
+                                                          commit="d030cdeb573a4cbe5504bce5cd48d275a9ff5d7f").out_repository
     system = CtcSystem(
         returnn_config=get_returnn_config(use_dimtags=True),
-        default_training_args=get_default_training_args(),
+        default_training_args=training_args,
         recognition_args=recog_args,
         rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
         rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
