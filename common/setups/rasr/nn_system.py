@@ -515,7 +515,7 @@ class NnSystem(RasrSystem):
 
                 recog_func(
                     name=f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}",
-                    prefix=f"nn_recognition/{name}/",
+                    prefix=f"nn_recog/{name}/",
                     corpus=recognition_corpus_key,
                     flow=flow,
                     feature_scorer=scorer,
