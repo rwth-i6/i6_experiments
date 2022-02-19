@@ -132,7 +132,10 @@ def get_init_args(
         "energy": {
             "energy_options": {
                 "without_samples": False,
-                "samples_options": {"audio_format": "wav", "dc_detection": True},
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": dc_detection,
+                },
                 "fft_options": {},
             }
         },
