@@ -26,6 +26,8 @@ import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
 from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
+
+# -------------------- helpers --------------------
 # -------------------- functions --------------------
 
 
@@ -156,9 +158,11 @@ def get_init_args(
 
 
 def get_monophone_args(
-    allow_zero_weights: bool = False,
-    train_align_iter: int = 75,
     feature_flow: str = "mfcc+deriv+norm",
+    *,
+    train_align_iter: int = 75,
+    allow_zero_weights: bool = False,
+    zero_weights_in: str = "extra_config",
 ):
     linear_alignment_args = {
         "minimum_segment_length": 0,
@@ -223,17 +227,15 @@ def get_monophone_args(
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         monophone_training_args["align_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         monophone_training_args["accumulate_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         monophone_training_args["split_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
-        monophone_recognition_args[
-            "extra_post_config"
-        ] = allow_zero_weights_extra_config
+        monophone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
         "name": "sdm.mono",
@@ -288,11 +290,17 @@ def get_cart_args(
     )
 
 
-def get_triphone_args(allow_zero_weights: bool = False):
+def get_triphone_args(
+    name: str = "tri",
+    initial_alignment: str = "mono",
+    feature_flow: str = "mfcc+context+lda",
+    allow_zero_weights: bool = False,
+    zero_weights_in: str = "extra_config",
+):
     triphone_training_args = {
-        "name": "tri",
-        "initial_alignment": "train_mono",
-        "feature_flow": "mfcc+context+lda",
+        "name": name,
+        "initial_alignment": f"train_{initial_alignment}",
+        "feature_flow": feature_flow,
         "splits": 10,
         "accs_per_split": 2,
         "align_extra_rqmt": {"mem": 8},
@@ -302,7 +310,7 @@ def get_triphone_args(allow_zero_weights: bool = False):
 
     triphone_recognition_args = {
         "iters": [8, 10],
-        "feature_flow": "mfcc+context+lda",
+        "feature_flow": feature_flow,
         "pronunciation_scales": [6.0],
         "lm_scales": [24.9],
         "lm_lookahead": True,
@@ -331,20 +339,20 @@ def get_triphone_args(allow_zero_weights: bool = False):
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         triphone_training_args["align_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         triphone_training_args["accumulate_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         triphone_training_args["split_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
-        triphone_recognition_args["extra_config"] = allow_zero_weights_extra_config
+        triphone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
-        "name": "sdm.tri",
-        "alignment": "train_tri",
-        "feature_flow_key": "mfcc+context+lda",
+        "name": f"sdm.{name}",
+        "alignment": f"train_{name}",
+        "feature_flow_key": feature_flow,
     }
 
     return rasr_util.GmmTriphoneArgs(
@@ -354,27 +362,33 @@ def get_triphone_args(allow_zero_weights: bool = False):
     )
 
 
-def get_vtln_args(allow_zero_weights: bool = False):
+def get_vtln_args(
+    name: str = "vtln",
+    feature_flow: str = "mfcc+context+lda",
+    initial_alignment_key: str = "tri",
+    allow_zero_weights: bool = False,
+    zero_weights_in: str = "extra_config",
+):
     vtln_training_args = {
         "feature_flow": {
-            "name": "uncached_mfcc+context+lda",
+            "name": f"uncached_{feature_flow}",
             "lda_matrix_key": "mono",
-            "base_flow_key": "uncached_mfcc",
+            "base_flow_key": f"uncached_{feature_flow.split('+')[0]}",
             "context_size": 9,
         },
         "warp_mix": {
             "name": "tri",
-            "alignment": "train_tri",
+            "alignment": f"train_{initial_alignment_key}",
             "feature_scorer": "estimate_mixtures_sdm.tri",
             "splits": 8,
             "accs_per_split": 2,
         },
         "train": {
-            "name": "vtln",
-            "initial_alignment_key": "train_tri",
+            "name": name,
+            "initial_alignment_key": f"train_{initial_alignment_key}",
             "splits": 10,
             "accs_per_split": 2,
-            "feature_flow": "mfcc+context+lda+vtln",
+            "feature_flow": f"{feature_flow}+vtln",
             "accumulate_extra_rqmt": {"mem": 8},
             "align_extra_rqmt": {"mem": 8},
             "split_extra_rqmt": {"mem": 8},
@@ -383,7 +397,7 @@ def get_vtln_args(allow_zero_weights: bool = False):
 
     vtln_recognition_args = {
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda+vtln",
+        "feature_flow": f"uncached_{feature_flow}+vtln",
         "pronunciation_scales": [6.0],
         "lm_scales": [22.4],
         "lm_lookahead": True,
@@ -412,20 +426,20 @@ def get_vtln_args(allow_zero_weights: bool = False):
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         vtln_training_args["train"]["align_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         vtln_training_args["train"]["accumulate_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         vtln_training_args["train"]["split_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
-        vtln_recognition_args["extra_config"] = allow_zero_weights_extra_config
+        vtln_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
-        "name": "sdm.vtln",
-        "alignment": "train_vtln",
-        "feature_flow_key": "mfcc+context+lda+vtln",
+        "name": f"sdm.{name}",
+        "alignment": f"train_{name}",
+        "feature_flow_key": f"{feature_flow}+vtln",
     }
 
     return rasr_util.GmmVtlnArgs(
@@ -435,14 +449,22 @@ def get_vtln_args(allow_zero_weights: bool = False):
     )
 
 
-def get_sat_args(allow_zero_weights: bool = False):
+def get_sat_args(
+    name: str = "sat",
+    feature_flow: str = "mfcc+context+lda",
+    initial_mixture: str = "estimate_mixtures_sdm.tri",
+    initial_alignment: str = "tri",
+    allow_zero_weights: bool = False,
+    zero_weights_in: str = "extra_config",
+):
+    feature_base_cache = feature_flow.split("+")[0]
     sat_training_args = {
-        "name": "sat",
-        "mixtures": "estimate_mixtures_sdm.tri",
-        "alignment": "train_tri",
-        "feature_cache": "mfcc",
-        "feature_flow_key": "mfcc+context+lda",
-        "cache_regex": "^mfcc.*$",
+        "name": name,
+        "mixtures": initial_mixture,
+        "alignment": f"train_{initial_alignment}",
+        "feature_cache": feature_base_cache,
+        "feature_flow_key": feature_flow,
+        "cache_regex": f"^{feature_base_cache}.*$",
         "splits": 10,
         "accs_per_split": 2,
         "align_keep_values": {7: tk.gs.JOB_DEFAULT_KEEP_VALUE},
@@ -459,11 +481,11 @@ def get_sat_args(allow_zero_weights: bool = False):
             10,
             "-optlm",
         ),  # (name, pron_scale, lm_scale, it, opt)
-        "feature_cache": "mfcc",
-        "cache_regex": "^mfcc.*$",
-        "cmllr_mixtures": "estimate_mixtures_sdm.tri",
+        "feature_cache": feature_base_cache,
+        "cache_regex": f"^{feature_base_cache}.*$",
+        "cmllr_mixtures": initial_mixture,
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda",
+        "feature_flow": f"uncached_{feature_flow}",
         "pronunciation_scales": [6.0],
         "lm_scales": [30.0],
         "lm_lookahead": True,
@@ -492,20 +514,20 @@ def get_sat_args(allow_zero_weights: bool = False):
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         sat_training_args["align_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         sat_training_args["accumulate_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         sat_training_args["split_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
-        sat_recognition_args["extra_config"] = allow_zero_weights_extra_config
+        sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
-        "name": "sdm.sat",
-        "alignment": "train_sat",
-        "feature_flow_key": "mfcc+context+lda+cmllr",
+        "name": f"sdm.{name}",
+        "alignment": f"train_{name}",
+        "feature_flow_key": f"{feature_flow}+cmllr",
     }
 
     return rasr_util.GmmSatArgs(
@@ -515,13 +537,21 @@ def get_sat_args(allow_zero_weights: bool = False):
     )
 
 
-def get_vtln_sat_args(allow_zero_weights: bool = False):
+def get_vtln_sat_args(
+    name: str = "vtln+sat",
+    feature_flow: str = "mfcc+context+lda+vtln",
+    initial_mixture: str = "estimate_mixtures_sdm.vtln",
+    initial_alignment: str = "vtln",
+    allow_zero_weights: bool = False,
+    zero_weights_in: str = "extra_config",
+):
+    feature_base_cache = feature_flow.split("+")[0]
     vtln_sat_training_args = {
-        "name": "vtln+sat",
-        "mixtures": "estimate_mixtures_sdm.vtln",
-        "alignment": "train_vtln",
-        "feature_cache": "mfcc+context+lda+vtln",
-        "feature_flow_key": "mfcc+context+lda+vtln",
+        "name": name,
+        "mixtures": initial_mixture,
+        "alignment": f"train_{initial_alignment}",
+        "feature_cache": feature_flow,
+        "feature_flow_key": feature_flow,
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
@@ -538,11 +568,11 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
             10,
             "-optlm",
         ),  # (name, pron_scale, lm_scale, it, opt)
-        "feature_cache": "mfcc",
-        "cache_regex": "^mfcc.*$",
-        "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
+        "feature_cache": feature_base_cache,
+        "cache_regex": f"^{feature_base_cache}.*$",
+        "cmllr_mixtures": initial_mixture,
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda+vtln",
+        "feature_flow": f"uncached_{feature_flow}",
         "pronunciation_scales": [6.0],
         "lm_scales": [30.0],
         "lm_lookahead": True,
@@ -571,20 +601,20 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         vtln_sat_training_args["align_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         vtln_sat_training_args["accumulate_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
         vtln_sat_training_args["split_extra_args"] = {
-            "extra_config": allow_zero_weights_extra_config
+            zero_weights_in: allow_zero_weights_extra_config
         }
-        vtln_sat_recognition_args["extra_config"] = allow_zero_weights_extra_config
+        vtln_sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
-        "name": "sdm.vtln+sat",
-        "alignment": "train_vtln+sat",
-        "feature_flow_key": "mfcc+context+lda+vtln+cmllr",
+        "name": f"sdm.{name}",
+        "alignment": f"train_{name}",
+        "feature_flow_key": f"{feature_flow}+cmllr",
     }
 
     return rasr_util.GmmVtlnSatArgs(
