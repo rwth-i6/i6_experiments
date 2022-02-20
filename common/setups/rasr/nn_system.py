@@ -77,7 +77,7 @@ class NnSystem(RasrSystem):
         self.returnn_python_home = returnn_python_home or (
             gs.RETURNN_PYTHON_HOME if hasattr(gs, "RETURNN_PYTHON_HOME") else None
         )
-        self.return_python_exe = returnn_python_exe or (
+        self.returnn_python_exe = returnn_python_exe or (
             gs.RETURNN_PYTHON_EXE if hasattr(gs, "RETURNN_PYTHON_EXE") else None
         )
 
@@ -367,7 +367,7 @@ class NnSystem(RasrSystem):
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
-            returnn_python_exe=self.return_python_exe,
+            returnn_python_exe=self.returnn_python_exe,
             **nn_train_args,
         )
         self._add_output_alias_for_train_job(
@@ -444,7 +444,7 @@ class NnSystem(RasrSystem):
             alignment=alignments,
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
-            returnn_python_exe=self.return_python_exe,
+            returnn_python_exe=self.returnn_python_exe,
             **nn_train_args,
         )
         self._add_output_alias_for_train_job(
@@ -481,10 +481,16 @@ class NnSystem(RasrSystem):
         with tk.block(f"{name}_recognition"):
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
-            native_lstm_job = returnn.CompileNativeOpJob("NativeLstm2")
+            native_lstm_job = returnn.CompileNativeOpJob(
+                "NativeLstm2",
+                returnn_root=self.returnn_root,
+                returnn_python_exe=self.returnn_python_exe,
+            )
 
             graph_compile_job = returnn.CompileTFGraphJob(
-                self.adapt_returnn_config_for_recog(returnn_config)
+                self.adapt_returnn_config_for_recog(returnn_config),
+                returnn_root=self.returnn_root,
+                returnn_python_exe=self.returnn_python_exe,
             )
 
             forward_output_layer = returnn_config.get("forward_output_layer", "output")
