@@ -320,7 +320,7 @@ class NnSystem(RasrSystem):
         for c_key, c_data in data_dict.items():
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
-            self.crp[c_key] = c_data.crp
+            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
 
     def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):

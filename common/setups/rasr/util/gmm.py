@@ -409,6 +409,7 @@ class GmmOutput:
         shuffle_data: bool = True,
         use_gmm_crp: bool = False,
         new_corpus_file: Optional[tk.Path] = None,
+        new_corpus_duration: Optional[int] = None,
         new_segments_path: Optional[Union[str, tk.Path]] = None,
     ):
         """
@@ -418,12 +419,16 @@ class GmmOutput:
         :param feature_flow_key:
         :param shuffle_data:
         :param use_gmm_crp:
+        :param new_corpus_file:
+        :param new_corpus_duration:
         :param new_segments_path:
         :return:
         """
         if new_corpus_file is not None:
             corpus_object = copy.deepcopy(self.corpus_object)
             corpus_object.corpus_file = new_corpus_file
+            corpus_object.audio_dir = "/"
+            corpus_object.duration = new_corpus_duration
         else:
             corpus_object = self.corpus_object
 
