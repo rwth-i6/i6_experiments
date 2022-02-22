@@ -11,6 +11,7 @@ __all__ = [
     "GmmOutput",
 ]
 
+import copy
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
@@ -405,7 +406,7 @@ class GmmOutput:
         :param shuffle_data:
         :return:
         """
-        return ReturnnRasrDataInput(
+        data = ReturnnRasrDataInput(
             name=name,
             crp=self.crp,
             alignments=self.alignments,
@@ -415,3 +416,4 @@ class GmmOutput:
             feature_scorers=self.feature_scorers,
             shuffle_data=shuffle_data,
         )
+        return copy.deepcopy(data)
