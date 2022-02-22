@@ -438,7 +438,9 @@ class GmmOutput:
             crp=self.crp if use_gmm_crp else None,
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
-            segment_path=self.segment_path if new_segments_path is None else new_segments_path,
+            segment_path=self.segment_path
+            if new_segments_path is None
+            else new_segments_path,
             allophone_file=self.allophone_file,
             acoustic_mixtures=self.acoustic_mixtures,
             feature_scorers=self.feature_scorers,
