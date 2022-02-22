@@ -18,7 +18,7 @@ from i6_core.util import MultiPath
 from .rasr import RasrDataInput
 
 
-class ReturnnRasrDataInput(RasrDataInput):
+class ReturnnRasrDataInput:
     """
     Holds the data for ReturnnRasrTrainingJob.
     """
@@ -26,41 +26,25 @@ class ReturnnRasrDataInput(RasrDataInput):
     def __init__(
         self,
         name: str,
-        cart_tree: Union[tk.Path, str],
-        alignments: Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute],
-        corpus_object: meta.CorpusObject,
-        lexicon: dict,
-        lm: Optional[dict] = None,
-        concurrent: int = 1,
         crp: Optional[rasr.CommonRasrParameters] = None,
-        am_args: Optional[Dict] = None,
+        alignments: Optional[
+            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+        ] = None,
         feature_flow: Optional[rasr.FlowNetwork] = None,
         features: Optional[
             Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
         ] = None,
-        segment_path: Optional[Union[tk.Path, str]] = None,
-        allophone_file: Optional[Union[tk.Path, str]] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
         shuffle_data: bool = True,
         **kwargs,
     ):
-        super().__init__(
-            corpus_object=corpus_object,
-            lexicon=lexicon,
-            lm=lm,
-            concurrent=concurrent,
-        )
         self.name = name
         # from RasrDataInput: CorpusObject, Lexicon: dict, LM: dict, Concurrency: int
-        self.cart_tree = cart_tree
+        self.crp = crp if crp is not None else self.build_crp(**kwargs)
         self.alignments = alignments
-        self.crp = crp
-        self.am_args = am_args
         self.feature_flow = feature_flow
         self.features = features
-        self.segment_path = segment_path
-        self.allophone_file = allophone_file
         self.acoustic_mixtures = acoustic_mixtures
         self.feature_scorers = feature_scorers
         self.shuffle_data = shuffle_data
@@ -73,17 +57,26 @@ class ReturnnRasrDataInput(RasrDataInput):
             "suppress_load_seqs_print": True,
         }
 
-    def get_crp(self):
+    def build_crp(
+        self,
+        am_args,
+        corpus_object,
+        concurrent,
+        segment_path,
+        lexicon_args,
+        cart_tree_path,
+        lm_args,
+        allophone_file,
+    ):
         """
         constructs and returns a CommonRasrParameters from the given settings and files
-        :rtype CommonRasrParameters:
         """
         crp = rasr.CommonRasrParameters()
         rasr.crp_add_default_output(crp)
-        crp.acoustic_model_config = am.acoustic_model_config(**self.am_args)
-        rasr.crp_set_corpus(crp, self.corpus_object)
-        crp.concurrent = self.concurrent
-        crp.segment_path = self.segment_path
+        crp.acoustic_model_config = am.acoustic_model_config(**am_args)
+        rasr.crp_set_corpus(crp, corpus_object)
+        crp.concurrent = concurrent
+        crp.segment_path = segment_path
 
         if self.shuffle_data:
             crp.corpus_config.segment_order_shuffle = True
@@ -91,32 +84,59 @@ class ReturnnRasrDataInput(RasrDataInput):
             crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
 
         crp.lexicon_config = rasr.RasrConfig()
-        crp.lexicon_config.file = self.lexicon["filename"]
-        crp.lexicon_config.normalize_pronunciation = self.lexicon[
+        crp.lexicon_config.file = lexicon_args["filename"]
+        crp.lexicon_config.normalize_pronunciation = lexicon_args[
             "normalize_pronunciation"
         ]
 
-        if "add_from_lexicon" in self.lexicon:
-            crp.acoustic_model_config.allophones.add_from_lexicon = self.lexicon[
+        if "add_from_lexicon" in lexicon_args:
+            crp.acoustic_model_config.allophones.add_from_lexicon = lexicon_args[
                 "add_from_lexicon"
             ]
-        if "add_all" in self.lexicon:
-            crp.acoustic_model_config.allophones.add_all = self.lexicon["add_all"]
+        if "add_all" in lexicon_args:
+            crp.acoustic_model_config.allophones.add_all = lexicon_args["add_all"]
 
-        if self.cart_tree is not None:
+        if cart_tree_path is not None:
             crp.acoustic_model_config.state_tying.type = "cart"
-            crp.acoustic_model_config.state_tying.file = self.cart_tree
+            crp.acoustic_model_config.state_tying.file = cart_tree_path
 
-        if self.lm is not None:
+        if lm_args is not None:
             crp.language_model_config = rasr.RasrConfig()
-            crp.language_model_config.type = self.lm["type"]
-            crp.language_model_config.file = self.lm["filename"]
-            crp.language_model_config.scale = self.lm["scale"]
+            crp.language_model_config.type = lm_args["type"]
+            crp.language_model_config.file = lm_args["filename"]
+            crp.language_model_config.scale = lm_args["scale"]
 
-        if self.allophone_file is not None:
-            crp.acoustic_model_config.allophones.add_from_file = self.allophone_file
+        if allophone_file is not None:
+            crp.acoustic_model_config.allophones.add_from_file = allophone_file
 
-        return crp
+    def update_crp_with(
+        self,
+        *,
+        corpus_file: Optional[tk.Path] = None,
+        corpus_duration: Optional[int] = None,
+        audio_dir: Optional[Union[str, tk.Path]] = None,
+        segment_path: Optional[Union[str, tk.Path]] = None,
+        concurrent: Optional[int] = None,
+    ):
+        if corpus_file is not None:
+            self.crp.corpus_config.corpus_file = corpus_file
+        if corpus_duration is not None:
+            self.crp.corpus_duration = corpus_duration
+        if audio_dir is not None:
+            self.crp.corpus_config.audio_dir = audio_dir
+        if segment_path is not None:
+            self.crp.segment_path = segment_path
+        if concurrent is not None:
+            self.crp.concurrent = concurrent
+
+    def get_crp(self, **kwargs):
+        """
+        constructs and returns a CommonRasrParameters from the given settings and files
+        :rtype CommonRasrParameters:
+        """
+        if self.crp is None:
+            self.build_crp(**kwargs)
+        return self.crp
 
 
 class OggZipHdfDataInput:

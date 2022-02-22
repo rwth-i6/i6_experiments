@@ -1008,15 +1008,8 @@ class GmmSystem(RasrSystem):
         """
         gmm_output = GmmOutput()
         gmm_output.crp = self.crp[corpus_key]
-        gmm_output.corpus_file = self.corpora[corpus_key].corpus_file
-        gmm_output.corpus_object = self.corpora[corpus_key]
-        gmm_output.lexicon_file = self.crp[corpus_key].lexicon_config.file
-        gmm_output.lexicon = self.crp[corpus_key].lexicon_config
-        gmm_output.state_tying = self.crp[corpus_key].acoustic_model_config.state_tying
         gmm_output.feature_flows = self.feature_flows[corpus_key]
         gmm_output.features = self.feature_caches[corpus_key]
-        gmm_output.segment_path = self.crp[corpus_key].segment_path
-        gmm_output.allophone_file = self.allophone_files["base"]
 
         for feat_name in extract_features:
             tk.register_output(
@@ -1025,9 +1018,6 @@ class GmmSystem(RasrSystem):
             )
 
         if corpus_type == "dev" or corpus_type == "test":
-            gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
-            gmm_output.lm = self.crp[corpus_key].language_model_config
-
             scorer_key = (
                 f"estimate_mixtures_sdm.{steps.get_step_names_as_list()[step_idx - 1]}"
             )
@@ -1053,9 +1043,6 @@ class GmmSystem(RasrSystem):
             gmm_output.acoustic_mixtures = self.mixtures[corpus_key][
                 f"train_{steps.get_step_names_as_list()[step_idx - 1]}"
             ][-1]
-            if self.crp[corpus_key].language_model_config is not None:
-                gmm_output.lm_file = self.crp[corpus_key].language_model_config.file
-                gmm_output.lm = self.crp[corpus_key].language_model_config
 
         return gmm_output
 
