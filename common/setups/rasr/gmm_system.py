@@ -1280,7 +1280,10 @@ class GmmSystem(RasrSystem):
 
     def run_output_step(self, step_args, step_idx, steps):
         for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
-            if corpus_key not in self.train_corpora + self.dev_corpora + self.test_corpora:
+            if (
+                corpus_key
+                not in self.train_corpora + self.dev_corpora + self.test_corpora
+            ):
                 continue
             self.outputs[corpus_key][step_args.name] = self.get_gmm_output(
                 corpus_key,
