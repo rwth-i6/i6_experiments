@@ -11,6 +11,7 @@ __all__ = [
     "GmmOutput",
 ]
 
+import copy
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
@@ -403,8 +404,12 @@ class GmmOutput:
     def as_returnn_rasr_data_input(
         self,
         name: str = "init",
+        *,
         feature_flow_key: str = "gt",
         shuffle_data: bool = True,
+        use_gmm_crp: bool = False,
+        new_corpus_file: Optional[tk.Path] = None,
+        new_segments_path: Optional[Union[str, tk.Path]] = None,
     ):
         """
         dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
@@ -412,23 +417,32 @@ class GmmOutput:
         :param name:
         :param feature_flow_key:
         :param shuffle_data:
+        :param use_gmm_crp:
+        :param new_segments_path:
         :return:
         """
+        if new_corpus_file is not None:
+            corpus_object = copy.deepcopy(self.corpus_object)
+            corpus_object.corpus_file = new_corpus_file
+        else:
+            corpus_object = self.corpus_object
+
         data = ReturnnRasrDataInput(
             name=name,
-            corpus_object=self.corpus_object,
+            corpus_object=corpus_object,
             lexicon=self.lexicon,
             lm=self.lm,
             concurrent=self.crp.concurrent,
             cart_tree=self.cart_tree,
             alignments=self.alignments,
-            crp=self.crp,
+            crp=self.crp if use_gmm_crp else None,
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
-            segment_path=self.segment_path,
+            segment_path=self.segment_path if new_segments_path is None else new_segments_path,
             allophone_file=self.allophone_file,
             acoustic_mixtures=self.acoustic_mixtures,
             feature_scorers=self.feature_scorers,
             shuffle_data=shuffle_data,
         )
+
         return data

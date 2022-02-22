@@ -78,8 +78,6 @@ class ReturnnRasrDataInput(RasrDataInput):
         constructs and returns a CommonRasrParameters from the given settings and files
         :rtype CommonRasrParameters:
         """
-        if self.crp is not None:
-            return self.crp
         crp = rasr.CommonRasrParameters()
         rasr.crp_add_default_output(crp)
         crp.acoustic_model_config = am.acoustic_model_config(**self.am_args)

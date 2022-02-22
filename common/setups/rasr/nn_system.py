@@ -271,7 +271,7 @@ class NnSystem(RasrSystem):
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         train_cv_pairing: Optional[
-            List[Tuple[str]]
+            List[Tuple[str, ...]]
         ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
         self.hybrid_init_args = hybrid_init_args
