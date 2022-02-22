@@ -40,7 +40,6 @@ class ReturnnRasrDataInput:
         **kwargs,
     ):
         self.name = name
-        # from RasrDataInput: CorpusObject, Lexicon: dict, LM: dict, Concurrency: int
         self.crp = crp if crp is not None else self.build_crp(**kwargs)
         self.alignments = alignments
         self.feature_flow = feature_flow
@@ -49,7 +48,13 @@ class ReturnnRasrDataInput:
         self.feature_scorers = feature_scorers
         self.shuffle_data = shuffle_data
 
-    def get_data_dict(self):
+        if self.shuffle_data:
+            crp.corpus_config.segment_order_shuffle = True
+            crp.corpus_config.segment_order_sort_by_time_length = True
+            crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+
+    @staticmethod
+    def get_data_dict():
         return {
             "class": "ExternSprintDataset",
             "sprintTrainerExecPath": "sprint-executables/nn-trainer",
@@ -57,8 +62,8 @@ class ReturnnRasrDataInput:
             "suppress_load_seqs_print": True,
         }
 
+    @staticmethod
     def build_crp(
-        self,
         am_args,
         corpus_object,
         concurrent,
@@ -77,11 +82,6 @@ class ReturnnRasrDataInput:
         rasr.crp_set_corpus(crp, corpus_object)
         crp.concurrent = concurrent
         crp.segment_path = segment_path
-
-        if self.shuffle_data:
-            crp.corpus_config.segment_order_shuffle = True
-            crp.corpus_config.segment_order_sort_by_time_length = True
-            crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
 
         crp.lexicon_config = rasr.RasrConfig()
         crp.lexicon_config.file = lexicon_args["filename"]
@@ -109,21 +109,23 @@ class ReturnnRasrDataInput:
         if allophone_file is not None:
             crp.acoustic_model_config.allophones.add_from_file = allophone_file
 
+        return crp
+
     def update_crp_with(
         self,
         *,
         corpus_file: Optional[tk.Path] = None,
-        corpus_duration: Optional[int] = None,
         audio_dir: Optional[Union[str, tk.Path]] = None,
+        corpus_duration: Optional[int] = None,
         segment_path: Optional[Union[str, tk.Path]] = None,
         concurrent: Optional[int] = None,
     ):
         if corpus_file is not None:
-            self.crp.corpus_config.corpus_file = corpus_file
-        if corpus_duration is not None:
-            self.crp.corpus_duration = corpus_duration
+            self.crp.corpus_config.file = corpus_file
         if audio_dir is not None:
             self.crp.corpus_config.audio_dir = audio_dir
+        if corpus_duration is not None:
+            self.crp.corpus_duration = corpus_duration
         if segment_path is not None:
             self.crp.segment_path = segment_path
         if concurrent is not None:
