@@ -406,9 +406,9 @@ class GmmOutput:
         :param shuffle_data:
         :return:
         """
-        data = ReturnnRasrDataInput(
+        return ReturnnRasrDataInput(
             name=name,
-            crp=self.crp,
+            crp=copy.deepcopy(self.crp),
             alignments=self.alignments,
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
@@ -416,4 +416,3 @@ class GmmOutput:
             feature_scorers=self.feature_scorers,
             shuffle_data=shuffle_data,
         )
-        return copy.deepcopy(data)
