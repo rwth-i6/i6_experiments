@@ -48,11 +48,6 @@ class ReturnnRasrDataInput:
         self.feature_scorers = feature_scorers
         self.shuffle_data = shuffle_data
 
-        if self.shuffle_data:
-            crp.corpus_config.segment_order_shuffle = True
-            crp.corpus_config.segment_order_sort_by_time_length = True
-            crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
-
     @staticmethod
     def get_data_dict():
         return {
@@ -119,6 +114,7 @@ class ReturnnRasrDataInput:
         corpus_duration: Optional[int] = None,
         segment_path: Optional[Union[str, tk.Path]] = None,
         concurrent: Optional[int] = None,
+        shuffle_data: bool = True,
     ):
         if corpus_file is not None:
             self.crp.corpus_config.file = corpus_file
@@ -131,6 +127,11 @@ class ReturnnRasrDataInput:
         if concurrent is not None:
             self.crp.concurrent = concurrent
 
+        if self.shuffle_data or shuffle_data:
+            self.crp.corpus_config.segment_order_shuffle = True
+            self.crp.corpus_config.segment_order_sort_by_time_length = True
+            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+
     def get_crp(self, **kwargs):
         """
         constructs and returns a CommonRasrParameters from the given settings and files
@@ -138,6 +139,12 @@ class ReturnnRasrDataInput:
         """
         if self.crp is None:
             self.build_crp(**kwargs)
+
+        if self.shuffle_data:
+            self.crp.corpus_config.segment_order_shuffle = True
+            self.crp.corpus_config.segment_order_sort_by_time_length = True
+            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+
         return self.crp
 
 
