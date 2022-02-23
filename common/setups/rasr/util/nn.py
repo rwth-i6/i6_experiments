@@ -57,8 +57,8 @@ class ReturnnRasrDataInput:
             "suppress_load_seqs_print": True,
         }
 
-    @staticmethod
     def build_crp(
+        self,
         am_args,
         corpus_object,
         concurrent,
@@ -104,7 +104,7 @@ class ReturnnRasrDataInput:
         if allophone_file is not None:
             crp.acoustic_model_config.allophones.add_from_file = allophone_file
 
-        return crp
+        self.crp = crp
 
     def update_crp_with(
         self,
