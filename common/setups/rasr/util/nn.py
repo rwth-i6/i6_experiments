@@ -40,7 +40,7 @@ class ReturnnRasrDataInput:
         **kwargs,
     ):
         self.name = name
-        self.crp = crp if crp is not None else self.build_crp(**kwargs)
+        self.crp = crp
         self.alignments = alignments
         self.feature_flow = feature_flow
         self.features = features
@@ -69,9 +69,9 @@ class ReturnnRasrDataInput:
         concurrent,
         segment_path,
         lexicon_args,
-        cart_tree_path,
-        lm_args,
-        allophone_file,
+        cart_tree_path=None,
+        allophone_file=None,
+        lm_args=None,
     ):
         """
         constructs and returns a CommonRasrParameters from the given settings and files
