@@ -630,7 +630,7 @@ class NnSystem(RasrSystem):
                 )
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
-        self.nn_recognition(asdict(step_args))
+        self.nn_recognition(**asdict(step_args))
 
     def run_rescoring_step(self, step_args):
         for dev_c in self.dev_corpora:
