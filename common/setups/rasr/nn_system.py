@@ -498,6 +498,8 @@ class NnSystem(RasrSystem):
             forward_output_layer = returnn_config.get("forward_output_layer", "output")
 
             feature_flow = self.feature_flows[recognition_corpus_key]
+            if isinstance(feature_flow, Dict):
+                feature_flow = feature_flow[feature_flow_key]
             assert isinstance(
                 feature_flow, rasr.FlowNetwork
             ), f"type incorrect: {recognition_corpus_key} {type(feature_flow)}"
