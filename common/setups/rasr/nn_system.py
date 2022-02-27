@@ -3,6 +3,7 @@ __all__ = ["NnArgs", "NnSystem"]
 import copy
 import itertools
 import sys
+from dataclasses import asdict
 from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
@@ -27,6 +28,7 @@ from .util import (
     ReturnnRasrDataInput,
     OggZipHdfDataInput,
     NnArgs,
+    NnRecogArgs,
     RasrSteps,
 )
 
@@ -535,6 +537,47 @@ class NnSystem(RasrSystem):
                     **kwargs,
                 )
 
+    def nn_recog(
+        self,
+        train_name: str,
+        train_corpus_key: str,
+        returnn_config: Path,
+        checkpoints: Dict[int, returnn.Checkpoint],
+        step_args: NnArgs,
+    ):
+        for recog_name, recog_args in step_args.recognition_args.items():
+            for dev_c in self.dev_corpora:
+                self.nn_recognition(
+                    name=f"{train_corpus_key}-{train_name}-{recog_name}",
+                    returnn_config=returnn_config,
+                    checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[
+                        train_corpus_key
+                    ].acoustic_mixtures,
+                    recognition_corpus_key=dev_c,
+                    **recog_args,
+                )
+
+            for tst_c in self.test_corpora:
+                r_args = copy.deepcopy(recog_args)
+                if (
+                    step_args.test_recognition_args is None
+                    or recog_name not in step_args.test_recognition_args.keys()
+                ):
+                    break
+                r_args.update(step_args.test_recognition_args[recog_name])
+                r_args["optimize_am_lm_scalegerman_8khz_setups"] = False
+                self.nn_recognition(
+                    name=f"{train_name}-{recog_name}",
+                    returnn_config=returnn_config,
+                    checkpoints=checkpoints,
+                    acoustic_mixture_path=self.train_input_data[
+                        train_corpus_key
+                    ].acoustic_mixtures,
+                    recognition_corpus_key=tst_c,
+                    **r_args,
+                )
+
     # -------------------- Rescoring  --------------------
 
     def nn_rescoring(self):
@@ -578,7 +621,7 @@ class NnSystem(RasrSystem):
                         devtrain_corpus_key=dvtr_c,
                     )
 
-                self.run_nn_recog(
+                self.nn_recog(
                     train_name=name,
                     train_corpus_key=trn_c,
                     returnn_config=returnn_train_job.returnn_config,
@@ -586,46 +629,8 @@ class NnSystem(RasrSystem):
                     step_args=step_args,
                 )
 
-    def run_nn_recog(
-        self,
-        train_name: str,
-        train_corpus_key: str,
-        returnn_config: Path,
-        checkpoints: Dict[int, returnn.Checkpoint],
-        step_args: NnArgs,
-    ):
-        for recog_name, recog_args in step_args.recognition_args.items():
-            for dev_c in self.dev_corpora:
-                self.nn_recognition(
-                    name=f"{train_corpus_key}-{train_name}-{recog_name}",
-                    returnn_config=returnn_config,
-                    checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[
-                        train_corpus_key
-                    ].acoustic_mixtures,
-                    recognition_corpus_key=dev_c,
-                    **recog_args,
-                )
-
-            for tst_c in self.test_corpora:
-                r_args = copy.deepcopy(recog_args)
-                if (
-                    step_args.test_recognition_args is None
-                    or recog_name not in step_args.test_recognition_args.keys()
-                ):
-                    break
-                r_args.update(step_args.test_recognition_args[recog_name])
-                r_args["optimize_am_lm_scale"] = False
-                self.nn_recognition(
-                    name=f"{train_name}-{recog_name}",
-                    returnn_config=returnn_config,
-                    checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[
-                        train_corpus_key
-                    ].acoustic_mixtures,
-                    recognition_corpus_key=tst_c,
-                    **r_args,
-                )
+    def run_nn_recog_step(self, step_args: NnRecogArgs):
+        self.nn_recognition(asdict(step_args))
 
     def run_rescoring_step(self, step_args):
         for dev_c in self.dev_corpora:
@@ -673,6 +678,9 @@ class NnSystem(RasrSystem):
             # ---------- NN Training ----------
             if step_name.startswith("nn"):
                 self.run_nn_step(step_args)
+
+            if step_name.startswith("recog"):
+                self.run_nn_recog_step(step_args)
 
             # ---------- Rescoring ----------
             if step_name.startswith("rescor"):

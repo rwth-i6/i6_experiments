@@ -1,10 +1,7 @@
-__all__ = [
-    "ReturnnRasrDataInput",
-    "OggZipHdfDataInput",
-    "NnArgs",
-]
+__all__ = ["ReturnnRasrDataInput", "OggZipHdfDataInput", "NnArgs", "NnRecogArgs"]
 
-from typing import Any, Dict, Optional, Type, Union
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Type, Union
 
 from sisyphus import tk
 
@@ -224,3 +221,23 @@ class NnArgs:
         self.training_args = training_args
         self.recognition_args = recognition_args
         self.test_recognition_args = test_recognition_args
+
+
+@dataclass()
+class NnRecogArgs:
+    name: str
+    returnn_config: returnn.ReturnnConfig
+    checkpoints: Dict[int, returnn.Checkpoint]
+    acoustic_mixture_path: tk.Path
+    prior_scales: List[float]
+    pronunciation_scales: List[float]
+    lm_scales: List[float]
+    optimize_am_lm_scale: bool
+    recognition_corpus_key: str
+    feature_flow_key: str
+    search_parameters: Dict
+    lattice_to_ctm_kwargs: Dict
+    parallelize_conversion: bool
+    rtf: int
+    mem: int
+    epochs: Optional[List[int]] = None
