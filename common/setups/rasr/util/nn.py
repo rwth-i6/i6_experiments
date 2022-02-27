@@ -233,7 +233,6 @@ class NnRecogArgs:
     pronunciation_scales: List[float]
     lm_scales: List[float]
     optimize_am_lm_scale: bool
-    recognition_corpus_key: str
     feature_flow_key: str
     search_parameters: Dict
     lattice_to_ctm_kwargs: Dict

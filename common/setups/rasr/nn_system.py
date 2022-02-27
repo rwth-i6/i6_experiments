@@ -112,7 +112,7 @@ class NnSystem(RasrSystem):
         """
         Adapt a RETURNN config for recognition, e.g., remove loss and use log softmax activation in last layer
 
-        :param ReturnnConfig config:
+        :param ReturnnConfig returnn_config:
         :rtype ReturnnConfig:
         """
         assert isinstance(returnn_config, returnn.ReturnnConfig)
@@ -590,7 +590,7 @@ class NnSystem(RasrSystem):
         # TODO here be ogg zip generation for training or lattice generation for SDT
         raise NotImplementedError
 
-    def run_nn_step(self, step_args):
+    def run_nn_step(self, step_args: NnArgs):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
@@ -630,7 +630,8 @@ class NnSystem(RasrSystem):
                 )
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
-        self.nn_recognition(**asdict(step_args))
+        for eval_c in self.dev_corpora + self.test_corpora:
+            self.nn_recognition(recognition_corpus_key=eval_c, **asdict(step_args))
 
     def run_rescoring_step(self, step_args):
         for dev_c in self.dev_corpora:
@@ -669,6 +670,16 @@ class NnSystem(RasrSystem):
             if step_name.startswith("extract"):
                 if step_args is None:
                     step_args = self.hybrid_init_args.feature_extraction_args
+                for all_c in (
+                    self.train_corpora
+                    + self.cv_corpora
+                    + self.devtrain_corpora
+                    + self.dev_corpora
+                    + self.test_corpora
+                ):
+                    self.feature_caches[all_c] = {}
+                    self.feature_bundles[all_c] = {}
+                    self.feature_flows[all_c] = {}
                 self.extract_features(step_args)
 
             # ---------- Prepare data ----------
