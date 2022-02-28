@@ -1,4 +1,4 @@
-from recipe.crnn.helpers.zeineldeen.network import ReturnnNetwork
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.contrastive_2022.zeineldeen_helpers.network import ReturnnNetwork
 
 
 class ConformerEncoder:

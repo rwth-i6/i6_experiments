@@ -7,10 +7,13 @@ from i6_core.returnn.config import CodeWrapper, ReturnnConfig
 from . import zeineldeen_helpers as helpers
 
 from .zeineldeen_helpers.models.asr.encoder.rnn_encoder import RNNEncoder
+from .zeineldeen_helpers.models.asr.encoder.conformer_encoder import ConformerEncoder
 from .zeineldeen_helpers.legacy.rnn_decoder import RNNDecoder
+from .zeineldeen_helpers.models.asr.decoder.transformer_decoder import TransformerDecoder
 #from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
 #from .zeineldeen_helpers.models.lm import generic_lm
 from .zeineldeen_helpers.pretrain.blstm import blstm_pretrain3, blstm_pretrain_contrastive_loss
+from .zeineldeen_helpers.pretrain.conformer import conformer_transformer_pretrain
 from .zeineldeen_helpers import specaugment
 
 from .cl_variant import create_cl_variant
@@ -23,6 +26,7 @@ post_config = {
     'log_batch_size': True,
     'debug_print_layer_output_template': True,
     'cache_size': '0',
+    "load_ignore_missing_vars": True,
 }
 
 wup_start_lr = 0.0003
@@ -55,21 +59,16 @@ input = "data:audio_features"
 
 @dataclasses.dataclass()
 class NetworkOptions:
-    rec_weight_dropout: float = 0.3
     l2: float = 0.001
-    dec_zoneout: bool = True
     embed_dropout: float = 0.3
     att_dropout: float = 0.3
-    lstm_dropout: float = 0.3
     softmax_dropout: float = 0.3
     label_smoothing: float = 0.1
     with_ctc: bool = True
-    dec_lstm_num_units: int = 1000
     enc_lstm_dim: int = 1024
     enc_key_dim: int = 1024
     enc_value_dim: int = 2048
     pool_sizes: str = '3_2'
-    beam_size: int = 12
     with_conv: bool = True
     prior_lm_opts: dict = None
     remove_softmax_bias: bool = False,
@@ -78,19 +77,32 @@ class NetworkOptions:
     ce_loss_scale: float = None
     conv_time_pooling: str = None
 
+    beam_size: int = 12
+
     ext_lm_opts=None
     coverage_term_scale=None
     local_fusion_opts=None
 
+@dataclasses.dataclass()
+class BLSTMNetworkOptions(NetworkOptions):
+    rec_weight_dropout: float = 0.3
+
+    dec_zoneout: bool = True
+    lstm_dropout: float = 0.3
+    dec_lstm_num_units: int = 1000
 
 
-def create_network(options: NetworkOptions):
+
+
+def create_network(options: NetworkOptions, encoder_type="blstm", decoder_type="blstm"):
+
+    assert isinstance(options, BLSTMNetworkOptions)
     rnn_encoder = RNNEncoder(
         input=input,
         target=target, rec_weight_dropout=options.rec_weight_dropout, l2=options.l2, with_ctc=options.with_ctc, dropout=options.lstm_dropout,
         lstm_dim=options.enc_lstm_dim, enc_key_dim=options.enc_key_dim, enc_value_dim=options.enc_value_dim, pool_sizes=options.pool_sizes,
         with_conv=options.with_conv, ctc_loss_scale=options.ctc_loss_scale, conv_time_pooling=options.conv_time_pooling)
-    rnn_encoder.create_network()
+
 
     rnn_decoder = RNNDecoder(
         base_model=rnn_encoder, target=target, l2=options.l2, dec_zoneout=options.dec_zoneout,
@@ -98,8 +110,10 @@ def create_network(options: NetworkOptions):
         dec_lstm_num_units=options.dec_lstm_num_units, beam_size=options.beam_size, ext_lm_opts=options.ext_lm_opts, prior_lm_opts=options.prior_lm_opts,
         coverage_term_scale=options.coverage_term_scale, remove_softmax_bias=options.remove_softmax_bias,
         local_fusion_opts=options.local_fusion_opts, relax_att_scale=options.relax_att_scale, ce_loss_scale=options.ce_loss_scale)
-    rnn_decoder.create_network()
 
+
+    rnn_encoder.create_network()
+    rnn_decoder.create_network()
     # add full network
     network = rnn_encoder.network.get_net()
     network.update(rnn_decoder.network.get_net())
@@ -115,9 +129,13 @@ def create_config(
         preload_from_files=None, with_pretrain=True, extra_str=None, coverage_term_scale=None, coverage_term_thre=None,
         local_fusion_opts=None,
         contrastive_loss_opts=None,
+        behavior_version=None,
         **kwargs):
 
     config = copy.deepcopy(config_template)
+
+    if behavior_version:
+        config['behavior_version'] = behavior_version
 
     config["extern_data"] = training_datasets.extern_data
     config["train"] = training_datasets.train.as_returnn_opts()

@@ -108,7 +108,8 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
     next_layer_names = contrastive_loss_opts['next_layer_names']
     masked_input_dim = contrastive_loss_opts['masked_input_dim']
     project_dim = contrastive_loss_opts['project_dim']
-    proj_l2 = contrastive_loss_opts['l2']
+    proj_l2 = contrastive_loss_opts.get('l2', 0.0)
+
 
     # add dimension tags
     exp_config['masked_time_dim'] = CodeWrapper("SpatialDim(\"masked_time\")")
@@ -189,9 +190,21 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
 
         elif variant == 3:
             # max pool mask
-            exp_config['network']['max_pool_input_mask'] = {
-                'class': 'pool', 'mode': 'max', 'from': 'input_mask', 'pool_size': (6,), 'padding': 'same'
+            #
+            # 1. we need to cast to float since pooling does not work with bool dtype
+            # 2. we need to sync time dim with avg pool q
+
+            exp_config['network']['input_mask_as_float'] = {'class': 'cast', 'from': 'input_mask', 'dtype': 'float32'}
+            exp_config['network']['max_pool_input_mask0'] = {"class": "expand_dims", "from": "input_mask_as_float", "axis": "F"}  # [B,T,1]
+            exp_config['network']['max_pool_input_mask1'] = {
+                'class': 'pool', 'mode': 'max', 'from': 'max_pool_input_mask0', 'pool_size': (6,), 'padding': 'same'
             }
+            exp_config['network']['max_pool_input_mask2'] = {"class": "squeeze", "from": "max_pool_input_mask1", "axis": "F"}  # [B,T]
+            exp_config['network']['max_pool_input_mask3'] = {"class": "cast", "dtype": "bool", "from": "max_pool_input_mask2"}
+            exp_config['network']['max_pool_input_mask'] = {
+                "class": "reinterpret_data", "from": "max_pool_input_mask3",
+                "set_dim_tags": {"T": CodeWrapper("avg_pool_time_dim")}
+            }  # [B,T]
             input_mask_name = 'max_pool_input_mask'
 
     exp_config['network']['mask_emb'] = {"class": "variable", "shape": [CodeWrapper("input_dim")],
@@ -234,10 +247,14 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
 
     # upsample encoder in case needed to compute contrastive loss
     if variant == 1:
+        exp_config['network']['encoder_upsample_long'] = {
+            "class": "transposed_conv", "activation": None, "filter_size": [6], "from": "encoder", "n_out": 2048,
+            "strides": [6],
+        }
+        exp_config['network']['pos'] = {"class": "range_in_axis", "axis": "T", "from": "input_mask"}
         exp_config['network']['encoder_upsample_'] = {
-            'class': 'transposed_conv', 'activation': None, 'filter_size': [6], 'from': 'encoder', 'n_out': 2048,
-            'strides': [6]
-        }  # [B, T_orig, F]
+            "class": "gather", "position": "pos", "axis": "T", "from": "encoder_upsample_long"
+        }
         exp_config['network']['encoder_upsample'] = {
             'class': 'reinterpret_data', 'from': 'encoder_upsample_', 'set_dim_tags': {"T": CodeWrapper("data_time_dim")}}
 
