@@ -89,7 +89,7 @@ class G2PBasedOovAugmenter:
         g2p_apply_job = ApplyG2PModelJob(
             g2p_model=self.g2p_model_path,
             word_list_file=extract_oov_job.out_oov_words,
-            **self.apply_args
+            **self.apply_args,
         )
         g2p_apply_job.add_alias(
             os.path.join(alias_path, "apply-g2p-for-{}".format(corpus_name))
