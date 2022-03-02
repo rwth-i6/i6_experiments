@@ -1,3 +1,7 @@
+from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+from i6_core.meta.system import CorpusObject
+
 from i6_experiments.common.datasets.librispeech import get_corpus_object_dict, get_arpa_lm_dict, get_bliss_lexicon
 from i6_experiments.common.setups.rasr import RasrDataInput
 

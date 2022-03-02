@@ -1,5 +1,6 @@
 from i6_core.features.filterbank import filter_width_from_channels
 from i6_core import cart
+from i6_core.rasr import RasrConfig
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrInitArgs
@@ -38,7 +39,7 @@ def get_init_args(dc_detection=True):
             'num_features': None,  # confusing name: number of max features, above number -> clipped
             'mfcc_options': {
                 'warping_function': "mel",
-                'filter_width': filter_width_from_channels(channels=21, warping_function="mel", f_max=8000), # 21 is legacy behavior
+                'filter_width': filter_width_from_channels(channels=21, warping_function="mel", f_max=8000),
                 'normalize': True,
                 'normalization_options': None,
                 'without_samples': False,
@@ -274,7 +275,7 @@ def get_vtln_args(allow_zero_weights: bool = False):
     }
 
     if allow_zero_weights:
-        allow_zero_weights_extra_config = rasr.RasrConfig()
+        allow_zero_weights_extra_config = RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         vtln_training_args["train"]["align_extra_args"] = {
@@ -315,7 +316,7 @@ def get_sat_args(allow_zero_weights: bool = False):
     }
 
     sat_recognition_args = {
-        "prev_ctm": "tri",
+        "prev_ctm": ("tri", 1.0, 22, 10, "-optlm"),
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
@@ -345,7 +346,7 @@ def get_sat_args(allow_zero_weights: bool = False):
     }
 
     if allow_zero_weights:
-        allow_zero_weights_extra_config = rasr.RasrConfig()
+        allow_zero_weights_extra_config = RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         sat_training_args["align_extra_args"] = {
@@ -385,7 +386,7 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
     }
 
     vtln_sat_recognition_args = {
-        "prev_ctm": "vtln",
+        "prev_ctm": ("vtln", 1.0, 22, 10, "-optlm"),
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
@@ -415,7 +416,7 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
     }
 
     if allow_zero_weights:
-        allow_zero_weights_extra_config = rasr.RasrConfig()
+        allow_zero_weights_extra_config = RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
         vtln_sat_training_args["align_extra_args"] = {
