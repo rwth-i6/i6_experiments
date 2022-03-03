@@ -19,7 +19,7 @@ class DirectoryZipJob(Job):
         self.dir_path = dir_path
         self.compression_level = compression_level
         assert 0 <= self.compression_level <= 9 and type(self.compression_level) == int
-        self.command_line_args = command_line_args
+        self.command_line_args = command_line_args or []
 
         self.dir_name = os.path.basename(os.path.dirname(self.dir_path.get_path()))
 
@@ -39,5 +39,5 @@ class DirectoryZipJob(Job):
         try:
              sp.check_call(run_cmd)
         except sp.CalledProcessError:
-            print(f"Error occurred in subprocess: Zipping directory failed")
+            print(f"Error occurred in subprocess: Zipping directory failed for {self.dir_path.get_path()}")
             raise
