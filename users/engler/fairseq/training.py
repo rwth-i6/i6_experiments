@@ -80,6 +80,7 @@ class FairseqHydraTrainingJob(Job):
         fairseq_hydra_exe=None,
         fairseq_root=None,
         use_cache_manager=True,
+        zipped_audio_dir=None,
     ):
         """
         :param FairseqHydraConfig fairseq_hydra_config:
@@ -99,7 +100,9 @@ class FairseqHydraTrainingJob(Job):
         :param Path|str fairseq_root: File path to the fairseq git for alternative call of fairseq-hydra-train
             (no need to install fairseq here)
         :param bool use_cache_manager: enables caching of data given in the manifest with the i6 cache manager
-
+        :param Path|str zipped_audio_dir: using a bundle file for caching is very slow for large manifests. For
+            speeding up the audio file transfer using the cache manager, a zipped audio directory might be provided.
+            The zipped audio directory is then used for caching instead and unzipped on the node for training
         """
 
         # Inputs:
@@ -145,6 +148,9 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
         self.use_cache_manager=use_cache_manager
+        self.zipped_audio_dir=zipped_audio_dir
+        if self.zipped_audio_dir is not None:
+            assert self.use_cache_manager, "cache manager must be used for zipped audio input"
 
         # Outputs:
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
@@ -183,25 +189,41 @@ class FairseqHydraTrainingJob(Job):
     def run(self):
         if self.use_cache_manager:
             manifest_path = self.fairseq_hydra_config.config_dict["task"]["data"].get_path()
-            for name in ["train.tsv", "valid.tsv"]:
-                with open(f"{manifest_path}/{name}", "r") as manifest_file:
-                    manifest_lines = manifest_file.read().splitlines()
-                audio_path = manifest_lines[0]
-                bundle_lines = map(lambda line: audio_path + "/" + line.split("\t")[0], manifest_lines[1:])
-                with open(f"{name}.bundle", 'w') as bundle_file:
-                    bundle_file.write("\n".join(bundle_lines))
-                try:
-                    cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
-                except sp.CalledProcessError:
-                    print(f"Cache manager: Error occurred for files in {name}")
-                    raise
+            if self.zipped_audio_dir is None:
+                for name in ["train.tsv", "valid.tsv"]:
+                    with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                        manifest_lines = manifest_file.read().splitlines()
+                    audio_path = manifest_lines[0]
+                    bundle_lines = map(lambda line: audio_path + "/" + line.split("\t")[0], manifest_lines[1:])
+                    with open(f"{name}.bundle", 'w') as bundle_file:
+                        bundle_file.write("\n".join(bundle_lines))
+                    try:
+                        cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
+                    except sp.CalledProcessError:
+                        print(f"Cache manager: Error occurred for files in {name}")
+                        raise
 
-                with open(cached_audio_fn) as local_bundle:
-                    bundle_lines = list(map(os.path.dirname, local_bundle.readlines()))
-                    assert bundle_lines.count(bundle_lines[0]) == len(bundle_lines), f"not all {name} files in same directory"
-                    manifest_lines[0] = bundle_lines[0]
-                with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
-                    cached_audio_manifest_file.write('\n'.join(manifest_lines))
+                    with open(cached_audio_fn) as local_bundle:
+                        bundle_lines = list(map(os.path.dirname, local_bundle.readlines()))
+                        assert bundle_lines.count(bundle_lines[0]) == len(bundle_lines), f"not all {name} files in same directory"
+                        manifest_lines[0] = bundle_lines[0]
+                    with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
+                        cached_audio_manifest_file.write('\n'.join(manifest_lines))
+            else:   # zipped audio data is given and we cache and unzip the zip file instead
+                if self.use_cache_manager:
+                    try:
+                        cached_audio_zip_dir = sp.check_output(["cf", self.zipped_audio_dir]).strip().decode("utf8")
+                        local_unzipped_audio_dir = f"{os.path.dirname(cached_audio_zip_dir)}/audio"
+                        sp.check_call(["unzip", "-q", "-n", cached_audio_zip_dir, "-d", local_unzipped_audio_dir])
+                    except sp.CalledProcessError:
+                        print(f"Cache manager: Error occurred for caching and unzipping audio data")
+                        raise
+                    for name in ["train.tsv", "valid.tsv"]:
+                        with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                            manifest_lines = manifest_file.read().splitlines()
+                        manifest_lines[0] = local_unzipped_audio_dir
+                        with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
+                            cached_audio_manifest_file.write('\n'.join(manifest_lines))
 
         my_env = os.environ
         if self.fairseq_root is not None:
@@ -243,6 +265,7 @@ class FairseqHydraTrainingJob(Job):
     def hash(cls, kwargs):
         d = copy.copy(kwargs)
         d.pop("use_cache_manager", None)
+        d.pop("zipped_audio_dir", None)
         d.pop("time_rqmt", None)
         d.pop("mem_rqmt", None)
         d.pop("cpu_rqmt", None)
