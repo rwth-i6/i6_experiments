@@ -210,20 +210,19 @@ class FairseqHydraTrainingJob(Job):
                     with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
                         cached_audio_manifest_file.write('\n'.join(manifest_lines))
             else:   # zipped audio data is given and we cache and unzip the zip file instead
-                if self.use_cache_manager:
-                    try:
-                        cached_audio_zip_dir = sp.check_output(["cf", self.zipped_audio_dir]).strip().decode("utf8")
-                        local_unzipped_audio_dir = f"{os.path.dirname(cached_audio_zip_dir)}/audio"
-                        sp.check_call(["unzip", "-q", "-n", cached_audio_zip_dir, "-d", local_unzipped_audio_dir])
-                    except sp.CalledProcessError:
-                        print(f"Cache manager: Error occurred for caching and unzipping audio data")
-                        raise
-                    for name in ["train.tsv", "valid.tsv"]:
-                        with open(f"{manifest_path}/{name}", "r") as manifest_file:
-                            manifest_lines = manifest_file.read().splitlines()
-                        manifest_lines[0] = local_unzipped_audio_dir
-                        with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
-                            cached_audio_manifest_file.write('\n'.join(manifest_lines))
+                try:
+                    cached_audio_zip_dir = sp.check_output(["cf", self.zipped_audio_dir]).strip().decode("utf8")
+                    local_unzipped_audio_dir = f"{os.path.dirname(cached_audio_zip_dir)}/audio"
+                    sp.check_call(["unzip", "-q", "-n", cached_audio_zip_dir, "-d", local_unzipped_audio_dir])
+                except sp.CalledProcessError:
+                    print(f"Cache manager: Error occurred for caching and unzipping audio data in {self.zipped_audio_dir}")
+                    raise
+                for name in ["train.tsv", "valid.tsv"]:
+                    with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                        manifest_lines = manifest_file.read().splitlines()
+                    manifest_lines[0] = local_unzipped_audio_dir
+                    with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
+                        cached_audio_manifest_file.write('\n'.join(manifest_lines))
 
         my_env = os.environ
         if self.fairseq_root is not None:
