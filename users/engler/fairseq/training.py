@@ -221,7 +221,8 @@ class FairseqHydraTrainingJob(Job):
                     with open(f"{manifest_path}/{name}", "r") as manifest_file:
                         manifest_lines = manifest_file.read().splitlines()
                     for i in range(1, len(manifest_lines)):
-                        assert os.path.exists(f"{local_unzipped_audio_dir}/{manifest_lines[i].split()[0]}")
+                        to_check = f"{local_unzipped_audio_dir}/{manifest_lines[i].split()[0]}"
+                        assert os.path.exists(to_check), f"Manifest file {to_check} not found in unzipped directory"
                     manifest_lines[0] = local_unzipped_audio_dir
                     with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
                         cached_audio_manifest_file.write('\n'.join(manifest_lines))
