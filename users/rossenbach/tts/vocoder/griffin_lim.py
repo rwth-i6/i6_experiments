@@ -303,7 +303,11 @@ class HDFPhaseReconstruction(Job):
                 corpus.add_recording(recording)
 
         corpus.name = tag.split("/")[0]
-        corpus.dump(corpus_path)
+        corpus.dump("corpus.xml")
+        replacement_string = "s:%s:%s:g" % (temp_dir.name, self.out_folder.get_path())
+        subprocess.call(["sed", "-i", replacement_string, "corpus.xml"])
+        subprocess.call(["gzip", "corpus.xml"])
+        shutil.move("corpus.xml.gz", self.out_corpus.get_path())
 
         shutil.move(temp_dir.name, self.out_folder.get_path())
 
