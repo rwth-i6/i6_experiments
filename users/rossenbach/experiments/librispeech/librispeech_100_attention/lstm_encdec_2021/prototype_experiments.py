@@ -13,7 +13,7 @@ from .specaugment_clean import \
     SpecAugmentSettings
 
 
-def trainig_network_mohammad(specaug_settings=None, fix_regularization=False, fix_act=False):
+def trainig_network_mohammad(specaug_settings=None, fix_regularization=False, fix_act=False, fix_l2=False):
     """
     Network derived from Mohammads Librispeech-100h system with new encoder pre-training
 
@@ -68,6 +68,9 @@ def trainig_network_mohammad(specaug_settings=None, fix_regularization=False, fi
 
         # the network is the combination of the dynamic encoder and the legacy static decoder
         stage_net = {**encoder_dict, **local_static_decoder, "#copy_param_mode": "subset"}
+
+        if fix_l2:
+            stage_net['output']['unit']['enc_transformed']['L2'] = l2
 
         # the "pretraining" phase has a larger batch size
         if i < 5:
@@ -187,6 +190,13 @@ def test():
     # Initial experiment
     exp_prefix = prefix_name + "/test_enc_only_fixed_act"
     returnn_config = get_config(training_datasets, specaug_settings=specaug_settings, fix_regularization=True, fix_act=True)
+    train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root_search)
+    search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
+
+    # Initial experiment
+    exp_prefix = prefix_name + "/test_enc_only_fixed_l2"
+    returnn_config = get_config(training_datasets, specaug_settings=specaug_settings, fix_regularization=True, fix_act=True, fix_l2=True)
     train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
     search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root_search)
     search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
