@@ -34,6 +34,9 @@ def conformer_baseline():
     exp_prefix = prefix_name + "/conformer_baseline"
     encoder_options = EncoderOptions()
     decoder_options = DecoderOptions()
+
+    # TODO: use behavior version = 3 and fix recursion limit if you ever run this again!!!!!!!!!!!
+
     returnn_config = create_config(training_datasets=training_datasets, encoder_options=encoder_options, decoder_options=decoder_options, behavior_version=1)
     train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
     search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)

@@ -202,6 +202,32 @@ def pretrain_layers_and_dims(
     net_dict.update(transformer_decoder.network.get_net())
     net_dict.update(extra_net_dict)
 
+    # update trafo
+    #config['att_kv_feat_dim'] = CodeWrapper("FeatureDim(\"att_kv_feat_dim\", 64)")  # 512/8
+    for n in range(1, decoder_args_copy["dec_layers"] + 1):
+
+        # update keys
+        net_dict['transformer_decoder_%02i_att_key_' % n] = \
+            copy.deepcopy(net_dict['transformer_decoder_%02i_att_key' % n])
+        net_dict['transformer_decoder_%02i_att_key' % n] = {
+            'class': 'reinterpret_data', 'from': 'transformer_decoder_%02i_att_key_' % n,
+            'set_dim_tags': {'F': CodeWrapper('att_kv_feat_dim')}
+        }
+
+        # # update queries
+        net_dict['output']['unit']['transformer_decoder_%02i_att_query_' % n] = \
+            copy.deepcopy(net_dict['output']['unit']['transformer_decoder_%02i_att_query' % n])
+        net_dict['output']['unit']['transformer_decoder_%02i_att_query' % n] = {
+            'class': 'reinterpret_data', 'from': 'transformer_decoder_%02i_att_query_' % n,
+            'set_dim_tags': {'F': CodeWrapper('att_kv_feat_dim')}
+        }
+
+        # update dot layers
+        net_dict['output']['unit']['transformer_decoder_%02i_att_energy' % n] = {
+            'class': 'dot', 'from': ["base:transformer_decoder_%02i_att_key" % n, 'transformer_decoder_%02i_att_query' % n],
+            'reduce': CodeWrapper('att_kv_feat_dim')
+        }
+
     return net_dict
 
 @dataclasses.dataclass()
