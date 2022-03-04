@@ -1,5 +1,8 @@
 import errno
 import gc
+import shutil
+import tempfile
+
 import numpy as np
 import os
 import subprocess
@@ -246,6 +249,7 @@ class HDFPhaseReconstruction(Job):
     def run(self):
         import h5py
 
+        temp_dir = tempfile.TemporaryDirectory(prefix="hdf_reconstruction_")
         ref_linear_data = h5py.File(self.hdf_file.get_path(), 'r')
         rl_inputs = ref_linear_data['inputs']
         rl_tags = ref_linear_data['seqTags']
@@ -254,7 +258,7 @@ class HDFPhaseReconstruction(Job):
         n_fft = rl_inputs[0].shape[0]*2
         print("N_FFT from HDF: % i" % n_fft)
 
-        converter = PhaseReconstructor(out_folder=self.out_folder.get_path(),
+        converter = PhaseReconstructor(out_folder=temp_dir.name,
                                        backend=self.backend,
                                        sample_rate=self.sample_rate,
                                        window_shift=self.window_shift,
@@ -300,6 +304,8 @@ class HDFPhaseReconstruction(Job):
 
         corpus.name = tag.split("/")[0]
         corpus.dump(corpus_path)
+
+        shutil.move(temp_dir.name, self.out_folder.get_path())
 
     @classmethod
     def hash(cls, kwargs):
