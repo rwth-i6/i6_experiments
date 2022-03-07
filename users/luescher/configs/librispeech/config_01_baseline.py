@@ -6,7 +6,9 @@ from sisyphus import gs, tk, Path
 
 # -------------------- Recipes --------------------
 
+import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
+import i6_core.text as text
 
 from i6_core.tools import CloneGitRepositoryJob
 
@@ -63,26 +65,45 @@ def run():
     )
     lbs_gmm_system.run(steps)
 
+    train_corpus_path = lbs_gmm_system.corpora["train-other-960"].corpus_file
+    total_train_num_segments = 281241
+    cv_size = 3000 / total_train_num_segments
+
+    all_segments = corpus_recipe.SegmentCorpusJob(
+        train_corpus_path, 1
+    ).out_single_segment_files[1]
+
+    splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+        all_segments, {"train": 1 - cv_size, "cv": cv_size}
+    )
+    train_segments = splitted_segments_job.out_segments["train"]
+    cv_segments = splitted_segments_job.out_segments["cv"]
+    devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
+
     # ******************** NN Init ********************
 
-    returnn_repo = CloneGitRepositoryJob(
-        url="git@github.com:rwth-i6/returnn.git", checkout_folder_name="returnn"
-    )
-
+    nn_train_data = lbs_gmm_system.outputs["train-other-960"][
+            "final"
+        ].as_returnn_rasr_data_input(shuffle_data=True)
+    nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
     nn_train_data_inputs = {
-        "train-other-960.train": lbs_gmm_system.outputs["train-other-960"][
-            "final"
-        ].as_returnn_rasr_data_input(),
+        "train-other-960.train": nn_train_data,
     }
+
+    nn_cv_data = lbs_gmm_system.outputs["train-other-960"][
+            "final"
+        ].as_returnn_rasr_data_input()
+    nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
     nn_cv_data_inputs = {
-        "train-other-960.cv": lbs_gmm_system.outputs["train-other-960"][
-            "final"
-        ].as_returnn_rasr_data_input(),
+        "train-other-960.cv": nn_cv_data,
     }
-    nn_devtrain_data_inputs = {
-        "train-other-960.devtrain": lbs_gmm_system.outputs["train-other-960"][
+
+    nn_devtrain_data = lbs_gmm_system.outputs["train-other-960"][
             "final"
-        ].as_returnn_rasr_data_input(),
+        ].as_returnn_rasr_data_input()
+    nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
+    nn_devtrain_data_inputs = {
+        "train-other-960.devtrain": nn_devtrain_data,
     }
     nn_dev_data_inputs = {
         # "dev-clean": lbs_gmm_system.outputs["dev-clean"][
@@ -107,6 +128,10 @@ def run():
     nn_steps.add_step("nn", nn_args)
 
     # ******************** NN System ********************
+
+    returnn_repo = CloneGitRepositoryJob(
+        url="git@github.com:rwth-i6/returnn.git", checkout_folder_name="returnn"
+    )
 
     lbs_nn_system = nn_system.NnSystem(returnn_root=returnn_repo.out_repository)
     lbs_nn_system.init_system(
