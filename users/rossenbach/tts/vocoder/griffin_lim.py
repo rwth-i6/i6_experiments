@@ -1,5 +1,6 @@
 import errno
 import gc
+import glob
 import shutil
 import tempfile
 
@@ -309,7 +310,8 @@ class HDFPhaseReconstruction(Job):
         subprocess.call(["gzip", "corpus.xml"])
         shutil.move("corpus.xml.gz", self.out_corpus.get_path())
 
-        shutil.move(temp_dir.name, self.out_folder.get_path())
+        for path in glob.glob(temp_dir.name + "/*"):
+            shutil.move(path, self.out_folder.get_path())
 
     @classmethod
     def hash(cls, kwargs):
