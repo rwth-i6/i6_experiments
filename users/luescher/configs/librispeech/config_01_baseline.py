@@ -78,29 +78,31 @@ def run():
     )
     train_segments = splitted_segments_job.out_segments["train"]
     cv_segments = splitted_segments_job.out_segments["cv"]
-    devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
+    devtrain_segments = text.TailJob(
+        train_segments, num_lines=1000, zip_output=False
+    ).out
 
     # ******************** NN Init ********************
 
     nn_train_data = lbs_gmm_system.outputs["train-other-960"][
-            "final"
-        ].as_returnn_rasr_data_input(shuffle_data=True)
+        "final"
+    ].as_returnn_rasr_data_input(shuffle_data=True)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
     nn_train_data_inputs = {
         "train-other-960.train": nn_train_data,
     }
 
     nn_cv_data = lbs_gmm_system.outputs["train-other-960"][
-            "final"
-        ].as_returnn_rasr_data_input()
+        "final"
+    ].as_returnn_rasr_data_input()
     nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
     nn_cv_data_inputs = {
         "train-other-960.cv": nn_cv_data,
     }
 
     nn_devtrain_data = lbs_gmm_system.outputs["train-other-960"][
-            "final"
-        ].as_returnn_rasr_data_input()
+        "final"
+    ].as_returnn_rasr_data_input()
     nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
     nn_devtrain_data_inputs = {
         "train-other-960.devtrain": nn_devtrain_data,

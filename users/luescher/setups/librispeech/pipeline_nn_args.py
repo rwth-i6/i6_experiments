@@ -78,14 +78,16 @@ def get_returnn_configs(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
+        "extern_data": {
+            "data": {"dim": num_inputs},
+            "classes": {"dim": num_outputs, "sparse": True},
+        },
+    }
+    base_post_config = {
         "cleanup_old_models": {
             "keep_last_n": 5,
             "keep_best_n": 5,
             "keep": returnn.CodeWrapper(f"list(np.arange(10, {num_epochs + 1}, 10))"),
-        },
-        "extern_data": {
-            "data": {"dim": num_inputs},
-            "classes": {"dim": num_outputs, "sparse": True},
         },
     }
 
@@ -128,6 +130,7 @@ def get_returnn_configs(
 
     blstm_base_returnn_config = returnn.ReturnnConfig(
         config=blstm_base_config,
+        post_config=base_post_config,
         hash_full_python_code=True,
         python_prolog={"numpy": "import numpy as np"},
         pprint_kwargs={"sort_dicts": False},
@@ -174,6 +177,7 @@ def get_returnn_configs(
 
     blstm_cnn_returnn_config = returnn.ReturnnConfig(
         config=blstm_cnn_config,
+        post_config=base_post_config,
         hash_full_python_code=True,
         python_prolog={"numpy": "import numpy as np"},
         pprint_kwargs={"sort_dicts": False},
@@ -220,6 +224,7 @@ def get_returnn_configs(
 
     blstm_spec_returnn_config = returnn.ReturnnConfig(
         config=blstm_spec_config,
+        post_config=base_post_config,
         hash_full_python_code=True,
         python_prolog={"numpy": "import numpy as np"},
         pprint_kwargs={"sort_dicts": False},
