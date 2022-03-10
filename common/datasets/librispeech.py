@@ -83,10 +83,10 @@ durations["train-other-960"] = (
 )
 
 num_segments["train-clean-460"] = (
-        num_segments["train-clean-100"] + num_segments["train-clean-360"]
+    num_segments["train-clean-100"] + num_segments["train-clean-360"]
 )
 num_segments["train-other-960"] = (
-        num_segments["train-clean-460"] + num_segments["train-other-500"]
+    num_segments["train-clean-460"] + num_segments["train-other-500"]
 )
 
 
