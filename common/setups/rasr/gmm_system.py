@@ -978,7 +978,7 @@ class GmmSystem(RasrSystem):
                 feature_scorer_key=feature_scorer_key,
                 optimize_am_lm_scale=optimize_am_lm_scale,
                 corpus_key=corpus_key,
-                feature_flow=feature_flow+"+cmllr",
+                feature_flow=feature_flow + "+cmllr",
                 pronunciation_scales=pronunciation_scales,
                 search_parameters=search_parameters,
                 rtf=rtf,

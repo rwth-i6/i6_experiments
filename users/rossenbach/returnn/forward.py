@@ -7,6 +7,7 @@ import glob
 import os
 import shutil
 import subprocess as sp
+import tempfile
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import Checkpoint
@@ -82,20 +83,45 @@ class ReturnnForwardJob(Job):
             "Provided model does not exists: %s" % str(self._model_checkpoint)
 
     def run(self):
-        call = [tk.uncached_path(self.returnn_python_exe),
-                os.path.join(tk.uncached_path(self.returnn_root), 'rnn.py'),
-                self.out_returnn_config_file.get_path()]
-        sp.check_call(call)
+        with tempfile.TemporaryDirectory(prefix="work_") as d:
+            print("using temp-dir: %s" % d)
+            call = [tk.uncached_path(self.returnn_python_exe),
+                    os.path.join(tk.uncached_path(self.returnn_root), 'rnn.py'),
+                    self.out_returnn_config_file.get_path()]
 
-        # move hdf outputs to output folder
-        for k, v in self.out_hdf_files.items():
-            shutil.move(k, v.get_path())
+            # stash a possible exception until we finished copying files from the temp work to the actual
+            # work folder
+            error = None
+            try:
+                sp.check_call(call, cwd=d)
+            except Exception as e:
+                print("Run crashed - still copy stuff first")
+                error = e
 
-        # delete dumped file and hdf files that were not marked as output, if remaining
-        for file in glob.glob("dump*"):
-            os.unlink(file)
-        for file in glob.glob("*.hdf"):
-            os.unlink(file)
+            #move log and tensorboard
+            shutil.move(os.path.join(d, "returnn.log"), "returnn.log")
+            tensorboard_dirs = glob.glob(os.path.join(d, "eval-*"))
+            for dir in tensorboard_dirs:
+                shutil.move(dir, os.path.basename(dir))
+
+            # move hdf outputs to output folder
+            for k, v in self.out_hdf_files.items():
+                try:
+                    shutil.move(os.path.join(d, k), v.get_path())
+                except Exception as e:
+                    if error is None:
+                        # we had no error before, raise one here, otherwise it is expected to have missing hdf files
+                        raise e
+
+            if error:
+                raise error
+
+            # delete dumped file and hdf files that were not marked as output, if remaining
+            # not necessary anymore if we work in a temporary directory
+            #for file in glob.glob("dump*"):
+            #    os.unlink(file)
+            #for file in glob.glob("*.hdf"):
+            #    os.unlink(file)
 
     @classmethod
     def create_returnn_config(cls, model_checkpoint, returnn_config, log_verbosity, device, **kwargs):

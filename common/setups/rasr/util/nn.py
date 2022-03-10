@@ -235,8 +235,10 @@ class NnRecogArgs:
     optimize_am_lm_scale: bool
     feature_flow_key: str
     search_parameters: Dict
+    lm_lookahead: bool
     lattice_to_ctm_kwargs: Dict
     parallelize_conversion: bool
     rtf: int
     mem: int
+    lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None

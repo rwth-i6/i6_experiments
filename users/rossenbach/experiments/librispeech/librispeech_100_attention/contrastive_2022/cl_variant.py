@@ -92,6 +92,10 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
     # - do average pooling for q to get q / 6 and use this for CL
     # - use the downsampled mask for CL
 
+    # variant 5
+    # - mask on real samples
+    # C from first encoder layer before pooling
+
     # TODO: ideas
     # - use strided conv instead of avg pooling for mapping q -> q/6
     # - create two encoder networks with shared paramters for each ASR loss and CL loss
@@ -132,7 +136,7 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
         "out_type": {"dtype": "bool", "shape": (None,)}
     }  # [B,T]
 
-    if variant == 1 or variant == 2:
+    if variant == 1 or variant == 2 or variant == 5:
         # add data time dim tag to sync with resize
         exp_config['data_time_dim'] = CodeWrapper("SpatialDim(\"data_time_dim\")")
 
@@ -259,7 +263,14 @@ def create_cl_variant(contrastive_loss_opts, exp_config):
             'class': 'reinterpret_data', 'from': 'encoder_upsample_', 'set_dim_tags': {"T": CodeWrapper("data_time_dim")}}
 
     # add contrastive loss subnetwork
-    encoder_name = 'encoder_upsample' if variant == 1 else 'encoder'
+    if variant == 1:
+        encoder_name = 'encoder_upsample'
+    elif variant == 5:
+        exp_config['network']['encoder_merge_layer'] = {'class': 'copy', 'from': contrastive_loss_opts["encoder_in_layers"]}
+        encoder_name = "encoder_merge_layer"
+    else:
+        encoder_name = 'encoder'
+
     exp_config['network']['contrastive_loss'] = get_contrastive_loss_net(
         loss_scale=contrastive_loss_scale, softmax_temp=softmax_temp, encoder_name=encoder_name,
         input_mask_name=input_mask_name, input_name=input_name, l2=proj_l2)

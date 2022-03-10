@@ -96,7 +96,7 @@ def continue_from_old():
 
     # contrastive test
     # Initial experiment
-    for variant in [1,2,3,4]:
+    for variant in [1, 2, 3, 4, 5]:
         exp_prefix = prefix_name + "/test_contrastive_variant_%i" % variant
         network_options = BLSTMNetworkOptions()
         retrain_opts = {
@@ -116,6 +116,8 @@ def continue_from_old():
 
         if variant != 4:
             contrastive_loss_opts['masked_input_dim'] = 40  # 40-dim MFCC
+            if variant == 5:
+                contrastive_loss_opts["encoder_in_layers"] = ["lstm0_fw", "lstm0_bw"]
         else:
             # needed only for variant 4
             contrastive_loss_opts['layer_after_downsample'] = 'lstm1_pool'
