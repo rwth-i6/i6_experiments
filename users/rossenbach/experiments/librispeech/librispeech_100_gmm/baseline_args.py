@@ -3,7 +3,6 @@ from i6_core import cart
 from i6_core.rasr import RasrConfig
 
 from i6_experiments.common.setups.rasr import gmm_system
-from i6_experiments.common.setups.rasr.util import RasrInitArgs
 
 from i6_experiments.common.setups.rasr.util import *
 from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions, UnfoldedCartQuestions
@@ -54,6 +53,31 @@ def get_init_args(dc_detection=True):
                     'epsilon': 1e-10,
                 },
                 'fft_options': None,
+            }
+        },
+        "gt": {
+            "gt_options": {
+                "minfreq": 100,
+                "maxfreq": 7500,
+                "channels": 50,
+                # "warp_freqbreak": 7400,
+                "tempint_type": "hanning",
+                "tempint_shift": 0.01,
+                "tempint_length": 0.025,
+                "flush_before_gap": True,
+                "do_specint": False,
+                "specint_type": "hanning",
+                "specint_shift": 4,
+                "specint_length": 9,
+                "normalize": True,
+                "preemphasis": True,
+                "legacy_scaling": False,
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": dc_detection,
+                },
+                "normalization_options": {},
             }
         },
         'energy': {
