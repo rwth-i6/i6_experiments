@@ -260,9 +260,7 @@ def get_cart_args(
     add_unknown: bool = True,
 ):
     cart_questions_class = FoldedCartQuestions(
-        max_leaves=max_leaves,
-        min_obs=min_obs,
-        add_unknown=add_unknown,
+        max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
@@ -285,8 +283,7 @@ def get_cart_args(
     }
 
     return rasr_util.GmmCartArgs(
-        cart_questions=cart_questions,
-        cart_lda_args=cart_lda_args,
+        cart_questions=cart_questions, cart_lda_args=cart_lda_args,
     )
 
 
@@ -644,8 +641,7 @@ def get_data_inputs(
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav",
-        output_prefix="corpora",
+        audio_format="wav", output_prefix="corpora",
     )
 
     lm = {
@@ -667,9 +663,7 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[train_corpus],
-        concurrent=300,
-        lexicon=lexicon,
+        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=lexicon,
     )
 
     dev_corpus_keys = (

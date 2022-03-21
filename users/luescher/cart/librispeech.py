@@ -331,21 +331,13 @@ class FoldedCartQuestions:
                                 "description": "vowel_UW",
                                 "values": "UW",
                             },
-                            {
-                                "type": "question",
-                                "description": "pb",
-                                "values": "P B",
-                            },
+                            {"type": "question", "description": "pb", "values": "P B",},
                             {
                                 "type": "question",
                                 "description": "vowel_UH",
                                 "values": "UH",
                             },
-                            {
-                                "type": "question",
-                                "description": "td",
-                                "values": "T D",
-                            },
+                            {"type": "question", "description": "td", "values": "T D",},
                             {
                                 "type": "question",
                                 "description": "vowel_AW",
@@ -381,16 +373,8 @@ class FoldedCartQuestions:
                                 "description": "vowel_IY",
                                 "values": "IY",
                             },
-                            {
-                                "type": "question",
-                                "description": "sz",
-                                "values": "S Z",
-                            },
-                            {
-                                "type": "question",
-                                "description": "kg",
-                                "values": "K G",
-                            },
+                            {"type": "question", "description": "sz", "values": "S Z",},
+                            {"type": "question", "description": "kg", "values": "K G",},
                             {
                                 "type": "question",
                                 "description": "vowel_EH",
@@ -838,21 +822,13 @@ class UnfoldedCartQuestions:
                                 "description": "vowel_UW",
                                 "values": "UW0 UW1 UW2",
                             },
-                            {
-                                "type": "question",
-                                "description": "pb",
-                                "values": "P B",
-                            },
+                            {"type": "question", "description": "pb", "values": "P B",},
                             {
                                 "type": "question",
                                 "description": "vowel_UH",
                                 "values": "UH0 UH1 UH2",
                             },
-                            {
-                                "type": "question",
-                                "description": "td",
-                                "values": "T D",
-                            },
+                            {"type": "question", "description": "td", "values": "T D",},
                             {
                                 "type": "question",
                                 "description": "vowel_AW",
@@ -888,16 +864,8 @@ class UnfoldedCartQuestions:
                                 "description": "vowel_IY",
                                 "values": "IY0 IY1 IY2",
                             },
-                            {
-                                "type": "question",
-                                "description": "sz",
-                                "values": "S Z",
-                            },
-                            {
-                                "type": "question",
-                                "description": "kg",
-                                "values": "K G",
-                            },
+                            {"type": "question", "description": "sz", "values": "S Z",},
+                            {"type": "question", "description": "kg", "values": "K G",},
                             {
                                 "type": "question",
                                 "description": "vowel_EH",

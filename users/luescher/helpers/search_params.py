@@ -17,13 +17,7 @@ def get_search_parameters(bp=16.0, bpl=100000, wep=0.5, wepl=15000, lsp=None):
 
 
 def get_lookahead_options(
-    scale=None,
-    hlimit=-1,
-    laziness=15,
-    treecf=30,
-    clow=2000,
-    chigh=3000,
-    minrepr=1,
+    scale=None, hlimit=-1, laziness=15, treecf=30, clow=2000, chigh=3000, minrepr=1,
 ):
     lmla_options = {
         "history_limit": hlimit,
