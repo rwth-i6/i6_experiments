@@ -38,9 +38,10 @@ So far there is:
    - This code is protected with hash-checks and thus can be treated as safe and stable 
  - `setups` which contain corpus independed pipeline helpers for specific systems (e.g. Hybrid-ASR)
    - This code is still under developement. While the resulting graph should be stable, the API definitely is not. 
+ - `helpers`, additional code which does not directly fit into the categories above. This code is considered stable.
 
 For i6 users: if pipelines have a related `export` function,
-pre-computed jobs may be found under `/work/common/asr` and can be imported via the console via `tk.import_work_directory()`.
+pre-computed jobs may be found under `/work/common/asr/work` and can be imported via the console via `tk.import_work_directory()`.
 For further details on the exact location please look into the export function docstring.
 
 
