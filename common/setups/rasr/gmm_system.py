@@ -659,13 +659,12 @@ class GmmSystem(RasrSystem):
             files=feature_cache.hidden_paths,
             filename="cluster.$(TASK).bundle",
         )
-        new_segments = rasr.ClusterMapToSegmentListJob(speaker_seg.out_cluster_map_file)
 
         overlay_key = (
             "%s_cmllr_%s" % (corpus_key, name) if overlay_key is None else overlay_key
         )
         self.add_overlay(corpus_key, overlay_key)
-        self.crp[overlay_key].segment_path = new_segments.out_segment_path
+        self.crp[overlay_key].segment_path = speaker_seg.out_segment_path
         self.replace_named_flow_attr(
             overlay_key, cache_regex, "cache", mapped_features.out_bundle_path
         )
@@ -698,7 +697,7 @@ class GmmSystem(RasrSystem):
         self.jobs[corpus_key]["segment_corpus_by_speaker"] = speaker_seg
         self.jobs[overlay_key]["mapped_alignment"] = mapped_alignment
         self.jobs[overlay_key]["mapped_features"] = mapped_features
-        self.jobs[overlay_key]["new_segments"] = new_segments
+        self.jobs[overlay_key]["new_segments"] = speaker_seg
         self.jobs[overlay_key]["cmllr"] = cmllr
 
     @tk.block()
@@ -996,7 +995,7 @@ class GmmSystem(RasrSystem):
         corpus_type: str,
         step_idx: int,
         steps: RasrSteps,
-        extract_features: List,
+        extract_features: List[str],
     ):
         """
         :param corpus_key: corpus name identifier
