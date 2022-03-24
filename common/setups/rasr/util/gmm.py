@@ -247,6 +247,7 @@ class PrevCtm:
     :param iteration: one of the existing GMM iterations
     :param use optimized recognition
     """
+
     prev_step_key: str
     pronunciation_scale: Union[float, int]
     lm_scale: Union[float, int]
@@ -426,6 +427,7 @@ class GmmOutput:
         :param feature_flow_key:
         :param shuffle_data:
         :return:
+        :rtype: ReturnnRasrDataInput
         """
         return ReturnnRasrDataInput(
             name=name,
