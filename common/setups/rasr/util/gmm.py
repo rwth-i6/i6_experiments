@@ -3,6 +3,7 @@ __all__ = [
     "GmmCartArgs",
     "GmmTriphoneArgs",
     "GmmVtlnArgs",
+    "PrevCtm",
     "GmmSatArgs",
     "GmmVtlnSatArgs",
     "ForcedAlignmentArgs",
@@ -12,6 +13,7 @@ __all__ = [
 ]
 
 import copy
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
@@ -231,6 +233,25 @@ class GmmVtlnArgs:
         self.recognition_args = recognition_args
         self.test_recognition_args = test_recognition_args
         self.sdm_args = sdm_args
+
+
+@dataclass
+class PrevCtm:
+    """
+    Defines a previous ctm output from a recognition which is used to extract the
+    speaker alignments for SAT adaptation for the dev/train sets.
+
+    :param prev_step_key: name of the step, e.g. "tri"
+    :param pronunciation_scale: one of the existing pronunciation scales
+    :param lm_scale: one of the existing lm-scales
+    :param iteration: one of the existing GMM iterations
+    :param use optimized recognition
+    """
+    prev_step_key: str
+    pronunciation_scale: Union[float, int]
+    lm_scale: Union[float, int]
+    iteration: int
+    optimized_lm: bool
 
 
 class GmmSatArgs:
