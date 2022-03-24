@@ -245,7 +245,7 @@ class PrevCtm:
     :param pronunciation_scale: one of the existing pronunciation scales
     :param lm_scale: one of the existing lm-scales
     :param iteration: one of the existing GMM iterations
-    :param use optimized recognition
+    :param optimized_lm: use optimized recognition
     """
 
     prev_step_key: str
