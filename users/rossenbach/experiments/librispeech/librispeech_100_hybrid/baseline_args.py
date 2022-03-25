@@ -100,7 +100,10 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
 
 
 def get_returnn_configs(
-    num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
+    num_inputs: int,
+    num_outputs: int,
+    batch_size: int,
+    evaluation_epochs: List[int],
 ):
     # ******************** blstm base ********************
 

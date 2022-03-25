@@ -376,7 +376,12 @@ class HybridSystem(NnSystem):
         return train_job
 
     def returnn_rasr_training(
-        self, name, returnn_config, nn_train_args, train_corpus_key, cv_corpus_key,
+        self,
+        name,
+        returnn_config,
+        nn_train_args,
+        train_corpus_key,
+        cv_corpus_key,
     ):
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[cv_corpus_key]
@@ -395,11 +400,17 @@ class HybridSystem(NnSystem):
                 feature_path = train_data.features
             elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
                 feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode", {"task_dependent": train_data.features,},
+                    "cache_mode",
+                    {
+                        "task_dependent": train_data.features,
+                    },
                 )
             elif isinstance(train_data.features, tk.Path):
                 feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode", {"bundle": train_data.features,},
+                    "cache_mode",
+                    {
+                        "bundle": train_data.features,
+                    },
                 )
             else:
                 raise NotImplementedError
@@ -497,7 +508,8 @@ class HybridSystem(NnSystem):
                 assert acoustic_mixture_path is not None
 
                 scorer = rasr.PrecomputedHybridFeatureScorer(
-                    prior_mixtures=acoustic_mixture_path, priori_scale=prior,
+                    prior_mixtures=acoustic_mixture_path,
+                    priori_scale=prior,
                 )
 
                 tf_flow = self.get_tf_flow(

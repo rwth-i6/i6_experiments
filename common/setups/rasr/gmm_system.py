@@ -1067,13 +1067,15 @@ class GmmSystem(RasrSystem):
             # ---------- SDM Mono ----------
             if step_args.sdm_args is not None:
                 self.single_density_mixtures(
-                    corpus_key=trn_c, **step_args.sdm_args,
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
                 )
 
     def run_triphone_step(self, step_args):
         for trn_c in self.train_corpora:
             self.triphone_training(
-                corpus_key=trn_c, **step_args.training_args,
+                corpus_key=trn_c,
+                **step_args.training_args,
             )
 
             name = step_args.training_args["name"]
@@ -1088,7 +1090,8 @@ class GmmSystem(RasrSystem):
             # ---------- SDM Tri ----------
             if step_args.sdm_args is not None:
                 self.single_density_mixtures(
-                    corpus_key=trn_c, **step_args.sdm_args,
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
                 )
 
     def run_vtln_step(self, step_args, step_idx, steps):
@@ -1114,7 +1117,8 @@ class GmmSystem(RasrSystem):
             )
 
             self.vtln_training(
-                corpus_key=trn_c, **step_args.training_args["train"],
+                corpus_key=trn_c,
+                **step_args.training_args["train"],
             )
 
             name = step_args.training_args["train"]["name"]
@@ -1129,13 +1133,15 @@ class GmmSystem(RasrSystem):
             # ---------- SDM VTLN ----------
             if step_args.sdm_args is not None:
                 self.single_density_mixtures(
-                    corpus_key=trn_c, **step_args.sdm_args,
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
                 )
 
     def run_sat_step(self, step_args):
         for trn_c in self.train_corpora:
             self.sat_training(
-                corpus_key=trn_c, **step_args.training_args,
+                corpus_key=trn_c,
+                **step_args.training_args,
             )
 
             name = step_args.training_args["name"]
@@ -1167,13 +1173,15 @@ class GmmSystem(RasrSystem):
             # ---------- SDM Sat ----------
             if step_args.sdm_args is not None:
                 self.single_density_mixtures(
-                    corpus_key=trn_c, **step_args.sdm_args,
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
                 )
 
     def run_vtln_sat_step(self, step_args):
         for trn_c in self.train_corpora:
             self.sat_training(
-                corpus_key=trn_c, **step_args.training_args,
+                corpus_key=trn_c,
+                **step_args.training_args,
             )
 
             name = step_args.training_args["name"]
@@ -1205,7 +1213,8 @@ class GmmSystem(RasrSystem):
             # ---------- SDM VTLN+SAT ----------
             if step_args.sdm_args is not None:
                 self.single_density_mixtures(
-                    corpus_key=trn_c, **step_args.sdm_args,
+                    corpus_key=trn_c,
+                    **step_args.sdm_args,
                 )
 
     def run_recognition_step(
@@ -1263,7 +1272,11 @@ class GmmSystem(RasrSystem):
             ):
                 continue
             self.outputs[corpus_key][step_args.name] = self.get_gmm_output(
-                corpus_key, corpus_type, step_idx, steps, step_args.extract_features,
+                corpus_key,
+                corpus_type,
+                step_idx,
+                steps,
+                step_args.extract_features,
             )
 
     # -------------------- run setup  --------------------
@@ -1346,7 +1359,8 @@ class GmmSystem(RasrSystem):
                 self.cart_questions = step_args.cart_questions
                 for trn_c in self.train_corpora:
                     self.cart_and_lda(
-                        corpus_key=trn_c, **step_args.cart_lda_args,
+                        corpus_key=trn_c,
+                        **step_args.cart_lda_args,
                     )
 
             # ---------- Triphone ----------
@@ -1356,7 +1370,9 @@ class GmmSystem(RasrSystem):
             # ---------- VTLN ----------
             if step_name.startswith("vtln") and not step_name.startswith("vtln+sat"):
                 self.run_vtln_step(
-                    step_args=step_args, step_idx=step_idx, steps=steps,
+                    step_args=step_args,
+                    step_idx=step_idx,
+                    steps=steps,
                 )
 
             # ---------- SAT ----------
@@ -1371,7 +1387,8 @@ class GmmSystem(RasrSystem):
             if step_name.startswith("forced_align"):
                 for trn_c in self.train_corpora:
                     self.forced_align(
-                        feature_scorer_corpus_key=trn_c, **step_args,
+                        feature_scorer_corpus_key=trn_c,
+                        **step_args,
                     )
 
             # ---------- Only Recognition ----------

@@ -32,7 +32,9 @@ def run():
         train_data_inputs,
         dev_data_inputs,
         test_data_inputs,
-    ) = lbs_gmm_setups.get_data_inputs(use_eval_data_subset=True,)
+    ) = lbs_gmm_setups.get_data_inputs(
+        use_eval_data_subset=True,
+    )
     hybrid_init_args = lbs_gmm_setups.get_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
     cart_args = lbs_gmm_setups.get_cart_args()

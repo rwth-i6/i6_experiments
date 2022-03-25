@@ -150,7 +150,10 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
     }
 
     audio_format_options = {
-        "wav": {"output_format": "wav", "codec": "pcm_s16le",},
+        "wav": {
+            "output_format": "wav",
+            "codec": "pcm_s16le",
+        },
         "ogg": {"output_format": "ogg", "codec": "libvorbis"},
     }
 
@@ -164,7 +167,9 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
             )
             bliss_change_encoding_job.add_alias(
                 os.path.join(
-                    output_prefix, "%s_conversion" % audio_format, corpus_name,
+                    output_prefix,
+                    "%s_conversion" % audio_format,
+                    corpus_name,
                 )
             )
             converted_bliss_corpus_dict[
@@ -353,7 +358,11 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
         )
     else:
         lex.add_lemma(
-            lexicon.Lemma(orth=["[UNKNOWN]"], synt=["<UNK>"], special="unknown",)
+            lexicon.Lemma(
+                orth=["[UNKNOWN]"],
+                synt=["<UNK>"],
+                special="unknown",
+            )
         )
 
     lex.add_phoneme("[SILENCE]", variation="none")
@@ -364,7 +373,8 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
 
 @lru_cache()
 def _get_raw_bliss_lexicon(
-    use_stress_marker, alias_path,
+    use_stress_marker,
+    alias_path,
 ):
     """
     helper function to download and convert the official lexicon from OpenSLR
@@ -450,7 +460,10 @@ def get_bliss_lexicon(
     )
 
     merge_lexicon_job = MergeLexiconJob(
-        bliss_lexica=[static_lexicon_job.out_bliss_lexicon, raw_librispeech_lexicon,],
+        bliss_lexica=[
+            static_lexicon_job.out_bliss_lexicon,
+            raw_librispeech_lexicon,
+        ],
         sort_phonemes=True,
         sort_lemmata=False,
         compressed=True,

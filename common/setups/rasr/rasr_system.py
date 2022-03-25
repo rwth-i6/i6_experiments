@@ -156,7 +156,8 @@ class RasrSystem(meta.System):
                 else dict(mapping={"[SILENCE]": ""})
             )
             self.set_kaldi_scorer(
-                corpus=eval_corpus_key, **scorer_args,
+                corpus=eval_corpus_key,
+                **scorer_args,
             )
         elif self.hybrid_init_args.scorer == "hub5":
             self.set_hub5_scorer(corpus=eval_corpus_key)
@@ -167,7 +168,8 @@ class RasrSystem(meta.System):
                 else dict(sort_files=False)
             )
             self.set_sclite_scorer(
-                corpus=eval_corpus_key, **scorer_args,
+                corpus=eval_corpus_key,
+                **scorer_args,
             )
 
     @staticmethod

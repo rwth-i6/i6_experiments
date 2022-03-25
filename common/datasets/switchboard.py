@@ -71,7 +71,12 @@ def get_special_lemma_lexicon():
     # add non-special lemmas
     for tag in tags[1:]:  # silence is considered below
         lex.add_lemma(
-            lexicon.Lemma(orth=[tag], phon=[tag_to_phon[tag]], synt=[], eval=[[]],)
+            lexicon.Lemma(
+                orth=[tag],
+                phon=[tag_to_phon[tag]],
+                synt=[],
+                eval=[[]],
+            )
         )
 
     # create special lemmas
