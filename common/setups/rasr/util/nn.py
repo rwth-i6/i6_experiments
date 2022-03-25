@@ -1,4 +1,4 @@
-__all__ = ["ReturnnRasrDataInput", "OggZipHdfDataInput", "NnArgs", "NnRecogArgs"]
+__all__ = ["ReturnnRasrDataInput", "OggZipHdfDataInput", "HybridArgs", "NnRecogArgs"]
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Type, Union
@@ -198,7 +198,7 @@ class OggZipHdfDataInput:
         }
 
 
-class NnArgs:
+class HybridArgs:
     def __init__(
         self,
         returnn_configs: Dict[str, returnn.ReturnnConfig],

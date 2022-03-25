@@ -3,7 +3,7 @@ import numpy as np
 from typing import List
 
 from i6_core.returnn.config import ReturnnConfig
-from i6_experiments.common.setups.rasr.util import NnArgs
+from i6_experiments.common.setups.rasr.util import HybridArgs
 
 def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
     num_layers = len(layers)
@@ -81,7 +81,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
     }
     test_recognition_args = None
 
-    nn_args = NnArgs(
+    nn_args = HybridArgs(
         returnn_configs=returnn_configs,
         training_args=training_args,
         recognition_args=recognition_args,

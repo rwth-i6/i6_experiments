@@ -4,7 +4,7 @@ from sisyphus import tk, gs
 from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
-from i6_experiments.common.setups.rasr.nn_system import NnSystem
+from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
 from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_gmm.system_collection import get_system_and_steps
 
@@ -35,7 +35,7 @@ def run_hybrid_baseline():
     blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so", hash_overwrite="MKL_BLA")
 
 
-    lbs_nn_system = NnSystem(returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib)
+    lbs_nn_system = HybridSystem(returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib)
     lbs_nn_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=nn_train_data_inputs,
