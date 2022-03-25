@@ -5,6 +5,7 @@ from typing import List
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
 
+
 def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
     num_layers = len(layers)
     assert num_layers > 0
@@ -13,30 +14,37 @@ def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
 
     for idx, size in enumerate(layers):
         idx += 1
-        for direction, name in [(1, 'fwd'), (-1, 'bwd')]:
+        for direction, name in [(1, "fwd"), (-1, "bwd")]:
             if idx == 1:
                 from_layers = input_layers
             else:
-                from_layers = ['lstm_fwd_{}'.format(idx - 1), 'lstm_bwd_{}'.format(idx - 1)]
-            network['lstm_{}_{}'.format(name, idx)] = {'class': 'rec',
-                                                      'unit': 'nativelstm2',
-                                                      'direction': direction,
-                                                      'n_out': size,
-                                                      'dropout': dropout,
-                                                      'L2': l2,
-                                                      'from': from_layers}
+                from_layers = [
+                    "lstm_fwd_{}".format(idx - 1),
+                    "lstm_bwd_{}".format(idx - 1),
+                ]
+            network["lstm_{}_{}".format(name, idx)] = {
+                "class": "rec",
+                "unit": "nativelstm2",
+                "direction": direction,
+                "n_out": size,
+                "dropout": dropout,
+                "L2": l2,
+                "from": from_layers,
+            }
 
-    output_layers = ['lstm_fwd_{}'.format(num_layers), 'lstm_bwd_{}'.format(num_layers)]
+    output_layers = ["lstm_fwd_{}".format(num_layers), "lstm_bwd_{}".format(num_layers)]
 
     return network, output_layers
 
 
 def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
-    evaluation_epochs  = list(np.arange(150, num_epochs + 1, 10))
+    evaluation_epochs = list(np.arange(150, num_epochs + 1, 10))
 
     returnn_configs = get_returnn_configs(
-        num_inputs=50, num_outputs=num_outputs, batch_size=24000,
-        evaluation_epochs=evaluation_epochs
+        num_inputs=50,
+        num_outputs=num_outputs,
+        batch_size=24000,
+        evaluation_epochs=evaluation_epochs,
     )
 
     training_args = {
@@ -92,7 +100,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
 
 
 def get_returnn_configs(
-        num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
+    num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
 ):
     # ******************** blstm base ********************
 
@@ -115,28 +123,28 @@ def get_returnn_configs(
         },
     }
 
-    network, last_layer = blstm_network([1024]*8, ["specaug"], dropout=0.1, l2=0.01)
+    network, last_layer = blstm_network([1024] * 8, ["specaug"], dropout=0.1, l2=0.01)
     from .specaugment_clean_legacy import specaug_layer, get_funcs
+
     network["specaug"] = specaug_layer(["data"])
     network["out_linear"] = {
         "class": "linear",
         "activation": None,
         "from": last_layer,
-        "n_out": num_outputs
+        "n_out": num_outputs,
     }
     network["output"] = {
         "class": "activation",
         "activation": "softmax",
         "from": ["out_linear"],
         "loss": "ce",
-        "target": "classes"
+        "target": "classes",
     }
     network["log_output"] = {
         "class": "activation",
         "activation": "log_softmax",
         "from": ["out_linear"],
     }
-
 
     blstm_base_config = copy.deepcopy(base_config)
     blstm_base_config.update(
@@ -165,7 +173,6 @@ def get_returnn_configs(
         python_prolog=get_funcs(),
         pprint_kwargs={"sort_dicts": False},
     )
-
 
     return {
         "blstm_base": blstm_base_returnn_config,
