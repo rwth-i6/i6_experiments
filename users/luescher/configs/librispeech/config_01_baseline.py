@@ -13,10 +13,10 @@ import i6_core.text as text
 from i6_core.tools import CloneGitRepositoryJob
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
-import i6_experiments.common.setups.rasr.nn_system as nn_system
+import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
-import i6_experiments.users.luescher.setups.librispeech.pipeline_nn_args as lbs_nn_setups
+import i6_experiments.users.luescher.setups.librispeech.pipeline_hybrid_args as lbs_hybrid_setups
 
 
 def run():
@@ -32,7 +32,9 @@ def run():
         train_data_inputs,
         dev_data_inputs,
         test_data_inputs,
-    ) = lbs_gmm_setups.get_data_inputs(use_eval_data_subset=True,)
+    ) = lbs_gmm_setups.get_data_inputs(
+        use_eval_data_subset=True,
+    )
     hybrid_init_args = lbs_gmm_setups.get_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
     cart_args = lbs_gmm_setups.get_cart_args()
@@ -122,7 +124,7 @@ def run():
         # ].as_returnn_rasr_data_input(),
     }
 
-    nn_args = lbs_nn_setups.get_nn_args()
+    nn_args = lbs_hybrid_setups.get_nn_args()
 
     nn_steps = rasr_util.RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -133,7 +135,7 @@ def run():
         url="git@github.com:rwth-i6/returnn.git", checkout_folder_name="returnn"
     )
 
-    lbs_nn_system = nn_system.NnSystem(returnn_root=returnn_repo.out_repository)
+    lbs_nn_system = hybrid_system.HybridSystem(returnn_root=returnn_repo.out_repository)
     lbs_nn_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=nn_train_data_inputs,

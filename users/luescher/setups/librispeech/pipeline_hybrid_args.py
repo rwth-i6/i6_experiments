@@ -55,7 +55,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 500):
     }
     test_recognition_args = None
 
-    nn_args = rasr_util.NnArgs(
+    nn_args = rasr_util.HybridArgs(
         returnn_configs=returnn_configs,
         training_args=training_args,
         recognition_args=recognition_args,
