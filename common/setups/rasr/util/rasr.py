@@ -176,8 +176,7 @@ class RescoreArgs:
     """
 
     def __init__(
-        self,
-        rescoring_args: Optional[Dict[str, Dict]] = None,
+        self, rescoring_args: Optional[Dict[str, Dict]] = None,
     ):
         """
         :param rescoring_args:
