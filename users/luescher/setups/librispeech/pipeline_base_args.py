@@ -656,10 +656,13 @@ def get_data_inputs(
 
     use_stress_marker = False
 
-    original_bliss_lexicon = lbs_dataset.get_bliss_lexicon(
-        use_stress_marker=use_stress_marker,
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
-    )
+    original_bliss_lexicon = {
+        "filename": lbs_dataset.get_bliss_lexicon(
+            use_stress_marker=use_stress_marker,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        ),
+        "normalize_pronunciation": False,
+    }
 
     augmented_bliss_lexicon = {
         "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
