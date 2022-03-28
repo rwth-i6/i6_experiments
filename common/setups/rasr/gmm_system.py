@@ -36,6 +36,7 @@ from .util import (
     GmmCartArgs,
     GmmTriphoneArgs,
     GmmVtlnArgs,
+    PrevCtm,
     GmmSatArgs,
     GmmVtlnSatArgs,
     RasrSteps,
@@ -111,7 +112,7 @@ class GmmSystem(RasrSystem):
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
 
-        self.outputs = defaultdict(dict)
+        self.outputs = defaultdict(dict)  # type: Dict[GmmOutput]
 
     # -------------------- Setup --------------------
     def init_system(
@@ -863,7 +864,7 @@ class GmmSystem(RasrSystem):
 
     def sat_recognition(
         self,
-        prev_ctm: str,
+        prev_ctm: PrevCtm,
         feature_cache: Union[
             str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute
         ],
@@ -911,7 +912,8 @@ class GmmSystem(RasrSystem):
         :param kwargs:
         :return:
         """
-        prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm[0]}-{corpus_key}-ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}"
+        optlm_string = "-optlm" if prev_ctm.optimized_lm else ""
+        prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm.prev_step_key}-{corpus_key}-ps{prev_ctm.pronunciation_scale:02.2f}-lm{prev_ctm.lm_scale:02.2f}-iter{prev_ctm.iteration:02d}{optlm_string}"
         assert prev_ctm_key in self.ctm_files[corpus_key], (
             "the previous recognition stage '%s' did not provide the required recognition: %s"
             % (prev_ctm, prev_ctm_key)
@@ -924,7 +926,7 @@ class GmmSystem(RasrSystem):
             self.corpora[corpus_key].corpus_file
         )
 
-        overlay_key = f"{corpus_key}_{name}_ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}_sat"
+        overlay_key = f"{corpus_key}_{name}_ps{prev_ctm.pronunciation_scale:02.2f}-lm{prev_ctm.lm_scale:02.2f}-iter{prev_ctm.iteration:02d}{optlm_string}_sat"
         self.add_overlay(corpus_key, overlay_key)
         self.crp[overlay_key].corpus_config = copy.deepcopy(
             self.crp[corpus_key].corpus_config
