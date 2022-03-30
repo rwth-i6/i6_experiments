@@ -80,8 +80,13 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         ]
         num_files = len(files)
 
+        global get_length
+        def get_length(file):
+            f = sf.SoundFile(file)
+            return f.frames / f.samplerate
+
         with multiprocessing.Pool(processes=self.n_workers) as pool:
-            file_lengths = list(pool.imap_unordered(self.get_length, files, 100))
+            file_lengths = list(pool.imap_unordered(get_length, files, 100))
 
         avg_length = round(sum(file_lengths) / num_files, 2)
         length = round(sum(file_lengths) / 3600, 2)
@@ -95,12 +100,9 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
             va="center",
         )
         ax.set_ylabel("count")
-        ax.set_xlabel("file length")
+        ax.set_xlabel("file length [sec]")
         plt.savefig(self.out_length_hist.get_path())
 
-    def get_length(self, file):
-        f = sf.SoundFile(file)
-        return f.frames / f.samplerate
 
     def cut_file(self, task):
         recording, root_out, extension = task
