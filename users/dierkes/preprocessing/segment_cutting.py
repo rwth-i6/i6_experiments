@@ -19,6 +19,8 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
 
     """
 
+    __sis_hash_exclude__ = {"min_length": 0}
+
     def __init__(
         self,
         bliss_corpus_file,
