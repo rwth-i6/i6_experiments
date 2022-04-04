@@ -166,7 +166,8 @@ class FairseqHydraTrainingJob(Job):
             if k in self.keep_epochs
         }
         self.out_cached_audio_manifest = self.output_path("cached_audio_manifest", directory=True)
-        self.out_plot = self.output_path("score_and_error.png")
+        self.out_plot_se = self.output_path("score_and_error.png")
+        self.out_plot_lr = self.output_path("learning_rate.png")
 
         # Requirements:
         self.gpu_rqmt = gpu_rqmt
@@ -198,7 +199,7 @@ class FairseqHydraTrainingJob(Job):
                         manifest_lines = manifest_file.read().splitlines()
                     audio_path = manifest_lines[0]
                     bundle_lines = map(lambda line: audio_path + "/" + line.split("\t")[0], manifest_lines[1:])
-                    with open(f"{name}.bundle", 'w') as bundle_file:
+                    with open(f"{name}.bundle", "w") as bundle_file:
                         bundle_file.write("\n".join(bundle_lines))
                     try:
                         cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
@@ -239,64 +240,77 @@ class FairseqHydraTrainingJob(Job):
         directory = "./outputs"
         train_score, train_error = {}, {}
         valid_score, valid_error = {}, {}
+        learning_rates = {}
 
         for cur in os.walk(directory):
             dir_path = cur[0]
             files = cur[2]
-            if 'hydra_train.log' in files:
-                with open(f'{dir_path}/hydra_train.log', 'r') as f:
-                    while True:
-                        line = f.readline()
+            if "hydra_train.log" in files:
+                with open(f"{dir_path}/hydra_train.log", "r") as f:
+                    lines = f.readlines()
+                    for i in range(len(lines)-1):
+                        line = lines[i]
                         if 'begin validation on "valid" subset' in line:
-                            split = re.sub('[{,":]', '', f.readline()).split(' ')
+                            split = re.sub('[{,":]', "", lines[i+1]).split(" ")
                             try:
-                                epoch = int(split[split.index('epoch') + 1])
-                                score = float(split[split.index('valid_loss') + 1])
-                                error = 1 - float(split[split.index('valid_accuracy') + 1])
+                                epoch = int(split[split.index("epoch") + 1])
+                                score = float(split[split.index("valid_loss") + 1])
+                                error = 1 - float(split[split.index("valid_accuracy") + 1])
                             except ValueError:
                                 continue
                             valid_score[epoch] = score
                             valid_error[epoch] = error
-                        elif 'end of epoch' in line:
-                            split = re.sub('[{,":]', '', f.readline()).split(' ')
+                            i += 1
+                        elif "end of epoch" in line:
+                            split = re.sub('[{,":]', "", lines[i+1]).split(" ")
                             try:
-                                epoch = int(split[split.index('epoch') + 1])
-                                score = float(split[split.index('train_loss') + 1])
-                                error = 1 - float(split[split.index('train_accuracy') + 1])
+                                epoch = int(split[split.index("epoch") + 1])
+                                score = float(split[split.index("train_loss") + 1])
+                                error = 1 - float(split[split.index("train_accuracy") + 1])
+                                lr = float(split[split.index("train_lr") + 1])
                             except ValueError:
                                 continue
                             train_score[epoch] = score
                             train_error[epoch] = error
-                        elif not line:
-                            break
+                            learning_rates[epoch] = lr
+                            i += 1
 
-        colors = ['#2a4d6e', '#aa3c39']
+        colors = ["#2a4d6e", "#aa3c39"]
         import matplotlib.pyplot as plt
 
         fig, axs = plt.subplots(2, sharex=True, figsize=(12, 9))
         train_epochs = list(train_score.keys())
         valid_epochs = list(valid_score.keys())
+        lr_epochs = list(learning_rates.keys())
         train_epochs.sort()
         valid_epochs.sort()
+        lr_epochs.sort()
 
-        axs[0].plot(train_epochs, [train_score[e] for e in train_epochs], 'o-',
-                    color=colors[0], label='train score')
-        axs[0].plot(valid_epochs, [valid_score[e] for e in valid_epochs], 'o-',
-                    color=colors[1], label='valid score')
-        axs[0].set_ylabel('score')
+        axs[0].plot(train_epochs, [train_score[e] for e in train_epochs], "o-",
+                    color=colors[0], label="train score")
+        axs[0].plot(valid_epochs, [valid_score[e] for e in valid_epochs], "o-",
+                    color=colors[1], label="valid score")
+        axs[0].set_ylabel("score")
         axs[0].legend()
 
-        axs[1].plot(train_epochs, [train_error[e] for e in train_epochs], 'o-',
-                    color=colors[0], label='train error')
-        valid_epochs = list(valid_score.keys())
-        valid_epochs.sort()
-        axs[1].plot(valid_epochs, [valid_error[e] for e in valid_epochs], 'o-',
-                    color=colors[1], label='valid error')
-        axs[1].set_ylabel('error')
-        axs[1].set_xlabel('epochs')
+        axs[1].plot(train_epochs, [train_error[e] for e in train_epochs], "o-",
+                    color=colors[0], label="train error")
+        axs[1].plot(valid_epochs, [valid_error[e] for e in valid_epochs], "o-",
+                    color=colors[1], label="valid error")
+        axs[1].set_ylabel("error")
+        axs[1].set_xlabel("epochs")
         axs[1].legend()
 
-        plt.savefig(self.out_plot)
+        plt.savefig(self.out_plot_se)
+
+        fig, axs = plt.subplots()
+        axs.plot(lr_epochs, [learning_rates[e] for e in lr_epochs], "o-",
+                    color=colors[0], label="learning-rate")
+        axs.set_ylabel("learning-rate")
+        axs.set_xlabel("epochs")
+        axs.legend()
+
+        plt.savefig(self.out_plot_lr)
 
     def _get_run_cmd(self):
         run_cmd = [
