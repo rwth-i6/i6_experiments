@@ -4,6 +4,7 @@ import subprocess as sp
 import yaml
 import sys
 import copy
+import re
 
 from sisyphus import *
 
@@ -165,6 +166,7 @@ class FairseqHydraTrainingJob(Job):
             if k in self.keep_epochs
         }
         self.out_cached_audio_manifest = self.output_path("cached_audio_manifest", directory=True)
+        self.out_plot = self.output_path("score_and_error.png")
 
         # Requirements:
         self.gpu_rqmt = gpu_rqmt
@@ -181,6 +183,7 @@ class FairseqHydraTrainingJob(Job):
     def tasks(self):
         yield Task("create_files", mini_task=True)
         yield Task("run", resume="run", rqmt=self.rqmt)
+        yield Task("plot", mini_task=True)
 
     def create_files(self):
         self.fairseq_hydra_config.write(self.out_fairseq_hydra_yaml.get_path())
@@ -231,6 +234,69 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_root is not None:
             my_env["PYTHONPATH"] = self.fairseq_root
         sp.check_call(self._get_run_cmd(), env=my_env)
+
+    def plot(self):
+        directory = "./outputs"
+        train_score, train_error = {}, {}
+        valid_score, valid_error = {}, {}
+
+        for cur in os.walk(directory):
+            dir_path = cur[0]
+            files = cur[2]
+            if 'hydra_train.log' in files:
+                with open(f'{dir_path}/hydra_train.log', 'r') as f:
+                    while True:
+                        line = f.readline()
+                        if 'begin validation on "valid" subset' in line:
+                            split = re.sub('[{,":]', '', f.readline()).split(' ')
+                            try:
+                                epoch = int(split[split.index('epoch') + 1])
+                                score = float(split[split.index('valid_loss') + 1])
+                                error = 1 - float(split[split.index('valid_accuracy') + 1])
+                            except ValueError:
+                                continue
+                            valid_score[epoch] = score
+                            valid_error[epoch] = error
+                        elif 'end of epoch' in line:
+                            split = re.sub('[{,":]', '', f.readline()).split(' ')
+                            try:
+                                epoch = int(split[split.index('epoch') + 1])
+                                score = float(split[split.index('train_loss') + 1])
+                                error = 1 - float(split[split.index('train_accuracy') + 1])
+                            except ValueError:
+                                continue
+                            train_score[epoch] = score
+                            train_error[epoch] = error
+                        elif not line:
+                            break
+
+        colors = ['#2a4d6e', '#aa3c39']
+        import matplotlib.pyplot as plt
+
+        fig, axs = plt.subplots(2, sharex=True, figsize=(12, 9))
+        train_epochs = list(train_score.keys())
+        valid_epochs = list(valid_score.keys())
+        train_epochs.sort()
+        valid_epochs.sort()
+
+        axs[0].plot(train_epochs, [train_score[e] for e in train_epochs], 'o-',
+                    color=colors[0], label='train score')
+        axs[0].plot(valid_epochs, [valid_score[e] for e in valid_epochs], 'o-',
+                    color=colors[1], label='valid score')
+        axs[0].set_ylabel('score')
+        axs[0].legend()
+
+        axs[1].plot(train_epochs, [train_error[e] for e in train_epochs], 'o-',
+                    color=colors[0], label='train error')
+        valid_epochs = list(valid_score.keys())
+        valid_epochs.sort()
+        axs[1].plot(valid_epochs, [valid_error[e] for e in valid_epochs], 'o-',
+                    color=colors[1], label='valid error')
+        axs[1].set_ylabel('error')
+        axs[1].set_xlabel('epochs')
+        axs[1].legend()
+
+        plt.savefig(self.out_plot)
 
     def _get_run_cmd(self):
         run_cmd = [
