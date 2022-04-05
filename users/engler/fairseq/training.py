@@ -33,6 +33,7 @@ class FairseqHydraConfig:
                     get_sis_paths(cnfg_d[k])
                 elif type(cnfg_d[k]) == tk.Path:
                     cnfg_d[k] = cnfg_d[k].get_path()
+
         path_corrected_config = self.config_dict.copy()
         get_sis_paths(path_corrected_config)
 
@@ -148,10 +149,12 @@ class FairseqHydraTrainingJob(Job):
         assert (self.fairseq_root is not None) ^ (self.fairseq_hydra_exe is not None)
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
-        self.use_cache_manager=use_cache_manager
-        self.zipped_audio_dir=zipped_audio_dir
+        self.use_cache_manager = use_cache_manager
+        self.zipped_audio_dir = zipped_audio_dir
         if self.zipped_audio_dir is not None:
-            assert self.use_cache_manager, "cache manager must be used for zipped audio input"
+            assert (
+                self.use_cache_manager
+            ), "cache manager must be used for zipped audio input"
 
         # Outputs:
         self.out_fairseq_hydra_yaml = self.output_path("fairseq_hydra_config.yaml")
@@ -165,7 +168,9 @@ class FairseqHydraTrainingJob(Job):
             for k in stored_epochs
             if k in self.keep_epochs
         }
-        self.out_cached_audio_manifest = self.output_path("cached_audio_manifest", directory=True)
+        self.out_cached_audio_manifest = self.output_path(
+            "cached_audio_manifest", directory=True
+        )
         self.out_plot_se = self.output_path("score_and_error.png")
         self.out_plot_lr = self.output_path("learning_rate.png")
 
@@ -192,44 +197,82 @@ class FairseqHydraTrainingJob(Job):
 
     def run(self):
         if self.use_cache_manager:
-            manifest_path = self.fairseq_hydra_config.config_dict["task"]["data"].get_path()
+            manifest_path = self.fairseq_hydra_config.config_dict["task"][
+                "data"
+            ].get_path()
             if self.zipped_audio_dir is None:
                 for name in ["train.tsv", "valid.tsv"]:
                     with open(f"{manifest_path}/{name}", "r") as manifest_file:
                         manifest_lines = manifest_file.read().splitlines()
                     audio_path = manifest_lines[0]
-                    bundle_lines = map(lambda line: audio_path + "/" + line.split("\t")[0], manifest_lines[1:])
+                    bundle_lines = map(
+                        lambda line: audio_path + "/" + line.split("\t")[0],
+                        manifest_lines[1:],
+                    )
                     with open(f"{name}.bundle", "w") as bundle_file:
                         bundle_file.write("\n".join(bundle_lines))
                     try:
-                        cached_audio_fn = sp.check_output(["cf", f"{name}.bundle"]).strip().decode("utf8")
+                        cached_audio_fn = (
+                            sp.check_output(["cf", f"{name}.bundle"])
+                            .strip()
+                            .decode("utf8")
+                        )
                     except sp.CalledProcessError:
                         print(f"Cache manager: Error occurred for files in {name}")
                         raise
 
                     with open(cached_audio_fn) as local_bundle:
-                        bundle_lines = list(map(os.path.dirname, local_bundle.readlines()))
-                        assert bundle_lines.count(bundle_lines[0]) == len(bundle_lines), f"not all {name} files in same directory"
+                        bundle_lines = list(
+                            map(os.path.dirname, local_bundle.readlines())
+                        )
+                        assert bundle_lines.count(bundle_lines[0]) == len(
+                            bundle_lines
+                        ), f"not all {name} files in same directory"
                         manifest_lines[0] = bundle_lines[0]
-                    with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
-                        cached_audio_manifest_file.write('\n'.join(manifest_lines))
-            else:   # zipped audio data is given and we cache and unzip the zip file instead
+                    with open(
+                        f"{self.out_cached_audio_manifest.get_path()}/{name}", "w"
+                    ) as cached_audio_manifest_file:
+                        cached_audio_manifest_file.write("\n".join(manifest_lines))
+            else:  # zipped audio data is given and we cache and unzip the zip file instead
                 try:
-                    cached_audio_zip_dir = sp.check_output(["cf", self.zipped_audio_dir]).strip().decode("utf8")
-                    local_unzipped_audio_dir = f"{os.path.dirname(cached_audio_zip_dir)}/audio"
-                    sp.check_call(["unzip", "-q", "-n", cached_audio_zip_dir, "-d", local_unzipped_audio_dir])
+                    cached_audio_zip_dir = (
+                        sp.check_output(["cf", self.zipped_audio_dir])
+                        .strip()
+                        .decode("utf8")
+                    )
+                    local_unzipped_audio_dir = (
+                        f"{os.path.dirname(cached_audio_zip_dir)}/audio"
+                    )
+                    sp.check_call(
+                        [
+                            "unzip",
+                            "-q",
+                            "-n",
+                            cached_audio_zip_dir,
+                            "-d",
+                            local_unzipped_audio_dir,
+                        ]
+                    )
                 except sp.CalledProcessError:
-                    print(f"Cache manager: Error occurred for caching and unzipping audio data in {self.zipped_audio_dir}")
+                    print(
+                        f"Cache manager: Error occurred for caching and unzipping audio data in {self.zipped_audio_dir}"
+                    )
                     raise
                 for name in ["train.tsv", "valid.tsv"]:
                     with open(f"{manifest_path}/{name}", "r") as manifest_file:
                         manifest_lines = manifest_file.read().splitlines()
                     for i in range(1, len(manifest_lines)):
-                        to_check = f"{local_unzipped_audio_dir}/{manifest_lines[i].split()[0]}"
-                        assert os.path.exists(to_check), f"Manifest file {to_check} not found in unzipped directory"
+                        to_check = (
+                            f"{local_unzipped_audio_dir}/{manifest_lines[i].split()[0]}"
+                        )
+                        assert os.path.exists(
+                            to_check
+                        ), f"Manifest file {to_check} not found in unzipped directory"
                     manifest_lines[0] = local_unzipped_audio_dir
-                    with open(f"{self.out_cached_audio_manifest.get_path()}/{name}", "w") as cached_audio_manifest_file:
-                        cached_audio_manifest_file.write('\n'.join(manifest_lines))
+                    with open(
+                        f"{self.out_cached_audio_manifest.get_path()}/{name}", "w"
+                    ) as cached_audio_manifest_file:
+                        cached_audio_manifest_file.write("\n".join(manifest_lines))
 
         my_env = os.environ
         if self.fairseq_root is not None:
@@ -248,25 +291,33 @@ class FairseqHydraTrainingJob(Job):
             if "hydra_train.log" in files:
                 with open(f"{dir_path}/hydra_train.log", "r") as f:
                     lines = f.readlines()
-                    for i in range(len(lines)-1):
+                    for i in range(len(lines) - 1):
                         line = lines[i]
                         if 'begin validation on "valid" subset' in line:
-                            split = re.sub('[{,":]', "", lines[i+1]).split(" ")
+                            split = re.sub('[{,":]', "", lines[i + 1]).split(" ")
+                            #  Exception handling for cases in which accuracy and loss 
+                            #  are not logged in next line
                             try:
                                 epoch = int(split[split.index("epoch") + 1])
                                 score = float(split[split.index("valid_loss") + 1])
-                                error = 1 - float(split[split.index("valid_accuracy") + 1])
+                                error = 1 - float(
+                                    split[split.index("valid_accuracy") + 1]
+                                )
                             except ValueError:
                                 continue
                             valid_score[epoch] = score
                             valid_error[epoch] = error
                             i += 1
                         elif "end of epoch" in line:
-                            split = re.sub('[{,":]', "", lines[i+1]).split(" ")
+                            split = re.sub('[{,":]', "", lines[i + 1]).split(" ")
+                            #  Exception handling for cases in which accuracy, loss and
+                            #  learningrate are not logged in next line
                             try:
                                 epoch = int(split[split.index("epoch") + 1])
                                 score = float(split[split.index("train_loss") + 1])
-                                error = 1 - float(split[split.index("train_accuracy") + 1])
+                                error = 1 - float(
+                                    split[split.index("train_accuracy") + 1]
+                                )
                                 lr = float(split[split.index("train_lr") + 1])
                             except ValueError:
                                 continue
@@ -286,17 +337,37 @@ class FairseqHydraTrainingJob(Job):
         valid_epochs.sort()
         lr_epochs.sort()
 
-        axs[0].plot(train_epochs, [train_score[e] for e in train_epochs], "o-",
-                    color=colors[0], label="train score")
-        axs[0].plot(valid_epochs, [valid_score[e] for e in valid_epochs], "o-",
-                    color=colors[1], label="valid score")
+        axs[0].plot(
+            train_epochs,
+            [train_score[e] for e in train_epochs],
+            "o-",
+            color=colors[0],
+            label="train score",
+        )
+        axs[0].plot(
+            valid_epochs,
+            [valid_score[e] for e in valid_epochs],
+            "o-",
+            color=colors[1],
+            label="valid score",
+        )
         axs[0].set_ylabel("score")
         axs[0].legend()
 
-        axs[1].plot(train_epochs, [train_error[e] for e in train_epochs], "o-",
-                    color=colors[0], label="train error")
-        axs[1].plot(valid_epochs, [valid_error[e] for e in valid_epochs], "o-",
-                    color=colors[1], label="valid error")
+        axs[1].plot(
+            train_epochs,
+            [train_error[e] for e in train_epochs],
+            "o-",
+            color=colors[0],
+            label="train error",
+        )
+        axs[1].plot(
+            valid_epochs,
+            [valid_error[e] for e in valid_epochs],
+            "o-",
+            color=colors[1],
+            label="valid error",
+        )
         axs[1].set_ylabel("error")
         axs[1].set_xlabel("epochs")
         axs[1].legend()
@@ -304,9 +375,14 @@ class FairseqHydraTrainingJob(Job):
         plt.savefig(self.out_plot_se)
 
         fig, axs = plt.subplots()
-        axs.plot(lr_epochs, [learning_rates[e] for e in lr_epochs], "o-",
-                    color=colors[0], label="learning-rate")
-        axs.set_ylabel("learning-rate")
+        axs.plot(
+            lr_epochs,
+            [learning_rates[e] for e in lr_epochs],
+            "o-",
+            color=colors[0],
+            label="learning rate",
+        )
+        axs.set_ylabel("learning rate")
         axs.set_xlabel("epochs")
         axs.legend()
 
@@ -353,4 +429,3 @@ class FairseqHydraTrainingJob(Job):
         d.pop("cpu_rqmt", None)
         d.pop("gpu_rqmt", None)
         return super().hash(d)
-
