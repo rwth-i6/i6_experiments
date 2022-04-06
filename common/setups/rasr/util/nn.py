@@ -355,6 +355,7 @@ class NnRecogArgs:
     parallelize_conversion: bool
     rtf: int
     mem: int
+    prior_file: Optional[tk.Path] = None
     lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None
 

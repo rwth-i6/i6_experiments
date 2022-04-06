@@ -374,6 +374,7 @@ class HybridSystem(NnSystem):
         epochs: Optional[List[int]] = None,
         use_epoch_for_compile=False,
         forward_output_layer="output",
+        prior_file: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -412,6 +413,7 @@ class HybridSystem(NnSystem):
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
+                    prior_file=prior_file,
                 )
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
