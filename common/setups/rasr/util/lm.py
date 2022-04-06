@@ -165,6 +165,8 @@ def add_lm_rasr_config_to_crp(
         raise NotImplementedError
 
     if lm_lookahead_args is not None:
+        if crp.recognizer_config is None:
+            crp.recognizer_config = rasr.RasrConfig()
         crp.recognizer_config.lm_lookahead = get_arpa_lm_rasr_config(
             **lm_lookahead_args
         )
