@@ -160,7 +160,7 @@ def add_lm_rasr_config_to_crp(
     elif lm_type == "tfrnn" or lm_type == "simple-transformer":
         lm_args["returnn_python_exe"] = returnn_python_exe
         lm_args["returnn_root"] = returnn_root
-        crp.language_model_config = get_nnlm_rasr_config(**lm_args)
+        crp.language_model_config = get_nnlm_rasr_config(lm_type=lm_type, **lm_args)
     else:
         raise NotImplementedError
 
