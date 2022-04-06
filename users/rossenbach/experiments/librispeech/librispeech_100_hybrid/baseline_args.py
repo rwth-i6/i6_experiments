@@ -38,17 +38,22 @@ def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
 
 
 def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
-    evaluation_epochs = list(np.arange(150, num_epochs + 1, 10))
+    evaluation_epochs  = list(np.arange(250, num_epochs + 1, 10))
 
     returnn_configs = get_returnn_configs(
-        num_inputs=50,
-        num_outputs=num_outputs,
-        batch_size=24000,
-        evaluation_epochs=evaluation_epochs,
+        num_inputs=50, num_outputs=num_outputs, batch_size=5000,
+        evaluation_epochs=evaluation_epochs
     )
 
+    returnn_recog_configs = get_returnn_configs(
+        num_inputs=50, num_outputs=num_outputs, batch_size=5000,
+        evaluation_epochs=evaluation_epochs,
+        recognition=True,
+    )
+
+
     training_args = {
-        "log_verbosity": 4,
+        "log_verbosity": 5,
         "num_epochs": num_epochs,
         "num_classes": num_outputs,
         "save_interval": 1,
@@ -56,7 +61,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
         "time_rqmt": 168,
         "mem_rqmt": 7,
         "cpu_rqmt": 3,
-        "partition_epochs": {"train": 20, "dev": 1},
+        "partition_epochs": {"train": 40, "dev": 20},
         "use_python_control": False,
     }
     recognition_args = {
@@ -72,7 +77,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
             "eval_single_best": True,
             "eval_best_in_lattice": True,
             "search_parameters": {
-                "beam-pruning": 16.0,
+                "beam-pruning": 12.0,
                 "beam-pruning-limit": 100000,
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 15000,
@@ -84,13 +89,16 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
             "optimize_am_lm_scale": True,
             "rtf": 50,
             "mem": 8,
+            "lmgc_mem": 16,
+            "cpu": 4,
             "parallelize_conversion": True,
         },
     }
     test_recognition_args = None
 
     nn_args = HybridArgs(
-        returnn_configs=returnn_configs,
+        returnn_training_configs=returnn_configs,
+        returnn_recognition_configs=returnn_recog_configs,
         training_args=training_args,
         recognition_args=recognition_args,
         test_recognition_args=test_recognition_args,
@@ -100,10 +108,8 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
 
 
 def get_returnn_configs(
-    num_inputs: int,
-    num_outputs: int,
-    batch_size: int,
-    evaluation_epochs: List[int],
+        num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
+        recognition=False,
 ):
     # ******************** blstm base ********************
 
@@ -119,14 +125,16 @@ def get_returnn_configs(
         "log_batch_size": True,
         "tf_log_memory_usage": True,
         "cache_size": "0",
-        "cleanup_old_models": {
+
+    }
+    if not recognition:
+        base_post_config["cleanup_old_models"] = {
             "keep_last_n": 5,
             "keep_best_n": 5,
             "keep": evaluation_epochs,
-        },
-    }
+        }
 
-    network, last_layer = blstm_network([1024] * 8, ["specaug"], dropout=0.1, l2=0.01)
+    network, last_layer = blstm_network([1024]*8, ["specaug"], dropout=0.0, l2=0.0)
     from .specaugment_clean_legacy import specaug_layer, get_funcs
 
     network["specaug"] = specaug_layer(["data"])
@@ -141,7 +149,8 @@ def get_returnn_configs(
         "activation": "softmax",
         "from": ["out_linear"],
         "loss": "ce",
-        "target": "classes",
+        'loss_opts': {'focal_loss_factor': 2.0},
+        "target": "classes"
     }
     network["log_output"] = {
         "class": "activation",
@@ -149,20 +158,23 @@ def get_returnn_configs(
         "from": ["out_linear"],
     }
 
+    if recognition:
+        network["log_output"]["is_output_layer"] = True
+
+
     blstm_base_config = copy.deepcopy(base_config)
     blstm_base_config.update(
         {
             "batch_size": batch_size,  # {"classes": batch_size, "data": batch_size},
-            "chunking": "100:50",
-            "optimizer": {"class": "nadam"},
-            "optimizer_epsilon": 1e-8,
-            "gradient_noise": 0.1,
-            "learning_rates": list(np.linspace(3e-4, 8e-4, 10)),
+            "chunking": "50:25",
+            "optimizer": {"class": "nadam", "epsilon": 1e-8},
+            "gradient_noise": 0.3,
+            "learning_rates": list(np.linspace(2.5e-5, 2.5e-4, 10)),
             "learning_rate_control": "newbob_multi_epoch",
             "learning_rate_control_min_num_epochs_per_new_lr": 3,
             "learning_rate_control_relative_error_relative_lr": True,
-            "min_learning_rate": 1e-5,
-            "newbob_learning_rate_decay": 0.9,
+            #"min_learning_rate": 1e-5,
+            "newbob_learning_rate_decay": 0.707,
             "newbob_multi_num_epochs": 40,
             "newbob_multi_update_interval": 1,
             "network": network,

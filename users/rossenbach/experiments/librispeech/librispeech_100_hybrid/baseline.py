@@ -16,9 +16,7 @@ from .baseline_args import get_nn_args
 
 def run_hybrid_baseline():
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = (
-        "experiments/librispeech/librispeech_100_hmm/gmm_tina_hybrid"
-    )
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/gmm_tina_hybrid'
 
     gmm_system, steps = get_system_and_steps("gmm_tina")
     hybrid_init_args = copy.deepcopy(gmm_system.hybrid_init_args)
@@ -34,6 +32,9 @@ def run_hybrid_baseline():
     nn_args = get_nn_args()
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
+    nn2_args = get_nn_args()
+    nn2_args.recognition_args["dev-other"]["search_parameters"]["beam-pruning"] = 16.0
+    nn_steps.add_step("nn2", nn_args)
 
     # ******************** NN System ********************
 
@@ -50,9 +51,13 @@ def run_hybrid_baseline():
         hash_overwrite="MKL_BLA",
     )
 
-    lbs_nn_system = HybridSystem(
-        returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib
-    )
+    returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
+                                         commit="20ff1f8fd866ec680854dc6563ff348c9c647674").out_repository
+    blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so", hash_overwrite="MKL_BLA")
+
+
+    lbs_nn_system = HybridSystem(returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib)
     lbs_nn_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=nn_train_data_inputs,

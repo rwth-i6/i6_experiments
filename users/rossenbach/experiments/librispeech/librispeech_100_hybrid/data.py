@@ -1,13 +1,13 @@
 from i6_core import corpus as corpus_recipe
 from i6_core import text
 
-#from i6_experiments.common.datasets.librispeech import
+from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
 
 
 def get_corpus_data_inputs(gmm_system):
     """
 
-    :param RasrSystem gmm_system:
+    :param GmmSystem gmm_system:
     :return:
     """
 
@@ -35,6 +35,7 @@ def get_corpus_data_inputs(gmm_system):
         "final"
     ].as_returnn_rasr_data_input(shuffle_data=True)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
+    nn_train_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_train_data_inputs = {
         "train-clean-100.train": nn_train_data,
     }
@@ -43,6 +44,7 @@ def get_corpus_data_inputs(gmm_system):
         "final"
     ].as_returnn_rasr_data_input()
     nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
+    nn_cv_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_cv_data_inputs = {
         "train-clean-100.cv": nn_cv_data,
     }
@@ -51,6 +53,7 @@ def get_corpus_data_inputs(gmm_system):
         "final"
     ].as_returnn_rasr_data_input()
     nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
+    nn_devtrain_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_devtrain_data_inputs = {
         "train-clean-100.devtrain": nn_devtrain_data,
     }
@@ -70,5 +73,6 @@ def get_corpus_data_inputs(gmm_system):
         #    "final"
         # ].as_returnn_rasr_data_input(),
     }
+
 
     return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs, nn_dev_data_inputs, nn_test_data_inputs
