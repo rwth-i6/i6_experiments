@@ -1,6 +1,6 @@
 __all__ = [
     "get_arpa_lm_rasr_config",
-    "get_tfrnn_lm_rasr_config",
+    "get_nnlm_rasr_config",
     "add_lm_rasr_config_to_crp",
 ]
 
