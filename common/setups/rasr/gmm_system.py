@@ -267,7 +267,9 @@ class GmmSystem(RasrSystem):
         if dump_alignment_score_report:
             tk.register_output(
                 "train/{}_{}_alignment_report.txt".format(corpus_key, name),
-                self.jobs[corpus_key]["train_{}".format(name)].get_alignment_score_report()
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
             )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
@@ -438,8 +440,11 @@ class GmmSystem(RasrSystem):
         if dump_alignment_score_report:
             tk.register_output(
                 "train/{}_{}_alignment_report.txt".format(corpus_key, name),
-                self.jobs[corpus_key]["train_{}".format(name)].get_alignment_score_report()
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
             )
+
     # -------------------- Vocal Tract Length Normalization --------------------
 
     def vtln_feature_flow(
@@ -636,7 +641,9 @@ class GmmSystem(RasrSystem):
         if dump_alignment_score_report:
             tk.register_output(
                 "train/{}_{}_alignment_report.txt".format(corpus_key, name),
-                self.jobs[corpus_key]["train_{}".format(name)].get_alignment_score_report()
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
             )
 
     # -------------------- Speaker Adaptive Training  --------------------
@@ -825,7 +832,9 @@ class GmmSystem(RasrSystem):
         if dump_alignment_score_report:
             tk.register_output(
                 "train/{}_{}_alignment_report.txt".format(corpus_key, name),
-                self.jobs[corpus_key]["train_{}".format(name)].get_alignment_score_report()
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
             )
 
     # -------------------- recognition  --------------------
