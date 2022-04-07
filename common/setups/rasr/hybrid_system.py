@@ -154,7 +154,7 @@ class HybridSystem(NnSystem):
         checkpoint_path: Union[Path, returnn.Checkpoint],
         tf_graph_path: Path,
         returnn_op_path: Path,
-        forward_output_layer: str = "output",
+        forward_output_layer: str = "log_output",
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
         """
@@ -494,7 +494,9 @@ class HybridSystem(NnSystem):
             )
             graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
 
-            forward_output_layer = returnn_config.get("forward_output_layer", "output")
+            forward_output_layer = returnn_config.get(
+                "forward_output_layer", "log_output"
+            )
 
             feature_flow = self.feature_flows[recognition_corpus_key]
             if isinstance(feature_flow, Dict):
@@ -570,7 +572,7 @@ class HybridSystem(NnSystem):
                 ):
                     break
                 r_args.update(step_args.test_recognition_args[recog_name])
-                r_args["optimize_am_lm_scalegerman_8khz_setups"] = False
+                r_args["optimize_am_lm_scale"] = False
                 self.nn_recognition(
                     name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
@@ -601,7 +603,7 @@ class HybridSystem(NnSystem):
             name_list = (
                 [pairing[2]]
                 if len(pairing) >= 3
-                else list(step_args.returnn_configs.keys())
+                else list(step_args.returnn_training_configs.keys())
             )
             dvtr_c_list = [pairing[3]] if len(pairing) >= 4 else self.devtrain_corpora
             dvtr_c_list = [None] if len(dvtr_c_list) == 0 else dvtr_c_list
@@ -610,7 +612,7 @@ class HybridSystem(NnSystem):
                 if isinstance(self.train_input_data[trn_c], ReturnnRasrDataInput):
                     returnn_train_job = self.returnn_rasr_training(
                         name=name,
-                        returnn_config=step_args.returnn_configs[name],
+                        returnn_config=step_args.returnn_training_configs[name],
                         nn_train_args=step_args.training_args,
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
@@ -618,17 +620,21 @@ class HybridSystem(NnSystem):
                 else:
                     returnn_train_job = self.returnn_training(
                         name=name,
-                        returnn_config=step_args.returnn_configs[name],
+                        returnn_config=step_args.returnn_training_configs[name],
                         nn_train_args=step_args.training_args,
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
                         devtrain_corpus_key=dvtr_c,
                     )
 
+                returnn_recog_config = step_args.returnn_recognition_configs.get(
+                    name, step_args.returnn_training_configs[name]
+                )
+
                 self.nn_recog(
                     train_name=name,
                     train_corpus_key=trn_c,
-                    returnn_config=returnn_train_job.returnn_config,
+                    returnn_config=returnn_recog_config,
                     checkpoints=returnn_train_job.out_checkpoints,
                     step_args=step_args,
                 )
