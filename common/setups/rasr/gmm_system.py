@@ -193,6 +193,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -206,7 +207,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         if linear_alignment_args is not None:
@@ -238,6 +242,7 @@ class GmmSystem(RasrSystem):
                 self.mixtures, corpus_key, "linear_alignment_{}".format(name)
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -259,6 +264,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
         tk.register_output(
@@ -362,6 +374,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -374,7 +387,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
 
@@ -399,6 +415,7 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, initial_alignment
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -420,6 +437,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- Vocal Tract Length Normalization --------------------
 
@@ -556,6 +580,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -568,7 +593,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         action_sequence = (
@@ -588,6 +616,7 @@ class GmmSystem(RasrSystem):
             flow=feature_flow,
             initial_alignment=self.alignments[corpus_key][initial_alignment_key][-1],
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -609,6 +638,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- Speaker Adaptive Training  --------------------
 
@@ -716,6 +752,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -731,7 +768,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         self.estimate_cmllr(
@@ -767,6 +807,7 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, alignment
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -788,6 +829,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- recognition  --------------------
 
