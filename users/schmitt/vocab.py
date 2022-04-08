@@ -10,6 +10,16 @@ def get_vocab_tf():
   return labels_t
 
 
+def get_vocab_tf_no_bpe_merging():
+  from returnn.datasets.generating import Vocabulary
+  from returnn.tf.util.basic import get_shared_vocab
+  vocab = Vocabulary.create_vocab(**eval("vocab"))
+  labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
+  labels = [(l + " ") for l in labels] + [""]
+  labels_t = get_shared_vocab(labels)
+  return labels_t
+
+
 def get_vocab_sym(i):
   """
   :param tf.Tensor i: e.g. [B], int32

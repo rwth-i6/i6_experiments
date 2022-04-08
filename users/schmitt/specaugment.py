@@ -95,7 +95,7 @@ def transform(data, network, time_factor=1):
   def get_masked():
     x_masked = x
     x_masked = random_mask(x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis, min_num=step1 + step2,
-      max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
+      max_num=tf.minimum(tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2), tf.shape(x)[data.time_dim_axis]),
       max_dims=20 // time_factor)
     x_masked = random_mask(x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
       min_num=step1 + step2, max_num=2 + step1 + step2 * 2, max_dims=data.dim // 5)
