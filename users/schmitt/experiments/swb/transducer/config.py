@@ -241,7 +241,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
       assert search_data_opts
       self.search_data = get_dataset_dict_wo_alignment(**search_data_opts)
 
-    if pretrain and self.task == "train":
+    if pretrain:
       self.pretrain = {'copy_param_mode': 'subset', 'construction_algo': CodeWrapper(custom_construction_algo_str)}
 
       if pretrain_reps is not None:

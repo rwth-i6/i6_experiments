@@ -269,6 +269,8 @@ def get_extended_net_dict(
   assert task != "train" or not label_dep_length_model
 
   net_dict = {"#info": {"lstm_dim": lstm_dim, "l2": l2, "learning_rate": learning_rate, "time_red": time_reduction}}
+  if task == "search":
+    net_dict["#info"]["task"] = "search"
   net_dict.update({
     "source": {
       "class": "eval",
@@ -848,7 +850,8 @@ def custom_construction_algo(idx, net_dict):
   except KeyError:
     pass
 
-  net_dict["label_model"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
+  if "task" not in net_dict["#info"]:
+    net_dict["label_model"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
 
   return net_dict
 
@@ -896,6 +899,7 @@ def new_custom_construction_algo(idx, net_dict):
     net_dict[layer]["n_out"] = int(net_dict[layer]["n_out"] * dim_frac)
     if "dropout" in net_dict[layer]:
       net_dict[layer]["dropout"] *= dim_frac
-  # Use label smoothing only at the very end.
-  net_dict["label_model"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
+  if "task" not in net_dict["#info"]:
+    # Use label smoothing only at the very end.
+    net_dict["label_model"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
   return net_dict
