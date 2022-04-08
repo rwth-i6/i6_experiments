@@ -10,16 +10,27 @@ import better_exchook
 
 from sisyphus import Job, Task, tk
 
-from returnn.tf.util.basic import debug_register_better_repr, setup_tf_thread_pools, print_available_devices
+from returnn.tf.util.basic import (
+    debug_register_better_repr,
+    setup_tf_thread_pools,
+    print_available_devices,
+)
 from returnn.log import log
+
 
 class FairseqAudioManifestCreationJob(Job):
     """
     Creates required manifest files for wav2vec pretraining with fairseq. For the
     script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
     """
+
     def __init__(
-        self, audio_dir_path, file_extension="wav", valid_percent=0.01, seed=42, path_must_contain=None
+        self,
+        audio_dir_path,
+        file_extension="wav",
+        valid_percent=0.01,
+        seed=42,
+        path_must_contain=None,
     ):
         """
         :param tk.Path audio_dir_path: path to raw audio files to be included
@@ -68,8 +79,8 @@ class FairseqAudioManifestCreationJob(Job):
                 frames = soundfile.info(fname).frames
                 dest = train_f if rand.random() > self.valid_percent else valid_f
                 print(
-                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames), 
-                        file=dest
+                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames),
+                    file=dest,
                 )
         if valid_f is not None:
             valid_f.close()
@@ -79,15 +90,16 @@ class FairseqWav2VecModelConvertAndDumpJob(Job):
     """
     Conversion Job for fairseq model checkpoints to RETURNN model dictionary and checkpoint
     """
+
     def __init__(
-            self,
-            wav2vec_config,
-            output_name,
-            audio_input,
-            device="cpu",
-            validate_atol=None,
-            fairseq_root=None,
-            pytorch_to_returnn_root=None,
+        self,
+        wav2vec_config,
+        output_name,
+        audio_input,
+        device="cpu",
+        validate_atol=None,
+        fairseq_root=None,
+        pytorch_to_returnn_root=None,
     ):
         """
         :param tk.Path wav2vec_config: path to wav2vec config to be converted
@@ -114,7 +126,12 @@ class FairseqWav2VecModelConvertAndDumpJob(Job):
             print("WARNING: no explicit pytorch_to_returnn root directory given")
 
         self.returnn_model_out = self.output_path(self.output_name)
-        self.rqmt = {"time": 2, "mem": 32, "cpu": 1, "gpu": 1 if self.device=="gpu" else 0,}
+        self.rqmt = {
+            "time": 2,
+            "mem": 32,
+            "cpu": 1,
+            "gpu": 1 if self.device == "gpu" else 0,
+        }
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -145,19 +162,31 @@ class FairseqWav2VecModelConvertAndDumpJob(Job):
                 # the following imports are necessary to make sure that these parts are registered also for the wrapped runs
                 audio_pretraining = wrapped_import("fairseq.tasks.audio_pretraining")
                 adam = wrapped_import("fairseq.optim.adam")
-                polynomial_decay = wrapped_import("fairseq.optim.lr_scheduler.polynomial_decay_schedule")
-                wav2vec_criterion = wrapped_import("fairseq.criterions.wav2vec_criterion")
+                polynomial_decay = wrapped_import(
+                    "fairseq.optim.lr_scheduler.polynomial_decay_schedule"
+                )
+                wav2vec_criterion = wrapped_import(
+                    "fairseq.criterions.wav2vec_criterion"
+                )
 
             # Initialize PyTorch example
-            model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([self.wav2vec_config.get_path()])
+            model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(
+                [self.wav2vec_config.get_path()]
+            )
             w2v2_model = model[0]
-            print("WARNING: Simplifications: feature_grad_mult=1.0, encoder layer dropout=0.0")
+            print(
+                "WARNING: Simplifications: feature_grad_mult=1.0, encoder layer dropout=0.0"
+            )
             w2v2_model.feature_grad_mult = 1.0
             w2v2_model.encoder.layerdrop = 0.0
-            print("WARNING: remove quantizer, this involves using non-optimized parameters")
+            print(
+                "WARNING: remove quantizer, this involves using non-optimized parameters"
+            )
             w2v2_model.quantizer = None
             w2v2_model.project_q.in_features = w2v2_model.embed
-            w2v2_model.project_q._parameters["weight"] = torch.from_numpy(np.random.randn(256, 512).astype("float32"))
+            w2v2_model.project_q._parameters["weight"] = torch.from_numpy(
+                np.random.randn(256, 512).astype("float32")
+            )
 
             print("WARNING: simplify model by setting mask=False")
             return w2v2_model(inputs, mask=False, features_only=True)["x"]
@@ -165,23 +194,40 @@ class FairseqWav2VecModelConvertAndDumpJob(Job):
         print("Load audio")
         print("  ", self.audio_input.get_path())
         audio, fr = soundfile.read(self.audio_input.get_path())
-        audio = np.reshape(audio, [4, len(audio) // 4]).astype('float32')  # dim (B, T) -> (4, *)
+        audio = np.reshape(audio, [4, len(audio) // 4]).astype(
+            "float32"
+        )  # dim (B, T) -> (4, *)
         audio_pt = torch.from_numpy(audio)
         print(f"  input shape: {audio.shape}")
 
         import pytorch_to_returnn.log
+
         pytorch_to_returnn.log.Verbosity = 6
         from pytorch_to_returnn.converter import verify_torch_and_convert_to_returnn
+
         converter = verify_torch_and_convert_to_returnn(
-            model_func, inputs=audio,
-            inputs_data_kwargs={"shape": (None,), "batch_dim_axis": 0, "time_dim_axis": 1, "feature_dim_axis": None},
+            model_func,
+            inputs=audio,
+            inputs_data_kwargs={
+                "shape": (None,),
+                "batch_dim_axis": 0,
+                "time_dim_axis": 1,
+                "feature_dim_axis": None,
+            },
             returnn_dummy_input_shape=audio.shape,
             export_tf_checkpoint_save_path=self.returnn_model_out.get_path(),
-            validate_allclose_kwargs={"atol": self.validate_atol} if self.validate_atol else None,
-            )
-        with open(self.returnn_model_out.get_path() + ".network.dict", "wt", encoding="utf-8") as f:
+            validate_allclose_kwargs={"atol": self.validate_atol}
+            if self.validate_atol
+            else None,
+        )
+        with open(
+            self.returnn_model_out.get_path() + ".network.dict", "wt", encoding="utf-8"
+        ) as f:
             f.write(converter.get_returnn_config_serialized())
-        os.rename(self.returnn_model_out.get_path() + ".network.dict", self.returnn_model_out.get_path() + ".network.dict.py" )
+        os.rename(
+            self.returnn_model_out.get_path() + ".network.dict",
+            self.returnn_model_out.get_path() + ".network.dict.py",
+        )
 
         features = model_func(None, inputs=audio_pt)
         print(f"  output shape PyTorch: {features.shape}")
