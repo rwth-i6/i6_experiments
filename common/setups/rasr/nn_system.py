@@ -49,6 +49,7 @@ class NnSystem(RasrSystem):
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
         returnn_python_exe: Optional[str] = None,
+        blas_lib: Optional[str] = None,
     ):
         super().__init__()
 
@@ -61,3 +62,5 @@ class NnSystem(RasrSystem):
         self.returnn_python_exe = returnn_python_exe or (
             gs.RETURNN_PYTHON_EXE if hasattr(gs, "RETURNN_PYTHON_EXE") else None
         )
+
+        self.blas_lib = blas_lib or (gs.BLAS_LIB if hasattr(gs, "BLAS_LIB") else None)
