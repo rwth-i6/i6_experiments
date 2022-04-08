@@ -15,7 +15,7 @@ class GlobalEncoderDecoderConfig:
           self, vocab, glob_model_type, target_num_labels=1030,
           epoch_split=6, beam_size=12, feature_stddev=None, dump_output=False,
           rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
-          task="train", num_epochs=150, lstm_dim=1024, att_num_heads=1, sos_idx=0,
+          task="train", num_epochs=150, lstm_dim=1024, att_num_heads=1, sos_idx=0, sil_idx=None,
           train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True):
@@ -94,7 +94,7 @@ class GlobalEncoderDecoderConfig:
       self.network = get_net_dict(
         lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim, beam_size=beam_size, sos_idx=sos_idx,
         feature_stddev=feature_stddev, weight_dropout=weight_dropout, with_state_vector=with_state_vector,
-        with_weight_feedback=with_weight_feedback, prev_target_in_readout=prev_target_in_readout,
+        with_weight_feedback=with_weight_feedback, prev_target_in_readout=prev_target_in_readout, sil_idx=sil_idx,
         target=label_name, task=task, targetb_num_labels=target_num_labels+1, dump_output=dump_output)
     else:
       self.network = get_net_dict(lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim,

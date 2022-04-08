@@ -478,6 +478,7 @@ def run_pipeline():
     if params["config"]["model_type"] == "glob":
       if params["config"]["label_type"] == "bpe":
         sos_idx = 0
+        sil_idx = None
         target_num_labels = 1030
         vocab = bpe_vocab
         vocab["seq_postfix"] = [sos_idx]
@@ -498,6 +499,7 @@ def run_pipeline():
         # sos_idx = 0
         # target_num_labels = 1030
       elif params["config"]["label_type"] == "bpe-with-sil":
+        dev_data_opts["vocab"] = vocab
         train_data_opts.update({
           "label_hdf": total_data["bpe-with-sil"]["train"]["label_seqs"], "label_name": "bpe",
           "segment_file": train_segments})
@@ -509,8 +511,10 @@ def run_pipeline():
           "segment_file": devtrain_segments})
         params["config"]["label_name"] = "bpe"
         sos_idx = 1030
+        sil_idx = 0
         target_num_labels = 1031
       elif params["config"]["label_type"] == "bpe-with-sil-split-sil":
+        dev_data_opts["vocab"] = vocab
         train_data_opts.update({
           "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
           "segment_file": train_segments})
@@ -521,6 +525,7 @@ def run_pipeline():
           "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
           "segment_file": devtrain_segments})
         params["config"]["label_name"] = "bpe"
+        sil_idx = 0
         sos_idx = 1030
         target_num_labels = 1031
       elif params["config"]["label_type"] == "phonemes-split-sil":
@@ -535,6 +540,7 @@ def run_pipeline():
           "segment_file": devtrain_segments})
         params["config"]["label_name"] = "phonemes"
         sos_idx = 88
+        sil_idx = 0
         target_num_labels = 89
       else:
         assert params["config"]["label_type"] == "phonemes"
@@ -551,6 +557,7 @@ def run_pipeline():
           "segment_file": devtrain_segments})
         params["config"]["label_name"] = "phonemes"
         sos_idx = 88
+        sil_idx = 0
         target_num_labels = 89
       rasr_decoding_opts.update(
         dict(
@@ -644,14 +651,14 @@ def run_pipeline():
 
     # update the config params with the specific info
     params["config"].update({
-      "sos_idx": sos_idx, "target_num_labels": target_num_labels, "vocab": vocab
+      "sos_idx": sos_idx, "target_num_labels": target_num_labels, "vocab": vocab, "sil_idx": sil_idx
     })
     rasr_decoding_opts.update(dict(start_label_index=sos_idx))
     # in case of segmental/transducer model, we need to set the blank index
     if params["config"]["model_type"] == "seg":
       params["config"].update({
         "targetb_blank_idx": targetb_blank_idx,
-        "sil_idx": sil_idx})
+      })
       rasr_decoding_opts.update(dict(blank_label_index=targetb_blank_idx))
     # choose the config class depending on the model type
     config_class = {

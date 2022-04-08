@@ -494,7 +494,7 @@ def get_net_dict_like_seg_model(
 
 def get_best_net_dict(
         lstm_dim, att_num_heads, att_key_dim, beam_size, sos_idx, feature_stddev, target, task, targetb_num_labels,
-        weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output):
+        weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output, sil_idx):
   net_dict = {"#info": {"att_num_heads": att_num_heads, "enc_val_per_head": (lstm_dim * 2) // att_num_heads}}
   net_dict.update({
     "source": {
@@ -629,6 +629,20 @@ def get_best_net_dict(
       "class": "decide", "from": ["output"], "loss": "edit_distance", "target": target, "loss_opts": {
         # "debug_print": True
       }}})
+
+  if sil_idx is not None and task == "search":
+    net_dict.update({
+      "output_non_sil_mask": {
+        "class": "compare", "from": "output", "kind": "not_equal", "value": 0, },
+      "output_non_eos_mask": {
+        "class": "compare", "from": "output", "kind": "not_equal", "value": 1030, },
+      "output_mask": {
+        "class": "combine", "from": ["output_non_sil_mask", "output_non_eos_mask"], "kind": "logical_and"},
+      "output_wo_sil": {
+        "class": "masked_computation", "unit": {"class": "copy"}, "from": "output",
+        "mask": "output_mask"},
+    })
+    net_dict["decision"]["from"] = "output_wo_sil"
 
   if dump_output:
     net_dict.update({
