@@ -1,3 +1,6 @@
+# luescher
+# adapted for tf2.3, schupp
+
 def summary(name, x):
     """
     :param str name:
