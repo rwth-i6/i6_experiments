@@ -1,3 +1,9 @@
+"""
+Originally lueschers 'transformer_network.py' to build transformer/conformer model dicts
+
+Modified by schupp
+Adapted to use returnn 'beahavior_version=12', tf2.3
+"""
 # no decoder
 # att_weights_inspection=False, inspection_idx=None
 # window_limit_idx=None, window_size=None (length same as the num. of heads)
