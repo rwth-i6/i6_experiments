@@ -17,12 +17,12 @@ __all__ = ['add_conv_layer', 'add_pool_layer', 'add_blstm_layer',
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
-from recipe.i6_private.users.pzheng.system_librispeech.alternate_layers import conformer_enc_layer_all_in_one_half_ration
-from recipe.i6_private.users.pzheng.system_librispeech.conformer_state_ration_layer import conformer_enc_layer_all_in_one_stage_ratio
-from recipe.i6_private.users.pzheng.system_librispeech.conformer_SE_block_layer2 import conformer_enc_layer_all_in_one_SE
-from recipe.i6_private.users.pzheng.system_librispeech.conformer_cyclemoid_act_layer import conformer_enc_layer_all_in_one_cyclemoid
-from recipe.i6_private.users.pzheng.system_librispeech.conformer_stochastic_depth_layer import conformer_enc_layer_all_in_one_stoch_depth
-from recipe.i6_private.users.pzheng.system_librispeech.conformer_ff_gating_layer import conformer_enc_layer_all_in_one_ff_gating
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.alternate_layers import conformer_enc_layer_all_in_one_half_ration
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_state_ration_layer import conformer_enc_layer_all_in_one_stage_ratio
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_SE_block_layer2 import conformer_enc_layer_all_in_one_SE
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_cyclemoid_act_layer import conformer_enc_layer_all_in_one_cyclemoid
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer import conformer_enc_layer_all_in_one_stoch_depth
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_ff_gating_layer import conformer_enc_layer_all_in_one_ff_gating
 
 
 def add_conv_layer(network, idx, filter_size, padding, strides, dim, from_layers,
