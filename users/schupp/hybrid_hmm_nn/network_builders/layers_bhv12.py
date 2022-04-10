@@ -24,6 +24,9 @@ from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.co
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer import conformer_enc_layer_all_in_one_stoch_depth
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_ff_gating_layer import conformer_enc_layer_all_in_one_ff_gating
 
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_v2 import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_v2
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_v3 import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_v3
+
 
 def add_conv_layer(network, idx, filter_size, padding, strides, dim, from_layers,
                    *, with_bias=None, activation=None):
@@ -1133,6 +1136,10 @@ def conformer_enc_layer_all_in_one(*args, tbs_version="default", **kwargs):
     return conformer_enc_layer_all_in_one_stoch_depth(*args, **kwargs)
   elif tbs_version == "ff_gating":
     return conformer_enc_layer_all_in_one_ff_gating(*args, **kwargs)
+  elif tbs_version == "stoch_depth_v2":
+    return conformer_enc_layer_all_in_one_stoch_depth_v2(*args, **kwargs)
+  elif tbs_version == "stoch_depth_v3":
+    return conformer_enc_layer_all_in_one_stoch_depth_v3(*args, **kwargs)
 
 
 # untied_pe=False, relative_pe_transformer_xl=False

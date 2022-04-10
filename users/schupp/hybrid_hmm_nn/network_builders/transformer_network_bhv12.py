@@ -289,7 +289,7 @@ class attention_for_hybrid:
   # number of blstm layers, hidden units size, l2-regularization, dropout
   def _blstm_block(self, inp=None, prefix=""):
 
-    import recipe.i6_private.users.pzheng.system_librispeech.layers_bhv12 as layers
+    import recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers_bhv12 as layers
 
     if prefix:
       prefix = prefix + '_'
@@ -408,7 +408,7 @@ class attention_for_hybrid:
   # to be implemented: feature representation
   def _transformer_encoder(self, inp):
 
-    import recipe.i6_private.users.pzheng.system_librispeech.layers_bhv12 as layers
+    import recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers_bhv12 as layers
 
     separated = False
     windowing = False
@@ -468,7 +468,7 @@ class attention_for_hybrid:
     return ['encoder']
   def _conformer_encoder(self, inp):
 
-    import recipe.i6_private.users.pzheng.system_librispeech.layers_bhv12 as layers
+    import recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers_bhv12 as layers
 
     separated = False
     windowing = False
@@ -535,7 +535,7 @@ class attention_for_hybrid:
   ## attention weights manipulation not implemented
   def _second_encoder(self, inp, ca_layer):
 
-    import recipe.i6_private.users.pzheng.system_librispeech.layers_bhv12 as layers
+    import recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers_bhv12 as layers
 
     self.enc_args.pop("attention_left_only", None)
 
