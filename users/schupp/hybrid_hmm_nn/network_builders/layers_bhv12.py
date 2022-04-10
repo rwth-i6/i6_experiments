@@ -19,13 +19,18 @@ DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='unifor
 
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.alternate_layers import conformer_enc_layer_all_in_one_half_ration
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_state_ration_layer import conformer_enc_layer_all_in_one_stage_ratio
+
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_SE_block_layer2 import conformer_enc_layer_all_in_one_SE
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_SE_block_layer_dynamic import conformer_enc_layer_all_in_one_SE as conformer_enc_layer_all_in_one_SE_dynamic
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_SE_block_layer_dynamic_oneact import conformer_enc_layer_all_in_one_SE as conformer_enc_layer_all_in_one_SE_dynamic_sact
+
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_cyclemoid_act_layer import conformer_enc_layer_all_in_one_cyclemoid
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer import conformer_enc_layer_all_in_one_stoch_depth
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_ff_gating_layer import conformer_enc_layer_all_in_one_ff_gating
 
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_v2 import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_v2
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_v3 import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_v3
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_condtrain import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_traincond
 
 
 def add_conv_layer(network, idx, filter_size, padding, strides, dim, from_layers,
@@ -1130,16 +1135,24 @@ def conformer_enc_layer_all_in_one(*args, tbs_version="default", **kwargs):
     return conformer_enc_layer_all_in_one_stage_ratio(*args, **kwargs)
   elif tbs_version == "se_block":
     return conformer_enc_layer_all_in_one_SE(*args, **kwargs)
+  elif tbs_version == "se_block_dynamic":
+    return conformer_enc_layer_all_in_one_SE_dynamic(*args, **kwargs)
+  elif tbs_version == "se_block_dynamic_sact":
+    return conformer_enc_layer_all_in_one_SE_dynamic_sact(*args, **kwargs)
   elif tbs_version == "cyclemoid":
     return conformer_enc_layer_all_in_one_cyclemoid(*args, **kwargs)
   elif tbs_version == "stoch_depth":
     return conformer_enc_layer_all_in_one_stoch_depth(*args, **kwargs)
   elif tbs_version == "ff_gating":
     return conformer_enc_layer_all_in_one_ff_gating(*args, **kwargs)
+
   elif tbs_version == "stoch_depth_v2":
     return conformer_enc_layer_all_in_one_stoch_depth_v2(*args, **kwargs)
   elif tbs_version == "stoch_depth_v3":
     return conformer_enc_layer_all_in_one_stoch_depth_v3(*args, **kwargs)
+
+  elif tbs_version == "stoch_depth_traincond":
+    return conformer_enc_layer_all_in_one_stoch_depth_traincond(*args, **kwargs)
 
 
 # untied_pe=False, relative_pe_transformer_xl=False

@@ -41,6 +41,16 @@ def stoch_depth(x, y, surival_prop=0.5):
   # y is the residual randomly dropped
   return tfa.layers.StochasticDepth(survival_probability=surival_prop)([x, y])
 
+def stoch_depth_v2(x, y, surival_prop=0.5, network=None):
+  import tensorflow as tf
+  import tensorflow_addons as tfa
+  # x in always kept,
+  # y is the residual randomly dropped
+  train = tfa.layers.StochasticDepth(survival_probability=surival_prop)([x, y])
+  no_train = x + surival_prop * y
+  out = network.cond_on_train(lambda : train, lambda : no_train)
+  return out
+
 def cyclepy(x):
     """
     Implementation tweaked from PyTorch
@@ -404,7 +414,8 @@ class LibrispeechHybridSystem(meta.System):
                            use_pretrain=False, pretrain_function=custom_construction_algo, num_repetitions=5,
                            use_pe_transformer_xl=False,
                            add_cyclemoid=False,
-                           add_stoch_depth=False
+                           add_stoch_depth=False,
+                           add_stoch_depth_v2=False
                            ):
 
     python_prolog = {}
@@ -494,6 +505,9 @@ class LibrispeechHybridSystem(meta.System):
 
     if add_stoch_depth:
       python_prolog['functions'] += [stoch_depth]
+
+    if add_stoch_depth_v2:
+      python_prolog['functions'] += [stoch_depth_v2]
 
     ## insert functions
     if use_pretrain:
@@ -623,7 +637,8 @@ class LibrispeechHybridSystem(meta.System):
                                                              num_repetitions=kwargs.pop('num_repetitions', 5),
                                                              use_pe_transformer_xl=kwargs.pop('use_pe_transformer_xl', False),
                                                              add_cyclemoid=kwargs.pop('add_cyclemoid', False),
-                                                             add_stoch_depth=kwargs.pop('add_stoch_depth', False)
+                                                             add_stoch_depth=kwargs.pop('add_stoch_depth', False),
+                                                             add_stoch_depth_v2=kwargs.pop('add_stoch_depth_v2', False)
                                                              )
 
     # update other parameters
