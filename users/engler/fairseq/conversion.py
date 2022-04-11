@@ -64,8 +64,6 @@ def main(
     with open(out_returnn_model_dict, "wt", encoding="utf-8") as f:
         f.write(converter.get_returnn_config_serialized())
 
-    model_func(None, inputs=input_pt)
-
 
 class ConvertPytorchToReturnnJob(Job):
     """
@@ -97,34 +95,26 @@ class ConvertPytorchToReturnnJob(Job):
         :param tk.Path|None pytorch_to_returnn_root: path to pytorch_to_returnn version to use for conversion
         :param tk.Path|None returnn_root: returnn root for conversion
         """
-        self.pytorch_config = pytorch_config
-        self.model_func = model_func
         assert type(model_func) == str, "model function is required to be string"
+        assert device in ["cpu", "gpu"]
         self.input = input
-        self.device = device
-        assert self.device in ["cpu", "gpu"]
-        self.converter_kwargs = converter_kwargs
         self.conversion_python_exe = conversion_python_exe
-        self.fairseq_root = fairseq_root
-        self.pytorch_to_returnn_root = pytorch_to_returnn_root
-        self.returnn_root = returnn_root
 
-        if not self.fairseq_root:
+        if not fairseq_root:
             print("WARNING: no explicit fairseq root directory given")
-        if not self.pytorch_to_returnn_root:
+        if not pytorch_to_returnn_root:
             print("WARNING: no explicit pytorch_to_returnn root directory given")
 
         self._config = self.get_returnn_config(
             pytorch_config=pytorch_config,
-            model_func=self.model_func,
+            model_func=model_func,
             converter_kwargs=converter_kwargs,
             fairseq_root=fairseq_root,
             pytorch_to_returnn_root=pytorch_to_returnn_root,
             returnn_root=returnn_root,
         )
 
-        self.out_conversion_config_file = self.output_path("conversion.config")
-        self.out_model_func_file = self.output_path("model_func.py")
+        self.out_conversion_config_file = self.output_path("conversion.py")
         self.out_returnn_checkpoint = self.output_path("returnn.checkpoint")
         self.out_returnn_model_dict = self.output_path("returnn.net.dict.py")
 
@@ -135,7 +125,7 @@ class ConvertPytorchToReturnnJob(Job):
             "time": 2,
             "mem": 32,
             "cpu": 1,
-            "gpu": 1 if self.device == "gpu" else 0,
+            "gpu": 1 if device == "gpu" else 0,
         }
 
     def tasks(self):
@@ -169,15 +159,16 @@ class ConvertPytorchToReturnnJob(Job):
         returnn_root=None,
         **kwargs,
     ):
+        fairseq_root = fairseq_root.get_path() if fairseq_root is not None else None
+        pytorch_to_returnn_root = pytorch_to_returnn_root.get_path() if pytorch_to_returnn_root is not None else None
+
         config = ReturnnConfig(
             config={
                 "pytorch_config": pytorch_config.get_path(),
                 "converter_kwargs": converter_kwargs,
-                "fairseq_root": fairseq_root.get_path(),
-                "pytorch_to_returnn_root": pytorch_to_returnn_root.get_path(),
-                "returnn_root": returnn_root
-                if returnn_root is not None
-                else tk.gs.RETURNN_ROOT,
+                "fairseq_root": fairseq_root,
+                "pytorch_to_returnn_root": pytorch_to_returnn_root,
+                "returnn_root": returnn_root if returnn_root is not None else tk.gs.RETURNN_ROOT,
                 "model_func_name": model_func.split(" ")[1].split("(")[0],
             },
             python_prolog=[
