@@ -10,13 +10,6 @@ import better_exchook
 
 from sisyphus import Job, Task, tk
 
-from returnn.tf.util.basic import (
-    debug_register_better_repr,
-    setup_tf_thread_pools,
-    print_available_devices,
-)
-from returnn.log import log
-
 
 class FairseqAudioManifestCreationJob(Job):
     """

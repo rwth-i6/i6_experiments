@@ -44,7 +44,6 @@ def main(
         return eval(model_func_name)(wrapped_import, inputs, pytorch_config)
 
     input = np.load("numpy_input.npy")
-    input_pt = torch.from_numpy(input)
     print(f"Input shape: {input.shape}")
 
     import pytorch_to_returnn.log
@@ -67,7 +66,7 @@ def main(
 
 class ConvertPytorchToReturnnJob(Job):
     """
-    Conversion Job for fairseq model checkpoints to RETURNN model dictionary and checkpoint
+    Conversion Job for PyTorch model checkpoints to RETURNN model dictionary and checkpoint
     """
 
     def __init__(
@@ -86,19 +85,27 @@ class ConvertPytorchToReturnnJob(Job):
         :param tk.Path pytorch_config: checkpoint to be converted
         :param str model_func: model function used for conversion. It is not yet
             possible to pass a function object to the sisypus job so the function
-            needs to be passed as a string
-        :param numpy.ndarray: input used for forwarding through the model
+            needs to be passed as a string. The model function needs to have type
+            Callable[[Optional[Callable[[str], types.ModuleType]], torch.Tensor], torch.Tensor, str].
+            The first two inputs are the parameters required by the converter and
+            the third parameter is set to the path to the pytorch_config before
+            given to the converter.
+        :param numpy.ndarray input: used for forwarding through the model
         :param str device: cpu or gpu
-        :param dict converter_kwargs: additional parameters to converter
-        :param tk.Path conversion_python_exe: python exe being used for conversion
+        :param dict|None converter_kwargs: additional parameters to converter
+        :param tk.Path|None conversion_python_exe: python exe being used for conversion
         :param tk.Path|None fairseq_root: path to fairseq version to use for conversion
         :param tk.Path|None pytorch_to_returnn_root: path to pytorch_to_returnn version to use for conversion
         :param tk.Path|None returnn_root: returnn root for conversion
         """
-        assert type(model_func) == str, "model function is required to be string"
+        assert isinstance(model_func, str), "model function is required to be string, see docstring"
         assert device in ["cpu", "gpu"]
         self.input = input
-        self.conversion_python_exe = conversion_python_exe
+        self.conversion_python_exe = (
+            conversion_python_exe
+            if conversion_python_exe is not None
+            else tk.gs.RETURNN_PYTHON_EXE
+        )
 
         if not fairseq_root:
             print("WARNING: no explicit fairseq root directory given")
@@ -135,7 +142,6 @@ class ConvertPytorchToReturnnJob(Job):
     def create_files(self):
         self._config.write(self.out_conversion_config_file.get_path())
         np.save("numpy_input", self.input)
-
         util.create_executable("conversion.sh", self._get_run_cmd())
 
     def run(self):
@@ -201,7 +207,6 @@ class ConvertPytorchToReturnnJob(Job):
     def hash(cls, kwargs):
         d = {
             "conversion_config": cls.get_returnn_config(**kwargs),
-            "returnn_root": kwargs["returnn_root"],
             "conversion_python_exe": kwargs["conversion_python_exe"],
         }
         return super().hash(d)
