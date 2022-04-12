@@ -265,7 +265,7 @@ def get_ogg_zip_dict(output_prefix="datasets"):
         - 'train-clean-460'
         - 'train-other-500'
         - 'train-other-960'
-    :rtype: dict[str, Path]
+    :rtype: dict[str, tk.Path]
     """
     from i6_core.returnn.oggzip import BlissToOggZipJob
 
