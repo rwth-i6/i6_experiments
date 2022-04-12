@@ -2,28 +2,16 @@ import soundfile
 import glob
 import os
 import random
-import numpy as np
-import typing
-import torch
-import sys
-import better_exchook
 
 from sisyphus import Job, Task, tk
-
 
 class FairseqAudioManifestCreationJob(Job):
     """
     Creates required manifest files for wav2vec pretraining with fairseq. For the
     script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py
     """
-
     def __init__(
-        self,
-        audio_dir_path,
-        file_extension="wav",
-        valid_percent=0.01,
-        seed=42,
-        path_must_contain=None,
+        self, audio_dir_path, file_extension="wav", valid_percent=0.01, seed=42, path_must_contain=None
     ):
         """
         :param tk.Path audio_dir_path: path to raw audio files to be included
@@ -72,9 +60,8 @@ class FairseqAudioManifestCreationJob(Job):
                 frames = soundfile.info(fname).frames
                 dest = train_f if rand.random() > self.valid_percent else valid_f
                 print(
-                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames),
-                    file=dest,
+                    "{}\t{}".format(os.path.relpath(file_path, dir_path), frames), 
+                        file=dest
                 )
         if valid_f is not None:
             valid_f.close()
-
