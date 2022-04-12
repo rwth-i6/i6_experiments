@@ -291,7 +291,7 @@ def get_arpa_lm_dict(output_prefix="datasets"):
 
     :param str output_prefix:
     :return: A dictionary with Paths to the arpa lm files
-    :rtype: dict[str, Path]
+    :rtype: dict[str, tk.Path]
     """
     lm_dict = {}
 
