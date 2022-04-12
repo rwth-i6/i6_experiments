@@ -110,7 +110,7 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
         - 'train-clean-460'
         - 'train-other-500'
         - 'train-other-960'
-    :rtype: dict[str, Path]
+    :rtype: dict[str, tk.Path]
     """
     assert audio_format in ["flac", "ogg", "wav"]
 
