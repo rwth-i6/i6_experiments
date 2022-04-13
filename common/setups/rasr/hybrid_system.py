@@ -16,6 +16,7 @@ import i6_core.features as features
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
+from i6_core.recognition import AdvancedTreeSearchLmImageAndGlobalCacheJob
 from i6_core.returnn.flow import (
     make_precomputed_hybrid_tf_feature_flow,
     add_tf_flow_to_base_flow,
@@ -400,6 +401,16 @@ class HybridSystem(NnSystem):
             ), f"type incorrect: {recognition_corpus_key} {type(feature_flow)}"
 
             epochs = epochs if epochs is not None else list(checkpoints.keys())
+
+            lm_image_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
+            lm_image_job = AdvancedTreeSearchLmImageAndGlobalCacheJob(
+                crp=self.crp[recognition_corpus_key],
+                feature_scorer=lm_image_scorer,
+            )
+            tk.register_output(
+                f"lm_image_and_global_cache/{name}.{recognition_corpus_key}.global.cache",
+                lm_image_job.out_global_cache,
+            )
 
             for pron, lm, prior, epoch in itertools.product(
                 pronunciation_scales, lm_scales, prior_scales, epochs
