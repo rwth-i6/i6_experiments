@@ -181,7 +181,7 @@ def calc_rasr_search_errors(
   use_lm_score, word_end_pruning, word_end_pruning_limit, label_recombination_limit, label_unit,
   skip_silence, lm_type, lm_scale, lm_file, lm_image, lm_lookahead, max_seg_len, num_classes,
   compile_config: ReturnnConfig, rasr_exe_path, train_config, extern_sprint_rasr_config,
-  rasr_nn_trainer_exe, blank_idx, ref_align, loop_update_history,
+  rasr_nn_trainer_exe, blank_idx, ref_align, loop_update_history, model_type, label_name,
   model_checkpoint, name, num_epochs, lm_lookahead_cache_size_high=None, label_scorer_type="tf-rnn-transducer",
   lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None, lm_lookahead_scale=None,
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
@@ -227,8 +227,8 @@ def calc_rasr_search_errors(
   calc_search_err_job = CalcSearchErrorJob(
     returnn_config=train_config, rasr_config=extern_sprint_rasr_config,
     rasr_nn_trainer_exe=rasr_nn_trainer_exe, segment_file=segment_path, blank_idx=blank_idx,
-    search_align=dump_align_from_txt_job.out_hdf_align,
-    ref_align=ref_align)
+    search_targets=dump_align_from_txt_job.out_hdf_align,
+    ref_targets=ref_align, label_name=label_name, model_type=model_type)
   calc_search_err_job.add_alias(name + ("/search_errors_%d" % num_epochs) + alias_addon)
   alias = calc_search_err_job.get_one_alias()
   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
@@ -288,12 +288,12 @@ def run_eval(ctm_file, reference, name, dataset_key, num_epochs, alias_addon="")
 
 def calculate_search_errors(
   checkpoint, search_config, train_config, rasr_config, rasr_nn_trainer_exe, segment_path, model_type, label_name,
-  name, epoch, ref_targets, blank_idx, alias_addon=""):
+  name, epoch, ref_targets, blank_idx, dataset_key, alias_addon=""):
   search_job = ReturnnDumpSearchJob(search_data={}, model_checkpoint=checkpoint,
                                     returnn_config=copy.deepcopy(search_config.get_config()),
                                     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
                                     returnn_root="/u/schmitt/src/returnn", mem_rqmt=4, time_rqmt=1)
-  search_job.add_alias(name + ("/search_dump_align_%d" % epoch) + alias_addon)
+  search_job.add_alias(name + "/search_%s_%d" % (dataset_key, epoch) + alias_addon)
   alias = search_job.get_one_alias()
   # tk.register_output(alias + "/bpe_search_results", search_job.out_search_file)
   # tk.register_output(alias + "/config", search_job.out_returnn_config_file)
@@ -308,5 +308,4 @@ def calculate_search_errors(
   calc_search_err_job.add_alias(name + ("/search_errors_%d" % epoch) + alias_addon)
   alias = calc_search_err_job.get_one_alias()
   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
-
 
