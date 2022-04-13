@@ -17,14 +17,19 @@ import tensorflow as tf
 import numpy as np
 
 
-def dump(hdf_dataset):
+def dump(hdf_dataset, label_name, model_type, blank_idx):
   output_dict = {}
-  att_weights_layer = rnn.engine.network.get_layer("label_model/att_weights")
-  seg_starts_layer = rnn.engine.network.get_layer("label_model/segment_starts")
-  seg_lens_layer = rnn.engine.network.get_layer("label_model/segment_lens")
-  output_dict["%s-out" % "att_weights"] = att_weights_layer.output.get_placeholder_as_batch_major()
-  output_dict["%s-out" % "seg_starts"] = seg_starts_layer.output.get_placeholder_as_batch_major()
-  output_dict["%s-out" % "seg_lens"] = seg_lens_layer.output.get_placeholder_as_batch_major()
+  if model_type == "seg":
+    att_weights_layer = rnn.engine.network.get_layer("label_model/att_weights")
+    seg_starts_layer = rnn.engine.network.get_layer("label_model/segment_starts")
+    seg_lens_layer = rnn.engine.network.get_layer("label_model/segment_lens")
+    output_dict["%s-out" % "att_weights"] = att_weights_layer.output.get_placeholder_as_batch_major()
+    output_dict["%s-out" % "seg_starts"] = seg_starts_layer.output.get_placeholder_as_batch_major()
+    output_dict["%s-out" % "seg_lens"] = seg_lens_layer.output.get_placeholder_as_batch_major()
+  else:
+    assert model_type == "glob"
+    att_weights_layer = rnn.engine.network.get_layer("output/att_weights")
+    output_dict["%s-out" % "att_weights"] = att_weights_layer.output.get_placeholder_as_batch_major()
 
   seq_idx = 0
   num_seqs = 0
@@ -34,16 +39,19 @@ def dump(hdf_dataset):
     num_seqs += 1
     out = rnn.engine.run_single(dataset=hdf_dataset, seq_idx=seq_idx, output_dict=output_dict)
     hdf_dataset.load_seqs(seq_idx, seq_idx + 1)
-    hdf_align = hdf_dataset.get_data(seq_idx, "alignment")
+    hdf_targets = hdf_dataset.get_data(seq_idx, label_name)
 
-    # get attention weights
-    att_weights = out["att_weights-out"][0]  # [S, seg_len]
-    seg_starts = out["seg_starts-out"][0]  # [S]
-    seg_lens = out["seg_lens-out"][0]  # [S]
+    if model_type == "seg":
+      hdf_targets = hdf_targets[hdf_targets != blank_idx]
+
+    # store data
+    data = {"weights": out["att_weights-out"][0]}
+    if model_type == "seg":
+      data.update({
+        "seg_starts": out["seg_starts-out"][0], "seg_lens": out["seg_lens-out"][0]})
 
     np.savez(
-      "data", weights=att_weights, seg_starts=seg_starts, seg_lens=seg_lens,
-      align=hdf_align)
+      "data", labels=hdf_targets, **data)
 
     seq_idx += 1
 
@@ -52,13 +60,18 @@ def dump(hdf_dataset):
 
 
 def net_dict_add_losses(net_dict):
-  net_dict["label_model"]["unit"]["att_weights"]["is_output_layer"] = True
-  net_dict["label_model"]["unit"]["segment_starts"]["is_output_layer"] = True
-  net_dict["label_model"]["unit"]["segment_lens"]["is_output_layer"] = True
+  if "label_model" in net_dict:
+    # in this case, we have a segmental model
+    net_dict["label_model"]["unit"]["att_weights"]["is_output_layer"] = True
+    net_dict["label_model"]["unit"]["segment_starts"]["is_output_layer"] = True
+    net_dict["label_model"]["unit"]["segment_lens"]["is_output_layer"] = True
+  else:
+    # in this case, we have a global model
+    net_dict["output"]["unit"]["att_weights"]["is_output_layer"] = True
 
   return net_dict
 
-def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, hdf_align):
+def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, hdf_targets, label_name):
   """
   :param str config_filename:
   :param list[str] command_line_options:
@@ -80,17 +93,17 @@ def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, h
     # "seq_list_filter_file": segment_file,
     "input_stddev": 3.}
 
-  hdf_align_opts = {
-    "class": "HDFDataset", "files": [hdf_align], "use_cache_manager": True,
+  hdf_targets_opts = {
+    "class": "HDFDataset", "files": [hdf_targets], "use_cache_manager": True,
     "seq_list_filter_file": segment_file,
     # "seq_ordering": "sorted",
     # "seq_order_seq_lens_file": "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
   }
 
   d_meta = {
-    "class": "MetaDataset", "datasets": {"sprint": d, "align": hdf_align_opts}, "data_map": {
+    "class": "MetaDataset", "datasets": {"sprint": d, "align": hdf_targets_opts}, "data_map": {
       "data": ("sprint", "data"),
-      "alignment": ("align", "data"),
+      label_name: ("align", "data"),
     }, "seq_order_control_dataset": "align", "seq_list_filter_file": segment_file,
   }
 
@@ -112,7 +125,10 @@ def main(argv):
   arg_parser.add_argument('--rasr_config_path')
   arg_parser.add_argument('--rasr_nn_trainer_exe')
   arg_parser.add_argument('--segment_file')
-  arg_parser.add_argument('--hdf_align')
+  arg_parser.add_argument('--blank_idx', type=int)
+  arg_parser.add_argument('--hdf_targets')
+  arg_parser.add_argument('--label_name')
+  arg_parser.add_argument('--model_type')
   arg_parser.add_argument("--returnn_root", help="path to returnn root")
   args = arg_parser.parse_args(argv[1:])
   sys.path.insert(0, args.returnn_root)
@@ -122,9 +138,9 @@ def main(argv):
   import returnn
   meta_dataset = init(
     config_filename=args.returnn_config, segment_file=args.segment_file, rasr_config_path=args.rasr_config_path,
-    rasr_nn_trainer_exe=args.rasr_nn_trainer_exe,
-    hdf_align=args.hdf_align)
-  dump(meta_dataset)
+    rasr_nn_trainer_exe=args.rasr_nn_trainer_exe, label_name=args.label_name,
+    hdf_targets=args.hdf_targets)
+  dump(meta_dataset, label_name=args.label_name, model_type=args.model_type, blank_idx=args.blank_idx)
   rnn.finalize()
 
 
