@@ -12,13 +12,14 @@ from recipe.i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
 class GlobalEncoderDecoderConfig:
   def __init__(
-          self, vocab, glob_model_type, target_num_labels=1030,
+          self, vocab, glob_model_type, target_num_labels=1030, import_model=None,
           epoch_split=6, beam_size=12, feature_stddev=None, dump_output=False,
           rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
           task="train", num_epochs=150, lstm_dim=1024, att_num_heads=1, sos_idx=0, sil_idx=None,
           train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
-          weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True):
+          weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
+          use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best"):
 
     self.post_config = post_config
 
@@ -38,6 +39,9 @@ class GlobalEncoderDecoderConfig:
     self.max_seqs = 200
     self.max_seq_length = {label_name: 75}
     self.truncation = -1
+
+    if import_model is not None:
+      self.load = import_model
 
     self.gradient_clip = 0
     self.adam = True
@@ -70,21 +74,24 @@ class GlobalEncoderDecoderConfig:
     self.batch_size = 10000 if self.task == "train" else 4000
 
     if glob_model_type == "new":
-      custom_construction_algo = network.new_custom_construction_algo
-      custom_construction_algo_str = "new_custom_construction_algo"
       get_net_dict = network.get_new_net_dict
     elif glob_model_type == "like-seg":
-      custom_construction_algo = network.custom_construction_algo
-      custom_construction_algo_str = "custom_construction_algo"
       get_net_dict = network.get_net_dict_like_seg_model
     elif glob_model_type == "best":
-      custom_construction_algo = network.best_custom_construction_algo
-      custom_construction_algo_str = "best_custom_construction_algo"
       get_net_dict = network.get_best_net_dict
     else:
-      custom_construction_algo = network.custom_construction_algo
-      custom_construction_algo_str = "custom_construction_algo"
       get_net_dict = network.get_net_dict
+
+    if pretrain_type == "new":
+      custom_construction_algo_str = "new_custom_construction_algo"
+      custom_construction_algo = network.new_custom_construction_algo
+    elif pretrain_type == "like-seg":
+      custom_construction_algo_str = "custom_construction_algo"
+      custom_construction_algo = network.custom_construction_algo
+    else:
+      assert pretrain_type == "best"
+      custom_construction_algo = network.best_custom_construction_algo
+      custom_construction_algo_str = "best_custom_construction_algo"
 
     self.import_prolog = ["from returnn.tf.util.data import DimensionTag", "import os", "import numpy as np",
                           "from subprocess import check_output, CalledProcessError"]
@@ -95,7 +102,8 @@ class GlobalEncoderDecoderConfig:
         lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim, beam_size=beam_size, sos_idx=sos_idx,
         feature_stddev=feature_stddev, weight_dropout=weight_dropout, with_state_vector=with_state_vector,
         with_weight_feedback=with_weight_feedback, prev_target_in_readout=prev_target_in_readout, sil_idx=sil_idx,
-        target=label_name, task=task, targetb_num_labels=target_num_labels+1, dump_output=dump_output)
+        target=label_name, task=task, targetb_num_labels=target_num_labels+1, dump_output=dump_output,
+        use_l2=use_l2, att_ctx_with_bias=att_ctx_with_bias, focal_loss=focal_loss)
     else:
       self.network = get_net_dict(lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim,
         beam_size=beam_size, sos_idx=sos_idx, time_red=time_red, l2=0.0001, learning_rate=self.learning_rate,

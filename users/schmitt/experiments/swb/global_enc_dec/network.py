@@ -108,6 +108,8 @@ def get_net_dict(
 
 def custom_construction_algo(idx, net_dict):
   import numpy as np
+  learning_rate = 0.001
+  time_red = [3, 2]
 
   if idx > 30:
     return None
@@ -115,7 +117,7 @@ def custom_construction_algo(idx, net_dict):
   net_dict["#config"] = {}
   if idx is not None:
     # learning rate warm up
-    lr_warmup = list(np.linspace(net_dict["#info"]["learning_rate"] * 0.1, net_dict["#info"]["learning_rate"], num=10))
+    lr_warmup = list(np.linspace(learning_rate * 0.1, learning_rate, num=10))
     if idx < len(lr_warmup):
       net_dict["#config"]["learning_rate"] = lr_warmup[idx]
 
@@ -141,12 +143,12 @@ def custom_construction_algo(idx, net_dict):
     net_dict["#info"].update({
       "dim_frac": dim_frac, "num_lstm_layers": num_lstm_layers, "pretrain_idx": idx})
 
-    time_reduction = net_dict["#info"]["time_red"] if num_lstm_layers >= 3 else [int(np.prod(net_dict["#info"]["time_red"]))]
+    time_reduction = time_red if num_lstm_layers >= 3 else [int(np.prod(time_red))]
 
     # Add encoder BLSTM stack
     src = "conv_merged"
-    lstm_dim = net_dict["#info"]["lstm_dim"]
-    l2 = net_dict["#info"]["l2"]
+    lstm_dim = 1024
+    l2 = 0.0001
     if num_lstm_layers >= 1:
       net_dict.update({
         "lstm0_fw": {
@@ -173,7 +175,7 @@ def custom_construction_algo(idx, net_dict):
 
 
   # Use label smoothing only at the very end.
-  net_dict["output"]["unit"]["output_prob"]["loss_opts"]["label_smoothing"] = 0
+  net_dict["output"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
 
 
   return net_dict
@@ -494,7 +496,8 @@ def get_net_dict_like_seg_model(
 
 def get_best_net_dict(
         lstm_dim, att_num_heads, att_key_dim, beam_size, sos_idx, feature_stddev, target, task, targetb_num_labels,
-        weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output, sil_idx):
+        weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output, sil_idx,
+        use_l2, att_ctx_with_bias, focal_loss):
   net_dict = {"#info": {"att_num_heads": att_num_heads, "enc_val_per_head": (lstm_dim * 2) // att_num_heads}}
   net_dict.update({
     "source": {
@@ -521,44 +524,44 @@ def get_best_net_dict(
 
     "lstm1_fw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": 1, "from": ["lstm0_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm1_bw": {
+      "L2": 0.0001 if use_l2 else None}, "lstm1_bw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": -1, "from": ["lstm0_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm1_pool": {
+      "L2": 0.0001 if use_l2 else None}, "lstm1_pool": {
       "class": "pool", "mode": "max", "padding": "same", "pool_size": (2,), "from": ["lstm1_fw", "lstm1_bw"],
       "trainable": False},
 
     "lstm2_fw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": 1, "from": ["lstm1_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm2_bw": {
+      "L2": 0.0001 if use_l2 else None}, "lstm2_bw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": -1, "from": ["lstm1_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm2_pool": {
+      "L2": 0.0001 if use_l2 else None}, "lstm2_pool": {
       "class": "pool", "mode": "max", "padding": "same", "pool_size": (1,), "from": ["lstm2_fw", "lstm2_bw"],
       "trainable": False},
 
     "lstm3_fw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": 1, "from": ["lstm2_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm3_bw": {
+      "L2": 0.0001 if use_l2 else None}, "lstm3_bw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": -1, "from": ["lstm2_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm3_pool": {
+      "L2": 0.0001 if use_l2 else None}, "lstm3_pool": {
       "class": "pool", "mode": "max", "padding": "same", "pool_size": (1,), "from": ["lstm3_fw", "lstm3_bw"],
       "trainable": False},
 
     "lstm4_fw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": 1, "from": ["lstm3_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm4_bw": {
+      "L2": 0.0001 if use_l2 else None}, "lstm4_bw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": -1, "from": ["lstm3_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm4_pool": {
+      "L2": 0.0001 if use_l2 else None}, "lstm4_pool": {
       "class": "pool", "mode": "max", "padding": "same", "pool_size": (1,), "from": ["lstm4_fw", "lstm4_bw"],
       "trainable": False},
 
     "lstm5_fw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": 1, "from": ["lstm4_pool"], "dropout": 0.3,
-      "L2": 0.0001}, "lstm5_bw": {
+      "L2": 0.0001 if use_l2 else None}, "lstm5_bw": {
       "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "direction": -1, "from": ["lstm4_pool"], "dropout": 0.3,
-      "L2": 0.0001},
+      "L2": 0.0001 if use_l2 else None},
 
     "encoder": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]},  # dim: EncValueTotalDim
-    "enc_ctx": {"class": "linear", "activation": None, "with_bias": False, "from": ["encoder"], "n_out": att_key_dim},
+    "enc_ctx": {"class": "linear", "activation": None, "with_bias": True if att_ctx_with_bias else False, "from": ["encoder"], "n_out": att_key_dim},
     # preprocessed_attended in Blocks
     "inv_fertility": {
       "class": "linear", "activation": "sigmoid", "with_bias": False, "from": ["encoder"], "n_out": att_num_heads},
@@ -629,6 +632,9 @@ def get_best_net_dict(
       "class": "decide", "from": ["output"], "loss": "edit_distance", "target": target, "loss_opts": {
         # "debug_print": True
       }}})
+
+  if focal_loss != 0.0:
+    net_dict["output"]["unit"]["label_prob"]["loss_opts"]["focal_loss_factor"] = focal_loss
 
   if sil_idx is not None and task == "search":
     net_dict.update({
