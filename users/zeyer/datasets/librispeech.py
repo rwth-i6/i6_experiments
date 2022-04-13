@@ -1,6 +1,4 @@
 
-from sisyphus import tk
-
 from i6_experiments.common.datasets import librispeech
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
