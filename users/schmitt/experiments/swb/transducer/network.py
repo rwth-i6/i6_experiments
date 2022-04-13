@@ -254,12 +254,12 @@ def get_alignment_net_dict(pretrain_idx):
 
 import numpy as np
 def get_extended_net_dict(
-  pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor,
+  pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
-  label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_align=False,
+  label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0):
 
@@ -349,7 +349,7 @@ def get_extended_net_dict(
         "class": "copy", "from": "ctc_out_scores", "loss": "ctc" if task == "train" else None,
         "target": "label_ground_truth" if task == "train" else None, "loss_opts": {
           "beam_width": 1, "use_native": True, "output_in_log_space": True,
-          "ctc_opts": {"logits_normalize": False}} if task == "train" else None}
+          "ctc_opts": {"logits_normalize": False}} if task == "train" else None},
     })
   elif task == "search":
     net_dict.update({
@@ -622,46 +622,86 @@ def get_extended_net_dict(
         "prev_out_is_non_blank": {
           "class": "switch", "condition": "prev:output_emit", "true_from": "2d_emb1", "false_from": "2d_emb0"}
       })
-    if label_dep_length_model:
-      assert label_dep_means is not None
-      assert max_seg_len is not None
+    if length_model_type.startswith("seg"):
+      if length_model_type == "seg-static":
+        assert label_dep_means is not None
+        assert max_seg_len is not None
 
-      net_dict.update({
-        "max_seg_len_range0": {"class": "range", "limit": max_seg_len + 1, "start": 1, "delta": 1},
-        "max_seg_len_range": {"class": "cast", "from": "max_seg_len_range0", "dtype": "float32"},
-        "mean_seg_lens0": {
-          "class": "constant", "value": CodeWrapper("np.array(%s)" % label_dep_means), "with_batch_dim": True},
-        "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"},
-        "length_model_norm0": {
-          "class": "eval", "from": ["mean_seg_lens", "max_seg_len_range"],
-          "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1)))"},
-        "length_model_norm": {
-          "class": "reduce", "from": ["length_model_norm0"], "mode": "sum", "axes": ["stag:max_seg_len_range0:range"]},
-      })
-      net_dict["output"]["unit"].update({
-        "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
-        "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
-        "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
-        "length_model0": {
-          "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
-          "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
-        "length_model": {
-          "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
-        "emit_log_prob": {
-          "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"
-        },
-        "max_seg_len": {
-          "class": "constant", "value": max_seg_len-1},
-        "is_segment_longer_than_max": {
-          "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater"},
-        'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
-        'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
-        "blank_log_prob": {
-          "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
-          "false_from": "const0.0"
-        }
-      })
+        net_dict.update({
+          "max_seg_len_range0": {"class": "range", "limit": max_seg_len + 1, "start": 1, "delta": 1},
+          "max_seg_len_range": {"class": "cast", "from": "max_seg_len_range0", "dtype": "float32"},
+          "mean_seg_lens0": {
+            "class": "constant", "value": CodeWrapper("np.array(%s)" % label_dep_means), "with_batch_dim": True},
+          "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"},
+          "length_model_norm0": {
+            "class": "eval", "from": ["mean_seg_lens", "max_seg_len_range"],
+            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1)))"},
+          "length_model_norm": {
+            "class": "reduce", "from": ["length_model_norm0"], "mode": "sum", "axes": ["stag:max_seg_len_range0:range"]},
+        })
+        net_dict["output"]["unit"].update({
+          "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
+          "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
+          "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
+          "length_model0": {
+            "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
+            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
+          "length_model": {
+            "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
+          "emit_log_prob": {
+            "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"
+          },
+          "max_seg_len": {
+            "class": "constant", "value": max_seg_len-1},
+          "is_segment_longer_than_max": {
+            "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater"},
+          'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
+          'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
+          "blank_log_prob": {
+            "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
+            "false_from": "const0.0"
+          }
+        })
+      else:
+        assert length_model_type == "seg-neural"
+        if task == "train":
+          net_dict.update({
+            "time_range": {
+              "class": "range_in_axis", "from": "data:targetb", "axis": "t"
+            },
+            "seg_lens_data": {
+              "class": "masked_computation", "mask": "is_label", "from": "time_range", "unit": {
+                "class": "subnetwork", "from": "data", "subnetwork": {
+                  "positions": {"class": "copy", "from": "data"},
+                  "positions_0_prefix": {"class": "prefix_in_time", "from": "positions", "prefix": 0},
+                  "positions_shifted": {"class": "shift_axis", "from": "positions_0_prefix", "amount": 1, "pad": False},
+                  "seg_lens": {"class": "combine", "kind": "sub", "from": ["positions", "positions_shifted"]},
+                  "output": "copy", "from": "seg_lens"
+                }
+              }
+            }
+          })
+        net_dict["output"]["unit"].update({
+          "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
+          "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
+          "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
+          "length_model0": {
+            "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
+            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
+          "length_model": {
+            "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
+          "emit_log_prob": {
+            "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"},
+          "max_seg_len": {
+            "class": "constant", "value": max_seg_len - 1}, "is_segment_longer_than_max": {
+            "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater"},
+          'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
+          'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
+          "blank_log_prob": {
+            "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
+            "false_from": "const0.0"}})
     else:
+      assert length_model_type == "frame"
       net_dict["output"]["unit"].update({
         "s": get_fast_network_dict(rec=fast_rec, rec_full=fast_rec_full),
         "emit_prob0": {"class": "linear", "from": "s", "activation": None, "n_out": 1, "is_output_layer": True},
@@ -745,7 +785,7 @@ def get_extended_net_dict(
     }
     net_dict["source"]["from"] = "source_stddev"
 
-  if dump_align:
+  if dump_output:
     net_dict.update({
       "decision_w_b": {
         "class": "decide", "from": "output", "loss": "edit_distance", "target": "targetb", 'only_on_search': True},

@@ -15,7 +15,7 @@ import numpy as np
 
 class TransducerSWBBaseConfig:
   def __init__(self, vocab,
-               target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40,
+               target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40, beam_size=12,
                epoch_split=6, rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
                _attention_type=0, post_config={}, task="train", num_epochs=150,
                search_output_layer="decision", max_seqs=200):
@@ -53,7 +53,7 @@ class TransducerSWBBaseConfig:
         self.beam_size = 4
     else:
         self.num_epochs = num_epochs
-        self.beam_size = 12
+        self.beam_size = beam_size
     self.learning_rate = 0.001
     self.min_learning_rate = self.learning_rate / 50.
     self.search_output_layer = search_output_layer
@@ -154,11 +154,12 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
     att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
+    length_model_type,
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
-    search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_align=False,
+    search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
     label_model_focal_loss=2.0, import_model=None, learning_rates=None, **kwargs):
 
@@ -210,7 +211,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     #   ]
     # TODO check, whether all current combinations of hyperparameters are working for training and search
     self.network = get_extended_net_dict(
-      pretrain_idx=None, learning_rate=self.learning_rate, num_epochs=150,
+      pretrain_idx=None, learning_rate=self.learning_rate, num_epochs=150, length_model_type=length_model_type,
       enc_val_dec_factor=1, target_num_labels=self.target_num_labels, target=self.target, task=self.task,
       targetb_num_labels=self.targetb_num_labels, scheduled_sampling=scheduled_sampling, lstm_dim=lstm_dim, l2=0.0001,
       beam_size=self.beam_size, length_model_inputs=length_model_inputs, prev_att_in_state=prev_att_in_state,
@@ -218,7 +219,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
       label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0,
       efficient_loss=efficient_loss, time_reduction=time_red, ctx_size=ctx_size, fast_rec=fast_rec,
       sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,
-      feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_align=dump_align,
+      feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
       label_dep_length_model=label_dep_length_model, label_dep_means=label_dep_means, direct_softmax=direct_softmax,
       max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model,
       length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss)
