@@ -43,14 +43,13 @@ def run():
 
     batching="random",
     log_batch_size=True,
-    batch_size=12000,
+    batch_size=1000,
     max_seqs=200,
     max_seq_length={"classes": 75},
 
     gradient_clip=0,
     # gradient_clip_global_norm = 1.0
-    adam=True,
-    optimizer_epsilon=1e-8,
+    optimizer={"class": "nadam", "epsilon": 1e-8},
     # debug_add_check_numerics_ops = True
     # debug_add_check_numerics_on_output = True
     # stop_on_nonfinite_train_score = False,
