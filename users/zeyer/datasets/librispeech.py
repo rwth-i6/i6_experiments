@@ -60,8 +60,6 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     # d["audio"]["random_permute"] = True  # play around. note that this can be slow
     d["seq_ordering"] = "laplace:.1000"
   else:
-    if not key.startswith("train") and targets:
-      d["targets"]['unknown_label'] = '<unk>'  # only for non-train. for train, there never should be an unknown
     d["fixed_random_seed"] = 1
     d["seq_ordering"] = "sorted_reverse"
   if subset:
