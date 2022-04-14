@@ -266,7 +266,7 @@ def get_extended_net_dict(
   assert ctx_size == "inf" or type(ctx_size) == int
   assert not sep_sil_model or sil_idx == 0  # assume in order to construct output_prob vector (concat sil_prob, label_prob, blank_prob)
   assert not label_dep_length_model or (label_dep_means is not None and max_seg_len is not None)
-  assert task != "train" or not label_dep_length_model
+  # assert task != "train" or not label_dep_length_model
 
   net_dict = {"#info": {"lstm_dim": lstm_dim, "l2": l2, "learning_rate": learning_rate, "time_red": time_reduction}}
   if task == "search":

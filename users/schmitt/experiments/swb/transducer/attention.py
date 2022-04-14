@@ -26,7 +26,7 @@ import copy
 def add_attention(
   net_dict, att_seg_emb_size, att_seg_use_emb, att_win_size, task, EncValueTotalDim, EncValueDecFactor, EncKeyTotalDim,
   att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
-  AttNumHeads, EncValuePerHeadDim, l2, EncKeyPerHeadDim, AttentionDropout, att_query):
+  AttNumHeads, EncValuePerHeadDim, l2, EncKeyPerHeadDim, AttentionDropout, att_query, ctx_with_bias):
   """This function expects a network dictionary of an "extended transducer" model and adds a self-attention mechanism
   according to some parameters set in the returnn config.
 
@@ -345,7 +345,8 @@ def add_attention(
         "segments": {
           "class": "reinterpret_data", "from": "segments0", "set_dim_tags": {"stag:sliced-time:segments": att_time_tag}},
         "att_ctx": {  # [B,D]
-          "class": "linear", "from": "segments", "activation": None, "with_bias": False, "n_out": EncKeyTotalDim,
+          "class": "linear", "from": "segments", "activation": None,
+          "with_bias": True if ctx_with_bias else False, "n_out": EncKeyTotalDim,
           "L2": l2, "dropout": 0.2},
         "att_val": {"class": "copy", "from": "segments"} if not (att_seg_use_emb and att_seg_emb_size) else {  # (B, T, D)
           "class": "linear", "from": ["segments"], "activation": None, "with_bias": False,
