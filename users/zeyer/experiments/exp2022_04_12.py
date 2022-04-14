@@ -5,7 +5,7 @@ from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from returnn_common import nn
 
 
-def main():
+def run():
   for name, path in librispeech.librispeech_ogg_zip_dict.items():
     tk.register_output(f"librispeech/dataset/{name}", path)
 
@@ -21,14 +21,15 @@ def main():
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
     def __call__(self, x: nn.Tensor, **kwargs) -> nn.Tensor:
-      assert not kwargs
-      x, _ = super(Model, self).__call__(x)
+      x, _ = super(Model, self).__call__(x, **kwargs)
       x = self.output(x)
       return x
 
   # TODO specaug
   model = Model()
-  logits = model(nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim])))
+  logits = model(
+    nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim])),
+    in_spatial_dim=time_dim)
   loss = nn.ctc_loss(
     logits=logits,
     targets=nn.get_extern_data(nn.Data("target", dim_tags=[nn.batch_dim, time_dim], sparse_dim=output_dim)))
@@ -46,7 +47,6 @@ def main():
     max_seqs=200,
     max_seq_length={"classes": 75},
 
-    cleanup_old_models=True,
     gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     adam=True,
@@ -68,6 +68,9 @@ def main():
  )
 
   returnn_train_config = ReturnnConfig(
-    returnn_train_config_dict, python_epilog=model_py_code_str)
+    returnn_train_config_dict,
+    python_epilog=model_py_code_str,
+    post_config=dict(cleanup_old_models=True),
+  )
   returnn_train_job = ReturnnTrainingJob(returnn_train_config, log_verbosity=5, num_epochs=100)
   tk.register_output("librispeech/ctc-model/learning-rates", returnn_train_job.out_learning_rates)
