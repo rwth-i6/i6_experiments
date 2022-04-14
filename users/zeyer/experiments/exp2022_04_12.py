@@ -32,7 +32,7 @@ def run():
     in_spatial_dim=time_dim)
   loss = nn.ctc_loss(
     logits=logits,
-    targets=nn.get_extern_data(nn.Data("target", dim_tags=[nn.batch_dim, time_dim], sparse_dim=output_dim)))
+    targets=nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, time_dim], sparse_dim=output_dim)))
   loss.mark_as_loss()
   model_py_code_str = nn.get_returnn_config().get_complete_py_code_str(model)
 
@@ -69,8 +69,22 @@ def run():
 
   returnn_train_config = ReturnnConfig(
     returnn_train_config_dict,
-    python_epilog=model_py_code_str,
+    python_epilog=[
+      model_py_code_str,
+      # https://github.com/rwth-i6/returnn/issues/957
+      # https://stackoverflow.com/a/16248113/133374
+      """
+import resource
+import sys
+try:
+  resource.setrlimit(resource.RLIMIT_STACK, (2 ** 29, -1))
+except Exception as exc:
+  print(f"resource.setrlimit {type(exc).__name__}: {exc}")
+sys.setrecursionlimit(10 ** 6)
+"""
+    ],
     post_config=dict(cleanup_old_models=True),
+    pprint_kwargs=dict(sort_dicts=False),
   )
   returnn_train_job = ReturnnTrainingJob(returnn_train_config, log_verbosity=5, num_epochs=100)
   tk.register_output("librispeech/ctc-model/learning-rates", returnn_train_job.out_learning_rates)
