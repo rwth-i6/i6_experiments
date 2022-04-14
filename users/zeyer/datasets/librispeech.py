@@ -42,7 +42,7 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
   parts = [part for part in _Parts if part.startswith(key)]
   assert parts
   for part in parts:
-    files += librispeech_ogg_zip_dict[part]
+    files += [librispeech_ogg_zip_dict[part]]
   d = {
     "class": 'OggZipDataset',
     "path": files,
