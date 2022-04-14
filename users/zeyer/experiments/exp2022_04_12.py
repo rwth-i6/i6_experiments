@@ -13,6 +13,7 @@ def run():
 
   input_dim = nn.FeatureDim("input", 40)
   time_dim = nn.SpatialDim("time")
+  targets_time_dim = nn.SpatialDim("targets-time")
   output_dim = nn.FeatureDim("output", 2000)
 
   class Model(nn.ConformerEncoder):
@@ -20,8 +21,11 @@ def run():
       super(Model, self).__init__(num_layers=10, out_dim=nn.FeatureDim("conformer", 256))
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
-    def __call__(self, x: nn.Tensor, **kwargs) -> nn.Tensor:
-      x, _ = super(Model, self).__call__(x, **kwargs)
+    def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> nn.Tensor:
+      x, out_spatial_dim = super(Model, self).__call__(x, in_spatial_dim=in_spatial_dim, **kwargs)
+      assert isinstance(out_spatial_dim, nn.Dim)
+      if out_spatial_dim != in_spatial_dim:
+        out_spatial_dim.declare_same_as(nn.SpatialDim("downsampled-time"))
       x = self.output(x)
       return x
 
@@ -32,7 +36,7 @@ def run():
     in_spatial_dim=time_dim)
   loss = nn.ctc_loss(
     logits=logits,
-    targets=nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, time_dim], sparse_dim=output_dim)))
+    targets=nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim)))
   loss.mark_as_loss()
   model_py_code_str = nn.get_returnn_config().get_complete_py_code_str(model)
 
@@ -54,6 +58,7 @@ def run():
     # debug_add_check_numerics_on_output = True
     # stop_on_nonfinite_train_score = False,
     tf_log_memory_usage=True,
+    tf_session_opts={"gpu_options": {"allow_growth": True}},
     gradient_noise=0.0,
     learning_rate=0.001,
     learning_rate_control="newbob_multi_epoch",
