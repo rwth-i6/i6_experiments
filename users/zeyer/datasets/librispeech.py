@@ -54,9 +54,8 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
     d["partition_epoch"] = train_partition_epoch
     if key == "train":
       d["epoch_wise_filter"] = {
-        (1, 20): {
-          'use_new_filter': True,
-          'subdirs': ['train-clean-100', 'train-clean-360']},
+        (1, 5): {'max_mean_len': 200},
+        (6, 10): {'max_mean_len': 500},
       }
     # d["audio"]["random_permute"] = True  # play around. note that this can be slow
     d["seq_ordering"] = "laplace:.1000"
@@ -90,7 +89,11 @@ default_targets_opts = {
 default_epoch_split = 20
 
 default_dataset_config = {
-  "train": _get_dataset("train", training=True, train_partition_epoch=default_epoch_split, audio=default_audio_opts),
-  "dev": _get_dataset("dev", subset=3000, audio=default_audio_opts),
-  "eval_datasets": {"devtrain": _get_dataset("train", subset=2000, audio=default_audio_opts)},
+  "train": _get_dataset(
+    "train", training=True, train_partition_epoch=default_epoch_split,
+    audio=default_audio_opts, targets=default_targets_opts),
+  "dev": _get_dataset("dev", subset=3000, audio=default_audio_opts, targets=default_targets_opts),
+  "eval_datasets": {
+    "devtrain": _get_dataset("train", subset=2000, audio=default_audio_opts, targets=default_targets_opts),
+  },
 }
