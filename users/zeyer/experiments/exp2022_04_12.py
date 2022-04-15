@@ -18,7 +18,9 @@ def run():
 
   class Model(nn.ConformerEncoder):
     def __init__(self):
-      super(Model, self).__init__(num_layers=6, num_heads=4, out_dim=nn.FeatureDim("conformer", 256))
+      super(Model, self).__init__(
+        # Smaller...
+        num_layers=4, num_heads=4, out_dim=nn.FeatureDim("conformer", 256), ff_dim=nn.FeatureDim("ff", 512)),
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> nn.Tensor:
@@ -42,6 +44,7 @@ def run():
 
   returnn_train_config_dict = dict(
     use_tensorflow=True,
+    # flat_net_construction=True,
 
     **librispeech.default_dataset_config,
 
