@@ -260,6 +260,7 @@ def get_extended_net_dict(
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
+  length_scale=1.,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0):
 
@@ -602,10 +603,13 @@ def get_extended_net_dict(
           "label_log_prob2": {
             "class": "copy", "from": ["sil_log_prob", "label_log_prob1"], },
           "label_log_prob": {
-            "class": "combine", "from": ["label_log_prob2", "emit_log_prob"], "kind": "add", }
+            "class": "combine", "from": [
+              "label_log_prob2",
+              "emit_log_prob" if length_scale == 1. else "emit_log_prob_scaled"], "kind": "add", }
         })
+
       else:
-        rec_unit_dict["label_log_prob"]["from"].append("emit_log_prob")
+        rec_unit_dict["label_log_prob"]["from"].append("emit_log_prob" if length_scale == 1. else "emit_log_prob_scaled")
       net_dict["output"]["unit"].update(rec_unit_dict)
 
     return net_dict
@@ -727,6 +731,12 @@ def get_extended_net_dict(
           "loss": "ce", "loss_opts": {"focal_loss_factor": length_model_focal_loss}}
       })
 
+    if length_scale != 1.:
+      net_dict["output"]["unit"].update({
+        "emit_log_prob_scaled": {"class": "eval", "from": "emit_log_prob", "eval": "%s * source(0)" % length_scale},
+        "blank_log_prob_scaled": {"class": "eval", "from": "blank_log_prob", "eval": "%s * source(0)" % length_scale}
+      })
+
     return net_dict
 
   def get_output_dict():
@@ -748,8 +758,11 @@ def get_extended_net_dict(
         # in case of a label dep length model, the silence log prob is earlier concatenated with the label log prob
         "output_log_prob": {
           "class": "copy",
-          "from": ["label_log_prob", "blank_log_prob"] if not sep_sil_model or label_dep_length_model else [
-            "sil_log_prob", "label_log_prob", "blank_log_prob"
+          "from": [
+            "label_log_prob",
+            "blank_log_prob" if length_scale == 1. else "blank_log_prob_scaled"] if not sep_sil_model or label_dep_length_model else [
+            "sil_log_prob", "label_log_prob",
+            "blank_log_prob" if length_scale == 1. else "emit_log_prob_scaled"
           ]}})
 
     if task == "search" and search_use_recomb:

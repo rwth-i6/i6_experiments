@@ -161,7 +161,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
-    label_model_focal_loss=2.0, import_model=None, learning_rates=None, **kwargs):
+    label_model_focal_loss=2.0, import_model=None, learning_rates=None, length_scale=1., **kwargs):
 
     super().__init__(*args, **kwargs)
 
@@ -221,7 +221,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
       sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,
       feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
       label_dep_length_model=label_dep_length_model, label_dep_means=label_dep_means, direct_softmax=direct_softmax,
-      max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model,
+      max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model, length_scale=length_scale,
       length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss)
     if use_attention:
       self.network = add_attention(
