@@ -1,6 +1,7 @@
 
 from sisyphus import tk
 from ..datasets import librispeech
+# from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from returnn_common import nn
 
@@ -10,6 +11,9 @@ def run():
     tk.register_output(f"librispeech/dataset/{name}", path)
 
   tk.register_output("librispeech/sentencepiece-2k.model", librispeech.spm_2k)
+
+  # tk.register_output(
+  #  "librispeech/tf-dataset", DownloadAndPrepareTfDatasetJob("librispeech").out_data_dir)
 
   input_dim = nn.FeatureDim("input", 40)
   time_dim = nn.SpatialDim("time")
@@ -93,5 +97,5 @@ sys.setrecursionlimit(10 ** 6)
     post_config=dict(cleanup_old_models=True),
     sort_config=False,
   )
-  returnn_train_job = ReturnnTrainingJob(returnn_train_config, log_verbosity=5, num_epochs=100)
-  tk.register_output("librispeech/ctc-model/learning-rates", returnn_train_job.out_learning_rates)
+  # returnn_train_job = ReturnnTrainingJob(returnn_train_config, log_verbosity=5, num_epochs=100)
+  # tk.register_output("librispeech/ctc-model/learning-rates", returnn_train_job.out_learning_rates)
