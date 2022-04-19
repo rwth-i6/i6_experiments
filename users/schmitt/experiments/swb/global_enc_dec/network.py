@@ -176,6 +176,9 @@ def custom_construction_algo(idx, net_dict):
 
   # Use label smoothing only at the very end.
   net_dict["output"]["unit"]["label_prob"]["loss_opts"]["label_smoothing"] = 0
+  net_dict["output"]["unit"]["att"]["axes"][0] = ["dim:%s" % net_dict["#info"]["att_num_heads"]]
+  net_dict["output"]["unit"]["att"]["axes"][1] = [
+    "dim:%s" % (int(net_dict["#info"]["enc_val_per_head"] * dim_frac * 0.5) * 2)]
 
 
   return net_dict
