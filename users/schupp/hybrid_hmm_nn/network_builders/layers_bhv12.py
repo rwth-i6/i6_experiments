@@ -32,6 +32,12 @@ from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.co
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_v3 import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_v3
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_condtrain import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_traincond
 
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_condtrain_positions import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_traincond_positions
+
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_stochastic_depth_layer_condtrain_positions_crnn import conformer_enc_layer_all_in_one_stoch_depth as conformer_enc_layer_all_in_one_stoch_depth_traincond_positions_crnn
+
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_no_conv_actviation import conformer_conv_act_swith
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.network_builders.layers.conformer_conv_norm_switch import conformer_conv_norm_swith
 
 def add_conv_layer(network, idx, filter_size, padding, strides, dim, from_layers,
                    *, with_bias=None, activation=None):
@@ -1154,6 +1160,16 @@ def conformer_enc_layer_all_in_one(*args, tbs_version="default", **kwargs):
   elif tbs_version == "stoch_depth_traincond":
     return conformer_enc_layer_all_in_one_stoch_depth_traincond(*args, **kwargs)
 
+  elif tbs_version == "stoch_depth_traincond_pos":
+    return conformer_enc_layer_all_in_one_stoch_depth_traincond_positions(*args, **kwargs)
+
+  elif tbs_version == "stoch_depth_traincond_crnn":
+    return conformer_enc_layer_all_in_one_stoch_depth_traincond_positions_crnn(*args, **kwargs)
+
+  elif tbs_version == "conv_act_swith":
+    return conformer_conv_act_swith(*args, **kwargs)
+  elif tbs_version == "conv_norm_swith":
+    return conformer_conv_norm_swith(*args, **kwargs)
 
 # untied_pe=False, relative_pe_transformer_xl=False
 # energy_factor

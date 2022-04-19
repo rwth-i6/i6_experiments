@@ -72,20 +72,28 @@ def conformer_enc_layer_all_in_one_stoch_depth(
   half_ratio_levels = None, 
   with_se = False, # TODO: this was on on cyclemoid, and maybe also other activations
   with_stochastic_depth=True,
-  survival_prob=0.5
+  survival_prob=0.5,
+  surival_prob_idx=None,
+  stoch_pos=[],#["ff_mod1", "ff_mod2", "conv_mod", "att_mod"] -> indicates all postions to use
 ):
-  print("TBS: SE block layer")
   if windowing or untied_pe or relative_pe_transformer_xl or energy_factor != -0.5:
     assert separated
 
+  if stoch_pos == "all":
+    stoch_pos = ["ff_mod1", "ff_mod2", "conv_mod", "att_mod"]
+
+  idx = int(name.split("_")[-1]) - 1 # Hack but does the trick
+
   if half_ratio_levels is not None:
-    idx = int(name.split("_")[-1]) - 1 # Hack but does the trick
     half_ratio = half_ratio_levels[idx]
 
   if from_layers is None:
     from_layers = ["data"]
   elif isinstance(from_layers, str):
     from_layers = [from_layers]
+
+  if not surival_prob_idx is None:
+    survival_prob = surival_prob_idx[idx]
 
   ## first ffn with residual connection
   network[f"{name}_ff1_laynorm"] = {'class': "layer_norm",
@@ -126,7 +134,7 @@ def conformer_enc_layer_all_in_one_stoch_depth(
     'from': [f"{name}_ff1_drop"]
   }
 
-  if with_stochastic_depth:
+  if with_stochastic_depth and "ff_mod1" in stoch_pos:
     network[f"{name}_ff1_out"] = {
       "class" : "eval",
       "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
@@ -668,7 +676,7 @@ def conformer_enc_layer_all_in_one_stoch_depth(
       'from': [f"{name}_self_att_att"]
     }
 
-  if with_stochastic_depth:
+  if with_stochastic_depth and "att_mod" in stoch_pos:
     network[f"{name}_self_att_out"] = {
       "class" : "eval",
       "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
@@ -779,7 +787,7 @@ def conformer_enc_layer_all_in_one_stoch_depth(
     'from': [out_layer_name],
   }
 
-  if with_stochastic_depth:
+  if with_stochastic_depth and "conv_mod" in stoch_pos:
     network[f"{name}_conv_output"] = {
       "class" : "eval",
       "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
@@ -832,7 +840,7 @@ def conformer_enc_layer_all_in_one_stoch_depth(
   }
 
 
-  if with_stochastic_depth:
+  if with_stochastic_depth and "ff_mod2" in stoch_pos:
     network[f"{name}_ff2_out"] = {
       "class" : "eval",
       "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",

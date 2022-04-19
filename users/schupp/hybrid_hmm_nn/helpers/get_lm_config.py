@@ -1,4 +1,5 @@
-from i6_private.users.pzheng.librispeech_luescher import OFFICIAL_LANGUAGE_MODELS
+# Original author, maybe also luescher, not sure
+from i6_experiments.users.schupp.hybrid_hmm_nn.helpers.librispeech_luescher import OFFICIAL_LANGUAGE_MODELS
 
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn

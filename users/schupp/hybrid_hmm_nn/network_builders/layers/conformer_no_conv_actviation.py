@@ -2,6 +2,31 @@ DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='unifor
 
 # Patchining in some alternate conformer arcitectures
 
+def add_SD_switch_layer(network, in_layer2, in_layer1, name_replace, surival_prob=0.5):
+  # a returnn implementation of stochastic depth
+  # in_layer1 -> module
+  # in_layer2 -> residual
+
+  # I still need some 'returnn' random layer to get bernully random var
+  # Also need a layer that has 'in training' condition
+
+  # TODO: what is the returnn way to get a bernoulli random: RandomLayer
+
+  # TODO: do we need to use a complete subnetwork for every module, to have all optimizations?
+  # TODO: Is there a returnn-layer for cond_on_train?
+
+  network[name_replace] = {
+        "class": "cond", "from": [],
+        "condition": {
+          "class": "eval", "from": [], "out_type": {"batch_dim_axis": None, "shape": (), "dtype": "bool"},
+          "eval": f"tf.equal(0, self.network.cond_on_train(tf.compat.v1.distributions.Bernoulli(probs={surival_prob}).sample(sample_shape=()), 0))" # Replace with some returnn 'random' layer
+          },
+        "true_layer": { "class": "eval", "eval": f"source(0) + self.network.cond_on_train(labmda : tf.constant(1), lambda : tf.constant({surival_prob})) * source(1)", "from": [in_layer1, in_layer2]},
+        "false_layer": { "class": "copy", "from": [in_layer2] } # Only residual
+        }
+
+  return name_replace
+
 def add_SE_block(network, in_layer, name_prefix):
   # This adds and SE block anywhere
   # Returns the output layer name
@@ -52,7 +77,7 @@ def add_SE_block(network, in_layer, name_prefix):
   return name_prefix + "_SE_elm_mul"
 
 
-def conformer_enc_layer_all_in_one_stoch_depth(
+def conformer_conv_act_swith(
   network, name, num_heads, model_dim, key_dim, value_dim, ff_dim,
   kernel_size,
   sa_dropout, sa_post_dropout, ff_activation_dropout, ff_post_dropout,
@@ -71,21 +96,33 @@ def conformer_enc_layer_all_in_one_stoch_depth(
   half_ratio = 0.5,
   half_ratio_levels = None, 
   with_se = False, # TODO: this was on on cyclemoid, and maybe also other activations
-  with_stochastic_depth=True,
-  survival_prob=0.5
+  with_stochastic_depth=False,
+  survival_prob=0.5,
+  surival_prob_idx=None,
+  stoch_pos=[],#["ff_mod1", "ff_mod2", "conv_mod", "att_mod"] -> indicates all postions to use
+  conv_acts = [True, True]
 ):
-  print("TBS: SE block layer")
   if windowing or untied_pe or relative_pe_transformer_xl or energy_factor != -0.5:
     assert separated
 
+  if stoch_pos == "all":
+    stoch_pos = ["ff_mod1", "ff_mod2", "conv_mod", "att_mod"]
+
+  act_first_conv = conv_acts[0]
+  act_sec_conv = conv_acts[1]
+
+  idx = int(name.split("_")[-1]) - 1 # Hack but does the trick
+
   if half_ratio_levels is not None:
-    idx = int(name.split("_")[-1]) - 1 # Hack but does the trick
     half_ratio = half_ratio_levels[idx]
 
   if from_layers is None:
     from_layers = ["data"]
   elif isinstance(from_layers, str):
     from_layers = [from_layers]
+
+  if not surival_prob_idx is None:
+    survival_prob = surival_prob_idx[idx]
 
   ## first ffn with residual connection
   network[f"{name}_ff1_laynorm"] = {'class': "layer_norm",
@@ -126,12 +163,11 @@ def conformer_enc_layer_all_in_one_stoch_depth(
     'from': [f"{name}_ff1_drop"]
   }
 
-  if with_stochastic_depth:
-    network[f"{name}_ff1_out"] = {
-      "class" : "eval",
-      "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
-      "from" : from_layers + [f"{name}_ff1_drop_half"]
-    }
+  if with_stochastic_depth and "ff_mod1" in stoch_pos:
+
+    layers = from_layers + [f"{name}_ff1_drop_half"]
+
+    add_SD_switch_layer(network, layers[0], layers[1], f"{name}_ff1_out", surival_prob=survival_prob)
   else:
     network[f"{name}_ff1_out"] = {
       'class': "combine", 'kind': "add",
@@ -668,12 +704,12 @@ def conformer_enc_layer_all_in_one_stoch_depth(
       'from': [f"{name}_self_att_att"]
     }
 
-  if with_stochastic_depth:
-    network[f"{name}_self_att_out"] = {
-      "class" : "eval",
-      "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
-      "from" : [f"{name}_ff1_out", f"{name}_self_att_drop"]
-    }
+  if with_stochastic_depth and "att_mod" in stoch_pos:
+
+    layers = [f"{name}_ff1_out", f"{name}_self_att_drop"]
+
+    add_SD_switch_layer(network, layers[0], layers[1], f"{name}_self_att_out", surival_prob=survival_prob)
+
   else:
     network[f"{name}_self_att_out"] = {
       'class': "combine", 'kind': "add",
@@ -760,11 +796,19 @@ def conformer_enc_layer_all_in_one_stoch_depth(
       'from': [f"{name}_conv_batchnorm"]
     }
 
-  network[f"{name}_conv_pointwise2"] = {
-    'class': "linear", 'activation': None, 'with_bias': False,
-    'from': [f"{name}_conv_act"], 'n_out': model_dim,
-    'forward_weights_init': initialization
-  }
+  if not act_first_conv:
+    network[f"{name}_conv_pointwise2"] = {
+      'class': "linear", 'activation': None, 'with_bias': False,
+      'from': [f"{name}_conv_batchnorm"], 'n_out': model_dim,
+      'forward_weights_init': initialization
+    }
+
+  else:
+    network[f"{name}_conv_pointwise2"] = {
+      'class': "linear", 'activation': None, 'with_bias': False,
+      'from': [f"{name}_conv_act"], 'n_out': model_dim,
+      'forward_weights_init': initialization
+    }
 
   out_layer_name = f"{name}_conv_pointwise2"
 
@@ -779,12 +823,12 @@ def conformer_enc_layer_all_in_one_stoch_depth(
     'from': [out_layer_name],
   }
 
-  if with_stochastic_depth:
-    network[f"{name}_conv_output"] = {
-      "class" : "eval",
-      "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
-      "from" : [f"{name}_self_att_out", f"{name}_conv_dropout"] # TODO: should we be defining also the model dim?
-    }
+  if with_stochastic_depth and "conv_mod" in stoch_pos:
+
+    layers = [f"{name}_self_att_out", f"{name}_conv_dropout"]
+
+    add_SD_switch_layer(network, layers[0], layers[1], f"{name}_conv_output", surival_prob=survival_prob)
+
   else:
     network[f"{name}_conv_output"] = {
       'class': "combine", 'kind': "add",
@@ -810,11 +854,18 @@ def conformer_enc_layer_all_in_one_stoch_depth(
     }
 
   else: 
-    network[f"{name}_ff2_conv1"] = {
-      'class': "linear", 'activation': ff_activation, 'with_bias': True,
-      'from': [f"{name}_ff2_laynorm"],
-      'n_out': ff_dim, 'forward_weights_init': initialization
-    }
+    if not act_sec_conv:
+      network[f"{name}_ff2_conv1"] = {
+        'class': "linear", 'activation': None, 'with_bias': True,
+        'from': [f"{name}_ff2_laynorm"],
+        'n_out': ff_dim, 'forward_weights_init': initialization
+      }
+    else:
+      network[f"{name}_ff2_conv1"] = {
+        'class': "linear", 'activation': ff_activation, 'with_bias': True,
+        'from': [f"{name}_ff2_laynorm"],
+        'n_out': ff_dim, 'forward_weights_init': initialization
+      }
 
   network[f"{name}_ff2_conv2"] = {
     'class': "linear", 'activation': None, 'with_bias': True,
@@ -832,12 +883,12 @@ def conformer_enc_layer_all_in_one_stoch_depth(
   }
 
 
-  if with_stochastic_depth:
-    network[f"{name}_ff2_out"] = {
-      "class" : "eval",
-      "eval" : f"self.network.get_config().typed_value('stoch_depth_v2')(source(0), source(1), {survival_prob}, self.network)",
-      "from" : [f"{name}_conv_output", f"{name}_ff2_drop_half"]
-    }
+  if with_stochastic_depth and "ff_mod2" in stoch_pos:
+
+    layers = [f"{name}_conv_output", f"{name}_ff2_drop_half"]
+
+    add_SD_switch_layer(network, layers[0], layers[1], f"{name}_ff2_out", surival_prob=survival_prob)
+
   else:
     network[f"{name}_ff2_out"] = {
       'class': "combine", 'kind': "add",
