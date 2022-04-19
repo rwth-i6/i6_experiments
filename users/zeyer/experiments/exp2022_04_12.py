@@ -2,6 +2,7 @@
 from sisyphus import tk
 from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
+from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from returnn_common import nn
 
@@ -12,8 +13,9 @@ def run():
 
   tk.register_output("librispeech/sentencepiece-2k.model", librispeech.spm_2k)
 
-  # tk.register_output(
-  #  "librispeech/tf-dataset", DownloadAndPrepareTfDatasetJob("librispeech").out_data_dir)
+  tk.register_output(
+    "librispeech/huggingface-dataset-clean",
+    DownloadAndPrepareHuggingFaceDatasetJob("librispeech_asr", "clean").out_dir)
 
   input_dim = nn.FeatureDim("input", 40)
   time_dim = nn.SpatialDim("time")
