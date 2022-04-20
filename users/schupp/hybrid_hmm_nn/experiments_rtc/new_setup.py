@@ -6,12 +6,13 @@ from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args import conformer_retu
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import hybrid_job_dispatcher as job_dispatcher
 
 from recipe.i6_core.returnn import ReturnnConfig, ReturnnRasrTrainingJob
+
+from sisyphus import gs
+
 import inspect
 
-
-from sisyphus import *
-
-gs.ALIAS_AND_OUTPUT_SUBDIR = "conformer/new_setup_test/"
+OUTPUT_PATH = "conformer/new_setup_test/"
+gs.ALIAS_AND_OUTPUT_SUBDIR = OUTPUT_PATH
 
 # Start system:
 # - register alignments and features ...
@@ -33,7 +34,18 @@ returnn_train_config = job_dispatcher.make_and_hash_returnn_rtc_config(
 
 returnn_rasr_config_args = rasr_config_args_maker.get_returnn_rasr_args(system, train_corpus_key=train_corpus_key)
 
-job_dispatcher.make_and_register_returnn_rasr_train(
+# Create ReturnnRasrTrainJob, register outputs -> submit train
+train_job = job_dispatcher.make_and_register_returnn_rasr_train(
     returnn_train_config,
-    returnn_rasr_config_args
+    returnn_rasr_config_args,
+    output_path=OUTPUT_PATH
+)
+
+
+# Create Search Jobs for given epochs, *but* will also always make recog for epochs in 'keep_best'
+search_jobs = job_dispatcher.make_and_register_returnn_rasr_search(
+  recog_for_epochs=experiment_config_args.search_job_dispatcher_defaults["epochs"],
+  recog_corpus=train_corpus_key,
+  train_job=train_job,
+  output_path=OUTPUT_PATH
 )

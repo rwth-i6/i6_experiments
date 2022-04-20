@@ -27,3 +27,7 @@ config_baseline_00 = {
       'learning_rate_control': "constant",
       'learning_rate_file': "learning_rates",
 }
+
+search_job_dispatcher_defaults = {
+  'epochs' : [10, 40, 100, 140, 160, 180, 190, 195, 200]
+}

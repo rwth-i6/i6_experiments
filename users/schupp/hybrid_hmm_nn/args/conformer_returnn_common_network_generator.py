@@ -2,6 +2,9 @@
 from recipe.returnn_common import nn
 from recipe.returnn_common.nn import hybrid_hmm
 
+# Be aware changing this code changes the exeriment hash
+# TODO: not use this code, use the imported modification of nn.ConformerEncoder
+# Then when I introduce a change to nn.ConformerEncoder do it in a separate file, only change the import 
 def make_conformer(
     in_dim_size = 50,
     out_dim_size = 12001
