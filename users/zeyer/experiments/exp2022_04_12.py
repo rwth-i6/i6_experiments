@@ -1,4 +1,5 @@
 
+from typing import Tuple
 from sisyphus import tk
 from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
@@ -29,23 +30,24 @@ def run():
         num_layers=4, num_heads=4, out_dim=nn.FeatureDim("conformer", 256), ff_dim=nn.FeatureDim("ff", 512)),
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
-    def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> nn.Tensor:
+    def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
       x, out_spatial_dim = super(Model, self).__call__(x, in_spatial_dim=in_spatial_dim, **kwargs)
       assert isinstance(out_spatial_dim, nn.Dim)
       if out_spatial_dim != in_spatial_dim:
         out_spatial_dim.declare_same_as(nn.SpatialDim("downsampled-time"))
       x = self.output(x)
-      return x
+      return x, out_spatial_dim
 
   # TODO specaug
   model = Model()
-  logits = model(
-    nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim])),
-    in_spatial_dim=time_dim)
-  loss = nn.ctc_loss(
-    logits=logits,
-    targets=nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim)))
+  inputs = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim]))
+  logits, out_spatial_dim = model(inputs, in_spatial_dim=time_dim)
+  targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim))
+  loss = nn.ctc_loss(logits=logits, targets=targets)
   loss.mark_as_loss()
+  greedy_decoded = nn.ctc_greedy_decode(logits, spatial_dim=out_spatial_dim)
+  error = nn.edit_distance(a=greedy_decoded, a_spatial_dim=out_spatial_dim, b=targets, b_spatial_dim=targets_time_dim)
+  error.mark_as_loss(0.)  # scale does not matter, not differentiable
   model_py_code_str = nn.get_returnn_config().get_complete_py_code_str(model)
 
   returnn_train_config_dict = dict(
