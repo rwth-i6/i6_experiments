@@ -45,8 +45,8 @@ def run():
   targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim))
   loss = nn.ctc_loss(logits=logits, targets=targets)
   loss.mark_as_loss()
-  greedy_decoded = nn.ctc_greedy_decode(logits, spatial_dim=out_spatial_dim)
-  error = nn.edit_distance(a=greedy_decoded, a_spatial_dim=out_spatial_dim, b=targets, b_spatial_dim=targets_time_dim)
+  decoded, decoded_spatial_dim = nn.ctc_greedy_decode(logits, in_spatial_dim=out_spatial_dim)
+  error = nn.edit_distance(a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_time_dim)
   error.mark_as_loss(0.)  # scale does not matter, not differentiable
   model_py_code_str = nn.get_returnn_config().get_complete_py_code_str(model)
 
