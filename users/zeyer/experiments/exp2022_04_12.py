@@ -1,5 +1,6 @@
 
 from typing import Tuple
+import numpy
 from sisyphus import tk
 from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
@@ -71,7 +72,8 @@ def run():
     tf_log_memory_usage=True,
     tf_session_opts={"gpu_options": {"allow_growth": True}},
     gradient_noise=0.0,
-    learning_rate=0.001,
+    learning_rate=0.0008,
+    learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
     learning_rate_control="newbob_multi_epoch",
     # learning_rate_control_error_measure = "dev_score_output"
     learning_rate_control_relative_error_relative_lr=True,
