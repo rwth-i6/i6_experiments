@@ -67,13 +67,15 @@ def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training:
   return d
 
 
-_default_audio_opts_no_stats = dict(features="mfcc", num_feature_filters=40, window_len=0.025, step_len=0.010)
-_returnn_train_full_no_stats_dict = _get_dataset("train", audio=_default_audio_opts_no_stats)
-_audio_stats_job = ExtractDatasetMeanStddevJob(ReturnnConfig(config={"train": _returnn_train_full_no_stats_dict}))
-default_audio_opts = {
-  **_default_audio_opts_no_stats,
-  "norm_mean": _audio_stats_job.out_mean_file, "norm_std_dev": _audio_stats_job.out_std_dev_file}
-
+# _default_audio_opts_no_stats = dict(features="mfcc", num_feature_filters=40, window_len=0.025, step_len=0.010)
+_default_audio_opts_log_mel_fbank_no_stats = dict(
+  features="log_mel_filterbank", num_feature_filters=80, window_len=0.025, step_len=0.010)
+# _returnn_train_full_no_stats_dict = _get_dataset("train", audio=_default_audio_opts_no_stats)
+# _audio_stats_job = ExtractDatasetMeanStddevJob(ReturnnConfig(config={"train": _returnn_train_full_no_stats_dict}))
+# default_audio_opts = {
+#  **_default_audio_opts_no_stats,
+#  "norm_mean": _audio_stats_job.out_mean_file, "norm_std_dev": _audio_stats_job.out_std_dev_file}
+default_audio_opts = _default_audio_opts_log_mel_fbank_no_stats
 
 # https://returnn.readthedocs.io/en/latest/api/datasets.util.vocabulary.html#returnn.datasets.util.vocabulary.SentencePieces
 default_targets_opts = {

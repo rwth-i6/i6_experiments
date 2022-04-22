@@ -19,7 +19,7 @@ def run():
   #  "librispeech/huggingface-dataset-clean",
   #  DownloadAndPrepareHuggingFaceDatasetJob("librispeech_asr", "clean").out_dir)
 
-  input_dim = nn.FeatureDim("input", 40)
+  input_dim = nn.FeatureDim("input", 80)
   time_dim = nn.SpatialDim("time")
   targets_time_dim = nn.SpatialDim("targets-time")
   output_dim = nn.FeatureDim("output", 2000)
