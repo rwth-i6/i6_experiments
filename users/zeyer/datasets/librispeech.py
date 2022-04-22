@@ -79,17 +79,19 @@ default_audio_opts = {
 default_targets_opts = {
   "class": "SentencePieces",
   "model_file": spm_2k,
-  "enable_sampling": True,  # might be played around with, along with nbest_size, alpha.
   # If your model (e.g. enc-dec) needs EOS, add "add_eos".
 }
-
+default_targets_train_opts = default_targets_opts.copy()
+default_targets_train_opts.update({
+  "enable_sampling": True,  # might be played around with, along with nbest_size, alpha.
+})
 
 default_epoch_split = 20
 
 default_dataset_config = {
   "train": _get_dataset(
     "train", training=True, train_partition_epoch=default_epoch_split,
-    audio=default_audio_opts, targets=default_targets_opts),
+    audio=default_audio_opts, targets=default_targets_train_opts),
   "dev": _get_dataset("dev", subset=3000, audio=default_audio_opts, targets=default_targets_opts),
   "eval_datasets": {
     "devtrain": _get_dataset("train", subset=2000, audio=default_audio_opts, targets=default_targets_opts),
