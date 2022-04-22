@@ -27,8 +27,8 @@ def run():
   class Model(nn.ConformerEncoder):
     def __init__(self):
       super(Model, self).__init__(
-        # Smaller...
-        num_layers=8, num_heads=4, out_dim=nn.FeatureDim("conformer", 256), ff_dim=nn.FeatureDim("ff", 512)),
+        # Medium...
+        num_layers=16, num_heads=4, out_dim=nn.FeatureDim("conformer", 256)),
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
