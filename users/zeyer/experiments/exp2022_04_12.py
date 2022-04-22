@@ -101,5 +101,8 @@ sys.setrecursionlimit(10 ** 6)
     post_config=dict(cleanup_old_models=True),
     sort_config=False,
   )
-  returnn_train_job = ReturnnTrainingJob(returnn_train_config, log_verbosity=5, num_epochs=100)
+  returnn_train_job = ReturnnTrainingJob(
+    returnn_train_config,
+    log_verbosity=5, num_epochs=100,
+    time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
   tk.register_output("librispeech/ctc-model/learning-rates", returnn_train_job.out_learning_rates)
