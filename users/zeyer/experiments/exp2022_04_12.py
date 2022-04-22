@@ -28,7 +28,7 @@ def run():
     def __init__(self):
       super(Model, self).__init__(
         # Smaller...
-        num_layers=4, num_heads=4, out_dim=nn.FeatureDim("conformer", 256), ff_dim=nn.FeatureDim("ff", 512)),
+        num_layers=8, num_heads=4, out_dim=nn.FeatureDim("conformer", 256), ff_dim=nn.FeatureDim("ff", 512)),
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
@@ -59,7 +59,7 @@ def run():
 
     batching="random",
     log_batch_size=True,
-    batch_size=10000,
+    batch_size=20000,
     max_seqs=200,
     max_seq_length={"classes": 75},
 
