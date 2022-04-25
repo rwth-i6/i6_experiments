@@ -35,7 +35,10 @@ def create_experiment_world_001(
     #   - conformer_default_args_00
 
     returnn_train_post_config=None,
-    returnn_rasr_args_defaults=None
+    returnn_rasr_args_defaults=None,
+
+    test_construction=False,
+    print_net = False
 ):
     
     system = sys.LibrispeechHybridSystemTim()
@@ -47,7 +50,7 @@ def create_experiment_world_001(
 
     network = conformer_create_func(
         **conformer_func_args,
-        print_net = True
+        print_net = print_net
     )
 
     returnn_train_config = job_dispatcher.make_returnn_train_config_old(
@@ -57,7 +60,8 @@ def create_experiment_world_001(
     )
 
     # We test the construction now to avaoid error when running on cluster
-    #job_dispatcher.test_net_contruction(returnn_train_config)
+    if test_construction:
+        job_dispatcher.test_net_contruction(returnn_train_config)
 
     returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(
     system, 

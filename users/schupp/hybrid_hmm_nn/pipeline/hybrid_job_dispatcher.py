@@ -104,8 +104,6 @@ def make_returnn_train_config_old(
     functions = [ f for f in dir(specaugment_new) if not f[:2] == "__"]
     code = "\n".join([ inspect.getsource(getattr(specaugment_new, f)) for f in functions ])
 
-    print(code)
-
     returnn_train_config = ReturnnConfig(
         config={
             "network" : network,
@@ -190,9 +188,9 @@ def make_and_register_returnn_rasr_search(
             # I mean I think we can just leave this here 
             #and the searches on epochs that are not stored will never be executed?
             # Nope actually we need to limit this for now
-            continue
+            continue # TODO: we need also a way to just check which epochs are there and run only those
         model = train_job.out_models[id]
-        print(model)
+        #print(model)
         returnn_search_config = copy.deepcopy(returnn_train_config)
 
         # change config for recog
