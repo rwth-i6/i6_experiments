@@ -167,6 +167,7 @@ def make_and_register_returnn_rasr_train(
     #system.jobs[train_corpus_key]['train_nn_%s' % name] = j
     #system.nn_models[train_corpus_key][name] = j.out_models
     #system.nn_configs[train_corpus_key][name] = j.out_returnn_config_file
+    returnn_rasr_train.add_alias(f"{output_path}/train.job")
 
     tk.register_output(f"{output_path}/returnn.config", returnn_rasr_train.out_returnn_config_file)
     tk.register_output(f"{output_path}/score_and_error.png", returnn_rasr_train.out_plot_se)
@@ -188,8 +189,8 @@ def make_and_register_returnn_rasr_search(
         if id not in limit_eps:
             # I mean I think we can just leave this here 
             #and the searches on epochs that are not stored will never be executed?
-            #continue
-            pass 
+            # Nope actually we need to limit this for now
+            continue
         model = train_job.out_models[id]
         print(model)
         returnn_search_config = copy.deepcopy(returnn_train_config)
@@ -222,7 +223,7 @@ def make_and_register_returnn_rasr_search(
         nn_recog_args['corpus'] = recog_corpus_key
         nn_recog_args['name'] = f"{exp_name}/{id:03}"
 
-        setattr(system.crp[recog_corpus_key], 'flf_tool_exe', system.RASR_FLF_TOOL)
+        setattr(system.crp[recog_corpus_key], 'flf_tool_exe', system.RASR_FLF_TOOL) # Only way to set this...
 
         system.recog(**nn_recog_args)
         # Aaaand we want to also optimize lm scale per default !TODO!
