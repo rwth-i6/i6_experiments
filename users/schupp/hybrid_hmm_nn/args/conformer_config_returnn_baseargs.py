@@ -1,3 +1,4 @@
+from ast import Or
 from typing import OrderedDict
 
 
@@ -35,6 +36,18 @@ search_job_dispatcher_defaults = {
   'epochs' : [10, 40, 100, 140, 160, 180, 190, 195, 200]
 }
 
+# --------------- Conformer overall args -----------------
+
+conformer_default_args_00 = OrderedDict(
+  num_blocks = 2
+)
+
+# -------------- Sampling args --------------
+
+sampling_default_args_00 = OrderedDict(
+  time_reduction=2
+)
+
 # -------------- Feed forward -----------------
 
 ff_default_args_00 = OrderedDict(
@@ -57,8 +70,17 @@ sa_default_args_00 = OrderedDict(
     sa_post_dropout = 0.1, # TODO: check
 )
 
+# -------------- Conv mod -----------------------
+
+conv_default_args_00 = OrderedDict(
+    kernel_size = 32,
+    conv_act = "swish",
+    conv_post_dropout = 0.1, # TODO: check
+)
+
 # ---------------- Shared -----------------------
 
+# Args are shared with layers
 shared_network_args_00 = OrderedDict(
   model_dim = 256, # TODO: check
   initialization = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",

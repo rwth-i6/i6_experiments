@@ -1,6 +1,7 @@
 # Oly style returnn dict network generator
 from typing import Tuple, List, Callable, Optional, Union, Any
 
+
 def prefix_all_keys(
     prefix = None,
     net = None,
@@ -23,71 +24,6 @@ def prefix_all_keys(
 
     return prefixed
 
-def make_subsampling_001(
-    net=None,
-    in_l="source0",
-    time_reduction=1
-):
-    assert net, "need network"
-    net.update({
-        "conv0_0" : {
-            "class": "conv", 
-            "from": in_l, 
-            "padding": "same",
-            "filter_size": (3, 3),
-            "n_out": 32, 
-            "activation": None, 
-            "with_bias": True, 
-            "in_spatial_dims": ["T", "dim:50"]},  # (T,50,32)
-        "conv0_1" : {
-            "class": "conv", 
-            "from": f"conv0_0", 
-            "padding": "same", 
-            "filter_size": (3, 3),
-            "n_out": 32, 
-            "activation": 'relu', 
-            "with_bias": True, 
-            "in_spatial_dims": ["T", "dim:50"]},  # (T,50,32)
-        "conv0p" : {
-            "class": "pool", 
-            "mode": "max", 
-            "padding": "same", 
-            "pool_size": (1, 2), 
-            'strides': (1, 2),
-            "from": "conv0_1", 
-            "in_spatial_dims": ["T", "dim:50"] }, # (T, 25, 32)
-        "conv1_0" : {
-            "class": "conv", 
-            "from": "conv0p", 
-            "padding": "same", 
-            "filter_size": (3, 3), 
-            "n_out": 64,
-            "activation": None, 
-            "with_bias": True,
-            "in_spatial_dims": ["T", "dim:25"] }, # (T, 25, 64)
-        "conv1_1" : {
-            "class": "conv", 
-            "from": "conv1_0", 
-            "padding": "same", 
-            "filter_size": (3, 3),
-            "n_out": 64, 
-            "activation": 'relu', 
-            "with_bias": True, 
-            "in_spatial_dims": ["T", "dim:25"]}, # (T,25,64)
-        "conv1p" : {
-            "class": "pool", 
-            "mode": "max", 
-            "padding": "same", 
-            "pool_size": (time_reduction, 1), 
-            'strides': (time_reduction, 1),
-            "from": "conv1_1", 
-            "in_spatial_dims": ["T", "dim:25"]},
-        "conv_merged" : {
-            "class": "merge_dims", 
-            "from": "conv1p", 
-            "axes": ["dim:25", "dim:64"]}
-    })
-    return net, "conv_merged"
 
 def make_inital_transformations(
     net = {},
@@ -107,122 +43,29 @@ def make_inital_transformations(
     })
     return net, "source0"
 
-def make_ff_mod_001(
+def make_final_output(
     net = None,
-    in_l = None,
-    prefix = None,
-
-    # FF specific args
-    ff_dim = None,
-    ff_activation = None,
-    ff_activation_dropout = None,
-    ff_post_dropout = None,
-    ff_half_ratio = None,
-
-    # Model shared args
-    model_dim = None,
-    initialization = None
+    in_l = None
 ):
-    assert net, "no net"
-    assert in_l, "no input layer"
-    assert prefix, "needs prefix"
+    net.update({
+        'length_masked': {
+            'class': 'reinterpret_data', 
+            'from': [in_l], 
+            'size_base': 
+            'data:classes'},
+        'output': { 
+            'class': 'softmax',
+            'dropout': 0.05,
+            'from': ['length_masked'],
+            'loss': 'ce',
+            'loss_opts': {
+                'focal_loss_factor': 0.0, 
+                'label_smoothing': 0.0, 
+                'use_normalized_loss': False},
+            'target': 'classes'},
+    })
 
-    net_add = {
-        "_laynorm" : {
-            'class': "layer_norm",
-            'from': in_l},
-        "_conv1" : {
-            'class': "linear", 
-            'activation': ff_activation,
-            'with_bias': True,
-            'from': ["_laynorm"],
-            'n_out': ff_dim, 
-            'forward_weights_init': initialization },
-        "_conv2" : {
-            'class': "linear", 
-            'activation': None, 
-            'with_bias': True,
-            'from': ["_conv1"], 
-            'dropout': ff_activation_dropout,
-            'n_out': model_dim, 
-            'forward_weights_init': initialization},
-        "_drop" : {
-            'class': "dropout",
-            'dropout': ff_post_dropout,
-            'from': ["_conv2"]},
-        "_drop_half" : {
-            'class': "eval",
-            'eval': f"{ff_half_ratio} * source(0)",
-            'from': ["_drop"] },
-        "_out" : {
-            'class': "combine", 
-            'kind': "add",
-            'from': [in_l, "_drop_half"]
-        }
-    }
-
-    net.update(
-        prefix_all_keys(prefix, net_add, in_l)
-    )
-
-    return net, f"{prefix}_out"
-
-def make_self_att_mod_001(
-    net = None,
-    in_l = None,
-    prefix = None,
-
-    # Self attention args:
-    num_heads = None,
-    key_dim = None,
-    value_dim = None,
-    attention_left_only = None,
-    sa_dropout = None,
-    linear_mapping_bias = None,
-    sa_post_dropout = None,
-
-    # Shared args:
-    initialization = None,
-    model_dim = None,
-
-):
-
-    net_add = {
-        "_self_att_laynorm": {
-            'class': "layer_norm",
-            'from': [in_l]},
-        "_self_att_att": {
-            'class': "self_attention", 
-            'num_heads': num_heads,
-            'total_key_dim': key_dim, 
-            'n_out': value_dim,
-            'from': ["_self_att_laynorm"],
-            'attention_left_only': attention_left_only,
-            'attention_dropout': sa_dropout,
-            'forward_weights_init': initialization},
-        "_self_att_lin" : {
-            'class': "linear", 
-            'activation': None, 
-            'with_bias': linear_mapping_bias,
-            'from': ["_self_att_att"], 
-            'n_out': model_dim,
-            'forward_weights_init': initialization },
-        "_self_att_drop" : {
-            'class': "dropout", 
-            'dropout': sa_post_dropout,
-            'from': ["_self_att_att"]},
-        "_self_att_out" : {
-            'class': "combine", 
-            'kind': "add",
-            'from': [in_l, "_self_att_drop"],
-            'n_out': model_dim},
-    }
-
-    net.update(
-        prefix_all_keys(prefix, net_add, in_l)
-    )
-
-    return net, f"{prefix}_self_att_out"
+    return net, "output"
 
 
 def filter_args_for_func(
@@ -243,9 +86,17 @@ def pprint(data):
     import yaml
     print(yaml.dump(data, default_flow_style=False))
 
+
+from .conv_mod_versions import make_conv_mod_001
+from .subsampling_versions import make_subsampling_001, make_unsampling_001
+from .ff_mod_versions import make_ff_mod_001
+from .sa_mod_versions import make_self_att_mod_001
+
 def make_conformer_00(
 
     subsampling_func=make_subsampling_001,
+    unsampling_func=make_unsampling_001,
+    sampling_func_args=None,
 
     conformer_ff1_func=make_ff_mod_001,
     ff1_func_args=None,
@@ -253,21 +104,27 @@ def make_conformer_00(
     conformer_self_att_func=make_self_att_mod_001,
     sa_func_args=None,
 
-#   conformer_self_conv_func=make_conv_mod_001,
+    conformer_self_conv_func=make_conv_mod_001,
+    conv_func_args=None,
+
     conformer_ff2_func=make_ff_mod_001,
     ff2_func_args=None,
 
     shared_model_args=None,
 
-    num_blocks = 1,
+    num_blocks = None,
 ):
     net, last = {}, "data"
     net, last = make_inital_transformations(net, last)
-    net, last = subsampling_func(net, last)
+    net, last = subsampling_func(
+        net, last,
+        **sampling_func_args
+    )
 
     for i in range(num_blocks):
         block_str = f"enc_{i:03d}"
 
+        # FF1
         net, last = conformer_ff1_func(
             net, last,
             prefix = f"{block_str}_ff1",
@@ -275,13 +132,23 @@ def make_conformer_00(
             **filter_args_for_func(conformer_ff1_func, shared_model_args)
         )
 
+        # SA
         net, last = conformer_self_att_func(
             net, last,
             prefix = f"{block_str}",
             **sa_func_args,
             **filter_args_for_func(conformer_self_att_func, shared_model_args)
         )
-        #net, last = conformer_self_conv_func(net, last)
+        
+        # CONV MOD
+        net, last = conformer_self_conv_func(
+            net, last,
+            prefix = f"{block_str}",
+            **conv_func_args,
+            **filter_args_for_func(conformer_self_conv_func, shared_model_args)
+        )
+
+        # FF2
         net, last = conformer_ff2_func(
             net, last,
             prefix = f"{block_str}_ff2",
@@ -289,6 +156,11 @@ def make_conformer_00(
             **filter_args_for_func(conformer_ff1_func, shared_model_args)
         )
 
+    net, last = unsampling_func(
+        net, last,
+        **sampling_func_args
+    )
+
+    net, last = make_final_output(net, last)
 
     pprint(net) 
-    #net, last = make_final_output(net, last)
