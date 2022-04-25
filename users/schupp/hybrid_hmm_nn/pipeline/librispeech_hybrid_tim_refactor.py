@@ -115,6 +115,8 @@ class LibrispeechHybridSystemTim(meta.System):
     self.concurrent = concurrent
     self.lexicon = lexicon_path
 
+    self.RASR_FLF_TOOL = RASR_FLF_TOOL # TODO: move elsewhere
+
     # adapt to maximum one-day job #
     self.rtfs = {}
     for ck in self.corpus_keys:

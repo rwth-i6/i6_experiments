@@ -2,7 +2,7 @@
 # Note, there is some duplicate logic with librispeech_hybrid_baseline, this should prob be merged
 
 from this import d
-from recipe.i6_core.returnn import ReturnnConfig, ReturnnRasrTrainingJob
+from i6_core.returnn import ReturnnConfig, ReturnnRasrTrainingJob
 import inspect
 import hashlib
 import returnn.tf.engine
@@ -151,6 +151,7 @@ def test_net_contruction(
         session.run(out.placeholder, feed_dict=make_feed_dict(net.extern_data))
 
 def make_and_register_returnn_rasr_train(
+    #system,
     returnn_train_config,
     returnn_rasr_config_args,
     output_path,
@@ -162,6 +163,10 @@ def make_and_register_returnn_rasr_train(
         keep_epochs=None, # We use cleanup old models instead
         **returnn_rasr_config_args
     )
+
+    #system.jobs[train_corpus_key]['train_nn_%s' % name] = j
+    #system.nn_models[train_corpus_key][name] = j.out_models
+    #system.nn_configs[train_corpus_key][name] = j.out_returnn_config_file
 
     tk.register_output(f"{output_path}/returnn.config", returnn_rasr_train.out_returnn_config_file)
     tk.register_output(f"{output_path}/score_and_error.png", returnn_rasr_train.out_plot_se)
@@ -181,7 +186,10 @@ def make_and_register_returnn_rasr_search(
     # train_job.out_models
     for id in train_job.out_models:
         if id not in limit_eps:
-            continue
+            # I mean I think we can just leave this here 
+            #and the searches on epochs that are not stored will never be executed?
+            #continue
+            pass 
         model = train_job.out_models[id]
         print(model)
         returnn_search_config = copy.deepcopy(returnn_train_config)
@@ -212,9 +220,10 @@ def make_and_register_returnn_rasr_search(
           '', recog_corpus_key, **tf_graph_feature_scorer_args)
 
         nn_recog_args['corpus'] = recog_corpus_key
-        nn_recog_args['name'] = exp_name
+        nn_recog_args['name'] = f"{exp_name}/{id:03}"
+
+        setattr(system.crp[recog_corpus_key], 'flf_tool_exe', system.RASR_FLF_TOOL)
 
         system.recog(**nn_recog_args)
-
-        # Aaaand we want to also optimize lm scale per default
+        # Aaaand we want to also optimize lm scale per default !TODO!
 
