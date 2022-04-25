@@ -5,6 +5,7 @@ from this import d
 from recipe.i6_core.returnn import ReturnnConfig, ReturnnRasrTrainingJob
 import inspect
 import hashlib
+import returnn.tf.engine
 
 from sisyphus import tk
 
@@ -20,6 +21,39 @@ SALT = "42"
 #
 #
 
+def test_network_contruction(
+    network_func,    # A reference to a function that can create the network ( the returnn_common way )
+    config_base_args
+):
+    from returnn.tf.engine import Engine
+    from returnn.datasets import init_dataset
+    from recipe.returnn_common.tests.returnn_helpers import config_net_dict_via_serialized
+    from returnn.config import Config
+
+    rtc_network_and_config_code = network_func()
+    print(rtc_network_and_config_code)
+
+    config, net_dict = config_net_dict_via_serialized(rtc_network_and_config_code)
+
+    extern_data_opts = config["extern_data"]
+    n_data_dim = extern_data_opts["data"]["dim_tags"][-1].dimension
+    n_classes_dim = extern_data_opts["classes"]["sparse_dim"].dimension if "classes" in extern_data_opts else 7
+
+    config = Config({
+    "train": {
+      "class": "DummyDataset", "input_dim": n_data_dim, "output_dim": n_classes_dim,
+      "num_seqs": 2, "seq_len": 5},
+        **config
+    })
+
+    dataset = init_dataset(config.typed_value("train"))
+
+    engine = Engine(config=config)
+    engine.init_train_from_config(train_data=dataset)
+
+
+    print(net_dict)
+
 def make_and_hash_returnn_rtc_config(
     network_func,    # A reference to a function that can create the network ( the returnn_common way )
     config_base_args
@@ -28,6 +62,9 @@ def make_and_hash_returnn_rtc_config(
 
     rtc_network_and_config_code = network_func()
     network_code = inspect.getsource(network_func) # TODO: we might wanna hash a more complte version
+
+    print("TBS: returnn code")
+    print(rtc_network_and_config_code)
 
     print("TBS: hashing this net code:")
     print(network_code)
@@ -52,6 +89,13 @@ sys.setrecursionlimit(10 ** 6)
     )
 
     return returnn_train_config
+
+# Takes oldstyle network generating code
+def make_returnn_train_config_old(
+    network_func,
+    config_base_args
+):
+    return None
 
 
 def make_and_register_returnn_rasr_train(
