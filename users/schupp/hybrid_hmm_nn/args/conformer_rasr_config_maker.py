@@ -4,12 +4,12 @@ from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline.librispeech_hybri
 # TODO FIXME ( these ares should also be moved to the default args file )
 def get_returnn_rasr_args(
     system : LibrispeechHybridSystemTim,
-    train_corpus_key = 'train-other-960',
-    feature_name = 'gammatone',
-    alignment_name = 'align_hmm',
-    num_classes = 12001,
-    num_epochs = 200,
-    partition_epochs = {'train': 20, 'dev': 1},
+    train_corpus_key = None,
+    feature_name = None,
+    alignment_name = None,
+    num_classes = None,
+    num_epochs = None,
+    partition_epochs = None
 ):
     assert system.rasr_am_config_is_created, "please use system.create_rasr_am_config(...) first"
 

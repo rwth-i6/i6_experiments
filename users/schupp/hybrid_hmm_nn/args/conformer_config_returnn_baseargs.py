@@ -44,6 +44,14 @@ config_baseline_00 = {
       'learning_rates' : lr1(warmup_subepoch=2, constant_subepoch=18, decay_factor=0.99) # TODO: handle this differently
 }
 
+returnn_rasr_args_defaults_00 = OrderedDict(
+    feature_name = 'gammatone',
+    alignment_name = 'align_hmm',
+    num_classes = 12001,
+    num_epochs = 200,
+    partition_epochs = {'train': 20, 'dev': 1},
+)
+
 returnn_train_post_config_00 = OrderedDict(
   cleanup_old_models = {
     'keep': [10, 40, 100, 140, 160, 180, 190, 195, 200],
