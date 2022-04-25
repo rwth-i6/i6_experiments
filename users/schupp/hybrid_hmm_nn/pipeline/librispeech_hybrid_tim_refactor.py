@@ -164,6 +164,93 @@ class LibrispeechHybridSystemTim(meta.System):
                          new_am_config_or_new_am_args=None)
     self.rasr_am_config_is_created = True
 
+  def init_rasr_am_lm_config_recog( self, recog_corpus_key = None):
+    am_args = None
+    lm_config = None
+    sort_files = True
+
+    self.reset_rasr_exe(recog_corpus_key)
+
+    ## first reset
+    self.setup_am_config(recog_corpus_key, create_or_update_not_reset=False)
+    self.setup_lm_config(recog_corpus_key, create_or_replace_not_reset=False)
+
+    ## set the am and lm config
+    self.setup_am_config(recog_corpus_key, create_or_update_not_reset=True, update_not_replace=True,
+                         new_am_config_or_new_am_args=am_args)
+    self.setup_lm_config(recog_corpus_key, create_or_replace_not_reset=True,
+                         new_lm_config=lm_config)
+
+    self.set_sclite_scorer(recog_corpus_key, **{'sort_files': sort_files})
+
+  @classmethod
+  def get_tf_flow(cls, nn_model, tf_graph, native_lstm_path):
+
+    model_base = nn_model.model.get_path().replace('.meta','')
+    model_path = nn_model.model
+
+    tf_flow = rasr.FlowNetwork()
+    ## this is an intermediate connection point
+    tf_flow.add_input('input-features')
+
+    tf_flow.add_output('features')
+    tf_flow.add_param('id')
+    tf_fwd = tf_flow.add_node('tensorflow-forward', 'tf-fwd', {'id': '$(id)'})
+
+
+    tf_flow.link('network:input-features', tf_fwd + ':features')
+    tf_flow.link(tf_fwd + ':log-posteriors', 'network:features')
+
+    tf_flow.config = rasr.RasrConfig()
+    tf_flow.config[tf_fwd].input_map.info_0.param_name = 'features'
+    tf_flow.config[tf_fwd].input_map.info_0.tensor_name = 'extern_data/placeholders/data/data'
+    tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = 'extern_data/placeholders/data/data_dim0_size'
+
+    tf_flow.config[tf_fwd].output_map.info_0.param_name = 'log-posteriors'
+    tf_flow.config[tf_fwd].output_map.info_0.tensor_name = 'output/output_batch_major'
+
+    tf_flow.config[tf_fwd].loader.type = 'meta'
+    tf_flow.config[tf_fwd].loader.meta_graph_file = tf_graph
+    tf_flow.config[tf_fwd].loader.saved_model_file = rasr.StringWrapper(model_base, model_path)
+
+    tf_flow.config[tf_fwd].loader.required_libraries = native_lstm_path
+
+    return tf_flow
+  
+  def get_precomputed_hybrid_feature_scorer(self, name, train_corpus_key, reuse=False, **kwargs):
+    feature_scorer = rasr.PrecomputedHybridFeatureScorer(**kwargs)
+    if reuse:
+      self.feature_scorers[train_corpus_key]['_'.join([name, 'tf_graph']) if name else 'tf_graph'] = feature_scorer
+
+    return feature_scorer
+
+
+  def get_feature_flow(cls, base_flow, tf_flow):
+    feature_flow = rasr.FlowNetwork()
+    base_mapping = feature_flow.add_net(base_flow)
+    tf_mapping = feature_flow.add_net(tf_flow)
+    feature_flow.interconnect_inputs(base_flow, base_mapping)
+    feature_flow.interconnect(base_flow, base_mapping, tf_flow, tf_mapping, {'features': 'input-features'})
+    feature_flow.interconnect_outputs(tf_flow, tf_mapping)
+
+    return feature_flow
+
+  def get_full_tf_feature_flow(self, base_flow, crnn_config, nn_model,
+                              native_lstm_path, crnn_python_exe=None,
+                              crnn_root=None):
+
+
+    if not crnn_python_exe:
+      crnn_python_exe = gs.RETURNN_PYTHON_EXE
+
+    if not crnn_root:
+      crnn_root = gs.RETURNN_ROOT
+
+    compile_graph_job = CompileTFGraphJob(crnn_config, returnn_python_exe=crnn_python_exe, returnn_root=crnn_root)
+
+    return self.get_feature_flow(base_flow,
+                            self.get_tf_flow(nn_model, compile_graph_job.out_graph, native_lstm_path))
+
   # create_or_update_not_reset is True:
   #   create if new_am_config_or_new_am_args is None
   #   otherwise:

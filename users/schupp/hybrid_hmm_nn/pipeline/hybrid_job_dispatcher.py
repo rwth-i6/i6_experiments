@@ -94,6 +94,7 @@ sys.setrecursionlimit(10 ** 6)
 def make_returnn_train_config_old(
     network=None,
     config_base_args=None,
+    post_config_args=None
 ):
 
     # We want all functions from ../helpers/specaugment_new.py
@@ -110,7 +111,8 @@ def make_returnn_train_config_old(
             "network" : network,
             **config_base_args
         },
-        python_prolog=code
+        python_prolog=code,
+        post_config=post_config_args
     )
     return returnn_train_config
 
@@ -152,18 +154,67 @@ def make_and_register_returnn_rasr_train(
     returnn_train_config,
     returnn_rasr_config_args,
     output_path,
+
 ):
-    returnn_rasr_train = ReturnnRasrTrainingJob(returnn_config=returnn_train_config, **returnn_rasr_config_args)
+    returnn_rasr_train = ReturnnRasrTrainingJob(
+        returnn_config=returnn_train_config, 
+        log_verbosity=5, # So we get all error outputs and co
+        keep_epochs=None, # We use cleanup old models instead
+        **returnn_rasr_config_args
+    )
 
     tk.register_output(f"{output_path}/returnn.config", returnn_rasr_train.out_returnn_config_file)
     tk.register_output(f"{output_path}/score_and_error.png", returnn_rasr_train.out_plot_se)
     tk.register_output(f"{output_path}/learning_rate.png", returnn_rasr_train.out_plot_lr)
     return returnn_rasr_train
 
+import copy
 def make_and_register_returnn_rasr_search(
-  recog_for_epochs,
-  recog_corpus,
-  train_job,
-  output_path,
+    system = None,
+    returnn_train_config = None,
+    train_job = None ,
+    recog_corpus_key = None,
+    feature_name = None,
+    limit_eps=None,
+    exp_name = None
 ):
-    pass
+    # train_job.out_models
+    for id in train_job.out_models:
+        if id not in limit_eps:
+            continue
+        model = train_job.out_models[id]
+        print(model)
+        returnn_search_config = copy.deepcopy(returnn_train_config)
+
+        # change config for recog
+        # 1 - remove num epochs
+        returnn_search_config.post_config.pop("num_epochs", None)
+        # 2 - change output layer
+        if returnn_search_config.config['network']['output'].get('class', None) == 'softmax':
+            # set output to log-softmax
+            returnn_search_config.config['network']['output']['class'] = 'linear'
+            returnn_search_config.config['network']['output']['activation'] = 'log_softmax'
+            returnn_search_config.config['network']['output'].pop('target', None)
+
+        tf_feature_flow_args = copy.deepcopy(system.tf_feature_flow_args)
+
+        tf_graph_feature_scorer_args = copy.deepcopy(system.tf_graph_feature_scorer_args)
+
+        nn_recog_args = copy.deepcopy(system.nn_recog_args)
+
+        nn_recog_args['flow'] = system.get_full_tf_feature_flow(
+          base_flow=system.feature_flows[recog_corpus_key][feature_name],
+          crnn_config=returnn_search_config,
+          nn_model=model,#self.nn_models[train_corpus_key][train_job_name][epoch],
+          **tf_feature_flow_args
+        )
+        nn_recog_args['feature_scorer'] = system.get_precomputed_hybrid_feature_scorer(
+          '', recog_corpus_key, **tf_graph_feature_scorer_args)
+
+        nn_recog_args['corpus'] = recog_corpus_key
+        nn_recog_args['name'] = exp_name
+
+        system.recog(**nn_recog_args)
+
+        # Aaaand we want to also optimize lm scale per default
+
