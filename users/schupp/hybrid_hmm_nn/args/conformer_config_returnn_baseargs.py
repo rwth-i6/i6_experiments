@@ -35,15 +35,31 @@ search_job_dispatcher_defaults = {
   'epochs' : [10, 40, 100, 140, 160, 180, 190, 195, 200]
 }
 
+# -------------- Feed forward -----------------
+
 ff_default_args_00 = OrderedDict(
     ff_dim = 2048,
     ff_activation = "swish",
-    ff_initialization = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
     ff_activation_dropout = 0.1, # TODO: check
     ff_post_dropout = 0.1, # TODO: check
     ff_half_ratio = 0.5,
 )
 
+# ------------ Self attention ------------------
+
+sa_default_args_00 = OrderedDict(
+    num_heads = 4,
+    key_dim = 256, # TODO: check
+    value_dim = 256, # TODO: check
+    attention_left_only = True,
+    sa_dropout = 0.1, # TODO: check
+    linear_mapping_bias = False,
+    sa_post_dropout = 0.1, # TODO: check
+)
+
+# ---------------- Shared -----------------------
+
 shared_network_args_00 = OrderedDict(
-  model_dim = 256
+  model_dim = 256, # TODO: check
+  initialization = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
 )
