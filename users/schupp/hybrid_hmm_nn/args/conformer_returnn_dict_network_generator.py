@@ -115,13 +115,13 @@ def make_ff_mod_001(
     # FF specific args
     ff_dim = None,
     ff_activation = None,
-    ff_initialization = None,
     ff_activation_dropout = None,
     ff_post_dropout = None,
     ff_half_ratio = None,
 
     # Model shared args
-    model_dim = None
+    model_dim = None,
+    initialization = None
 ):
     assert net, "no net"
     assert in_l, "no input layer"
@@ -137,7 +137,7 @@ def make_ff_mod_001(
             'with_bias': True,
             'from': ["_laynorm"],
             'n_out': ff_dim, 
-            'forward_weights_init': ff_initialization },
+            'forward_weights_init': initialization },
         "_conv2" : {
             'class': "linear", 
             'activation': None, 
@@ -145,7 +145,7 @@ def make_ff_mod_001(
             'from': ["_conv1"], 
             'dropout': ff_activation_dropout,
             'n_out': model_dim, 
-            'forward_weights_init': ff_initialization},
+            'forward_weights_init': initialization},
         "_drop" : {
             'class': "dropout",
             'dropout': ff_post_dropout,
@@ -166,6 +166,64 @@ def make_ff_mod_001(
     )
 
     return net, f"{prefix}_out"
+
+def make_self_att_mod_001(
+    net = None,
+    in_l = None,
+    prefix = None,
+
+    # Self attention args:
+    num_heads = None,
+    key_dim = None,
+    value_dim = None,
+    attention_left_only = None,
+    sa_dropout = None,
+    linear_mapping_bias = None,
+    sa_post_dropout = None,
+
+    # Shared args:
+    initialization = None,
+    model_dim = None,
+
+):
+
+    net_add = {
+        "_self_att_laynorm": {
+            'class': "layer_norm",
+            'from': [in_l]},
+        "_self_att_att": {
+            'class': "self_attention", 
+            'num_heads': num_heads,
+            'total_key_dim': key_dim, 
+            'n_out': value_dim,
+            'from': ["_self_att_laynorm"],
+            'attention_left_only': attention_left_only,
+            'attention_dropout': sa_dropout,
+            'forward_weights_init': initialization},
+        "_self_att_lin" : {
+            'class': "linear", 
+            'activation': None, 
+            'with_bias': linear_mapping_bias,
+            'from': ["_self_att_att"], 
+            'n_out': model_dim,
+            'forward_weights_init': initialization },
+        "_self_att_drop" : {
+            'class': "dropout", 
+            'dropout': sa_post_dropout,
+            'from': ["_self_att_att"]},
+        "_self_att_out" : {
+            'class': "combine", 
+            'kind': "add",
+            'from': [in_l, "_self_att_drop"],
+            'n_out': model_dim},
+    }
+
+    net.update(
+        prefix_all_keys(prefix, net_add, in_l)
+    )
+
+    return net, f"{prefix}_self_att_out"
+
 
 def filter_args_for_func(
     func,
@@ -192,7 +250,9 @@ def make_conformer_00(
     conformer_ff1_func=make_ff_mod_001,
     ff1_func_args=None,
 
-#   conformer_self_att_func=make_self_att_mod_001,
+    conformer_self_att_func=make_self_att_mod_001,
+    sa_func_args=None,
+
 #   conformer_self_conv_func=make_conv_mod_001,
     conformer_ff2_func=make_ff_mod_001,
     ff2_func_args=None,
@@ -207,6 +267,7 @@ def make_conformer_00(
 
     for i in range(num_blocks):
         block_str = f"enc_{i:03d}"
+
         net, last = conformer_ff1_func(
             net, last,
             prefix = f"{block_str}_ff1",
@@ -214,12 +275,18 @@ def make_conformer_00(
             **filter_args_for_func(conformer_ff1_func, shared_model_args)
         )
 
-        #net, last = conformer_self_att_func(net, last)
+        net, last = conformer_self_att_func(
+            net, last,
+            prefix = f"{block_str}",
+            **sa_func_args,
+            **filter_args_for_func(conformer_self_att_func, shared_model_args)
+        )
         #net, last = conformer_self_conv_func(net, last)
         net, last = conformer_ff2_func(
             net, last,
             prefix = f"{block_str}_ff2",
-            **ff2_func_args
+            **ff2_func_args,
+            **filter_args_for_func(conformer_ff1_func, shared_model_args)
         )
 
 
