@@ -41,6 +41,7 @@ def make_conv_mod_001(
             'with_bias': True},
         "_conv_batchnorm" : {
             'class': "batch_norm",
+            'masked_time' : True,
             'from': ["_conv_depthwise"]},
         "_conv_act" : {
             'class': "activation",

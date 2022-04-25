@@ -2,7 +2,15 @@
 def make_subsampling_001(
     net=None,
     in_l="source0",
-    time_reduction=None
+    time_reduction=None,
+
+    #specific:
+    embed_dropout = None,
+    embed_l2 = None,
+
+    # General
+    initialization = None,
+    model_dim = None
 ):
     assert net, "need network"
     net.update({
@@ -61,17 +69,33 @@ def make_subsampling_001(
         "conv_merged" : {
             "class": "merge_dims", 
             "from": "conv1p", 
-            "axes": ["dim:25", "dim:64"]}
+            "axes": ["dim:25", "dim:64"]},
+        'embedding': { 
+            'L2': embed_l2,
+            'activation': None,
+            'class': 'linear',
+            'forward_weights_init': initialization,
+            'from': ['conv_merged'],
+            'n_out': model_dim,
+            'with_bias': True},
+        'embedding_dropout': {
+            'class': 'dropout', 
+            'dropout': embed_dropout, 
+            'from': ['embedding']},
     })
-    return net, "conv_merged"
+    return net, "embedding_dropout"
 
 
 def make_unsampling_001(
     net=None,
     in_l=None,
+
     time_reduction=None
 ):
     net.update({
+        'encoder' : {
+            'class': 'layer_norm',
+            'from': [in_l]},
         'upsampled2': { 
             'activation': 'relu',
             'class': 'transposed_conv',

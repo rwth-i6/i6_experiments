@@ -39,7 +39,7 @@ def make_inital_transformations(
             "class": "split_dims", 
             "axis": "F", 
             "dims": (-1, 1), 
-            'from': ['source0'] }
+            'from': ['source'] }
     })
     return net, "source0"
 
@@ -80,7 +80,7 @@ def filter_args_for_func(
     for x in args.keys():
         if x in params:
             filtered[x] = args[x]
-    return args
+    return filtered
 
 def pprint(data):
     import yaml
@@ -113,12 +113,15 @@ def make_conformer_00(
     shared_model_args=None,
 
     num_blocks = None,
+
+    print_net = False
 ):
     net, last = {}, "data"
     net, last = make_inital_transformations(net, last)
     net, last = subsampling_func(
         net, last,
-        **sampling_func_args
+        **sampling_func_args,
+        **filter_args_for_func(subsampling_func, shared_model_args)
     )
 
     for i in range(num_blocks):
@@ -158,9 +161,14 @@ def make_conformer_00(
 
     net, last = unsampling_func(
         net, last,
-        **sampling_func_args
+        # We also filter these cause not all ars of un- and sub- must match
+        **filter_args_for_func(unsampling_func, sampling_func_args),
+        **filter_args_for_func(unsampling_func, shared_model_args)
     )
 
     net, last = make_final_output(net, last)
 
-    pprint(net) 
+    if print_net:
+        pprint(net) 
+
+    return net

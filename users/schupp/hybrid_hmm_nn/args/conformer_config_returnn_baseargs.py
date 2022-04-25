@@ -2,6 +2,7 @@ from ast import Or
 from typing import OrderedDict
 
 
+# TODO check
 config_baseline_00 = {
       'task': "train",
       'use_tensorflow': True,
@@ -39,13 +40,15 @@ search_job_dispatcher_defaults = {
 # --------------- Conformer overall args -----------------
 
 conformer_default_args_00 = OrderedDict(
-  num_blocks = 2
+  num_blocks = 12
 )
 
 # -------------- Sampling args --------------
 
 sampling_default_args_00 = OrderedDict(
-  time_reduction=2
+  time_reduction=2,
+  embed_l2 = 1e-7, # TODO: check!
+  embed_dropout = 0.05, # TODO: check!
 )
 
 # -------------- Feed forward -----------------
