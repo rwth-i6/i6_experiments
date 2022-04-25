@@ -1,3 +1,6 @@
+from typing import OrderedDict
+
+
 config_baseline_00 = {
       'task': "train",
       'use_tensorflow': True,
@@ -31,3 +34,16 @@ config_baseline_00 = {
 search_job_dispatcher_defaults = {
   'epochs' : [10, 40, 100, 140, 160, 180, 190, 195, 200]
 }
+
+ff_default_args_00 = OrderedDict(
+    ff_dim = 2048,
+    ff_activation = "swish",
+    ff_initialization = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+    ff_activation_dropout = 0.1, # TODO: check
+    ff_post_dropout = 0.1, # TODO: check
+    ff_half_ratio = 0.5,
+)
+
+shared_network_args_00 = OrderedDict(
+  model_dim = 256
+)
