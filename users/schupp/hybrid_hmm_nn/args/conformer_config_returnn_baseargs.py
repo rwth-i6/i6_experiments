@@ -1,8 +1,18 @@
 from ast import Or
 from typing import OrderedDict
 
+import math
+import numpy
 
+def lr1(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
+       min_lr_ratio=1/50, decay_factor=0.99):
+  num_lr = int(math.log(min_lr_ratio, decay_factor))
+  return list(numpy.linspace(warmup_start, start, num=warmup_subepoch)) + \
+                    [start] * constant_subepoch + \
+                    list(start * numpy.logspace(1, num_lr, num=num_lr, base=decay_factor)) + \
+                    [min_lr_ratio * start]
 # TODO check
+# TODO: config doen't jet use updated learning rates
 config_baseline_00 = {
       'task': "train",
       'use_tensorflow': True,
@@ -15,7 +25,7 @@ config_baseline_00 = {
       'start_epoch': "auto",
       'start_batch': "auto",
       'batching': "sort_bin_shuffle:.64",  # f"laplace:{num_seqs//1000}"
-      'batch_size': 6144,
+      'batch_size': 7244,
       'chunking': "200:100",
       'truncation': -1,
       'cache_size': "0",
@@ -31,11 +41,15 @@ config_baseline_00 = {
       'gradient_noise': 0.0,  # 0.1
       'learning_rate_control': "constant",
       'learning_rate_file': "learning_rates",
+      'learning_rates' : lr1(warmup_subepoch=2, constant_subepoch=18, decay_factor=0.99) # TODO: handle this differently
 }
 
-search_job_dispatcher_defaults = {
-  'epochs' : [10, 40, 100, 140, 160, 180, 190, 195, 200]
-}
+returnn_train_post_config_00 = OrderedDict(
+  cleanup_old_models = {
+    'keep': [10, 40, 100, 140, 160, 180, 190, 195, 200],
+    'keep_best_n': 3, 
+    'keep_last_n': 3}
+)
 
 # --------------- Conformer overall args -----------------
 
