@@ -28,9 +28,15 @@ system.create_rasr_am_config(train_corpus_key=train_corpus_key)
 # Conformer generation code ( should be moved somewhere else )
 
 network = conformer_returnn_dict_network_generator.make_conformer_00(
+
+  # Feed forward args, both the same by default
   ff1_func_args = experiment_config_args.ff_default_args_00,
   ff2_func_args = experiment_config_args.ff_default_args_00,
 
+  # Self attention args
+  sa_func_args = experiment_config_args.sa_default_args_00,
+
+  # Shared model args
   shared_model_args = experiment_config_args.shared_network_args_00
 )
 

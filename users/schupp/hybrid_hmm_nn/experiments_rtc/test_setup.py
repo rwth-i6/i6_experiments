@@ -27,7 +27,14 @@ system.create_rasr_am_config(train_corpus_key=train_corpus_key)
 
 # Conformer generation code ( should be moved somewhere else )
 
-returnn_train_config : ReturnnConfig = job_dispatcher.make_returnn_train_config_old(
+if False:
+  returnn_train_config : ReturnnConfig = job_dispatcher.make_and_hash_returnn_rtc_config(
+    network_func=conformer_returnn_common_network_generator.make_conformer,
+    config_base_args=config_base_args
+  )
+
+
+job_dispatcher.test_network_contruction(
   network_func=conformer_returnn_common_network_generator.make_conformer,
   config_base_args=config_base_args
 )
@@ -37,12 +44,14 @@ returnn_train_config : ReturnnConfig = job_dispatcher.make_returnn_train_config_
 
 returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(system, train_corpus_key=train_corpus_key)
 
+
 # Create ReturnnRasrTrainJob, register outputs -> submit train
-train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(
-    returnn_train_config,
-    returnn_rasr_config_args,
-    output_path=OUTPUT_PATH
-)
+if False:
+  train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(
+      returnn_train_config,
+      returnn_rasr_config_args,
+      output_path=OUTPUT_PATH
+  )
 
 
 # Create Search Jobs for given epochs, *but* will also always make recog for epochs in 'keep_best'
