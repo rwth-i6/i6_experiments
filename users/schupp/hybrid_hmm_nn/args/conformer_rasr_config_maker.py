@@ -1,6 +1,7 @@
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline.librispeech_hybrid_tim_refactor import LibrispeechHybridSystemTim
 
 
+# TODO FIXME ( these ares should also be moved to the default args file )
 def get_returnn_rasr_args(
     system : LibrispeechHybridSystemTim,
     train_corpus_key = 'train-other-960',

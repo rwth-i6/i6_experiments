@@ -11,8 +11,9 @@ from sisyphus import gs
 
 import inspect
 
-OUTPUT_PATH = "conformer/new_setup_test/"
+OUTPUT_PATH = "conformer/test_new_nortc/"
 gs.ALIAS_AND_OUTPUT_SUBDIR = OUTPUT_PATH
+NAME = "testrun"
 
 # Start system:
 # - register alignments and features ...
@@ -53,24 +54,39 @@ network = conformer_returnn_dict_network_generator.make_conformer_00(
 
 returnn_train_config : ReturnnConfig = job_dispatcher.make_returnn_train_config_old(
   network = network,
-  config_base_args=config_base_args
+  config_base_args=config_base_args,
+  post_config_args=experiment_config_args.returnn_train_post_config_00
 )
 
-job_dispatcher.test_net_contruction(returnn_train_config)
+# We test the construction now to avaoid error when running on cluster
+#job_dispatcher.test_net_contruction(returnn_train_config)
 
-#returnn_train_config.write("test.config")
+returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(
+  system, 
+  train_corpus_key=train_corpus_key
+)
 
+train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(
+    returnn_train_config,
+    returnn_rasr_config_args,
+    output_path=OUTPUT_PATH
+)
 
+rec_corpus = "dev-other"
+# Prepare args for rasr recog
+system.init_rasr_am_lm_config_recog(
+  recog_corpus_key=rec_corpus
+)
 
-if False:
-  returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(system, train_corpus_key=train_corpus_key)
-
-
-  train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(
-      returnn_train_config,
-      returnn_rasr_config_args,
-      output_path=OUTPUT_PATH
-  )
+job_dispatcher.make_and_register_returnn_rasr_search(
+  system=system,
+  returnn_train_config=returnn_train_config,
+  train_job=train_job,
+  recog_corpus_key=rec_corpus,
+  feature_name="gammatone",
+  limit_eps=experiment_config_args.returnn_train_post_config_00["cleanup_old_models"]["keep"],
+  exp_name=NAME
+)
 
 
 if False:
