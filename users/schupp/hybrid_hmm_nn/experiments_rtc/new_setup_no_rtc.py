@@ -29,6 +29,9 @@ system.create_rasr_am_config(train_corpus_key=train_corpus_key)
 
 network = conformer_returnn_dict_network_generator.make_conformer_00(
 
+  # sampling args
+  sampling_func_args = experiment_config_args.sampling_default_args_00,
+
   # Feed forward args, both the same by default
   ff1_func_args = experiment_config_args.ff_default_args_00,
   ff2_func_args = experiment_config_args.ff_default_args_00,
@@ -36,9 +39,38 @@ network = conformer_returnn_dict_network_generator.make_conformer_00(
   # Self attention args
   sa_func_args = experiment_config_args.sa_default_args_00,
 
+  # Conv mod args
+  conv_func_args = experiment_config_args.conv_default_args_00,
+
   # Shared model args
-  shared_model_args = experiment_config_args.shared_network_args_00
+  shared_model_args = experiment_config_args.shared_network_args_00,
+
+  # Conformer args
+  **experiment_config_args.conformer_default_args_00,
+
+  print_net = True
 )
+
+returnn_train_config : ReturnnConfig = job_dispatcher.make_returnn_train_config_old(
+  network = network,
+  config_base_args=config_base_args
+)
+
+job_dispatcher.test_net_contruction(returnn_train_config)
+
+#returnn_train_config.write("test.config")
+
+
+
+if False:
+  returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(system, train_corpus_key=train_corpus_key)
+
+
+  train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(
+      returnn_train_config,
+      returnn_rasr_config_args,
+      output_path=OUTPUT_PATH
+  )
 
 
 if False:
@@ -46,7 +78,6 @@ if False:
   # Test network contstuction and training on cpu ( saves qsub if this failes )
   # TODO: ...
 
-  returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args(system, train_corpus_key=train_corpus_key)
 
   # Create ReturnnRasrTrainJob, register outputs -> submit train
   train_job : ReturnnRasrTrainingJob = job_dispatcher.make_and_register_returnn_rasr_train(

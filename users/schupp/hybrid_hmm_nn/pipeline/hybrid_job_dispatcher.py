@@ -92,11 +92,61 @@ sys.setrecursionlimit(10 ** 6)
 
 # Takes oldstyle network generating code
 def make_returnn_train_config_old(
-    network_func,
-    config_base_args
+    network=None,
+    config_base_args=None,
 ):
-    return None
 
+    # We want all functions from ../helpers/specaugment_new.py
+    from ..helpers import specaugment_new
+
+    # Net trick to filter all functions that are not build ins
+    functions = [ f for f in dir(specaugment_new) if not f[:2] == "__"]
+    code = "\n".join([ inspect.getsource(getattr(specaugment_new, f)) for f in functions ])
+
+    print(code)
+
+    returnn_train_config = ReturnnConfig(
+        config={
+            "network" : network,
+            **config_base_args
+        },
+        python_prolog=code
+    )
+    return returnn_train_config
+
+
+
+def test_net_contruction(
+    rt_config : ReturnnConfig
+):
+
+    from ..helpers.returnn_test_helper import make_scope, make_feed_dict
+    from returnn.config import Config
+    from returnn.tf.util.data import Dim, SpatialDim, FeatureDim, BatchInfo
+    from returnn.util.basic import hms, NumbersDict, BackendEngine, BehaviorVersion
+    from returnn.tf.network import TFNetwork
+
+
+    from ..helpers import specaugment_new
+
+    # Net trick to filter all functions that are not build ins
+    functions = [ f for f in dir(specaugment_new) if not f[:2] == "__"]
+    funcs = {key:value for key in functions for value in [getattr(specaugment_new, k) for k in functions]}
+
+    #from recipe.returnn_common.tests.returnn_helpers import config_net_dict_via_serialized
+    config = Config({
+        **rt_config.config,
+        **funcs
+    })
+
+    BehaviorVersion.set(config.int("behavior_version", 12))
+
+    with make_scope() as session:
+        net = TFNetwork(config=config,  train_flag=True) #extern_data=extern_data,
+        net.construct_from_dict(rt_config.config["network"])
+        out = net.get_default_output_layer().output
+        net.initialize_params(session)
+        session.run(out.placeholder, feed_dict=make_feed_dict(net.extern_data))
 
 def make_and_register_returnn_rasr_train(
     returnn_train_config,
