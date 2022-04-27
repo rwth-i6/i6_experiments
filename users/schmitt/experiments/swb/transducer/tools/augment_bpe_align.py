@@ -277,7 +277,8 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
     # start = time.time()
 
     # determine the word boundaries in the phoneme alignment
-    word_bounds = []
+    word_ends = []
+    word_starts = []
     sil_bounds = []
     new_bpe_align = []
     align_idx = 0
@@ -285,6 +286,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
     for mapping in word_phon_map:
       # print(mapping)
       word_phons = mapping.split(" ")
+      num_phons = len(word_phons)
       # word_phons = [phon_to_idx[phon] for phon in word_phons]
       last_phon_in_word = word_phons[-1]
       if last_phon_in_word not in special_tokens:
@@ -293,13 +295,19 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
         last_phon_in_word += "{#+#}.0"
       last_phon_in_word = phon_to_idx[last_phon_in_word]
       # go through the phoneme align, starting from the word boundary of the previous word
+      phon_counter = 0
       for i, phon_idx in enumerate(phoneme_align[align_idx:]):
+        if phon_idx != sil_idx and phon_idx != phoneme_blank_idx:
+          phon_counter += 1
+          if phon_counter == 1:
+            word_starts.append(align_idx + i)
         if phon_idx == sil_idx:
-          word_bounds.append(align_idx + i)
+          word_ends.append(align_idx + i)
+          word_starts.append(align_idx + i)
           sil_bounds.append(align_idx + i)
         # store word end positions, update the align_idx and go to the next word mapping
         elif phon_idx == last_phon_in_word:
-          word_bounds.append(align_idx + i)
+          word_ends.append(align_idx + i)
           align_idx = align_idx + i + 1
           break
     if len(phoneme_align[align_idx:]) > 0:
@@ -311,33 +319,45 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
         print("WORDS: ", words)
       assert phoneme_align[-1] == sil_idx
       sil_bounds.append(len(phoneme_align)-1)
-      word_bounds.append(len(phoneme_align) - 1)
+      word_ends.append(len(phoneme_align) - 1)
+      word_starts.append(len(phoneme_align) - 1)
+
+    # print("SEQ IDX: ", seq_idx)
+    # print("WORD PHON MAP: ", word_phon_map)
+    # print("PHON ALIGN: ", phoneme_align)
+    # print("BPE ALIGN: ", bpe_align)
+    # print("WORDS: ", words)
+    # print("WORD ENDS: ", word_ends)
+    # print("WORD STARTS: ", word_starts)
+
 
     # word_bound_time += time.time() - start
     # start = time.time()
 
     new_bpe_blank_idx = bpe_blank_idx + 1
     bpe_sil_align = [new_bpe_blank_idx] * len(phoneme_align)
-    prev_bound = -1
+    prev_end = -1
     bpe_idx = 0
     # print(seq_idx)
-    for bound in word_bounds:
-      if bound in sil_bounds:
-        bpe_sil_align[bound] = sil_idx
-        prev_bound = bound
+    for start, end in zip(word_starts, word_ends):
+      if end in sil_bounds:
+        # just set the same silence bound in the new alignment
+        bpe_sil_align[end] = sil_idx
+        prev_end = end
       else:
-        size = bound - prev_bound
-        if prev_bound == 0:
+        size = end - start
+        if start == 0:
           size += 1
         bpe_map = word_bpe_map[bpe_idx]
-        # offsets = [max(int(round(size * frac, 0)), 1) for _, frac in bpe_map]
-        # if sum(offsets) > size:
-        #   offsets = [round(size / len(bpe_map))] * len(bpe_map)
-        #   assert all([offset >= 1 for offset in offsets])
-        for i, (bpe, frac) in enumerate(bpe_map):
+        if len(bpe_map) != 1:
+          bpe_sil_align[start] = bpe_map[0][0]
+        else:
+          bpe_sil_align[end] = bpe_map[0][0]
+        for i, (bpe, _) in enumerate(bpe_map[1:]):
           if i != len(bpe_map) - 1:
-            offset = max(int(round(size * frac, 0)), 1)
-            if prev_bound + offset > len(bpe_sil_align) - 1:
+            frac = 1 / len(bpe_map[1:])
+            offset = max(int(size * frac), 1)
+            if start + offset > len(bpe_sil_align) - 1:
               print("\n\n")
               print("CANNOT MATCH BPE ALIGN TO PHON ALIGN")
               print("BPE: ", bpes)
@@ -346,9 +366,9 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
               print("PHON ALIGN: ", phoneme_align)
               print("BPE SIL ALIGN: ", bpe_sil_align)
               print("BPE ALIGN: ", bpe_align)
-              print("PREV BOUND: ", prev_bound)
-              print("BOUND: ", bound)
-              print("BOUNDS: ", word_bounds)
+              print("PREV BOUND: ", prev_end)
+              print("BOUND: ", end)
+              print("BOUNDS: ", word_ends)
               print("OFFSET: ", offset)
               print("SIZE: ", size)
               print("FRAC: ", frac)
@@ -359,15 +379,15 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
               skip_seq = True
               match_bpe_to_phons_err_count += 1
               break
-            bpe_sil_align[prev_bound + offset] = bpe
-            prev_bound += offset
+            bpe_sil_align[start + offset] = bpe
+            start += offset
           else:
-            bpe_sil_align[bound] = bpe
+            bpe_sil_align[end] = bpe
         # check, whether there was a problem in the bpe mapping loop
         if skip_seq:
           break
         bpe_idx += 1
-        prev_bound = bound
+        prev_end = end
     # like above, if there was an error, we skip the sequence add the tag to the blacklist
     if skip_seq:
       skipped_seqs.append(dataset.get_tag(seq_idx))
@@ -375,7 +395,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
       continue
 
     # plot some random examples
-    if np.random.rand(1) < 0.0001:
+    if np.random.rand(1) < 0.0002:
       plot_aligns(upscaled_bpe_align, phoneme_align, bpe_sil_align, seq_idx)
 
     # dump new alignment into hdf file
