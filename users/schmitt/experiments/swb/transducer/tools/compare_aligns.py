@@ -64,6 +64,7 @@ def plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, n
   ax.matshow(matrix, aspect="auto", cmap=plt.cm.get_cmap("Blues"))
   # # create second x axis for hmm alignment labels and plot same matrix
   hmm_ax = ax.twiny()
+  hmm_ax.set_xlim(ax.get_xlim())
 
   ax.set_xticks(list(align1_ticks))
   # ax.xaxis.set_major_formatter(ticker.NullFormatter())
