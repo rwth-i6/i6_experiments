@@ -359,6 +359,7 @@ class NnRecogArgs:
     prior_file: Optional[tk.Path] = None
     lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None
+    acoustic_mixture_path_for_global_cache_and_lm_image: Optional[tk.Path] = None
 
 
 class NnForcedAlignArgs(TypedDict):

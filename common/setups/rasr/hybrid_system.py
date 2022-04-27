@@ -376,6 +376,7 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         prior_file: Optional[tk.Path] = None,
+        acoustic_mixture_path_for_global_cache_and_lm_image: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -402,7 +403,8 @@ class HybridSystem(NnSystem):
 
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
-            lm_image_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
+            am_path = acoustic_mixture_path_for_global_cache_and_lm_image if acoustic_mixture_path_for_global_cache_and_lm_image is not None else acoustic_mixture_path
+            lm_image_scorer = rasr.GMMFeatureScorer(am_path)
             lm_image_job = AdvancedTreeSearchLmImageAndGlobalCacheJob(
                 crp=self.crp[recognition_corpus_key],
                 feature_scorer=lm_image_scorer,
