@@ -209,18 +209,18 @@ def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, r
   }
 
   d_ref = {
-    "class": "MetaDataset", "datasets": {"sprint": d, "align": ref_align_opts}, "data_map": {
+    "class": "MetaDataset", "datasets": {"sprint": d, "align": ref_align_opts, "align2": search_align_opts}, "data_map": {
       "data": ("sprint", "data"),
-      label_name: ("align", "data"),
-    }, "seq_order_control_dataset": "align",
+      label_name: ("align", "data"), "seq_order_dataset": ("align2", "data")
+    }, "seq_order_control_dataset": "align2",
   }
 
   d_search = {
-    "class": "MetaDataset", "datasets": {"sprint": d, "align": search_align_opts, "align2": ref_align_opts},
+    "class": "MetaDataset", "datasets": {"sprint": d, "align": search_align_opts},
     "data_map": {
       "data": ("sprint", "data"),
-      label_name: ("align", "data"), "seq_order_dataset": ("align2", "data"),
-    }, "seq_order_control_dataset": "align2",
+      label_name: ("align", "data"),
+    }, "seq_order_control_dataset": "align",
   }
 
   ref_dataset = rnn.init_dataset(d_ref)
