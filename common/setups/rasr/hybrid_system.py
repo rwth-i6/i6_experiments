@@ -404,7 +404,7 @@ class HybridSystem(NnSystem):
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
             am_path = acoustic_mixture_path_for_global_cache_and_lm_image if acoustic_mixture_path_for_global_cache_and_lm_image is not None else acoustic_mixture_path
-            lm_image_scorer = rasr.GMMFeatureScorer(am_path)
+            lm_image_scorer = rasr.DiagonalMaximumScorer(am_path)
             lm_image_job = AdvancedTreeSearchLmImageAndGlobalCacheJob(
                 crp=self.crp[recognition_corpus_key],
                 feature_scorer=lm_image_scorer,
