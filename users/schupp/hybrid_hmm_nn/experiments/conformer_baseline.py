@@ -85,7 +85,12 @@ def run_exp():
   bs = 7254
 
   run_baseline(L2=L2, drop=drop, bs=bs, w_timesample2=False)
+
+
   run_baseline(L2=L2, drop=drop, bs=6144, w_timesample2=False) # <----------------------- BASELINE case
+  # Results: WER (dev-other): 9.3% tuned 4gramLM: 9.32 ( ep 190 )
+
+
   run_baseline(L2=L2, drop=drop, bs=10000, w_timesample2=True)
   run_baseline(L2=L2, drop=drop, bs=bs, w_timesample2=True, ff_dim=2048)
 

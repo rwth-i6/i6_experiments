@@ -107,3 +107,6 @@ def make_unsampling_001(
     })
 
     return net, "upsampled2"
+
+# The espnet subsampling:
+

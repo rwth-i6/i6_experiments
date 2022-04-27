@@ -172,6 +172,9 @@ def make_and_register_returnn_rasr_train(
     tk.register_output(f"{output_path}/learning_rate.png", returnn_rasr_train.out_plot_lr)
     return returnn_rasr_train
 
+# TODO use this:
+MIN_LM_OPTIMIZE_EP = 120 # Min epoch from where to maybe optimize lm scale
+
 import copy
 def make_and_register_returnn_rasr_search(
     system = None,
@@ -225,4 +228,19 @@ def make_and_register_returnn_rasr_search(
 
         system.recog(**nn_recog_args)
         # Aaaand we want to also optimize lm scale per default !TODO!
+
+        system.optimize_am_lm(
+            f"recog_{nn_recog_args['name']}", 
+            recog_corpus_key, nn_recog_args['pronunciation_scale'], 
+            nn_recog_args['lm_scale'], '', 
+            opt_only_lm_scale=False) # TODO: in future we might want to also optimize am scales ?
+
+        # When this is done we can dispatch a score summary job or similar
+        # The wer is acessibe under: self.jobs[corpus]["scorer_%s" % name].out_wer
+
+    # Now do the same for all the *best* checkpoints bug register them regardless of limit_eps:
+    # see i6_core GetBestCheckpointJob() 
+    # # I'm not sure what heppens when using this on an unfinished training thoug
+
+
 
