@@ -266,7 +266,7 @@ def build_decoding_config(
   corpus_path, segment_path, lexicon_path, feature_cache_path, label_file_path,
   meta_graph_path,
   simple_beam_search, blank_label_index, reduction_factors, start_label_index, blank_update_history,
-  loop_update_history,
+  loop_update_history, length_norm,
   allow_label_recombination, allow_word_end_recombination, full_sum_decoding, label_pruning, label_pruning_limit,
   use_lm_score, word_end_pruning, word_end_pruning_limit, label_recombination_limit, label_unit, max_seg_len,
   skip_silence, lm_type, lm_scale, lm_file, lm_image, lm_lookahead, max_batch_size=256, label_scorer_type="tf-rnn-transducer",
@@ -343,6 +343,8 @@ def build_decoding_config(
   recognizer_config.recognizer.simple_beam_search = simple_beam_search
   if max_seg_len is not None:
     recognizer_config.recognizer.max_segment_len = max_seg_len
+  if length_norm:
+    recognizer_config.recognizer.length_normalization = True
   # if dump_best_trace:
   #   # add alignment dumping
   #   recognizer_config.recognizer.dump_alignment.channel = "alignment"

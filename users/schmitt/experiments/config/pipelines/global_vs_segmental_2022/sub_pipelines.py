@@ -116,7 +116,7 @@ def run_rasr_decoding(
   allow_label_recombination, allow_word_end_recombination, full_sum_decoding, label_pruning, label_pruning_limit,
   use_lm_score, word_end_pruning, word_end_pruning_limit, label_recombination_limit, label_unit,
   skip_silence, lm_type, lm_scale, lm_file, lm_image, lm_lookahead, max_seg_len,
-  compile_config: ReturnnConfig, rasr_exe_path, loop_update_history,
+  compile_config, rasr_exe_path, loop_update_history, length_norm,
   model_checkpoint, name, num_epochs, lm_lookahead_cache_size_high=None, label_scorer_type="tf-rnn-transducer",
   lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None, lm_lookahead_scale=None,
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
@@ -128,7 +128,7 @@ def run_rasr_decoding(
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
 
   decoding_crp, decoding_config = build_decoding_config(
-    corpus_path=corpus_path,
+    corpus_path=corpus_path, length_norm=length_norm,
     segment_path=segment_path, lexicon_path=lexicon_path, feature_cache_path=feature_cache_path,
     label_pruning=label_pruning, label_unit=label_unit, label_pruning_limit=label_pruning_limit,
     word_end_pruning_limit=word_end_pruning_limit, loop_update_history=loop_update_history,
@@ -175,7 +175,7 @@ def run_rasr_decoding(
 
 
 def calc_rasr_search_errors(
-  corpus_path, segment_path, lexicon_path, feature_cache_path, label_file_path,
+  corpus_path, segment_path, lexicon_path, feature_cache_path, label_file_path, length_norm,
   simple_beam_search, blank_label_index, reduction_factors, start_label_index, blank_update_history,
   allow_label_recombination, allow_word_end_recombination, full_sum_decoding, label_pruning, label_pruning_limit,
   use_lm_score, word_end_pruning, word_end_pruning_limit, label_recombination_limit, label_unit,
@@ -193,7 +193,7 @@ def calc_rasr_search_errors(
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
 
   decoding_crp, decoding_config = build_decoding_config(
-    corpus_path=corpus_path,
+    corpus_path=corpus_path, length_norm=length_norm,
     segment_path=segment_path, lexicon_path=lexicon_path, feature_cache_path=feature_cache_path,
     label_pruning=label_pruning, label_unit=label_unit, label_pruning_limit=label_pruning_limit,
     word_end_pruning_limit=word_end_pruning_limit, loop_update_history=loop_update_history,
