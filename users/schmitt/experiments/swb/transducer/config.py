@@ -158,6 +158,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
+    network_type="default",
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
@@ -209,29 +210,32 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     #   self.function_prolog += [
     #     switchout_target,
     #   ]
-    # TODO check, whether all current combinations of hyperparameters are working for training and search
-    self.network = get_extended_net_dict(
-      pretrain_idx=None, learning_rate=self.learning_rate, num_epochs=150, length_model_type=length_model_type,
-      enc_val_dec_factor=1, target_num_labels=self.target_num_labels, target=self.target, task=self.task,
-      targetb_num_labels=self.targetb_num_labels, scheduled_sampling=scheduled_sampling, lstm_dim=lstm_dim, l2=0.0001,
-      beam_size=self.beam_size, length_model_inputs=length_model_inputs, prev_att_in_state=prev_att_in_state,
-      targetb_blank_idx=self.targetb_blank_idx, use_att=use_attention, fast_rec_full=fast_rec_full,
-      label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0,
-      efficient_loss=efficient_loss, time_reduction=time_red, ctx_size=ctx_size, fast_rec=fast_rec,
-      sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,
-      feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
-      label_dep_length_model=label_dep_length_model, label_dep_means=label_dep_means, direct_softmax=direct_softmax,
-      max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model, length_scale=length_scale,
-      length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss)
-    if use_attention:
-      self.network = add_attention(
-        self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
-        att_win_size=att_win_size, task=self.task, EncValueTotalDim=lstm_dim * 2, EncValueDecFactor=1,
-        EncKeyTotalDim=lstm_dim, att_weight_feedback=att_weight_feedback, att_type=att_type,
-        att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size,
-        att_seg_right_size=att_seg_right_size, att_area=att_area, AttNumHeads=att_num_heads,
-        EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
-        EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
+    if network_type == "default":
+      self.network = get_extended_net_dict(
+        pretrain_idx=None, learning_rate=self.learning_rate, num_epochs=150, length_model_type=length_model_type,
+        enc_val_dec_factor=1, target_num_labels=self.target_num_labels, target=self.target, task=self.task,
+        targetb_num_labels=self.targetb_num_labels, scheduled_sampling=scheduled_sampling, lstm_dim=lstm_dim, l2=0.0001,
+        beam_size=self.beam_size, length_model_inputs=length_model_inputs, prev_att_in_state=prev_att_in_state,
+        targetb_blank_idx=self.targetb_blank_idx, use_att=use_attention, fast_rec_full=fast_rec_full,
+        label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0,
+        efficient_loss=efficient_loss, time_reduction=time_red, ctx_size=ctx_size, fast_rec=fast_rec,
+        sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,
+        feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
+        label_dep_length_model=label_dep_length_model, label_dep_means=label_dep_means, direct_softmax=direct_softmax,
+        max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model, length_scale=length_scale,
+        length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss)
+      if use_attention:
+        self.network = add_attention(
+          self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
+          att_win_size=att_win_size, task=self.task, EncValueTotalDim=lstm_dim * 2, EncValueDecFactor=1,
+          EncKeyTotalDim=lstm_dim, att_weight_feedback=att_weight_feedback, att_type=att_type,
+          att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size,
+          att_seg_right_size=att_seg_right_size, att_area=att_area, AttNumHeads=att_num_heads,
+          EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
+          EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
+    else:
+      assert network_type == "global_import"
+      self.network = get_global_import_net_dict()
 
     if self.task == "train":
       assert train_data_opts and cv_data_opts and devtrain_data_opts
