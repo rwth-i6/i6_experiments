@@ -665,6 +665,14 @@ def get_extended_net_dict(
           "emit_log_prob": {
             "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"
           },
+          "enc_length0": {
+            "class": "length", "from": "base:encoder", "axis": "t"},
+          "enc_length": {
+            "class": "combine", "from": ["enc_length0", "const1"], "kind": "sub"},
+          "is_last_frame": {
+            "class": "compare", "from": [":i", "enc_length"], "kind": "greater_equal"},
+          "max_seg_len_or_last_frame": {
+            "class": "combine", "from": ["is_segment_longer_than_max", "is_last_frame"], "kind": "logical_or"},
           "max_seg_len": {
             "class": "constant", "value": max_seg_len-1},
           "is_segment_longer_than_max": {
@@ -672,7 +680,7 @@ def get_extended_net_dict(
           'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
           'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
           "blank_log_prob": {
-            "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
+            "class": "switch", "condition": "max_seg_len_or_last_frame", "true_from": -10000000.,
             "false_from": "const0.0"
           }
         })
@@ -760,7 +768,7 @@ def get_extended_net_dict(
           "class": "copy",
           "from": [
             "label_log_prob",
-            "blank_log_prob" if length_scale == 1. else "blank_log_prob_scaled"] if not sep_sil_model or label_dep_length_model else [
+            "blank_log_prob" if length_scale == 1. or length_model_type == "seg-static" else "blank_log_prob_scaled"] if not sep_sil_model or label_dep_length_model else [
             "sil_log_prob", "label_log_prob",
             "blank_log_prob" if length_scale == 1. else "emit_log_prob_scaled"
           ]}})
