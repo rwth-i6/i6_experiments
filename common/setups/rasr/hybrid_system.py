@@ -409,6 +409,7 @@ class HybridSystem(NnSystem):
                 crp=self.crp[recognition_corpus_key],
                 feature_scorer=lm_image_scorer,
             )
+            lm_image_job.add_alias(f"recog/lm_image_and_global_cache/{name}.{recognition_corpus_key}")
             tk.register_output(
                 f"lm_image_and_global_cache/{name}.{recognition_corpus_key}.global.cache",
                 lm_image_job.out_global_cache,
