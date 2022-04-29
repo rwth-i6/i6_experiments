@@ -182,7 +182,7 @@ def make_conformer_00(
     conformer_self_att_func=make_self_att_mod_001,
     sa_func_args=None,
 
-    conformer_self_conv_func=make_conv_mod_001,
+    conformer_self_conv_func=make_conv_mod_001, # TODO: rename! no 'self'
     conv_func_args=None,
 
     conformer_ff2_func=make_ff_mod_001,
