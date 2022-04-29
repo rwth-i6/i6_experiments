@@ -78,6 +78,37 @@ for drr in consider_out_dirs:
 
 
 _dir_files_short_names = { name : sorted([ d.split("/")[-1] for d in _dir_files[name] ]) for name in _dir_files.keys()} # Short name descriptions
+
+import re # Stolen: https://stackoverflow.com/questions/45001775/find-all-floats-or-ints-in-a-given-string
+re_float = re.compile("""(?x)
+   ^
+      [+-]?\ *      # first, match an optional sign *and space*
+      (             # then match integers or f.p. mantissas:
+          \d+       # start out with a ...
+          (
+              \.\d* # mantissa of the form a.b or a.
+          )?        # ? takes care of integers of the form a
+         |\.\d+     # mantissa of the form .b
+      )
+      ([eE][+-]?\d+)?  # finally, optionally match an exponent
+   $""")
+
+def content_map_filter_data(map):
+    map_list = map.split("\n")
+    # filters all epochs and epoch data of the content map
+    wers_by_dataset_epoch = []
+    for tag in ["dev-other", "dev-clean", "test-other", "test-clean"]:
+        wers_by_dataset_epoch[tag] = []
+        data = [k for k in map_list if ("WER" in k) and (tag in k)]
+        epoch_data = [k for k in map_list if ("epoch" in k)]
+
+        for i in range(len(data)):
+            WERS = re_float.findall(data[i]) # First is non tuned LM
+            EP = re_float.findall(epoch_data[i]) # First is epoch number, second is time ( TODO store also time? )
+            wers_by_dataset_epoch[tag][int(EP[0])] = [WERS[0], WERS[1]]
+
+    print(wers_by_dataset_epoch)
+
 #print(_dir_files_short_names)
 
 first_names = consider_out_dirs
@@ -102,6 +133,8 @@ if summary_file:
             outp = open(file_name, "w")
             n = outp.write(content_map[exp])
 
+            if True: # Make this if generate_csv
+                content_map_filter_data(content_map[exp])
             # The short summary only accounts for dev-other and the most recent epoch
             data = [k for k in content_map[exp].split("\n") if ("WER" in k) and ("dev-other" in k)]
             epoch_data = [k for k in content_map[exp].split("\n") if ("epoch" in k)]
@@ -109,6 +142,7 @@ if summary_file:
                 short_sum += f"{exp}: no wer found \n\n"
             else:
                 short_sum += f"{exp}: {data[-1]}   | {epoch_data[-1]} | \n\n"
+                # short_sum just shows the last ep, we want to store the best though TODO 
             outp.close()
 
         # Write the summary file
