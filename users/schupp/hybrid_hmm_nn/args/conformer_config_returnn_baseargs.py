@@ -39,6 +39,7 @@ config_baseline_00 = {
       'optimizer' : {"class" : "nadam"},
       'optimizer_epsilon': 1e-8,
       'gradient_noise': 0.0,  # 0.1
+      'behavior_version' : 12,
       'learning_rate_control': "constant",
       'learning_rate_file': "learning_rates",
       'learning_rates' : lr1(warmup_subepoch=2, constant_subepoch=18, decay_factor=0.99) # TODO: handle this differently

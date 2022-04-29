@@ -250,3 +250,90 @@ def make_conformer_00(
         pprint(net) 
 
     return net
+
+
+
+def make_conformer_01( # Allowes for adaptive conformer stages
+
+    subsampling_func=make_subsampling_001,
+    unsampling_func=make_unsampling_001,
+    sampling_func_args=None,
+
+    ff_modules = None, #[(True, True), ...]
+
+    conformer_ff1_func=make_ff_mod_001,
+    ff1_func_args=None,
+
+    conformer_self_att_func=make_self_att_mod_001,
+    sa_func_args=None,
+
+    conformer_self_conv_func=make_conv_mod_001,
+    conv_func_args=None,
+
+    conformer_ff2_func=make_ff_mod_001,
+    ff2_func_args=None,
+
+    shared_model_args=None,
+
+    num_blocks = None,
+
+    print_net = False
+):
+    net, last = {}, "data"
+    net, last = make_inital_transformations(net, last)
+    net, last = subsampling_func(
+        net, last,
+        **sampling_func_args,
+        **filter_args_for_func(subsampling_func, shared_model_args)
+    )
+
+    for i in range(num_blocks):
+        block_str = f"enc_{i:03d}"
+
+        # FF1
+        if ff_modules[i][0]:
+            net, last = conformer_ff1_func(
+                net, last,
+                prefix = f"{block_str}_ff1",
+                **ff1_func_args,
+                **filter_args_for_func(conformer_ff1_func, shared_model_args)
+            )
+
+        # SA
+        net, last = conformer_self_att_func(
+            net, last,
+            prefix = f"{block_str}",
+            **sa_func_args,
+            **filter_args_for_func(conformer_self_att_func, shared_model_args)
+        )
+        
+        # CONV MOD
+        net, last = conformer_self_conv_func(
+            net, last,
+            prefix = f"{block_str}",
+            **conv_func_args,
+            **filter_args_for_func(conformer_self_conv_func, shared_model_args)
+        )
+
+        # FF2
+        if ff_modules[i][1]:
+            net, last = conformer_ff2_func(
+                net, last,
+                prefix = f"{block_str}_ff2",
+                **ff2_func_args,
+                **filter_args_for_func(conformer_ff1_func, shared_model_args)
+            )
+
+    net, last = unsampling_func(
+        net, last,
+        # We also filter these cause not all ars of un- and sub- must match
+        **filter_args_for_func(unsampling_func, sampling_func_args),
+        **filter_args_for_func(unsampling_func, shared_model_args)
+    )
+
+    net, last = make_final_output(net, last)
+
+    if print_net:
+        pprint(net) 
+
+    return net

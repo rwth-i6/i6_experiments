@@ -42,7 +42,7 @@ def main():
       ff2_func_args = conformer_baseline_00.ff_default_args_00,
 
       # Self attention args
-      sa_func_args = sa_args, # ( sa standart version without pos encoding )
+      sa_func_args = experiment_config_args.sa_default_args_00, # ( sa standart version without pos encoding )
 
       # Conv mod args
       conv_func_args = conformer_baseline_00.conv_default_args_00,

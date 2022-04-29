@@ -138,6 +138,8 @@ def test_net_contruction(
         **rt_config.config,
         **funcs
     })
+    print("TBS: test config args:")
+    print(rt_config.config)
 
     BehaviorVersion.set(config.int("behavior_version", 12))
 
