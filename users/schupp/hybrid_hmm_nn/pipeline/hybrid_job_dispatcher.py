@@ -94,7 +94,8 @@ sys.setrecursionlimit(10 ** 6)
 def make_returnn_train_config_old(
     network=None,
     config_base_args=None,
-    post_config_args=None
+    post_config_args=None,
+    recoursion_depth = None,
 ):
 
     # We want all functions from ../helpers/specaugment_new.py
@@ -103,6 +104,9 @@ def make_returnn_train_config_old(
     # Net trick to filter all functions that are not build ins
     functions = [ f for f in dir(specaugment_new) if not f[:2] == "__"]
     code = "\n".join([ inspect.getsource(getattr(specaugment_new, f)) for f in functions ])
+
+    if not recoursion_depth is None:
+        code += f"import sys\nsys.setrecursionlimit({recoursion_depth})\n"
 
     returnn_train_config = ReturnnConfig(
         config={

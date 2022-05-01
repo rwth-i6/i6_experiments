@@ -23,6 +23,7 @@ def create_experiment_world_001(
     name=None,
     output_path=None,
     config_base_args=None,
+    extra_returnn_net_creation_args = None,
 
     # Network stuff
     conformer_create_func=None,
@@ -53,10 +54,13 @@ def create_experiment_world_001(
         print_net = print_net
     )
 
+    make_train_config_extra = {} if extra_returnn_net_creation_args is None else extra_returnn_net_creation_args
+
     returnn_train_config = job_dispatcher.make_returnn_train_config_old(
         network = network,
         config_base_args=config_base_args,
-        post_config_args=returnn_train_post_config
+        post_config_args=returnn_train_post_config,
+        **make_train_config_extra
     )
 
     # We test the construction now to avaoid error when running on cluster
