@@ -1,6 +1,6 @@
 # Hybrid Conformer Experiments
 
-Whole setups needs a lot of restructuring to make it clean.
+Whole setups needs a lot of restructuring to make it clean. ( see new pipleline, and new experiments `experiments_rtc` )
 But all the code for pipelines, network definition, config definition, etc. is there.
 
 ```
