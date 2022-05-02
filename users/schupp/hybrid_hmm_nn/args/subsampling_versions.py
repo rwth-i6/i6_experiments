@@ -333,3 +333,137 @@ def make_unsampling_003( # for the version with an SE block in the end of downsa
     })
 
     return net, "upsampled2"
+
+
+def make_subsampling_004_feature_stacking(
+    net=None,
+    in_l="source0",
+    time_reduction=None,
+
+    #specific:
+    embed_dropout = None,
+    embed_l2 = None,
+    stacking_stride = None,
+    window_size = None,
+    window_left = None,
+    window_right = None,
+    unsampling_strides = None,
+
+    # General
+    initialization = None,
+    model_dim = None
+):
+    assert net, "need network"
+    net_add = {
+        "conv0_0" : {
+            "class": "conv", 
+            "from": in_l, 
+            "padding": "same",
+            "filter_size": (3, 3),
+            "n_out": 32, 
+            "activation": None, 
+            "with_bias": True, 
+            "in_spatial_dims": ["T", "dim:50"]},  # (T,50,32)
+        "conv0_1" : {
+            "class": "conv", 
+            "from": f"conv0_0", 
+            "padding": "same", 
+            "filter_size": (3, 3),
+            "n_out": 32, 
+            "activation": 'relu', 
+            "with_bias": True, 
+            "in_spatial_dims": ["T", "dim:50"]},  # (T,50,32)
+        "conv0p" : {
+            "class": "pool", 
+            "mode": "max", 
+            "padding": "same", 
+            "pool_size": (1, 2), 
+            'strides': (1, 2),
+            "from": "conv0_1", 
+            "in_spatial_dims": ["T", "dim:50"] }, # (T, 25, 32)
+        "conv1_0" : {
+            "class": "conv", 
+            "from": "conv0p", 
+            "padding": "same", 
+            "filter_size": (3, 3), 
+            "n_out": 64,
+            "activation": None, 
+            "with_bias": True,
+            "in_spatial_dims": ["T", "dim:25"] }, # (T, 25, 64)
+        "conv1_1" : {
+            "class": "conv", 
+            "from": "conv1_0", 
+            "padding": "same", 
+            "filter_size": (3, 3),
+            "n_out": 64, 
+            "activation": 'relu', 
+            "with_bias": True, 
+            "in_spatial_dims": ["T", "dim:25"]}, # (T,25,64)
+        "conv1p" : {
+            "class": "pool", 
+            "mode": "max", 
+            "padding": "same", 
+            "pool_size": (time_reduction, 1), 
+            'strides': (time_reduction, 1),
+            "from": "conv1_1", 
+            "in_spatial_dims": ["T", "dim:25"]},
+        "conv_merged" : {
+            "class": "merge_dims", 
+            "from": "conv1p", 
+            "axes": ["dim:25", "dim:64"]}}
+
+    from .network_additions import add_feature_stacking
+
+    net.update(net_add)
+    net, next = add_feature_stacking(
+        net = net,
+        in_l = "conv_merged",
+
+        stacking_stride = stacking_stride,
+        window_size = window_size,
+        window_left = window_left,
+        window_right = window_right
+    )
+
+    net_end = {
+        'embedding': { 
+            'activation': None,
+            'class': 'linear',
+            'forward_weights_init': initialization,
+            'from': [next],
+            'n_out': model_dim,
+            'with_bias': True},
+        'embedding_dropout': {
+            'class': 'dropout', 
+            'dropout': embed_dropout, 
+            'from': ['embedding']},
+    }
+
+    net.update(net_end)
+
+    return net, "embedding_dropout"
+
+def make_unsampling_004_feature_stacking( # for the version with an SE block in the end of downsampling
+    net=None,
+    in_l=None,
+
+    time_reduction=None,
+    unsampling_strides = None,
+
+    model_dim = None,
+):
+    net.update({
+        'encoder' : {
+            'class': 'layer_norm',
+            'from': [in_l]},
+        'upsampled0': {  # Renamed from upsampling2 don't know why but just following orders
+            'activation': 'relu',
+            'class': 'transposed_conv',
+            'filter_size': (3,),
+            'from': ['encoder'],
+            'n_out': model_dim, 
+            'strides': (unsampling_strides,),
+            'with_bias': True}
+    })
+
+    return net, "upsampled0"

@@ -111,3 +111,89 @@ def stochatic_depth_00( # TODO (WIP) this is unfinished!!
 
 
     return net_add, f"{prefix}_switch_train"
+
+def add_feature_stacking(
+    net=None,
+    in_l=None,
+
+    stacking_stride = None,
+    window_size = None,
+    window_left = None,
+    window_right = None
+
+):
+    net_add = {
+        'feature_stacking_merged': { # 'feature_stacking_window': [B,T|'ceildiv_right(conv1p:conv:s0, 3)'[?],'feature_stacking_window:window'(3),F|F'conv0p:conv:s1*conv1_1:channel'(1600)]
+            'axes': ["dim:3", "F"],  # adapt bhv=12  #TODO: make dynamic, get axes as input?
+            'class': "merge_dims",  # Should be conv merged
+            'from': ['feature_stacking_window']},
+        'feature_stacking_window': {
+            'class': 'window', 
+            'from': [in_l], 
+            'stride': stacking_stride, 
+            'window_left': window_left, 
+            'window_right': window_right, 
+            'window_size': window_size},
+    }
+
+    net.update(net_add)
+    return net, 'feature_stacking_merged'
+
+def add_auxilary_loss(
+    net=None,
+    in_l=None,
+    prefix=None,
+
+    # specific:
+    aux_dim = None,
+    aux_strides = None,
+
+    # general:
+    initialization = None,
+    model_dim = None
+):
+
+    net_add = {
+        '_ff1': { 
+            'activation': 'relu',
+            'class': 'linear',
+            'forward_weights_init': initialization,
+            'from': ['_length_masked'],
+            'n_out': aux_dim,
+            'with_bias': True},
+        '_ff2': { 
+            'activation': None,
+            'class': 'linear',
+            'forward_weights_init': initialization,
+            'from': ['_ff1'],
+            'n_out': aux_dim,
+            'with_bias': True},
+        '_length_masked': {
+            'class': 'reinterpret_data', 
+            'from': ['_upsampled0'], 
+            'size_base': 'data:classes'},
+        '_output_prob': { 
+            'class': 'softmax',
+            'dropout': 0.0,
+            'from': ['_ff2'],
+            'loss': 'ce',
+            'loss_opts': {
+                'focal_loss_factor': 0.0, 
+                'label_smoothing': 0.0, 
+                'use_normalized_loss': False},
+            'loss_scale': 0.5,
+            'target': 'classes'},
+        '_upsampled0': { 
+            'activation': 'relu',
+            'class': 'transposed_conv',
+            'filter_size': (3,),
+            'from': [in_l],
+            'n_out': model_dim,
+            'strides': (aux_strides,),
+            'with_bias': True},
+    }
+
+    net.update(
+        prefix_all_keys(prefix, net_add, in_l)
+    )
+    return net, f"{prefix}_output_prob" # But this should never be used as input

@@ -13,6 +13,7 @@
 # - train:
 #   - returnn_train_post_config_00
 #   - returnn_rasr_args_defaults_00
+from typing import OrderedDict
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import librispeech_hybrid_tim_refactor as sys
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import hybrid_job_dispatcher as job_dispatcher
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args import conformer_rasr_config_maker as rasr_config_args_maker
@@ -39,7 +40,8 @@ def create_experiment_world_001(
     returnn_rasr_args_defaults=None,
 
     test_construction=False,
-    print_net = False
+    print_net = False,
+    write_dummpy_config = None, # String path if given, write the returnn config there
 ):
     
     system = sys.LibrispeechHybridSystemTim()
@@ -62,6 +64,15 @@ def create_experiment_world_001(
         post_config_args=returnn_train_post_config,
         **make_train_config_extra
     )
+
+    if not write_dummpy_config is None:
+        # Fuck damit, can actually do this because write always calls _serialize, which always calls  config.update(self.post_config)
+        # And this causes an inconsitency error because some post config args are added several times
+        # But maybe we can deep copy and then write... waste some memory but should work
+        import copy
+        assert isinstance(write_dummpy_config, str)
+        train_config = copy.deepcopy(returnn_train_config)
+        train_config.write(write_dummpy_config)
 
     # We test the construction now to avaoid error when running on cluster
     if test_construction:
@@ -93,4 +104,8 @@ def create_experiment_world_001(
         feature_name="gammatone",
         limit_eps=returnn_train_post_config["cleanup_old_models"]["keep"],
         exp_name=name
+    )
+
+    return OrderedDict(
+        network = network
     )

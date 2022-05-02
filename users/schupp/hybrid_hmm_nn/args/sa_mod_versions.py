@@ -43,7 +43,7 @@ def make_self_att_mod_001(
         "_self_att_drop" : {
             'class': "dropout", 
             'dropout': sa_post_dropout,
-            'from': ["_self_att_att"]},
+            'from': ["_self_att_att"]}, # TODO ERRROR! fix # We skipped the linear layer
         "_self_att_out" : {
             'class': "combine", 
             'kind': "add",
@@ -112,7 +112,7 @@ def make_self_att_mod_002(
         "_self_att_drop" : {
             'class': "dropout", 
             'dropout': sa_post_dropout,
-            'from': ["_self_att_att"]},
+            'from': ["_self_att_lin"]},
         "_self_att_out" : {
             'class': "combine", 
             'kind': "add",
