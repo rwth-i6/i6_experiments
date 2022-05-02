@@ -20,7 +20,9 @@ class ReturnnForwardJob(Job):
     """
     Run a RETURNN forward pass to HDF with a specified model checkpoint
     """
-    def __init__(self, model_checkpoint, returnn_config, hdf_outputs=None,
+    __sis_hash_exclude__ = {'eval_mode': False}
+
+    def __init__(self, model_checkpoint, returnn_config, hdf_outputs=None, eval_mode=False,
                  *,  # args below are keyword only
                  log_verbosity=3, device='gpu',
                  time_rqmt=4, mem_rqmt=4, cpu_rqmt=4,
@@ -32,6 +34,7 @@ class ReturnnForwardJob(Job):
         :param dict returnn_post_config: RETURNN config dict (no hashing)
         :param list[str] hdf_outputs: list of additional hdf output layer file names that the network generates (e.g. attention.hdf);
           The hdf outputs have to be a valid subset or be equal to the hdf_dump_layers in the config.
+        :param eval_mode: run forward in eval mode, the default hdf is not available in this case and no search will be done.
         :param int log_verbosity: RETURNN log verbosity
         :param str device: RETURNN device, cpu or gpu
         :param int time_rqmt: job time requirement
@@ -45,6 +48,7 @@ class ReturnnForwardJob(Job):
 
         self._model_checkpoint = model_checkpoint
         self._returnn_config = returnn_config
+        self._eval_mode = eval_mode
         self._log_verbosity = log_verbosity
         self._device = device
 
@@ -54,8 +58,9 @@ class ReturnnForwardJob(Job):
         hdf_outputs = hdf_outputs if hdf_outputs else []
         for output in hdf_outputs:
             self.out_hdf_files[output] = self.output_path(output)
-        self.out_hdf_files["output.hdf"] = self.output_path("output.hdf")
-        self.out_default_hdf = self.out_hdf_files["output.hdf"]
+        if not eval_mode:
+            self.out_hdf_files["output.hdf"] = self.output_path("output.hdf")
+            self.out_default_hdf = self.out_hdf_files["output.hdf"]
 
         self.rqmt = {'gpu': 1 if device == "gpu" else 0,
                      'cpu': cpu_rqmt, 'mem': mem_rqmt, 'time': time_rqmt}
@@ -68,6 +73,7 @@ class ReturnnForwardJob(Job):
         config = self.create_returnn_config(
             model_checkpoint=self._model_checkpoint,
             returnn_config=self._returnn_config,
+            eval_mode=self._eval_mode,
             log_verbosity=self._log_verbosity,
             device=self._device
         )
@@ -124,7 +130,7 @@ class ReturnnForwardJob(Job):
             #    os.unlink(file)
 
     @classmethod
-    def create_returnn_config(cls, model_checkpoint, returnn_config, log_verbosity, device, **kwargs):
+    def create_returnn_config(cls, model_checkpoint, returnn_config, eval_mode, log_verbosity, device, **kwargs):
         """
 
         :param Checkpoint model_checkpoint:
@@ -144,9 +150,12 @@ class ReturnnForwardJob(Job):
         post_config = { 'device'          : device,
                         'log'             : ['./returnn.log'],
                         'log_verbosity'   : log_verbosity,
-                        'task'            : 'forward',
-                        'forward_override_hdf_output': True,
-                        'output_file': 'output.hdf'}
+                        'task'            : 'eval' if eval_mode else 'forward',
+        }
+
+        if not eval_mode:
+            post_config['forward_override_hdf_output'] = True
+            post_config['output_file'] = 'output.hdf'
 
         config.update(returnn_config.config)
         post_config.update(returnn_config.post_config)

@@ -28,7 +28,6 @@ def trainig_network_mohammad(datastreams, specaug_settings=None, fix_regularizat
     """
     from returnn_common import nn
 
-
     audio_features, (in_time_dim, in_feature_dim) = datastreams["audio_features"].as_returnn_common_data_and_dims(name="audio_features")
     bpe_labels, (out_time_dim, out_label_dim) = datastreams["bpe_labels"].as_returnn_common_data_and_dims(name="bpe_labels")
 
@@ -94,16 +93,15 @@ def trainig_network_mohammad(datastreams, specaug_settings=None, fix_regularizat
     )
 
     stage_nets = []
-
+    base_string = None
     for i in range(1):
-        network, prolog = get_network(dim_tags_proxy, audio_features, bpe_labels, time_dim=in_time_dim, feature_dim=in_feature_dim, label_dim=out_label_dim, label_time_dim=out_time_dim)
-        stage_nets.append((network, prolog))
+        network_string, base_string = get_network(dim_tags_proxy, audio_features, bpe_labels, time_dim=in_time_dim, feature_dim=in_feature_dim, label_dim=out_label_dim, label_time_dim=out_time_dim)
+        stage_nets.append(network_string)
 
     network_dict = {
         1: stage_nets[0], # network 0
     }
-
-    return network_dict, ed_config, ed_prolog
+    return network_dict, base_string
 
 
 def get_config(
@@ -149,13 +147,11 @@ def get_config(
         'newbob_learning_rate_decay': 0.9,
         'batch_size': 10000,
         'max_seqs': 200,
-        # 'truncation': -1
-        "behavior_version": 12,
     }
 
-    network_dict, extern_data, extern_data_prolog = trainig_network_mohammad(training_datasets.datastreams, **kwargs)
+    network_dict, base_string = trainig_network_mohammad(training_datasets.datastreams, **kwargs)
 
-    config["extern_data"] = extern_data
+    #config["extern_data"] = extern_data
     config["train"] = training_datasets.train.as_returnn_opts()
     config["dev"] = training_datasets.cv.as_returnn_opts()
     config["eval_datasets"] =  {'devtrain': training_datasets.cv.as_returnn_opts()}
@@ -165,7 +161,7 @@ def get_config(
         config=config,
         post_config=post_config,
         staged_network_dict=network_dict,
-        python_prolog=get_funcs() + extern_data_prolog,
+        python_prolog=get_funcs() + [base_string],
         hash_full_python_code=True,
     )
     return returnn_config
@@ -176,7 +172,7 @@ def transformer():
     returnn_root_datasets = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                                   commit="c2b31983bfc1049c7ce1549d7ffed153c9d4a443").out_repository
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="958a53ac684f20b37fe2e17c3acc55883cb33fa3").out_repository
+                                         commit="0c045ec027bd32ce279a91632a8c758d1900d0dd").out_repository
 
     prefix_name = "experiments/librispeech/librispeech_100_attention/lstm_encdec_2022/transformer"
 

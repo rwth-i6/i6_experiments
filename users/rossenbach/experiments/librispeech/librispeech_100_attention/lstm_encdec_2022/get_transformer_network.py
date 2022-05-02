@@ -7,7 +7,34 @@ from returnn_common.nn.transformer import Transformer
 
 from returnn_common import nn
 
-class TransformerASR(nn.Module):
+
+class BLSTMPoolModule(nn.Module):
+
+    def __init__(self, hidden_size, pool=None, dropout=None):
+        super().__init__()
+        self.lstm_out_dim = nn.FeatureDim("lstm_out_dim", dimension=hidden_size)
+        self.out_feature_dim = self.lstm_out_dim + self.lstm_out_dim
+        self.fw_rec = nn.LSTM(out_dim=self.lstm_out_dim)
+        self.bw_rec = nn.LSTM(out_dim=self.lstm_out_dim)
+        self.pool = pool
+        self.dropout = dropout
+
+    @nn.scoped
+    def __call__(self, inp, time_axis):
+        fw_out, _ = self.fw_rec(inp, direction=1, axis=time_axis)
+        bw_out, _ = self.bw_rec(inp, direction=-1, axis=time_axis)
+        c = nn.concat((fw_out, self.lstm_out_dim), (bw_out, self.lstm_out_dim))
+        if self.pool is not None and self.pool > 1:
+            pool, pool_spatial_dim = nn.pool1d(c, mode="max", pool_size=self.pool, padding="same", in_spatial_dim=time_axis)
+            inp = nn.dropout(pool, self.dropout, axis=self.out_feature_dim)
+            out_time_dim = pool_spatial_dim
+        else:
+            inp = nn.dropout(c, self.dropout, axis=self.out_feature_dim)
+            out_time_dim = time_axis
+        return inp, out_time_dim
+
+
+class BLSTMDownsamplingTransformerASR(nn.Module):
     """
     Standard Transformer Module
     """
@@ -17,9 +44,11 @@ class TransformerASR(nn.Module):
                  **kwargs
                  ) -> None:
         super().__init__()
-        self.transformer = Transformer(target_vocab=target_vocab, **kwargs)
+        self.downsampling_1 = BLSTMPoolModule(hidden_size=256, pool=2, dropout=0.1)
+        self.downsampling_2 = BLSTMPoolModule(hidden_size=256, pool=2, dropout=0.1)
+        self.transformer = Transformer(model_dim=self.downsampling_2.out_feature_dim, target_dim=target_vocab, **kwargs)
 
-        self.input_linear = nn.Linear(out_dim=self.transformer.out_dim, in_dim=audio_feature_dim)
+        #self.input_linear = nn.Linear(out_dim=self.transformer.model_dim, in_dim=audio_feature_dim)
 
     @nn.scoped
     def __call__(self,
@@ -30,11 +59,12 @@ class TransformerASR(nn.Module):
                  label_time_dim: nn.Dim,
                  label_dim: nn.Dim,
                  ):
-        in_vector = self.input_linear(audio_features)
+        pool1_out, pool1_time_axis = self.downsampling_1(audio_features, time_axis=audio_time_dim)
+        pool2_out, pool2_time_axis = self.downsampling_2(pool1_out, time_axis=pool1_time_axis)
 
         encoder_out, out_logits, out_labels, _ = self.transformer(
-            in_vector,
-            source_spatial_axis=audio_time_dim,
+            pool2_out,
+            source_spatial_axis=pool2_time_axis,
             target=labels,
             target_spatial_axis=label_time_dim
         )
@@ -46,42 +76,33 @@ class TransformerASR(nn.Module):
         )
         loss.mark_as_loss()
 
-        nn.
-
         return out_logits
 
 
 def get_network(dim_tags_proxy: nn.ReturnnDimTagsProxy, source_data: nn.Data, target_data: nn.Data, feature_dim, time_dim, label_dim, label_time_dim, **kwargs):
 
     with nn.NameCtx.new_root() as name_ctx_network:
-        net = TransformerASR(audio_feature_dim=feature_dim, target_vocab=label_dim)
+        net = BLSTMDownsamplingTransformerASR(audio_feature_dim=feature_dim, target_vocab=label_dim)
         out = net(
             audio_features=nn.get_extern_data(source_data),
             labels=nn.get_extern_data(target_data),
             audio_time_dim=time_dim,
             label_time_dim=label_time_dim,
             label_dim=label_dim,
-            name=name_ctx_network,
+            #name=name_ctx_network,
         )
         out.mark_as_default_output()
 
-        #out_dim = nn.FeatureDim("L2_dim", 1)
-        #reductions = [nn.expand_dim(nn.reduce(param ** 2.0, mode="sum", axis=list(param.shape)), dim=out_dim) for param in net.parameters()]
-        #concat_out_dim = len(reductions) * out_dim
-        #l2loss = nn.concat(*tuple([[reduction, out_dim] for reduction in reductions]))
-        #l2loss = nn.reduce(l2loss, axis=concat_out_dim, mode="sum")
-        #l2loss = sum(reductions)
-        #l2loss.mark_as_loss(loss_scale=1e-4)
+        for param in net.parameters():
+            param.weight_decay = 0.1
 
-        l2loss = sum(nn.reduce(param ** 2, axis=list(param.shape), mode="sum") for param in net.parameters())
-        l2loss.mark_as_loss()
-
-        #l2loss = sum(nn.reduce_sum(param ** 2) for param in net.parameters())
+        #l2loss = sum(nn.reduce_sum(param ** 2.0) for param in net.parameters())
         #l2loss.mark_as_loss()
+        serializer = nn.ReturnnConfigSerializer(name_ctx_network)
+        base_string = serializer.get_base_extern_data_py_code_str()
+        network_string = serializer.get_ext_net_dict_py_code_str(net, ref_base_dims_via_global_config=True)
 
-    config, prolog = get_network_config_and_prolog(dim_tags_proxy, name_ctx_network)
-
-    return config, prolog
+    return network_string, base_string
 
     # config = name_ctx_network.get_returnn_config()
     # extern_data_dims = list(dim_tags_proxy.dim_refs_by_name.values())
