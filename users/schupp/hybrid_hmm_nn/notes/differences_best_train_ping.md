@@ -28,7 +28,7 @@ full epochs:
 chunking:
 200:100 -> 400:200
 
-ping has extra split dataset options:
+ping has extra sprint dataset options:
 - segment-order-sort-by-time-length-chunk-size=-1
 - segment-order-sort-by-time-length=true
 
@@ -130,4 +130,12 @@ ping:
     min_reps_time = 0
 
 mine:
-    Not set using defaults
+    Not set using defaults ( as calculated in transform function )
+
+    min_reps_time = 1
+    max_reps_time = 10? # not sure tf.maximum(tf.shape(x)[1] // (max_len_time or 20), 1) # // 100, 1)
+
+    max_reps_feature = 2
+    min_reps_feature = 1
+    max_len_time = 20
+    max_len_feature = 10 # nor sure : ?tf.shape(x)[-1] // 5
