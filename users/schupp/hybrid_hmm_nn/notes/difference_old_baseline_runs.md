@@ -56,7 +56,7 @@ Same here this is part of updated specaugment code
 This rerun doesn't use `behavior_version=12` so that can't be an issue.
 I've also checked the `rasr.dev.config` and `rasr.train.config` they also match.
 
-Also checked the recognition.config for the tree search they do match asual. So it can really be an issue with recognition.
+Also checked the recognition.config for the tree search they do match asual. So it can't really be an issue with recognition.
 
 e.g.:
 `/work/asr3/zeyer/schupp/setups-data/ping_setup_refactor_tf23_work/i6_core/recognition/advanced_tree_search/AdvancedTreeSearchJob.WKTa75gcj3SS/work/recognition.config`
