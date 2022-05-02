@@ -6,7 +6,6 @@ import numpy as np
 
 from sisyphus import Job, Task, tk
 
-
 class FairseqAudioManifestCreationJob(Job):
     """
     Creates required manifest files for wav2vec pretraining with fairseq. For the
@@ -29,16 +28,16 @@ class FairseqAudioManifestCreationJob(Job):
         manifest_audio_paths=None,
     ):
         """
-        :param [tk.Path]|tk.Path audio_dir_path: List of paths or single path to raw audio files to be included
-        :param str file_extension: File extension to look for in audio_dir_path
-        :param float valid_percent: Percentage of files to be in validation set
+        :param [tk.Path]|tk.Path audio_dir_path: list of paths or single path to raw audio files to be included
+        :param str file_extension: file extension to look for in audio_dir_path
+        :param float valid_percent: percentage of files to be in validation set
         :param int seed: random seed for splitting into train and valid set
         :param str|None path_must_contain: if set, path must contain this substring
             for a file to be included in the manifest
-        :param float upsampling_alpha: Specifies how much to upsample low resource languages. Upsampling
+        :param float upsampling_alpha: specifies how much to upsample low resource languages. Upsampling
             calculation is done according to "Unsupervised Cross-Lingual Representation Learning for Speech
             Recognition", see  arXiv:2006.13979v2
-        :param [str]|str|None manifest_audio_paths: Explicitly specifies output paths in manifest for each
+        :param [str]|str|None manifest_audio_paths: explicitly specifies output paths in manifest for each
             audio directory respectively. Allows to use different paths in the manifest than in the audio_dir_paths
         """
         if isinstance(audio_dir_path, tk.Path):
