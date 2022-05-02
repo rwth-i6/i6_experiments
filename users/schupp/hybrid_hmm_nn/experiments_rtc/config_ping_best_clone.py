@@ -79,7 +79,7 @@ returnn_rasr_args_defaults = OrderedDict(
     feature_name = 'gammatone',
     alignment_name = 'align_hmm',
     num_classes = 12001,
-    num_epochs = 200,
+    num_epochs = 600,
     partition_epochs = {'train': EP_SPLIT, 'dev': 1},
     shuffle_data = True, # Adds some etra ars to the sprint train call
 )
@@ -186,6 +186,8 @@ experiment_data = god.create_experiment_world_001(
     #write_dummpy_config="./test.config"
 )
 
+# ---------------------------------------- Sanity check config comparison --------------------------------------
+
 ## Ok to prove we replicated the config 
 # we can just import the original config as python file
 # much hacky this is 
@@ -271,3 +273,9 @@ diff_l = diff.split("\n")
 print(diff_l)
 print(len(diff_l))
 assert len(diff_l) < 20, "Nope that aint making sense" # Has to be good enough check, I mean look at the configs they are the same :P
+
+
+# TODO: there is one last thing that I din't manage to replicate jet:
+# I'm missing these rasr sprint arguments:
+# --*.corpus.segment-order-shuffle=true ' '--*.segment-order-sort-by-time-length=true --*.segment-order-sort-by-time-length-chunk-size=-1
+# (tried adding them via train_crp in recipe/i6_experiments/users/schupp/hybrid_hmm_nn/args/conformer_rasr_config_maker.py din't seem to work )
