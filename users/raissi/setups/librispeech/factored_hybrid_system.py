@@ -1,4 +1,4 @@
-__all__ = ["NnArgs", "NnSystem"]
+__all__ = ["FactoredHybridSystem"]
 
 import copy
 import itertools
@@ -21,16 +21,23 @@ import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath, MultiOutputPath
 
-from .rasr_system import RasrSystem
-
-from .util import (
+from i6_experiments.common.setups.rasr.nn_system import NnSystem
+from i6_experiments.common.setups.rasr.util import (
     RasrInitArgs,
     ReturnnRasrDataInput,
-    OggZipHdfDataInput,
-    NnArgs,
-    NnRecogArgs,
     RasrSteps,
 )
+
+from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
+    ContextMapper,
+    LabelInfo,
+    PipelineStages
+)
+from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
+    get_label_info,
+    get_alignment_keys
+)
+
 
 # -------------------- Init --------------------
 
@@ -39,7 +46,7 @@ Path = tk.setup_path(__package__)
 # -------------------- System --------------------
 
 
-class NnSystem(RasrSystem):
+class FactoredHybridSystem(NnSystem):
     """
     - 5 corpora types: train, devtrain, cv, dev and test
         devtrain is a small split from the train set which is evaluated like
@@ -66,24 +73,18 @@ class NnSystem(RasrSystem):
     """
 
     def __init__(
-        self,
-        returnn_root: Optional[str] = None,
-        returnn_python_home: Optional[str] = None,
-        returnn_python_exe: Optional[str] = None,
+            self,
+            returnn_root: Optional[str] = None,
+            returnn_python_home: Optional[str] = None,
+            returnn_python_exe: Optional[str] = None,
     ):
-        super().__init__()
-
-        self.returnn_root = returnn_root or (
-            gs.RETURNN_ROOT if hasattr(gs, "RETURNN_ROOT") else None
+        super().__init__(
+            returnn_root=returnn_root,
+            returnn_python_home=returnn_python_home,
+            returnn_python_exe=returnn_python_exe,
         )
-        self.returnn_python_home = returnn_python_home or (
-            gs.RETURNN_PYTHON_HOME if hasattr(gs, "RETURNN_PYTHON_HOME") else None
-        )
-        self.returnn_python_exe = returnn_python_exe or (
-            gs.RETURNN_PYTHON_EXE if hasattr(gs, "RETURNN_PYTHON_EXE") else None
-        )
-
-
+        
+        #data infomration
         self.cv_corpora = []
         self.devtrain_corpora = []
 
@@ -96,12 +97,23 @@ class NnSystem(RasrSystem):
         self.train_cv_pairing = None
 
         self.datasets = {}
+        self.hdfs = {}
 
-        self.hdfs = {}  # TODO remove?
 
-        self.nn_configs = {}
-        self.nn_models = {}  # TODO remove?
-        self.nn_checkpoints = {}
+        self.context_mapper = ContextMapper()
+        self.label_info = LabelInfo(**get_label_info())
+        self.stage = PipelineStages(get_alignment_keys())
+        
+        self.trainers    = None #ToDo external trainer class
+        self.recognizers = {}
+        self.aligners = {}
+        self.returnn_configs = {}
+        self.graphs = {}
+
+        self.experiments = {}
+        self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}
+        
+        
 
 
     # -------------------- Helpers --------------------
@@ -115,29 +127,26 @@ class NnSystem(RasrSystem):
         name: str,
     ):
         train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_train")
-        self.jobs[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job
-        self.nn_models[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_models
-        self.nn_checkpoints[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_checkpoints
-        self.nn_configs[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_returnn_config_file
         tk.register_output(
             f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_learning_rate.png",
             train_job.out_plot_lr,
         )
 
+    def get_model_checkpoint(self, model_job, epoch):
+        return model_job.checkpoints[epoch]
+
+    def get_model_path(self, model_job, epoch):
+        return model_job.checkpoints[epoch].ckpt_path
+
+
     # -------------------- Setup --------------------
     def init_system(
         self,
         hybrid_init_args: RasrInitArgs,
-        train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
+        train_data: Dict[str, Union[ReturnnRasrDataInput]],
+        cv_data: Dict[str, Union[ReturnnRasrDataInput]],
         devtrain_data: Optional[
-            Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
+            Dict[str, Union[ReturnnRasrDataInput]]
         ] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
@@ -169,8 +178,8 @@ class NnSystem(RasrSystem):
         self.dev_corpora.extend(list(dev_data.keys()))
         self.test_corpora.extend(list(test_data.keys()))
 
-        self._set_eval_data(dev_data)
-        self._set_eval_data(test_data)
+        self.set_eval_data(dev_data)
+        self.set_eval_data(test_data)
 
         self.train_cv_pairing = (
             list(itertools.product(self.train_corpora, self.cv_corpora))
@@ -187,26 +196,15 @@ class NnSystem(RasrSystem):
             self.nn_checkpoints[f"{trn_c}_{cv_c}"] = {}
             self.nn_configs[f"{trn_c}_{cv_c}"] = {}
 
-    def _set_eval_data(self, data_dict):
+    def set_eval_data(self, data_dict):
         for c_key, c_data in data_dict.items():
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
+            
+    
 
-    def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):
-        for name in self.train_corpora + self.devtrain_corpora + self.cv_corpora:
-            self.jobs[name]["ogg_zip"] = j = returnn.BlissToOggZipJob(
-                bliss_corpus=self.crp[name].corpus_config.corpus_file,
-                segments=self.crp[name].segment_path,
-                rasr_cache=self.feature_flows[name]["init"],
-                raw_sample_rate=raw_sampling_rate,
-                feat_sample_rate=feature_sampling_rate,
-            )
-            self.oggzips[name] = j.out_ogg_zip
-            j.add_alias(f"oggzip/{name}")
-
-            # TODO self.jobs[name]["hdf_full"] = j = returnn.ReturnnDumpHDFJob()
 
     # -------------------- Training --------------------
 
