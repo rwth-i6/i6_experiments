@@ -36,6 +36,7 @@ from .util import (
     GmmCartArgs,
     GmmTriphoneArgs,
     GmmVtlnArgs,
+    PrevCtm,
     GmmSatArgs,
     GmmVtlnSatArgs,
     RasrSteps,
@@ -111,7 +112,7 @@ class GmmSystem(RasrSystem):
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
 
-        self.outputs = defaultdict(dict)
+        self.outputs = defaultdict(dict)  # type: Dict[GmmOutput]
 
     # -------------------- Setup --------------------
     def init_system(
@@ -192,6 +193,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -205,7 +207,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         if linear_alignment_args is not None:
@@ -237,6 +242,7 @@ class GmmSystem(RasrSystem):
                 self.mixtures, corpus_key, "linear_alignment_{}".format(name)
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -258,6 +264,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
         tk.register_output(
@@ -361,6 +374,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -373,7 +387,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
 
@@ -398,6 +415,7 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, initial_alignment
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -419,6 +437,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- Vocal Tract Length Normalization --------------------
 
@@ -555,6 +580,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -567,7 +593,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         action_sequence = (
@@ -587,6 +616,7 @@ class GmmSystem(RasrSystem):
             flow=feature_flow,
             initial_alignment=self.alignments[corpus_key][initial_alignment_key][-1],
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -608,6 +638,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- Speaker Adaptive Training  --------------------
 
@@ -715,6 +752,7 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        dump_alignment_score_report=False,
         **kwargs,
     ):
         """
@@ -730,7 +768,10 @@ class GmmSystem(RasrSystem):
         :param splits:
         :param accs_per_split:
         :param align_keep_values:
-        :param kwargs:
+        :param dump_alignment_score_report: collect the alignment logs and write the report.
+            please do not activate this flag if you already cleaned all alignments, as then all deleted
+            jobs will re-run.
+        :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
         self.estimate_cmllr(
@@ -766,6 +807,7 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, alignment
             ),
             align_keep_values=akv,
+            alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
         self.jobs[corpus_key]["train_{}".format(name)].selected_alignment_jobs[
@@ -787,6 +829,13 @@ class GmmSystem(RasrSystem):
             .selected_mixture_jobs[-1]
             .out_mixtures,
         )
+        if dump_alignment_score_report:
+            tk.register_output(
+                "train/{}_{}_alignment_report.txt".format(corpus_key, name),
+                self.jobs[corpus_key][
+                    "train_{}".format(name)
+                ].get_alignment_score_report(),
+            )
 
     # -------------------- recognition  --------------------
 
@@ -863,7 +912,7 @@ class GmmSystem(RasrSystem):
 
     def sat_recognition(
         self,
-        prev_ctm: str,
+        prev_ctm: PrevCtm,
         feature_cache: Union[
             str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute
         ],
@@ -911,7 +960,8 @@ class GmmSystem(RasrSystem):
         :param kwargs:
         :return:
         """
-        prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm[0]}-{corpus_key}-ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}"
+        optlm_string = "-optlm" if prev_ctm.optimized_lm else ""
+        prev_ctm_key = f"recog_{train_corpus_key}-{prev_ctm.prev_step_key}-{corpus_key}-ps{prev_ctm.pronunciation_scale:02.2f}-lm{prev_ctm.lm_scale:02.2f}-iter{prev_ctm.iteration:02d}{optlm_string}"
         assert prev_ctm_key in self.ctm_files[corpus_key], (
             "the previous recognition stage '%s' did not provide the required recognition: %s"
             % (prev_ctm, prev_ctm_key)
@@ -924,7 +974,7 @@ class GmmSystem(RasrSystem):
             self.corpora[corpus_key].corpus_file
         )
 
-        overlay_key = f"{corpus_key}_{name}_ps{prev_ctm[1]:02.2f}-lm{prev_ctm[2]:02.2f}-iter{prev_ctm[3]:02d}{prev_ctm[4]}_sat"
+        overlay_key = f"{corpus_key}_{name}_ps{prev_ctm.pronunciation_scale:02.2f}-lm{prev_ctm.lm_scale:02.2f}-iter{prev_ctm.iteration:02d}{optlm_string}_sat"
         self.add_overlay(corpus_key, overlay_key)
         self.crp[overlay_key].corpus_config = copy.deepcopy(
             self.crp[corpus_key].corpus_config

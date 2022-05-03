@@ -340,7 +340,14 @@ def get_sat_args(allow_zero_weights: bool = False):
     }
 
     sat_recognition_args = {
-        "prev_ctm": ("tri", 1.0, 22, 10, "-optlm"),
+        #"prev_ctm": ("tri", 1.0, 22, 10, "-optlm"),
+        "prev_ctm": PrevCtm(
+            prev_step_key="tri",
+            pronunciation_scale=1.0,
+            lm_scale=22,
+            iteration=10,
+            optimized_lm=True
+        ),
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
@@ -410,7 +417,14 @@ def get_vtln_sat_args(allow_zero_weights: bool = False):
     }
 
     vtln_sat_recognition_args = {
-        "prev_ctm": ("vtln", 1.0, 22, 10, "-optlm"),
+        #"prev_ctm": ("vtln", 1.0, 22, 10, "-optlm"),
+        "prev_ctm": PrevCtm(
+            prev_step_key="vtln",
+            pronunciation_scale=1.0,
+            lm_scale=22,
+            iteration=10,
+            optimized_lm=True
+        ),
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",

@@ -326,6 +326,7 @@ class CtcSystem(RasrSystem):
                 alignment=None,
                 num_classes=self.functor_value(num_classes)
             )
+            tk.register_output("cv_hdf.hdf", train_hdf_job.out_hdf)
             custom_config = WriteRasrConfigJob(config, post_config).out_config
             returnn_config.config["train"] = {
                 "class": "HDFDataset",

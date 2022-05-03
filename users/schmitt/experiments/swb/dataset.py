@@ -1,3 +1,5 @@
+from sisyphus.delayed_ops import DelayedFormat
+
 def cf(filename):
   """Cache manager"""
   import os
@@ -81,3 +83,104 @@ def get_dataset_dict(data):
     d.update(partition_epochs_opts)
 
   return d
+
+
+def get_dataset_dict_wo_alignment(data, rasr_config_path, rasr_nn_trainer_exe, vocab, epoch_split=6):
+  assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
+  epoch_split = {
+    "train": epoch_split}.get(data, 1)
+
+  estimated_num_seqs = {
+    "train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
+
+  args = [DelayedFormat("--config={}", rasr_config_path),
+          "--*.corpus.segment-order-shuffle=true", "--*.segment-order-sort-by-time-length=true",
+          "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1)]
+
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": args, "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
+
+  if vocab is not None:
+    if "bpe_file" in vocab:
+      d["bpe"] = vocab
+    else:
+      d["orth_vocab"] = vocab
+
+  if data == "train":
+    partition_epochs_opts = {
+      "partition_epoch": epoch_split,
+      "estimated_num_seqs": (estimated_num_seqs[data] // epoch_split) if data in estimated_num_seqs else None, }
+
+    d.update(partition_epochs_opts)
+
+  return d
+
+
+def get_dataset_dict_w_alignment(data, rasr_config_path, rasr_nn_trainer_exe, segment_file, alignment, epoch_split=6):
+  hdf_files = [alignment]
+
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
+    "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
+
+  align_opts = {
+    "class": "HDFDataset", "files": hdf_files, "use_cache_manager": True,
+    "seq_list_filter_file": segment_file}  # otherwise not right selection
+  if data == "train":
+    estimated_num_seqs = 227047
+    align_opts["partition_epoch"] = epoch_split
+    align_opts["estimated_num_seqs"] = (estimated_num_seqs // epoch_split)
+    align_opts["seq_ordering"] = "laplace:%i" % (estimated_num_seqs // 1000)
+    align_opts["seq_order_seq_lens_file"] = "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
+  d = {
+    "class": "MetaDataset", "datasets": {"sprint": d, "align": align_opts}, "data_map": {
+      "data": ("sprint", "data"),
+      "alignment": ("align", "data"),
+    }, "seq_order_control_dataset": "align",
+  }
+
+  return d
+
+
+def get_dataset_dict_w_labels(data, rasr_config_path, rasr_nn_trainer_exe, segment_file, label_hdf, label_name, epoch_split=6):
+  hdf_files = [label_hdf]
+
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
+    "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
+
+  label_opts = {
+    "class": "HDFDataset", "files": hdf_files, "use_cache_manager": True,
+    "seq_list_filter_file": segment_file}  # otherwise not right selection
+  if data == "train":
+    estimated_num_seqs = 227047
+    label_opts["partition_epoch"] = epoch_split
+    label_opts["estimated_num_seqs"] = (estimated_num_seqs // epoch_split)
+    label_opts["seq_ordering"] = "laplace:%i" % (estimated_num_seqs // 1000)
+    label_opts["seq_order_seq_lens_file"] = "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
+  d = {
+    "class": "MetaDataset", "datasets": {"sprint": d, "hdf": label_opts}, "data_map": {
+      "data": ("sprint", "data"),
+      label_name: ("hdf", "data"),
+    }, "seq_order_control_dataset": "hdf",
+  }
+
+  return d
+
+
+def get_phoneme_dataset():
+  dataset_dict = {
+    'class': 'ExternSprintDataset',
+    'sprintConfigStr': '--config=/u/schmitt/experiments/transducer/config/rasr-configs/zhou-phon-trans.config --*.LOGFILE=nn-trainer.train.log --*.TASK=1 --*.corpus.segment-order-shuffle=true',
+    'sprintTrainerExecPath': '/u/zhou/rasr-dev/arch/linux-x86_64-standard-label_sync_decoding/nn-trainer.linux-x86_64-standard-label_sync_decoding'}
+
+  return dataset_dict

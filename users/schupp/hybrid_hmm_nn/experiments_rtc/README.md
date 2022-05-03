@@ -1,0 +1,1 @@
+This whole dir (or configs from it) is supposed to be linked as 'config' in sisyphus pipeline

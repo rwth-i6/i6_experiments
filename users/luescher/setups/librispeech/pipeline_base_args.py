@@ -260,7 +260,9 @@ def get_cart_args(
     add_unknown: bool = True,
 ):
     cart_questions_class = FoldedCartQuestions(
-        max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown,
+        max_leaves=max_leaves,
+        min_obs=min_obs,
+        add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
@@ -283,7 +285,8 @@ def get_cart_args(
     }
 
     return rasr_util.GmmCartArgs(
-        cart_questions=cart_questions, cart_lda_args=cart_lda_args,
+        cart_questions=cart_questions,
+        cart_lda_args=cart_lda_args,
     )
 
 
@@ -641,7 +644,8 @@ def get_data_inputs(
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora",
+        audio_format="wav",
+        output_prefix="corpora",
     )
 
     lm = {
@@ -650,9 +654,16 @@ def get_data_inputs(
         "scale": 10,
     }
 
-    lexicon = {
+    use_stress_marker = False
+
+    original_bliss_lexicon = lbs_dataset.get_bliss_lexicon(
+        use_stress_marker=use_stress_marker,
+        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+    )
+
+    augmented_bliss_lexicon = {
         "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
-            use_stress_marker=False,
+            use_stress_marker=use_stress_marker,
             add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
         )[train_corpus],
         "normalize_pronunciation": False,
@@ -663,7 +674,9 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=lexicon,
+        corpus_object=corpus_object_dict[train_corpus],
+        concurrent=300,
+        lexicon=augmented_bliss_lexicon,
     )
 
     dev_corpus_keys = (
@@ -675,7 +688,7 @@ def get_data_inputs(
         dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=20,
-            lexicon=lexicon,
+            lexicon=original_bliss_lexicon,
             lm=lm,
         )
 
@@ -683,7 +696,7 @@ def get_data_inputs(
         test_data_inputs[tst_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[tst_key],
             concurrent=20,
-            lexicon=lexicon,
+            lexicon=original_bliss_lexicon,
             lm=lm,
         )
 

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+  font-family: "Lato", sans-serif;
+}
+
+.sidenav {
+  height: 100%;
+  width: 0;
+  position: fixed;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  background-color: #111;
+  overflow-x: hidden;
+  transition: 0.5s;
+  padding-top: 60px;
+}
+
+.sidenav a {
+  padding: 8px 8px 8px 32px;
+  text-decoration: none;
+  font-size: 25px;
+  color: #818181;
+  display: block;
+  transition: 0.3s;
+  text-align: right;
+}
+
+.sidenav a:hover {
+  color: #f1f1f1;
+}
+
+.sidenav .closebtn {
+  position: absolute;
+  top: 0;
+  right: 25px;
+  font-size: 36px;
+  margin-left: 50px;
+}
+
+#mainContent {
+  padding-left: 800px;
+
+}
+
+@media screen and (max-height: 450px) {
+  .sidenav {padding-top: 15px;}
+  .sidenav a {font-size: 18px;}
+}
+</style>
+</head>
+<body>
+
+<span style="font-size:30px;cursor:pointer" onclick="openNav()">&#9776; open</span>
+
+<!-- We need one for every base url of this -->
+{% for key, value in second_map.items() %}
+  <div id="{{ key }}" class="sidenav">
+    <a href="javascript:void(0)" class="closebtn" onclick="closeSubNav('{{ key }}')">&times;</a>
+    {% for item in value %}
+      <a href="#" onclick="showView('{{ item }}'); closeSubNav('{{ key }}')"> {{ item }} </a>
+    {% endfor %}
+  </div>
+{% endfor %}
+
+
+<!-- We need only one of this -->
+<div id="mySidenav" class="sidenav">
+  <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+  {% for item in first_names %}
+    <a href="#" onclick="openSubNav('{{ item }}')">{{ item }} </a>
+  {% endfor %}
+</div>
+
+
+<div id="mainContent">
+{% for key, value in contentmap.items() %}
+<div id="content_{{ key }}" style="display: none;">
+  <pre>
+  {{ value }}
+</pre>
+</div>
+{% endfor %}
+</div>
+
+
+<script>
+
+function openNav() {
+  document.getElementById("mySidenav").style.width = "250px";
+}
+
+function openSubNav(sub) {
+  document.getElementById(sub).style.width = "900px";
+}
+
+function closeSubNav(sub) {
+  document.getElementById(sub).style.width = "0";
+}
+
+var cur_view = "";
+function showView(sub) {
+  if(cur_view != ""){
+    document.getElementById("content_" + cur_view).style.display = "none";
+    console.log("hiding " + cur_view);
+  }
+  cur_view = sub;
+  document.getElementById("content_" + sub).style.display = "block";
+
+}
+// Now for every pane in the second nav we need other NAV
+
+function closeNav() {
+  document.getElementById("mySidenav").style.width = "0";
+  document.getElementById("mySidenav2").style.width = "0";
+}
+
+</script>
+   
+</body>
+</html> 
+

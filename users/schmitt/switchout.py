@@ -1,9 +1,8 @@
 
 
-def switchout_target(self, source, **kwargs):
+def switchout_target(source, network, **kwargs):
   import tensorflow as tf
-  from TFUtil import where_bc
-  network = self.network
+  from returnn.tf.util.basic import where_bc
   time_factor = 6
   data = source(0, as_data=True)
   assert data.is_batch_major  # just not implemented otherwise

@@ -87,6 +87,8 @@ def main():
     print("Starting main Graph")
     # call experiments (sub-graphs) from here
 ```
+
+You can also check out the [Sisyphus structure page](https://sisyphus-workflow-manager.readthedocs.io/en/latest/structure.html) for more information.
  
 ## PyCharm setup
 

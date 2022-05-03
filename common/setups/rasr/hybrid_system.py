@@ -70,11 +70,13 @@ class HybridSystem(NnSystem):
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
         returnn_python_exe: Optional[str] = None,
+        blas_lib: Optional[str] = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
+            blas_lib=blas_lib,
         )
 
         self.tf_fwd_input_name = "tf-fwd-input"
@@ -481,7 +483,9 @@ class HybridSystem(NnSystem):
                 "NativeLstm2",
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
+                blas_lib=self.blas_lib,
             )
+            native_lstm_job.add_alias("%s/compile_native_op" % name)
 
             graph_compile_job = returnn.CompileTFGraphJob(
                 self.adapt_returnn_config_for_recog(returnn_config),
