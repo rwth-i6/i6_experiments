@@ -17,13 +17,14 @@ templates = glob.glob('*.j2')
 # 1 - Global tag name e.g.: conformer
 # 2 - Subtag name
 
-consider_out_dirs = ["conformer/best/"] # TODO: use should be asked which of these he wants updated
-consider_out_dirs = ["conformer/se_block/"]
+#consider_out_dirs = ["conformer/best/"] # TODO: use should be asked which of these he wants updated
+#consider_out_dirs = ["conformer/stoch_depth/"]
+consider_out_dirs = ["conformer/baseline/"]
 
 # For now consider all!
 # TODO; uncomment
-consider_out_dirs = glob.glob("alias/conformer/*")
-consider_out_dirs = [x.replace("alias/", "") + "/" for x in consider_out_dirs]
+#consider_out_dirs = glob.glob("alias/conformer/*")
+#consider_out_dirs = [x.replace("alias/", "") + "/" for x in consider_out_dirs]
 
 print()
 print("====================================================")
@@ -36,6 +37,7 @@ _dir_files = {}
 _first_names = []
 # Load this from alreay known
 _file_data_map = {}
+_file_data_error_map = {}
 
 
 def filt(name): # Removes the dataset tag from experiment name
@@ -46,6 +48,10 @@ def filt(name): # Removes the dataset tag from experiment name
         return name
 
 i = 0
+ix = 0
+
+load_instead_of_extract = False # TODO: set false
+
 for drr in consider_out_dirs:
     _first_names.append(drr)
     if drr not in _dir_files:
@@ -53,7 +59,7 @@ for drr in consider_out_dirs:
         _dir_files[drr] = glob.glob("alias/" + drr + "*") # gets all them files in that dir
 
         # Now they need to be filtered
-        _dir_files[drr] = [f for f in _dir_files[drr] if not ("recog_" in f) ]
+        _dir_files[drr] = [f for f in _dir_files[drr] if not ("recog_" in f) ] 
 
         # scan in the files
         for file in _dir_files[drr]:
@@ -64,17 +70,41 @@ for drr in consider_out_dirs:
                 if update[i]:
                     print("Processing: " + filtered_name)
                     try:
-                        _file_data_map[filtered_name] = extract_results(drr[:-1], [filtered_name])
+                        if load_instead_of_extract:
+
+                            alias = (drr[:-1]).replace("conformer", "")
+                            results_file_path = f"results/{alias}/{filtered_name}"
+                            results_file_error_path = f"results/{alias}/err_{filtered_name}"
+
+                            try:
+                                with open(results_file_path, "r") as file:
+                                    _file_data_map[filtered_name] = file.read()
+
+                                with open(results_file_error_path, "r") as file:
+                                    _file_data_error_map[filtered_name] = file.read()
+
+                                # TODO: we need to also load the 'error_map'
+                            except Exception as e:
+                                _file_data_map[filtered_name] = str(e)
+                        else:
+                            _file_data_map[filtered_name] = extract_results(drr[:-1], [filtered_name])
+
+                            # Get all the error from here and then remove them
+                            all_errors = [x for x in _file_data_map[filtered_name].split('\n') if "errors:" in x ][0]
+                            _file_data_error_map[filtered_name] = all_errors
+                            _file_data_map[filtered_name] = "\n".join([x for x in _file_data_map[filtered_name].split('\n') if not "errors:" in x ]) # Stupid ugly ugly
                     except Exception as e:
                         _file_data_map[filtered_name] = str(e)
                         print(e)
                 #_file_data_map[filtered_name] = "NOT_GENERATED"
 
+            ix += 1
 
         # remove unwanted indexes from files
         for tag in ["dev-other", "dev-clean", "test-other", "test-clean"]:
             if tag in drr:
                 del _dir_files[tag] # this delete only the element?
+        
 
     i += 1
 
@@ -82,10 +112,15 @@ for drr in consider_out_dirs:
 _dir_files_short_names = { name : sorted([ d.split("/")[-1] for d in _dir_files[name] ]) for name in _dir_files.keys()} # Short name descriptions
 
 import re
+import json
 
 # I know this whole thing is computation hell, but only used once in a while anyways
-def content_map_filter_data(map):
+def content_map_filter_data(map, error_map):
     map_list = map.split("\n")
+    print("TBS:")
+    error_dict = eval(error_map.replace("errors:", ""))
+    print(error_dict[100])
+
     # filters all epochs and epoch data of the content map
     ex_float_or_int = r'[\d\.\d]+' #r"[-+]?(?:\d*\.\d+|\d+)" <- might be a bit more precise
     wers_by_dataset_epoch = {}
@@ -96,13 +131,15 @@ def content_map_filter_data(map):
         data = [k for k in map_list if ("WER" in k) and (tag in k)]
         epoch_data = [k for k in map_list if ("epoch" in k and "~" in k)]
 
+        epoch_data = epoch_data[-len(data):]
+
         cur_best = 999.0
         best_ep = -1
         if len(data) == 0:
             best_wer_for_set[tag] = f"NONE"
             continue
 
-        for i in range(len(data)):
+        for i in reversed(range(len(data))): # Has to be reversed, there might be no recog with that dataset for earlier epochs
             #print("data", data[i])
             #print("ep", epoch_data[i])
             WERS = re.findall(ex_float_or_int, data[i]) # First is non tuned LM
@@ -115,6 +152,8 @@ def content_map_filter_data(map):
                 if tag == "dev-other":
                     best_ep_dev_other = int(EP[0])
             wers_by_dataset_epoch[tag][int(EP[0])] = [WERS[0], WERS[-1]] # The one in the middle is '4'gramLM
+        print(f"TBS: map tag {tag}")
+        print(wers_by_dataset_epoch[tag])
 
         best_wer_for_set[tag] = f"ep: {best_ep}, WER: {cur_best}"
 
@@ -124,11 +163,16 @@ def content_map_filter_data(map):
 
     for tag in ["dev-clean", "test-other", "test-clean"]:
         if best_ep_dev_other in wers_by_dataset_epoch[tag]:
-            best_wer_for_set[tag] = f"ep: {best_ep_dev_other}, WER: {wers_by_dataset_epoch[tag][best_ep_dev_other]}"
+            best_wer_for_set[tag] = wers_by_dataset_epoch[tag][best_ep_dev_other]
         else:
             best_wer_for_set[tag] = f"no data for ep {best_ep_dev_other}"
 
-    return best_wer_for_set
+    err_ep = error_dict[best_ep_dev_other]
+    score_rel = err_ep["dev_score"] / err_ep["train_score"]
+    error_rel = err_ep["dev_error"] / err_ep["train_error"]
+    error_relations = [score_rel, error_rel]
+
+    return best_wer_for_set, best_ep_dev_other, error_relations
 
 #print(_dir_files_short_names)
 
@@ -142,15 +186,21 @@ generate_csv = True # Csv files with only the best WER
 csv_columns = {
     "NAME" : [],
 
-    "BEST WER (dev-other)" : [],
+    "BEST epoch by dev-other WER" : [],
+
+    "WER (dev-other)" : [],
     "WER (dev-clean)" : [],
 
     "WER (test-other)": [],
     "WER (test-clean)": [],
 
+    "RELATION (dev-score/train-score)" : [],
+    "RELATION (dev-error/train-error)" : [],
+
     "FULL CONFIG PATH" : []
 }
 
+# This whole operation should be performed on the 'results' folder not always regenerate the results files... TODO
 if summary_file:
     # Also generate a summary file for all results
     for x in _dir_files_short_names:
@@ -163,7 +213,7 @@ if summary_file:
 
 
         if generate_csv:
-            l = [x,"-","-","-", "-", "-"]
+            l = [x] + ["-"] * (len(list(csv_columns.keys())) - 1)
             keys = list(csv_columns.keys())
             for i in range(len(keys)):
                 csv_columns[keys[i]].append(l[i])
@@ -171,13 +221,24 @@ if summary_file:
         # This generates all individual summary files
         for exp in _dir_files_short_names[x]:
             file_name = sub_dir_name + exp
-            outp = open(file_name, "w")
-            n = outp.write(content_map[exp])
+            file_name_error = sub_dir_name + "err_" + exp
+            if not load_instead_of_extract:
+                outp = open(file_name, "w")
+                n = outp.write(content_map[exp])
+                outp.close()
+
+                outp = open(file_name_error, "w")
+                n = outp.write(_file_data_error_map[exp]) # Ok we wrting an error file too now
+                outp.close()
 
             if generate_csv: # Make this if generate_csv
-                best_wer_by_set = content_map_filter_data(content_map[exp])
+                best_wer_by_set, best_ep, err_rel = content_map_filter_data(content_map[exp], _file_data_error_map[exp])
+
                 full_config_path = os.getcwd() + "/output/" + x + exp + "/returnn.config"
-                l = [exp] + [best_wer_by_set[data] for data in ["dev-other", "dev-clean", "test-other", "test-clean"]] + [full_config_path]
+                l = [exp, best_ep] + [best_wer_by_set[data] for data in ["dev-other", "dev-clean", "test-other", "test-clean"]] + err_rel + [full_config_path]
+                print("table row")
+                print(l)
+
                 keys = list(csv_columns.keys())
                 for i in range(len(keys)):
                     csv_columns[keys[i]].append(l[i])
@@ -191,12 +252,12 @@ if summary_file:
             else:
                 short_sum += f"{exp}: {data[-1]}   | {epoch_data[-1]} | \n\n"
                 # short_sum just shows the last ep, we want to store the best though TODO 
-            outp.close()
 
         # Write the summary file
-        outp = open(sub_dir_name + "summary.txt", "w")
-        n = outp.write(short_sum)
-        outp.close()
+        if not load_instead_of_extract:
+            outp = open(sub_dir_name + "summary.txt", "w")
+            n = outp.write(short_sum)
+            outp.close()
 
     if generate_csv:
         print(csv_columns)
