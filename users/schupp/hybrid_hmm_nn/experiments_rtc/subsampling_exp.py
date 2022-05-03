@@ -57,6 +57,7 @@ def default():
       returnn_rasr_args_defaults=experiment_config_args.returnn_rasr_args_defaults_00,
 
       #test_construction=True
+
   )
 
 def default_and_se():
@@ -107,6 +108,7 @@ def default_and_se():
       returnn_rasr_args_defaults=experiment_config_args.returnn_rasr_args_defaults_00,
 
       #test_construction=True
+      write_dummpy_config="./test.config.se"
   )
 
 
