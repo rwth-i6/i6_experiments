@@ -333,6 +333,8 @@ class DispatchFinalSearch(Job):
             recog_name = f"{self.exp_name}/{epoch:03}" # This might have run already but that fine
         )
 
+#class FinalBestScoreSummaryJob(Job): 
+
 
 # Essentialy does the same as make_and_register_returnn_rasr_search,
 # but does it only for the best X epochs, this will also make recog on *all* datasets, not just dev-other
@@ -359,7 +361,7 @@ def make_and_register_final_rasr_search(
             model_dir = train_job.out_model_dir,
             learning_rates = train_job.out_learning_rates, # As far as I unserstand this is only availabol for finished trains
             key=m, # Think this should work as a key
-            index=-1 if "score" in m else 0
+            #index=-1 if "score" in m else 0 TODO: check this is 0 ok for 'score' ?
         )
 
         best_score_getters[m].add_alias(os.path.join(output_path, f"best_ep_{m}"))
@@ -379,7 +381,7 @@ def make_and_register_final_rasr_search(
         epochs = [int(str(best_score_getters[m].out_epoch)) for m in mesasures]
         print(f"TBS: {epochs}")
 
-        if False:
+        for epoch in epochs:
             for data in ["dev-other", "dev-clean", "test-other", "test-clean"]:
                 model = train_job.out_models[epoch] # This will always be availabol at this point
                 #print(model)
@@ -398,6 +400,9 @@ def make_and_register_final_rasr_search(
                     recog_name = f"{rec_name}/{epoch:03}" # This might have run already but that fine
                 )
 
+                # TODO: here add FinalBestScoreSummaryJob
+
+                #self.jobs[corpus]["scorer_%s" % name].out_wer
 
     #dispatch_final_search = DispatchFinalSearch(
     #    checkpoint=best_checkpoint_job.out_checkpoint,
