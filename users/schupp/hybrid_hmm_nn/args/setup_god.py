@@ -39,6 +39,8 @@ def create_experiment_world_001(
     returnn_train_post_config=None,
     returnn_rasr_args_defaults=None,
 
+    final_recog = False, # Should be changed to 'True' per default at some point
+
     test_construction=False,
     print_net = False,
     write_dummpy_config = None, # String path if given, write the returnn config there
@@ -105,6 +107,16 @@ def create_experiment_world_001(
         limit_eps=returnn_train_post_config["cleanup_old_models"]["keep"],
         exp_name=name
     )
+
+    if final_recog:
+        job_dispatcher.make_and_register_final_rasr_search(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
 
     return OrderedDict(
         network = network

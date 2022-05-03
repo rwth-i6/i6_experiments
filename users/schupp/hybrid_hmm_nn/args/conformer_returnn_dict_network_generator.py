@@ -449,7 +449,7 @@ def make_conformer_02( # TODO: (WIP) This versio should allow to make *any* conf
     return net
 
 from .subsampling_versions import make_subsampling_004_feature_stacking, make_unsampling_004_feature_stacking
-from .sa_mod_versions import make_self_att_mod_002
+from .sa_mod_versions import make_self_att_mod_002, make_self_att_mod_003_rel_pos
 from .conv_mod_versions import make_conv_mod_004_layer_norm
 from .network_additions import add_auxilary_loss
 
@@ -462,7 +462,7 @@ def make_conformer_03_feature_stacking_auxilary_loss(
     conformer_ff1_func=make_ff_mod_001,
     ff1_func_args=None,
 
-    conformer_self_att_func=make_self_att_mod_002, # + Pos encoding
+    conformer_self_att_func=make_self_att_mod_003_rel_pos, # + Pos encoding
     sa_func_args=None,
 
     conformer_self_conv_func=make_conv_mod_004_layer_norm, # TODO: rename! no 'self'
