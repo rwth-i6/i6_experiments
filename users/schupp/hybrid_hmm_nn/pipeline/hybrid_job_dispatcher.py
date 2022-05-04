@@ -375,7 +375,7 @@ def make_and_register_final_rasr_search(
 
     all_exist = all([os.path.exists(best_score_getters[m].out_epoch.get_path()) for m in mesasures])
 
-    if all_exist:
+    if all_exist: # HINT: to use this rerun the sis job *after* all outputs are finished
         print("TBS: yeah final best epoch was found")
 
         epochs = [int(str(best_score_getters[m].out_epoch)) for m in mesasures]

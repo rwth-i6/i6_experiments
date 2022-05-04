@@ -92,7 +92,7 @@ def create_experiment_world_001(
         output_path=f"{name}" # No need for 'output_path' here, its already sub aliased
     )
 
-    rec_corpus = "dev-other"
+    rec_corpus = "dev-other" # Other are only done for the best epoch in the end
     # Prepare args for rasr recog
     system.init_rasr_am_lm_config_recog(
     recog_corpus_key=rec_corpus

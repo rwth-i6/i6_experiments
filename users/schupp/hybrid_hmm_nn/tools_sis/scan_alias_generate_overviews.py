@@ -19,12 +19,12 @@ templates = glob.glob('*.j2')
 
 #consider_out_dirs = ["conformer/best/"] # TODO: use should be asked which of these he wants updated
 #consider_out_dirs = ["conformer/stoch_depth/"]
-consider_out_dirs = ["conformer/baseline/"]
+#consider_out_dirs = ["conformer/baseline/"]
 
 # For now consider all!
 # TODO; uncomment
-#consider_out_dirs = glob.glob("alias/conformer/*")
-#consider_out_dirs = [x.replace("alias/", "") + "/" for x in consider_out_dirs]
+consider_out_dirs = glob.glob("alias/conformer/*")
+consider_out_dirs = [x.replace("alias/", "") + "/" for x in consider_out_dirs]
 
 print()
 print("====================================================")
@@ -50,7 +50,8 @@ def filt(name): # Removes the dataset tag from experiment name
 i = 0
 ix = 0
 
-load_instead_of_extract = False # TODO: set false
+load_instead_of_extract = False
+load_if_present = True # TODO: also set false
 
 for drr in consider_out_dirs:
     _first_names.append(drr)
@@ -86,6 +87,32 @@ for drr in consider_out_dirs:
                                 # TODO: we need to also load the 'error_map'
                             except Exception as e:
                                 _file_data_map[filtered_name] = str(e)
+                                _file_data_error_map[filtered_name] = str(e)
+                        elif load_if_present:
+
+                            alias = (drr[:-1]).replace("conformer", "")
+                            results_file_path = f"results/{alias}/{filtered_name}"
+                            results_file_error_path = f"results/{alias}/err_{filtered_name}"
+
+                            if os.path.exists(results_file_path) and os.path.exists(results_file_error_path):
+                                try:
+                                    with open(results_file_path, "r") as file:
+                                        _file_data_map[filtered_name] = file.read()
+
+                                    with open(results_file_error_path, "r") as file:
+                                        _file_data_error_map[filtered_name] = file.read()
+
+                                except Exception as e:
+                                    _file_data_map[filtered_name] = str(e)
+                                    _file_data_error_map[filtered_name] = str(e)
+                            else:
+                                _file_data_map[filtered_name] = extract_results(drr[:-1], [filtered_name])
+
+                                # Get all the error from here and then remove them
+                                all_errors = [x for x in _file_data_map[filtered_name].split('\n') if "errors:" in x ][0]
+                                _file_data_error_map[filtered_name] = all_errors
+                                _file_data_map[filtered_name] = "\n".join([x for x in _file_data_map[filtered_name].split('\n') if not "errors:" in x ]) # Stupid ugly ugly
+
                         else:
                             _file_data_map[filtered_name] = extract_results(drr[:-1], [filtered_name])
 
@@ -118,12 +145,15 @@ import json
 def content_map_filter_data(map, error_map):
     map_list = map.split("\n")
     print("TBS:")
-    error_dict = eval(error_map.replace("errors:", ""))
-    print(error_dict[100])
+    error_dict = None
+    if "errors:" in error_map:
+        error_dict = eval(error_map.replace("errors:", ""))
+    #print(error_dict[100])
 
     # filters all epochs and epoch data of the content map
     ex_float_or_int = r'[\d\.\d]+' #r"[-+]?(?:\d*\.\d+|\d+)" <- might be a bit more precise
     wers_by_dataset_epoch = {}
+    times_by_epoch = {}
     best_wer_for_set = {}
     best_ep_dev_other = -1
     for tag in ["dev-other", "dev-clean", "test-other", "test-clean"]:
@@ -152,6 +182,8 @@ def content_map_filter_data(map, error_map):
                 if tag == "dev-other":
                     best_ep_dev_other = int(EP[0])
             wers_by_dataset_epoch[tag][int(EP[0])] = [WERS[0], WERS[-1]] # The one in the middle is '4'gramLM
+            if tag == "dev-other":
+                times_by_epoch[int(EP[0])] = float(EP[-1])
         print(f"TBS: map tag {tag}")
         print(wers_by_dataset_epoch[tag])
 
@@ -167,12 +199,15 @@ def content_map_filter_data(map, error_map):
         else:
             best_wer_for_set[tag] = f"no data for ep {best_ep_dev_other}"
 
-    err_ep = error_dict[best_ep_dev_other]
-    score_rel = err_ep["dev_score"] / err_ep["train_score"]
-    error_rel = err_ep["dev_error"] / err_ep["train_error"]
-    error_relations = [score_rel, error_rel]
+    error_relations = ["no data", "no data"]
+    if best_ep_dev_other != -1 and not error_dict is None:
+        if best_ep_dev_other in error_dict:
+            err_ep = error_dict[best_ep_dev_other]
+            score_rel = err_ep["dev_score"] / err_ep["train_score"]
+            error_rel = err_ep["dev_error"] / err_ep["train_error"]
+            error_relations = [score_rel, error_rel]
 
-    return best_wer_for_set, best_ep_dev_other, error_relations
+    return best_wer_for_set, best_ep_dev_other, error_relations, times_by_epoch
 
 #print(_dir_files_short_names)
 
@@ -186,13 +221,15 @@ generate_csv = True # Csv files with only the best WER
 csv_columns = {
     "NAME" : [],
 
-    "BEST epoch by dev-other WER" : [],
+    "BEST epoch \nby dev-other WER" : [],
 
     "WER (dev-other)" : [],
     "WER (dev-clean)" : [],
 
     "WER (test-other)": [],
     "WER (test-clean)": [],
+    
+    "Train time (hours)\n(until this epoch)" : [],
 
     "RELATION (dev-score/train-score)" : [],
     "RELATION (dev-error/train-error)" : [],
@@ -227,15 +264,17 @@ if summary_file:
                 n = outp.write(content_map[exp])
                 outp.close()
 
-                outp = open(file_name_error, "w")
-                n = outp.write(_file_data_error_map[exp]) # Ok we wrting an error file too now
-                outp.close()
+                if exp in _file_data_error_map:
+                    outp = open(file_name_error, "w")
+                    n = outp.write(_file_data_error_map[exp]) # Ok we wrting an error file too now
+                    outp.close()
 
             if generate_csv: # Make this if generate_csv
-                best_wer_by_set, best_ep, err_rel = content_map_filter_data(content_map[exp], _file_data_error_map[exp])
+                best_wer_by_set, best_ep, err_rel, times_by_epoch = content_map_filter_data(content_map[exp], _file_data_error_map[exp])
 
                 full_config_path = os.getcwd() + "/output/" + x + exp + "/returnn.config"
-                l = [exp, best_ep] + [best_wer_by_set[data] for data in ["dev-other", "dev-clean", "test-other", "test-clean"]] + err_rel + [full_config_path]
+                time = times_by_epoch[best_ep] if best_ep in times_by_epoch else "no data"
+                l = [exp, best_ep] + [best_wer_by_set[data] for data in ["dev-other", "dev-clean", "test-other", "test-clean"]] + [time] + err_rel + [full_config_path]
                 print("table row")
                 print(l)
 

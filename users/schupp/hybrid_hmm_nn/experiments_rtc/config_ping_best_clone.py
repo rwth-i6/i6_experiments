@@ -85,7 +85,7 @@ returnn_rasr_args_defaults = OrderedDict(
 )
 
 returnn_train_post_config = OrderedDict(
-  cleanup_old_models =  {'keep': [80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600], 'keep_best_n': 3, 'keep_last_n': 3}
+  cleanup_old_models =  {'keep': [50, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600], 'keep_best_n': 3, 'keep_last_n': 3}
 )
 
 # --------------- Conformer overall args -----------------
@@ -207,7 +207,8 @@ exec(data, ping_config.__dict__)
 dont_check = [ # Thinks that cant match because of the behavior version
   "optimizer", # New syntax ping just uses nadam = True, bhv12 needs optimizer = {...}
   "behavior_version", # Pings config doesn't use this
-  "learning_rates" # We could check assert close here ...
+  "learning_rates", # We could check assert close here ...
+  "cleanup_old_models" # I have to extra epochs here ( 50, others match... )
 ]
 
 for x in config_args:
