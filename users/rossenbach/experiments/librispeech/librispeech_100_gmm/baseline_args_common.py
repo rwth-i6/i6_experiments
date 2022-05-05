@@ -154,7 +154,7 @@ def get_monophone_args():
     )
 
 def get_cart_args(
-        folded=False,
+        folded=True,
         max_leaves: int = 12001,
         min_obs: int = 1000,
         hmm_states: int = 3,
