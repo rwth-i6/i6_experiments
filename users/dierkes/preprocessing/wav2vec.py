@@ -37,7 +37,7 @@ class FairseqAudioManifestCreationJob(Job):
         :param float upsampling_alpha: specifies how much to upsample low resource languages. Upsampling
             calculation is done according to "Unsupervised Cross-Lingual Representation Learning for Speech
             Recognition", see  arXiv:2006.13979v2
-        :param [str]|str|None manifest_audio_paths: explicitly specifies output paths in manifest for each
+        :param [str]|[tk.Path]|str|tk.Path|None manifest_audio_paths: explicitly specifies output paths in manifest for each
             audio directory respectively. Allows to use different paths in the manifest than in the audio_dir_paths
         """
         if isinstance(audio_dir_path, tk.Path):
@@ -53,7 +53,7 @@ class FairseqAudioManifestCreationJob(Job):
             ), "Only one audio directory is given, upsampling not possible"
 
         if manifest_audio_paths:
-            if isinstance(manifest_audio_paths, tk.Path):
+            if not isinstance(manifest_audio_paths, list):
                 manifest_audio_paths = [manifest_audio_paths]
             assert len(manifest_audio_paths) == len(self.audio_dir_paths)
             self.manifest_audio_paths = [
