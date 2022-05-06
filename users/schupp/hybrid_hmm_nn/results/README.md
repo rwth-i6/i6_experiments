@@ -1,6 +1,13 @@
 # Results of Conformer experiments
 
 
+### Baseline comparison:
+
+`./baseline_comparison_vertical.html` See the table:
+
+[View rendered](https://htmlpreview.github.io/?https://github.com/rwth-i6/i6_experiments/blob/main/users/schupp/hybrid_hmm_nn/results/baseline_comparison_vertical.html)
+
+
 ### Setup 1 ( until 25.04.22 )
 
 - Returnn ( always neewest version ) + `behavior_version = 12`
