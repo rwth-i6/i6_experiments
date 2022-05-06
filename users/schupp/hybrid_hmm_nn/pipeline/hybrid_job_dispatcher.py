@@ -157,6 +157,8 @@ def test_net_contruction(
         net.initialize_params(session)
         session.run(out.placeholder, feed_dict=make_feed_dict(net.extern_data))
 
+        net.print_network_info()
+
 def make_and_register_returnn_rasr_train(
     #system,
     returnn_train_config,

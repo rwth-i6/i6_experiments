@@ -47,7 +47,7 @@ def se_block( # TODO naming convention off here, should have '_00' cause inital 
 
     return net, f"{prefix}_SE_elm_mul"
 
-def stochatic_depth_00( # TODO (WIP) this is unfinished!!
+def stochatic_depth_00(
     subnetwork = None,
     survival_prob = None,
     subnet_last = None,

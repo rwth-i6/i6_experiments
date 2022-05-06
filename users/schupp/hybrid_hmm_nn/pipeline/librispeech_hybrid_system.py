@@ -188,6 +188,8 @@ class LibrispeechHybridSystem(meta.System):
         lexicon_config.file = lex_file_path
         lexicon_config.normalize_pronunciation = norm_pron
         self.crp[ck].lexicon_config = lexicon_config
+    print("TBS:")
+    print(self.crp)
 
   # create_or_update_not_reset is True:
   #   create if new_am_config_or_new_am_args is None
