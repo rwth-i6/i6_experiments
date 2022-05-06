@@ -9,8 +9,6 @@ import logging as log
 import os
 import argparse
 
-from black import filter_cached
-
 log.basicConfig(level=log.DEBUG)
 
 # Allowed arguments: (WIP)
@@ -81,7 +79,10 @@ def get_summary_string_for_dataset(prefix, name, data):
     log.debug(call)
     _call = call.split(" ") # No spaces in names allowed
 
-    out = subprocess.check_output(_call).decode('UTF-8')
+    try:
+        out = subprocess.check_output(_call).decode('UTF-8')
+    except Exception as e:
+        return e # Just return the exeption handle it later
     return out
 
 def parse_experiment_out_string(data_string):
@@ -142,7 +143,12 @@ def get_all_data_experiment(experiment_path, name):
     data_by_set = {}
     for data in datasets: 
         log.debug(f"Extracting: {data}")
-        data_by_set[data] = parse_experiment_out_string(get_summary_string_for_dataset(experiment_path, name, data))
+        _exp_data = get_summary_string_for_dataset(experiment_path, name, data)
+        if isinstance(_exp_data, Exception):
+            log.debug(f"Extraction error {_exp_data}")
+            data_by_set[data] = f"Extraction error {_exp_data}"
+        else:
+            data_by_set[data] = parse_experiment_out_string(_exp_data)
         log.debug(data_by_set[data])
     return {
         "name" : name,
