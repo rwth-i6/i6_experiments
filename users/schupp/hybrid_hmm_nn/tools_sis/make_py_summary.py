@@ -34,8 +34,8 @@ print(args)
 data_set_prefixes = {
     "dev-other" : "_",
     "dev-clean" : "_dev-clean",
-    "train-other" : "_train-other",
-    "train-clean" : "_tain-clean"
+    "test-other" : "_train-other",
+    "test-clean" : "_tain-clean"
 }
 
 if args.only:
@@ -135,7 +135,8 @@ def parse_experiment_out_string(data_string):
         time_p_sep = time_p_sep,
         wer_by_ep = wer_by_ep,
         optim_wer_by_ep = optim_wer_by_ep,
-        best_ep_by_score = best_ep_by_score
+        best_ep_by_score = best_ep_by_score,
+        errors_per_ep = errors_per_ep
     )
 
 
@@ -152,7 +153,7 @@ def get_all_data_experiment(experiment_path, name):
         log.debug(data_by_set[data])
     return {
         "name" : name,
-        "config_path" : f"alias/{experiment_path}/{name}/train.job/output/returnn.config",
+        "config_path" : f"{os.getcwd()}/{experiment_path}/{name}/train.job/output/returnn.config",
         **data_by_set
     }
 

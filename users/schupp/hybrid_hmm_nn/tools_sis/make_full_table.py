@@ -11,35 +11,40 @@ import csv
 
 log.basicConfig(level=log.DEBUG)
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-o', '--only', default=None) # Allow to ass multiple sep by comma
+args = parser.parse_args()
+
 RESULTS_PATH = "results2"
+
+
+datasets = [
+    "dev-other",
+    "dev-clean",
+    "test-other",
+    "test-clean"
+]
+
+if args.only:
+    datasets = [args.only]
+    assert "dev-other" in datasets, "Need dev-other always!"
+
 
 csv_columns = {
     "NAME" : [],
 
     "BEST epoch \nby dev-other WER" : [],
 
-    "WER (dev-other)" : [],
-    "WER (dev-clean)" : [],
+    **{f"WER ({_set})":[] for _set in datasets},
 
-    "WER (test-other)": [],
-    "WER (test-clean)": [],
-    
     "Train time (hours)\n(until this epoch)" : [],
 
     "num_params (M)" : [],
     "FULL CONFIG PATH" : []
 }
 
-datasets = [
-    "dev-other",
-    "dev-clean",
-    "train-other",
-    "train-clean"
-]
-
-
 all_experiments = [s.replace(f"{RESULTS_PATH}/", "") for s in glob.glob(f"{RESULTS_PATH}/*") ]
-all_experiments = ["baseline"]
 all_sub_experiments = {k : [] for k in all_experiments}
 
 for i, ex in enumerate(all_experiments):
@@ -65,16 +70,29 @@ def get_best_epoch_dev_other(data, optim=False):
     return best_ep
 
 rows = []
+rows.append(list(csv_columns.keys()))
 for ex in all_experiments:
     row = [ex] + ["-"]*(len(csv_columns) -1)
     rows.append(row)
     log.debug(f"\nProcessing experiment '{ex}'\n")
     for sub_ex in all_sub_experiments[ex]:
         log.debug(f"\nsub ex '{sub_ex}'\n")
-        with open(f'{RESULTS_PATH}/{ex}/{sub_ex}.json') as data_file:
-            data = json.load(data_file)
+        try:
+            with open(f'{RESULTS_PATH}/{ex}/{sub_ex}.json') as data_file:
+                data = json.load(data_file)
+        except Exception as e:
+            log.debug(f"Failed parsing {sub_ex}.json, error: {e}")
+            row = [sub_ex] +["parse error"] + ["-"]*(len(csv_columns) -2)
+            rows.append(row)
+            continue
 
         log.debug(data)
+
+        if isinstance(data["dev-other"], str):
+            log.debug(f"Skipping {sub_ex}, cause extraction error: {data['dev-other']}")
+            row = [sub_ex] +["extract error"] + ["-"]*(len(csv_columns) -2)
+            rows.append(row)
+            continue
 
         use_optim = isinstance(data["dev-other"]["optim_wer_by_ep"], dict) and len(data["dev-other"]["optim_wer_by_ep"]) > 0
         
@@ -105,7 +123,7 @@ for ex in all_experiments:
             *wers_per_set,
             data["dev-other"]["time_p_sep"] * best_ep_dev_other,
             data["dev-other"]["num_params"], # params
-            f"{os.getcwd()}{config_path}" #config path
+            f"{os.getcwd()}/{config_path}" #config path
         ]
         log.debug(f"Writing row: {row}")
         rows.append(row)
