@@ -183,6 +183,32 @@ def make_and_register_returnn_rasr_train(
     tk.register_output(f"{output_path}/learning_rate.png", returnn_rasr_train.out_plot_lr)
     return returnn_rasr_train
 
+from ..helpers.returnn_helpers import ReturnnRasrTrainingJobDevtrain
+
+def make_and_register_returnn_rasr_train_02_devtrain(
+    #system,
+    returnn_train_config,
+    returnn_rasr_config_args,
+    output_path,
+
+):
+    returnn_rasr_train = ReturnnRasrTrainingJobDevtrain(
+        returnn_config=returnn_train_config, 
+        log_verbosity=5, # So we get all error outputs and co
+        keep_epochs=None, # We use cleanup old models instead
+        **returnn_rasr_config_args
+    )
+
+    #system.jobs[train_corpus_key]['train_nn_%s' % name] = j
+    #system.nn_models[train_corpus_key][name] = j.out_models
+    #system.nn_configs[train_corpus_key][name] = j.out_returnn_config_file
+    returnn_rasr_train.add_alias(f"{output_path}/train.job")
+
+    tk.register_output(f"{output_path}/returnn.config", returnn_rasr_train.out_returnn_config_file)
+    tk.register_output(f"{output_path}/score_and_error.png", returnn_rasr_train.out_plot_se)
+    tk.register_output(f"{output_path}/learning_rate.png", returnn_rasr_train.out_plot_lr)
+    return returnn_rasr_train
+
 # TODO use this:
 MIN_LM_OPTIMIZE_EP = 120 # Min epoch from where to maybe optimize lm scale
 
@@ -214,13 +240,44 @@ def make_and_register_returnn_rasr_search(
             recog_name = f"{exp_name}/{id:03}"
         )
 
+
+def make_and_register_returnn_rasr_search_02(
+    system = None,
+    returnn_train_config = None,
+    train_job = None ,
+    recog_corpus_key = None,
+    feature_name = None,
+    limit_eps=None,
+    exp_name = None,
+    amount_paralel_searches=15, # This was 10 per default earlier
+):
+    # train_job.out_models
+    for id in train_job.out_models:
+        if id not in limit_eps:
+            # I mean I think we can just leave this here 
+            #and the searches on epochs that are not stored will never be executed?
+            # Nope actually we need to limit this for now
+            continue # TODO: we need also a way to just check which epochs are there and run only those
+        model = train_job.out_models[id]
+        #print(model)
+        system_search_for_model(
+            model = model,
+            system = system,
+            returnn_train_config=returnn_train_config,
+            recog_corpus_key=recog_corpus_key,
+            feature_name=feature_name,
+            recog_name = f"{exp_name}/{id:03}",
+            amount_paralel_searches=amount_paralel_searches
+        )
+
 def system_search_for_model(
     model = None,
     system = None,
     returnn_train_config = None,
     recog_corpus_key = None,
     feature_name = None,
-    recog_name = None
+    recog_name = None,
+    amount_paralel_searches=None
 ):
     returnn_search_config = copy.deepcopy(returnn_train_config)
 
@@ -254,6 +311,9 @@ def system_search_for_model(
 
     setattr(system.crp[recog_corpus_key], 'flf_tool_exe', system.RASR_FLF_TOOL) # Only way to set this...
 
+    if amount_paralel_searches:
+        nn_recog_args["rtf"] = amount_paralel_searches
+
     system.recog(**nn_recog_args)
 
     system.optimize_am_lm(
@@ -268,6 +328,9 @@ def system_search_for_model(
     # Now do the same for all the *best* checkpoints bug register them regardless of limit_eps:
     # see i6_core GetBestCheckpointJob() 
     # # I'm not sure what heppens when using this on an unfinished training thoug
+
+
+import copy
 
 from sisyphus import Job, Task, gs, tk
 

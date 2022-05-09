@@ -16,6 +16,7 @@ import i6_core.util as util
 import i6_core.meta as meta
 import i6_core.rasr as rasr
 import i6_core.discriminative_training.lattice_generation as lg
+import i6_core.text as text
 
 # Important corpus definitons from luescher:
 from i6_experiments.users.schupp.hybrid_hmm_nn.helpers.librispeech_luescher import CORPUS_PATH, DURATIONS, CONCURRENT
@@ -159,6 +160,28 @@ class LibrispeechHybridSystemTim(meta.System):
         lexicon_config.file = lex_file_path
         lexicon_config.normalize_pronunciation = norm_pron
         self.crp[ck].lexicon_config = lexicon_config
+    
+    # Add devtrain
+
+    percent_estimated_2000_segs = 0.0072
+    total_train_num_segments = 281241 # 0.0072 * 281241 ~ 2000
+
+    # TODO: we could to the this, but then we would have to also consider 'dev'
+    #split_devtrain = corpus_recipes.ShuffleAndSplitSegmentsJob(
+    #  segment_file=all_train_segments.out_single_segment_files[1],
+    #  split={"devtrain2000" : percent_estimated_2000_segs}
+    #)
+
+    devtrain_segments = text.TailJob(
+        self.crp["train-other-960_train"].segment_path, 
+        num_lines=2000, zip_output=False
+    ).out
+    
+    self.crp["devtrain2000"] = rasr.CommonRasrParameters(base=self.crp["train-other-960_train"])
+    self.crp["devtrain2000"].concurrent = 1
+    self.crp["devtrain2000"].segment_path = devtrain_segments
+
+    # TODO: finish
 
   rasr_am_config_is_created = False
   def create_rasr_am_config(self, train_corpus_key):
