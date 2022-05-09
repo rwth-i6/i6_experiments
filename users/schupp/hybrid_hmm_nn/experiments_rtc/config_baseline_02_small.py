@@ -187,6 +187,10 @@ def att_stoch_depth():
     }
   )
 
+# TODO
+def conv_mod_defaults(): # Overwrites the defaults that canged since behavior_version =12
+  pass
+
 # + wo frame stacking (-> i.e.: No time downsampling )
 def no_frame_stacking(): # TODO
   pass
