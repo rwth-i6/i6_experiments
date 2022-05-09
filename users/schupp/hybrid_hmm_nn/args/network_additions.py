@@ -112,6 +112,90 @@ def stochatic_depth_00(
 
     return net_add, f"{prefix}_switch_train"
 
+
+# + also put the train condition in a condition layer
+def stochatic_depth_02_speedup(
+    subnetwork = None,
+    survival_prob = None,
+    subnet_last = None,
+
+    in_l = None,
+
+    prefix = None,
+
+):
+
+    random_bernulli = f"tf.compat.v1.distributions.Bernoulli(probs={survival_prob}).sample(sample_shape=())"
+    switch = f"tf.equal({random_bernulli}, 0)"
+
+    net_train = {
+            "class": "cond", 
+            "from": [],
+            "condition": { # First condition only checks if we are in train using TrainFlagLayer
+                "class": "eval", 
+                "from": [], 
+                "out_type": {
+                    "batch_dim_axis": None, 
+                    "shape": (), 
+                    "dtype": "bool"},
+                "eval": switch }, # In training generate random bernulli with 'surival_prob' if 0, then skip layer, if 1 the use layer ...
+            "true_layer": { # TRUE add subnetwork output to redidual ( in_l )
+                "class": "subnetwork", 
+                "from": in_l, 
+                "subnetwork": {
+                    in_l : { # We just copy this overunder the same name
+                        "class" : "copy",
+                        "from" : "data"}, # TODO: we 
+                    **subnetwork, # Most likely a full confore module
+                    "output" : {
+                        "class": "eval",
+                        "from" : [subnet_last, in_l],
+                        "eval" : "source(0) + source(1)"}}}, 
+            "false_layer": { # FALSE: only add the residual i.e.: only 1 * input
+                "class": "copy", 
+                "from": in_l}
+    }
+
+    net_eval = {
+            "class": "subnetwork",
+            "from" : in_l,
+            "subnetwork" : {
+                in_l : { # We just copy this overunder the same name ( need it cause also used as input from the subnet )
+                    "class" : "copy",
+                    "from" : "data"},
+                **subnetwork,
+                "output" : {
+                    "class": "eval",
+                    "from" : [subnet_last, in_l], # TODO subnet last
+                    "eval" : f"source(0) * {survival_prob} + source(1)"}}
+    }
+
+    net_add = {
+        f"{prefix}_train_flag" : {
+            "class": "train_flag"},
+        f"{prefix}_cond_train" : {
+            "class" : "cond",
+            "from" : [],
+            "condition" : {
+                "class" : "copy",
+                "from": [f"{prefix}_train_flag"], 
+                "out_type": {
+                    "batch_dim_axis": None, 
+                    "shape": (), 
+                    "dtype": "bool"},
+            },
+            "true_layer" : {
+                **net_train
+            },
+            "false_layer" : {
+                **net_eval
+            }
+        }
+    }
+
+
+    return net_add, f"{prefix}_cond_train"
+
 def add_feature_stacking(
     net=None,
     in_l=None,
