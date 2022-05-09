@@ -126,6 +126,8 @@ def run_rasr_decoding(
   alias = name + "/tf-graph" + alias_addon
   tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
+  meta_graph_path = compile_graph_job.out_graph
+
 
   decoding_crp, decoding_config = build_decoding_config(
     corpus_path=corpus_path, length_norm=length_norm,
@@ -140,7 +142,7 @@ def run_rasr_decoding(
     label_file_path=label_file_path, start_label_index=start_label_index, skip_silence=skip_silence,
     blank_label_index=blank_label_index,
     label_recombination_limit=label_recombination_limit, reduction_factors=reduction_factors, debug=debug,
-    meta_graph_path=compile_graph_job.out_graph, lm_lookahead=lm_lookahead, max_seg_len=max_seg_len,
+    meta_graph_path=meta_graph_path, lm_lookahead=lm_lookahead, max_seg_len=max_seg_len,
     lm_lookahead_cache_size_high=lm_lookahead_cache_size_high, lm_lookahead_cache_size_low=lm_lookahead_cache_size_low,
     lm_lookahead_scale=lm_lookahead_scale, lm_lookahead_history_limit=lm_lookahead_history_limit,
     max_batch_size=max_batch_size, label_scorer_type=label_scorer_type,
@@ -229,12 +231,26 @@ def calc_rasr_search_errors(
     rasr_nn_trainer_exe=rasr_nn_trainer_exe, segment_file=segment_path, blank_idx=blank_idx,
     search_targets=dump_align_from_txt_job.out_hdf_align,
     ref_targets=ref_align, label_name=label_name, model_type=model_type,
-    max_seg_len=max_seg_len if max_seg_len is not None else -1)
+    max_seg_len=max_seg_len if max_seg_len is not None else -1, length_norm=length_norm)
   calc_search_err_job.add_alias(name + ("/%s/search_errors_%d" % (alias_addon, num_epochs)))
   alias = calc_search_err_job.get_one_alias()
   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
 
-  return dump_align_from_txt_job.out_hdf_align
+  lattice_to_ctm_crp, lattice_to_ctm_config = build_lattice_to_ctm_config(corpus_path=corpus_path,
+    segment_path=segment_path, lexicon_path=lexicon_path, lattice_path=rasr_decoding_job.out_lattice)
+
+  lattice_to_ctm_job = RASRLatticeToCTMJob(rasr_exe_path=rasr_exe_path, lattice_path=rasr_decoding_job.out_lattice,
+    crp=lattice_to_ctm_crp, flf_lattice_tool_config=lattice_to_ctm_config)
+  # lattice_to_ctm_job.add_alias(name + ("/lattice-to-ctm-epoch-%d" % num_epochs) + alias_addon)
+  alias = name + ("/lattice-to-ctm-epoch-%d" % num_epochs) + alias_addon
+  tk.register_output(alias, lattice_to_ctm_job.out_ctm)
+
+  bpe_ctm_to_words_job = ConvertCTMBPEToWordsJob(bpe_ctm_file=lattice_to_ctm_job.out_ctm)
+  # bpe_ctm_to_words_job.add_alias(name + ("/bpe-ctm-to-words-epoch-%d" % num_epochs) + alias_addon)
+  alias = name + ("/bpe-ctm-to-words-epoch-%d" % num_epochs) + alias_addon
+  tk.register_output(alias, bpe_ctm_to_words_job.out_ctm_file)
+
+  return dump_align_from_txt_job.out_hdf_align, bpe_ctm_to_words_job.out_ctm_file
 
 
 def run_rasr_realignment(
@@ -291,7 +307,7 @@ def run_eval(ctm_file, reference, name, dataset_key, num_epochs, alias_addon="")
 
 def calculate_search_errors(
   checkpoint, search_config, train_config, rasr_config, rasr_nn_trainer_exe, segment_path, model_type, label_name,
-  name, epoch, ref_targets, blank_idx, dataset_key, alias_addon=""):
+  name, epoch, ref_targets, blank_idx, dataset_key, stm_job, length_norm, alias_addon=""):
   search_job = ReturnnDumpSearchJob(search_data={}, model_checkpoint=checkpoint,
                                     returnn_config=copy.deepcopy(search_config.get_config()),
                                     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
@@ -307,8 +323,20 @@ def calculate_search_errors(
   calc_search_err_job = CalcSearchErrorJob(
     returnn_config=train_config, rasr_config=rasr_config, rasr_nn_trainer_exe=rasr_nn_trainer_exe,
     segment_file=segment_path, blank_idx=blank_idx, model_type=model_type, label_name=label_name,
-    search_targets=search_targets, ref_targets=ref_targets, max_seg_len=-1)
+    search_targets=search_targets, ref_targets=ref_targets, max_seg_len=-1, length_norm=length_norm)
   calc_search_err_job.add_alias(name + ("/%s/search_errors_%d" % (alias_addon, epoch)))
   alias = calc_search_err_job.get_one_alias()
   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
+
+  bpe_to_words_job = SearchBPEtoWordsJob(search_job.out_search_file)
+  # bpe_to_words_job.add_alias(name + ("/words_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
+  alias = name + ("/words_%s_%d" % (dataset_key, epoch)) + alias_addon
+  tk.register_output(alias + "/word_search_results", bpe_to_words_job.out_word_search_results)
+
+  ctm_job = SearchWordsToCTMJob(bpe_to_words_job.out_word_search_results, stm_job.bliss_corpus)
+  # ctm_job.add_alias(name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
+  alias = name + ("/ctm_%s_%d" % (dataset_key, epoch)) + alias_addon
+  tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
+
+  return search_targets, ctm_job.out_ctm_file
 
