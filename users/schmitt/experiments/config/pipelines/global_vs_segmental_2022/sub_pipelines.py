@@ -10,7 +10,7 @@ from recipe.i6_private.users.schmitt.returnn.tools import RASRLatticeToCTMJob, R
 from recipe.i6_private.users.schmitt.returnn.search import ReturnnDumpSearchJob
 from sisyphus import *
 import copy
-from config.build_rasr_configs import build_lattice_to_ctm_config, build_decoding_config, build_realignment_config, \
+from recipe.i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.build_rasr_configs import build_lattice_to_ctm_config, build_decoding_config, build_realignment_config, \
   build_phon_align_extraction_config, build_iterate_corpus_config
 
 
