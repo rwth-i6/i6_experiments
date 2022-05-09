@@ -500,7 +500,7 @@ def get_net_dict_like_seg_model(
 def get_best_net_dict(
         lstm_dim, att_num_heads, att_key_dim, beam_size, sos_idx, feature_stddev, target, task, targetb_num_labels,
         weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output, sil_idx,
-        use_l2, att_ctx_with_bias, focal_loss):
+        use_l2, att_ctx_with_bias, focal_loss, att_ctx_reg):
   net_dict = {"#info": {"att_num_heads": att_num_heads, "enc_val_per_head": (lstm_dim * 2) // att_num_heads}}
   net_dict.update({
     "source": {
@@ -564,7 +564,9 @@ def get_best_net_dict(
       "L2": 0.0001 if use_l2 else None},
 
     "encoder": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]},  # dim: EncValueTotalDim
-    "enc_ctx": {"class": "linear", "activation": None, "with_bias": True if att_ctx_with_bias else False, "from": ["encoder"], "n_out": att_key_dim},
+    "enc_ctx": {
+      "class": "linear", "activation": None, "with_bias": True if att_ctx_with_bias else False,
+      "from": ["encoder"], "n_out": att_key_dim},
     # preprocessed_attended in Blocks
     "inv_fertility": {
       "class": "linear", "activation": "sigmoid", "with_bias": False, "from": ["encoder"], "n_out": att_num_heads},
@@ -638,6 +640,10 @@ def get_best_net_dict(
 
   if focal_loss != 0.0:
     net_dict["output"]["unit"]["label_prob"]["loss_opts"]["focal_loss_factor"] = focal_loss
+
+  if att_ctx_reg:
+    net_dict["enc_ctx"]["L2"] = 0.0001
+    net_dict["enc_ctx"]["dropout"] = 0.2
 
   if sil_idx is not None and task == "search":
     net_dict.update({
