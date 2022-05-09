@@ -592,7 +592,11 @@ def get_best_net_dict(
         'output': {
           'class': 'choice', 'target': "target_w_eos" if task == "train" else target,
           'beam_size': beam_size, 'from': ["label_prob"],
-          "initial_output": sos_idx}, "end": {"class": "compare", "from": ["output"], "value": 0}, 'target_embed': {
+          "initial_output": sos_idx},
+        # value of end-layer should also be sos_idx during training but it does not matter and it would break the hash
+        # of the train job bc I started it with value 0
+        "end": {"class": "compare", "from": ["output"], "value": sos_idx if task == "search" else 0},
+        'target_embed': {
           'class': 'linear', 'activation': None, "with_bias": False, 'from': ['output'], "n_out": 621,
           "initial_output": 0},  # feedback_input
         "weight_feedback": {

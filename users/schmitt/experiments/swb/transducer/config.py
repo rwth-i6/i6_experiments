@@ -154,7 +154,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
     att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
-    length_model_type, att_ctx_with_bias,
+    length_model_type, att_ctx_with_bias, att_ctx_reg,
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
@@ -229,7 +229,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
           att_win_size=att_win_size, task=self.task, EncValueTotalDim=lstm_dim * 2, EncValueDecFactor=1,
           EncKeyTotalDim=lstm_dim, att_weight_feedback=att_weight_feedback, att_type=att_type,
-          att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size,
+          att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size, att_ctx_reg=att_ctx_reg,
           att_seg_right_size=att_seg_right_size, att_area=att_area, AttNumHeads=att_num_heads,
           EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
           EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
