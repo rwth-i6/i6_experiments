@@ -260,7 +260,7 @@ def get_extended_net_dict(
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
-  length_scale=1.,
+  length_scale=1., global_length_var=None,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0):
 
@@ -641,6 +641,8 @@ def get_extended_net_dict(
         assert label_dep_means is not None
         assert max_seg_len is not None
 
+        global_length_var_str = "" if global_length_var is None else "*%s" % global_length_var
+
         net_dict.update({
           "max_seg_len_range0": {"class": "range", "limit": max_seg_len + 1, "start": 1, "delta": 1},
           "max_seg_len_range": {"class": "cast", "from": "max_seg_len_range0", "dtype": "float32"},
@@ -649,7 +651,7 @@ def get_extended_net_dict(
           "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"},
           "length_model_norm0": {
             "class": "eval", "from": ["mean_seg_lens", "max_seg_len_range"],
-            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1)))"},
+            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1))%s)" % global_length_var_str},
           "length_model_norm": {
             "class": "reduce", "from": ["length_model_norm0"], "mode": "sum", "axes": ["stag:max_seg_len_range0:range"]},
         })
@@ -659,7 +661,7 @@ def get_extended_net_dict(
           "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
           "length_model0": {
             "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
-            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
+            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0))%s)" % global_length_var_str},
           "length_model": {
             "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
           "emit_log_prob": {
