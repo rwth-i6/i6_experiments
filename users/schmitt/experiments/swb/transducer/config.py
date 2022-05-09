@@ -235,8 +235,11 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
           EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
           EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
     else:
-      assert network_type == "global_import"
-      self.network = get_global_import_net_dict()
+      assert network_type in ["global_import", "global_import_w_feedback"]
+      self.network = get_global_import_net_dict(
+        task=self.task, weight_feedback=False if network_type == "global_import" else True, feature_stddev=feature_stddev,
+        targetb_num_labels=self.targetb_num_labels, target_num_labels=self.target_num_labels,
+        targetb_blank_index=self.targetb_blank_idx)
 
     if self.task == "train":
       assert train_data_opts and cv_data_opts and devtrain_data_opts
