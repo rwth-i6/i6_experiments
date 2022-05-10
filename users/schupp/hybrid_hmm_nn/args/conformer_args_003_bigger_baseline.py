@@ -68,7 +68,7 @@ class original_args_big_baseline_00: # Convenient as class
   )
 
   returnn_train_post_config = OrderedDict(
-    cleanup_old_models =  {'keep': [50, 80, 110 120], 'keep_best_n': 3, 'keep_last_n': 3}
+    cleanup_old_models =  {'keep': [50, 80, 110, 120], 'keep_best_n': 3, 'keep_last_n': 3}
   )
 
   # --------------- Conformer overall args -----------------

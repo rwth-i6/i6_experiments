@@ -1,5 +1,7 @@
 # This is 'big-short'
-# Train for only 3 full epochs i.e.: 120 sub epochs
+# Train for only 3 full epochs i.e.: 120 sub epochs 40 split
+# Model as about 86 M params
+
 from atexit import register
 from typing import OrderedDict
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args import setup_god as god
@@ -62,6 +64,23 @@ def make_experiment_03_rqmt(
       test_construction=test_construct,
   )
 
+def baseline_big_short():
+  args = get_defaults()
+  NAME = "baseline_03_bigh_short"
+
+  make_experiment_03_rqmt(args, NAME)
+
+def no_aux_loss():
+  args = get_defaults()
+  NAME = "baseline_03_bigh_short+no-aux-loss"
+
+  make_experiment_03_rqmt(args, NAME, aux_loss_layers=[])
+
+def batchnorm_no_ln(): # TODO
+  args = get_defaults()
+  NAME = "baseline_03_bigh_short+batch-norm"
 
 def main():
-  pass
+  baseline_big_short()
+
+  no_aux_loss()

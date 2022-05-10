@@ -1,4 +1,7 @@
-# TODO: package, make imports smaller
+# baseline 'small-long':
+# Best baseline with smaller model ~ 25M params
+# Trained for 8 full epochs ( 320 sub epochs 40 split )
+
 from atexit import register
 from typing import OrderedDict
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args import setup_god as god
@@ -180,6 +183,61 @@ def make_experiment_03_rqmt(
       test_construction=False,
   )
 
+
+def make_experiment_04_batchnorm(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  use_old_bn_defaults = False
+  ):
+
+  if not use_old_bn_defaults:
+    args.conv_default_args["batch_norm_settings"] = {} # If this is not set it would use old defaults
+  # Old defaults
+  #momentum = 0.1,
+  #update_sample_only_in_training = False,
+  #delay_sample_update = False,
+  #param_version = 0,
+  #masked_time = True,
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_004_old_defaults_batchnorm_or_dynamic
+  conv_func = make_conv_mod_004_old_defaults_batchnorm_or_dynamic
+
+  experiment_data = god.create_experiment_world_003( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func = conv_func,
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      extra_recog_epochs=[5], # Basicly early test epoch
+
+      test_construction=False,
+  )
+
 def small_baseline():
   # Has all that bigger conformer has, exect all smaller dimension
 
@@ -245,8 +303,23 @@ def conv_mod_defaults():
   # Acutaly it seems like this experiment is not required,
   # I cant se any instance of conv layer that has not set with_bias =...
 
-def bn_no_layernorm(): # TODO
-  pass
+def bn_no_layernorm():
+  args = get_defaults_less_searches()
+  NAME = "baseline_02_small+conv-batchnorm"
+  make_experiment_04_batchnorm(
+    args,
+    NAME,
+    use_old_bn_defaults=False
+  )
+
+def bn_old_defaults():
+  args = get_defaults_less_searches()
+  NAME = "baseline_02_small+conv-batchnorm+old-defaults"
+  make_experiment_04_batchnorm(
+    args,
+    NAME,
+    use_old_bn_defaults=True
+  )
 
 def old_bn_defualts(): # TODO
   pass
@@ -277,10 +350,17 @@ def se_mod_in_att(): # TODO:
 
 
 def main():
+  # Small baseline
   small_baseline()
 
+  # Ablation of newer config elements
   no_order_dataset()
   no_aux_loss()
 
+  # Stochastic depth
   ff_stoch_depth()
   att_stoch_depth()
+
+  # Batchnorm
+  bn_no_layernorm()
+  bn_old_defaults()
