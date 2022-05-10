@@ -190,8 +190,20 @@ def make_and_register_returnn_rasr_train_02_devtrain(
     returnn_train_config,
     returnn_rasr_config_args,
     output_path,
+    set_rqmt = False # This was falsely not set on other jobs, TODO add as default in next itteration
 
 ):
+    rqmt = {}
+    if set_rqmt:
+        rqmt = {
+            'device' : "gpu",
+            'time_rqmt': 168,
+            'mem_rqmt': 12,
+            'cpu_rqmt': 3,
+        }
+
+    returnn_rasr_config_args.update(rqmt)
+
     returnn_rasr_train = ReturnnRasrTrainingJobDevtrain(
         returnn_config=returnn_train_config, 
         log_verbosity=5, # So we get all error outputs and co
