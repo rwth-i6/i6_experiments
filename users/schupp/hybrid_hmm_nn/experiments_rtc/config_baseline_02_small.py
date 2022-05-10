@@ -20,6 +20,13 @@ def get_defaults():
   args = copy.deepcopy(original_args_small_baseline_00)
   return args
 
+def get_defaults_less_searches(
+  rec_eps = [50, 80, 160, 240, 280, 300, 320]
+):
+  args = copy.deepcopy(original_args_small_baseline_00)
+  args.returnn_train_post_config["cleanup_old_models"]["keep"] = rec_eps
+  return args
+
 def make_experiment(
   args, 
   NAME,
@@ -131,6 +138,48 @@ def make_experiment_02_stoch_depth( # TODO (WIP)
       test_construction=False,
   )
 
+
+# + updated train SGE requirements
+def make_experiment_03_rqmt(
+  args, 
+  NAME,
+  aux_loss_layers = [6]
+  ):
+  experiment_data = god.create_experiment_world_003( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      extra_recog_epochs=[5], # Basicly early test epoch
+
+      test_construction=False,
+  )
+
 def small_baseline():
   # Has all that bigger conformer has, exect all smaller dimension
 
@@ -187,9 +236,27 @@ def att_stoch_depth():
     }
   )
 
-# TODO
-def conv_mod_defaults(): # Overwrites the defaults that canged since behavior_version =12
+# NOTNEEDED
+def conv_mod_defaults(): 
+  # i.e.: set with_bias = False, everywhere it is not defined
+
+  arg = get_defaults()
+  NAME = "baseline_02_small+conv_mod_defaults"
+  # Acutaly it seems like this experiment is not required,
+  # I cant se any instance of conv layer that has not set with_bias =...
+
+def bn_no_layernorm(): # TODO
   pass
+
+def old_bn_defualts(): # TODO
+  pass
+
+def squashed_learning_rate(): # TODO
+  pass
+
+def newbob_learning_rate(): # TODO
+  pass
+
 
 # + wo frame stacking (-> i.e.: No time downsampling )
 def no_frame_stacking(): # TODO
@@ -197,6 +264,15 @@ def no_frame_stacking(): # TODO
 
 # + wo positional encoding
 def no_pos_encoding(): # TODO
+  pass
+
+def se_mod_in_ff(): # TODO:
+  pass
+
+def se_mod_in_conv(): # TODO
+  pass
+
+def se_mod_in_att(): # TODO:
   pass
 
 
