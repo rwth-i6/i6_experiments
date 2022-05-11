@@ -188,11 +188,17 @@ def make_experiment_04_batchnorm(
   args, 
   NAME,
   aux_loss_layers = [6],
-  use_old_bn_defaults = False
+  use_old_bn_defaults = False,
+  overwrite_bn_settings = None
   ):
 
-  if not use_old_bn_defaults:
-    args.conv_default_args["batch_norm_settings"] = {} # If this is not set it would use old defaults
+  if not use_old_bn_defaults and not overwrite_bn_settings:
+    args.conv_default_args["batch_norm_settings"] = { # If this is not set it would use old defaults
+      "masked_time" : True # This has to be set because of behavior_version = 12
+    } 
+
+  if overwrite_bn_settings:
+    args.conv_default_args["batch_norm_settings"] = overwrite_bn_settings
   # Old defaults
   #momentum = 0.1,
   #update_sample_only_in_training = False,

@@ -1,4 +1,5 @@
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline.librispeech_hybrid_tim_refactor import LibrispeechHybridSystemTim
+from typing import OrderedDict
 
 
 # TODO FIXME ( these ares should also be moved to the default args file )
@@ -72,6 +73,67 @@ def get_returnn_rasr_args_02_devtrain(
             t.corpus_config.segment_order_sort_by_time_length = True
             t.corpus_config.segment_order_sort_by_time_length_chunk_size = -1
     
+    return {
+        'train_crp': train_crp,
+        'dev_crp': dev_crp,
+        'devtrain_crp': devtrain_crp,
+        'feature_flow' : train_feature_flow,
+        'alignment' : train_alignment,
+        'num_classes': num_classes,
+        'num_epochs' : num_epochs,
+        'partition_epochs': partition_epochs
+    }
+
+
+def get_returnn_rasr_args_03_overwrite_orders(
+    system : LibrispeechHybridSystemTim,
+    train_corpus_key = None,
+    feature_name = None,
+    alignment_name = None,
+    num_classes = None,
+    num_epochs = None,
+    partition_epochs = None,
+    overwrite_orders = {
+        "train" : OrderedDict(
+            segment_order_shuffle = True,
+            segment_order_sort_by_time_length = True,
+            segment_order_sort_by_time_length_chunk_size = -1,
+        ),
+        "dev" : OrderedDict(
+            segment_order_shuffle = True,
+            segment_order_sort_by_time_length = True,
+            segment_order_sort_by_time_length_chunk_size = -1,
+        ),
+        "devtrain" : OrderedDict(
+            segment_order_shuffle = True,
+            segment_order_sort_by_time_length = True,
+            segment_order_sort_by_time_length_chunk_size = -1,
+        )
+    }
+):
+    assert system.rasr_am_config_is_created, "please use system.create_rasr_am_config(...) first"
+
+    import copy
+
+    train_feature_flow = system.feature_flows[train_corpus_key][feature_name]
+    train_alignment = system.alignments[train_corpus_key][alignment_name]
+    
+    train_crp = copy.deepcopy(system.crp[train_corpus_key + '_train'])
+    dev_crp = copy.deepcopy(system.crp[train_corpus_key + '_dev'])
+    devtrain_crp = copy.deepcopy(system.crp['devtrain2000'])
+
+
+    map_datas = {
+        "train" : train_crp,
+        "dev_crp" : dev_crp,
+        "devtrain_crp" : devtrain_crp
+    }
+
+    for x in map_datas:
+        if x in overwrite_orders:
+            for rasr_key in overwrite_orders[x]:
+                setattr(map_datas[x].corpus_config, rasr_key, overwrite_orders[x][rasr_key])
+
     return {
         'train_crp': train_crp,
         'dev_crp': dev_crp,

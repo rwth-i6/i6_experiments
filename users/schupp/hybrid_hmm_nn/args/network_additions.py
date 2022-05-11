@@ -177,7 +177,7 @@ def stochatic_depth_02_speedup(
             "class" : "cond",
             "from" : [],
             "condition" : {
-                "class" : "copy",
+                "class" : "copy",  # TODO: can use train frag here
                 "from": [f"{prefix}_train_flag"], 
                 "out_type": {
                     "batch_dim_axis": None, 

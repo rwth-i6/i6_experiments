@@ -1,3 +1,4 @@
+# DEPRICATED !!! SE config_baseline_04_big_short.py
 # This is 'big-short'
 # Train for only 3 full epochs i.e.: 120 sub epochs 40 split
 # Model as about 86 M params

@@ -158,7 +158,7 @@ def make_ff_mod_003_sd02(
     subnet = {
         "_laynorm" : {
             'class': "layer_norm",
-            'from': in_l},
+            'from': in_l}, # TODO: set *all name_scope = "/..." to share params
         "_conv1" : {
             'class': "linear", 
             'activation': ff_activation,
