@@ -256,11 +256,11 @@ def stochatic_depth_03_namescopes(
     # Subnetworks need to share the namescopes to share params:
     # -> so we just add a root namescope with the specific layers name:
     for layer_name in subnetwork:
-        subnetwork[layer_name]["name_scope"] = f"/{layer_name}_scope"
+        subnetwork[layer_name]["name_scope"] = f"/{layer_name}"
     # TODO: verfiy tensorflow namescopes
 
     random_bernulli = f"tf.compat.v1.distributions.Bernoulli(probs={survival_prob}).sample(sample_shape=())"
-    switch = f"tf.equal({random_bernulli}, 0)"
+    switch = f"tf.equal({random_bernulli}, 1)"
 
     eval_case = f"source(0) * {survival_prob} + source(1)"
     if not multipy_by_surivial_prob_ineval:
