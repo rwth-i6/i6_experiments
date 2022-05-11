@@ -673,7 +673,7 @@ def make_conformer_04_stoch_depth_dynamic(
                     in_l = last, # Should == block_str
                     multipy_by_surivial_prob_ineval = multipy_by_surivial_prob_ineval,
 
-                    prefix=f"{mod['prefix']}{mod['sd_extra_pre']}"
+                    prefix=f"{block_str}{mod['prefix']}{mod['sd_extra_pre']}"
                 )
 
                 # Finaly add the whole construction

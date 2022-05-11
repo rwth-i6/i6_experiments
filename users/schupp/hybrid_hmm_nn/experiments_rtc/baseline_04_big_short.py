@@ -16,18 +16,19 @@ import math
 
 import inspect
 
-OUTPUT_PATH = "conformer/baseline_03_big/"
+OUTPUT_PATH = "conformer/baseline_04_big_short/"
 gs.ALIAS_AND_OUTPUT_SUBDIR = OUTPUT_PATH
 
 BASE = "baseline_03_big_short"
 
 def get_defaults():
-  args = copy.deepcopy(original_args_big_baseline_00)
+  # Instance, then copy, sould ensure no share params
+  args = original_args_big_baseline_00()
   return args
 
 # Use this for all make_experiment_<num> with num > 03
 def get_defaults_02():
-  args = copy.deepcopy(original_args_big_baseline_00)
+  args = original_args_big_baseline_00() # This doenst share mutables right? TODO
   del args.returnn_rasr_args_defaults["shuffle_data"] # Not needed cause set by default now
   return args
 
@@ -354,7 +355,7 @@ def batchnorm_old_defaults():
 # ----------------------------- chunk/sequnce order ---------------------------
 
 def seq_no_order_no_shuffle():
-  args = get_defaults()
+  args = get_defaults_02()
   NAME = f"{BASE}+no-seq-order+no-shuffle"
 
   params = OrderedDict(
@@ -368,7 +369,7 @@ def seq_no_order_no_shuffle():
   make_experiment_04_seq_orders(args, NAME)
 
 def seq_only_shuffle():
-  args = get_defaults()
+  args = get_defaults_02()
   NAME = f"{BASE}+only-shuffle"
 
   params = OrderedDict(
@@ -381,7 +382,7 @@ def seq_only_shuffle():
   make_experiment_04_seq_orders(args, NAME)
 
 def seq_order_chunk_1000():
-  args = get_defaults()
+  args = get_defaults_02()
   NAME = f"{BASE}+shuffle+order-chunks=1000"
 
   params = OrderedDict(
@@ -404,19 +405,20 @@ def test_sd():
   NAME = f"{BASE}+stoch-depth-TEST"
 
   args.conformer_defaults.update(OrderedDict(
-    apply_stochastic_depth = {1 : { "ff_mod1" : 0.5 }} # Should only add stocastic depth to the verry first module
+    # Should only add stocastic depth to the verry first module, and very last module
+    apply_stochastic_depth = {1 : { "ff_mod1" : 0.5 }, 12 : { "ff_mod1" : 0.5 }} 
   ))
 
   data = make_experiment_06_stoch_depth(
     args, 
     NAME,
-    #dummy_config = "test.sd.config",
+    dummy_config = "test.sd.config",
     test_construct = True
   )
 
   net = data['network']
-  assert net["_ff1_ff1_cond_train"]["false_layer"]["from"] == "embedding_dropout"
-  assert "embedding_dropout" in net["_ff1_ff1_cond_train"]["false_layer"]["from"]["subnetwork"]["output"] 
+  assert "enc_001_ff1_ff1_cond_train" in net
+  assert "enc_012_ff1_ff1_cond_train" in net
   # more sanity checks?
   # We really only proved that the layer exists and output residual is added
 
@@ -567,7 +569,7 @@ def se_convmod():
 def all_experiments_stochastic_depth():
   # TODO Start v2 experiments only if other where good
 
-  test_sd() # Test ...
+  #test_sd() # Test ...
 
   sd_ffmod()
   #sd_ffmod_v2()
@@ -584,7 +586,7 @@ def all_experiments_stochastic_depth():
 
 def all_experiments_se_block():
 
-  se_test() # Test...
+  #se_test() # Test...
 
   se_attmod()
   se_ffmod()
