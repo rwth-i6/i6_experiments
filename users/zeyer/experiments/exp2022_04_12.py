@@ -1,15 +1,19 @@
+"""
+experiments
+"""
 
 from typing import Tuple
 import numpy
 from sisyphus import tk
 from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
-from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
+# from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from returnn_common import nn
 
 
 def run():
+  """run"""
   for name, path in librispeech.librispeech_ogg_zip_dict.items():
     tk.register_output(f"librispeech/dataset/{name}", path)
 
@@ -27,6 +31,7 @@ def run():
   from returnn_common.asr import gt, specaugment
 
   class Model(nn.ConformerEncoder):
+    """model"""
     def __init__(self):
       super(Model, self).__init__(
         # Medium...
@@ -62,7 +67,6 @@ def run():
     **librispeech.default_dataset_config,
 
     batching="random",
-    log_batch_size=True,
     batch_size=20000,
     max_seqs=200,
     max_seq_length={"classes": 75},
@@ -70,11 +74,6 @@ def run():
     gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
-    # debug_add_check_numerics_ops = True
-    # debug_add_check_numerics_on_output = True
-    # stop_on_nonfinite_train_score = False,
-    tf_log_memory_usage=True,
-    tf_session_opts={"gpu_options": {"allow_growth": True}},
     gradient_noise=0.0,
     learning_rate=0.0008,
     learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
@@ -86,7 +85,7 @@ def run():
     newbob_multi_num_epochs=librispeech.default_epoch_split,
     newbob_multi_update_interval=1,
     newbob_learning_rate_decay=0.9,
- )
+  )
 
   returnn_train_config = ReturnnConfig(
     returnn_train_config_dict,
@@ -104,7 +103,16 @@ except Exception as exc:
 sys.setrecursionlimit(10 ** 6)
 """
     ],
-    post_config=dict(cleanup_old_models=True),
+    python_epilog_hash="",
+    post_config=dict(
+      log_batch_size=True,
+      tf_log_memory_usage=True,
+      tf_session_opts={"gpu_options": {"allow_growth": True}},
+      cleanup_old_models=True,
+      # debug_add_check_numerics_ops = True
+      # debug_add_check_numerics_on_output = True
+      # stop_on_nonfinite_train_score = False,
+    ),
     sort_config=False,
   )
   returnn_train_job = ReturnnTrainingJob(
