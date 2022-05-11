@@ -22,10 +22,11 @@ Stats of that model are:
 - [ ] `baseline_03_big_short+lr-shorter`
 - [ ] `baseline_03_big_short+newbob-lr`
 
-#### Batch Norm 
+#### Norms
 
 - [x] `baseline_03_big_short+batchnorm`
 - [x] `baseline_03_big_short+batchnorm-old-defaults`
+- [x] `baseline_03_big_short+groupnorm`
 
 #### Sequence/Chunk order
 
@@ -57,7 +58,7 @@ Stats of that model are:
 
 ## Other
 
-- [ ] Group Norm
+- [x] Group Norm ( see above )
 - [ ] Conv activation, Relu, Gelu
 - [ ] Stage ration, ( no ff mods in early layers maybe )
 
@@ -73,7 +74,7 @@ Stats of that model are:
 | `+stoch-depth-v2.0` | Implementation of stochastic depth that uses shared params, found here. <br/> In eval this multiplies by survival-prob |
 | `+stoch-depth-v2.1` | In eval just use as is ( not multiply with survival-prob ) |
 | `+linear-scale-survival` | Linearly scales survial-prob from first to last conformer block |
-| `+se-block-v1.0` | Se block as in ConvNets, implementation see here ... |
+| `+se-block-v1.0` | Se block as in ConvNets, implementation see here TODO |
 | `+se-block[...]-ff-mod` | SE in ff mod TODO specify how |
 | `+se-block[...]-conv-mod` | SE block after second convolution in conv-mod |
 | `+se-block[...]-att-mod` | TODO |

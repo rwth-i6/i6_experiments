@@ -174,6 +174,8 @@ def make_experiment_05_batchnorm(
       test_construction=test_construct,
   )
 
+
+
 # + allowes to use: apply_stochastic_depth
 # e.g.:
 # apply_stochastic_depth = {1 : { "ff_mod1" : 0.5 }} 
@@ -298,6 +300,53 @@ def make_experiment_07_se_block(
 
   return experiment_data
 
+
+def make_experiment_08_groupnorm(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  overwrite_bn_settings = None,
+  test_construct = False
+  ):
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_007_group_norm
+  conv_func = make_conv_mod_007_group_norm
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func = conv_func, # This is used to change batch norm settings
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      test_construction=test_construct,
+  )
+
+
 # ------------------------- baseline: 'big-short' -----------------------
 
 def baseline_big_short():
@@ -332,15 +381,21 @@ def lr_newbob(): # TODO:
 # + batchnorm instead of layer-norm
 # This uses the new returnn defaults
 def batchnorm_no_ln():
-  args = get_defaults()
+  args = get_defaults_02()
   NAME = f"{BASE}+batchnorm"
 
   make_experiment_05_batchnorm(args, NAME) 
 
+def groupnorm_noln():
+  args = get_defaults_02()
+  NAME = f"{BASE}+groupnorm"
+
+  make_experiment_08_groupnorm(args, NAME)
+
 
 # + old batchnorm defaults from behavior_version = 0
 def batchnorm_old_defaults():
-  args = get_defaults()
+  args = get_defaults_02()
   NAME = f"{BASE}+batchnorm-old-defaults"
 
   # momentum = 0.1,
@@ -574,7 +629,7 @@ def all_experiments_stochastic_depth():
   sd_ffmod()
   #sd_ffmod_v2()
 
-  sd_attmod()
+  #sd_attmod() This is broken TODO fix
   #sd_attmod_v2()
 
   sd_conv_mod()
@@ -610,6 +665,13 @@ def main():
 
   # Ablation
   no_aux_loss()
+
+  # Norm experiments: 
+  batchnorm_no_ln()
+  groupnorm_noln()
+  batchnorm_old_defaults()
+
+  
 
 def main2():
   all_experiments_seq()
