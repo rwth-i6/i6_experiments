@@ -49,19 +49,27 @@ Stats of that model are:
 - [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6`
 
 
-### Squeeze and Exication TODO
+#### Squeeze and Exication
 
-- [ ] `baseline_03_big_short+se-block-v1.0-ff-mod` 
-- [ ] `baseline_03_big_short+se-block-v1.0-conv-mod` 
-- [ ] `baseline_03_big_short+se-block-v1.0-att-mod` 
+- [x] `baseline_03_big_short+se-block-v1.0-ff-mod` 
+- [x] `baseline_03_big_short+se-block-v1.0-conv-mod` 
+- [x] `baseline_03_big_short+se-block-v1.0-att-mod` 
+
+## Other
+
+- [ ] Group Norm
+- [ ] Conv activation, Relu, Gelu
+- [ ] Stage ration, ( no ff mods in early layers maybe )
 
 
 ## Legend
 
 | Name | Description |
 | :----: | :---: |
+| `+no-aux` | No auxilary loss, per default there is auxilary CE after block 6 | 
+| `+no-frame-stacking` | w/o frame stacking, uses downsampling strides instead |
 | `+batchnorm` | Uses batch norm in the convolution module ( default is layernorm ) |
-| `+batchnorm-old-defaults` | Uses old batchnorm defaults from `behavior_version = 12` |
+| `+batchnorm-old-defaults` | Uses old batchnorm defaults from `behavior_version = 0` |
 | `+stoch-depth-v2.0` | Implementation of stochastic depth that uses shared params, found here. <br/> In eval this multiplies by survival-prob |
 | `+stoch-depth-v2.1` | In eval just use as is ( not multiply with survival-prob ) |
 | `+linear-scale-survival` | Linearly scales survial-prob from first to last conformer block |

@@ -224,6 +224,79 @@ def make_experiment_06_stoch_depth(
 
   return experiment_data
 
+
+# + allowes to use se blocks for any module
+# Note where se is applied differes per block
+# ff_mod: After first linear layer
+# conv_mod: After depthwise convolution
+# att_mod: After self attention
+def make_experiment_07_se_block(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  se_block_for_module = [],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+  # Theses are the versions that use se blocks
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_006_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.sa_mod_versions import make_self_att_mod_005_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.ff_mod_versions import make_ff_mod_004_se_block
+
+  args_map = {
+    "ff_mod" : args.ff_default_args,
+    "att_mod" : args.sa_default_args,
+    "conv_mod" : args.conv_default_args,
+  }
+
+  for k in se_block_for_module:
+    args_map[k]["use_se_block"] = True # This flag is False per default for all conformer blocks ( i.e.: default is regular module version )
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_04_stoch_depth_dynamic
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+
+      conformer_ff1_func=make_ff_mod_004_se_block,
+      conformer_ff2_func=make_ff_mod_004_se_block,
+
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      conformer_self_att_func=make_self_att_mod_005_se_block,
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func=make_conv_mod_006_se_block,
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
+
 # ------------------------- baseline: 'big-short' -----------------------
 
 def baseline_big_short():
@@ -431,17 +504,103 @@ def sd_ff_linear_scale():
     } for i in range(1, 12 + 1)
   }
 
+# -------------------------------- Squeeze and exitation --------------------------------
+
+# Test for se block construction
+# sis/sis m config/baseline_04_big_short.se_test
+def se_test():
+  args = get_defaults_02()
+  NAME = f"{BASE}+se-block-TEST"
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod", "att_mod", "conv_mod"],
+    dummy_config = "se.test.config",
+    test_construct = True
+  )
+
+  # Checks
+  net = data["network"]
+  for i in range(1, 12 + 1):
+    assert f"enc_{i:03d}_ff1_ff1_SE_act1" in net
+    assert f"enc_{i:03d}_sa_SE_act1" in net
+    assert f"enc_{i:03d}_conv_SE_act1" in net
+    # Truely this only check that the layers are present
+    # Should be engough to, if the construction did not fail
+
+def se_ffmod():
+
+  args = get_defaults_02()
+  NAME = f"{BASE}+se-block-v1.0-ff-mod"
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod"],
+  )
+
+def se_attmod():
+
+  args = get_defaults_02()
+  NAME = f"{BASE}+se-block-v1.0-att-mod"
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["att_mod"],
+  )
+
+def se_convmod():
+
+  args = get_defaults_02()
+  NAME = f"{BASE}+se-block-v1.0-conv-mod"
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["conv_mod"],
+  )
+
+# --------------------------- addint the experiments to computation graph -----------------------
+
 def all_experiments_stochastic_depth():
+  # TODO Start v2 experiments only if other where good
+
+  test_sd() # Test ...
+
   sd_ffmod()
-  sd_ffmod_v2()
+  #sd_ffmod_v2()
 
   sd_attmod()
-  sd_attmod_v2()
+  #sd_attmod_v2()
 
   sd_conv_mod()
-  sd_conv_mod_v2()
+  #sd_conv_mod_v2()
 
   sd_ff_linear_scale()
+
+# ...
+
+def all_experiments_se_block():
+
+  se_test() # Test...
+
+  se_attmod()
+  se_ffmod()
+  se_convmod()
+
+# ---
+
+def all_experiments_seq():
+  seq_no_order_no_shuffle()
+  seq_only_shuffle()
+  seq_order_chunk_1000()
+
+# ------------------------------- full computation graph ------------------------------------------
+
+# We split the experiments,
+# Have 3 managers running in paralel...
 
 def main():
   # Baseline
@@ -450,7 +609,11 @@ def main():
   # Ablation
   no_aux_loss()
 
-  # chunk/sequnce order
-  seq_no_order_no_shuffle()
-  seq_only_shuffle()
-  seq_order_chunk_1000()
+def main2():
+  all_experiments_seq()
+
+def main3():
+  all_experiments_stochastic_depth()
+
+def main4():
+  all_experiments_se_block()

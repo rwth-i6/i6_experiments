@@ -47,6 +47,49 @@ def se_block( # TODO naming convention off here, should have '_00' cause inital 
 
     return net, f"{prefix}_SE_elm_mul"
 
+def se_block_02_not_prefixed(
+    net=None,
+    in_l=None,
+
+    # Shared args:
+    model_dim = None,
+):
+
+    assert net, "no net"
+    assert in_l, "no input layer"
+
+    net_add = {
+        "_SE_reduce": {
+            "class" : "reduce",
+            "mode" : "mean",
+            "from"  : in_l,
+            "axes" : "T"},
+        "_SE_linear1": {
+            "class" : "linear",
+            "from" : "_SE_reduce",
+            "n_out" : 32},
+        "_SE_act1" : {
+            "class" : "activation",
+            "activation" : "swish",
+            "from" : "_SE_linear1"},
+        "_SE_linear2" : {
+            "class" : "linear",
+            "from" :  "_SE_act1",
+            "n_out" : model_dim},
+        "_SE_act2" : {
+            "class" : "activation",
+            "activation" : "swish",
+            "from" : "_SE_linear2" },
+        "_SE_elm_mul" :  {
+            "class" : "eval",
+            "eval" : "source(0) * source(1)",
+            "from" : ["_SE_act2", in_l]},
+    }
+
+    net.update(net_add)
+
+    return net, "_SE_elm_mul"
+
 def stochatic_depth_00(
     subnetwork = None,
     survival_prob = None,
