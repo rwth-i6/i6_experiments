@@ -25,6 +25,12 @@ def get_defaults():
   args = copy.deepcopy(original_args_big_baseline_00)
   return args
 
+# Use this for all make_experiment_<num> with num > 03
+def get_defaults_02():
+  args = copy.deepcopy(original_args_big_baseline_00)
+  del args.returnn_rasr_args_defaults["shuffle_data"] # Not needed cause set by default now
+  return args
+
 def make_experiment_03_rqmt(
   args, 
   NAME,
@@ -73,7 +79,7 @@ def make_experiment_04_seq_orders(
   test_construct = False
   ):
 
-  experiment_data = god.create_experiment_world_004( 
+  experiment_data = god.create_experiment_world_004( # New world that allowes adapting sequence order
     name=NAME,
     output_path=OUTPUT_PATH,
     config_base_args=args.config_args,
@@ -166,6 +172,57 @@ def make_experiment_05_batchnorm(
 
       test_construction=test_construct,
   )
+
+# + allowes to use: apply_stochastic_depth
+# e.g.:
+# apply_stochastic_depth = {1 : { "ff_mod1" : 0.5 }} 
+# -> would add stochastic depth to only the first block and only the frist ff module
+def make_experiment_06_stoch_depth(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_04_stoch_depth_dynamic
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
 
 # ------------------------- baseline: 'big-short' -----------------------
 
@@ -266,6 +323,125 @@ def seq_order_chunk_1000():
 
 # -------------------------- stochastic depth -------------------------------
 
+# write test always they said, test good for your health they said
+# runns some sanity check for the implementation
+# This is also sort of a unit test: `sis/sis m config/baseline_04_big_short.test_sd`
+def test_sd():
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-TEST"
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = {1 : { "ff_mod1" : 0.5 }} # Should only add stocastic depth to the verry first module
+  ))
+
+  data = make_experiment_06_stoch_depth(
+    args, 
+    NAME,
+    #dummy_config = "test.sd.config",
+    test_construct = True
+  )
+
+  net = data['network']
+  assert net["_ff1_ff1_cond_train"]["false_layer"]["from"] == "embedding_dropout"
+  assert "embedding_dropout" in net["_ff1_ff1_cond_train"]["false_layer"]["from"]["subnetwork"]["output"] 
+  # more sanity checks?
+  # We really only proved that the layer exists and output residual is added
+
+# + 0.5 stoch_depth on *all* ffmods
+def sd_ffmod(v=0):
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-v2.{v}-ff-mod"
+  if v == 1:
+    args.conformer_defaults['multipy_by_surivial_prob_ineval'] = False
+
+  sd_args = {
+    i : {
+      "ff_mod1" : 0.5,
+      "ff_mod2" : 0.5
+    } for i in range(1, 12 + 1) # .. for all 12 blocks, yeah i know indexed from 1
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+# + also sd on ff mod, but don't multipy by survival prob in eval:w
+def sd_ffmod_v2():
+  sd_ffmod(v=1)
+
+
+# + 0.5 stoch_depth on *all* self attention mods
+def sd_attmod(v=0):
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-v2.{v}-att-mod"
+  if v == 1:
+    args.conformer_defaults['multipy_by_surivial_prob_ineval'] = False
+
+  sd_args = {
+    i : {
+      "self_att" : 0.5,
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+
+def sd_attmod_v2():
+  sd_attmod_v2(v=1)
+
+# + 0.5 stoch_depth on *all* convolution modules
+def sd_conv_mod(v=0):
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-v2.{v}-conv-mod"
+  if v == 1:
+    args.conformer_defaults['multipy_by_surivial_prob_ineval'] = False
+
+  sd_args = {
+    i : {
+      "conv_mod" : 0.5,
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+def sd_conv_mod_v2():
+  sd_conv_mod(v=1)
+
+# + linear scale the survival prob form 0.1 to 0.6 for all ffmodules
+def sd_ff_linear_scale():
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6"
+  import numpy
+  space = numpy.linspace(0.1, 0.6, num=12)
+
+  sd_args = {
+    i : {
+      "ff_mod1" : space[i-1],
+      "ff_mod2" : space[i-1],
+    } for i in range(1, 12 + 1)
+  }
+
+def all_experiments_stochastic_depth():
+  sd_ffmod()
+  sd_ffmod_v2()
+
+  sd_attmod()
+  sd_attmod_v2()
+
+  sd_conv_mod()
+  sd_conv_mod_v2()
+
+  sd_ff_linear_scale()
 
 def main():
   # Baseline

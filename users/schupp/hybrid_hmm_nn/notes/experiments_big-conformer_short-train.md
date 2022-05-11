@@ -9,12 +9,12 @@ Stats of that model are:
 
 ## List of experiments
 
-- [o] `baseline_03_big_short`
+- [x] `baseline_03_big_short`
 
 #### Ablation study
 
 
-- [o] `baseline_03_big_short+no-aux`
+- [x] `baseline_03_big_short+no-aux`
 - [ ] `baseline_03_big_short+no-frame-stacking`
 
 #### Learning rate
@@ -24,29 +24,29 @@ Stats of that model are:
 
 #### Batch Norm 
 
-- [o] `baseline_03_big_short+batchnorm`
-- [o] `baseline_03_big_short+batchnorm-old-defaults`
+- [x] `baseline_03_big_short+batchnorm`
+- [x] `baseline_03_big_short+batchnorm-old-defaults`
 
 #### Sequence/Chunk order
 
 
-- [o] `baseline_03_big_short+no-seq-order+no-shuffle`
-- [o] `baseline_03_big_short+only-shuffle`
-- [o] `baseline_03_big_short+shuffle+order-chunks=1000`
+- [x] `baseline_03_big_short+no-seq-order+no-shuffle`
+- [x] `baseline_03_big_short+only-shuffle`
+- [x] `baseline_03_big_short+shuffle+order-chunks=1000`
 
 
 #### Stochastic Depth 
 
 
-- [ ] `baseline_03_big_short+stoch-depth-v2.0-ff-mod`
-- [ ] `baseline_03_big_short+stoch-depth-v2.0-conv-mod`
-- [ ] `baseline_03_big_short+stoch-depth-v2.0-att-mod`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-conv-mod`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-att-mod`
 
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-ff-mod`
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-conv-mod`
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-att-mod`
 
-- [ ] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6`
 
 
 ### Squeeze and Exication TODO
