@@ -24,14 +24,18 @@ def run():
   targets_time_dim = nn.SpatialDim("targets-time")
   output_dim = nn.FeatureDim("output", 2000)
 
+  from returnn_common.asr import gt, specaugment
+
   class Model(nn.ConformerEncoder):
     def __init__(self):
       super(Model, self).__init__(
         # Medium...
-        num_layers=16, num_heads=4, out_dim=nn.FeatureDim("conformer", 256)),
+        num_layers=16, num_heads=4, out_dim=nn.FeatureDim("conformer", 256))
+      self.gt = gt.GammatoneV2()
       self.output = nn.Linear(output_dim + 1)  # +1 for blank
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
+      specaugment.specaugment_v2()
       x, out_spatial_dim = super(Model, self).__call__(x, in_spatial_dim=in_spatial_dim, **kwargs)
       assert isinstance(out_spatial_dim, nn.Dim)
       if out_spatial_dim != in_spatial_dim:
