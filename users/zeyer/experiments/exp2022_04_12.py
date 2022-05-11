@@ -2,7 +2,7 @@
 experiments
 """
 
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy
 from sisyphus import tk
 from ..datasets import librispeech
@@ -28,28 +28,31 @@ def run():
   targets_time_dim = nn.SpatialDim("targets-time")
   output_dim = nn.FeatureDim("output", 2000)
 
-  from returnn_common.asr import gt, specaugment
+  from returnn_common.asr import specaugment
 
-  class Model(nn.ConformerEncoder):
+  class Model(nn.Module):
     """model"""
-    def __init__(self):
-      super(Model, self).__init__(
-        # Medium...
-        num_layers=16, num_heads=4, out_dim=nn.FeatureDim("conformer", 256))
-      self.gt = gt.GammatoneV2()
-      self.output = nn.Linear(output_dim + 1)  # +1 for blank
+    def __init__(self, out_dim: nn.Dim, conformer_dim: Optional[nn.Dim] = None, **kwargs):
+      super(Model, self).__init__()
+      # Medium size default...
+      if conformer_dim is None:
+        conformer_dim = nn.FeatureDim("conformer", 256)
+      kwargs.setdefault("num_layers", 16)
+      kwargs.setdefault("num_heads", 4)
+      self.conformer = nn.ConformerEncoder(conformer_dim, **kwargs)
+      self.out_dim = out_dim
+      self.output = nn.Linear(out_dim)
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
-      specaugment.specaugment_v2()
-      x, out_spatial_dim = super(Model, self).__call__(x, in_spatial_dim=in_spatial_dim, **kwargs)
+      x = specaugment.specaugment_v2(x, in_spatial_dim=in_spatial_dim)
+      x, out_spatial_dim = self.conformer(x, in_spatial_dim=in_spatial_dim, **kwargs)
       assert isinstance(out_spatial_dim, nn.Dim)
       if out_spatial_dim != in_spatial_dim:
         out_spatial_dim.declare_same_as(nn.SpatialDim("downsampled-time"))
       x = self.output(x)
       return x, out_spatial_dim
 
-  # TODO specaug
-  model = Model()
+  model = Model(out_dim=output_dim + 1)  # +1 for blank
   inputs = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim]))
   logits, out_spatial_dim = model(inputs, in_spatial_dim=time_dim)
   targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim))
@@ -103,7 +106,7 @@ except Exception as exc:
 sys.setrecursionlimit(10 ** 6)
 """
     ],
-    python_epilog_hash="",
+    python_epilog_hash="",  # TODO ...
     post_config=dict(
       log_batch_size=True,
       tf_log_memory_usage=True,
