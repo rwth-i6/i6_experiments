@@ -9,25 +9,45 @@ Stats of that model are:
 
 ## List of experiments
 
+
 - [x] `baseline_03_big_short`
+
 
 #### Ablation study
 
 
 - [x] `baseline_03_big_short+no-aux`
-- [ ] `baseline_03_big_short+no-frame-stacking`
+- [x] `baseline_03_big_short+no-frame-stacking`
+
+
+#### Pretrain
+
+
+- [ ] `baseline_03_big_short+pretrain`
+
 
 #### Learning rate
 
-- [ ] `baseline_03_big_short+lr-shorter`
-- [ ] `baseline_03_big_short+newbob-lr`
+
+- [x] `baseline_03_big_short+shorter-lr-const=10-warmup-10-decay=0.98`
+- [x] `baseline_03_big_short+newbob-multi-epoch`
+
 
 #### Norms
+
 
 - [x] `baseline_03_big_short+batchnorm`
 - [x] `baseline_03_big_short+batchnorm-old-defaults`
 - [x] `baseline_03_big_short+groupnorm`
 - [ ] `baseline_03_big_short+tfa-groupnorm-g=32`
+
+
+#### Activations:
+
+- [x] `baseline_03_big_short+conv-act=gelu`
+- [x] `baseline_03_big_short+conv-act=relu`
+- [x] `baseline_03_big_short+conv-act=relu`
+
 
 #### Sequence/Chunk order
 
@@ -49,24 +69,32 @@ Stats of that model are:
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-att-mod`
 
 - [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-1.0-0.5`
-
-- [ ] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p=0.2`
 
 
 #### Squeeze and Exication
+
 
 - [x] `baseline_03_big_short+se-block-v1.0-ff-mod` 
 - [x] `baseline_03_big_short+se-block-v1.0-conv-mod` 
 - [x] `baseline_03_big_short+se-block-v1.0-att-mod` 
 
+
 #### Huge model:
 
-- [ ] `baseline_03_big_short+XL`
+
+- [x] `baseline_03_big_short+XL`
+- [x] `baseline_03_big_short+16blocks+2aux-6-12`
+
+#### Misc
+
+- [x] `baseline_03_big_short+switch-att-conv-mod`
+
 
 ## Other
 
 - [x] Group Norm ( see above )
-- [ ] Conv activation, Relu, Gelu
+- [x] Conv activation, Relu, Gelu
 - [ ] Stage ration, ( no ff mods in early layers maybe )
 
 

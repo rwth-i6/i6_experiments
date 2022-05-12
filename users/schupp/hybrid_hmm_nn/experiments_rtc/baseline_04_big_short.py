@@ -32,6 +32,22 @@ def get_defaults_02():
   del args.returnn_rasr_args_defaults["shuffle_data"] # Not needed cause set by default now
   return args
 
+# Keeping ep 50 but not 40 acutally doesn't really make sense
+def get_defaults_03():
+  args = original_args_big_baseline_00()
+  del args.returnn_rasr_args_defaults["shuffle_data"] # Not needed cause set by default now
+  args.returnn_train_post_config["cleanup_old_models"]["keep"] = [40, 60, 80, 100, 110, 120]
+  return args
+
+def make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
+        min_lr_ratio=1/50, decay_factor=0.99):
+
+    num_lr = int(math.log(min_lr_ratio, decay_factor))
+    return list(numpy.linspace(warmup_start, start, num=warmup_subepoch)) + \
+                    [start] * constant_subepoch + \
+                    list(start * numpy.logspace(1, num_lr, num=num_lr, base=decay_factor)) + \
+                    [min_lr_ratio * start]
+
 def make_experiment_03_rqmt(
   args, 
   NAME,
@@ -347,6 +363,146 @@ def make_experiment_08_groupnorm(
   )
 
 
+def make_experiment_09_sampling_act(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  test_construct = False
+  ):
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.subsampling_versions import make_subsampling_005_fstack_dyn_act
+
+  experiment_data = god.create_experiment_world_004( # New world that allowes adapting sequence order
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+
+      subsampling_func=make_subsampling_005_fstack_dyn_act, # This allowes to overwrite `sampling_activation`
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      test_construction=test_construct,
+  )
+
+
+# + uses strided convolution for downsapling !not frame stacking!
+def make_experiment_10_no_feature_stacking(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  test_construct = False
+  ):
+
+  args.sampling_default_args["time_reduction"] = 3 # !! required, as feature statcking also did time down 3
+  # The following are not needed any more: ( only required for frame stacking)
+  del args.sampling_default_args["unsampling_strides"]
+  del args.sampling_default_args["stacking_stride"]
+  del args.sampling_default_args["window_size"]
+  del args.sampling_default_args["window_right"]
+  del args.sampling_default_args["window_left"]
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.subsampling_versions import make_subsampling_001, make_unsampling_001
+
+  experiment_data = god.create_experiment_world_004( # New world that allowes adapting sequence order
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+
+      subsampling_func=make_subsampling_001, # This allowes to overwrite `sampling_activation`
+      unsampling_func=make_unsampling_001,
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      test_construction=test_construct,
+  )
+
+def make_experiment_11_switch_conv_and_att(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  test_construct = False
+  ):
+
+  experiment_data = god.create_experiment_world_004( # New world that allowes adapting sequence order
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_05_sd_dyn_switch_conv_att,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      test_construction=test_construct,
+  )
+
+
+
 # ------------------------- baseline: 'big-short' -----------------------
 
 def baseline_big_short():
@@ -364,17 +520,85 @@ def no_aux_loss():
 
   make_experiment_03_rqmt(args, NAME, aux_loss_layers=[])
 
-def no_frame_stacking(): #TODO:
+def no_frame_stacking():
+  args = get_defaults_03()
   NAME = f"{BASE}+no-frame-stacking"
-  pass
+
+  make_experiment_10_no_feature_stacking(
+    args,
+    NAME,
+    #test_construct = True
+  )
+
+def switch_conv_att_mod():
+  args = get_defaults_03()
+
+  NAME = f"{BASE}+switch-att-conv-mod"
+
+  make_experiment_11_switch_conv_and_att(
+    args,
+    NAME,
+  )
+
 
 # ------------------------------ learning rate ------------------------------
 
-def lr_shorter(): # TODO:
-  pass
+# The learning rate of this model was expected to be trained 15 epochs so wee try a faster decaying variant here:
+def lr_shorter():
+  NAME = f"{BASE}+shorter-lr-const=10-warmup-10-decay=0.98"
 
-def lr_newbob(): # TODO:
-  pass
+  args = get_defaults_02() # TODO: verify that dataset is still shuffled for this
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  args.config_args["learning_rates"] = learning_rates
+
+  make_experiment_03_rqmt(args, NAME)
+
+# Uses 'newbob_multi_epoch'
+def lr_newbob():
+  NAME = f"{BASE}+newbob-multi-epoch"
+
+  args = get_defaults_02()
+  del args.config_args["learning_rates"] # Not needed when newbob
+  # TODO: not sure if there setting conform well to how learning rate was handled before
+
+  args.config_args.update({
+    'learning_rate_control': "newbob_multi_epoch",
+    'learning_rate_control_relative_error_relative_lr': True,
+    'learning_rate_control_min_num_epochs_per_new_lr': 3,
+    'newbob_learning_rate_decay': 0.9,
+    'newbob_multi_update_interval': 1,
+    'newbob_multi_num_epochs': args.EP_SPLIT
+  })
+
+
+  make_experiment_03_rqmt(args, NAME)
+
+# --------------------------------- activations -----------------------------
+
+def conv_mod_relu():
+  args = get_defaults_03()
+  NAME = f"{BASE}+conv-act=relu"
+
+  args.conv_default_args["conv_act"] = "relu"
+
+  make_experiment_03_rqmt(args, NAME)
+
+def conv_mod_gelu():
+  args = get_defaults_03()
+  NAME = f"{BASE}+conv-act=gelu"
+
+  args.conv_default_args["conv_act"] = "gelu"
+
+  make_experiment_03_rqmt(args, NAME)
+
+def subsampling_swish():
+  args = get_defaults_03()
+  NAME = f"{BASE}+subsampling-act=swish"
+
+  args.sampling_default_args["sampling_activation"] = "swish"
+
+  make_experiment_09_sampling_act(args, NAME)
 
 # -------------------------------- batch norm -------------------------------
 
@@ -522,6 +746,7 @@ def sd_attmod(v=0):
   make_experiment_06_stoch_depth( args, NAME )
 
 
+
 def sd_attmod_v2():
   sd_attmod_v2(v=1)
 
@@ -566,6 +791,32 @@ def sd_ff_linear_scale():
   ))
 
   make_experiment_06_stoch_depth( args, NAME )
+
+
+def sd_ff_depth_scale():
+  args = get_defaults_03()
+  NAME = f'{BASE}+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p=0.2'
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=24)
+
+  def surv_prob_by_layer(l, L=12.0, p=0.2):
+    return 1.0 - ((l/L) * (1.0 - p))
+
+  sd_args = {
+    i : {
+      "ff_mod1" : surv_prob_by_layer(i),
+      "ff_mod2" : surv_prob_by_layer(i),
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+
 
 # -------------------------------- Squeeze and exitation --------------------------------
 
@@ -638,8 +889,7 @@ def huge_conformer():
   make_experiment_03_rqmt(
     args,
     NAME,
-
-    test_construct = True
+    #test_construct = True
   )
 
 def conformer_16_blocks():
@@ -652,7 +902,7 @@ def conformer_16_blocks():
     args,
     NAME,
     aux_loss_layers = [6, 12],
-    test_construct = True
+    #test_construct = True
   )
 
 
@@ -674,6 +924,8 @@ def all_experiments_stochastic_depth():
 
   sd_ff_linear_scale()
 
+  sd_ff_depth_scale()
+
 # ...
 
 def all_experiments_se_block():
@@ -690,6 +942,12 @@ def all_experiments_seq():
   seq_no_order_no_shuffle()
   seq_only_shuffle()
   seq_order_chunk_1000()
+
+def all_activation_experiments():
+
+  conv_mod_relu()
+  conv_mod_gelu()
+  subsampling_swish()
 
 # ------------------------------- full computation graph ------------------------------------------
 
@@ -708,6 +966,11 @@ def main():
   groupnorm_noln()
   batchnorm_old_defaults()
 
+  huge_conformer()
+  conformer_16_blocks()
+
+  lr_newbob()
+  lr_shorter()
   
 
 def main2():
@@ -718,3 +981,9 @@ def main3():
 
 def main4():
   all_experiments_se_block()
+
+def main5():
+  all_activation_experiments()
+
+  no_frame_stacking()
+  switch_conv_att_mod()
