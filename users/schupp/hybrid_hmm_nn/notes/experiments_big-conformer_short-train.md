@@ -27,6 +27,7 @@ Stats of that model are:
 - [x] `baseline_03_big_short+batchnorm`
 - [x] `baseline_03_big_short+batchnorm-old-defaults`
 - [x] `baseline_03_big_short+groupnorm`
+- [ ] `baseline_03_big_short+tfa-groupnorm-g=32`
 
 #### Sequence/Chunk order
 
@@ -47,7 +48,9 @@ Stats of that model are:
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-conv-mod`
 - [ ] `baseline_03_big_short+stoch-depth-v2.1-att-mod`
 
-- [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6`
+- [x] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+linear-scale-survival-1.0-0.5`
+
+- [ ] `baseline_03_big_short+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1`
 
 
 #### Squeeze and Exication
@@ -55,6 +58,10 @@ Stats of that model are:
 - [x] `baseline_03_big_short+se-block-v1.0-ff-mod` 
 - [x] `baseline_03_big_short+se-block-v1.0-conv-mod` 
 - [x] `baseline_03_big_short+se-block-v1.0-att-mod` 
+
+#### Huge model:
+
+- [ ] `baseline_03_big_short+XL`
 
 ## Other
 

@@ -550,16 +550,22 @@ def sd_conv_mod_v2():
 # + linear scale the survival prob form 0.1 to 0.6 for all ffmodules
 def sd_ff_linear_scale():
   args = get_defaults_02()
-  NAME = f"{BASE}+stoch-depth-v2.0-ff-mod+linear-scale-survival-0.1-0.6"
+  NAME = f"{BASE}+stoch-depth-v2.0-ff-mod+linear-scale-survival-1.0-0.5"
   import numpy
-  space = numpy.linspace(0.1, 0.6, num=12)
+  space = numpy.linspace(1.0, 0.5, num=24)
 
   sd_args = {
     i : {
-      "ff_mod1" : space[i-1],
-      "ff_mod2" : space[i-1],
+      "ff_mod1" : space[2*(i-1)],
+      "ff_mod2" : space[2*(i-1) + 1],
     } for i in range(1, 12 + 1)
   }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
 
 # -------------------------------- Squeeze and exitation --------------------------------
 
@@ -618,6 +624,37 @@ def se_convmod():
     NAME,
     se_block_for_module = ["conv_mod"],
   )
+
+# -------------------------------- XL, huge conformer ----------------------------------------
+
+def huge_conformer():
+
+  args = get_defaults_02()
+  NAME = f'{BASE}+XL'
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  make_experiment_03_rqmt(
+    args,
+    NAME,
+
+    test_construct = True
+  )
+
+def conformer_16_blocks():
+  args = get_defaults_02()
+  NAME = f'{BASE}+16blocks+2aux-6-12'
+
+  args.conformer_defaults['num_blocks'] = 16
+
+  make_experiment_03_rqmt(
+    args,
+    NAME,
+    aux_loss_layers = [6, 12],
+    test_construct = True
+  )
+
 
 # --------------------------- addint the experiments to computation graph -----------------------
 

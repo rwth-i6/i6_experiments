@@ -10,7 +10,7 @@ import os
 import argparse
 import importlib
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.INFO)
 
 # Allowed arguments: (WIP)
 # --basepath conformer      -> the root path alias/*/
@@ -31,7 +31,10 @@ args = parser.parse_args()
 BASE = args.basepath
 
 print(args)
+# We allow also a '/' instead of ':'
 
+args.config = args.config.replace("/", ":")
+print(args.config)
 
 data_set_prefixes = {
     "dev-other" : "", # TODO: other default?
@@ -146,22 +149,63 @@ def get_config_data(config_path):
         full_epochs = config_data.num_epochs // split # TODO: check if these params are present
     )
 
-def print_summary(ex_data, config_data):
+# Parse the run.log.1 ( contains infos such as which gpus where used)
+def parse_log(log_file_path):
+    used_gpus = []
+    time_switched_gpu = []
+
+    time_hh_mm_ss = r'(?:[0-5]\d):(?:[0-5]\d):(?:[0-5]\d)'
+    date_jj_mm_dd = r'(?:[0-5]\d)-(?:[0-5]\d)-(?:[0-5]\d)'
+
+    data = None
+    with open(log_file_path) as file:
+        data = file.read()
+
+    lines = data.split("\n")
+    for line in lines:
+        if "Created TensorFlow device" in line and "tensorflow/core/common_runtime/gpu/gpu_device.cc" in line:
+            log.debug(line)
+            exert = line[line.index("name:") + 5:].split(",")[0]
+            if used_gpus and exert == used_gpus[-1]:
+                continue # Only store gpu if it changed
+
+            used_gpus.append(exert)
+
+            time = re.findall(time_hh_mm_ss, line)[0]
+            date = re.findall(date_jj_mm_dd, line)[0]
+            time_switched_gpu.append(f'{".".join(date.split("-")[1:])}-{time}')
+
+    return OrderedDict(
+        used_gpus=used_gpus,
+        time_switched_gpu=time_switched_gpu,
+    )
+
+def print_summary(ex_data, config_data, log_data=None):
     log.debug(list(ex_data.keys()))
+
+    info = []
     wers = "no data"
     if ex_data['wer_by_ep']:
         wers = ex_data['wer_by_ep']
     elif ex_data['optim_wer_by_ep']:
         wers = ex_data['optim_wer_by_ep']
 
-    info = [
+    info += [
         f"progress: seps {ex_data['finished_eps']}/{config_data['num_epochs']}",
-        f"time per sep: {ex_data['time_p_sep']}",
-        #f"time to cur ep: {ex_data['time_p_sep'] * ex_data['finished_eps']}" error prone, have better checks
+        f"time per sep: {ex_data['time_p_sep']}"
+    ]
+
+    if log_data:
+        info += [
+            "gpus used: \n" + "\n".join([f'{time}: {gpu}' for gpu, time in zip(log_data["used_gpus"], log_data["time_switched_gpu"])])
+        ]
+
+    info += [
         f"params (m): {ex_data['num_params']}",
         f"wers: {wers}"
     ]
-    log.info("\n".join(info))
+        #f"time to cur ep: {ex_data['time_p_sep'] * ex_data['finished_eps']}" error prone, have better checks
+    log.info("\n" + "\n".join(info))
 
 
 def get_all_data_experiment(experiment_path, name):
@@ -201,8 +245,12 @@ if args.write:
             indent=1
         )
 
-config_path = f"alias/{BASE}/{ex_path}/{sub_experiment}/train.job/output/returnn.config"
+config_path = f"alias/{BASE}/{ex_path}{sub_experiment}/train.job/output/returnn.config"
 conf_data = get_config_data(config_path)
 
-print_summary(ex_data["dev-other"], conf_data)
+log_file_path = f"alias/{BASE}/{ex_path}{sub_experiment}/train.job/log.run.1" # Maybe should use work/returnn.log instead?
+log_data = parse_log(log_file_path)
+log.debug(f"Got log data: {log_data}")
+
+print_summary(ex_data["dev-other"], conf_data, log_data)
 
