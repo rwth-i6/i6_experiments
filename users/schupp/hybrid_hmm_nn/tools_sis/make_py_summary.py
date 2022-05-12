@@ -22,8 +22,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-b', '--basepath', default='conformer')
 parser.add_argument('-bx', '--base-experiment', default=None)
 parser.add_argument('-o', '--only', default=None)
+parser.add_argument('-ox', '--only-experiment', default=None)
 parser.add_argument('-fex', '--filter-ex-name', default=None)
 parser.add_argument('-udf', '--update-data-filter', default=None)
+
 args = parser.parse_args()
 
 BASE = args.basepath
@@ -63,6 +65,9 @@ if args.filter_ex_name:
 
 for i, k in enumerate(all_existing_experiments):
     sub_experiments[k] = [s.split("/")[-1] for s in glob.glob(f"alias/{all_existing_experiments[i]}/*") if filter_check(s) ]
+
+if args.only_experiment:
+    all_existing_experiments = [f"{BASE}/{args.only_experiment}"]
 
 log.debug(all_existing_experiments)
 

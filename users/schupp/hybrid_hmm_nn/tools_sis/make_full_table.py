@@ -30,6 +30,13 @@ if args.only:
     datasets = [args.only]
     assert "dev-other" in datasets, "Need dev-other always!"
 
+# TODO: things missing here:
+# - full epochs
+# - complete train time
+# - devother error relation
+# - gpu's used
+# - average epoch time
+# - lm/am ratio
 
 csv_columns = {
     "NAME" : [],

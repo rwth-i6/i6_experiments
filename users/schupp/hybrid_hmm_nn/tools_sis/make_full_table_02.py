@@ -15,10 +15,12 @@ log.basicConfig(level=log.DEBUG)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--only', default=None) # Allow to ass multiple sep by comma
+
+parser.add_argument("-ocn", "--overwrite-config-name", default="returnn.config")
 args = parser.parse_args()
 
 RESULTS_PATH = "results2"
-
+CONFIG_NAME = args.overwrite_config_name
 
 datasets = [
     "dev-other",
@@ -31,6 +33,10 @@ if args.only:
     datasets = [args.only]
     assert "dev-other" in datasets, "Need dev-other always!"
 
+
+# TODO: things missing here:
+# - devother error relation
+# - lm/am ratio
 
 csv_columns = {
     "NAME" : [],
@@ -46,6 +52,15 @@ csv_columns = {
     "Complete train time untill final epoch" : [],
 
     "num_params (M)" : [],
+
+    "devother error relation" : [],
+
+    "GPUs used" : [],
+
+    "avarage epoch time" : [],
+
+    "best lm/am ratio" : [],
+
     "FULL CONFIG PATH" : []
 }
 
@@ -75,6 +90,38 @@ def get_config_data(config_path):
         epoch_split = split,
         full_epochs = config_data.num_epochs // split # TODO: check if these params are present
     )
+
+# Parse the run.log.1 ( contains infos such as which gpus where used)
+def parse_log(log_file_path):
+    used_gpus = []
+    time_switched_gpu = []
+
+    time_hh_mm_ss = r'(?:[0-5]\d):(?:[0-5]\d):(?:[0-5]\d)'
+    date_jj_mm_dd = r'(?:[0-5]\d)-(?:[0-5]\d)-(?:[0-5]\d)'
+
+    data = None
+    with open(log_file_path) as file:
+        data = file.read()
+
+    lines = data.split("\n")
+    for line in lines:
+        if "Created TensorFlow device" in line and "tensorflow/core/common_runtime/gpu/gpu_device.cc" in line:
+            log.debug(line)
+            exert = line[line.index("name:") + 5:].split(",")[0]
+            if used_gpus and exert == used_gpus[-1]:
+                continue # Only store gpu if it changed
+
+            used_gpus.append(exert)
+
+            time = re.findall(time_hh_mm_ss, line)[0]
+            date = re.findall(date_jj_mm_dd, line)[0]
+            time_switched_gpu.append(f'{".".join(date.split("-")[1:])}-{time}')
+
+    return OrderedDict(
+        used_gpus=used_gpus,
+        time_switched_gpu=time_switched_gpu,
+    )
+
 
 def get_best_epoch_dev_other(data, optim=False):
     set_data = data["dev-other"]
@@ -141,11 +188,16 @@ for ex in all_experiments:
                 return f"no data for ep{ep}"
 
         config_path = data["config_path"]
-        config_rel_path = f"alias/conformer/{config_path.split('/conformer/')[-1]}".replace("returnn.config", "crnn.config") # Needed for pings old experiments
+        config_rel_path = f"alias/conformer/{config_path.split('/conformer/')[-1]}".replace("returnn.config", CONFIG_NAME) # Needed for pings old experiments
+
+        train_log_path = config_rel_path.replace(f"output/{CONFIG_NAME}", "log.run.1")
+        log_data = parse_log(train_log_path)
+
         log.debug(f"rel config path: {config_rel_path}")
         config_data = get_config_data(config_rel_path)
         wers_per_set = [ get_dataset_epoch(best_ep_dev_other, _set) for _set in datasets ]
         log.debug(f"Found wers: {wers_per_set}")
+
         row = [
             data["name"], # name
             config_data["full_epochs"],
@@ -154,6 +206,10 @@ for ex in all_experiments:
             data["dev-other"]["time_p_sep"] * best_ep_dev_other,
             config_data["num_epochs"] * data["dev-other"]["time_p_sep"],
             data["dev-other"]["num_params"], # params
+            "TODO: error relation!",
+            "\n" + "\n".join([f'{time}: {gpu}' for gpu, time in zip(log_data["used_gpus"], log_data["time_switched_gpu"])]), # GPU by time
+            data["dev-other"]["time_p_sep"],
+            "TODO: best lm/am ratio",
             f"{os.getcwd()}/{config_path}" #config path
         ]
         log.debug(f"Writing row: {row}")
