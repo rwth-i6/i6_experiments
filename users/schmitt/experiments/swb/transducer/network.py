@@ -523,8 +523,13 @@ def get_extended_net_dict(
         assert sep_sil_model in ["pooling", "like-labels"]
         if sep_sil_model == "pooling":
           rec_unit_dict.update({
+            "segments_temp": {
+              "class": "reinterpret_data", "from": "segments_temp0", "set_dim_tags": {
+                "stag:sliced-time:segments_temp": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, },
+            "segments_temp0": {
+              "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", },
             "pool_segments": {
-              "class": "copy", "from": "segments"},
+              "class": "copy", "from": "segments_temp"},
             "pooled_segment": {
               "class": "reduce", "mode": "mean", "axes": ["stag:att_t"], "from": "pool_segments"},
             "sil_model": {
