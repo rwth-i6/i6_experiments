@@ -224,7 +224,7 @@ def calc_rasr_search_errors(
   dump_align_from_txt_job = DumpAlignmentFromTxtJob(
     alignment_txt=rasr_decoding_job.out_best_traces, segment_file=segment_path, num_classes=num_classes
   )
-  # dump_align_from_txt_job.add_alias(name + ("/rasr-decoding-epoch-%d-best-traces" % num_epochs) + alias_addon)
+  dump_align_from_txt_job.add_alias(name + ("/%s/rasr-decoding-dump-traces-best-traces-epoch-%d" % (alias_addon, num_epochs)))
 
   calc_search_err_job = CalcSearchErrorJob(
     returnn_config=train_config, rasr_config=extern_sprint_rasr_config,
@@ -257,7 +257,7 @@ def run_rasr_realignment(
   compile_config, name, corpus_path, segment_path, lexicon_path, feature_cache_path, allophone_path, label_pruning,
   label_pruning_limit, rasr_am_trainer_exe_path, rasr_nn_trainer_exe_path, model_checkpoint, num_epochs,
   label_recombination_limit, blank_label_index, context_size, label_file, reduction_factors, max_segment_len,
-  start_label_index, state_tying_path, num_classes, time_rqmt, blank_allophone_state_idx,
+  start_label_index, state_tying_path, num_classes, time_rqmt, blank_allophone_state_idx, length_norm,
   blank_update_history, loop_update_history, mem_rqmt,
   alias_addon=""
 ):
@@ -269,7 +269,7 @@ def run_rasr_realignment(
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
 
   realignment_crp, realignment_config = build_realignment_config(
-    corpus_path=corpus_path, lexicon_path=lexicon_path, segment_path=segment_path,
+    corpus_path=corpus_path, lexicon_path=lexicon_path, segment_path=segment_path, length_norm=length_norm,
     feature_cache_path=feature_cache_path, reduction_factors=reduction_factors, blank_label_index=blank_label_index,
     start_label_index=start_label_index, label_pruning=label_pruning, label_pruning_limit=label_pruning_limit,
     label_recombination_limit=label_recombination_limit, label_file=label_file, allophone_path=allophone_path,
@@ -280,14 +280,14 @@ def run_rasr_realignment(
     rasr_exe_path=rasr_am_trainer_exe_path, crp=realignment_crp, model_checkpoint=model_checkpoint,
     mem_rqmt=mem_rqmt, time_rqtm=time_rqmt, am_model_trainer_config=realignment_config,
     blank_allophone_state_idx=blank_allophone_state_idx)
-  realignment_job.add_alias(name + ("/rasr-realignment-epoch-%d" % num_epochs) + alias_addon)
+  realignment_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d" % (alias_addon, num_epochs)))
   alias = realignment_job.get_one_alias()
   tk.register_output(alias + "/results", realignment_job.out_alignment)
 
   dump_align_from_txt_job = DumpAlignmentFromTxtJob(
     alignment_txt=realignment_job.out_alignment_txt,
     segment_file=segment_path, num_classes=num_classes)
-  dump_align_from_txt_job.add_alias(name + ("/rasr-realignment-epoch-%d-best-traces" % num_epochs) + alias_addon)
+  dump_align_from_txt_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d-best-traces" % (alias_addon, num_epochs)))
   tk.register_output(dump_align_from_txt_job.get_one_alias(), dump_align_from_txt_job.out_hdf_align)
 
   return dump_align_from_txt_job.out_hdf_align
