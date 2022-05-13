@@ -147,8 +147,17 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
       print("SEARCH FEED BLANK LOG SCORES ARGMAX: %s, SCORE: %s \n" % (np.argmax(search_blank_log_prob, axis=-1), np.max(search_blank_log_prob, axis=-1)))
     elif model_type in ["seg_lab_dep", "global-import"]:
       if model_type == "global-import":
-        if ref_labels[-1] == blank_idx:
+        if blank_idx == 1030:
+          # if w/o silence, the last label needs to be EOS
           ref_labels[-1] = blank_idx + 1
+          search_labels[-1] = blank_idx + 1
+        elif blank_idx == 1031:
+          if ref_labels[-1] != 0:
+            # if w/ silence, we allow EOS and silence (0) as last label
+            ref_labels[-1] = blank_idx + 1
+          if search_labels[-1] != 0:
+            # if w/ silence, we allow EOS and silence (0) as last label
+            search_labels[-1] = blank_idx + 1
       ref_labels_non_blank = ref_labels[ref_labels != blank_idx]
       # get log probs for labels, blank and emit
       ref_label_prob = ref_out["output_log_prob-out"][0]  # [S, V]
@@ -170,7 +179,8 @@ def dump(ref_dataset, search_dataset, blank_idx, label_name, model_type, max_seg
       if model_type == "global-import":
         if ref_labels[-1] == blank_idx + 1:
           ref_labels[-1] = 0 if blank_idx == 1030 else 1030
-        search_labels[-1] = 0 if blank_idx == 1030 else 1030
+        if search_labels[-1] == blank_idx + 1:
+          search_labels[-1] = 0 if blank_idx == 1030 else 1030
         ref_labels_non_blank = ref_labels[ref_labels != blank_idx]
         search_labels_non_blank = search_labels[search_labels != blank_idx]
 
