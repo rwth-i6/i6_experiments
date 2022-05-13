@@ -732,43 +732,30 @@ def get_extended_net_dict(
           }
         })
       else:
-        assert length_model_type == "seg-neural"
+        assert length_model_type == "seg-neural" and task == "train"
         if task == "train":
           net_dict.update({
-            "time_range": {
-              "class": "range_in_axis", "from": "data:targetb", "axis": "t"
-            },
-            "seg_lens_data": {
-              "class": "masked_computation", "mask": "is_label", "from": "time_range", "unit": {
-                "class": "subnetwork", "from": "data", "subnetwork": {
-                  "positions": {"class": "copy", "from": "data"},
-                  "positions_0_prefix": {"class": "prefix_in_time", "from": "positions", "prefix": 0},
-                  "positions_shifted": {"class": "shift_axis", "from": "positions_0_prefix", "amount": 1, "pad": False},
-                  "seg_lens": {"class": "combine", "kind": "sub", "from": ["positions", "positions_shifted"]},
-                  "output": "copy", "from": "seg_lens"
-                }
-              }
-            }
+            "segment_lens_sparse": {
+              "class": "reinterpret_data", "from": "segment_lens_masked", "set_sparse": True, "set_sparse_dim": 20,
+              "register_as_extern_data": "segment_lens_target"},
           })
-        net_dict["output"]["unit"].update({
-          "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
-          "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
-          "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
-          "length_model0": {
-            "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
-            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
-          "length_model": {
-            "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
-          "emit_log_prob": {
-            "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"},
-          "max_seg_len": {
-            "class": "constant", "value": max_seg_len - 1}, "is_segment_longer_than_max": {
-            "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater"},
-          'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
-          'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
-          "blank_log_prob": {
-            "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
-            "false_from": "const0.0"}})
+          net_dict["label_model"]["unit"].update({
+            "segments_temp": {
+              "class": "reinterpret_data", "from": "segments_temp0", "set_dim_tags": {
+                "stag:sliced-time:segments_temp": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, },
+            "segments_temp0": {
+              "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", },
+            "pool_segments": {"class": "copy", "from": "segments_temp"},
+            "pooled_segment": {
+              "axes": ["stag:att_t"], "class": "reduce", "from": "pool_segments", "mode": "mean", },
+            "non_blank_embed_128": {
+              "activation": None, "class": "linear", "from": "output", "n_out": 128, "with_bias": False, },
+            "length_model0": {
+              "L2": 0.0001, "class": "rec", "dropout": 0.3, "from": ["non_blank_embed_128", "pooled_segment"], "n_out": 128,
+              "unit": "nativelstm2", "unit_opts": {"rec_weight_dropout": 0.3}, },
+            "length_model": {
+              "activation": "softmax", "class": "linear", "from": "length_model0", "is_output_layer": True,
+              "target": "segment_lens_target", "loss": "ce"}})
     else:
       assert length_model_type == "frame"
       net_dict["output"]["unit"].update({
@@ -777,7 +764,7 @@ def get_extended_net_dict(
         "emit_log_prob": {"class": "activation", "from": "emit_prob0", "activation": "log_sigmoid"},
         "blank_log_prob": {"class": "eval", "from": "emit_prob0", "eval": "tf.math.log_sigmoid(-source(0))"}})
 
-    if task == "train":
+    if task == "train" and length_model_type in ["frame", "seg-static"]:
       net_dict["output"]["unit"].update({
         "emit_blank_log_prob": {"class": "copy", "from": ["blank_log_prob", "emit_log_prob"]},
         "emit_blank_prob": {
