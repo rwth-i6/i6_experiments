@@ -354,6 +354,41 @@ def add_feature_stacking(
     net.update(net_add)
     return net, 'feature_stacking_merged'
 
+def group_normalization( # TODO: unfinished
+    net=None,
+    in_l=None,
+    prefix=None,
+
+    groups = None,
+    epsilon = None,
+
+    model_dim = None,
+):
+    # Per: https://github.com/taki0112/Group_Normalization-Tensorflow
+    # "in_lengh" : {"class" : "length", "from": in_l, "axes" : "F"},
+    net_add = {
+        "gamma" : {"class" : "variable", "init": 1.0, "trainable": True},
+        "beta"  : {"class" : "variable", "init": 0.0, "trainable": True},
+        "mean" : {"class" : "reduce", "axes": "B", "mode" : "mean", "from": in_l}, # Or only batch?
+        "var" : {"class" : "combine", "kind": "squared_difference", "from" : ["mean", in_l]}, # TODO: stop gradients here?
+        "split" : {"class" : "split_dims", "from" : in_l, "axis": "F", "dims" : (groups, model_dim // groups)},
+        "sub_mean" : {
+            "class" : "eval",
+            "from" : ["split", "mean"],
+            "eval" : "source(0) - source(1)"
+        },
+        "diff_var" : {
+            "class" : "eval",
+            "from" : ["sub_mean", "var"],
+            "eval" : f"source(0)/tf.sqrt(source(1) - {epsilon})"
+        },
+        "merge" : {"class" : "merge_dims", "from" : "diff_var", "axes" : [f"dim:{groups}", f"dim:{model_dim//groups}"]},
+        "apply" : {"class" : "eval", "from" : ["merge", "gamma", "beta"], "eval": "source(0) * source(1) + source(2)"}
+    }
+
+    net.update(net_add)
+    return net, "apply"
+
 def add_auxilary_loss(
     net=None,
     in_l=None,

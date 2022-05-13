@@ -14,7 +14,7 @@ def prefix_all_keys(
 
     # Maybe add prefixed to 'from'
     for x in prefixed.keys():
-        if prefixed[x]["from"] != in_l:
+        if "from" in prefixed[x] and prefixed[x]["from"] != in_l: # TODO: this changed, check if nothing else did
             if isinstance(prefixed[x]["from"], list):
                 for i in range(len(prefixed[x]["from"])):
                     if prefixed[x]["from"][i] != in_l:
