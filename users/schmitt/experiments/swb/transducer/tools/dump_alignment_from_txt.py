@@ -14,9 +14,15 @@ def hdf_dataset_init(dim):
     filename="out_hdf_align", dim=dim, ndim=1)
 
 
-def dump_into_hdf(align_seqs, tags, hdf_dataset_out):
+def dump_into_hdf(align_seqs, tags, hdf_dataset_out, num_classes):
   for i in range(len(align_seqs)):
     align = np.array(align_seqs[i])
+    if align[-1] == num_classes:
+      if num_classes == 1032:
+        align[-1] = 1030
+      else:
+        assert num_classes == 1031
+        align[-1] = 0
     seq_len = len(align)
     tag = tags[i]
     new_data = tf.constant(np.expand_dims(align, axis=0), dtype="int32")
@@ -72,7 +78,7 @@ def main():
   hdf_dataset_out = hdf_dataset_init(dim=args.num_classes)
 
   try:
-    dump_into_hdf(align_seqs,  tags, hdf_dataset_out)
+    dump_into_hdf(align_seqs,  tags, hdf_dataset_out, num_classes=args.num_classes)
     hdf_dataset_out.close()
   except KeyboardInterrupt:
     print("KeyboardInterrupt")
