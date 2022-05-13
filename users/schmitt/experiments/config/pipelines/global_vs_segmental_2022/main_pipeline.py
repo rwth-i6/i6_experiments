@@ -7,7 +7,7 @@ import numpy as np
 from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGraphJob, RASRDecodingJob, \
   CombineAttentionPlotsJob, DumpPhonemeAlignJob, AugmentBPEAlignmentJob, FindSegmentsToSkipJob, ModifySeqFileJob, \
   ConvertCTMBPEToWordsJob, RASRLatticeToCTMJob, CompareAlignmentsJob, DumpAttentionWeightsJob, \
-  PlotAttentionWeightsJob, DumpNonBlanksFromAlignmentJob
+  PlotAttentionWeightsJob, DumpNonBlanksFromAlignmentJob, CalcSearchErrorJob, RemoveLabelFromAlignmentJob
 from recipe.i6_core.corpus import *
 from recipe.i6_core.bpe.apply import ApplyBPEModelToLexiconJob
 from recipe.i6_core.tools.git import CloneGitRepositoryJob
@@ -43,6 +43,20 @@ def run_pipeline():
   hub5e_01_stm_job.add_alias("stm_files" + "/hub5e_01")
   alias = hub5e_01_stm_job.get_one_alias()
   tk.register_output(alias + "/stm_corpus", hub5e_01_stm_job.out_stm_path)
+
+  train_stm_job = CorpusToStmJob(bliss_corpus=Path("/work/asr3/irie/data/switchboard/corpora/train.corpus.gz"))
+  train_stm_job.add_alias("stm_files" + "/train")
+  alias = train_stm_job.get_one_alias()
+  tk.register_output(alias + "/stm_corpus", train_stm_job.out_stm_path)
+
+  filter_train_corpus_job = FilterCorpusBySegmentsJob(
+    bliss_corpus=Path("/work/asr3/irie/data/switchboard/corpora/train.corpus.gz"),
+    segment_file=Path("/u/schmitt/experiments/transducer/config/dependencies/seg_cv_head3000"))
+
+  cv_stm_job = CorpusToStmJob(bliss_corpus=filter_train_corpus_job.out_corpus)
+  cv_stm_job.add_alias("stm_files" + "/cv")
+  alias = cv_stm_job.get_one_alias()
+  tk.register_output(alias + "/stm_corpus", cv_stm_job.out_stm_path)
 
   allophone_path = Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/tuske-phoneme-align/allophones")
 
@@ -120,7 +134,8 @@ def run_pipeline():
   tk.register_output("segments_dev", segment_corpus_job.out_single_segment_files[1])
 
   total_data = {
-    "bpe": {}, "phonemes": {}, "phonemes-split-sil": {}, "bpe-with-sil": {}, "bpe-with-sil-split-sil": {}}
+    "bpe": {}, "phonemes": {}, "phonemes-split-sil": {}, "bpe-with-sil": {}, "bpe-with-sil-split-sil": {},
+    "bpe-sil-wo-sil": {}, "bpe-sil-wo-sil-in-middle": {}}
   # phoneme_aligns = {}
   # phoneme_split_sil_aligns = {"time-red-1": {}}
   # seq_filter_files_phons = {"time-red-1": {}}
@@ -405,901 +420,986 @@ def run_pipeline():
             "time-red-%s" % time_red: {
               "seq_filter_file": seq_filter_file_devtrain}})
 
-  for variant_name, params in model_variants.items():
-    name = "%s" % variant_name
-    check_name = "" + build_alias(**params["config"])
-    # check if name is according to my naming conventions
-    assert name == check_name, "\n{} \t should be \n{}".format(name, check_name)
+  for remove_only_middle in [True, False]:
+    for corpus_key in ["train", "cv"]:
+      bpe_sil_wo_sil_align_job = RemoveLabelFromAlignmentJob(
+        alignment=total_data["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["align"], blank_idx=1031,
+        remove_idx=0, remove_only_middle=remove_only_middle)
+      bpe_sil_wo_sil_align_job.add_alias("bpe-sil-wo-sil%s/time-red-6/%s" % ("-in-middle" if remove_only_middle else "", corpus_key))
+      tk.register_output(bpe_sil_wo_sil_align_job.get_one_alias(), bpe_sil_wo_sil_align_job.out_alignment)
 
-    num_epochs = [150]
+      bpe_sil_wo_sil_label_dep_mean_lens, bpe_sil_wo_sil_mean_non_sil_len, bpe_sil_wo_sil_95_percentile = calc_align_stats(
+        alignment=bpe_sil_wo_sil_align_job.out_alignment, blank_idx=1031,
+        seq_filter_file=total_data["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+        alias="bpe-sil-wo-sil%s_align_stats/time-red-6/stats_%s" % ("-in-middle" if remove_only_middle else "", corpus_key))
 
-    if name in [
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
-      "seg.bpe-with-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.bpe-sil-segs"
-    ]:
-      num_epochs = [60, 80, 100, 120, 150]
-    if name in [
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
-      "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs"
-    ]:
-      num_epochs = [20, 40, 60, 80, 100, 120, 150]
+      total_data["bpe-sil-wo-sil%s" % ("-in-middle" if remove_only_middle else "")].update({
+        "json_vocab": bpe_sil_vocab_path, "state_tying": bpe_sil_state_tying, "allophones": bpe_sil_allophones,
+        "rasr_label_file": bpe_sil_rasr_label_file})
+      total_data["bpe-sil-wo-sil%s" % ("-in-middle" if remove_only_middle else "")][corpus_key] = {
+        "label_seqs": None,
+        "time-red-6": {
+          "align": bpe_sil_wo_sil_align_job.out_alignment,
+          "seq_filter_file": total_data["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+          "label_dep_mean_lens": bpe_sil_wo_sil_label_dep_mean_lens,
+          "mean_non_sil_len": bpe_sil_wo_sil_mean_non_sil_len, "95_percentile": bpe_sil_wo_sil_95_percentile}}
+      if corpus_key == "train":
+        seq_filter_files_bpe_sil_devtrain = update_seq_list_file(seq_list_file=seq_filter_files_standard["devtrain"],
+          seqs_to_skip=bpe_sil_skipped_seqs, alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (1, "devtrain"))
+        total_data["bpe-sil-wo-sil%s" % ("-in-middle" if remove_only_middle else "")]["devtrain"] = {
+          "time-red-6": {
+            "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
 
-    if "ctx-w-bias" in name:
-      num_epochs = [80, 100, 120, 150]
-    if name in [
-      "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.ctx-use-bias.all-segs",
-      "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-l2.all-segs",
-      "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-l2.ctx-use-bias.all-segs",
-    ]:
-      num_epochs = [80, 100, 120, 150]
+  search_aligns = {}
+  search_labels = {}
+  for i in range(1):
+    for variant_name, params in model_variants.items():
+      name = "%s" % variant_name
+      check_name = "" + build_alias(**params["config"])
+      # check if name is according to my naming conventions
+      assert name == check_name, "\n{} \t should be \n{}".format(name, check_name)
+
+      num_epochs = [150]
+
+      if name in [
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
+        "seg.bpe-with-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.bpe-sil-segs"
+      ]:
+        num_epochs = [60, 80, 100, 120, 150]
+      if name in [
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs",
+        "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs"
+      ]:
+        num_epochs = [20, 40, 60, 80, 100, 120, 150]
+
+      if "ctx-w-bias" in name:
+        num_epochs = [80, 100, 120, 150]
+      if name in [
+        "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.ctx-use-bias.all-segs",
+        "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-l2.all-segs",
+        "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-l2.ctx-use-bias.all-segs",
+      ]:
+        num_epochs = [80, 100, 120, 150]
 
 
-    # Currently different segments, depending on the label type
-    segment_selection = params["config"].pop("segment_selection")
-    time_red = int(np.prod(params["config"]["time_red"]))
-    if segment_selection == "bpe-sil":
-      train_segments = total_data["bpe-with-sil"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
-      cv_segments = total_data["bpe-with-sil"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
-      devtrain_segments = total_data["bpe-with-sil"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
-    elif segment_selection == "all":
-      train_segments = total_data["bpe"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
-      cv_segments = total_data["bpe"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
-      devtrain_segments = total_data["bpe"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
-    elif segment_selection == "phonemes":
-      train_segments = total_data["phonemes"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
-      cv_segments = total_data["phonemes"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
-      devtrain_segments = total_data["phonemes"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
-    else:
-      raise NotImplementedError
-
-    returnn_train_rasr_configs = {
-      "train": write_config(*build_returnn_train_config(
-        segment_file=train_segments, corpus_file=corpus_files["train"],
-        feature_cache_path=feature_cache_files["train"]),
-        alias="returnn_train_rasr_config"),
-      "cv": write_config(
-        *build_returnn_train_config(
-          segment_file=cv_segments, corpus_file=corpus_files["train"],
-          feature_cache_path=feature_cache_files["train"]), alias="returnn_cv_rasr_config"),
-      "devtrain": write_config(
-        *build_returnn_train_config(
-          segment_file=devtrain_segments, corpus_file=corpus_files["train"],
-          feature_cache_path=feature_cache_files["train"]),
-        alias="returnn_devtrain_rasr_config"),
-      "dev": write_config(
-        *build_returnn_train_config(
-          segment_file=None, corpus_file=corpus_files["dev"],
-          feature_cache_path=feature_cache_files["dev"]), alias="returnn_dev_rasr_config")}
-
-    # General data opts, which apply for all models
-    train_data_opts = {
-      "data": "train", "rasr_config_path": returnn_train_rasr_configs["train"],
-      "rasr_nn_trainer_exe": rasr_nn_trainer}
-    cv_data_opts = {
-      "data": "cv", "rasr_config_path": returnn_train_rasr_configs["cv"],
-      "rasr_nn_trainer_exe": rasr_nn_trainer}
-    devtrain_data_opts = {
-      "data": "devtrain", "rasr_config_path": returnn_train_rasr_configs["devtrain"],
-      "rasr_nn_trainer_exe": rasr_nn_trainer}
-    dev_data_opts = {
-      "data": "dev", "rasr_config_path": returnn_train_rasr_configs["dev"],
-      "rasr_nn_trainer_exe": rasr_nn_trainer}
-
-    rasr_decoding_opts = dict(
-      corpus_path=corpus_files["dev"],
-      reduction_factors=int(np.prod(params["config"]["time_red"])),
-      feature_cache_path=feature_cache_files["dev"], skip_silence=False, name=name)
-
-    # Set more specific data opts for the individual model and label types
-    if params["config"]["model_type"] == "glob":
-      if params["config"]["label_type"] == "bpe":
-        sos_idx = 0
-        sil_idx = None
-        target_num_labels = 1030
-        vocab = bpe_vocab
-        vocab["seq_postfix"] = [sos_idx]
-        # train_data_opts["vocab"] = vocab
-        # cv_data_opts["vocab"] = vocab
-        # devtrain_data_opts["vocab"] = vocab
-        dev_data_opts["vocab"] = vocab
-        train_data_opts.update({
-          "label_hdf": total_data["bpe"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": train_segments})
-        cv_data_opts.update({
-          "label_hdf": total_data["bpe"]["cv"]["label_seqs"], "label_name": "bpe",
-          "segment_file": cv_segments})
-        devtrain_data_opts.update({
-          "label_hdf": total_data["bpe"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": devtrain_segments})
-        params["config"]["label_name"] = "bpe"
-        # sos_idx = 0
-        # target_num_labels = 1030
-      elif params["config"]["label_type"] == "bpe-with-sil":
-        dev_data_opts["vocab"] = vocab
-        train_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": train_segments})
-        cv_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil"]["cv"]["label_seqs"], "label_name": "bpe",
-          "segment_file": cv_segments})
-        devtrain_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": devtrain_segments})
-        params["config"]["label_name"] = "bpe"
-        sos_idx = 1030
-        sil_idx = 0
-        target_num_labels = 1031
-      elif params["config"]["label_type"] == "bpe-with-sil-split-sil":
-        dev_data_opts["vocab"] = vocab
-        train_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": train_segments})
-        cv_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil-split-sil"]["cv"]["label_seqs"], "label_name": "bpe",
-          "segment_file": cv_segments})
-        devtrain_data_opts.update({
-          "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
-          "segment_file": devtrain_segments})
-        params["config"]["label_name"] = "bpe"
-        sil_idx = 0
-        sos_idx = 1030
-        target_num_labels = 1031
-      elif params["config"]["label_type"] == "phonemes-split-sil":
-        train_data_opts.update({
-          "label_hdf": total_data["phonemes-split-sil"]["train"]["label_seqs"], "label_name": "phonemes",
-          "segment_file": train_segments})
-        cv_data_opts.update({
-          "label_hdf": total_data["phonemes-split-sil"]["cv"]["label_seqs"], "label_name": "phonemes",
-          "segment_file": cv_segments})
-        devtrain_data_opts.update({
-          "label_hdf": total_data["phonemes-split-sil"]["train"]["label_seqs"], "label_name": "phonemes",
-          "segment_file": devtrain_segments})
-        params["config"]["label_name"] = "phonemes"
-        sos_idx = 88
-        sil_idx = 0
-        target_num_labels = 89
+      # Currently different segments, depending on the label type
+      segment_selection = params["config"].pop("segment_selection")
+      time_red = int(np.prod(params["config"]["time_red"]))
+      if segment_selection == "bpe-sil":
+        train_segments = total_data["bpe-with-sil"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
+        cv_segments = total_data["bpe-with-sil"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
+        devtrain_segments = total_data["bpe-with-sil"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
+      elif segment_selection == "all":
+        train_segments = total_data["bpe"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
+        cv_segments = total_data["bpe"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
+        devtrain_segments = total_data["bpe"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
+      elif segment_selection == "phonemes":
+        train_segments = total_data["phonemes"]["train"]["time-red-%d" % time_red]["seq_filter_file"]
+        cv_segments = total_data["phonemes"]["cv"]["time-red-%d" % time_red]["seq_filter_file"]
+        devtrain_segments = total_data["phonemes"]["devtrain"]["time-red-%d" % time_red]["seq_filter_file"]
       else:
-        assert params["config"]["label_type"] == "phonemes"
-        train_data_opts.update({
-          "label_hdf": total_data["phonemes"]["train"]["label_seqs"],
-          "label_name": "phonemes",
-          "segment_file": train_segments
-        })
-        cv_data_opts.update({
-          "label_hdf": total_data["phonemes"]["cv"]["label_seqs"], "label_name": "phonemes",
-          "segment_file": cv_segments})
-        devtrain_data_opts.update({
-          "label_hdf": total_data["phonemes"]["train"]["label_seqs"], "label_name": "phonemes",
-          "segment_file": devtrain_segments})
-        params["config"]["label_name"] = "phonemes"
-        sos_idx = 88
-        sil_idx = 0
-        target_num_labels = 89
-      rasr_decoding_opts.update(
-        dict(
-          lexicon_path=bpe_sil_lexicon_path, label_unit="word", label_scorer_type="tf-attention",
-          label_file_path=total_data["bpe"]["rasr_label_file"], lm_type="simple-history", use_lm_score=False,
-          lm_scale=None, lm_file=None, lm_image=None, label_pruning=10.0, label_pruning_limit=12,
-          word_end_pruning_limit=12, word_end_pruning=10.0, lm_lookahead_cache_size_high=None,
-          lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None, lm_lookahead_scale=None, lm_lookahead=False,
-          blank_label_index=1031, label_recombination_limit=-1))
-    else:
-      assert params["config"]["model_type"] == "seg"
-      rasr_decoding_opts["label_recombination_limit"] = params["config"]["ctx_size"] if params["config"]["ctx_size"] != "inf" else -1
-      if params["config"]["label_type"] == "bpe":
-        sos_idx = 0
-        sil_idx = None
-        target_num_labels = 1030
-        targetb_blank_idx = 1030
-        vocab = bpe_vocab
-        dev_data_opts["vocab"] = vocab
-        train_align = total_data["bpe"]["train"]["time-red-%d" % time_red]["align"]
-        cv_align = total_data["bpe"]["cv"]["time-red-%d" % time_red]["align"]
-        train_data_opts.update({
-          "segment_file": train_segments, "alignment": train_align})
-        cv_data_opts.update({
-          "segment_file": cv_segments, "alignment": cv_align})
-        devtrain_data_opts.update({
-          "segment_file": devtrain_segments, "alignment": train_align})
+        raise NotImplementedError
+
+      returnn_train_rasr_configs = {
+        "train": write_config(*build_returnn_train_config(
+          segment_file=train_segments, corpus_file=corpus_files["train"],
+          feature_cache_path=feature_cache_files["train"]),
+          alias="returnn_train_rasr_config"),
+        "cv": write_config(
+          *build_returnn_train_config(
+            segment_file=cv_segments, corpus_file=corpus_files["train"],
+            feature_cache_path=feature_cache_files["train"]), alias="returnn_cv_rasr_config"),
+        "devtrain": write_config(
+          *build_returnn_train_config(
+            segment_file=devtrain_segments, corpus_file=corpus_files["train"],
+            feature_cache_path=feature_cache_files["train"]),
+          alias="returnn_devtrain_rasr_config"),
+        "dev": write_config(
+          *build_returnn_train_config(
+            segment_file=None, corpus_file=corpus_files["dev"],
+            feature_cache_path=feature_cache_files["dev"]), alias="returnn_dev_rasr_config")}
+
+      # General data opts, which apply for all models
+      train_data_opts = {
+        "data": "train", "rasr_config_path": returnn_train_rasr_configs["train"],
+        "rasr_nn_trainer_exe": rasr_nn_trainer}
+      cv_data_opts = {
+        "data": "cv", "rasr_config_path": returnn_train_rasr_configs["cv"],
+        "rasr_nn_trainer_exe": rasr_nn_trainer}
+      devtrain_data_opts = {
+        "data": "devtrain", "rasr_config_path": returnn_train_rasr_configs["devtrain"],
+        "rasr_nn_trainer_exe": rasr_nn_trainer}
+      dev_data_opts = {
+        "data": "dev", "rasr_config_path": returnn_train_rasr_configs["dev"],
+        "rasr_nn_trainer_exe": rasr_nn_trainer}
+
+      rasr_decoding_opts = dict(
+        corpus_path=corpus_files["dev"],
+        reduction_factors=int(np.prod(params["config"]["time_red"])),
+        feature_cache_path=feature_cache_files["dev"], skip_silence=False, name=name)
+
+      # Set more specific data opts for the individual model and label types
+      if params["config"]["model_type"] == "glob":
+        if params["config"]["label_type"] == "bpe":
+          sos_idx = 0
+          sil_idx = None
+          target_num_labels = 1030
+          vocab = bpe_vocab
+          vocab["seq_postfix"] = [sos_idx]
+          # train_data_opts["vocab"] = vocab
+          # cv_data_opts["vocab"] = vocab
+          # devtrain_data_opts["vocab"] = vocab
+          dev_data_opts["vocab"] = vocab
+          train_data_opts.update({
+            "label_hdf": total_data["bpe"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": train_segments})
+          cv_data_opts.update({
+            "label_hdf": total_data["bpe"]["cv"]["label_seqs"], "label_name": "bpe",
+            "segment_file": cv_segments})
+          devtrain_data_opts.update({
+            "label_hdf": total_data["bpe"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": devtrain_segments})
+          params["config"]["label_name"] = "bpe"
+          # sos_idx = 0
+          # target_num_labels = 1030
+        elif params["config"]["label_type"] == "bpe-with-sil":
+          dev_data_opts["vocab"] = vocab
+          train_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": train_segments})
+          cv_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil"]["cv"]["label_seqs"], "label_name": "bpe",
+            "segment_file": cv_segments})
+          devtrain_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": devtrain_segments})
+          params["config"]["label_name"] = "bpe"
+          sos_idx = 1030
+          sil_idx = 0
+          target_num_labels = 1031
+        elif params["config"]["label_type"] == "bpe-with-sil-split-sil":
+          dev_data_opts["vocab"] = vocab
+          train_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": train_segments})
+          cv_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil-split-sil"]["cv"]["label_seqs"], "label_name": "bpe",
+            "segment_file": cv_segments})
+          devtrain_data_opts.update({
+            "label_hdf": total_data["bpe-with-sil-split-sil"]["train"]["label_seqs"], "label_name": "bpe",
+            "segment_file": devtrain_segments})
+          params["config"]["label_name"] = "bpe"
+          sil_idx = 0
+          sos_idx = 1030
+          target_num_labels = 1031
+        elif params["config"]["label_type"] == "phonemes-split-sil":
+          train_data_opts.update({
+            "label_hdf": total_data["phonemes-split-sil"]["train"]["label_seqs"], "label_name": "phonemes",
+            "segment_file": train_segments})
+          cv_data_opts.update({
+            "label_hdf": total_data["phonemes-split-sil"]["cv"]["label_seqs"], "label_name": "phonemes",
+            "segment_file": cv_segments})
+          devtrain_data_opts.update({
+            "label_hdf": total_data["phonemes-split-sil"]["train"]["label_seqs"], "label_name": "phonemes",
+            "segment_file": devtrain_segments})
+          params["config"]["label_name"] = "phonemes"
+          sos_idx = 88
+          sil_idx = 0
+          target_num_labels = 89
+        else:
+          assert params["config"]["label_type"] == "phonemes"
+          train_data_opts.update({
+            "label_hdf": total_data["phonemes"]["train"]["label_seqs"],
+            "label_name": "phonemes",
+            "segment_file": train_segments
+          })
+          cv_data_opts.update({
+            "label_hdf": total_data["phonemes"]["cv"]["label_seqs"], "label_name": "phonemes",
+            "segment_file": cv_segments})
+          devtrain_data_opts.update({
+            "label_hdf": total_data["phonemes"]["train"]["label_seqs"], "label_name": "phonemes",
+            "segment_file": devtrain_segments})
+          params["config"]["label_name"] = "phonemes"
+          sos_idx = 88
+          sil_idx = 0
+          target_num_labels = 89
         rasr_decoding_opts.update(
           dict(
+            lexicon_path=bpe_sil_lexicon_path, label_unit="word", label_scorer_type="tf-attention",
+            label_file_path=total_data["bpe"]["rasr_label_file"], lm_type="simple-history", use_lm_score=False,
+            lm_scale=None, lm_file=None, lm_image=None, label_pruning=10.0, label_pruning_limit=12,
+            word_end_pruning_limit=12, word_end_pruning=10.0, lm_lookahead_cache_size_high=None,
+            lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None, lm_lookahead_scale=None, lm_lookahead=False,
+            blank_label_index=1031, label_recombination_limit=-1))
+      else:
+        assert params["config"]["model_type"] == "seg"
+        rasr_decoding_opts["label_recombination_limit"] = params["config"]["ctx_size"] if params["config"]["ctx_size"] != "inf" else -1
+        if params["config"]["label_type"] == "bpe":
+          sos_idx = 0
+          sil_idx = None
+          target_num_labels = 1030
+          targetb_blank_idx = 1030
+          vocab = bpe_vocab
+          dev_data_opts["vocab"] = vocab
+          train_align = total_data["bpe"]["train"]["time-red-%d" % time_red]["align"]
+          cv_align = total_data["bpe"]["cv"]["time-red-%d" % time_red]["align"]
+          train_data_opts.update({
+            "segment_file": train_segments, "alignment": train_align})
+          cv_data_opts.update({
+            "segment_file": cv_segments, "alignment": cv_align})
+          devtrain_data_opts.update({
+            "segment_file": devtrain_segments, "alignment": train_align})
+          rasr_decoding_opts.update(
+            dict(
+              lexicon_path=bpe_sil_lexicon_path, label_unit="word",
+              label_file_path=total_data["bpe"]["rasr_label_file"],
+              lm_type="simple-history", use_lm_score=False, lm_scale=None, lm_file=None, lm_image=None,
+              label_pruning=10.0, label_pruning_limit=128, word_end_pruning_limit=128, word_end_pruning=10.0,
+              lm_lookahead_cache_size_high=None, lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None,
+              lm_lookahead_scale=None, lm_lookahead=False))
+        elif params["config"]["label_type"].startswith("bpe"):
+          if params["config"]["label_type"] == "bpe-with-sil-split-sil":
+            train_align = total_data["bpe-with-sil-split-sil"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["bpe-with-sil-split-sil"]["cv"]["time-red-%d" % time_red]["align"]
+          elif params["config"]["label_type"] == "bpe-sil-wo-sil":
+            train_align = total_data["bpe-sil-wo-sil"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["bpe-sil-wo-sil"]["cv"]["time-red-%d" % time_red]["align"]
+          elif params["config"]["label_type"] == "bpe-sil-wo-sil-in-middle":
+            train_align = total_data["bpe-sil-wo-sil-in-middle"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["bpe-sil-wo-sil-in-middle"]["cv"]["time-red-%d" % time_red]["align"]
+          else:
+            assert params["config"]["label_type"] == "bpe-with-sil"
+            train_align = total_data["bpe-with-sil"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["bpe-with-sil"]["cv"]["time-red-%d" % time_red]["align"]
+          sos_idx = 1030
+          sil_idx = 0
+          target_num_labels = 1031
+          targetb_blank_idx = 1031
+          vocab = bpe_vocab
+          dev_data_opts["vocab"] = bpe_sil_vocab
+          train_data_opts.update({
+            "segment_file": train_segments, "alignment": train_align})
+          cv_data_opts.update({
+            "segment_file": cv_segments, "alignment": cv_align})
+          devtrain_data_opts.update({
+            "segment_file": devtrain_segments, "alignment": train_align})
+          rasr_decoding_opts.update(dict(
             lexicon_path=bpe_sil_lexicon_path, label_unit="word",
-            label_file_path=total_data["bpe"]["rasr_label_file"],
+            label_file_path=total_data["bpe-with-sil"]["rasr_label_file"],
             lm_type="simple-history", use_lm_score=False, lm_scale=None, lm_file=None, lm_image=None,
             label_pruning=10.0, label_pruning_limit=128, word_end_pruning_limit=128, word_end_pruning=10.0,
             lm_lookahead_cache_size_high=None, lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None,
+            lm_lookahead_scale=None, lm_lookahead=False
+          ))
+        else:
+          assert params["config"]["label_type"].startswith("phonemes")
+          if params["config"]["label_type"] == "phonemes-split-sil":
+            train_align = total_data["phonemes-split-sil"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["phonemes-split-sil"]["cv"]["time-red-%d" % time_red]["align"]
+          else:
+            assert params["config"]["label_type"] == "phonemes"
+            train_align = total_data["phonemes"]["train"]["time-red-%d" % time_red]["align"]
+            cv_align = total_data["phonemes"]["cv"]["time-red-%d" % time_red]["align"]
+          sos_idx = 88
+          sil_idx = 0
+          target_num_labels = 89
+          targetb_blank_idx = 89
+          vocab = bpe_vocab
+          train_data_opts.update({
+            "segment_file": train_segments, "alignment": train_align})
+          cv_data_opts.update({
+            "segment_file": cv_segments, "alignment": cv_align})
+          devtrain_data_opts.update({
+            "segment_file": devtrain_segments, "alignment": train_align})
+          rasr_decoding_opts.update(dict(
+            lexicon_path=phon_lexicon_wei, label_unit="phoneme",
+            label_file_path=total_data["phonemes"]["rasr_label_file"], lm_type="ARPA",
+            lm_file=zoltan_4gram_lm["file"], lm_image=zoltan_4gram_lm["image_wei"], lm_scale=0.8, use_lm_score=True,
+            label_pruning=12.0, label_pruning_limit=50000, word_end_pruning_limit=5000, word_end_pruning=0.5,
+            lm_lookahead_cache_size_high=None, lm_lookahead_cache_size_low=None,
+            lm_lookahead_history_limit=None,
             lm_lookahead_scale=None, lm_lookahead=False))
-      elif params["config"]["label_type"].startswith("bpe-with-sil"):
-        if params["config"]["label_type"] == "bpe-with-sil-split-sil":
-          train_align = total_data["bpe-with-sil-split-sil"]["train"]["time-red-%d" % time_red]["align"]
-          cv_align = total_data["bpe-with-sil-split-sil"]["cv"]["time-red-%d" % time_red]["align"]
-        else:
-          train_align = total_data["bpe-with-sil"]["train"]["time-red-%d" % time_red]["align"]
-          cv_align = total_data["bpe-with-sil"]["cv"]["time-red-%d" % time_red]["align"]
-        sos_idx = 1030
-        sil_idx = 0
-        target_num_labels = 1031
-        targetb_blank_idx = 1031
-        vocab = bpe_vocab
-        dev_data_opts["vocab"] = bpe_sil_vocab
-        train_data_opts.update({
-          "segment_file": train_segments, "alignment": train_align})
-        cv_data_opts.update({
-          "segment_file": cv_segments, "alignment": cv_align})
-        devtrain_data_opts.update({
-          "segment_file": devtrain_segments, "alignment": train_align})
-        rasr_decoding_opts.update(dict(
-          lexicon_path=bpe_sil_lexicon_path, label_unit="word",
-          label_file_path=total_data["bpe-with-sil"]["rasr_label_file"],
-          lm_type="simple-history", use_lm_score=False, lm_scale=None, lm_file=None, lm_image=None,
-          label_pruning=10.0, label_pruning_limit=128, word_end_pruning_limit=128, word_end_pruning=10.0,
-          lm_lookahead_cache_size_high=None, lm_lookahead_cache_size_low=None, lm_lookahead_history_limit=None,
-          lm_lookahead_scale=None, lm_lookahead=False
-        ))
-      else:
-        assert params["config"]["label_type"].startswith("phonemes")
-        if params["config"]["label_type"] == "phonemes-split-sil":
-          train_align = total_data["phonemes-split-sil"]["train"]["time-red-%d" % time_red]["align"]
-          cv_align = total_data["phonemes-split-sil"]["cv"]["time-red-%d" % time_red]["align"]
-        else:
-          assert params["config"]["label_type"] == "phonemes"
-          train_align = total_data["phonemes"]["train"]["time-red-%d" % time_red]["align"]
-          cv_align = total_data["phonemes"]["cv"]["time-red-%d" % time_red]["align"]
-        sos_idx = 88
-        sil_idx = 0
-        target_num_labels = 89
-        targetb_blank_idx = 89
-        vocab = bpe_vocab
-        train_data_opts.update({
-          "segment_file": train_segments, "alignment": train_align})
-        cv_data_opts.update({
-          "segment_file": cv_segments, "alignment": cv_align})
-        devtrain_data_opts.update({
-          "segment_file": devtrain_segments, "alignment": train_align})
-        rasr_decoding_opts.update(dict(
-          lexicon_path=phon_lexicon_wei, label_unit="phoneme",
-          label_file_path=total_data["phonemes"]["rasr_label_file"], lm_type="ARPA",
-          lm_file=zoltan_4gram_lm["file"], lm_image=zoltan_4gram_lm["image_wei"], lm_scale=0.8, use_lm_score=True,
-          label_pruning=12.0, label_pruning_limit=50000, word_end_pruning_limit=5000, word_end_pruning=0.5,
-          lm_lookahead_cache_size_high=None, lm_lookahead_cache_size_low=None,
-          lm_lookahead_history_limit=None,
-          lm_lookahead_scale=None, lm_lookahead=False))
 
-    # update the config params with the specific info
-    params["config"].update({
-      "sos_idx": sos_idx, "target_num_labels": target_num_labels, "vocab": vocab, "sil_idx": sil_idx
-    })
-    rasr_decoding_opts.update(dict(start_label_index=sos_idx))
-    # in case of segmental/transducer model, we need to set the blank index
-    if params["config"]["model_type"] == "seg":
+      # update the config params with the specific info
       params["config"].update({
-        "targetb_blank_idx": targetb_blank_idx,
+        "sos_idx": sos_idx, "target_num_labels": target_num_labels, "vocab": vocab, "sil_idx": sil_idx
       })
-      rasr_decoding_opts.update(dict(blank_label_index=targetb_blank_idx))
-    # choose the config class depending on the model type
-    config_class = {
-      "seg": TransducerSWBExtendedConfig, "glob": GlobalEncoderDecoderConfig}.get(params["config"]["model_type"])
-    config_params = copy.deepcopy(params["config"])
+      rasr_decoding_opts.update(dict(start_label_index=sos_idx))
+      # in case of segmental/transducer model, we need to set the blank index
+      if params["config"]["model_type"] == "seg":
+        params["config"].update({
+          "targetb_blank_idx": targetb_blank_idx,
+        })
+        rasr_decoding_opts.update(dict(blank_label_index=targetb_blank_idx))
+      # choose the config class depending on the model type
+      config_class = {
+        "seg": TransducerSWBExtendedConfig, "glob": GlobalEncoderDecoderConfig}.get(params["config"]["model_type"])
+      config_params = copy.deepcopy(params["config"])
 
-    # these parameters are not needed for the config class
-    del config_params["label_type"]
-    del config_params["model_type"]
+      # these parameters are not needed for the config class
+      del config_params["label_type"]
+      del config_params["model_type"]
 
-    # initialize returnn config
-    train_config_obj = config_class(
-      task="train",
-      post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
-      train_data_opts=train_data_opts,
-      cv_data_opts=cv_data_opts,
-      devtrain_data_opts=devtrain_data_opts,
-      **config_params).get_config()
+      # initialize returnn config
+      train_config_obj = config_class(
+        task="train",
+        post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
+        train_data_opts=train_data_opts,
+        cv_data_opts=cv_data_opts,
+        devtrain_data_opts=devtrain_data_opts,
+        **config_params).get_config()
 
-    # start standard returnn training
-    checkpoints, train_config = run_training(train_config_obj, mem_rqmt=24, time_rqmt=30, num_epochs=num_epochs,
-                                             name=name, alias_suffix="train")
+      # start standard returnn training
+      checkpoints, train_config = run_training(train_config_obj, mem_rqmt=24, time_rqmt=30, num_epochs=num_epochs,
+                                               name=name, alias_suffix="train")
 
-    # for each previously specified epoch, run decoding
-    for epoch in num_epochs:
-      if epoch in checkpoints and (epoch == 80 or epoch == 150):
-        checkpoint = checkpoints[epoch]
+      # for each previously specified epoch, run decoding
+      # if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs":
+      #   num_epochs = [150]
+      #   checkpoints = {150: Checkpoint(index_path=Path("/u/schmitt/experiments/transducer/alias/glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-weight-feedback.no-l2.ctx-use-bias.all-segs/train/output/models/epoch.150.index"))}
+      for epoch in num_epochs:
+        if epoch in checkpoints and (epoch == 150) and "seg-neural" not in name:
+          checkpoint = checkpoints[epoch]
 
-        if params["config"]["model_type"] == "seg":
-          # for bpe + sil model use additional RETURNN decoding as sanity check
-          if params["config"]["label_type"].startswith("bpe") and "prev-att-in-state" not in name:
-            if params["config"]["label_type"].startswith("bpe-with-sil"):
-              config_params["vocab"]["vocab_file"] = total_data["bpe-with-sil"]["json_vocab"]
+          if params["config"]["model_type"] == "seg":
+            # for bpe + sil model use additional RETURNN decoding as sanity check
+            if params["config"]["label_type"].startswith("bpe"):
+              if params["config"]["label_type"].startswith("bpe-with-sil"):
+                config_params["vocab"]["vocab_file"] = total_data["bpe-with-sil"]["json_vocab"]
 
-            for beam_size in [12]:
-              for use_recomb in [True, False]:
-                for length_scale in [1., .5]:
-                  alias_addon = "returnn_%srecomb_length-scale-%s_beam-%s" % ("" if use_recomb else "no-", length_scale, beam_size)
-                  # standard returnn decoding
-                  search_config = config_class(
-                    task="search", search_data_opts=dev_data_opts, target="bpe", search_use_recomb=use_recomb,
-                    beam_size=beam_size, length_scale=length_scale, **config_params)
-                  ctm_results = run_bpe_returnn_decoding(
-                    returnn_config=search_config.get_config(), checkpoint=checkpoint,
-                    stm_job=hub5e_00_stm_job, num_epochs=epoch, name=name,
-                    dataset_key="dev", alias_addon=alias_addon)
-                  run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                           dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-
-                  search_error_data_opts = copy.deepcopy(cv_data_opts)
-                  alignment_hdf = search_error_data_opts.pop("alignment")
-                  segment_file = search_error_data_opts.pop("segment_file")
-                  search_error_data_opts["vocab"] = dev_data_opts["vocab"]
-                  dump_search_config = config_class(search_use_recomb=True if use_recomb else False, task="search", target="bpe", beam_size=beam_size,
-                    search_data_opts=search_error_data_opts, dump_output=True, length_scale=length_scale, **config_params)
-                  feed_config_load = config_class(
-                    task="train",
-                    length_scale=length_scale,
-                    post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
-                    train_data_opts=train_data_opts,
-                    cv_data_opts=cv_data_opts,
-                    devtrain_data_opts=devtrain_data_opts,
-                    **config_params).get_config()
-                  feed_config_load.config["load"] = checkpoint
-                  # alias_addon = "_returnn_search_errors_%srecomb_length-scale-%s_beam-%s" % ("" if use_recomb else "no-", length_scale, beam_size)
-                  calculate_search_errors(checkpoint=checkpoint, search_config=dump_search_config,
-                    train_config=feed_config_load, name=name, segment_path=segment_file, ref_targets=alignment_hdf,
-                    label_name="alignment", model_type="seg", blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
-                    rasr_config=returnn_train_rasr_configs["cv"], alias_addon=alias_addon, epoch=epoch, dataset_key="cv")
-
-                  alias_addon = "returnn_label-dep-length_%srecomb_length-scale-%s_beam-%s" % (
-                  "" if use_recomb else "no-", length_scale, beam_size)
-                  label_dep_params = copy.deepcopy(config_params)
-                  label_dep_params.pop("length_model_type")
-                  search_config = config_class(
-                    task="search", length_scale=length_scale, label_dep_length_model=True,
-                    length_model_type="seg-static",
-                    label_dep_means=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red][
-                      "label_dep_mean_lens"], max_seg_len=25, search_data_opts=dev_data_opts, target="bpe",
-                    search_use_recomb=use_recomb,
-                    beam_size=beam_size, **label_dep_params
-                  )
-                  # ctm_results = run_bpe_returnn_decoding(returnn_config=search_config.get_config(),
-                  #   checkpoint=checkpoint, stm_job=hub5e_00_stm_job, num_epochs=epoch, name=name, dataset_key="dev",
-                  #   alias_addon=alias_addon)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-
-                  dump_search_config = config_class(
-                    search_use_recomb=use_recomb, task="search",
-                    target="bpe", beam_size=beam_size, label_dep_length_model=True,
-                    length_model_type="seg-static",
-                    label_dep_means=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red][
-                      "label_dep_mean_lens"], max_seg_len=25,
-                    search_data_opts=search_error_data_opts, dump_output=True,
-                    length_scale=length_scale, **label_dep_params)
-                  feed_config_load = config_class(
-                    task="eval", pretrain=False, max_seg_len=25, length_scale=length_scale, label_dep_length_model=True,
-                    length_model_type="seg-static",
-                    label_dep_means=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red][
-                      "label_dep_mean_lens"],
-                    **label_dep_params).get_config()
-                  feed_config_load.config["load"] = checkpoint
-                  # alias_addon = "_returnn_search_errors_%srecomb_length-scale-%s_beam-%s" % ("" if use_recomb else "no-", length_scale, beam_size)
-                  # calculate_search_errors(checkpoint=checkpoint, search_config=dump_search_config,
-                  #                         train_config=feed_config_load, name=name, segment_path=segment_file,
-                  #                         ref_targets=alignment_hdf, label_name="alignment", model_type="seg",
-                  #                         blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
-                  #                         rasr_config=returnn_train_rasr_configs["cv"], alias_addon=alias_addon,
-                  #                         epoch=epoch, dataset_key="cv")
-
-            if name in [
-              # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.all-segs",
-              "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs",
-              # "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs"
-              ] and epoch == 150:
-              for length_scale in [2., 1.5, 1., .8, .5, 0.0]:
-                if length_scale == 1.:
-                  max_seg_lens = [None, 20, 25]
-                else:
-                  max_seg_lens = [25]
-                for max_seg_len in max_seg_lens:
-                  if max_seg_len == 25:
-                    vit_recombs = [True, False]
-                  else:
-                    vit_recombs = [False]
-                  for vit_recomb in vit_recombs:
-                    # Config for compiling model for RASR
-                    compile_config = config_class(task="eval", feature_stddev=3., length_scale=length_scale, **config_params)
-
-                    if vit_recomb:
-                      blank_update_history = False
-                      allow_label_recombination = True
-                      allow_word_end_recombination = True
-                    else:
-                      blank_update_history = True
-                      allow_label_recombination = False
-                      allow_word_end_recombination = False
-
-                    # RASR NEURAL LENGTH DECODING
-
-                    alias_addon = "rasr_limit12_pruning12.0_%s-recomb_neural-length_max-seg-len-%s_length-scale-%s" % ("vit" if vit_recomb else "no", max_seg_len, length_scale)
-                    new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                    new_rasr_decoding_opts.update(
-                      dict(word_end_pruning_limit=12, word_end_pruning=12.0, label_pruning_limit=12, label_pruning=12.0))
-                    ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=12, simple_beam_search=False,
-                                                    full_sum_decoding=False, blank_update_history=blank_update_history,
-                                                    allow_word_end_recombination=allow_word_end_recombination, loop_update_history=True,
-                                                    allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
-                                                    compile_config=compile_config.get_config(), alias_addon=alias_addon,
-                                                    rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint, num_epochs=epoch,
-                                                    time_rqmt=20, gpu_rqmt=1, **new_rasr_decoding_opts)
+              for beam_size in [12]:
+                for use_recomb in [True, False]:
+                  for length_scale in [1., .5]:
+                    alias_addon = "returnn_%srecomb_length-scale-%s_beam-%s" % ("" if use_recomb else "no-", length_scale, beam_size)
+                    # standard returnn decoding
+                    search_config = config_class(
+                      task="search", search_data_opts=dev_data_opts, target="bpe", search_use_recomb=use_recomb,
+                      beam_size=beam_size, length_scale=length_scale, **config_params)
+                    ctm_results = run_bpe_returnn_decoding(
+                      returnn_config=search_config.get_config(), checkpoint=checkpoint,
+                      stm_job=hub5e_00_stm_job, num_epochs=epoch, name=name,
+                      dataset_key="dev", alias_addon=alias_addon)
                     run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
                              dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
 
-                    search_error_opts = copy.deepcopy(cv_data_opts)
-                    cv_align = search_error_opts.pop("alignment")
-                    cv_segments = search_error_opts.pop("segment_file")
-                    feed_config_load = config_class(task="train", length_scale=length_scale,
+                    search_error_data_opts = copy.deepcopy(cv_data_opts)
+                    alignment_hdf = search_error_data_opts.pop("alignment")
+                    segment_file = search_error_data_opts.pop("segment_file")
+                    search_error_data_opts["vocab"] = dev_data_opts["vocab"]
+                    dump_search_config = config_class(search_use_recomb=True if use_recomb else False, task="search", target="bpe", beam_size=beam_size,
+                      search_data_opts=search_error_data_opts, dump_output=True, length_scale=length_scale, **config_params)
+                    feed_config_load = config_class(
+                      task="train",
+                      length_scale=length_scale,
                       post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
-                      train_data_opts=train_data_opts, cv_data_opts=cv_data_opts, devtrain_data_opts=devtrain_data_opts,
+                      train_data_opts=train_data_opts,
+                      cv_data_opts=cv_data_opts,
+                      devtrain_data_opts=devtrain_data_opts,
                       **config_params).get_config()
                     feed_config_load.config["load"] = checkpoint
-                    new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                    new_rasr_decoding_opts.update(
-                      dict(word_end_pruning_limit=12, word_end_pruning=12.0, label_pruning_limit=12, label_pruning=12.0,
-                           corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
-                    # alias_addon = "_rasr_search_errors_limit12_pruning12.0_%s-recomb_neural-length_max-seg-len-%s_length-scale-%s" % ("vit" if vit_recomb else "no", max_seg_len, length_scale)
-                    ctm_results = calc_rasr_search_errors(segment_path=cv_segments, mem_rqmt=12, simple_beam_search=False,
-                                                          ref_align=cv_align, num_classes=targetb_blank_idx+1, num_epochs=epoch,
-                                                          blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
-                                                          extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
-                                                          train_config=feed_config_load, loop_update_history=True,
-                                                          full_sum_decoding=False, blank_update_history=blank_update_history,
-                                                          allow_word_end_recombination=allow_word_end_recombination, allow_label_recombination=allow_label_recombination,
-                                                          max_seg_len=max_seg_len, debug=False,
-                                                          compile_config=compile_config.get_config(),
-                                                          alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
-                                                          model_checkpoint=checkpoint, time_rqmt=48, gpu_rqmt=1,
-                                                          model_type="seg", label_name="alignment", **new_rasr_decoding_opts)
+                    # alias_addon = "_returnn_search_errors_%srecomb_length-scale-%s_beam-%s" % ("" if use_recomb else "no-", length_scale, beam_size)
+                    calculate_search_errors(checkpoint=checkpoint, search_config=dump_search_config, stm_job=cv_stm_job,
+                      train_config=feed_config_load, name=name, segment_path=segment_file, ref_targets=alignment_hdf,
+                      label_name="alignment", model_type="seg", blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
+                      rasr_config=returnn_train_rasr_configs["cv"], alias_addon=alias_addon, epoch=epoch, dataset_key="cv", length_norm=False)
 
-              compile_config = config_class(task="eval", feature_stddev=3., length_scale=1., **config_params)
-              cv_realignment = run_rasr_realignment(
-                compile_config=compile_config.get_config(),
-                alias_addon=alias_addon + "_neural-length_pruning-12.0_limit-5000_max-seg-len-%s_vit-recomb_cv_length-scale-%s" % (25, 1.),
-                segment_path=cv_segments,
-                loop_update_history=True,
-                blank_update_history=False, name=name, corpus_path=corpus_files["train"],
-                lexicon_path=bpe_phon_lexicon_path if params["config"]["label_type"] == "bpe" else bpe_sil_phon_lexicon_path,
-                allophone_path=total_data[params["config"]["label_type"]]["allophones"],
-                state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
-                feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
-                label_file=total_data[params["config"]["label_type"]]["rasr_label_file"], label_pruning=12.0, label_pruning_limit=5000,
-                label_recombination_limit=-1, blank_label_index=targetb_blank_idx, model_checkpoint=checkpoint, context_size=-1,
-                reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer, start_label_index=sos_idx,
-                rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=targetb_blank_idx+1, time_rqmt=24,
-                blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123,
-                max_segment_len=25, mem_rqmt=12)
-                        #
-                        # cv_realignment = run_rasr_realignment(compile_config=compile_config.get_config(),
-                        #   alias_addon=alias_addon + "_cv_debug",
-                        #   segment_path=Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/cv_test_segments1"),
-                        #   loop_update_history=True, blank_update_history=False, name=name,
-                        #   corpus_path=corpus_files["train"], lexicon_path=bpe_phon_lexicon_path,
-                        #   allophone_path=total_data[params["config"]["label_type"]]["allophones"],
-                        #   state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
-                        #   feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
-                        #   label_file=total_data[params["config"]["label_type"]]["rasr_label_file"], label_pruning=12.0,
-                        #   label_pruning_limit=12, label_recombination_limit=-1, blank_label_index=targetb_blank_idx,
-                        #   model_checkpoint=checkpoint, context_size=-1, reduction_factors=time_red,
-                        #   rasr_nn_trainer_exe_path=rasr_nn_trainer, start_label_index=sos_idx,
-                        #   rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=targetb_blank_idx + 1, time_rqmt=5,
-                        #   blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123, max_segment_len=25)
-
-
-            if name in [
-              # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.all-segs",
-              "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs",
-              # "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.weight-drop0.0.new-pre.6pretrain-reps.bpe-sil-segs"
-            ] and (epoch == 80 or epoch == 150):
-              for length_scale in [2., 1.5, 1., .8, .5, .1, 0.0]:
-                if length_scale == 1.:
-                  max_seg_lens = [10, 20, 25]
-                else:
-                  max_seg_lens = [25]
-                for max_seg_len in max_seg_lens:
-                  if max_seg_len == 25:
-                    limits = [12, 32]
+              if epoch in [150]:
+                for length_scale in [1.]:
+                  if params["config"]["label_type"] in ["bpe", "bpe_sil_wo_sil"]:
+                    max_seg_lens = [25]
                   else:
-                    limits = [12]
-                  for limit in limits:
-                    for vit_recomb in [True, False]:
-                      # parameters to use label dep length model
-                      label_dep_params = copy.deepcopy(config_params)
-                      label_dep_params.pop("length_model_type")
-                      label_dep_params.update(dict(
-                        length_scale=length_scale, label_dep_length_model=True, length_model_type="seg-static",
-                        label_dep_means=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red]["label_dep_mean_lens"]))
-                      # compile config for RASR
-                      compile_config = config_class(task="eval", feature_stddev=3., max_seg_len=max_seg_len, **label_dep_params).get_config()
-                      feed_config_load = config_class(
-                        task="eval", pretrain=False, max_seg_len=max_seg_len, **label_dep_params).get_config()
-                      feed_config_load.config["load"] = checkpoint
+                    max_seg_lens = [20]
+                  for max_seg_len in max_seg_lens:
+                    vit_recombs = [True, False]
+                    for vit_recomb in vit_recombs:
+                      # Config for compiling model for RASR
+                      compile_config = config_class(task="eval", feature_stddev=3., length_scale=length_scale, **config_params)
 
-                      # RASR LABEL DEP LENGTH DECODING
+                      if length_scale == 0.0:
+                        mem_rqmt = 24
+                      else:
+                        mem_rqmt = 12
 
                       if vit_recomb:
-                        blank_update_history = False
+                        blank_update_history = True
                         allow_label_recombination = True
                         allow_word_end_recombination = True
-                        mem_rqmt = 8
                       else:
                         blank_update_history = True
                         allow_label_recombination = False
                         allow_word_end_recombination = False
-                        mem_rqmt = 48
 
-                      alias_addon = "rasr_limit%s_pruning12.0_%s-recomb_label-dep-length_max-seg-len-%s_length-scale-%s" % (limit, "vit" if vit_recomb else "no", max_seg_len, length_scale)
+                      # RASR NEURAL LENGTH DECODING
+
+                      alias_addon = "rasr_limit12_pruning12.0_%s-recomb_neural-length_max-seg-len-%s_length-scale-%s" % ("vit" if vit_recomb else "no", max_seg_len, length_scale)
                       new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
                       new_rasr_decoding_opts.update(
-                        dict(word_end_pruning_limit=limit, word_end_pruning=12.0, label_pruning_limit=limit, label_pruning=12.0))
-                      ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=mem_rqmt, simple_beam_search=False,
-                                                      full_sum_decoding=False, blank_update_history=blank_update_history,
-                                                      allow_word_end_recombination=allow_word_end_recombination, loop_update_history=True,
-                                                      allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
-                                                      compile_config=compile_config, alias_addon=alias_addon,
-                                                      rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                                                      num_epochs=epoch, time_rqmt=24, gpu_rqmt=1, **new_rasr_decoding_opts)
+                        dict(word_end_pruning_limit=12, word_end_pruning=12.0, label_pruning_limit=12, label_pruning=12.0))
+                      ctm_results = run_rasr_decoding(
+                        segment_path=None, mem_rqmt=mem_rqmt, simple_beam_search=True, length_norm=False,
+                        full_sum_decoding=False, blank_update_history=blank_update_history,
+                        allow_word_end_recombination=allow_word_end_recombination, loop_update_history=True,
+                        allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
+                        compile_config=compile_config.get_config(), alias_addon=alias_addon,
+                        rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint, num_epochs=epoch,
+                        time_rqmt=20, gpu_rqmt=1, **new_rasr_decoding_opts)
                       run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
                                dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
+
+                      cv_realignment = run_rasr_realignment(
+                        compile_config=compile_config.get_config(), alias_addon=alias_addon,
+                        segment_path=cv_segments, loop_update_history=True, blank_update_history=True, name=name,
+                        corpus_path=corpus_files["train"], lexicon_path=bpe_phon_lexicon_path if params["config"]["label_type"] == "bpe" else bpe_sil_phon_lexicon_path,
+                        allophone_path=total_data[params["config"]["label_type"]]["allophones"],
+                        state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
+                        feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
+                        label_file=total_data[params["config"]["label_type"]]["rasr_label_file"], label_pruning=12.0,
+                        label_pruning_limit=5000, label_recombination_limit=-1, blank_label_index=targetb_blank_idx,
+                        model_checkpoint=checkpoint, context_size=-1, reduction_factors=time_red,
+                        rasr_nn_trainer_exe_path=rasr_nn_trainer, start_label_index=sos_idx,
+                        rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=targetb_blank_idx + 1, time_rqmt=48,
+                        blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123,
+                        max_segment_len=max_seg_len, mem_rqmt=12, length_norm=False)
 
                       search_error_opts = copy.deepcopy(cv_data_opts)
                       cv_align = search_error_opts.pop("alignment")
                       cv_segments = search_error_opts.pop("segment_file")
+                      feed_config_load = config_class(task="train", length_scale=length_scale,
+                        post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
+                        train_data_opts=train_data_opts, cv_data_opts=cv_data_opts, devtrain_data_opts=devtrain_data_opts,
+                        **config_params).get_config()
+                      feed_config_load.config["load"] = checkpoint
                       new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
                       new_rasr_decoding_opts.update(
-                        dict(word_end_pruning_limit=limit, word_end_pruning=12.0, label_pruning_limit=limit, label_pruning=12.0,
-                          corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
+                        dict(word_end_pruning_limit=12, word_end_pruning=12.0, label_pruning_limit=12, label_pruning=12.0,
+                             corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
+                      search_align, ctm_results = calc_rasr_search_errors(
+                        segment_path=cv_segments, mem_rqmt=mem_rqmt, simple_beam_search=True, length_norm=False,
+                        ref_align=cv_align, num_classes=targetb_blank_idx+1, num_epochs=epoch,
+                        blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
+                        extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
+                        train_config=feed_config_load, loop_update_history=True,
+                        full_sum_decoding=False, blank_update_history=blank_update_history,
+                        allow_word_end_recombination=allow_word_end_recombination, allow_label_recombination=allow_label_recombination,
+                        max_seg_len=max_seg_len, debug=False,
+                        compile_config=compile_config.get_config(),
+                        alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
+                        model_checkpoint=checkpoint, time_rqmt=48, gpu_rqmt=1,
+                        model_type="seg", label_name="alignment", **new_rasr_decoding_opts)
+                      run_eval(ctm_file=ctm_results, reference=cv_stm_job.out_stm_path, name=name,
+                               dataset_key="cv", num_epochs=epoch, alias_addon=alias_addon)
 
-                      # alias_addon = "_rasr_search_errors_limit12_pruning12.0_%s-recomb_label-dep-length_max-seg-len-%s_length-scale-%s" % ("vit" if vit_recomb else "no", max_seg_len, length_scale)
-                      search_align = calc_rasr_search_errors(segment_path=cv_segments, mem_rqmt=mem_rqmt, simple_beam_search=False,
-                                              ref_align=cv_align, num_classes=targetb_blank_idx+1, num_epochs=epoch, blank_idx=targetb_blank_idx,
-                                              rasr_nn_trainer_exe=rasr_nn_trainer,
-                                              extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
-                                              train_config=feed_config_load, loop_update_history=True, full_sum_decoding=False,
-                                              blank_update_history=blank_update_history, allow_word_end_recombination=allow_word_end_recombination,
-                                              allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
-                                              compile_config=compile_config, alias_addon=alias_addon,
-                                              rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint, time_rqmt=24,
-                                              gpu_rqmt=1, model_type="seg_lab_dep", label_name="alignment", **new_rasr_decoding_opts)
+                      if "pooling-att" not in name:
+                        for seq_tag in ["switchboard-1/sw02102A/sw2102A-ms98-a-0092",
+                          "switchboard-1/sw02038B/sw2038B-ms98-a-0055", "switchboard-1/sw02327B/sw2327B-ms98-a-0072",
+                          "switchboard-1/sw02352B/sw2352B-ms98-a-0143", "switchboard-1/sw02102A/sw2102A-ms98-a-0012",
+                          "switchboard-1/sw02102A/sw2102A-ms98-a-0053", "switchboard-1/sw02025A/sw2025A-ms98-a-0020",
+                          "switchboard-1/sw02180A/sw2180A-ms98-a-0007"
+                        ]:
 
-                      if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs" and max_seg_len == 25 and limit == 12 and not vit_recomb:
-                        dump_att_weights_job = DumpAttentionWeightsJob(
-                          returnn_config=feed_config_load, model_type="seg_lab_dep",
-                          rasr_config=returnn_train_rasr_configs["cv"], blank_idx=targetb_blank_idx,
-                          label_name="alignment", rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=search_align,
-                          seq_tag="switchboard-1/sw02102A/sw2102A-ms98-a-0092", )
-                        dump_att_weights_job.add_alias(name + "/att_weights_%s" % epoch)
-                        tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+                          group_alias = name + "/neural-length_analysis_epoch-%s_length-scale-%s_%s-recomb_max-seg-len-%s" % (epoch, length_scale, "no" if not vit_recomb else "vit", max_seg_len)
 
-                        plot_weights_job = PlotAttentionWeightsJob(data_path=dump_att_weights_job.out_data,
-                          blank_idx=0, json_vocab_path=bpe_vocab["vocab_file"])
-                        plot_weights_job.add_alias(name + "/plot_att_weights_%s" % epoch)
-                        tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+                          for align_alias, align in zip(["ground-truth", "search", "realign"],
+                                                        [cv_align, search_align, cv_realignment]):
+                            vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else \
+                            bpe_sil_vocab["vocab_file"]
+                            dump_att_weights_job = DumpAttentionWeightsJob(returnn_config=feed_config_load,
+                              model_type="seg", rasr_config=returnn_train_rasr_configs["cv"],
+                              blank_idx=targetb_blank_idx, label_name="alignment", rasr_nn_trainer_exe=rasr_nn_trainer,
+                              hdf_targets=align, seq_tag=seq_tag, )
+                            dump_att_weights_job.add_alias(
+                              group_alias + "/" + seq_tag.replace("/", "_") + "/att_weights_%s_%s" % (
+                              align_alias, epoch))
+                            tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+
+                            plot_weights_job = PlotAttentionWeightsJob(data_path=dump_att_weights_job.out_data,
+                                                                       blank_idx=targetb_blank_idx,
+                                                                       json_vocab_path=vocab_file, time_red=6,
+                                                                       seq_tag=seq_tag)
+                            plot_weights_job.add_alias(
+                              group_alias + "/" + seq_tag.replace("/", "_") + "/plot_att_weights_%s_%s" % (
+                              align_alias, epoch))
+                            tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+
+                          compare_aligns_job = CompareAlignmentsJob(hdf_align1=cv_align, hdf_align2=search_align,
+                            seq_tag=seq_tag, blank_idx1=targetb_blank_idx, blank_idx2=targetb_blank_idx,
+                            vocab1=vocab_file, vocab2=vocab_file, name1="ground_truth", name2="search_alignment")
+                          compare_aligns_job.add_alias(
+                            group_alias + "/" + seq_tag.replace("/", "_") + "/search-align-compare")
+                          tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+              if epoch in [150]:
+                for length_scale in [1., 0.0]:
+                  if params["config"]["label_type"] in ["bpe", "bpe_sil_wo_sil"]:
+                    max_seg_lens = [25]
+                  else:
+                    max_seg_lens = [20]
+                  for max_seg_len in max_seg_lens:
+                    limits = [12]
+                    if length_scale == 0.0:
+                      limits += [512]
+                    for limit in limits:
+                      for vit_recomb in [True, False]:
+                        if length_scale == 0.0:
+                          length_norms = [True]
+                          beam_searches = [True]
+                        else:
+                          length_norms = [True, False]
+                          beam_searches = [True]
+                        for length_norm in length_norms:
+                          for beam_search in beam_searches:
+                            seg_selections = ["all"]
+                            for seg_selection in seg_selections:
+                              global_length_vars = [None]
+                              silence_splits = [False]
+                              net_types = ["default"]
+                              if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs" and length_scale == 0.0:
+                                net_types += ["global_import", "global_import_w_feedback", "global_import_wo_feedback_wo_state_vector"]
+                              elif name == "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs" and length_scale == 0.0:
+                                net_types += ["global_import_w_feedback"]
+                                silence_splits += [True]
+                              else:
+                                continue
+                              for net_type in net_types:
+                                for glob_length_var in global_length_vars:
+                                  for silence_split in silence_splits:
+                                    # parameters to use label dep length model
+                                    label_dep_params = copy.deepcopy(config_params)
+                                    label_dep_params.pop("length_model_type")
+                                    label_dep_params.update(dict(
+                                      length_scale=length_scale, label_dep_length_model=True, length_model_type="seg-static",
+                                      label_dep_means=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red]["label_dep_mean_lens"]))
+                                    # compile config for RASR
+                                    compile_config = config_class(
+                                      task="eval", feature_stddev=3., max_seg_len=max_seg_len,
+                                      network_type=net_type,
+                                      global_length_var=glob_length_var,
+                                      **label_dep_params).get_config()
+                                    feed_config_load = config_class(
+                                      task="eval", pretrain=False, max_seg_len=max_seg_len,
+                                      network_type=net_type,
+                                      global_length_var=glob_length_var,
+                                      **label_dep_params).get_config()
+
+                                    if net_type == "global_import":
+                                      checkpoint = Checkpoint(index_path=Path(
+                                        "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/transducer/i6_core/returnn/training/ReturnnTrainingJob.ZtqzDabEyGPA/output/models/epoch.150.index"))
+                                    elif net_type == "global_import_w_feedback":
+                                      if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs":
+                                        checkpoint = Checkpoint(index_path=Path(
+                                          "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/transducer/i6_core/returnn/training/ReturnnTrainingJob.QmbCS5IKvd3b/output/models/epoch.150.index"))
+                                      elif name == "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs":
+                                        if silence_split:
+                                          checkpoint = Checkpoint(index_path=Path(
+                                            "/u/schmitt/experiments/transducer/alias/glob.best-model.bpe-with-sil-split-sil.time-red6.am2048.6pretrain-reps.no-l2.ctx-use-bias.bpe-sil-segs/train/output/models/epoch.150.index"))
+                                        else:
+                                          checkpoint = Checkpoint(index_path=Path(
+                                            "/u/schmitt/experiments/transducer/alias/glob.best-model.bpe-with-sil.time-red6.am2048.6pretrain-reps.no-l2.ctx-use-bias.bpe-sil-segs/train/output/models/epoch.150.index"))
+                                    elif net_type == "global_import_wo_feedback_wo_state_vector":
+                                      if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs":
+                                        checkpoint = Checkpoint(index_path=Path(
+                                          "/u/schmitt/experiments/transducer/alias/glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-state-vector.no-weight-feedback.no-l2.ctx-use-bias.all-segs/train/output/models/epoch.150.index"))
+                                    else:
+                                      checkpoint = checkpoints[epoch]
+
+                                    feed_config_load.config["load"] = checkpoint
+
+                                    # RASR LABEL DEP LENGTH DECODING
+
+                                    if vit_recomb:
+                                      blank_update_history = True
+                                      allow_label_recombination = True
+                                      allow_word_end_recombination = True
+                                      mem_rqmt = 64
+                                    else:
+                                      blank_update_history = True
+                                      allow_label_recombination = False
+                                      allow_word_end_recombination = False
+                                      mem_rqmt = 64
+
+                                    if not vit_recomb and length_scale in [0.0, 0.01, 0.1, 0.5] and max_seg_len == 20:
+                                      if not length_norm:
+                                        label_pruning = 1.0
+                                      else:
+                                        label_pruning = 0.1
+                                      mem_rqmt = 64
+                                    else:
+                                      label_pruning = 12.0
+                                    alias_addon = "rasr_limit%s_pruning%s_%s-recomb_label-dep-length-%s_max-seg-len-%s_length-scale-%s%s%s_%s-segments%s%s" % (limit, label_pruning, "vit" if vit_recomb else "no", "glob-var-%s" % glob_length_var, max_seg_len, length_scale, "" if not length_norm else "_length-norm", "" if not beam_search else "_beam_search", "all" if seg_selection == "all" else "red", "" if net_type == "default" else "_" + net_type, "" if not silence_split else "_split-sil")
+                                    new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
+                                    new_rasr_decoding_opts.update(
+                                      dict(word_end_pruning_limit=limit, word_end_pruning=label_pruning, label_pruning_limit=limit, label_pruning=label_pruning))
+                                    if net_type != "default":
+                                      if "sil" not in params["config"]["label_type"]:
+                                        new_rasr_decoding_opts.update(dict(
+                                          label_file_path=Path(
+                                            "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/bpe/irie/bpe_label_file_w_add_eos")
+                                        ))
+                                      else:
+                                        new_rasr_decoding_opts.update(dict(label_file_path=Path(
+                                          "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/bpe/irie/bpe_sil_label_file_w_add_eos")))
+                                    ctm_results = run_rasr_decoding(
+                                      segment_path=None if seg_selection == "all" else Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/hub5_00_10div"),
+                                      mem_rqmt=mem_rqmt if seg_selection == "all" else 24, simple_beam_search=False if not beam_search else True, length_norm=length_norm,
+                                      full_sum_decoding=False, blank_update_history=blank_update_history,
+                                      allow_word_end_recombination=allow_word_end_recombination, loop_update_history=True,
+                                      allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
+                                      compile_config=compile_config, alias_addon=alias_addon,
+                                      rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
+                                      num_epochs=epoch, time_rqmt=24 if seg_selection == "all" else 3, gpu_rqmt=1, **new_rasr_decoding_opts)
+                                    run_eval(ctm_file=ctm_results,
+                                             reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm") if seg_selection == "all" else Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/hub5_00_stm_10div"),
+                                             name=name,
+                                             dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
+
+                                    cv_realignment = run_rasr_realignment(
+                                      compile_config=compile_config,
+                                      alias_addon=alias_addon, segment_path=cv_segments, loop_update_history=True,
+                                      blank_update_history=True, name=name, corpus_path=corpus_files["train"],
+                                      lexicon_path=bpe_phon_lexicon_path if params["config"]["label_type"] == "bpe" else bpe_sil_phon_lexicon_path,
+                                      allophone_path=total_data[params["config"]["label_type"]]["allophones"],
+                                      state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
+                                      feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
+                                      label_file=total_data[params["config"]["label_type"]]["rasr_label_file"],
+                                      label_pruning=12.0, label_pruning_limit=5000, label_recombination_limit=-1,
+                                      blank_label_index=targetb_blank_idx, model_checkpoint=checkpoint, context_size=-1,
+                                      reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer,
+                                      start_label_index=sos_idx, rasr_am_trainer_exe_path=rasr_am_trainer,
+                                      num_classes=targetb_blank_idx + 1, time_rqmt=48,
+                                      blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123,
+                                      max_segment_len=max_seg_len, mem_rqmt=12, length_norm=length_norm)
+
+                                    search_error_opts = copy.deepcopy(cv_data_opts)
+                                    cv_align = search_error_opts.pop("alignment")
+                                    cv_segments = search_error_opts.pop("segment_file")
+                                    new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
+                                    new_rasr_decoding_opts.update(
+                                      dict(word_end_pruning_limit=limit, word_end_pruning=label_pruning, label_pruning_limit=limit, label_pruning=label_pruning,
+                                        corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
+                                    if net_type != "default":
+                                      if "sil" not in params["config"]["label_type"]:
+                                        new_rasr_decoding_opts.update(dict(label_file_path=Path(
+                                          "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/bpe/irie/bpe_label_file_w_add_eos")))
+                                      else:
+                                        new_rasr_decoding_opts.update(dict(label_file_path=Path(
+                                          "/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/bpe/irie/bpe_sil_label_file_w_add_eos")))
+
+                                    # alias_addon = "_rasr_search_errors_limit12_pruning12.0_%s-recomb_label-dep-length_max-seg-len-%s_length-scale-%s" % ("vit" if vit_recomb else "no", max_seg_len, length_scale)
+                                    search_align, ctm_results = calc_rasr_search_errors(
+                                      segment_path=cv_segments, mem_rqmt=mem_rqmt,
+                                      simple_beam_search=False if not beam_search else True, length_norm=length_norm,
+                                      ref_align=cv_align, num_classes=targetb_blank_idx+1, num_epochs=epoch, blank_idx=targetb_blank_idx,
+                                      rasr_nn_trainer_exe=rasr_nn_trainer,
+                                      extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
+                                      train_config=feed_config_load, loop_update_history=True, full_sum_decoding=False,
+                                      blank_update_history=blank_update_history, allow_word_end_recombination=allow_word_end_recombination,
+                                      allow_label_recombination=allow_label_recombination, max_seg_len=max_seg_len, debug=False,
+                                      compile_config=compile_config, alias_addon=alias_addon,
+                                      rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint, time_rqmt=24,
+                                      gpu_rqmt=1, model_type="seg_lab_dep" if net_type == "default" else "global-import", label_name="alignment", **new_rasr_decoding_opts)
+                                    run_eval(ctm_file=ctm_results, reference=cv_stm_job.out_stm_path, name=name,
+                                             dataset_key="cv", num_epochs=epoch, alias_addon=alias_addon)
+
+                                    calc_align_stats(
+                                      alignment=search_align, blank_idx=targetb_blank_idx,
+                                      seq_filter_file=cv_segments, alias=name + "/" + alias_addon + "/cv_search_align_stats_epoch-%s" % epoch)
+
+                                    if name == "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.bpe-sil-segs":
+                                      if alias_addon == "rasr_limit12_pruning0.1_no-recomb_label-dep-length-glob-var-None_max-seg-len-20_length-scale-0.0_length-norm_beam_search_all-segments":
+                                        dump_non_blanks_job = DumpNonBlanksFromAlignmentJob(search_align,
+                                          blank_idx=targetb_blank_idx)
+                                        dump_non_blanks_job.add_alias("dump_non_blanks_" + alias_addon)
+                                        search_aligns["seg_length_scale0.0"] = search_align
+                                        search_labels["seg_length_scale0.0"] = dump_non_blanks_job.out_labels
+                                      elif alias_addon == "rasr_limit12_pruning12.0_no-recomb_label-dep-length-glob-var-None_max-seg-len-20_length-scale-1.0_all-segments":
+                                        dump_non_blanks_job = DumpNonBlanksFromAlignmentJob(
+                                          search_align,
+                                          blank_idx=targetb_blank_idx)
+                                        dump_non_blanks_job.add_alias("dump_non_blanks_" + alias_addon)
+                                        search_aligns["seg_lab_dep_length_scale1.0"] = search_align
+                                        search_labels["seg_lab_dep_length_scale1.0"] = dump_non_blanks_job.out_labels
+                                    if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs":
+                                      if alias_addon == "rasr_limit12_pruning12.0_vit-recomb_label-dep-length-glob-var-None_max-seg-len-20_length-scale-0.0_length-norm_beam_search_all-segments_global_import_w_feedback":
+                                        print("HEHEEEEEEEEEEEEEEEEEEEEEEE")
+                                        dump_non_blanks_job = DumpNonBlanksFromAlignmentJob(search_align,
+                                          blank_idx=targetb_blank_idx)
+                                        dump_non_blanks_job.add_alias("dump_non_blanks_" + alias_addon)
+                                        search_aligns["global_import_segmental"] = search_align
+                                        search_labels["global_import_segmental"] = dump_non_blanks_job.out_labels
+                                    if name == "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs":
+                                      if alias_addon == "rasr_limit12_pruning12.0_vit-recomb_label-dep-length-glob-var-None_max-seg-len-20_length-scale-0.0_length-norm_beam_search_all-segments_global_import_w_feedback_split-sil":
+                                        dump_non_blanks_job = DumpNonBlanksFromAlignmentJob(search_align,
+                                          blank_idx=targetb_blank_idx)
+                                        dump_non_blanks_job.add_alias("dump_non_blanks_" + alias_addon)
+                                        search_aligns["global_import_segmental_w_split_sil"] = search_align
+                                        search_labels["global_import_segmental_w_split_sil"] = dump_non_blanks_job.out_labels
+
+                                    # if alias_addon == "rasr_limit12_pruning0.1_no-recomb_label-dep-length-glob-var-None_max-seg-len-20_length-scale-0.0_length-norm_beam_search_all-segments_global_import_w_feedback":
+                                    #   for search_align_alias, other_search_align in search_aligns.items():
+                                    #     calc_search_err_job = CalcSearchErrorJob(
+                                    #       returnn_config=train_config,
+                                    #       rasr_config=returnn_train_rasr_configs["cv"],
+                                    #       rasr_nn_trainer_exe=rasr_nn_trainer,
+                                    #       segment_file=cv_segments,
+                                    #       blank_idx=targetb_blank_idx,
+                                    #       search_targets=other_search_align,
+                                    #       ref_targets=cv_align, label_name="alignment",
+                                    #       model_type="seg_lab_dep",
+                                    #       max_seg_len=max_seg_len if max_seg_len is not None else -1,
+                                    #       length_norm=length_norm)
+                                    #     calc_search_err_job.add_alias(
+                                    #       name + ("/%s/search_errors_%s_%d" % (alias_addon, search_align_alias, epoch)))
+                                    #     alias = calc_search_err_job.get_one_alias()
+                                    #     tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
+
+                                    if limit == 12 and seg_selection == "all" and "pooling-att" not in name:
+                                      for seq_tag in [
+                                        "switchboard-1/sw02102A/sw2102A-ms98-a-0092",
+                                        "switchboard-1/sw02038B/sw2038B-ms98-a-0055",
+                                        "switchboard-1/sw02327B/sw2327B-ms98-a-0072",
+                                        "switchboard-1/sw02352B/sw2352B-ms98-a-0143",
+                                        "switchboard-1/sw02102A/sw2102A-ms98-a-0012",
+                                        "switchboard-1/sw02102A/sw2102A-ms98-a-0053",
+                                        "switchboard-1/sw02025A/sw2025A-ms98-a-0020",
+                                        "switchboard-1/sw02180A/sw2180A-ms98-a-0007",
+                                        "switchboard-1/sw02022A/sw2022A-ms98-a-0002"
+                                      ]:
+                                        group_alias = name + "/analysis_epoch-%s_length-scale-%s-%s_%s-recomb_max-seg-len-%s%s%s%s%s" % (epoch, length_scale, "glob-var-%s" % glob_length_var, "no" if not vit_recomb else "vit", max_seg_len,"" if not length_norm else "_length-norm", "" if not beam_search else "_beam_search", "" if net_type == "default" else "_" + net_type, "" if not silence_split else "_split-sil")
+
+                                        # cv_realignment = run_rasr_realignment(
+                                        #   compile_config=compile_config,
+                                        #   alias_addon="", segment_path=Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/cv_test_segments1"),
+                                        #   loop_update_history=True, blank_update_history=True if not vit_recomb else False, name=group_alias,
+                                        #   corpus_path=corpus_files["train"], lexicon_path=bpe_phon_lexicon_path if params["config"]["label_type"] == "bpe" else bpe_sil_phon_lexicon_path,
+                                        #   allophone_path=total_data[params["config"]["label_type"]]["allophones"],
+                                        #   state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
+                                        #   feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
+                                        #   label_file=total_data[params["config"]["label_type"]]["rasr_label_file"], label_pruning=12.0,
+                                        #   label_pruning_limit=5000, label_recombination_limit=-1, blank_label_index=targetb_blank_idx,
+                                        #   model_checkpoint=checkpoint, context_size=-1, reduction_factors=time_red,
+                                        #   rasr_nn_trainer_exe_path=rasr_nn_trainer, start_label_index=sos_idx,
+                                        #   rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=targetb_blank_idx + 1, time_rqmt=2,
+                                        #   blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123,
+                                        #   max_segment_len=max_seg_len, mem_rqmt=16)
+                                        feed_config_load = config_class(task="train",
+                                                                        post_config={
+                                                                          "cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1,
+                                                                                                 "keep": num_epochs}},
+                                                                        network_type=net_type,
+                                                                        train_data_opts=train_data_opts, cv_data_opts=cv_data_opts,
+                                                                        devtrain_data_opts=devtrain_data_opts,
+                                                                        max_seg_len=max_seg_len, **label_dep_params).get_config()
+                                        feed_config_load.config["load"] = checkpoint
+                                        feed_config_load.config["network"]["label_model"]["unit"]["label_prob"]["loss"] = None
+                                        feed_config_load.config["network"]["label_model"]["unit"]["label_prob"]["is_output_layer"] = False
+                                        feed_config_load.config["network"]["output"]["unit"]["emit_blank_prob"]["loss"] = None
+
+                                        for align_alias, align in zip(["ground-truth", "search", "realign"], [cv_align, search_align, cv_realignment]):
+                                          vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else bpe_sil_vocab["vocab_file"]
+                                          dump_att_weights_job = DumpAttentionWeightsJob(
+                                            returnn_config=feed_config_load, model_type="seg_lab_dep" if net_type == "default" else "global-import",
+                                            rasr_config=returnn_train_rasr_configs["cv"], blank_idx=targetb_blank_idx,
+                                            label_name="alignment", rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=align,
+                                            seq_tag=seq_tag, )
+                                          dump_att_weights_job.add_alias(group_alias + "/" + seq_tag.replace("/", "_") + "/att_weights_%s_%s" % (align_alias, epoch))
+                                          tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+
+                                          plot_weights_job = PlotAttentionWeightsJob(data_path=dump_att_weights_job.out_data,
+                                            blank_idx=targetb_blank_idx,
+                                            json_vocab_path=vocab_file, time_red=6,
+                                            seq_tag=seq_tag)
+                                          plot_weights_job.add_alias(group_alias + "/" + seq_tag.replace("/", "_") + "/plot_att_weights_%s_%s" % (align_alias, epoch))
+                                          tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+
+                                        compare_aligns_job = CompareAlignmentsJob(
+                                          hdf_align1=cv_align, hdf_align2=search_align, seq_tag=seq_tag,
+                                          blank_idx1=targetb_blank_idx, blank_idx2=targetb_blank_idx, vocab1=vocab_file, vocab2=vocab_file,
+                                          name1="ground_truth", name2="search_alignment"
+                                        )
+                                        compare_aligns_job.add_alias(group_alias + "/" + seq_tag.replace("/", "_") + "/search-align-compare")
+                                        tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+                                        # compare_aligns_job = CompareAlignmentsJob(hdf_align1=cv_align, hdf_align2=cv_realignment,
+                                        #   seq_tag=seq_tag, blank_idx1=targetb_blank_idx, blank_idx2=targetb_blank_idx,
+                                        #   vocab1=vocab_file, vocab2=vocab_file, name1="ground_truth",
+                                        #   name2="search_alignment")
+                                        # compare_aligns_job.add_alias(group_alias + "/" + seq_tag + "/realignment-compare")
+                                        # tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
 
 
-                  # alias_addon = "_rasr_limit24_pruning12.0_no-recomb_label-dep-length_max-seg-len-10"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=24, word_end_pruning=12.0, label_pruning_limit=24, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=16, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=10, debug=False,
-                  #                                 compile_config=compile_config_max_len_10.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit24_pruning12.0_no-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=24, word_end_pruning=12.0, label_pruning_limit=24, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=32, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit24_pruning12.0_vit-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=24, word_end_pruning=12.0, label_pruning_limit=24, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=8, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=False,
-                  #                                 allow_word_end_recombination=True, loop_update_history=True,
-                  #                                 allow_label_recombination=True, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit24_pruning12.0_vit-recomb_label-dep-length_max-seg-len-20_wrong-returnn-max-len-30"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=24, word_end_pruning=12.0, label_pruning_limit=24, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=8, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=False,
-                  #                                 allow_word_end_recombination=True, loop_update_history=True,
-                  #                                 allow_label_recombination=True, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_30.get_config(),
-                  #                                 alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
-                  #                                 model_checkpoint=checkpoint, num_epochs=epoch, time_rqmt=40, gpu_rqmt=1,
-                  #                                 **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
 
-                  # alias_addon = "_rasr_limit32_pruning12.0_no-recomb_label-dep-length_max-seg-len-10"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=32, word_end_pruning=12.0, label_pruning_limit=32, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=16, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=10, debug=False,
-                  #                                 compile_config=compile_config_max_len_10.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit32_pruning12.0_no-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=32, word_end_pruning=12.0, label_pruning_limit=32, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=32, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit32_pruning12.0_vit-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=32, word_end_pruning=12.0, label_pruning_limit=32, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=8, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=False,
-                  #                                 allow_word_end_recombination=True, loop_update_history=True,
-                  #                                 allow_label_recombination=True, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit64_pruning12.0_no-recomb_label-dep-length_max-seg-len-10"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=64, word_end_pruning=12.0, label_pruning_limit=64, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=16, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=10, debug=False,
-                  #                                 compile_config=compile_config_max_len_10.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit64_pruning12.0_no-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=64, word_end_pruning=12.0, label_pruning_limit=64, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=16, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=True,
-                  #                                 allow_word_end_recombination=False, loop_update_history=True,
-                  #                                 allow_label_recombination=False, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
-                  #
-                  # alias_addon = "_rasr_limit64_pruning12.0_vit-recomb_label-dep-length_max-seg-len-20"
-                  # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-                  # new_rasr_decoding_opts.update(
-                  #   dict(word_end_pruning_limit=64, word_end_pruning=12.0, label_pruning_limit=64, label_pruning=12.0))
-                  # ctm_results = run_rasr_decoding(segment_path=None, mem_rqmt=8, simple_beam_search=False,
-                  #                                 full_sum_decoding=False, blank_update_history=False,
-                  #                                 allow_word_end_recombination=True, loop_update_history=True,
-                  #                                 allow_label_recombination=True, max_seg_len=20, debug=False,
-                  #                                 compile_config=compile_config_max_len_20.get_config(), alias_addon=alias_addon,
-                  #                                 rasr_exe_path=rasr_flf_tool, model_checkpoint=checkpoint,
-                  #                                 num_epochs=epoch, time_rqmt=40, gpu_rqmt=1, **new_rasr_decoding_opts)
-                  # run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-                  #          dataset_key="dev", num_epochs=epoch, alias_addon=alias_addon)
+              # # example for calculating RASR search errors
+              # cv_align = cv_data_opts.pop("alignment")
+              # cv_segments = cv_data_opts.pop("segment_file")
+              # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
+              # new_rasr_decoding_opts.update(
+              #   dict(
+              #     word_end_pruning_limit=12, word_end_pruning=10.0, label_pruning_limit=12, label_pruning=10.0,
+              #     corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
+              # alias_addon = "_rasr_beam_search12_no-recomb"
+              # calc_rasr_search_errors(
+              #   segment_path=cv_segments, mem_rqmt=8, simple_beam_search=True, ref_align=cv_align,
+              #   num_classes=1032, num_epochs=epoch, blank_idx=1031, rasr_nn_trainer_exe=rasr_nn_trainer,
+              #   extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
+              #   train_config=train_config, loop_update_history=True,
+              #   full_sum_decoding=False, blank_update_history=True,
+              #   allow_word_end_recombination=False, allow_label_recombination=False,
+              #   max_seg_len=None, debug=False, compile_config=compile_config.get_config(),
+              #   alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
+              #   model_checkpoint=checkpoint, time_rqmt=time_rqmt,
+              #   gpu_rqmt=1, **new_rasr_decoding_opts)
 
-                  # cv_realignment = run_rasr_realignment(
-                  #   compile_config=compile_config_max_len_20.get_config(),
-                  #   alias_addon=alias_addon + "_cv",
-                  #   segment_path=Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/cv_test_segments1"),
-                  #   loop_update_history=True,
-                  #   blank_update_history=True, name=name, corpus_path=corpus_files["train"],
-                  #   lexicon_path=bpe_phon_lexicon_path, allophone_path=total_data[params["config"]["label_type"]]["allophones"],
-                  #   state_tying_path=total_data[params["config"]["label_type"]]["state_tying"],
-                  #   feature_cache_path=feature_cache_files["train"], num_epochs=epoch,
-                  #   label_file=total_data[params["config"]["label_type"]]["rasr_label_file"], label_pruning=50.0, label_pruning_limit=1000,
-                  #   label_recombination_limit=-1, blank_label_index=targetb_blank_idx, model_checkpoint=checkpoint, context_size=-1,
-                  #   reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer, start_label_index=sos_idx,
-                  #   rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=targetb_blank_idx+1, time_rqmt=3, blank_allophone_state_idx=4119,
-                  #   max_segment_len=20)
-
-
-            # # example for calculating RASR search errors
-            # cv_align = cv_data_opts.pop("alignment")
-            # cv_segments = cv_data_opts.pop("segment_file")
-            # new_rasr_decoding_opts = copy.deepcopy(rasr_decoding_opts)
-            # new_rasr_decoding_opts.update(
-            #   dict(
-            #     word_end_pruning_limit=12, word_end_pruning=10.0, label_pruning_limit=12, label_pruning=10.0,
-            #     corpus_path=corpus_files["train"], feature_cache_path=feature_cache_files["train"]))
-            # alias_addon = "_rasr_beam_search12_no-recomb"
-            # calc_rasr_search_errors(
-            #   segment_path=cv_segments, mem_rqmt=8, simple_beam_search=True, ref_align=cv_align,
-            #   num_classes=1032, num_epochs=epoch, blank_idx=1031, rasr_nn_trainer_exe=rasr_nn_trainer,
-            #   extern_sprint_rasr_config=returnn_train_rasr_configs["cv"],
-            #   train_config=train_config, loop_update_history=True,
-            #   full_sum_decoding=False, blank_update_history=True,
-            #   allow_word_end_recombination=False, allow_label_recombination=False,
-            #   max_seg_len=None, debug=False, compile_config=compile_config.get_config(),
-            #   alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
-            #   model_checkpoint=checkpoint, time_rqmt=time_rqmt,
-            #   gpu_rqmt=1, **new_rasr_decoding_opts)
-
-            # # example for realignment + retraining
-            # cv_realignment = run_rasr_realignment(
-            #   compile_config=compile_config.get_config(), alias_addon=alias_addon + "_cv",
-            #   segment_path=cv_segments, loop_update_history=True, blank_update_history=True,
-            #   name=name, corpus_path=corpus_files["train"], lexicon_path=bpe_sil_phon_lexicon_path,
-            #   allophone_path=total_data["bpe-with-sil"]["allophones"],
-            #   state_tying_path=total_data["bpe-with-sil"]["state_tying"], feature_cache_path=feature_cache_files["train"],
-            #   num_epochs=epoch, label_file=total_data["bpe-with-sil"]["rasr_label_file"],
-            #   label_pruning=50.0, label_pruning_limit=1000, label_recombination_limit=-1, blank_label_index=1031,
-            #   model_checkpoint=checkpoint, context_size=-1, reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer,
-            #   start_label_index=1030, rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=1032, time_rqmt=3,
-            #   blank_allophone_state_idx=4123,
-            #   max_segment_len=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red]["95_percentile"]
-            # )
-            #
-            # train_realignment = run_rasr_realignment(compile_config=compile_config.get_config(),
-            #   alias_addon=alias_addon + "_train", segment_path=train_data_opts["segment_file"], name=name,
-            #   corpus_path=corpus_files["train"], lexicon_path=bpe_sil_phon_lexicon_path,
-            #   allophone_path=total_data["bpe-with-sil"]["allophones"], loop_update_history=True,
-            #   blank_update_history=True,
-            #   state_tying_path=total_data["bpe-with-sil"]["state_tying"], feature_cache_path=feature_cache_files["train"],
-            #   num_epochs=epoch, label_file=total_data["bpe-with-sil"]["rasr_label_file"], label_pruning=50.0,
-            #   label_pruning_limit=1000, label_recombination_limit=-1, blank_label_index=1031, model_checkpoint=checkpoint,
-            #   context_size=-1, reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer,
-            #   start_label_index=1030, rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=1032, time_rqmt=80,
-            #   blank_allophone_state_idx=4123,
-            #   max_segment_len=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red][
-            #     "95_percentile"])
-            #
-            # checkpoint_path = DelayedReplace(checkpoint.index_path, ".index", "")
-            #
-            # retrain_config_obj = config_class(
-            #   task="train",
-            #   post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
-            #   train_data_opts=train_data_opts,
-            #   cv_data_opts=cv_data_opts,
-            #   devtrain_data_opts=devtrain_data_opts,
-            #   import_model=checkpoint_path,
-            #   pretrain=False,
-            #   learning_rates=list(numpy.linspace(0.001 * 0.1, 0.001, num=10))  ,# lr warmup
-            #   **config_params).get_config()
-            #
-            # retrain_checkpoints, retrain_config = run_training(retrain_config_obj, mem_rqmt=24, time_rqmt=30, num_epochs=num_epochs,
-            #                                          name=name, alias_suffix="retrain_neural-length")
-            #
-            # for epoch in num_epochs:
-            #   retrain_checkpoint = retrain_checkpoints[epoch]
-            #   # standard returnn decoding
-            #   search_config = config_class(task="search", search_data_opts=dev_data_opts, target="bpe",
-            #     search_use_recomb=True, **config_params)
-            #   ctm_results = run_bpe_returnn_decoding(
-            #     returnn_config=search_config.get_config(), checkpoint=retrain_checkpoint,
-            #     stm_job=hub5e_00_stm_job, num_epochs=epoch, name=name,
-            #     dataset_key="dev", alias_addon="_retrain_returnn_recomb")
-            #   run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-            #            dataset_key="dev", num_epochs=epoch, alias_addon="_retrain_returnn_recomb")
+              # # example for realignment + retraining
+              # cv_realignment = run_rasr_realignment(
+              #   compile_config=compile_config.get_config(), alias_addon=alias_addon + "_cv",
+              #   segment_path=cv_segments, loop_update_history=True, blank_update_history=True,
+              #   name=name, corpus_path=corpus_files["train"], lexicon_path=bpe_sil_phon_lexicon_path,
+              #   allophone_path=total_data["bpe-with-sil"]["allophones"],
+              #   state_tying_path=total_data["bpe-with-sil"]["state_tying"], feature_cache_path=feature_cache_files["train"],
+              #   num_epochs=epoch, label_file=total_data["bpe-with-sil"]["rasr_label_file"],
+              #   label_pruning=50.0, label_pruning_limit=1000, label_recombination_limit=-1, blank_label_index=1031,
+              #   model_checkpoint=checkpoint, context_size=-1, reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer,
+              #   start_label_index=1030, rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=1032, time_rqmt=3,
+              #   blank_allophone_state_idx=4123,
+              #   max_segment_len=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red]["95_percentile"]
+              # )
+              #
+              # train_realignment = run_rasr_realignment(compile_config=compile_config.get_config(),
+              #   alias_addon=alias_addon + "_train", segment_path=train_data_opts["segment_file"], name=name,
+              #   corpus_path=corpus_files["train"], lexicon_path=bpe_sil_phon_lexicon_path,
+              #   allophone_path=total_data["bpe-with-sil"]["allophones"], loop_update_history=True,
+              #   blank_update_history=True,
+              #   state_tying_path=total_data["bpe-with-sil"]["state_tying"], feature_cache_path=feature_cache_files["train"],
+              #   num_epochs=epoch, label_file=total_data["bpe-with-sil"]["rasr_label_file"], label_pruning=50.0,
+              #   label_pruning_limit=1000, label_recombination_limit=-1, blank_label_index=1031, model_checkpoint=checkpoint,
+              #   context_size=-1, reduction_factors=time_red, rasr_nn_trainer_exe_path=rasr_nn_trainer,
+              #   start_label_index=1030, rasr_am_trainer_exe_path=rasr_am_trainer, num_classes=1032, time_rqmt=80,
+              #   blank_allophone_state_idx=4123,
+              #   max_segment_len=total_data[params["config"]["label_type"]]["train"]["time-red-%s" % time_red][
+              #     "95_percentile"])
+              #
+              # checkpoint_path = DelayedReplace(checkpoint.index_path, ".index", "")
+              #
+              # retrain_config_obj = config_class(
+              #   task="train",
+              #   post_config={"cleanup_old_models": {"keep_last_n": 1, "keep_best_n": 1, "keep": num_epochs}},
+              #   train_data_opts=train_data_opts,
+              #   cv_data_opts=cv_data_opts,
+              #   devtrain_data_opts=devtrain_data_opts,
+              #   import_model=checkpoint_path,
+              #   pretrain=False,
+              #   learning_rates=list(numpy.linspace(0.001 * 0.1, 0.001, num=10))  ,# lr warmup
+              #   **config_params).get_config()
+              #
+              # retrain_checkpoints, retrain_config = run_training(retrain_config_obj, mem_rqmt=24, time_rqmt=30, num_epochs=num_epochs,
+              #                                          name=name, alias_suffix="retrain_neural-length")
+              #
+              # for epoch in num_epochs:
+              #   retrain_checkpoint = retrain_checkpoints[epoch]
+              #   # standard returnn decoding
+              #   search_config = config_class(task="search", search_data_opts=dev_data_opts, target="bpe",
+              #     search_use_recomb=True, **config_params)
+              #   ctm_results = run_bpe_returnn_decoding(
+              #     returnn_config=search_config.get_config(), checkpoint=retrain_checkpoint,
+              #     stm_job=hub5e_00_stm_job, num_epochs=epoch, name=name,
+              #     dataset_key="dev", alias_addon="_retrain_returnn_recomb")
+              #   run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
+              #            dataset_key="dev", num_epochs=epoch, alias_addon="_retrain_returnn_recomb")
 
 
 
-        # for global attention models with BPE labels use RETURNN decoding
-        elif params["config"]["label_type"] == "bpe" or params["config"]["label_type"] == "bpe-with-sil":
-          for beam_size in [12]:
-            search_config = config_class(
-              task="search",
-              beam_size=beam_size,
-              search_data_opts=dev_data_opts,
+          # for global attention models with BPE labels use RETURNN decoding
+          elif params["config"]["label_type"].startswith("bpe"):
+            for beam_size in [12]:
+              search_config = config_class(
+                task="search",
+                beam_size=beam_size,
+                search_data_opts=dev_data_opts,
+                **config_params)
+              ctm_results = run_bpe_returnn_decoding(
+                returnn_config=search_config.get_config(), checkpoint=checkpoint, stm_job=hub5e_00_stm_job,
+                num_epochs=epoch, name=name, dataset_key="dev", alias_addon="_beam-%s" % beam_size)
+              run_eval(
+                ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
+                dataset_key="dev", num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
+
+            search_error_data_opts = copy.deepcopy(cv_data_opts)
+            label_hdf = search_error_data_opts.pop("label_hdf")
+            label_name = search_error_data_opts.pop("label_name")
+            segment_file = search_error_data_opts.pop("segment_file")
+            search_error_data_opts["vocab"] = dev_data_opts["vocab"]
+            dump_search_config = config_class(
+              task="search", search_data_opts=search_error_data_opts, dump_output=True, import_model=checkpoint,
               **config_params)
-            ctm_results = run_bpe_returnn_decoding(
-              returnn_config=search_config.get_config(), checkpoint=checkpoint, stm_job=hub5e_00_stm_job,
-              num_epochs=epoch, name=name, dataset_key="dev", alias_addon="_beam-%s" % beam_size)
-            run_eval(
-              ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name=name,
-              dataset_key="dev", num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
+            train_config_load = copy.deepcopy(train_config_obj)
+            train_config_load.config["load"] = checkpoint
+            search_targets_hdf, ctm_results = calculate_search_errors(
+              checkpoint=checkpoint, search_config=dump_search_config, train_config=train_config_load,
+              name=name, segment_path=segment_file, ref_targets=label_hdf, label_name=label_name, model_type="glob",
+              blank_idx=0, rasr_nn_trainer_exe=rasr_nn_trainer, rasr_config=returnn_train_rasr_configs["cv"],
+              alias_addon="_debug", epoch=epoch, dataset_key="cv", stm_job=cv_stm_job, length_norm=True)
+            run_eval(ctm_file=ctm_results, reference=cv_stm_job.out_stm_path, name=name,
+              dataset_key="cv", num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
 
-          search_error_data_opts = copy.deepcopy(cv_data_opts)
-          label_hdf = search_error_data_opts.pop("label_hdf")
-          label_name = search_error_data_opts.pop("label_name")
-          segment_file = search_error_data_opts.pop("segment_file")
-          search_error_data_opts["vocab"] = dev_data_opts["vocab"]
-          dump_search_config = config_class(
-            task="search", search_data_opts=search_error_data_opts, dump_output=True, import_model=checkpoint,
-            **config_params)
-          train_config_load = copy.deepcopy(train_config_obj)
-          train_config_load.config["load"] = checkpoint
-          calculate_search_errors(
-            checkpoint=checkpoint, search_config=dump_search_config, train_config=train_config_load,
-            name=name, segment_path=segment_file, ref_targets=label_hdf, label_name=label_name, model_type="glob",
-            blank_idx=0, rasr_nn_trainer_exe=rasr_nn_trainer, rasr_config=returnn_train_rasr_configs["cv"],
-            alias_addon="_debug", epoch=epoch, dataset_key="cv")
+            if epoch == 150:
+              feed_config_load = copy.deepcopy(train_config_obj)
+              feed_config_load.config["load"] = checkpoint
+              vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else bpe_sil_vocab[
+                "vocab_file"]
+              if name.startswith("glob.best-model.bpe."):
+                hdf_aliases = ["ground-truth", "search"]
+                hdf_targetss = [label_hdf, search_targets_hdf]
+              else:
+                assert name.startswith("glob.best-model.bpe-with-sil")
+                hdf_aliases = ["ground-truth", "search", "global_import_segmental_w_split_sil"]
+                hdf_targetss = [label_hdf, search_targets_hdf, search_labels["global_import_segmental_w_split_sil"]]
+              for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                for seq_tag in ["switchboard-1/sw02102A/sw2102A-ms98-a-0092",
+                  "switchboard-1/sw02038B/sw2038B-ms98-a-0055", "switchboard-1/sw02327B/sw2327B-ms98-a-0072",
+                  "switchboard-1/sw02352B/sw2352B-ms98-a-0143", "switchboard-1/sw02102A/sw2102A-ms98-a-0012",
+                  "switchboard-1/sw02102A/sw2102A-ms98-a-0053", "switchboard-1/sw02025A/sw2025A-ms98-a-0020",
+                  "switchboard-1/sw02180A/sw2180A-ms98-a-0007", "switchboard-1/sw02022A/sw2022A-ms98-a-0002"]:
+                  dump_att_weights_job = DumpAttentionWeightsJob(returnn_config=feed_config_load, model_type="glob",
+                    rasr_config=returnn_train_rasr_configs["cv"], blank_idx=0, label_name=label_name,
+                    rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=hdf_targets,
+                    seq_tag=seq_tag, )
+                  dump_att_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/att_weights_%s-labels" % (hdf_alias,))
+                  tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
 
-          # if name == "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.all-segs":
-          #   dump_att_weights_job = DumpAttentionWeightsJob(
-          #     returnn_config=train_config_load, model_type="glob", rasr_config=returnn_train_rasr_configs["cv"],
-          #     blank_idx=0, label_name=label_name, rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=label_hdf,
-          #     seq_tag="switchboard-1/sw02102A/sw2102A-ms98-a-0042",
-          #   )
-          #   dump_att_weights_job.add_alias(name + "/att_weights_%s" % epoch)
-          #   tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
-          #
-          #   plot_weights_job = PlotAttentionWeightsJob(
-          #     data_path=dump_att_weights_job.out_data, blank_idx=0,
-          #     json_vocab_path=bpe_vocab["vocab_file"]
-          #   )
-          #   plot_weights_job.add_alias(name + "/plot_att_weights_%s" % epoch)
-          #   tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+                  plot_weights_job = PlotAttentionWeightsJob(
+                    data_path=dump_att_weights_job.out_data,
+                    blank_idx=None, json_vocab_path=vocab_file,
+                    time_red=6, seq_tag=seq_tag)
+                  plot_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/plot_att_weights_%s-labels" % (hdf_alias,))
+                  tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
 
-          if name == "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.all-segs":
-            compile_config = config_class(task="eval", feature_stddev=3., **config_params)
+              for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                calc_search_err_job = CalcSearchErrorJob(returnn_config=train_config, rasr_config=returnn_train_rasr_configs["cv"],
+                  rasr_nn_trainer_exe=rasr_nn_trainer, segment_file=segment_file, blank_idx=0,
+                  model_type="glob", label_name=label_name, search_targets=hdf_targets, ref_targets=label_hdf,
+                  max_seg_len=-1, length_norm=True)
+                calc_search_err_job.add_alias(name + ("/search_errors_%d_%s" % (epoch, hdf_alias)))
+                alias = calc_search_err_job.get_one_alias()
+                tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
 
-            # standard beam search (12)
-            alias_addon = "_debug"
-            compile_graph_job = CompileTFGraphJob(compile_config.get_config(), "output")
-            compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
-            alias = compile_graph_job.get_one_alias()
-            tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
-            tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
-            # ctm_results = run_rasr_decoding(segment_path=cv_segments, mem_rqmt=8, simple_beam_search=True,
-            #                                 full_sum_decoding=False, blank_update_history=True,
-            #                                 allow_word_end_recombination=False, allow_label_recombination=False,
-            #                                 max_seg_len=None, debug=False, compile_config=compile_config.get_config(),
-            #                                 alias_addon=alias_addon, rasr_exe_path=rasr_flf_tool,
-            #                                 model_checkpoint=checkpoint, num_epochs=epoch, time_rqmt=time_rqmt,
-            #                                 loop_update_history=True,
-            #                                 **rasr_decoding_opts)
 
   # for config_file, name in zip([
-  #   "/u/schmitt/experiments/transducer/config/returnn_config/config_files/switchboard/old_configs/clamped6.seg.mlp-att.am2048.key1024.query-am.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed+lm.readout-in_lm+att.emit-prob-in_s.config",
-  #   "/u/schmitt/experiments/transducer/config/returnn_config/config_files/switchboard/old_configs/clamped6.seg.mlp-att.am2048.key1024.query-am.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s.config",
-  #   "/u/schmitt/experiments/transducer/config/returnn_config/config_files/switchboard/old_configs/clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s.config",
-  #   "/u/schmitt/experiments/transducer/config/returnn_config/config_files/switchboard/old_configs/clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.config",
-  #   "/u/schmitt/experiments/transducer/config/returnn_config/config_files/switchboard/old_configs/clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss.config"
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss.config",
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss.config",
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss.config",
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss.config",
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss_sep-loops.config",
+  #   "/u/schmitt/experiments/transducer/recipe/i6_experiments/users/schmitt/experiments/swb/transducer/returnn_config_files/seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss_sep-loops.config"
   # ], [
-  #   "clamped6.seg.mlp-att.am2048.key1024.query-am.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed+lm.readout-in_lm+att.emit-prob-in_s",
-  #   "clamped6.seg.mlp-att.am2048.key1024.query-am.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s",
-  #   "clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s",
-  #   "clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout",
-  #   "clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss"
-  #
+  #   "clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss",
+  #   "seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss",
+  #   "seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss",
+  #   "clamped6.seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss",
+  #   "seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss_sep-loops",
+  #   "seg.mlp-att.am2048.key1024.query-lm.slow-rnn-in_input-embed+prev-att.fast-rnn-in_am+prev-out-embed.readout-in_lm+att.emit-prob-in_s_no-switchout.no-focal-loss_sep-loops"
   # ]):
   #
   #   config_path = Path(config_file)
@@ -1308,15 +1408,18 @@ def run_pipeline():
   #     config_file_path=config_path, mem_rqmt=24, time_rqmt=30, parameter_dict={},
   #     name="old_" + name, alias_suffix="_train"
   #   )
-  #
-  #   for epoch in [33, 150]:
-  #     ctm_results = run_search_from_file(
-  #       config_file_path=config_path, parameter_dict={}, time_rqmt=1, mem_rqmt=4, name="old_" + name,
-  #       alias_suffix="search", model_dir=model_dir, load_epoch=epoch, default_model_name="epoch.pretrain",
-  #       stm_job=hub5e_00_stm_job
-  #     )
-  #     run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name="old_" + name,
-  #       dataset_key="dev", num_epochs=epoch, alias_addon="returnn")
+
+    # model_dir = Path("/u/schmitt/experiments/transducer/alias/glob.best-model.bpe.time-red6.am2048.6pretrain-reps.ctx-use-bias.all-segs/train/output/models")
+
+    # for epoch in [33, 150]:
+    #   ctm_results = run_search_from_file(
+    #     config_file_path=config_path, parameter_dict={}, time_rqmt=1, mem_rqmt=4, name="old_" + name,
+    #     alias_suffix="search", model_dir=model_dir, load_epoch=epoch, default_model_name="epoch",
+    #     stm_job=hub5e_00_stm_job
+    #   )
+    #   run_eval(ctm_file=ctm_results, reference=Path("/u/tuske/bin/switchboard/hub5e_00.2.stm"), name="old_" + name,
+    #     dataset_key="dev", num_epochs=epoch, alias_addon="returnn")
+
 
 
 
