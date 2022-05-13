@@ -45,7 +45,7 @@ setups = [
         "short_name" : "ping-old",
         "setup_path" : "/work/asr3/luescher/hiwis/pzheng/librispeech/transformer_conformer_21_11_10", 
         "link_to_path" : "setup3_ping_transformer_conformer_21_11_10",
-        "extract_command" : f'{PY} tools_linked/make_py_summary.py -udf "dev-other:"',
+        "extract_command" : f'{PY} tools_linked/make_py_summary.py -udf "dev-other:"', # TODO: this should use some 'ignore sets' option, because really this only has usefull info on devtain, or look at 'rerecog'
         "table_command" : f'{PY} tools_linked/make_full_table_02.py'
     },
     { # In this one there aren't really man conformer results, and they are mostly also wit SMBR which I don't care about
@@ -67,6 +67,7 @@ setups = [
 
 # TODO: remove, just for debugging:
 # setups = setups[0:3]
+setups = setups[2]
 
 # Links all important setup folders: alias, output ( there is the data we want to gather )
 def maybe_initiate_links(setup_def):
@@ -139,5 +140,13 @@ for setup in setups:
 
     # 3 - genate a big table, containing all importatnt data for this setup
     generate_data_table(setup)
+
+    # TODO: this sould also generrate plots, for every setup:
+    # - learning rates
+    # - wers ( over all epochs that are stored )
+    # - errors, losses
+
+    # TODO: this should also generate joined plots, from a selction of experiments defined in some datastucture
+    # e.g.: a splot with wers per epoch, per variation of learning rate experiment co...
 
 merge_tables_big_overview(setups)

@@ -502,6 +502,53 @@ def make_experiment_11_switch_conv_and_att(
   )
 
 
+def make_experiment_12_groupnorm_v2(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  overwrite_bn_settings = None,
+  dummy_config = None,
+  test_construct = False
+  ):
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_008_group_norm_custom
+  conv_func = make_conv_mod_008_group_norm_custom
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func = conv_func, # This is used to change batch norm settings
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
 
 # ------------------------- baseline: 'big-short' -----------------------
 
@@ -615,6 +662,21 @@ def groupnorm_noln():
   NAME = f"{BASE}+groupnorm"
 
   make_experiment_08_groupnorm(args, NAME)
+
+
+def groupnorm_v2():
+  args = get_defaults_03()
+  NAME = f"{BASE}+groupnorm-v2-g=32"
+
+  args.conv_default_args["groups"] = 32
+  args.conv_default_args["epsilon"] = 1e-5
+
+  make_experiment_12_groupnorm_v2(
+    args, 
+    NAME,
+    dummy_config = "test.gn.config",
+    test_construct = True
+  )
 
 
 # + old batchnorm defaults from behavior_version = 0
