@@ -257,6 +257,7 @@ def get_extended_net_dict(
   pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
+  exclude_sil_from_label_ctx,
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
@@ -268,6 +269,7 @@ def get_extended_net_dict(
   assert not sep_sil_model or sil_idx == 0  # assume in order to construct output_prob vector (concat sil_prob, label_prob, blank_prob)
   assert not label_dep_length_model or (label_dep_means is not None and max_seg_len is not None)
   # assert task != "train" or not label_dep_length_model
+  assert not exclude_sil_from_label_ctx or sil_idx is not None
 
   net_dict = {"#info": {"lstm_dim": lstm_dim, "l2": l2, "learning_rate": learning_rate, "time_red": time_reduction}}
   if task == "search":
@@ -544,12 +546,28 @@ def get_extended_net_dict(
         #   "output": {
         #     'class': 'choice', 'target': "label_ground_truth", 'beam_size': beam_size, 'from': "data",
         #     "initial_output": sos_idx, "cheating": "exclusive" if task == "train" else None}, })
-        lm_dict["input_embed0"]["from"] = "prev_non_blank_embed"
-        rec_unit_dict.update(lm_dict)
+        if not exclude_sil_from_label_ctx:
+          lm_dict["input_embed0"]["from"] = "prev_non_blank_embed"
+          rec_unit_dict.update(lm_dict)
 
-        rec_unit_dict["input_embed0"]["name_scope"] = "lm_masked/input_embed0"
-        rec_unit_dict["input_embed"]["name_scope"] = "lm_masked/input_embed"
-        rec_unit_dict["lm"]["name_scope"] = "lm_masked/lm"
+          rec_unit_dict["input_embed0"]["name_scope"] = "lm_masked/input_embed0"
+          rec_unit_dict["input_embed"]["name_scope"] = "lm_masked/input_embed"
+          rec_unit_dict["lm"]["name_scope"] = "lm_masked/lm"
+        else:
+          lm_dict["input_embed0"]["from"] = "data"
+          lm_dict["lm"]["name_scope"] = "lm"
+          if prev_att_in_state:
+            lm_dict["lm"]["from"][0] = "base:prev:att"
+
+          rec_unit_dict.update({
+            "non_sil_mask": {
+              "class": "compare", "from": "output", "value": sil_idx, "kind": "not_equal", "initial_output": True
+            },
+            "lm_masked": {
+              "class": "masked_computation", "from": "prev_non_blank_embed", "mask": "prev:non_sil_mask", "unit": {
+                "class": "subnetwork", "from": "data", "subnetwork": {
+                  **lm_dict, "output": {"class": "copy", "from": "lm"}}}},
+            "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:non_sil_mask"}})
 
         net_dict.update({
           "label_model": {
@@ -562,12 +580,24 @@ def get_extended_net_dict(
         if prev_att_in_state:
           lm_dict["lm"]["from"][0] = "base:prev:att"
         # in case of search, emit log prob needs to be added to the label log prob
+        if exclude_sil_from_label_ctx:
+          net_dict["output"]["unit"].update({
+            "non_sil_mask": {
+              "class": "compare", "from": "output", "value": sil_idx, "kind": "not_equal", "initial_output": True},
+            "non_sil_non_blank_mask": {
+              "class": "combine", "from": ["non_sil_mask", "output_emit"], "kind": "logical_and", "initial_output": True
+            }
+          })
         net_dict["output"]["unit"].update({
           "lm_masked": {
-            "class": "masked_computation", "from": "prev_non_blank_embed", "mask": "prev:output_emit", "unit": {
+            "class": "masked_computation", "from": "prev_non_blank_embed",
+            "mask": "prev:non_sil_non_blank_mask" if exclude_sil_from_label_ctx else "prev:output_emit",
+            "unit": {
               "class": "subnetwork", "from": "data", "subnetwork": {
                 **lm_dict, "output": {"class": "copy", "from": "lm"}}}},
-          "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"}})
+          "lm": {
+            "class": "unmask", "from": "lm_masked",
+            "mask": "prev:non_sil_non_blank_mask" if exclude_sil_from_label_ctx else "prev:output_emit"}})
 
     # here, we add general components which are needed for train or search
     if task == "train":
