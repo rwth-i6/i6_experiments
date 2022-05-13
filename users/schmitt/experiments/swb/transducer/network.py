@@ -492,7 +492,17 @@ def get_extended_net_dict(
           "from": ["label_log_prob0"]}})
 
       if prev_target_in_readout:
-        rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed")
+        if task == "train":
+          rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed")
+        else:
+          rec_unit_dict["prev_non_blank_embed_masked"] = {
+            "class": "masked_computation",
+            "from": "prev_non_blank_embed",
+            "mask": "prev:output_emit",
+            "unit": {
+                "class": "copy", "from": "data"},
+          }
+          rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed_masked")
 
       lm_dict = {
         "input_embed0": {
