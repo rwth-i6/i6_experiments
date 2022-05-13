@@ -929,7 +929,7 @@ def custom_construction_algo(idx, net_dict):
   return net_dict
 
 
-def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, targetb_num_labels, weight_feedback=False, feature_stddev=None):
+def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, targetb_num_labels, sos_idx, sil_idx, weight_feedback=False, feature_stddev=None, prev_att_in_state=True):
   if task == "eval":
     net_dict = {
       "#info": {
@@ -1056,12 +1056,8 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
             "activation": "tanh", "class": "activation", "from": ["att_energy_in"], },
           "label_log_prob": {
             "class": "combine", "from": ["label_log_prob0", "emit_log_prob"], "kind": "add", },
-          "sos_log_prob": {
-            "class": "slice", "from": "label_log_prob", "axis": "f", "slice_start": 0, "slice_end": 1},
           "label_log_prob_inf": {
             "class": "eval", "eval": "10000000.0 * source(0)", "from": "label_log_prob"},
-          "output_log_prob_mod": {
-            "class": "copy", "from": ["label_log_prob_inf", "blank_log_prob", "sos_log_prob"]},
           "output_log_prob_normal": {
             "class": "copy", "from": ["label_log_prob", "blank_log_prob", "const_inf"], },
           "output_log_prob": {
@@ -1073,7 +1069,7 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
           "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"},
           "lm_masked": {
             "class": "masked_computation",
-            "from": "prev:prev_non_blank_embed",
+            "from": "prev:prev_out_non_blank_embed_masked",
             "name_scope": "",
             "mask": "prev:output_emit",
             "unit": {
@@ -1094,7 +1090,7 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
                 },
                 "lm": {
                   "class": "rec",
-                  "from": ["input_embed", "base:prev:att"],
+                  "from": ["input_embed", "base:prev:att"] if prev_att_in_state else ["input_embed"],
                   "n_out": 1024,
                   "name_scope": "lm/rec",
                   "unit": "nativelstm2",
@@ -1108,37 +1104,36 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
             "input_type": "log_prob", "length_normalization": False, "target": "targetb", },
           "output_emit": {
             "class": "compare", "from": "output", "initial_output": True, "kind": "not_equal", "value": targetb_blank_index, },
-          "prev_out_non_blank_masked": {
-            "class": "masked_computation",
-            "from": "output",
-            "initial_output": 0,
-            "name_scope": "",
-            "mask": "output_emit",
-            "unit": {
-                "class": "copy", "from": "data", "initial_output": 0,},
-          },
-          "prev_non_blank_embed": {
-            "activation": None,
-            "name_scope": "target_embed",
-            "class": "linear",
-            "initial_output": 0,
-            "from": "prev_out_non_blank_masked",
-            "n_out": 621,
-            "with_bias": False,
-          },
+          "prev_out_non_blank_embed_masked": {
+            "class": "masked_computation", "from": "output", "name_scope": "", "mask": "output_emit", "unit": {
+              "class": "subnetwork", "from": "data", "subnetwork": {
+                "target_embed": {
+                  "activation": None, "class": "linear", "initial_output": 0, "from": "data", "n_out": 621,
+                  "with_bias": False, },
+                "output": {
+                  "class": "copy", "from": "target_embed"}}}},
+          # "prev_non_blank_embed": {
+          #   "activation": None,
+          #   "name_scope": "target_embed",
+          #   "class": "linear",
+          #   "initial_output": 0,
+          #   "from": "prev_out_non_blank_masked",
+          #   "n_out": 621,
+          #   "with_bias": False,
+          # },
           "prev_out_embed": {
             "activation": None, "class": "linear", "from": "prev:output", "n_out": 128, },
-          "prev_out_non_blank": {
-            "class": "reinterpret_data",
-            "from": "prev:output",
-            "set_sparse": True,
-            "set_sparse_dim": target_num_labels,
-            "initial_output": 0,
-          },
+          # "prev_out_non_blank": {
+          #   "class": "reinterpret_data",
+          #   "from": "prev:output",
+          #   "set_sparse": True,
+          #   "set_sparse_dim": target_num_labels,
+          #   "initial_output": 0,
+          # },
           "readout": {
             "class": "reduce_out", "from": "readout_in", "mode": "max", "num_pieces": 2, },
           "readout_in": {
-            "activation": None, "class": "linear", "from": ["lm", "prev:prev_non_blank_embed", "att"], "n_out": 1000, },
+            "activation": None, "class": "linear", "from": ["lm", "prev:prev_out_non_blank_embed_masked", "att"], "n_out": 1000, },
           "segment_lens": {
             "class": "combine", "from": ["segment_lens0", "const1"], "is_output_layer": True, "kind": "add", },
           "segment_lens0": {
@@ -1157,6 +1152,21 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
       },
       "source0": {"axis": "F", "class": "split_dims", "dims": (-1, 1), "from": "source"},
     }
+    net_dict["output"]["unit"]["sos_log_prob"] = {
+      "class": "slice", "from": "label_log_prob", "axis": "f", "slice_start": sos_idx, "slice_end": sos_idx + 1
+    }
+    if sil_idx is None:
+      net_dict["output"]["unit"].update({
+        "output_log_prob_mod": {
+          "class": "copy", "from": ["label_log_prob_inf", "blank_log_prob", "sos_log_prob"]},
+      })
+    else:
+      assert sil_idx == 0
+      net_dict["output"]["unit"].update({
+        "sil_log_prob": {
+          "class": "slice", "from": "label_log_prob", "axis": "f", "slice_start": 0, "slice_end": 1},
+        "output_log_prob_mod": {
+          "class": "copy", "from": ["sil_log_prob", "label_log_prob_inf", "sos_log_prob"]}, })
     if feature_stddev is not None:
       net_dict["source_stddev"] = {
         "class": "eval", "from": "data", "eval": "source(0) / 3.0"
@@ -1194,14 +1204,14 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
           "class": "compare",
           "from": "existing_alignment",
           "kind": "not_equal",
-          "value": 1031,
+          "value": targetb_blank_index,
       },
       "label_ground_truth_masked": {
           "class": "reinterpret_data",
           "enforce_batch_major": True,
           "from": "label_ground_truth_masked0",
           "register_as_extern_data": "label_ground_truth",
-          "set_sparse_dim": 1031,
+          "set_sparse_dim": targetb_blank_index + 1,
       },
       "label_ground_truth_masked0": {
           "class": "masked_computation",
@@ -1378,7 +1388,7 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
                 "kind": "add",
             },
             "sos_log_prob": {
-              "class": "slice", "from": "label_log_prob0", "axis": "f", "slice_start": 0, "slice_end": 1
+              "class": "slice", "from": "label_log_prob0", "axis": "f", "slice_start": sos_idx, "slice_end": sos_idx + 1
             },
             "label_log_prob0": {
                 "activation": "log_softmax",
@@ -1399,7 +1409,7 @@ def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, tar
             },
             "lm": {
                 "class": "rec",
-                "from": ["input_embed", "prev:att"],
+                "from": ["input_embed", "prev:att"] if prev_att_in_state else ["input_embed"],
                 "n_out": 1024,
                 "name_scope": "lm/rec",
                 "unit": "nativelstm2",
