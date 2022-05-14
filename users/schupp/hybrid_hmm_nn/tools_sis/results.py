@@ -166,7 +166,7 @@ def parse_log(log_file_path):
     lines = data.split("\n")
     for line in lines:
         if "Created TensorFlow device" in line and "tensorflow/core/common_runtime/gpu/gpu_device.cc" in line:
-            log.debug(line)
+            log.debug(line) 
             exert = line[line.index("name:") + 5:].split(",")[0]
             if used_gpus and exert == used_gpus[-1]:
                 continue # Only store gpu if it changed
@@ -193,7 +193,7 @@ def print_summary(ex_data, config_data, log_data=None):
         wers = { k : ex_data["optim_wer_by_ep"][k][-2] for k in ex_data['optim_wer_by_ep'] }
 
     cur_error = "not found"
-    if int(ex_data['finished_eps']) in ex_data['errors_per_ep']:
+    if ex_data['finished_eps'] and int(ex_data['finished_eps']) in ex_data['errors_per_ep']:
         cur_error = ex_data['errors_per_ep'][int(ex_data['finished_eps'])]
         cur_error = {k: cur_error[k] for k in cur_error if k in ["train_error_output", "train_score_output"]}
 

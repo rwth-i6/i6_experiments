@@ -9,6 +9,8 @@ import logging as log
 import os
 import argparse
 
+from numpy import nan # we need this in case there are any 'nan' in errors or anything ( for when we call eval() )
+
 log.basicConfig(level=log.DEBUG)
 
 # Allowed arguments: (WIP)
@@ -133,6 +135,8 @@ def parse_experiment_out_string(data_string):
                 errors_per_ep = eval(line.replace("errors:", ""))
             except SyntaxError as e:
                 errors_per_ep = "No errors, sores found"
+        elif "finished epoch:" in line:
+            finished_eps = try_or_default(lambda : float(re.findall(float_or_int, line)[0]), "not found")
 
     return OrderedDict(
         num_params = num_params,
@@ -141,7 +145,8 @@ def parse_experiment_out_string(data_string):
         wer_by_ep = wer_by_ep,
         optim_wer_by_ep = optim_wer_by_ep,
         best_ep_by_score = best_ep_by_score,
-        errors_per_ep = errors_per_ep
+        errors_per_ep = errors_per_ep,
+        finished_eps = finished_eps
     )
 
 
@@ -156,6 +161,10 @@ def get_all_data_experiment(experiment_path, name):
         else:
             data_by_set[data] = parse_experiment_out_string(_exp_data)
         log.debug(data_by_set[data])
+
+    # TODO: there is a lot of redundant data per set, 
+    # we should list this under the root key instead
+    # but it's pretty annoying to filter, we would need to extract e.g.: finished ep, errors only once!
     return {
         "name" : name,
         "config_path" : f"{os.getcwd()}/{experiment_path}/{name}/train.job/output/returnn.config",

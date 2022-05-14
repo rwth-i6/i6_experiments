@@ -10,13 +10,14 @@ import argparse
 import csv
 import importlib
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.INFO)
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--only', default=None) # Allow to ass multiple sep by comma
 
 parser.add_argument("-ocn", "--overwrite-config-name", default="returnn.config")
+parser.add_argument("-ox", "--only-experiment", default=None)
 args = parser.parse_args()
 
 RESULTS_PATH = "results2"
@@ -41,6 +42,8 @@ if args.only:
 csv_columns = {
     "NAME" : [],
 
+    "finished" : [],
+
     "Amount epochs: ": [],
 
     "BEST sub epoch \nby dev-other WER" : [],
@@ -49,11 +52,19 @@ csv_columns = {
 
     "Train time (hours)\n(until this epoch)" : [],
 
-    "Complete train time untill final epoch" : [],
+    "Train time untill end (h)" : [],
 
-    "num_params (M)" : [],
+    "num params (M)" : [],
 
-    "devother error relation" : [],
+    "devother score (this ep)" : [],
+
+    "devother error (this ep)" : [],
+
+    "devother score (final ep)" : [],
+
+    "devother error (final ep)" : [],
+
+    "wer devother" : [], # TODO: woule be interesing to have
 
     "GPUs used" : [],
 
@@ -65,8 +76,10 @@ csv_columns = {
 }
 
 all_experiments = [s.replace(f"{RESULTS_PATH}/", "") for s in glob.glob(f"{RESULTS_PATH}/*") ]
-all_sub_experiments = {k : [] for k in all_experiments}
+if args.only_experiment:
+    all_experiments = [args.only_experiment]
 
+all_sub_experiments = {k : [] for k in all_experiments}
 for i, ex in enumerate(all_experiments):
     all_sub_experiments[ex] = [s.split("/")[-1].replace(".json", "") for s in glob.glob(f"{RESULTS_PATH}/{ex}/*") ]
 
@@ -198,21 +211,43 @@ for ex in all_experiments:
         wers_per_set = [ get_dataset_epoch(best_ep_dev_other, _set) for _set in datasets ]
         log.debug(f"Found wers: {wers_per_set}")
 
+        dev_score_error_this_ep = ["no_data", "no_data"]
+        if data["dev-other"]["errors_per_ep"] and str(best_ep_dev_other) in data["dev-other"]["errors_per_ep"]:
+            dev_score_error_this_ep = [
+                data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_score_output"],
+                data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_error_output"],
+            ]
+
+        dev_score_error_final = ["no_data", "no_data"]
+        if data["dev-other"]["errors_per_ep"] and str(config_data["num_epochs"]) in data["dev-other"]["errors_per_ep"]:
+            dev_score_error_final = [
+                data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_score_output"],
+                data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_error_output"],
+            ]
+        
+
+        finished_train = "YES" if int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
+
         row = [
             data["name"], # name
+            finished_train,
             config_data["full_epochs"],
             best_ep_dev_other,
             *wers_per_set,
             data["dev-other"]["time_p_sep"] * best_ep_dev_other,
             config_data["num_epochs"] * data["dev-other"]["time_p_sep"],
             data["dev-other"]["num_params"], # params
-            "TODO: error relation!",
+            dev_score_error_this_ep[0], # devtrain score ( this ep )
+            dev_score_error_this_ep[1], # devtrain error ( this ep )
+            dev_score_error_final[0], # devtrain score final
+            dev_score_error_final[1], # devtrain error final
+            "TODO: not yet impemented",
             "\n" + "\n".join([f'{time}: {gpu}' for gpu, time in zip(log_data["used_gpus"], log_data["time_switched_gpu"])]), # GPU by time
             data["dev-other"]["time_p_sep"],
             "TODO: best lm/am ratio",
             f"{os.getcwd()}/{config_path}" #config path
         ]
-        log.debug(f"Writing row: {row}")
+        log.info(f"Writing row: {row}")
         rows.append(row)
 
 with open('summary_new.csv', 'w') as f:
