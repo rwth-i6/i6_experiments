@@ -354,6 +354,20 @@ def add_feature_stacking(
     net.update(net_add)
     return net, 'feature_stacking_merged'
 
+def tf_group_norm(x, G=32, eps=1e-5):
+    import tensorflow as tf
+    B, T, C = x.get_shape().as_list()
+    G = min(G, C)
+
+    x = tf.reshape(x, [B, T, G, C // G])
+    mean, var = tf.nn.moments(x, [1, 3], keep_dims=True) # Batch and Feature?
+    x = (x - mean) / tf.sqrt(var + eps)
+
+    gamma = tf.get_variable('gamma', [ 1, 1, C], initializer=tf.constant_initializer(1.0))
+    beta = tf.get_variable('beta', [ 1, 1, C], initializer=tf.constant_initializer(0.0))
+
+    x = tf.reshape(x, [B, T, C]) * gamma + beta
+
 def group_normalization( # TODO: unfinished
     net=None,
     in_l=None,
