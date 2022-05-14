@@ -507,18 +507,29 @@ def make_experiment_12_groupnorm_v2(
   NAME,
   aux_loss_layers = [6],
   overwrite_bn_settings = None,
+  use_tfa_implementation = False,
   dummy_config = None,
   test_construct = False
   ):
 
-  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_008_group_norm_custom
-  conv_func = make_conv_mod_008_group_norm_custom
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_008_group_norm_custom, make_conv_mod_009_group_norm_custom_tf
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.network_additions import tf_group_norm
+  extras = None
+  if use_tfa_implementation:
+    import inspect
+    conv_func = make_conv_mod_009_group_norm_custom_tf
+    extras = {
+      "extra_code_string" : "\n" + inspect.getsource(tf_group_norm) # Required for using the tfa group norm implementation
+    }
+  else:
+    conv_func = make_conv_mod_008_group_norm_custom
 
   experiment_data = god.create_experiment_world_004( 
     name=NAME,
     output_path=OUTPUT_PATH,
     config_base_args=args.config_args,
     conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    extra_returnn_net_creation_args=extras,
     conformer_func_args=OrderedDict(
       # sampling args
       sampling_func_args = args.sampling_default_args,
@@ -553,6 +564,10 @@ def make_experiment_12_groupnorm_v2(
 # ------------------------- baseline: 'big-short' -----------------------
 
 def baseline_big_short():
+  # time per sep: 0.384
+  # 05.11-20:50:16:  GeForce GTX 1080 Ti
+  # params (m): 86.8285
+  # wers: {50: '9.89%', 80: '9.39%', 110: '8.5%', 120: '8.65%'}
   args = get_defaults()
   NAME = "baseline_03_big_short" # BASE
 
@@ -562,6 +577,10 @@ def baseline_big_short():
 # ---------------------------- ablation of best model elements -----------------------
 
 def no_aux_loss():
+  # time per sep: 0.341
+  # 05.11-20:50:15:  GeForce GTX 1080 Ti
+  # params (m): 82.7601
+  # wers: {50: '9.94%', 80: '9.44%', 120: '8.87%'} (WORSE)
   args = get_defaults()
   NAME = f"{BASE}+no-aux"
 
@@ -652,12 +671,21 @@ def subsampling_swish():
 # + batchnorm instead of layer-norm
 # This uses the new returnn defaults
 def batchnorm_no_ln():
+  # time per sep: 0.387
+  # 05.11-22:06:27:  GeForce GTX 1080 Ti
+  # params (m): 86.8407
+  # wers: {50: '10.3%', 80: '9.34%', 120: '9.08%'}
+
   args = get_defaults_02()
   NAME = f"{BASE}+batchnorm"
 
   make_experiment_05_batchnorm(args, NAME) 
 
 def groupnorm_noln():
+  # time per sep: 0.383
+  # 05.11-22:07:31:  GeForce GTX 1080 Ti
+  # params (m): 86.8285
+  # wers: {50: '9.78%', 80: '9.31%', 110: '8.56%', 120: '8.6%'}
   args = get_defaults_02()
   NAME = f"{BASE}+groupnorm"
 
@@ -678,6 +706,22 @@ def groupnorm_v2():
     test_construct = True
   )
 
+def groupnorm_v2_tfa():
+  args = get_defaults_03()
+  NAME = f"{BASE}+groupnorm-tfa-g=32"
+
+  args.conv_default_args["groups"] = 32
+  args.conv_default_args["epsilon"] = 1e-5
+
+  make_experiment_12_groupnorm_v2(
+    args, 
+    NAME,
+    use_tfa_implementation=True
+    #dummy_config = "test.gn.config",
+    #test_construct = True
+  )
+
+
 
 # + old batchnorm defaults from behavior_version = 0
 def batchnorm_old_defaults():
@@ -694,8 +738,12 @@ def batchnorm_old_defaults():
 
 
 # ----------------------------- chunk/sequnce order ---------------------------
-
 def seq_no_order_no_shuffle():
+  # time per sep: 0.389
+  # 05.11-20:51:00:  GeForce GTX 1080 Ti
+  # params (m): 86.8285
+  # wers: {50: '10.04%', 80: '9.45%', 110: '8.8%', 120: '8.47%'}
+
   args = get_defaults_02()
   NAME = f"{BASE}+no-seq-order+no-shuffle"
 
@@ -710,6 +758,11 @@ def seq_no_order_no_shuffle():
   make_experiment_04_seq_orders(args, NAME)
 
 def seq_only_shuffle():
+  # time per sep: 0.382
+  # 05.11-20:51:00:  GeForce GTX 1080 Ti
+  # params (m): 86.8285
+  # wers: {50: '10.03%', 80: '9.1%', 110: '8.59%', 120: '8.31%'}
+
   args = get_defaults_02()
   NAME = f"{BASE}+only-shuffle"
 
@@ -787,6 +840,67 @@ def sd_ffmod(v=0):
 def sd_ffmod_v2():
   sd_ffmod(v=1)
 
+def sd_attmod_debug():
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-att-mod-debug"
+
+  sd_args = {
+    i : {
+      "self_att" : 0.5,
+    } for i in [1] #range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.subsampling_versions import make_subsampling_000_old_bhv, make_unsampling_001
+
+  if False:
+    args.sampling_default_args["time_reduction"] = 3
+    del args.sampling_default_args["unsampling_strides"]
+    del args.sampling_default_args["stacking_stride"]
+    del args.sampling_default_args["window_size"]
+    del args.sampling_default_args["window_right"]
+    del args.sampling_default_args["window_left"]
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      #subsampling_func=make_subsampling_000_old_bhv,
+      #unsampling_func=make_unsampling_001,
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = [],
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=None,
+      test_construction=True,
+  )
+
 
 # + 0.5 stoch_depth on *all* self attention mods
 def sd_attmod(v=0):
@@ -798,14 +912,19 @@ def sd_attmod(v=0):
   sd_args = {
     i : {
       "self_att" : 0.5,
-    } for i in range(1, 12 + 1)
+    } for i in [1] #range(1, 12 + 1)
   }
 
   args.conformer_defaults.update(OrderedDict(
     apply_stochastic_depth = sd_args
   ))
 
-  make_experiment_06_stoch_depth( args, NAME )
+  make_experiment_06_stoch_depth( 
+    args, 
+    NAME, 
+    dummy_config = "test.sd.attmod.config",
+    test_construct = True
+  )
 
 
 
@@ -928,6 +1047,10 @@ def se_attmod():
   )
 
 def se_convmod():
+  # time per sep: 0.383
+  # 05.11-20:53:11:  GeForce GTX 1080 Ti
+  # params (m): 87.2282
+  # wers: {50: '9.97%', 80: '9.25%', 110: '8.5%', 120: '8.51%'}
 
   args = get_defaults_02()
   NAME = f"{BASE}+se-block-v1.0-conv-mod"
@@ -976,7 +1099,7 @@ def all_experiments_stochastic_depth():
   #test_sd() # Test ...
 
   sd_ffmod()
-  #sd_ffmod_v2()
+  sd_ffmod_v2()
 
   #sd_attmod() This is broken TODO fix
   #sd_attmod_v2()
@@ -1049,3 +1172,4 @@ def main5():
 
   no_frame_stacking()
   switch_conv_att_mod()
+  groupnorm_v2_tfa()
