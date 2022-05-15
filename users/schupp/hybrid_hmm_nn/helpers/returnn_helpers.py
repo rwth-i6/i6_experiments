@@ -50,9 +50,12 @@ class GetBestEpochJob(Job):
         with open(self.learning_rates.get_path(), 'rt') as f:
             text = f.read()
 
+        print("TBS:")
         data = eval(text, {'inf': 1e99, 'EpochData': EpochData})
+        print(data)
 
         epochs = list(sorted(data.keys()))
+        print(epochs)
 
         error_key = None
         if self.key == None:
@@ -66,6 +69,7 @@ class GetBestEpochJob(Job):
             error_key = self.key
 
         scores = [(epoch, data[epoch]['error'][error_key]) for epoch in epochs if error_key in data[epoch]['error']]
+        print(scores)
         sorted_scores = list(sorted(scores, key=lambda x: x[1]))
 
         self.out_epoch.set(sorted_scores[self.index][0])

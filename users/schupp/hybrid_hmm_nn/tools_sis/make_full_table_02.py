@@ -10,7 +10,7 @@ import argparse
 import csv
 import importlib
 
-log.basicConfig(level=log.INFO)
+log.basicConfig(level=log.DEBUG)
 
 
 parser = argparse.ArgumentParser()
@@ -211,15 +211,20 @@ for ex in all_experiments:
         wers_per_set = [ get_dataset_epoch(best_ep_dev_other, _set) for _set in datasets ]
         log.debug(f"Found wers: {wers_per_set}")
 
+        # TODO the following blocks can be simplified and put in one function
         dev_score_error_this_ep = ["no_data", "no_data"]
-        if data["dev-other"]["errors_per_ep"] and str(best_ep_dev_other) in data["dev-other"]["errors_per_ep"]:
+        if data["dev-other"]["errors_per_ep"] and str(best_ep_dev_other) in data["dev-other"]["errors_per_ep"] and \
+            "devtrain_score_output" in data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)] and \
+                "devtrain_score_output" in data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]:
             dev_score_error_this_ep = [
                 data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_score_output"],
                 data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_error_output"],
             ]
 
         dev_score_error_final = ["no_data", "no_data"]
-        if data["dev-other"]["errors_per_ep"] and str(config_data["num_epochs"]) in data["dev-other"]["errors_per_ep"]:
+        if data["dev-other"]["errors_per_ep"] and str(config_data["num_epochs"]) in data["dev-other"]["errors_per_ep"] and \
+            "devtrain_error_output" in data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])] and \
+                "devtrain_error_output" in data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]:
             dev_score_error_final = [
                 data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_score_output"],
                 data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_error_output"],

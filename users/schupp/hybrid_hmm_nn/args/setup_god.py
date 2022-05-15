@@ -331,8 +331,19 @@ def create_experiment_world_003( # New system that adds devtrain dataset
         exp_name=name
     )
 
-    if final_recog:
+    if final_recog and False: # THis was still bugg, TODO fixme
         job_dispatcher.make_and_register_final_rasr_search(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+    
+
+    if final_recog:
+        job_dispatcher.make_and_register_final_rasr_search_manual(
             train_job=train_job,
             output_path=f"{name}",
             system = system,
@@ -442,8 +453,18 @@ def create_experiment_world_004( # New system that adds devtrain dataset
         exp_name=name
     )
 
-    if final_recog:
+    if final_recog and False: # This was still buggy, TODO: fix me 
         job_dispatcher.make_and_register_final_rasr_search(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+
+    if final_recog:
+        job_dispatcher.make_and_register_final_rasr_search_manual(
             train_job=train_job,
             output_path=f"{name}",
             system = system,
