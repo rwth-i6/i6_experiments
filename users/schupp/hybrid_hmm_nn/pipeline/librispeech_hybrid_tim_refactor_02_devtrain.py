@@ -77,7 +77,7 @@ librispeech_corpora_keys = [
 ]
 
 # concurrent dict for corpus segmentation
-CONCURRENT["devtrain2000"] = 1 # TODO: not sure if this is correct
+CONCURRENT["devtrain2000"] = 10 # Increased from 1
 concurrent = {key: CONCURRENT[key] for key in librispeech_corpora_keys}
 concurrent["train-other-960"] = 100
 

@@ -10,7 +10,7 @@ import argparse
 import csv
 import importlib
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.INFO)
 
 
 parser = argparse.ArgumentParser()
@@ -56,13 +56,9 @@ csv_columns = {
 
     "num params (M)" : [],
 
-    "devother score (this ep)" : [],
-
-    "devother error (this ep)" : [],
-
-    "devother score (final ep)" : [],
-
-    "devother error (final ep)" : [],
+    "dev/devother CE (final ep)" : [],
+    "dev/devother FER (final ep)" : [],
+    "dev/devother WER (final ep)" : [],
 
     "wer devother" : [], # TODO: woule be interesing to have
 
@@ -211,25 +207,32 @@ for ex in all_experiments:
         wers_per_set = [ get_dataset_epoch(best_ep_dev_other, _set) for _set in datasets ]
         log.debug(f"Found wers: {wers_per_set}")
 
-        # TODO the following blocks can be simplified and put in one function
-        dev_score_error_this_ep = ["no_data", "no_data"]
-        if data["dev-other"]["errors_per_ep"] and str(best_ep_dev_other) in data["dev-other"]["errors_per_ep"] and \
-            "devtrain_score_output" in data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)] and \
-                "devtrain_score_output" in data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]:
-            dev_score_error_this_ep = [
-                data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_score_output"],
-                data["dev-other"]["errors_per_ep"][str(best_ep_dev_other)]["devtrain_error_output"],
-            ]
+        def maybe_get_error_score_by_ep(name, epoch):
+            if data["dev-other"]["errors_per_ep"] and str(epoch) in data["dev-other"]["errors_per_ep"] and \
+                name in data["dev-other"]["errors_per_ep"][str(epoch)]:
+                return data["dev-other"]["errors_per_ep"][str(epoch)][name]
+            else:
+                return None
 
-        dev_score_error_final = ["no_data", "no_data"]
-        if data["dev-other"]["errors_per_ep"] and str(config_data["num_epochs"]) in data["dev-other"]["errors_per_ep"] and \
-            "devtrain_error_output" in data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])] and \
-                "devtrain_error_output" in data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]:
-            dev_score_error_final = [
-                data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_score_output"],
-                data["dev-other"]["errors_per_ep"][str(config_data["num_epochs"])]["devtrain_error_output"],
-            ]
-        
+
+        devtrain_score_error_final = [
+            maybe_get_error_score_by_ep("devtrain_score_output", config_data["num_epochs"]),
+            maybe_get_error_score_by_ep("devtrain_error_output", config_data["num_epochs"]),
+        ]
+
+        dev_score_error_final = [
+            maybe_get_error_score_by_ep("dev_score_output", config_data["num_epochs"]),
+            maybe_get_error_score_by_ep("dev_error_output", config_data["num_epochs"]),
+        ]
+
+        CE_error_ration = "no data"
+
+        if devtrain_score_error_final[1] and dev_score_error_final[1]:
+            CE_error_ration = dev_score_error_final[1]/devtrain_score_error_final[1]
+
+        FER_error_ration = "no data"
+        if devtrain_score_error_final[0] and dev_score_error_final[0]:
+            FER_error_ration = dev_score_error_final[0]/devtrain_score_error_final[0]
 
         finished_train = "YES" if int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
 
@@ -242,10 +245,9 @@ for ex in all_experiments:
             data["dev-other"]["time_p_sep"] * best_ep_dev_other,
             config_data["num_epochs"] * data["dev-other"]["time_p_sep"],
             data["dev-other"]["num_params"], # params
-            dev_score_error_this_ep[0], # devtrain score ( this ep )
-            dev_score_error_this_ep[1], # devtrain error ( this ep )
-            dev_score_error_final[0], # devtrain score final
-            dev_score_error_final[1], # devtrain error final
+            CE_error_ration,
+            FER_error_ration,
+            "TODO: no results yet",
             "TODO: not yet impemented",
             "\n" + "\n".join([f'{time}: {gpu}' for gpu, time in zip(log_data["used_gpus"], log_data["time_switched_gpu"])]), # GPU by time
             data["dev-other"]["time_p_sep"],

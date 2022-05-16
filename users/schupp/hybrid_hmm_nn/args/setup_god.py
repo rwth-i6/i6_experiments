@@ -259,6 +259,8 @@ def create_experiment_world_003( # New system that adds devtrain dataset
 
     final_recog = True,
 
+    extra_recog_devtrain = False,
+
     test_construction=False,
     print_net = False,
     write_dummpy_config = None, # String path if given, write the returnn config there
@@ -352,6 +354,16 @@ def create_experiment_world_003( # New system that adds devtrain dataset
             exp_name = name,
         )
 
+    if extra_recog_devtrain:
+        job_dispatcher.make_and_register_final_rasr_search_manual_devtrain(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+
     return OrderedDict(
         network = network
     )
@@ -380,6 +392,8 @@ def create_experiment_world_004( # New system that adds devtrain dataset
     extra_recog_epochs = None, # This setup always does *all* recogs for all 'keep' epochs, use this to add more
 
     final_recog = True,
+
+    extra_recog_devtrain = False,
 
     test_construction=False,
     print_net = False,
@@ -465,6 +479,17 @@ def create_experiment_world_004( # New system that adds devtrain dataset
 
     if final_recog:
         job_dispatcher.make_and_register_final_rasr_search_manual(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+
+    # If this flag is set we will also run an additional recog on the 'devother' dataset
+    if extra_recog_devtrain:
+        job_dispatcher.make_and_register_final_rasr_search_manual_devtrain(
             train_job=train_job,
             output_path=f"{name}",
             system = system,

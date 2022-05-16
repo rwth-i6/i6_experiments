@@ -52,6 +52,7 @@ def make_experiment_03_rqmt(
   args, 
   NAME,
   aux_loss_layers = [6],
+  extra_recog_devtrain=False,
   test_construct = False
   ):
 
@@ -84,6 +85,8 @@ def make_experiment_03_rqmt(
       **args.conformer_defaults ),
       returnn_train_post_config=args.returnn_train_post_config,
       returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      extra_recog_devtrain=extra_recog_devtrain,
 
       test_construction=test_construct,
   )
@@ -571,7 +574,11 @@ def baseline_big_short():
   args = get_defaults()
   NAME = "baseline_03_big_short" # BASE
 
-  make_experiment_03_rqmt(args, NAME)
+  make_experiment_03_rqmt(
+    args, 
+    NAME,
+    extra_recog_devtrain = True
+  )
 
 
 # ---------------------------- ablation of best model elements -----------------------
@@ -1209,7 +1216,7 @@ def all_activation_experiments():
 
 def main():
   # Baseline
-  baseline_big_short()
+  # baseline_big_short() This is finised and I wan't to text 'extra recog devtrain = True, with it'
 
   # Ablation
   no_aux_loss()
