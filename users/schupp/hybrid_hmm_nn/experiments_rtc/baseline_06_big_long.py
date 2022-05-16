@@ -1,5 +1,5 @@
-# This is 'big-short'
-# Train for only 3 full epochs i.e.: 120 sub epochs 40 split
+# This is 'big-long'
+# Train for only 15 full epochs i.e.: 600 sub epochs 40 split
 # Model as about 86 M params
 
 from atexit import register
@@ -607,6 +607,50 @@ def se_ffmod():
     se_block_for_module = ["ff_mod"],
   )
 
+def huge_conformer():
+
+  args = get_defaults()
+  NAME = f'{BASE}+XL'
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
+def huge_conformer_se_ffmod():
+  args = get_defaults()
+  NAME = f'{BASE}+XL+stoch-depth-ff-mod'
+
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=24)
+
+  sd_args = {
+    i : {
+      "ff_mod1" : space[2*(i-1)],
+      "ff_mod2"  : space[2*(i-1) + 1],
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth(
+    args,
+    NAME,
+  )
+
+
 def main():
   baseline()
   se_ffmod()
+
+  huge_conformer()
+  huge_conformer_se_ffmod()

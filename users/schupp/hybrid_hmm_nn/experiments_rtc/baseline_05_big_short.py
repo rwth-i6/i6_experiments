@@ -620,9 +620,73 @@ def se_convmod():
     se_block_for_module = ["conv_mod"],
   )
 
+def determinism_test_random_seed():
+  SEEDS = [
+    1490,
+    3218,
+    5537,
+    1814,
+    13
+  ]
+
+  for x in range(1, 5 + 1):
+    SEED = SEEDS[x-1]
+    args = get_defaults()
+    NAME = f"{BASE}+fixed-seed={SEED}-run-{x}"
+
+    args.config_args["random_seed"] = SEED
+    args.config_args["determinism_test_extra_tim"] = f"random_seed_used:{SEED}"
+
+    for _set in ["train", "dev", "devtrain"]:
+      # Only update we want to keep the other defaults
+      args.returnn_rasr_args_defaults["overwrite_orders"][_set].update({ "segment_order_shuffle_seed" : SEED })
+
+      make_experiment_04_seq_orders(
+        args, 
+        NAME
+      )
+
+def determinism_test_fixed_seed():
+  SEED = 27
+
+  for x in range(1, 5 + 1):
+    args = get_defaults()
+    NAME = f"{BASE}+random-seed={SEED}-run-{x}"
+
+    args.config_args["random_seed"] = SEED
+    args.config_args["determinism_test_extra_tim"] = f"used_seed:{SEED}"
+
+    for _set in ["train", "dev", "devtrain"]:
+      # Only update we want to keep the other defaults
+      args.returnn_rasr_args_defaults["overwrite_orders"][_set].update({ "segment_order_shuffle_seed" : SEED })
+
+      make_experiment_04_seq_orders(
+        args, 
+        NAME
+      )
+
+def huge_conformer():
+
+  args = get_defaults()
+  NAME = f'{BASE}+XL'
+
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
 def main():
   baseline()
   no_short_lr()
 
   se_ffmod()
   se_convmod()
+
+  determinism_test_fixed_seed()
+  determinism_test_random_seed()
+
+  huge_conformer()

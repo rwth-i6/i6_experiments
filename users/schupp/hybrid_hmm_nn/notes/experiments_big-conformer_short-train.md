@@ -20,10 +20,10 @@ Stats of that model are:
 - [x] `baseline_03_big_short+no-frame-stacking`
 
 
-#### Pretrain
+#### Non determinism 
 
-
-- [ ] `baseline_03_big_short+pretrain`
+- [ ] `baseline_03_big_short+pretrain-same-seed=42` x 5
+- [ ] `baseline_03_big_short+pretrain-diff-seed=X` x 5
 
 
 #### Learning rate

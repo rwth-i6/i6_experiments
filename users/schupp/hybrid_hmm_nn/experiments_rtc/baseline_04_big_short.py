@@ -1077,11 +1077,79 @@ def huge_conformer():
     #test_construct = True
   )
 
+
+def huge_conformer_shorter_lr():
+
+  args = get_defaults_02()
+  NAME = f'{BASE}+XL+short-lr'
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  args.config_args["learning_rates"] = learning_rates
+
+  make_experiment_03_rqmt(
+    args,
+    NAME,
+    #test_construct = True
+  )
+
+
+def huge_conformer_shorter_lr_stoch_depth():
+
+  args = get_defaults_02()
+  NAME = f'{BASE}+XL+short-lr+stoch-depth-ff-mod'
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  args.config_args["learning_rates"] = learning_rates
+
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=24)
+
+  sd_args = {
+    i : {
+      "ff_mod1" : space[2*(i-1)],
+      "ff_mod2"  : space[2*(i-1) + 1],
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+
+  make_experiment_06_stoch_depth(
+    args,
+    NAME,
+    #test_construct = True
+  )
+
 def conformer_16_blocks():
   args = get_defaults_02()
   NAME = f'{BASE}+16blocks+2aux-6-12'
 
   args.conformer_defaults['num_blocks'] = 16
+
+  make_experiment_03_rqmt(
+    args,
+    NAME,
+    aux_loss_layers = [6, 12],
+    #test_construct = True
+  )
+
+def conformer_16_blocks_shorter_lr():
+  args = get_defaults_02()
+  NAME = f'{BASE}+16blocks+2aux-6-12+short-lr'
+
+  args.conformer_defaults['num_blocks'] = 16
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  args.config_args["learning_rates"] = learning_rates
 
   make_experiment_03_rqmt(
     args,
@@ -1152,10 +1220,14 @@ def main():
   #batchnorm_old_defaults()
 
   huge_conformer()
+  huge_conformer_shorter_lr()
+  huge_conformer_shorter_lr_stoch_depth()
   conformer_16_blocks()
+
 
   lr_newbob()
   lr_shorter()
+  conformer_16_blocks_shorter_lr()
   
 
 def main2():
@@ -1173,3 +1245,11 @@ def main5():
   no_frame_stacking()
   switch_conv_att_mod()
   groupnorm_v2_tfa()
+
+
+def all():
+  main()
+  main2()
+  main3()
+  main4()
+  main5()
