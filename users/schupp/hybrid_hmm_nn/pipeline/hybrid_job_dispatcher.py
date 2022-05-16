@@ -1,8 +1,6 @@
 # An addition to the hybrid baseline, only real purpose it to register and handle job outputs
 # Note, there is some duplicate logic with librispeech_hybrid_baseline, this should prob be merged
 
-from this import d
-
 from torch import exp_
 from i6_core.returnn import ReturnnConfig, ReturnnRasrTrainingJob
 import inspect
@@ -543,6 +541,52 @@ def make_and_register_final_rasr_search_manual(
                     feature_name=feature_name,
                     recog_name = f"{rec_name}/{epoch:03}" # This might have run already but that fine
                 )
+
+
+def make_and_register_final_rasr_search_manual_devtrain( 
+    train_job = None,
+    output_path = None,
+
+    system = None,
+    returnn_train_config = None,
+    feature_name = None,
+    exp_name = None,
+
+    for_best_n = 1, # Only for the best, otherwise for the 'n' best
+):
+
+
+    # 1 - check if the train job is done 
+    if os.path.exists(train_job.out_learning_rates):
+        import glob
+        # I suppose this means the train is done
+        #print(f"TBS: {train_job.out_model_dir}")
+        all_models = sorted([int(x.split("/")[-1].split(".")[1]) for x in glob.glob(str(train_job.out_model_dir) + "/epoch.*.index")])
+        #print(f"TBS: found final models: {all_models}")
+        for x in range(1, for_best_n + 1): # We could invert but also we can just itterate from the back
+            epoch = all_models[-x]
+            print(f"devother for ep{epoch}", end=",")
+            data = "devtrain2000"
+            model = train_job.out_models[epoch] # This will always be availabol at this point
+            #print(model)
+
+            system.init_rasr_am_lm_config_recog(
+                recog_corpus_key=data
+            )
+
+            rec_name = f"{exp_name}_{data}"
+            if data == "dev-other":
+                rec_name = exp_name # We dont prefix dev other...
+
+            system_search_for_model(
+                model = model,
+                system = system,
+                returnn_train_config= returnn_train_config,
+                recog_corpus_key=data,
+                feature_name=feature_name,
+                recog_name = f"{rec_name}/{epoch:03}" # This might have run already but that fine
+            )
+
 
 
 
