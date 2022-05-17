@@ -282,3 +282,71 @@ def make_ff_mod_004_se_block(
     )
 
     return net, f"{prefix}_out"
+
+def make_ff_mod_005_inital_groupnorm(
+    net = None,
+    in_l = None,
+    prefix = None,
+
+    # FF specific args
+    ff_dim = None,
+    ff_activation = None,
+    ff_activation_dropout = None,
+    ff_post_dropout = None,
+    ff_half_ratio = None,
+
+    # Groupnorm
+    groups = None,
+    epsilon = None,
+
+    # Model shared args
+    model_dim = None,
+    initialization = None
+):
+    assert net, "no net"
+    assert in_l, "no input layer"
+    assert prefix, "needs prefix"
+
+
+    from .network_additions import group_normalization
+
+    net_add = {}
+    net_add, _next = group_normalization(net_add, in_l, "_ff", groups, epsilon, model_dim)
+
+    net_add.update({
+        "_conv1" : {
+            'class': "linear", 
+            'activation': ff_activation,
+            'with_bias': True,
+            'from': [_next],
+            'n_out': ff_dim, 
+            'forward_weights_init': initialization },
+        "_conv2" : {
+            'class': "linear", 
+            'activation': None, 
+            'with_bias': True,
+            'from': ["_conv1"], 
+            'dropout': ff_activation_dropout,
+            'n_out': model_dim, 
+            'forward_weights_init': initialization},
+        "_drop" : {
+            'class': "dropout",
+            'dropout': ff_post_dropout,
+            'from': ["_conv2"]},
+        "_drop_half" : {
+            'class': "eval",
+            'eval': f"{ff_half_ratio} * source(0)",
+            'from': ["_drop"] },
+        "_out" : {
+            'class': "combine", 
+            'kind': "add",
+            'from': [in_l, "_drop_half"]
+        }
+    })
+
+    net.update(
+        prefix_all_keys(prefix, net_add, in_l)
+    )
+
+    return net, f"{prefix}_out"
+

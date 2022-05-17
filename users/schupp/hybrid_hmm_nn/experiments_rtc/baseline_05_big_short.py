@@ -584,6 +584,72 @@ def make_experiment_12_groupnorm_v2(
   )
 
 
+def make_experiment_13_groupnorm_everywhere(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  groupnorm_args = {
+    "groups" : 32,
+    "epsilon" : 1e-5
+  },
+  test_construct = False
+  ):
+  if groupnorm_args:
+    # We need to set groupnorm args for all modules!
+    for a in [
+      args.ff_default_args,
+      args.sa_default_args,
+      args.conv_default_args
+    ]:
+      for k in groupnorm_args:
+        a[k] = groupnorm_args[k]
+
+  # Update all the modules with groupnorm functions
+  # make_self_att_mod_006_groupnorm, make_conv_mod_010_initial_groupnorm
+  # make_ff_mod_005_inital_groupnorm
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_010_initial_groupnorm
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.sa_mod_versions import make_self_att_mod_006_groupnorm
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.ff_mod_versions import make_ff_mod_005_inital_groupnorm
+
+  experiment_data = god.create_experiment_world_004( # New world that allowes adapting sequence order
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_03_feature_stacking_auxilary_loss,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      conformer_ff1_func = make_ff_mod_005_inital_groupnorm,
+      conformer_ff2_func = make_ff_mod_005_inital_groupnorm,
+
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      conformer_self_att_func = make_self_att_mod_006_groupnorm,
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func = make_conv_mod_010_initial_groupnorm,
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      test_construction=test_construct,
+  )
+
+
 # ------------------------- baseline: 'big-short-02' -----------------------
 
 # Basicly:  baseline_03_big_short +only-shuffle and +short-lr
@@ -665,6 +731,26 @@ def determinism_test_fixed_seed():
         NAME
       )
 
+def groupnorm_conv_mod():
+  args = get_defaults()
+  NAME = f"{BASE}+groupnorm-v2-g=32"
+
+  args.conv_default_args["groups"] = 32
+  args.conv_default_args["epsilon"] = 1e-5
+
+  make_experiment_12_groupnorm_v2(
+    args, 
+    NAME,
+    #test_construct = True
+  )
+
+def groupnorm_everywhere():
+  args = get_defaults()
+  NAME = f"{BASE}+groupnorm-everywhere-g=32"
+
+  make_experiment_13_groupnorm_everywhere(args, NAME)
+
+
 def huge_conformer():
 
   args = get_defaults()
@@ -679,6 +765,32 @@ def huge_conformer():
     NAME,
   )
 
+
+def sd_ff_depth_scale_multiple():
+  for prob in [0.1, 0.2, 0.3, 0.4]:
+  
+    args = get_defaults()
+    NAME = f'{BASE}+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'
+
+    import numpy
+    space = numpy.linspace(1.0, 0.5, num=24)
+
+    def surv_prob_by_layer(l, L=12.0, p=0.2):
+      return 1.0 - ((l/L) * (1.0 - p))
+
+    sd_args = {
+      i : {
+        "ff_mod1" : surv_prob_by_layer(i, p=prob),
+        "ff_mod2" : surv_prob_by_layer(i, p=prob),
+      } for i in range(1, 12 + 1)
+    }
+
+    args.conformer_defaults.update(OrderedDict(
+      apply_stochastic_depth = sd_args
+    ))
+
+    make_experiment_06_stoch_depth( args, NAME )
+
 def main():
   baseline()
   no_short_lr()
@@ -688,5 +800,10 @@ def main():
 
   determinism_test_fixed_seed()
   determinism_test_random_seed()
+
+  groupnorm_conv_mod()
+  groupnorm_everywhere()
+
+  sd_ff_depth_scale_multiple()
 
   huge_conformer()

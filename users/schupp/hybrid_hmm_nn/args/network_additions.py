@@ -368,7 +368,7 @@ def tf_group_norm(x, G=32, eps=1e-5):
 
     x = tf.reshape(x, [B, T, C]) * gamma + beta
 
-def group_normalization( # TODO: unfinished
+def group_normalization_old( # TODO: unfinished
     net=None,
     in_l=None,
     prefix=None,
@@ -402,6 +402,31 @@ def group_normalization( # TODO: unfinished
 
     net.update(net_add)
     return net, "apply"
+
+
+def group_normalization( 
+    net=None,
+    in_l=None,
+    prefix=None,
+
+    groups = None,
+    epsilon = None,
+
+    model_dim = None,
+):
+    # Per: https://github.com/taki0112/Group_Normalization-Tensorflow
+    # "in_lengh" : {"class" : "length", "from": in_l, "axes" : "F"},
+    if prefix and prefix != "":
+        prefix += "_" # If we have a prefix add the under score other whise keep same for compatability
+
+    net_add = {
+        f"{prefix}split" : {"class" : "split_dims", "from" : in_l, "axis": "F", "dims" : (groups, model_dim // groups)},
+        f"{prefix}norm" : {"class" : "norm", "from" : f"{prefix}split", "axes" : "TF"},
+        f"{prefix}merge" : {"class" : "merge_dims", "from" : f"{prefix}norm", "axes" : [f"dim:{groups}", f"dim:{model_dim//groups}"]},
+    }
+
+    net.update(net_add)
+    return net, f"{prefix}merge"
 
 def add_auxilary_loss(
     net=None,

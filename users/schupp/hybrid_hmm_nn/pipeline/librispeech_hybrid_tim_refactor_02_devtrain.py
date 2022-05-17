@@ -155,9 +155,12 @@ class LibrispeechHybridSystemTim(meta.System):
         self.crp[ck + "_train"].concurrent = 1
         self.crp[ck + "_train"].segment_path = split_segments.out_segments['train']
 
+        # Train cross validataion
         self.crp[ck + "_dev"] = rasr.CommonRasrParameters(base=self.crp[ck])
         self.crp[ck + "_dev"].concurrent = 1
         self.crp[ck + "_dev"].segment_path = split_segments.out_segments['dev']
+
+        # devtrain/train-cv -> CE, FER, WER
 
 
       # lexicon #

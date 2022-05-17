@@ -1224,6 +1224,7 @@ def main():
   # Norm experiments: 
   batchnorm_no_ln()
   groupnorm_noln()
+  groupnorm_v2()
   #batchnorm_old_defaults()
 
   huge_conformer()

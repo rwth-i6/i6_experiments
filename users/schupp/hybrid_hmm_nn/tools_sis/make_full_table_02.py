@@ -214,25 +214,37 @@ for ex in all_experiments:
             else:
                 return None
 
+        def get_key(_set="dev", _for="score"):
+            if not data["dev-other"]["errors_per_ep"]:
+                return None # data non existent
+            elif not "0" in data["dev-other"]["errors_per_ep"]:
+                return None # even epoch 0 doesn't exist
+            keys = list(data["dev-other"]["errors_per_ep"]["0"].keys())
+            if "{_set}_{_for}_output" in keys:
+                return "{_set}_{_for}_output"
+            elif "{_set}_{_for}" in keys:
+                return "{_set}_{_for}"
+            assert False, "unknown key strucutre"
+
+        
 
         devtrain_score_error_final = [
-            maybe_get_error_score_by_ep("devtrain_score_output", config_data["num_epochs"]),
-            maybe_get_error_score_by_ep("devtrain_error_output", config_data["num_epochs"]),
+            maybe_get_error_score_by_ep(get_key("devtrain", "score"), config_data["num_epochs"]),
+            maybe_get_error_score_by_ep(get_key("devtrain", "error"), config_data["num_epochs"]),
         ]
 
         dev_score_error_final = [
-            maybe_get_error_score_by_ep("dev_score_output", config_data["num_epochs"]),
-            maybe_get_error_score_by_ep("dev_error_output", config_data["num_epochs"]),
+            maybe_get_error_score_by_ep(get_key("dev", "score"), config_data["num_epochs"]),
+            maybe_get_error_score_by_ep(get_key("dev", "error"), config_data["num_epochs"]),
         ]
 
         CE_error_ration = "no data"
-
-        if devtrain_score_error_final[1] and dev_score_error_final[1]:
-            CE_error_ration = dev_score_error_final[1]/devtrain_score_error_final[1]
+        if devtrain_score_error_final[0] and dev_score_error_final[0]:
+            CE_error_ration = devtrain_score_error_final[0]/dev_score_error_final[0]
 
         FER_error_ration = "no data"
-        if devtrain_score_error_final[0] and dev_score_error_final[0]:
-            FER_error_ration = dev_score_error_final[0]/devtrain_score_error_final[0]
+        if devtrain_score_error_final[1] and dev_score_error_final[1]:
+            FER_error_ration = devtrain_score_error_final[1]/dev_score_error_final[1]
 
         finished_train = "YES" if int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
 
