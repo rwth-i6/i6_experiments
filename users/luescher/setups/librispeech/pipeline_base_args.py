@@ -474,13 +474,13 @@ def get_sat_args(
     }
 
     sat_recognition_args = {
-        "prev_ctm": (
-            "tri",
-            6.0,
-            24.9,
-            10,
-            "-optlm",
-        ),  # (name, pron_scale, lm_scale, it, opt)
+        "prev_ctm": rasr_util.PrevCtm(
+            prev_step_key="tri",
+            pronunciation_scale=6.0,
+            lm_scale=24.9,
+            iteration=10,
+            optimized_lm=True,
+        ),
         "feature_cache": feature_base_cache,
         "cache_regex": f"^{feature_base_cache}.*$",
         "cmllr_mixtures": initial_mixture,
@@ -561,13 +561,13 @@ def get_vtln_sat_args(
     }
 
     vtln_sat_recognition_args = {
-        "prev_ctm": (
-            "vtln",
-            6.0,
-            22.4,
-            10,
-            "-optlm",
-        ),  # (name, pron_scale, lm_scale, it, opt)
+        "prev_ctm": rasr_util.PrevCtm(
+            prev_step_key="vtln",
+            pronunciation_scale=6.0,
+            lm_scale=22.4,
+            iteration=10,
+            optimized_lm=True,
+        ),
         "feature_cache": feature_base_cache,
         "cache_regex": f"^{feature_base_cache}.*$",
         "cmllr_mixtures": initial_mixture,
@@ -656,10 +656,13 @@ def get_data_inputs(
 
     use_stress_marker = False
 
-    original_bliss_lexicon = lbs_dataset.get_bliss_lexicon(
-        use_stress_marker=use_stress_marker,
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
-    )
+    original_bliss_lexicon = {
+        "filename": lbs_dataset.get_bliss_lexicon(
+            use_stress_marker=use_stress_marker,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        ),
+        "normalize_pronunciation": False,
+    }
 
     augmented_bliss_lexicon = {
         "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(

@@ -500,7 +500,7 @@ def get_net_dict_like_seg_model(
 def get_best_net_dict(
         lstm_dim, att_num_heads, att_key_dim, beam_size, sos_idx, feature_stddev, target, task, targetb_num_labels,
         weight_dropout, with_state_vector, with_weight_feedback, prev_target_in_readout, dump_output, sil_idx,
-        use_l2, att_ctx_with_bias, focal_loss):
+        use_l2, att_ctx_with_bias, focal_loss, att_ctx_reg):
   net_dict = {"#info": {"att_num_heads": att_num_heads, "enc_val_per_head": (lstm_dim * 2) // att_num_heads}}
   net_dict.update({
     "source": {
@@ -564,7 +564,9 @@ def get_best_net_dict(
       "L2": 0.0001 if use_l2 else None},
 
     "encoder": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]},  # dim: EncValueTotalDim
-    "enc_ctx": {"class": "linear", "activation": None, "with_bias": True if att_ctx_with_bias else False, "from": ["encoder"], "n_out": att_key_dim},
+    "enc_ctx": {
+      "class": "linear", "activation": None, "with_bias": True if att_ctx_with_bias else False,
+      "from": ["encoder"], "n_out": att_key_dim},
     # preprocessed_attended in Blocks
     "inv_fertility": {
       "class": "linear", "activation": "sigmoid", "with_bias": False, "from": ["encoder"], "n_out": att_num_heads},
@@ -590,7 +592,11 @@ def get_best_net_dict(
         'output': {
           'class': 'choice', 'target': "target_w_eos" if task == "train" else target,
           'beam_size': beam_size, 'from': ["label_prob"],
-          "initial_output": sos_idx}, "end": {"class": "compare", "from": ["output"], "value": 0}, 'target_embed': {
+          "initial_output": sos_idx},
+        # value of end-layer should also be sos_idx during training but it does not matter and it would break the hash
+        # of the train job bc I started it with value 0
+        "end": {"class": "compare", "from": ["output"], "value": sos_idx if task == "search" else 0},
+        'target_embed': {
           'class': 'linear', 'activation': None, "with_bias": False, 'from': ['output'], "n_out": 621,
           "initial_output": 0},  # feedback_input
         "weight_feedback": {
@@ -638,6 +644,10 @@ def get_best_net_dict(
 
   if focal_loss != 0.0:
     net_dict["output"]["unit"]["label_prob"]["loss_opts"]["focal_loss_factor"] = focal_loss
+
+  if att_ctx_reg:
+    net_dict["enc_ctx"]["L2"] = 0.0001
+    net_dict["enc_ctx"]["dropout"] = 0.2
 
   if sil_idx is not None and task == "search":
     net_dict.update({

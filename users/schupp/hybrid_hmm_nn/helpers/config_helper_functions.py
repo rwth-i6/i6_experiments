@@ -18,3 +18,20 @@ def recog(inputs ,only_dev_other=True, only_eps=None, system=None):
     recog_only_s(orig_name, "dev-other", inputs, system)
   else:
     all_sets_recog(inputs, only_eps, system)
+
+
+class experiment(object):
+  def __init__(self, method):
+    self._method = method
+  def __call__(self, *args, **kwargs):
+    return self._method(*args, **kwargs)
+  @classmethod
+  def get_all(cls, subject):
+    def g():
+      for name in dir(subject):
+        method = getattr(subject, name)
+        if isinstance(method, experiment):
+          yield name, method
+    return {name: method for name,method in g()}
+
+

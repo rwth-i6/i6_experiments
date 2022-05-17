@@ -257,10 +257,11 @@ def get_extended_net_dict(
   pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
+  exclude_sil_from_label_ctx,
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
-  length_scale=1.,
+  length_scale=1., global_length_var=None,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0):
 
@@ -268,6 +269,7 @@ def get_extended_net_dict(
   assert not sep_sil_model or sil_idx == 0  # assume in order to construct output_prob vector (concat sil_prob, label_prob, blank_prob)
   assert not label_dep_length_model or (label_dep_means is not None and max_seg_len is not None)
   # assert task != "train" or not label_dep_length_model
+  assert not exclude_sil_from_label_ctx or sil_idx is not None
 
   net_dict = {"#info": {"lstm_dim": lstm_dim, "l2": l2, "learning_rate": learning_rate, "time_red": time_reduction}}
   if task == "search":
@@ -490,7 +492,17 @@ def get_extended_net_dict(
           "from": ["label_log_prob0"]}})
 
       if prev_target_in_readout:
-        rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed")
+        if task == "train":
+          rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed")
+        else:
+          rec_unit_dict["prev_non_blank_embed_masked"] = {
+            "class": "masked_computation",
+            "from": "prev_non_blank_embed",
+            "mask": "prev:output_emit",
+            "unit": {
+                "class": "copy", "from": "data"},
+          }
+          rec_unit_dict["readout_in"]["from"].append("prev_non_blank_embed_masked")
 
       lm_dict = {
         "input_embed0": {
@@ -511,8 +523,13 @@ def get_extended_net_dict(
         assert sep_sil_model in ["pooling", "like-labels"]
         if sep_sil_model == "pooling":
           rec_unit_dict.update({
+            "segments_temp": {
+              "class": "reinterpret_data", "from": "segments_temp0", "set_dim_tags": {
+                "stag:sliced-time:segments_temp": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, },
+            "segments_temp0": {
+              "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", },
             "pool_segments": {
-              "class": "copy", "from": "segments"},
+              "class": "copy", "from": "segments_temp"},
             "pooled_segment": {
               "class": "reduce", "mode": "mean", "axes": ["stag:att_t"], "from": "pool_segments"},
             "sil_model": {
@@ -544,12 +561,28 @@ def get_extended_net_dict(
         #   "output": {
         #     'class': 'choice', 'target': "label_ground_truth", 'beam_size': beam_size, 'from': "data",
         #     "initial_output": sos_idx, "cheating": "exclusive" if task == "train" else None}, })
-        lm_dict["input_embed0"]["from"] = "prev_non_blank_embed"
-        rec_unit_dict.update(lm_dict)
+        if not exclude_sil_from_label_ctx:
+          lm_dict["input_embed0"]["from"] = "prev_non_blank_embed"
+          rec_unit_dict.update(lm_dict)
 
-        rec_unit_dict["input_embed0"]["name_scope"] = "lm_masked/input_embed0"
-        rec_unit_dict["input_embed"]["name_scope"] = "lm_masked/input_embed"
-        rec_unit_dict["lm"]["name_scope"] = "lm_masked/lm"
+          rec_unit_dict["input_embed0"]["name_scope"] = "lm_masked/input_embed0"
+          rec_unit_dict["input_embed"]["name_scope"] = "lm_masked/input_embed"
+          rec_unit_dict["lm"]["name_scope"] = "lm_masked/lm"
+        else:
+          lm_dict["input_embed0"]["from"] = "data"
+          lm_dict["lm"]["name_scope"] = "lm"
+          if prev_att_in_state:
+            lm_dict["lm"]["from"][0] = "base:prev:att"
+
+          rec_unit_dict.update({
+            "non_sil_mask": {
+              "class": "compare", "from": "output", "value": sil_idx, "kind": "not_equal", "initial_output": True
+            },
+            "lm_masked": {
+              "class": "masked_computation", "from": "prev_non_blank_embed", "mask": "prev:non_sil_mask", "unit": {
+                "class": "subnetwork", "from": "data", "subnetwork": {
+                  **lm_dict, "output": {"class": "copy", "from": "lm"}}}},
+            "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:non_sil_mask"}})
 
         net_dict.update({
           "label_model": {
@@ -562,12 +595,24 @@ def get_extended_net_dict(
         if prev_att_in_state:
           lm_dict["lm"]["from"][0] = "base:prev:att"
         # in case of search, emit log prob needs to be added to the label log prob
+        if exclude_sil_from_label_ctx:
+          net_dict["output"]["unit"].update({
+            "non_sil_mask": {
+              "class": "compare", "from": "output", "value": sil_idx, "kind": "not_equal", "initial_output": True},
+            "non_sil_non_blank_mask": {
+              "class": "combine", "from": ["non_sil_mask", "output_emit"], "kind": "logical_and", "initial_output": True
+            }
+          })
         net_dict["output"]["unit"].update({
           "lm_masked": {
-            "class": "masked_computation", "from": "prev_non_blank_embed", "mask": "prev:output_emit", "unit": {
+            "class": "masked_computation", "from": "prev_non_blank_embed",
+            "mask": "prev:non_sil_non_blank_mask" if exclude_sil_from_label_ctx else "prev:output_emit",
+            "unit": {
               "class": "subnetwork", "from": "data", "subnetwork": {
                 **lm_dict, "output": {"class": "copy", "from": "lm"}}}},
-          "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"}})
+          "lm": {
+            "class": "unmask", "from": "lm_masked",
+            "mask": "prev:non_sil_non_blank_mask" if exclude_sil_from_label_ctx else "prev:output_emit"}})
 
     # here, we add general components which are needed for train or search
     if task == "train":
@@ -641,6 +686,8 @@ def get_extended_net_dict(
         assert label_dep_means is not None
         assert max_seg_len is not None
 
+        global_length_var_str = "" if global_length_var is None else "*%s" % global_length_var
+
         net_dict.update({
           "max_seg_len_range0": {"class": "range", "limit": max_seg_len + 1, "start": 1, "delta": 1},
           "max_seg_len_range": {"class": "cast", "from": "max_seg_len_range0", "dtype": "float32"},
@@ -649,7 +696,7 @@ def get_extended_net_dict(
           "mean_seg_lens": {"class": "cast", "dtype": "float32", "from": "mean_seg_lens0"},
           "length_model_norm0": {
             "class": "eval", "from": ["mean_seg_lens", "max_seg_len_range"],
-            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1)))"},
+            "eval": "tf.math.exp(-tf.math.abs(source(0) - source(1))%s)" % global_length_var_str},
           "length_model_norm": {
             "class": "reduce", "from": ["length_model_norm0"], "mode": "sum", "axes": ["stag:max_seg_len_range0:range"]},
         })
@@ -659,7 +706,7 @@ def get_extended_net_dict(
           "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
           "length_model0": {
             "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
-            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
+            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0))%s)" % global_length_var_str},
           "length_model": {
             "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
           "emit_log_prob": {
@@ -685,43 +732,30 @@ def get_extended_net_dict(
           }
         })
       else:
-        assert length_model_type == "seg-neural"
+        assert length_model_type == "seg-neural" and task == "train"
         if task == "train":
           net_dict.update({
-            "time_range": {
-              "class": "range_in_axis", "from": "data:targetb", "axis": "t"
-            },
-            "seg_lens_data": {
-              "class": "masked_computation", "mask": "is_label", "from": "time_range", "unit": {
-                "class": "subnetwork", "from": "data", "subnetwork": {
-                  "positions": {"class": "copy", "from": "data"},
-                  "positions_0_prefix": {"class": "prefix_in_time", "from": "positions", "prefix": 0},
-                  "positions_shifted": {"class": "shift_axis", "from": "positions_0_prefix", "amount": 1, "pad": False},
-                  "seg_lens": {"class": "combine", "kind": "sub", "from": ["positions", "positions_shifted"]},
-                  "output": "copy", "from": "seg_lens"
-                }
-              }
-            }
+            "segment_lens_sparse": {
+              "class": "reinterpret_data", "from": "segment_lens_masked", "set_sparse": True, "set_sparse_dim": 20,
+              "register_as_extern_data": "segment_lens_target"},
           })
-        net_dict["output"]["unit"].update({
-          "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
-          "const0.0": {"class": "expand_dims", "axis": "F", "from": "const0.0_0"},
-          "seg_lens_float": {"class": "cast", "dtype": "float32", "from": "segment_lens"},
-          "length_model0": {
-            "class": "eval", "from": ["seg_lens_float", "base:mean_seg_lens"],
-            "eval": "tf.math.exp(-tf.math.abs(source(1) - source(0)))"},
-          "length_model": {
-            "class": "combine", "from": ["length_model0", "base:length_model_norm"], "kind": "truediv"},
-          "emit_log_prob": {
-            "class": "eval", "from": "length_model", "eval": "tf.math.log(source(0))"},
-          "max_seg_len": {
-            "class": "constant", "value": max_seg_len - 1}, "is_segment_longer_than_max": {
-            "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater"},
-          'const_neg_inf': {'axis': 'F', 'class': 'expand_dims', 'from': 'const_neg_inf_0'},
-          'const_neg_inf_0': {'class': 'constant', 'value': CodeWrapper("float('-inf')"), 'with_batch_dim': True},
-          "blank_log_prob": {
-            "class": "switch", "condition": "is_segment_longer_than_max", "true_from": "const_neg_inf",
-            "false_from": "const0.0"}})
+          net_dict["label_model"]["unit"].update({
+            "segments_temp": {
+              "class": "reinterpret_data", "from": "segments_temp0", "set_dim_tags": {
+                "stag:sliced-time:segments_temp": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, },
+            "segments_temp0": {
+              "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", },
+            "pool_segments": {"class": "copy", "from": "segments_temp"},
+            "pooled_segment": {
+              "axes": ["stag:att_t"], "class": "reduce", "from": "pool_segments", "mode": "mean", },
+            "non_blank_embed_128": {
+              "activation": None, "class": "linear", "from": "output", "n_out": 128, "with_bias": False, },
+            "length_model0": {
+              "L2": 0.0001, "class": "rec", "dropout": 0.3, "from": ["non_blank_embed_128", "pooled_segment"], "n_out": 128,
+              "unit": "nativelstm2", "unit_opts": {"rec_weight_dropout": 0.3}, },
+            "length_model": {
+              "activation": "softmax", "class": "linear", "from": "length_model0", "is_output_layer": True,
+              "target": "segment_lens_target", "loss": "ce"}})
     else:
       assert length_model_type == "frame"
       net_dict["output"]["unit"].update({
@@ -730,7 +764,7 @@ def get_extended_net_dict(
         "emit_log_prob": {"class": "activation", "from": "emit_prob0", "activation": "log_sigmoid"},
         "blank_log_prob": {"class": "eval", "from": "emit_prob0", "eval": "tf.math.log_sigmoid(-source(0))"}})
 
-    if task == "train":
+    if task == "train" and length_model_type in ["frame", "seg-static"]:
       net_dict["output"]["unit"].update({
         "emit_blank_log_prob": {"class": "copy", "from": ["blank_log_prob", "emit_log_prob"]},
         "emit_blank_prob": {
@@ -927,141 +961,637 @@ def custom_construction_algo(idx, net_dict):
   return net_dict
 
 
-def get_global_import_net_dict():
-  net_dict = {
-    "#info": {
-      "l2": 0.0001, "learning_rate": 0.001, "lstm_dim": 1024, "task": "search", "time_red": [3, 2], }, "conv0": {
-      "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "source0",
-      "n_out": 32, "padding": "same", "with_bias": True, }, "conv0p": {
-      "class": "pool", "from": "conv0", "mode": "max", "padding": "same", "pool_size": (1, 2),
-      "use_channel_first": False, }, "conv1": {
-      "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "conv0p",
-      "n_out": 32, "padding": "same", "with_bias": True, }, "conv1p": {
-      "class": "pool", "from": "conv1", "mode": "max", "padding": "same", "pool_size": (1, 2),
-      "use_channel_first": False, }, "conv_merged": {"axes": "static", "class": "merge_dims", "from": "conv1p"},
-    "decision": {
-      "class": "decide", "from": "output_wo_b", "loss": "edit_distance", "only_on_search": True, "target": "bpe", },
-    "encoder": {"class": "copy", "from": "encoder0"}, "ctc_out": {
-      "class": "softmax", "from": "encoder", "n_out": 1031, "with_bias": False, },
-    "encoder0": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]}, "lstm0_bw": {
-      "class": "rec", "L2": 0.0001, "direction": -1, "from": "conv_merged", "n_out": 1024, "trainable": True,
-      "unit": "nativelstm2", }, "lstm0_fw": {
-      "class": "rec", "L2": 0.0001, "direction": 1, "from": "conv_merged", "n_out": 1024, "trainable": True,
-      "unit": "nativelstm2", }, "lstm0_pool": {
-      "class": "pool", "from": ["lstm0_fw", "lstm0_bw"], "mode": "max", "padding": "same", "pool_size": (3,), },
-    "lstm1_bw": {
-      "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm1_fw": {
-      "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm1_pool": {
-      "class": "pool", "from": ["lstm1_fw", "lstm1_bw"], "mode": "max", "padding": "same", "pool_size": (2,), },
-    "lstm2_bw": {
-      "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm2_fw": {
-      "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm2_pool": {
-      "class": "pool", "from": ["lstm2_fw", "lstm2_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
-    "lstm3_bw": {
-      "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm3_fw": {
-      "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm3_pool": {
-      "class": "pool", "from": ["lstm3_fw", "lstm3_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
-    "lstm4_bw": {
-      "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm4_fw": {
-      "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm4_pool": {
-      "class": "pool", "from": ["lstm4_fw", "lstm4_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
-    "lstm5_bw": {
-      "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "lstm5_fw": {
-      "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024,
-      "trainable": True, "unit": "nativelstm2", }, "output": {
+def get_global_import_net_dict(task, targetb_blank_index, target_num_labels, targetb_num_labels, sos_idx, sil_idx, weight_feedback=False, feature_stddev=None, prev_att_in_state=True):
+  if task == "eval":
+    net_dict = {
+      "#info": {
+        "l2": 0.0001, "learning_rate": 0.001, "lstm_dim": 1024, "task": "search", "time_red": [3, 2], },
+      "conv0": {
+        "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "source0",
+        "n_out": 32, "padding": "same", "with_bias": True, },
+      "conv0p": {
+        "class": "pool", "from": "conv0", "mode": "max", "padding": "same", "pool_size": (1, 2),
+        "use_channel_first": False, },
+      "conv1": {
+        "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "conv0p",
+        "n_out": 32, "padding": "same", "with_bias": True, },
+      "conv1p": {
+        "class": "pool", "from": "conv1", "mode": "max", "padding": "same", "pool_size": (1, 2),
+        "use_channel_first": False, },
+      "conv_merged": {"axes": "static", "class": "merge_dims", "from": "conv1p"},
+      "encoder": {"class": "copy", "from": "encoder0"},
+      "ctc_out": {
+        "class": "softmax", "from": "encoder", "n_out": targetb_num_labels, "with_bias": False, },
+      "encoder0": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]},
+      "lstm0_bw": {
+        "class": "rec", "L2": None, "direction": -1, "from": "conv_merged", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm0_fw": {
+        "class": "rec", "L2": None, "direction": 1, "from": "conv_merged", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm0_pool": {
+        "class": "pool", "from": ["lstm0_fw", "lstm0_bw"], "mode": "max", "padding": "same", "pool_size": (3,), },
+      "lstm1_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm1_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm1_pool": {
+        "class": "pool", "from": ["lstm1_fw", "lstm1_bw"], "mode": "max", "padding": "same", "pool_size": (2,), },
+      "lstm2_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm2_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm2_pool": {
+        "class": "pool", "from": ["lstm2_fw", "lstm2_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm3_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm3_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm3_pool": {
+        "class": "pool", "from": ["lstm3_fw", "lstm3_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm4_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm4_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm4_pool": {
+        "class": "pool", "from": ["lstm4_fw", "lstm4_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm5_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "lstm5_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024,
+        "trainable": True, "unit": "nativelstm2", },
+      "output": {
+        "back_prop": False, "class": "rec", "from": "encoder", "include_eos": True, "size_target": None,
+        "initial_output": 0, "target": "targetb", "unit": {
+          "am": {"class": "copy", "from": "data:source"},
+          "att": {"axes": "except_time", "class": "merge_dims", "from": "att0"},
+          "att0": {
+            "add_var2_if_empty": False, "class": "dot", "from": ["att_val_split", "att_weights"], "reduce": "stag:att_t",
+            "var1": "f", "var2": None, },
+          "att_ctx": {
+            "activation": None, "class": "linear", "from": "segments", "n_out": 1024,
+            "with_bias": True, "name_scope": "/enc_ctx"},
+          "att_energy": {
+            "class": "reinterpret_data", "from": "att_energy0", "is_output_layer": False, "set_dim_tags": {
+              "f": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')}, },
+          "att_energy0": {
+            "activation": None, "name_scope": "energy", "class": "linear", "from": ["energy_tanh"], "n_out": 1,
+            "with_bias": False, },
+          "att_energy_in": {
+            "class": "combine", "from": ["att_ctx", "att_query"], "kind": "add", "n_out": 1024, },
+          "att_query": {
+            "activation": None, "class": "linear", "from": "lm", "is_output_layer": False, "n_out": 1024,
+            "with_bias": False, },
+          "att_val": {"class": "copy", "from": "segments"},
+          "att_val_split": {
+            "class": "reinterpret_data", "from": "att_val_split0", "set_dim_tags": {
+              "dim:1": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')}, },
+          "att_val_split0": {
+            "axis": "f", "class": "split_dims", "dims": (1, -1), "from": "att_val", },
+          "att_weights": {
+            "class": "dropout", "dropout": 0.0, "dropout_noise_shape": {"*": None}, "from": "att_weights0",
+            "is_output_layer": False, },
+          "att_weights0": {
+            "axis": "stag:att_t", "class": "softmax_over_spatial", "energy_factor": 0.03125, "from": "att_energy", },
+          "const1": {"class": "constant", "value": 1},
+          "const0.0": {"axis": "F", "class": "expand_dims", "from": "const0.0_0"},
+          "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
+          "enc_length": {
+            "class": "combine", "from": ["enc_length0", "const1"], "kind": "sub", },
+          "enc_length0": {"axis": "t", "class": "length", "from": "base:encoder"}, "is_last_frame": {
+            "class": "compare", "from": [":i", "enc_length"], "kind": "greater_equal", },
+          "max_seg_len": {"class": "constant", "value": 19}, "max_seg_len_or_last_frame": {
+            "class": "combine", "from": ["is_segment_longer_than_max", "is_last_frame"], "kind": "logical_or", },
+          "is_segment_longer_than_max": {
+            "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater", },
+          "const_inf": {"axis": "F", "class": "expand_dims", "from": "const_inf0"},
+          "const_inf0": {"class": "constant", "value": -1000000.0, "with_batch_dim": True},
+          "blank_log_prob": {
+            "class": "switch", "condition": "max_seg_len_or_last_frame", "false_from": "const0.0",
+            "true_from": "const_inf"},
+          "emit_log_prob": {
+            "class": "switch", "condition": "max_seg_len_or_last_frame", "false_from": "const0.0",
+            "true_from": "const0.0", },
+          "emit_log_prob0": {
+            "activation": "log_sigmoid", "class": "activation", "from": "emit_prob0", }, "emit_log_prob_scaled": {
+            "class": "eval", "eval": "0.0 * source(0)", "from": "emit_log_prob0", },
+          "energy_tanh": {
+            "activation": "tanh", "class": "activation", "from": ["att_energy_in"], },
+          "label_log_prob": {
+            "class": "combine", "from": ["label_log_prob0", "emit_log_prob"], "kind": "add", },
+          "label_log_prob_inf": {
+            "class": "eval", "eval": "10000000.0 * source(0)", "from": "label_log_prob"},
+          "output_log_prob_normal": {
+            "class": "copy", "from": ["label_log_prob", "blank_log_prob", "const_inf"], },
+          "output_log_prob": {
+            "class": "switch", "condition": "is_last_frame", "false_from": "output_log_prob_normal",
+            "true_from": "output_log_prob_mod"},
+          "label_log_prob0": {
+            "activation": "log_softmax", "class": "linear", "name_scope": "label_prob", "dropout": 0.3, "from": "readout",
+            "n_out": target_num_labels, },
+          "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"},
+          "lm_masked": {
+            "class": "masked_computation",
+            "from": "prev:prev_out_non_blank_embed_masked",
+            "name_scope": "",
+            "mask": "prev:output_emit",
+            "unit": {
+              "class": "subnetwork",
+              "from": "data",
+              "subnetwork": {
+                "input_embed": {
+                  "axes": "except_time",
+                  "class": "merge_dims",
+                  "from": "input_embed0",
+                },
+                "input_embed0": {
+                  "class": "window",
+                  "from": "data",
+                  "window_left": 0,
+                  "window_right": 0,
+                  "window_size": 1,
+                },
+                "lm": {
+                  "class": "rec",
+                  "from": ["input_embed", "base:prev:att"] if prev_att_in_state else ["input_embed"],
+                  "n_out": 1024,
+                  "name_scope": "lm/rec",
+                  "unit": "nativelstm2",
+                },
+                "output": {"class": "copy", "from": "lm"},
+              },
+            },
+          },
+          "output": {
+            "beam_size": 12, "cheating": None, "class": "choice", "from": "output_log_prob", "initial_output": 0,
+            "input_type": "log_prob", "length_normalization": False, "target": "targetb", },
+          "output_emit": {
+            "class": "compare", "from": "output", "initial_output": True, "kind": "not_equal", "value": targetb_blank_index, },
+          "prev_out_non_blank_embed_masked": {
+            "class": "masked_computation", "from": "output", "name_scope": "", "mask": "output_emit", "unit": {
+              "class": "subnetwork", "from": "data", "subnetwork": {
+                "target_embed": {
+                  "activation": None, "class": "linear", "initial_output": 0, "from": "data", "n_out": 621,
+                  "with_bias": False, },
+                "output": {
+                  "class": "copy", "from": "target_embed"}}}},
+          # "prev_non_blank_embed": {
+          #   "activation": None,
+          #   "name_scope": "target_embed",
+          #   "class": "linear",
+          #   "initial_output": 0,
+          #   "from": "prev_out_non_blank_masked",
+          #   "n_out": 621,
+          #   "with_bias": False,
+          # },
+          "prev_out_embed": {
+            "activation": None, "class": "linear", "from": "prev:output", "n_out": 128, },
+          # "prev_out_non_blank": {
+          #   "class": "reinterpret_data",
+          #   "from": "prev:output",
+          #   "set_sparse": True,
+          #   "set_sparse_dim": target_num_labels,
+          #   "initial_output": 0,
+          # },
+          "readout": {
+            "class": "reduce_out", "from": "readout_in", "mode": "max", "num_pieces": 2, },
+          "readout_in": {
+            "activation": None, "class": "linear", "from": ["lm", "prev:prev_out_non_blank_embed_masked", "att"], "n_out": 1000, },
+          "segment_lens": {
+            "class": "combine", "from": ["segment_lens0", "const1"], "is_output_layer": True, "kind": "add", },
+          "segment_lens0": {
+            "class": "combine", "from": [":i", "segment_starts"], "kind": "sub", },
+          "segment_starts": {
+            "class": "switch", "condition": "prev:output_emit", "false_from": "prev:segment_starts", "initial_output": 0,
+            "is_output_layer": True, "true_from": ":i", },
+          "segments": {
+            "class": "reinterpret_data", "from": "segments0", "set_dim_tags": {
+              "stag:sliced-time:segments": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, },
+          "segments0": {
+            "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", }, }, },
+      "source": {
+        "class": "eval",
+        "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)",
+      },
+      "source0": {"axis": "F", "class": "split_dims", "dims": (-1, 1), "from": "source"},
+    }
+    net_dict["output"]["unit"]["sos_log_prob"] = {
+      "class": "slice", "from": "label_log_prob", "axis": "f", "slice_start": sos_idx, "slice_end": sos_idx + 1
+    }
+    if sil_idx is None:
+      net_dict["output"]["unit"].update({
+        "output_log_prob_mod": {
+          "class": "copy", "from": ["label_log_prob_inf", "blank_log_prob", "sos_log_prob"]},
+      })
+    else:
+      assert sil_idx == 0
+      net_dict["output"]["unit"].update({
+        "sil_log_prob": {
+          "class": "slice", "from": "label_log_prob", "axis": "f", "slice_start": 0, "slice_end": 1},
+        "output_log_prob_mod": {
+          "class": "copy", "from": ["sil_log_prob", "label_log_prob_inf", "sos_log_prob"]}, })
+    if feature_stddev is not None:
+      net_dict["source_stddev"] = {
+        "class": "eval", "from": "data", "eval": "source(0) / 3.0"
+      }
+      net_dict["source"]["from"] = "source_stddev"
+    if weight_feedback:
+      net_dict["inv_fertility"] = {
+        "activation": "sigmoid",
+        "class": "linear",
+        "from": ["encoder"],
+        "n_out": 1,
+        "with_bias": False,
+      }
+      net_dict["output"]["unit"]["weight_feedback"] = {
+        "activation": None,
+        "class": "linear",
+        "from": ["const0.0"],
+        "n_out": 1024,
+        "with_bias": False,
+      }
+      net_dict["output"]["unit"]["att_energy_in"]["from"].insert(1, "weight_feedback")
+  else:
+    assert task == "train"
+    net_dict = {
+      "#info": {
+        "l2": 0.0001, "learning_rate": 0.001, "lstm_dim": 1024, "time_red": [3, 2], },
+      "existing_alignment": {
+          "class": "reinterpret_data",
+          "from": "data:alignment",
+          "set_sparse": True,
+          "set_sparse_dim": 1032,
+          "size_base": "encoder",
+      },
+      "is_label": {
+          "class": "compare",
+          "from": "existing_alignment",
+          "kind": "not_equal",
+          "value": targetb_blank_index,
+      },
+      "label_ground_truth_masked": {
+          "class": "reinterpret_data",
+          "enforce_batch_major": True,
+          "from": "label_ground_truth_masked0",
+          "register_as_extern_data": "label_ground_truth",
+          "set_sparse_dim": targetb_blank_index + 1,
+      },
+      "label_ground_truth_masked0": {
+          "class": "masked_computation",
+          "from": "existing_alignment",
+          "mask": "is_label",
+          "unit": {"class": "copy", "from": "data"},
+      }, "conv0": {
+        "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "source0",
+        "n_out": 32, "padding": "same", "with_bias": True, },
+      "conv0p": {
+        "class": "pool", "from": "conv0", "mode": "max", "padding": "same", "pool_size": (1, 2),
+        "use_channel_first": False, },
+      "conv1": {
+        "activation": None, "auto_use_channel_first": False, "class": "conv", "filter_size": (3, 3), "from": "conv0p",
+        "n_out": 32, "padding": "same", "with_bias": True, },
+      "conv1p": {
+        "class": "pool", "from": "conv1", "mode": "max", "padding": "same", "pool_size": (1, 2),
+        "use_channel_first": False, },
+      "conv_merged": {"axes": "static", "class": "merge_dims", "from": "conv1p"},
+      "encoder": {"class": "copy", "from": "encoder0"}, "ctc_out": {
+        "class": "softmax", "from": "encoder", "n_out": targetb_num_labels, "with_bias": False, },
+      "encoder0": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]}, "lstm0_bw": {
+        "class": "rec", "L2": None, "direction": -1, "from": "conv_merged", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm0_fw": {
+        "class": "rec", "L2": None, "direction": 1, "from": "conv_merged", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm0_pool": {
+        "class": "pool", "from": ["lstm0_fw", "lstm0_bw"], "mode": "max", "padding": "same", "pool_size": (3,), },
+      "lstm1_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm1_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm0_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm1_pool": {
+        "class": "pool", "from": ["lstm1_fw", "lstm1_bw"], "mode": "max", "padding": "same", "pool_size": (2,), },
+      "lstm2_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm2_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm1_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm2_pool": {
+        "class": "pool", "from": ["lstm2_fw", "lstm2_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm3_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm3_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm2_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm3_pool": {
+        "class": "pool", "from": ["lstm3_fw", "lstm3_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm4_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm4_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm3_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm4_pool": {
+        "class": "pool", "from": ["lstm4_fw", "lstm4_bw"], "mode": "max", "padding": "same", "pool_size": (1,), },
+      "lstm5_bw": {
+        "class": "rec", "direction": -1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "lstm5_fw": {
+        "class": "rec", "direction": 1, "dropout": 0.3, "from": "lstm4_pool", "n_out": 1024, "trainable": True,
+        "unit": "nativelstm2", },
+      "label_model": {
+        "back_prop": True,
+        "class": "rec",
+        "from": "data:label_ground_truth",
+        "include_eos": True,
+        "is_output_layer": True,
+        "name_scope": "output/rec",
+        "unit": {
+            "att": {"axes": "except_time", "class": "merge_dims", "from": "att0"},
+            "att0": {
+                "add_var2_if_empty": False,
+                "class": "dot",
+                "from": ["att_val_split", "att_weights"],
+                "reduce": "stag:att_t",
+                "var1": "f",
+                "var2": None,
+            },
+            "att_ctx": {
+                "L2": None,
+                "activation": None,
+                "class": "linear",
+                "dropout": 0.0,
+                "from": "segments",
+                "n_out": 1024,
+                "with_bias": True,
+                "name_scope": "/enc_ctx"
+            },
+            "att_energy": {
+                "class": "reinterpret_data",
+                "from": "att_energy0",
+                "is_output_layer": False,
+                "set_dim_tags": {
+                    "f": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')
+                },
+            },
+            "att_energy0": {
+                "activation": None,
+                "name_scope": "energy",
+                "class": "linear",
+                "from": ["energy_tanh"],
+                "n_out": 1,
+                "with_bias": False,
+            },
+            "att_energy_in": {
+                "class": "combine",
+                "from": ["att_ctx", "att_query"],
+                "kind": "add",
+                "n_out": 1024,
+            },
+            "att_query": {
+                "activation": None,
+                "class": "linear",
+                "from": "lm",
+                "is_output_layer": False,
+                "n_out": 1024,
+                "with_bias": False,
+            },
+            "att_val": {"class": "copy", "from": "segments"},
+            "att_val_split": {
+                "class": "reinterpret_data",
+                "from": "att_val_split0",
+                "set_dim_tags": {
+                    "dim:1": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')
+                },
+            },
+            "att_val_split0": {
+                "axis": "f",
+                "class": "split_dims",
+                "dims": (1, -1),
+                "from": "att_val",
+            },
+            "att_weights": {
+                "class": "dropout",
+                "dropout": 0.0,
+                "dropout_noise_shape": {"*": None},
+                "from": "att_weights0",
+                "is_output_layer": False,
+            },
+            "att_weights0": {
+                "axis": "stag:att_t",
+                "class": "softmax_over_spatial",
+                "energy_factor": 0.03125,
+                "from": "att_energy",
+            },
+            "energy_tanh": {
+                "activation": "tanh",
+                "class": "activation",
+                "from": ["att_energy_in"],
+            },
+            "input_embed": {
+                "axes": "except_time",
+                "class": "merge_dims",
+                "from": "input_embed0",
+                "name_scope": "lm_masked/input_embed",
+            },
+            "input_embed0": {
+                "class": "window",
+                "from": "prev:target_embed",
+                "name_scope": "lm_masked/input_embed0",
+                "window_left": 0,
+                "window_right": 0,
+                "window_size": 1,
+            },
+            "label_log_prob": {
+                "class": "copy",
+                "from": ["label_log_prob0", "sos_log_prob", "sos_log_prob"],
+                "kind": "add",
+            },
+            "sos_log_prob": {
+              "class": "slice", "from": "label_log_prob0", "axis": "f", "slice_start": sos_idx, "slice_end": sos_idx + 1
+            },
+            "label_log_prob0": {
+                "activation": "log_softmax",
+                "class": "linear",
+                "name_scope": "label_prob",
+                "dropout": 0.0,
+                "from": "readout",
+                "n_out": target_num_labels,
+            },
+            "label_prob": {
+                "activation": "exp",
+                "class": "activation",
+                "from": "label_log_prob",
+                "is_output_layer": True,
+                "loss": "ce",
+                "loss_opts": {"focal_loss_factor": 0.0, "label_smoothing": 0.1},
+                "target": "label_ground_truth",
+            },
+            "lm": {
+                "class": "rec",
+                "from": ["input_embed", "prev:att"] if prev_att_in_state else ["input_embed"],
+                "n_out": 1024,
+                "name_scope": "lm/rec",
+                "unit": "nativelstm2",
+            },
+            "output": {
+                "beam_size": 4,
+                "cheating": "exclusive",
+                "class": "choice",
+                "from": "data",
+                "initial_output": 0,
+                "target": "label_ground_truth",
+            },
+            "target_embed": {
+                "activation": None,
+                "class": "linear",
+                "initial_output": 0,
+                "from": "output",
+                "n_out": 621,
+                "with_bias": False,
+            },
+            #"prev_out_non_blank": {
+                #"class": "reinterpret_data",
+               # "from": "output",
+                #"set_sparse": True,
+                #"set_sparse_dim": 1030,
+            #},
+            "readout": {
+                "class": "reduce_out",
+                "from": "readout_in",
+                "mode": "max",
+                "num_pieces": 2,
+            },
+            "readout_in": {
+                "activation": None,
+                "class": "linear",
+                "from": ["lm", "prev:target_embed", "att"],
+                "n_out": 1000,
+            },
+            "segment_lens": {
+               "axis": "t",
+               "class": "gather",
+               "from": "base:data:segment_lens_masked",
+                "position": ":i",
+            },
+            "segment_starts": {
+               "axis": "t",
+               "class": "gather",
+               "from": "base:data:segment_starts_masked",
+                "position": ":i",
+            },
+            "segments": {
+                "class": "reinterpret_data",
+                "from": "segments0",
+                "set_dim_tags": {
+                    "stag:sliced-time:segments": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+                },
+            },
+            "segments0": {
+                "class": "slice_nd",
+                "from": "base:encoder",
+                "size": "segment_lens",
+                "start": "segment_starts",
+            },
+        },
+    },
+    "output": {
       "back_prop": False, "class": "rec", "from": "encoder", "include_eos": True, "size_target": None,
-      "initial_output": 0, "target": "targetb", "unit": {
+      "initial_output": 0, "target": "alignment", "unit": {
         "am": {"class": "copy", "from": "data:source"},
-        "att": {"axes": "except_time", "class": "merge_dims", "from": "att0"}, "att0": {
-          "add_var2_if_empty": False, "class": "dot", "from": ["att_val_split", "att_weights"], "reduce": "stag:att_t",
-          "var1": "f", "var2": None, }, "att_ctx": {
-          "activation": None, "class": "linear", "from": "segments", "n_out": 1024,
-          "with_bias": True, "name_scope": "/enc_ctx"}, "att_energy": {
-          "class": "reinterpret_data", "from": "att_energy0", "is_output_layer": False, "set_dim_tags": {
-            "f": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')}, }, "att_energy0": {
-          "activation": None, "name_scope": "energy", "class": "linear", "from": ["energy_tanh"], "n_out": 1,
-          "with_bias": False, }, "att_energy_in": {
-          "class": "combine", "from": ["att_ctx", "att_query"], "kind": "add", "n_out": 1024, }, "att_query": {
-          "activation": None, "class": "linear", "from": "lm", "is_output_layer": False, "n_out": 1024,
-          "with_bias": False, }, "att_val": {"class": "copy", "from": "segments"}, "att_val_split": {
-          "class": "reinterpret_data", "from": "att_val_split0", "set_dim_tags": {
-            "dim:1": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_heads", dimension=1)')}, }, "att_val_split0": {
-          "axis": "f", "class": "split_dims", "dims": (1, -1), "from": "att_val", }, "att_weights": {
-          "class": "dropout", "dropout": 0.0, "dropout_noise_shape": {"*": None}, "from": "att_weights0",
-          "is_output_layer": False, }, "att_weights0": {
-          "axis": "stag:att_t", "class": "softmax_over_spatial", "energy_factor": 0.03125, "from": "att_energy", },
         "const1": {"class": "constant", "value": 1},
         "const0.0": {"axis": "F", "class": "expand_dims", "from": "const0.0_0"},
-        "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True}, "enc_length": {
+        "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
+        "enc_length": {
           "class": "combine", "from": ["enc_length0", "const1"], "kind": "sub", },
         "enc_length0": {"axis": "t", "class": "length", "from": "base:encoder"}, "is_last_frame": {
           "class": "compare", "from": [":i", "enc_length"], "kind": "greater_equal", },
         "max_seg_len": {"class": "constant", "value": 19}, "max_seg_len_or_last_frame": {
           "class": "combine", "from": ["is_segment_longer_than_max", "is_last_frame"], "kind": "logical_or", },
         "is_segment_longer_than_max": {
-          "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater", }, "blank_log_prob": {
+          "class": "compare", "from": ["segment_lens", "max_seg_len"], "kind": "greater", },
+        "blank_log_prob": {
           "class": "switch", "condition": "max_seg_len_or_last_frame", "false_from": "const0.0",
-          "true_from": -10000000.0, }, "emit_log_prob": {
+          "true_from": -10000000.0, },
+        "emit_log_prob": {
           "class": "switch", "condition": "max_seg_len_or_last_frame", "false_from": "const0.0",
-          "true_from": "const0.0", }, "emit_log_prob0": {
-          "activation": "log_sigmoid", "class": "activation", "from": "emit_prob0", }, "emit_log_prob_scaled": {
-          "class": "eval", "eval": "0.0 * source(0)", "from": "emit_log_prob0", }, "energy_tanh": {
-          "activation": "tanh", "class": "activation", "from": ["att_energy_in"], }, "label_log_prob": {
-          "class": "combine", "from": ["label_log_prob0", "emit_log_prob"], "kind": "add", }, "label_log_prob0": {
-          "activation": "log_softmax", "class": "linear", "name_scope": "label_prob", "dropout": 0.3, "from": "readout",
-          "n_out": 1030, }, "lm": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"}, "lm_masked": {
-          "class": "masked_computation", "from": "prev_non_blank_embed", "name_scope": "", "mask": "prev:output_emit",
-          "unit": {
-            "class": "subnetwork", "from": "data", "subnetwork": {
-              "input_embed": {
-                "axes": "except_time", "class": "merge_dims", "from": "input_embed0", }, "input_embed0": {
-                "class": "window", "from": "data", "window_left": 0, "window_right": 0, "window_size": 1, }, "lm": {
-                "class": "rec", "from": ["input_embed", "base:prev:att"], "n_out": 1024, "name_scope": "lm/rec",
-                "unit": "nativelstm2", }, "output": {"class": "copy", "from": "lm"}, }, }, }, "output": {
-          "beam_size": 12, "cheating": None, "class": "choice", "from": "output_log_prob", "initial_output": 0,
-          "input_type": "log_prob", "length_normalization": False, "target": "targetb", }, "output_emit": {
-          "class": "compare", "from": "output", "initial_output": True, "kind": "not_equal", "value": 1030, },
-        "output_log_prob": {
-          "class": "copy", "from": ["label_log_prob", "blank_log_prob"], }, "prev_out_non_blank_masked": {
-          "class": "masked_computation", "from": "prev_out_non_blank", "initial_output": 0, "name_scope": "",
-          "mask": "prev:output_emit", "unit": {
-            "class": "copy", "from": "data", "initial_output": 0, }, }, "prev_non_blank_embed": {
-          "activation": None, "name_scope": "target_embed", "class": "linear", "from": "prev_out_non_blank_masked",
-          "n_out": 621, "with_bias": False, }, "prev_out_embed": {
-          "activation": None, "class": "linear", "from": "prev:output", "n_out": 128, }, "prev_out_non_blank": {
-          "class": "reinterpret_data", "from": "prev:output", "set_sparse": True, "set_sparse_dim": 1030,
-          "initial_output": 0, }, "readout": {
-          "class": "reduce_out", "from": "readout_in", "mode": "max", "num_pieces": 2, }, "readout_in": {
-          "activation": None, "class": "linear", "from": ["lm", "prev_non_blank_embed", "att"], "n_out": 1000, },
+          "true_from": "const0.0", },
+        "emit_blank_log_prob": {
+          "class": "copy", "from": ["blank_log_prob", "emit_log_prob"], },
+        "emit_blank_prob": {
+          "activation": "exp", "class": "activation", "from": "emit_blank_log_prob", "loss": None, "target": None, },
+        "emit_log_prob0": {
+          "activation": "log_sigmoid", "class": "activation", "from": "emit_prob0", },
+        "emit_log_prob_scaled": {
+          "class": "eval", "eval": "0.0 * source(0)", "from": "emit_log_prob0", },
+        "energy_tanh": {
+          "activation": "tanh", "class": "activation", "from": ["att_energy_in"], },
+        "output": {
+          "beam_size": 12, "cheating": None, "class": "choice", "from": "data", "initial_output": 0,
+          "input_type": "log_prob", "length_normalization": False, "target": "alignment", },
+        "output_emit": {
+          "class": "compare", "from": "output", "initial_output": True, "kind": "not_equal", "value": targetb_blank_index, },
+        "prev_out_embed": {
+          "activation": None, "class": "linear", "from": "prev:output", "n_out": 128, },
         "segment_lens": {
           "class": "combine", "from": ["segment_lens0", "const1"], "is_output_layer": True, "kind": "add", },
         "segment_lens0": {
-          "class": "combine", "from": [":i", "segment_starts"], "kind": "sub", }, "segment_starts": {
-          "class": "switch", "condition": "prev:output_emit", "false_from": "prev:segment_starts", "initial_output": 0,
-          "is_output_layer": True, "true_from": ":i", }, "segments": {
-          "class": "reinterpret_data", "from": "segments0", "set_dim_tags": {
-            "stag:sliced-time:segments": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')}, }, "segments0": {
-          "class": "slice_nd", "from": "base:encoder", "size": "segment_lens", "start": "segment_starts", }, }, },
-    "output_non_blank": {
-      "class": "compare", "from": "output", "kind": "not_equal", "value": 1030, }, "output_non_sil": {
-      "class": "compare", "from": "output", "kind": "not_equal", "value": -1, }, "output_non_sil_non_blank": {
-      "class": "combine", "from": ["output_non_sil", "output_non_blank"], "is_output_layer": True,
-      "kind": "logical_and", }, "output_wo_b": {
-      "class": "reinterpret_data", "from": "output_wo_b0", "set_sparse_dim": 1030, }, "output_wo_b0": {
-      "class": "masked_computation", "from": "output", "mask": "output_non_sil_non_blank", "unit": {"class": "copy"}, },
+          "class": "combine", "from": [":i", "segment_starts"], "kind": "sub", },
+        "segment_starts": {
+          "class": "switch", "condition": "prev:output_emit", "false_from": "prev:segment_starts",
+          "initial_output": 0, "is_output_layer": True, "true_from": ":i", },
+      }
+    },
+    "segment_lens_masked": {
+      "class": "masked_computation", "from": "output/segment_lens", "mask": "is_label",
+      "out_spatial_dim": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="label-axis")'),
+      "register_as_extern_data": "segment_lens_masked", "unit": {"class": "copy", "from": "data"}, },
+    "segment_starts_masked": {
+      "class": "masked_computation", "from": "output/segment_starts", "mask": "is_label",
+      "out_spatial_dim": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="label-axis")'),
+      "register_as_extern_data": "segment_starts_masked", "unit": {"class": "copy", "from": "data"}, },
     "source": {
       "class": "eval",
-      "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)", },
-    "source0": {"axis": "F", "class": "split_dims", "dims": (-1, 1), "from": "source"}, }
+      "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)"},
+    "source0": {"axis": "F", "class": "split_dims", "dims": (-1, 1), "from": "source"},
+  }
+    if feature_stddev is not None:
+      net_dict["source_stddev"] = {
+        "class": "eval", "from": "data", "eval": "source(0) / 3.0"
+      }
+      net_dict["source"]["from"] = "source_stddev"
+    if weight_feedback:
+      net_dict["inv_fertility"] = {
+        "activation": "sigmoid",
+        "class": "linear",
+        "from": ["encoder"],
+        "n_out": 1,
+        "with_bias": False,
+      }
+      net_dict["label_model"]["unit"].update({
+        "const0.0": {"axis": "F", "class": "expand_dims", "from": "const0.0_0"},
+        "const0.0_0": {"class": "constant", "value": 0.0, "with_batch_dim": True},
+        "weight_feedback": {
+          "activation": None,
+          "class": "linear",
+          "from": ["const0.0"],
+          "n_out": 1024,
+          "with_bias": False,
+        }
+      })
+      net_dict["label_model"]["unit"]["att_energy_in"]["from"].insert(1, "weight_feedback")
 
   return net_dict
 

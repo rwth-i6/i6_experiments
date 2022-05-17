@@ -189,7 +189,7 @@ class GmmTriphoneArgs:
 class GmmVtlnArgs:
     def __init__(
         self,
-        training_args: dict,
+        training_args: Dict[str, Union[str, int, Dict]],
         recognition_args: dict,
         test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,

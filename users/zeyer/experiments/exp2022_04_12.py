@@ -1,15 +1,19 @@
+"""
+experiments
+"""
 
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy
 from sisyphus import tk
 from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
-from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
+# from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from returnn_common import nn
 
 
 def run():
+  """run"""
   for name, path in librispeech.librispeech_ogg_zip_dict.items():
     tk.register_output(f"librispeech/dataset/{name}", path)
 
@@ -24,23 +28,31 @@ def run():
   targets_time_dim = nn.SpatialDim("targets-time")
   output_dim = nn.FeatureDim("output", 2000)
 
-  class Model(nn.ConformerEncoder):
-    def __init__(self):
-      super(Model, self).__init__(
-        # Medium...
-        num_layers=16, num_heads=4, out_dim=nn.FeatureDim("conformer", 256)),
-      self.output = nn.Linear(output_dim + 1)  # +1 for blank
+  from returnn_common.asr import specaugment
+
+  class Model(nn.Module):
+    """model"""
+    def __init__(self, out_dim: nn.Dim, conformer_dim: Optional[nn.Dim] = None, **kwargs):
+      super(Model, self).__init__()
+      # Medium size default...
+      if conformer_dim is None:
+        conformer_dim = nn.FeatureDim("conformer", 256)
+      kwargs.setdefault("num_layers", 16)
+      kwargs.setdefault("num_heads", 4)
+      self.conformer = nn.ConformerEncoder(conformer_dim, **kwargs)
+      self.out_dim = out_dim
+      self.output = nn.Linear(out_dim)
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
-      x, out_spatial_dim = super(Model, self).__call__(x, in_spatial_dim=in_spatial_dim, **kwargs)
+      x = specaugment.specaugment_v2(x, in_spatial_dim=in_spatial_dim)
+      x, out_spatial_dim = self.conformer(x, in_spatial_dim=in_spatial_dim, **kwargs)
       assert isinstance(out_spatial_dim, nn.Dim)
       if out_spatial_dim != in_spatial_dim:
         out_spatial_dim.declare_same_as(nn.SpatialDim("downsampled-time"))
       x = self.output(x)
       return x, out_spatial_dim
 
-  # TODO specaug
-  model = Model()
+  model = Model(out_dim=output_dim + 1)  # +1 for blank
   inputs = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim]))
   logits, out_spatial_dim = model(inputs, in_spatial_dim=time_dim)
   targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim))
@@ -58,7 +70,6 @@ def run():
     **librispeech.default_dataset_config,
 
     batching="random",
-    log_batch_size=True,
     batch_size=20000,
     max_seqs=200,
     max_seq_length={"classes": 75},
@@ -66,11 +77,6 @@ def run():
     gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
-    # debug_add_check_numerics_ops = True
-    # debug_add_check_numerics_on_output = True
-    # stop_on_nonfinite_train_score = False,
-    tf_log_memory_usage=True,
-    tf_session_opts={"gpu_options": {"allow_growth": True}},
     gradient_noise=0.0,
     learning_rate=0.0008,
     learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
@@ -82,7 +88,7 @@ def run():
     newbob_multi_num_epochs=librispeech.default_epoch_split,
     newbob_multi_update_interval=1,
     newbob_learning_rate_decay=0.9,
- )
+  )
 
   returnn_train_config = ReturnnConfig(
     returnn_train_config_dict,
@@ -100,7 +106,16 @@ except Exception as exc:
 sys.setrecursionlimit(10 ** 6)
 """
     ],
-    post_config=dict(cleanup_old_models=True),
+    python_epilog_hash="",  # TODO ...
+    post_config=dict(
+      log_batch_size=True,
+      tf_log_memory_usage=True,
+      tf_session_opts={"gpu_options": {"allow_growth": True}},
+      cleanup_old_models=True,
+      # debug_add_check_numerics_ops = True
+      # debug_add_check_numerics_on_output = True
+      # stop_on_nonfinite_train_score = False,
+    ),
     sort_config=False,
   )
   returnn_train_job = ReturnnTrainingJob(

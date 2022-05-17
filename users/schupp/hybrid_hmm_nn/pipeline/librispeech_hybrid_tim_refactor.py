@@ -67,7 +67,7 @@ am_path = Path(os.path.join(chris_960h_best_model_path,
 
 librispeech_corpora_keys = [
   "train-other-960",
-  "train-clean-100",
+  "train-clean-100", # For some reason this aint there anymore TODO: check why
   "dev-clean",
   "dev-other",
   "test-clean",
@@ -151,6 +151,7 @@ class LibrispeechHybridSystemTim(meta.System):
         self.crp[ck + "_dev"] = rasr.CommonRasrParameters(base=self.crp[ck])
         self.crp[ck + "_dev"].concurrent = 1
         self.crp[ck + "_dev"].segment_path = split_segments.out_segments['dev']
+
 
       # lexicon #
       if lex_file_path is not None:

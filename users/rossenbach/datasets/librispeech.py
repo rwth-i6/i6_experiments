@@ -13,7 +13,7 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import g
 
 
 @lru_cache()
-def get_librispeech_bpe(corpus_key="train-other-960", bpe_size=10000, unk_label="<unk>", output_prefix=""):
+def get_librispeech_bpe(corpus_key, bpe_size, unk_label="<unk>", output_prefix=""):
     """
     Get the BPE tokens via the subword-nmt fork for a librispeech setup.
     When using the default settings this will give 100% compatible BPE settings to

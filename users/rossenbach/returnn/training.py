@@ -70,9 +70,6 @@ class GetBestCheckpointJob(GetBestEpochJob):
     Returns the best checkpoint given a training model dir and a learning-rates file
     The best checkpoint will be HARD-linked, so that no space is wasted but also the model not
     deleted in case that the training folder is removed.
-
-
-
     """
 
     def __init__(self, model_dir, learning_rates, index=0, key=None):

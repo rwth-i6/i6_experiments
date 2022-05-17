@@ -1,3 +1,4 @@
+import asyncio
 import copy
 
 import numpy
@@ -32,7 +33,7 @@ def trainig_network_mohammad(source_extern_data, specaug_settings=None, fix_regu
         temp_values.pop("shape")
         dim_tags = [nn.batch_dim, time_dim]
         if isinstance(values["dim"], tk.Variable):
-            tk.async_run(values["dim"])
+            asyncio.create_task(tk.async_run(values["dim"]))
             temp_values["dim"] = values["dim"].get()
         if temp_values.get("sparse", False) == False:
             in_dim = nn.FeatureDim("%s_feature" % key, dimension=temp_values["dim"])
@@ -122,7 +123,7 @@ def trainig_network_mohammad(source_extern_data, specaug_settings=None, fix_regu
     return network_dict, ed_config, ed_prolog
 
 
-def get_config(
+async def get_config(
         training_datasets,
         **kwargs):
     """

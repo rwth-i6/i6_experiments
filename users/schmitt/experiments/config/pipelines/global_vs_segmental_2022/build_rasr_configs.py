@@ -454,7 +454,7 @@ def build_lattice_to_ctm_config(
 def build_realignment_config(
   corpus_path, segment_path, lexicon_path, feature_cache_path, allophone_path, label_pruning, label_pruning_limit,
   label_recombination_limit, blank_label_index, context_size, label_file, reduction_factors,
-  start_label_index, meta_graph_file, state_tying_path, max_segment_len,
+  start_label_index, meta_graph_file, state_tying_path, max_segment_len, length_norm,
   blank_update_history=False, loop_update_history=False
 ):
   crp = CommonRasrParameters()
@@ -503,6 +503,7 @@ def build_realignment_config(
   am_model_trainer_config.alignment.aligner.label_pruning_limit = label_pruning_limit
   am_model_trainer_config.alignment.aligner.label_recombination_limit = label_recombination_limit
   am_model_trainer_config.alignment.aligner.max_segment_len = max_segment_len
+  am_model_trainer_config.alignment.aligner.length_normalization = length_norm
 
   am_model_trainer_config.alignment.label_scorer.blank_label_index = blank_label_index
   am_model_trainer_config.alignment.label_scorer.context_size = context_size

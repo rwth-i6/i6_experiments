@@ -19,7 +19,7 @@ class GlobalEncoderDecoderConfig:
           train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
-          use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best"):
+          use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best", att_ctx_reg=False):
 
     self.post_config = post_config
 
@@ -103,7 +103,7 @@ class GlobalEncoderDecoderConfig:
         feature_stddev=feature_stddev, weight_dropout=weight_dropout, with_state_vector=with_state_vector,
         with_weight_feedback=with_weight_feedback, prev_target_in_readout=prev_target_in_readout, sil_idx=sil_idx,
         target=label_name, task=task, targetb_num_labels=target_num_labels+1, dump_output=dump_output,
-        use_l2=use_l2, att_ctx_with_bias=att_ctx_with_bias, focal_loss=focal_loss)
+        use_l2=use_l2, att_ctx_with_bias=att_ctx_with_bias, focal_loss=focal_loss, att_ctx_reg=att_ctx_reg)
     else:
       self.network = get_net_dict(lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim,
         beam_size=beam_size, sos_idx=sos_idx, time_red=time_red, l2=0.0001, learning_rate=self.learning_rate,

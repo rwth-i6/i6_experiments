@@ -154,11 +154,11 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
     att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
-    length_model_type, att_ctx_with_bias,
+    length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx,
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
-    network_type="default",
+    network_type="default", global_length_var=None,
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
@@ -218,6 +218,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
         beam_size=self.beam_size, length_model_inputs=length_model_inputs, prev_att_in_state=prev_att_in_state,
         targetb_blank_idx=self.targetb_blank_idx, use_att=use_attention, fast_rec_full=fast_rec_full,
         label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0,
+        global_length_var=global_length_var, exclude_sil_from_label_ctx=exclude_sil_from_label_ctx,
         efficient_loss=efficient_loss, time_reduction=time_red, ctx_size=ctx_size, fast_rec=fast_rec,
         sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,
         feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
@@ -229,13 +230,23 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
           att_win_size=att_win_size, task=self.task, EncValueTotalDim=lstm_dim * 2, EncValueDecFactor=1,
           EncKeyTotalDim=lstm_dim, att_weight_feedback=att_weight_feedback, att_type=att_type,
-          att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size,
+          att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size, att_ctx_reg=att_ctx_reg,
           att_seg_right_size=att_seg_right_size, att_area=att_area, AttNumHeads=att_num_heads,
           EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
           EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
     else:
-      assert network_type == "global_import"
-      self.network = get_global_import_net_dict()
+      assert network_type in ["global_import", "global_import_w_feedback", "global_import_wo_feedback_wo_state_vector"]
+      if network_type in [
+        "global_import", "global_import_wo_feedback_wo_state_vector"
+      ]:
+        weight_feedback = False
+      else:
+        weight_feedback = True
+      self.network = get_global_import_net_dict(
+        task=self.task, weight_feedback=weight_feedback, feature_stddev=feature_stddev,
+        prev_att_in_state=False if network_type == "global_import_wo_feedback_wo_state_vector" else True,
+        targetb_num_labels=self.targetb_num_labels, target_num_labels=self.target_num_labels,
+        targetb_blank_index=self.targetb_blank_idx, sil_idx=sil_idx, sos_idx=sos_idx)
 
     if self.task == "train":
       assert train_data_opts and cv_data_opts and devtrain_data_opts
