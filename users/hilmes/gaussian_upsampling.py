@@ -5,8 +5,8 @@ import numpy as np
 def normal_distribution(x: nn.Tensor, *, mu: nn.Tensor, sigma: nn.Tensor) -> nn.Tensor:
 
     sub = nn.combine(x, mu, kind="sub", allow_broadcast_all_sources=True)
-    sub = -0.5 * (sub ** 2.0)
-    sigma_s = sigma ** 2.0
+    sub = -0.5 * (sub**2.0)
+    sigma_s = sigma**2.0
     div = nn.combine(sub, sigma_s, kind="truediv", allow_broadcast_all_sources=True)
     return nn.exp(div) / (2.0 * np.pi * sigma_s) ** 0.5  # [B, T, N]
 
@@ -45,7 +45,7 @@ class VarianceNetwork(nn.Module):
 
         lin = self.linear(cat)
         # Softplus activation
-        var = nn.log(nn.exp(lin) + 1.0) + 10.0 ** -12
+        var = nn.log(nn.exp(lin) + 1.0) + 10.0**-12
         var = nn.squeeze(var, axis=var.feature_dim)
         return var  # [B, N]
 
@@ -85,7 +85,7 @@ class GaussianUpsampling(nn.Module):
 
         w_t = normal_distribution(t, mu=c, sigma=variances)
         w_t = w_t / nn.combine(
-            nn.math_norm(w_t, p=1, axis=time_dim), 10 ** -16, kind="maximum"
+            nn.math_norm(w_t, p=1, axis=time_dim), 10**-16, kind="maximum"
         )
 
         output = nn.dot(w_t, inp, reduce=time_dim)  # [B, T, F]
