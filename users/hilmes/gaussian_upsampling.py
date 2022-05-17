@@ -59,7 +59,6 @@ class GaussianUpsampling(nn.Module):
         super().__init__()
         self.out_time_axis = nn.SpatialDim("upsamling_time")
 
-    @nn.scoped
     def __call__(
         self,
         inp: nn.Tensor,
@@ -82,12 +81,13 @@ class GaussianUpsampling(nn.Module):
 
         t, _ = nn.range_from_length(l, out_spatial_dim=self.out_time_axis)  # [B,T]
         t = nn.cast(t, dtype="float32")
+        t = nn.combine(t, 1, allow_broadcast_all_sources=True, kind="add")
 
         w_t = normal_distribution(t, mu=c, sigma=variances)
-
         w_t = w_t / nn.combine(
             nn.math_norm(w_t, p=1, axis=time_dim), 10 ** -16, kind="maximum"
         )
+
         output = nn.dot(w_t, inp, reduce=time_dim)  # [B, T, F]
 
         return output
