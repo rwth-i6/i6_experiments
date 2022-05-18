@@ -336,7 +336,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
 
     new_bpe_blank_idx = bpe_blank_idx + 1
     bpe_sil_align = [new_bpe_blank_idx] * len(phoneme_align)
-    prev_end = -1
+    prev_end = 0
     bpe_idx = 0
     # print(seq_idx)
     for start, end in zip(word_starts, word_ends):
@@ -345,44 +345,44 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
         bpe_sil_align[end] = sil_idx
         prev_end = end
       else:
-        size = end - start
+        size = end - prev_end
         if start == 0:
           size += 1
         bpe_map = word_bpe_map[bpe_idx]
         if len(bpe_map) != 1:
-          bpe_sil_align[start] = bpe_map[0][0]
+          # bpe_sil_align[start] = bpe_map[0][0]
+          for i, (bpe, _) in enumerate(bpe_map):
+            if i != len(bpe_map) - 1:
+              frac = 1 / len(bpe_map)
+              offset = max(int(size * frac), 1)
+              if prev_end + offset > len(bpe_sil_align) - 1:
+                print("\n\n")
+                print("CANNOT MATCH BPE ALIGN TO PHON ALIGN")
+                print("BPE: ", bpes)
+                print("PHONEMES: ", phonemes)
+                print("TAG: ", tag)
+                print("PHON ALIGN: ", phoneme_align)
+                print("BPE SIL ALIGN: ", bpe_sil_align)
+                print("BPE ALIGN: ", bpe_align)
+                print("PREV BOUND: ", prev_end)
+                print("BOUND: ", end)
+                print("BOUNDS: ", word_ends)
+                print("OFFSET: ", offset)
+                print("SIZE: ", size)
+                print("FRAC: ", frac)
+                print("BPE MAP: ", bpe_map)
+                print("\n\n")
+                # in this case, it cannot easily be guaranteed that each bpe label gets at least one frame
+                # therefore, we skip
+                skip_seq = True
+                match_bpe_to_phons_err_count += 1
+                break
+              bpe_sil_align[prev_end + offset] = bpe
+              prev_end += offset
+            else:
+              bpe_sil_align[end] = bpe
         else:
           bpe_sil_align[end] = bpe_map[0][0]
-        for i, (bpe, _) in enumerate(bpe_map[1:]):
-          if i != len(bpe_map) - 1:
-            frac = 1 / len(bpe_map[1:])
-            offset = max(int(size * frac), 1)
-            if start + offset > len(bpe_sil_align) - 1:
-              print("\n\n")
-              print("CANNOT MATCH BPE ALIGN TO PHON ALIGN")
-              print("BPE: ", bpes)
-              print("PHONEMES: ", phonemes)
-              print("TAG: ", tag)
-              print("PHON ALIGN: ", phoneme_align)
-              print("BPE SIL ALIGN: ", bpe_sil_align)
-              print("BPE ALIGN: ", bpe_align)
-              print("PREV BOUND: ", prev_end)
-              print("BOUND: ", end)
-              print("BOUNDS: ", word_ends)
-              print("OFFSET: ", offset)
-              print("SIZE: ", size)
-              print("FRAC: ", frac)
-              print("BPE MAP: ", bpe_map)
-              print("\n\n")
-              # in this case, it cannot easily be guaranteed that each bpe label gets at least one frame
-              # therefore, we skip
-              skip_seq = True
-              match_bpe_to_phons_err_count += 1
-              break
-            bpe_sil_align[start + offset] = bpe
-            start += offset
-          else:
-            bpe_sil_align[end] = bpe
         # check, whether there was a problem in the bpe mapping loop
         if skip_seq:
           break
