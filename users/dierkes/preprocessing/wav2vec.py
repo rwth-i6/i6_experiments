@@ -34,9 +34,10 @@ class FairseqAudioManifestCreationJob(Job):
         :param int seed: random seed for splitting into train and valid set
         :param str|None path_must_contain: if set, path must contain this substring
             for a file to be included in the manifest
-        :param float upsampling_alpha: specifies how much to upsample low resource languages. Upsampling
+        :param float upsampling_alpha: specifies how much to upsample low resource aduio directory paths. Upsampling
             calculation is done according to "Unsupervised Cross-Lingual Representation Learning for Speech
-            Recognition", see  arXiv:2006.13979v2
+            Recognition", see  arXiv:2006.13979v2. According to this upsampling procedure it is not possible to upsample
+            if only a single audio directory is given.
         :param [str]|[tk.Path]|str|tk.Path|None manifest_audio_paths: explicitly specifies output paths in manifest for each
             audio directory respectively. Allows to use different paths in the manifest than in the audio_dir_paths
         """
