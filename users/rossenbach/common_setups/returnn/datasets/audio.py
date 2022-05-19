@@ -4,7 +4,7 @@ Helper classes around RETURNN datasets
 from sisyphus import tk
 from typing import *
 
-from i6_experiments.common.setups.returnn.datasets.base import ControlDataset
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets.base import ControlDataset
 
 
 class OggZipDataset(ControlDataset):

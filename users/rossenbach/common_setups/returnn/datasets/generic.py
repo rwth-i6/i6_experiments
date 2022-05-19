@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from sisyphus import tk
 
-from i6_experiments.common.setups.returnn.datasets.base import ControlDataset
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets.base import ControlDataset
 
 
 class HDFDataset(ControlDataset):
