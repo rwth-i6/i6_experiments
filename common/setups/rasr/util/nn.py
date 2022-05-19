@@ -201,14 +201,18 @@ class OggZipHdfDataInput:
 class HybridArgs:
     def __init__(
         self,
-        returnn_configs: Dict[str, returnn.ReturnnConfig],
+        returnn_training_configs: Dict[str, returnn.ReturnnConfig],
+        returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
         training_args: Dict[str, Any],
         recognition_args: Dict[str, Dict[str, Dict]],
         test_recognition_args: Optional[Dict[str, Dict[str, Dict]]] = None,
     ):
         """
         ##################################################
-        :param returnn_configs
+        :param returnn_training_configs
+        ##################################################
+        :param returnn_recognition_configs
+            If a config is not found here, the corresponding training config is used
         ##################################################
         :param training_args:
         ##################################################
@@ -217,7 +221,8 @@ class HybridArgs:
         :param test_recognition_args:
         ##################################################
         """
-        self.returnn_configs = returnn_configs
+        self.returnn_training_configs = returnn_training_configs
+        self.returnn_recognition_configs = returnn_recognition_configs
         self.training_args = training_args
         self.recognition_args = recognition_args
         self.test_recognition_args = test_recognition_args

@@ -127,7 +127,7 @@ def get_monophone_args():
         'lm_scales': [10],
         'optimize_am_lm_scale': True,
         # meta.System.recog() args:
-        'feature_flow': 'mfcc+deriv', # +norm
+        'feature_flow': 'mfcc+deriv+norm',
         'pronunciation_scales': [1.0],
         'lm_lookahead': True,
         'lookahead_options': None,
