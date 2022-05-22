@@ -100,6 +100,7 @@ def parse_experiment_out_string(data_string):
     optim_wer_by_ep = None
     best_ep_by_score = None
     errors_per_ep = None
+    finished_eps = None
 
     float_or_int = r'[\d\.\d]+'
 

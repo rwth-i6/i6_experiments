@@ -10,7 +10,7 @@ import argparse
 import csv
 import importlib
 
-log.basicConfig(level=log.INFO)
+log.basicConfig(level=log.DEBUG)
 
 
 parser = argparse.ArgumentParser()
@@ -246,7 +246,7 @@ for ex in all_experiments:
         if devtrain_score_error_final[1] and dev_score_error_final[1]:
             FER_error_ration = devtrain_score_error_final[1]/dev_score_error_final[1]
 
-        finished_train = "YES" if int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
+        finished_train = "YES" if data["dev-other"]["finished_eps"] and int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
 
         row = [
             data["name"], # name

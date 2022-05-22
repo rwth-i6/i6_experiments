@@ -648,9 +648,34 @@ def huge_conformer_se_ffmod():
   )
 
 
+def sd_ff_depth_scale():
+  args = get_defaults()
+  NAME = f'{BASE}+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p=0.2'
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=24)
+
+  def surv_prob_by_layer(l, L=12.0, p=0.2):
+    return 1.0 - ((l/L) * (1.0 - p))
+
+  sd_args = {
+    i : {
+      "ff_mod1" : surv_prob_by_layer(i),
+      "ff_mod2" : surv_prob_by_layer(i),
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+
 def main():
   baseline()
   se_ffmod()
 
   huge_conformer()
   huge_conformer_se_ffmod()
+  sd_ff_depth_scale()
