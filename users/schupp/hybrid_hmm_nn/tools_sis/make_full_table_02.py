@@ -15,6 +15,7 @@ log.basicConfig(level=log.DEBUG)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--only', default=None) # Allow to ass multiple sep by comma
+parser.add_argument('-a', '--append', action="store_true") # Append to csv instead of overwriting
 
 parser.add_argument("-ocn", "--overwrite-config-name", default="returnn.config")
 parser.add_argument("-ox", "--only-experiment", default=None)
@@ -233,6 +234,8 @@ for ex in all_experiments:
             maybe_get_error_score_by_ep(get_key("devtrain", "error"), config_data["num_epochs"]),
         ]
 
+        log.debug(devtrain_score_error_final)
+
         dev_score_error_final = [
             maybe_get_error_score_by_ep(get_key("dev", "score"), config_data["num_epochs"]),
             maybe_get_error_score_by_ep(get_key("dev", "error"), config_data["num_epochs"]),
@@ -269,7 +272,7 @@ for ex in all_experiments:
         log.info(f"Writing row: {row}")
         rows.append(row)
 
-with open('summary_new.csv', 'w') as f:
+with open('summary_new.csv', 'w' if not args.append else "a") as f:
     writer = csv.writer(f)
     for row in rows:
         writer.writerow(row)

@@ -11,7 +11,7 @@ import argparse
 
 from numpy import nan # we need this in case there are any 'nan' in errors or anything ( for when we call eval() )
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.INFO)
 
 # Allowed arguments: (WIP)
 # --basepath conformer      -> the root path alias/*/
@@ -179,7 +179,7 @@ for experiment in all_existing_experiments:
         if not os.path.exists(f"{RESULTS_FOLDER}{ex_path}"):
             os.mkdir(f"{RESULTS_FOLDER}{ex_path}")
 
-        log.debug(f"Starting extraction of: {sub_experiment}")
+        log.info(f"Starting extraction of: {sub_experiment}")
         with open(f"{RESULTS_FOLDER}{ex_path}/{sub_experiment}.json", "w") as file:
             json.dump(
                 get_all_data_experiment(experiment, sub_experiment), 

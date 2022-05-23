@@ -45,9 +45,11 @@ if args.only:
     data_set_prefixes = { args.only : data_set_prefixes[args.only]}
 
 if args.update_data_filter:
+    log.debug(f"updating filter: {args.update_data_filter}")
     data, new_filt = args.update_data_filter.split(":")
     if data in data_set_prefixes:
         data_set_prefixes[data] = new_filt
+        log.debug(f"updated: {data_set_prefixes}")
 
 datasets = list(data_set_prefixes.keys())
 
