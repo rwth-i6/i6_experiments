@@ -156,7 +156,8 @@ def make_experiment_08_se_constom_dims( # TODO: finish
   ):
 
   # Theses are the versions that use se blocks
-  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_006_se_block
+  # Only need to modifly conv mod actualy, rest already has fitting dimensions
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_011_se_block_and_pointwise_dim
   from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.sa_mod_versions import make_self_att_mod_005_se_block
   from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.ff_mod_versions import make_ff_mod_004_se_block
 
@@ -193,7 +194,7 @@ def make_experiment_08_se_constom_dims( # TODO: finish
       sa_func_args = args.sa_default_args,
 
       # Conv mod args
-      conformer_self_conv_func=make_conv_mod_006_se_block,
+      conformer_self_conv_func=make_conv_mod_011_se_block_and_pointwise_dim,
       conv_func_args = args.conv_default_args,
 
       # Shared model args
@@ -252,4 +253,85 @@ def num_blocks():
     )
 
 def conv_dim():
-  for d in 
+  for d in [1024, 1538, 2048]:
+    args = get_defaults()
+    args.conv_default_args["pointwise_dim"] = d
+    NAME = f"{BASE}+conv-dim-{d}"
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def att_dim():
+  for d in [1024, 1538, 2048]:
+    args = get_defaults()
+    args.sa_default_args["key_dim"] = d
+    NAME = f"{BASE}+att-dim-{d}"
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def ff_dim():
+  for d in [1024, 3072, 4096]:
+    args = get_defaults()
+    args.ff_default_args["ff_dim"] = d
+    NAME = f"{BASE}+ff-dim-{d}"
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def huge_conformer(): # Baslicly Xl conformer with se block
+  pass
+
+def no_chunking_seq_len():
+  # Experiment w/o chunking, but set max_seq len
+  pass
+  
+def maybe_optimal_l2_drop():
+  # From intial experiments ( very old baseline, the best was L2 = 0.0001, dropout = 0.03)
+  args = get_defaults()
+  NAME = f"{BASE}+reduced-l2=0.0001-drop=0.03"
+  L2 = 0.0001
+  drop = 0.03
+
+  args.sa_default_args["sa_dropout"] = drop
+  args.sa_default_args["sa_post_dropout"] = drop
+
+  args.conv_default_args["conv_post_dropout"] = drop
+
+  args.ff_default_args["ff_activation_dropout"] = drop
+  args.ff_default_args["ff_post_dropout"] = drop
+
+  data = make_experiment_08_se_constom_dims(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod"],
+  )
+
+def with_l2():
+  # TODO experiment using L2, right now we're not using it at all
+  # We apply weight decay [35] with a value of 0.01 to the transposed convolution layers ...
+  # Here make some thest with weight decay, if that suceeds use it...
+  pass
+
+
+
+def main():
+  baseline()
+  se_block_conv_module()
+
+  num_blocks()
+  att_dim()
+  ff_dim()
+
+  maybe_optimal_l2_drop()
+
+

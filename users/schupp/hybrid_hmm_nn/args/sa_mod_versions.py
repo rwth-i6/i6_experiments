@@ -412,7 +412,7 @@ def make_self_att_mod_006_groupnorm(
             'num_heads': num_heads,
             'total_key_dim': key_dim, 
             'n_out': value_dim,
-            'from': ["_self_att_laynorm"],
+            'from': [_next],
             'attention_left_only': attention_left_only,
             'attention_dropout': sa_dropout,
             'key_shift' : f"{prefix}_rel_pos",

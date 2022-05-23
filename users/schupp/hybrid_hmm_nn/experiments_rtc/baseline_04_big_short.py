@@ -673,6 +673,14 @@ def subsampling_swish():
 
   make_experiment_09_sampling_act(args, NAME)
 
+def subsampling_gelu():
+  args = get_defaults_03()
+  NAME = f"{BASE}+subsampling-act=gelu"
+
+  args.sampling_default_args["sampling_activation"] = "gelu"
+
+  make_experiment_09_sampling_act(args, NAME)
+
 # -------------------------------- batch norm -------------------------------
 
 # + batchnorm instead of layer-norm
@@ -1208,6 +1216,7 @@ def all_activation_experiments():
   conv_mod_relu()
   conv_mod_gelu()
   subsampling_swish()
+  subsampling_gelu()
 
 # ------------------------------- full computation graph ------------------------------------------
 
@@ -1224,7 +1233,7 @@ def main():
   # Norm experiments: 
   batchnorm_no_ln()
   groupnorm_noln()
-  groupnorm_v2()
+  #groupnorm_v2()
   #batchnorm_old_defaults()
 
   huge_conformer()
@@ -1252,7 +1261,7 @@ def main5():
 
   no_frame_stacking()
   switch_conv_att_mod()
-  groupnorm_v2_tfa()
+  #groupnorm_v2_tfa()
 
 
 def all():

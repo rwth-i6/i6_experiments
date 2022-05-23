@@ -41,6 +41,7 @@ def create_experiment_world_001(
     returnn_rasr_args_defaults=None,
 
     final_recog = False, # Should be changed to 'True' per default at some point
+    new_final_recog = False,
 
     test_construction=False,
     print_net = False,
@@ -111,6 +112,16 @@ def create_experiment_world_001(
 
     if final_recog:
         job_dispatcher.make_and_register_final_rasr_search(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+
+    if new_final_recog:
+        job_dispatcher.make_and_register_final_rasr_search_manual(
             train_job=train_job,
             output_path=f"{name}",
             system = system,

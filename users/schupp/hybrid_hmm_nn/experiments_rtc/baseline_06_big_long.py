@@ -647,6 +647,37 @@ def huge_conformer_se_ffmod():
     NAME,
   )
 
+def lr_reset():
+  args = get_defaults()
+  NAME = f'{BASE}+lr-reset'
+  
+  # Shor lr but reset 3 times
+  l1 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  l2 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  l3 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+
+  args.config_args["learning_rates"] = l1 + l2 + l3
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
+
+
+def old_learning_rate():
+  args = get_defaults()
+  NAME = f'{BASE}+long-lr'
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90, min_lr_ratio=1/50, decay_factor=0.99)
+
+  args.config_args["learning_rates"] = learning_rates
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
 
 def sd_ff_depth_scale():
   args = get_defaults()
@@ -679,3 +710,6 @@ def main():
   huge_conformer()
   huge_conformer_se_ffmod()
   sd_ff_depth_scale()
+
+  lr_reset()
+  old_learning_rate()

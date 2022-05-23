@@ -712,6 +712,30 @@ def determinism_test_random_seed():
         NAME
       )
 
+def determinism_test_random_fixed_GPU(): # TODO
+  SEEDS = [
+    1,
+    2
+  ]
+
+  for g in GPUS:
+    for s in SEED:
+      SEED = SEEDS[x-1]
+      args = get_defaults()
+      NAME = f"{BASE}+fixed-seed={SEED}-on-gpu-XXX"
+
+      args.config_args["random_seed"] = SEED
+      args.config_args["determinism_test_extra_tim"] = f"random_seed_used:{SEED}"
+
+      for _set in ["train", "dev", "devtrain"]:
+        # Only update we want to keep the other defaults
+        args.returnn_rasr_args_defaults["overwrite_orders"][_set].update({ "segment_order_shuffle_seed" : SEED })
+
+        make_experiment_04_seq_orders(
+          args, 
+          NAME
+        )
+
 def determinism_test_fixed_seed():
   SEED = 27
 
