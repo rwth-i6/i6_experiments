@@ -7,9 +7,7 @@ from sisyphus import tk
 from i6_core.tools import CloneGitRepositoryJob
 from i6_core.returnn import ReturnnConfig
 
-from i6_experiments.common.setups.returnn_common.util import resolve_dim_proxies
-from i6_experiments.common.setups.returnn_common.config import get_extern_data_config_and_prolog
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
 
 from .prototype_pipeline import \
     build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, TrainingDatasets
@@ -37,49 +35,8 @@ def trainig_network_mohammad(datastreams, specaug_settings=None, fix_regularizat
     }
 
     dim_tags_proxy = nn.ReturnnDimTagsProxy()
-    ed_config, ed_prolog = get_extern_data_config_and_prolog(dim_tags_proxy, data)
 
-    # out_label_dim = None
-    # out_time_dim = None
-    # extern_data = {}
-    # for key, values in source_extern_data.items():
-    #     temp_values = copy.deepcopy(values)
-    #     time_dim = nn.SpatialDim("%s_time" % key)
-    #     temp_values.pop("shape")
-    #     dim_tags = [nn.batch_dim, time_dim]
-    #     if isinstance(values["dim"], tk.Variable):
-    #         tk.async_run(values["dim"])
-    #         temp_values["dim"] = values["dim"].get()
-    #     in_dim = nn.FeatureDim("%s_feature" % key, dimension=temp_values["dim"])
-    #     if temp_values.get("sparse", False) == False:
-    #         dim_tags += [in_dim]
-    #         data = nn.Data(key, dim_tags=dim_tags, **temp_values)
-    #     else:
-    #         data = nn.Data(key, dim_tags=dim_tags, **temp_values, sparse_dim=in_dim)
-    #     extern_data[key] = data
-    #     if key == "audio_features":
-    #         in_feature_dim = in_dim
-    #         in_time_dim = time_dim
-    #     if key == "bpe_labels":
-    #         out_label_dim = in_dim
-    #         out_time_dim = time_dim
-
-    # extern_data_dict = {
-    #     data_key: {
-    #         key: getattr(data, key)
-    #         for key in [*data.get_kwargs(include_special_axes=False).keys(), "available_for_inference"]
-    #         if key not in {"name"}}
-    #     for (data_key, data) in extern_data.items()}
-
-
-    # dim_tags_proxy = nn.ReturnnDimTagsProxy()
-    # ed_config = dim_tags_proxy.collect_dim_tags_and_transform_config(extern_data_dict)
-    # ed_config = resolve_dim_proxies(ed_config)
-
-    # ed_prolog = ["from returnn.tf.util.data import Dim, batch_dim, single_step_dim, SpatialDim, FeatureDim\n\n%s" % dim_tags_proxy.py_code_str()]
-
-
-    from .prototype_network import EncoderWrapper, static_decoder
+    import time
 
     specaug_settings_full = specaug_settings or SpecAugmentSettings()
 
@@ -92,15 +49,21 @@ def trainig_network_mohammad(datastreams, specaug_settings=None, fix_regularizat
         max_features_per_mask=4,
     )
 
+    start = time.time()
     stage_nets = []
     base_string = None
-    for i in range(1):
+    for i in range(5):
+        local_start = time.time()
         network_string, base_string = get_network(dim_tags_proxy, audio_features, bpe_labels, time_dim=in_time_dim, feature_dim=in_feature_dim, label_dim=out_label_dim, label_time_dim=out_time_dim)
         stage_nets.append(network_string)
+        print("local_time: %f" % (time.time() - local_start))
 
     network_dict = {
         1: stage_nets[0], # network 0
     }
+
+    print("total_time: %f" % (time.time() - start))
+
     return network_dict, base_string
 
 

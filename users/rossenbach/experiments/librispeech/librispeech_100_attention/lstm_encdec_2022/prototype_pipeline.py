@@ -10,10 +10,10 @@ from i6_core.returnn.training import ReturnnTrainingJob
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 
-from i6_experiments.common.setups.returnn.datastreams.vocabulary import BpeDatastream
-from i6_experiments.common.setups.returnn.datastreams.base import Datastream
-from i6_experiments.common.setups.returnn.datastreams.audio import get_default_asr_audio_datastream
-from i6_experiments.common.setups.returnn.datasets import GenericDataset, MetaDataset, OggZipDataset
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import BpeDatastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import get_default_asr_audio_datastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset, MetaDataset, OggZipDataset
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_bpe
 from i6_experiments.users.rossenbach.datasets.librispeech import get_mixed_cv_segments
