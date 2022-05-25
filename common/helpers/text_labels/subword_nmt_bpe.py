@@ -73,7 +73,6 @@ def get_bpe_settings(
     :rtype: BPESettings
     """
     to_text_job = CorpusToTxtJob(bliss_corpus)
-    to_text_job.add_alias(os.path.join(output_prefix, "bliss_to_text"))
 
     train_bpe_job = ReturnnTrainBpeJob(
         text_file=to_text_job.out_txt,
@@ -83,6 +82,7 @@ def get_bpe_settings(
     )
 
     if output_prefix:
+        to_text_job.add_alias(os.path.join(output_prefix, "bliss_to_text"))
         train_bpe_job.add_alias(os.path.join(output_prefix, "train_bpe"))
 
         tk.register_output(
