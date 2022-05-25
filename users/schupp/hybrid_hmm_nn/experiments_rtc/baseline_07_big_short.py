@@ -215,6 +215,74 @@ def make_experiment_08_se_constom_dims( # TODO: finish
   return experiment_data
 
 
+def make_experiment_09_se_and_l2(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  se_block_for_module = [],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+  # Theses are the versions that use se blocks
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_006_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.sa_mod_versions import make_self_att_mod_005_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.ff_mod_versions import make_ff_mod_004_se_block
+
+  args_map = {
+    "ff_mod" : args.ff_default_args,
+    "att_mod" : args.sa_default_args,
+    "conv_mod" : args.conv_default_args,
+  }
+
+  for k in se_block_for_module:
+    args_map[k]["use_se_block"] = True # This flag is False per default for all conformer blocks ( i.e.: default is regular module version )
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_06_sd_se_l2_dynamic
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_06_sd_se_l2_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+
+      conformer_ff1_func=make_ff_mod_004_se_block,
+      conformer_ff2_func=make_ff_mod_004_se_block,
+
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      conformer_self_att_func=make_self_att_mod_005_se_block,
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func=make_conv_mod_006_se_block,
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
+
+
 # ------------------------- baseline: 'big-short-03' -----------------------
 # baseline_04_big_short
 # + se-block ff mod
@@ -240,7 +308,7 @@ def se_block_conv_module():
   )
 
 def num_blocks():
-  for n in [13, 14, 15, 16]:
+  for n in [10, 11, 13, 14, 15, 16]:
     args = get_defaults()
     NAME = f"{BASE}+num-blocks-{n}-aux-at-half"
     args.conformer_defaults['num_blocks'] = n
@@ -265,7 +333,7 @@ def conv_dim():
     )
 
 def att_dim():
-  for d in [1024, 1538, 2048]:
+  for d in [1024, 2048]:
     args = get_defaults()
     args.sa_default_args["key_dim"] = d
     NAME = f"{BASE}+att-dim-{d}"
@@ -288,12 +356,70 @@ def ff_dim():
       se_block_for_module = ["ff_mod"],
     )
 
+def frame_stacking_time_down_factor():
+  for sample in [1, 2, 4]: # 3 is baseline
+    args = get_defaults()
+    NAME = f"{BASE}+donw-fact={sample}"
+
+    args.sampling_default_args["stacking_stride"] = sample
+    args.sampling_default_args["unsampling_strides"] = sample
+
+    if sample == 1:
+      args.config_args["batch_size"] = 3500
+
+    args.auxilary_loss_args["aux_strides"] = sample # We want to keep auxilary loss layer
+
+    data = make_experiment_07_se_block(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+      #test_construct = True
+    )
+
+def gradient_noise_tests():
+  for gradn in [0.1, 0.05]:
+    args = get_defaults()
+    args.config_args["gradient_noise"] = gradn
+    NAME = f"{BASE}+grad-noise-{gradn}"
+
+    data = make_experiment_07_se_block(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
 def huge_conformer(): # Baslicly Xl conformer with se block
+
+  args = get_defaults()
+  NAME = f'{BASE}+XL'
+
+  args.shared_network_args['model_dim'] = 1024
+  args.sa_default_args['key_dim'] = 512
+  args.sa_default_args['value_dim'] = 512
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod"],
+  )
+
+def huge_conformer_normlization(): # TODO; set good normalizations here
   pass
 
 def no_chunking_seq_len():
   # Experiment w/o chunking, but set max_seq len
-  pass
+  args = get_defaults()
+  NAME = f"{BASE}+no-chunking"
+
+  args.config_args.pop("chunking")
+  args.config_args["max_seq_len"] = 5000
+  #args.config_args["max_seq"] = 200 #TODO: is that any good
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod"],
+  )
   
 def maybe_optimal_l2_drop():
   # From intial experiments ( very old baseline, the best was L2 = 0.0001, dropout = 0.03)
@@ -316,12 +442,146 @@ def maybe_optimal_l2_drop():
     se_block_for_module = ["ff_mod"],
   )
 
-def with_l2():
+def half_ration():
+
+  for x in [0.4, 0.6]:
+    args = get_defaults()
+    NAME = f"{BASE}+other-ff-ration-{x}"
+    args.ff_default_args["ff_half_ratio"] = x
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def stacking_window_size():
+  size_win_map = [
+    {
+      "window_right" : 1,
+      "window_left" : 2,
+      "window_size" : 4
+    },
+    {
+      "window_right" : 2,
+      "window_left" : 2,
+      "window_size" : 5
+    },
+    {
+      "window_right" : 1,
+      "window_left" : 3,
+      "window_size" : 5
+    },
+    {
+      "window_right" : 2,
+      "window_left" : 3,
+      "window_size" : 6
+    }
+  ]
+  for _map in size_win_map:
+    args = get_defaults()
+    args.sampling_default_args
+    for x in _map:
+      args.sampling_default_args[x] = _map[x]
+
+    NAME = f"{BASE}+stacking-window={_map['window_size']}-right={_map['window_right']}-left={_map['window_left']}"
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+
+
+def get_l2_init(inital=0):
+  return OrderedDict(
+    ff_mod1 = {
+      "_conv1" : inital, 
+      "_conv2" : inital,
+      "_out" : inital,
+    },
+    self_att = {
+      "_att_att" : inital,
+      "_att_lin" : inital,
+      "_out" : inital
+    },
+    conv_mod = {
+      "_conv_pointwise1" : inital,
+      "_conv_depthwise" : inital,
+      "_conv_pointwise2" : inital,
+      "_conv_output" : inital
+    },
+    ff_mod2 = {
+        "_conv1" : inital, 
+        "_conv2" : inital,
+        "_out" : inital
+      })
+
+def with_l2_TEST():
   # TODO experiment using L2, right now we're not using it at all
   # We apply weight decay [35] with a value of 0.01 to the transposed convolution layers ...
   # Here make some thest with weight decay, if that suceeds use it...
-  pass
 
+  # Positions to apply:
+  # - ff mod conv1 (upscale), ff mod conv2, ff mod out
+  # - attmod attention, attmod linear, att mod out
+  # - conv mod pointwise 2, conv mod depthwise, conv mod pointwise 2, conv mod out 
+
+
+  for x in [0.0, 0.0001]:
+    args = get_defaults()
+    NAME = f"{BASE}+l2-everywhere={x}-TEST"
+    layer_l2 = get_l2_init(x)
+
+    args.conformer_defaults["per_layer_l2"] = [layer_l2] * args.conformer_defaults["num_blocks"]
+
+    make_experiment_09_se_and_l2(
+      args,
+      NAME,
+      se_block_for_module = ["ff_mod"],
+      #dummy_config = "l2.test.config",
+      #test_construct = True
+      )
+
+
+def l2_on_wide_layers():
+  for l2 in [0.01, 0.02]:
+    args = get_defaults()
+    NAME = f"{BASE}+l2-only-wide-layers={l2}"
+    layer_l2 = OrderedDict(
+      ff_mod1 = {"_conv1" : l2},
+      conv_mod = {"_depthwise": l2},
+      self_att = {"_att_lin" : l2},
+      ff_mod2 = {"_conv1" : l2}
+    )
+
+    args.conformer_defaults["per_layer_l2"] = [layer_l2] * args.conformer_defaults["num_blocks"]
+
+    make_experiment_09_se_and_l2(
+      args,
+      NAME,
+      se_block_for_module = ["ff_mod"],
+      )
+
+def l2_on_outputs():
+  for l2 in [0.01, 0.02]:
+    args = get_defaults()
+    NAME = f"{BASE}+l2-only-outputs={l2}"
+    layer_l2 = OrderedDict(
+      ff_mod1 = {"_out" : l2},
+      conv_mod = {"_output": l2},
+      self_att = {"_out" : l2},
+      ff_mod2 = {"_out" : l2}
+    )
+
+    args.conformer_defaults["per_layer_l2"] = [layer_l2] * args.conformer_defaults["num_blocks"]
+
+    make_experiment_09_se_and_l2(
+      args,
+      NAME,
+      se_block_for_module = ["ff_mod"],
+      )
 
 
 def main():
@@ -334,4 +594,17 @@ def main():
 
   maybe_optimal_l2_drop()
 
+  no_chunking_seq_len()
 
+  gradient_noise_tests()
+
+  huge_conformer()
+
+  with_l2_TEST()
+  l2_on_outputs()
+  l2_on_wide_layers()
+
+  frame_stacking_time_down_factor()
+
+  #stacking_window_size() TODO: broken
+  half_ration()

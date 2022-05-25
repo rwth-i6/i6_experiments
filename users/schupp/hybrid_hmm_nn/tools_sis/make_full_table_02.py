@@ -10,7 +10,7 @@ import argparse
 import csv
 import importlib
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.INFO)
 
 
 parser = argparse.ArgumentParser()
@@ -55,11 +55,13 @@ csv_columns = {
 
     "Train time untill end (h)" : [],
 
+    "Average time full epoch": [],
+
     "num params (M)" : [],
 
-    "dev/devother CE (final ep)" : [],
-    "dev/devother FER (final ep)" : [],
-    "dev/devother WER (final ep)" : [],
+    "dev/devtrain CE (final ep)" : [],
+    "dev/devtrain FER (final ep)" : [],
+    "dev/devtrain WER (final ep)" : [],
 
     "wer devother" : [], # TODO: woule be interesing to have
 
@@ -159,7 +161,7 @@ for ex in all_experiments:
     rows.append(row)
     log.debug(f"\nProcessing experiment '{ex}'\n")
     for sub_ex in all_sub_experiments[ex]:
-        log.debug(f"\nsub ex '{sub_ex}'\n")
+        log.info(f"\nsub ex '{sub_ex}'\n")
         try:
             with open(f'{RESULTS_PATH}/{ex}/{sub_ex}.json') as data_file:
                 data = json.load(data_file)
@@ -218,23 +220,31 @@ for ex in all_experiments:
         def get_key(_set="dev", _for="score"):
             if not data["dev-other"]["errors_per_ep"]:
                 return None # data non existent
-            elif not "0" in data["dev-other"]["errors_per_ep"]:
-                return None # even epoch 0 doesn't exist
-            keys = list(data["dev-other"]["errors_per_ep"]["0"].keys())
-            if "{_set}_{_for}_output" in keys:
-                return "{_set}_{_for}_output"
-            elif "{_set}_{_for}" in keys:
-                return "{_set}_{_for}"
-            assert False, "unknown key strucutre"
+            elif not "1" in data["dev-other"]["errors_per_ep"]:
+                return None
+            keys = list(data["dev-other"]["errors_per_ep"]["1"].keys())
+            if f"{_set}_{_for}_output" in keys:
+                return f"{_set}_{_for}_output"
+            elif f"{_set}_{_for}" in keys:
+                return f"{_set}_{_for}"
+
+            #log.info(keys)
+            #log.info(data["dev-other"]["errors_per_ep"])
+            return None
+            #assert False, "unknown key strucutre"
 
         
 
+        #log.info(data["dev-other"]["errors_per_ep"])
+        devtrain_score_key = get_key("devtrain", "score")
+        log.info(devtrain_score_key)
+
         devtrain_score_error_final = [
-            maybe_get_error_score_by_ep(get_key("devtrain", "score"), config_data["num_epochs"]),
+            maybe_get_error_score_by_ep(devtrain_score_key, config_data["num_epochs"]),
             maybe_get_error_score_by_ep(get_key("devtrain", "error"), config_data["num_epochs"]),
         ]
 
-        log.debug(devtrain_score_error_final)
+        #log.info(devtrain_score_error_final)
 
         dev_score_error_final = [
             maybe_get_error_score_by_ep(get_key("dev", "score"), config_data["num_epochs"]),
@@ -244,10 +254,18 @@ for ex in all_experiments:
         CE_error_ration = "no data"
         if devtrain_score_error_final[0] and dev_score_error_final[0]:
             CE_error_ration = devtrain_score_error_final[0]/dev_score_error_final[0]
+            if CE_error_ration > 1:
+                CE_error_ration = "extract error"
+            else:
+                CE_error_ration = round(CE_error_ration, 4)
 
         FER_error_ration = "no data"
         if devtrain_score_error_final[1] and dev_score_error_final[1]:
             FER_error_ration = devtrain_score_error_final[1]/dev_score_error_final[1]
+            if FER_error_ration > 1:
+                FER_error_ration = "extract error"
+            else:
+                FER_error_ration = round(FER_error_ration, 4)
 
         finished_train = "YES" if data["dev-other"]["finished_eps"] and int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
 
@@ -259,6 +277,7 @@ for ex in all_experiments:
             *wers_per_set,
             data["dev-other"]["time_p_sep"] * best_ep_dev_other,
             config_data["num_epochs"] * data["dev-other"]["time_p_sep"],
+            config_data["epoch_split"] * data["dev-other"]["time_p_sep"], # Time for a full epoch
             data["dev-other"]["num_params"], # params
             CE_error_ration,
             FER_error_ration,

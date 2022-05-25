@@ -267,6 +267,58 @@ def make_experiment_06_stoch_depth(
   return experiment_data
 
 
+def make_experiment_06_stoch_depth_DEBUG(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_04_stoch_depth_dynamic
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.subsampling_versions import make_subsampling_001, make_unsampling_001
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      subsampling_func=make_subsampling_001, # This allowes to overwrite `sampling_activation`
+      unsampling_func=make_unsampling_001,
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
+
+
+
 # + allowes to use se blocks for any module
 # Note where se is applied differes per block
 # ff_mod: After first linear layer
@@ -698,7 +750,8 @@ def determinism_test_random_seed():
   for x in range(1, 5 + 1):
     SEED = SEEDS[x-1]
     args = get_defaults()
-    NAME = f"{BASE}+fixed-seed={SEED}-run-{x}"
+    if run != 1:
+      NAME = f"{BASE}+fixed-seed={SEED}-run-{x}"
 
     args.config_args["random_seed"] = SEED
     args.config_args["determinism_test_extra_tim"] = f"random_seed_used:{SEED}"
@@ -744,7 +797,10 @@ def determinism_test_fixed_seed():
     NAME = f"{BASE}+random-seed={SEED}-run-{x}"
 
     args.config_args["random_seed"] = SEED
-    args.config_args["determinism_test_extra_tim"] = f"used_seed:{SEED}"
+    if x != 1:
+      args.config_args["determinism_test_extra_tim"] = f"used_seed:{SEED}-run:{x}"
+    else:
+      args.config_args["determinism_test_extra_tim"] = f"used_seed:{SEED}"
 
     for _set in ["train", "dev", "devtrain"]:
       # Only update we want to keep the other defaults
@@ -775,6 +831,31 @@ def groupnorm_everywhere():
   make_experiment_13_groupnorm_everywhere(args, NAME)
 
 
+def groupnorm_groups():
+  for group in [16, 64]:
+    args = get_defaults()
+    NAME = f"{BASE}+groupnorm-everywhere-g={group}"
+
+
+
+    make_experiment_13_groupnorm_everywhere(args, NAME, 
+      groupnorm_args = {
+        "groups" : group,
+        "epsilon" : 1e-5
+      })
+
+def groupnorm_eps():
+  for eps in [1e-6, 1e-4]:
+    args = get_defaults()
+    NAME = f"{BASE}+groupnorm-everywhere-eps={eps}"
+
+    make_experiment_13_groupnorm_everywhere(args, NAME, 
+      groupnorm_args = {
+        "groups" : 32,
+        "epsilon" : eps
+      })
+
+
 def huge_conformer():
 
   args = get_defaults()
@@ -791,7 +872,7 @@ def huge_conformer():
 
 
 def sd_ff_depth_scale_multiple():
-  for prob in [0.1, 0.2, 0.3, 0.4]:
+  for prob in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
   
     args = get_defaults()
     NAME = f'{BASE}+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'
@@ -815,6 +896,49 @@ def sd_ff_depth_scale_multiple():
 
     make_experiment_06_stoch_depth( args, NAME )
 
+def sd_att_mod_new(): # TODO: fix
+  args = get_defaults()
+  prob = 1.0
+  NAME = f'{BASE}+stoch-depth-v2.0-att-mod+depth-scale-survival-prob-v1-p={prob}'
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=12)
+
+  def surv_prob_by_layer(l, L=12.0, p=0.2):
+    return 1.0 - ((l/L) * (1.0 - p))
+
+
+  # Think the bug might be related to feature stacking
+  args.sampling_default_args["time_reduction"] = 3 # !! required, as feature statcking also did time down 3
+  # The following are not needed any more: ( only required for frame stacking)
+  del args.sampling_default_args["unsampling_strides"]
+  del args.sampling_default_args["stacking_stride"]
+  del args.sampling_default_args["window_size"]
+  del args.sampling_default_args["window_right"]
+  del args.sampling_default_args["window_left"]
+
+
+  #subsampling_func=make_subsampling_001, # This allowes to overwrite `sampling_activation`
+  #unsampling_func=make_unsampling_001,
+
+  sd_args = {
+    i : {
+      "self_att" : surv_prob_by_layer(i, p=prob),
+      "ff_mod1" : surv_prob_by_layer(i, p=prob),
+    } for i in [1]
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth_DEBUG( 
+    args, 
+    NAME,
+    test_construct = "advanced",
+    dummy_config = "sd.att.test.config"
+  )
+
 def main():
   baseline()
   no_short_lr()
@@ -823,7 +947,7 @@ def main():
   se_convmod()
 
   determinism_test_fixed_seed()
-  determinism_test_random_seed()
+  #determinism_test_random_seed()
 
   groupnorm_conv_mod()
   groupnorm_everywhere()
@@ -831,3 +955,5 @@ def main():
   sd_ff_depth_scale_multiple()
 
   huge_conformer()
+  groupnorm_groups()
+  #groupnorm_eps()TODO Epsonen seems not usable so far.

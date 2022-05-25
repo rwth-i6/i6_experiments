@@ -941,7 +941,22 @@ def sd_attmod(v=0):
     test_construct = True
   )
 
+def sd_sanity_check():
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-p=1.0-TEST"
 
+  sd_args = {
+    i : {
+      "ff_mod1" : 1.0,
+      "ff_mod2" : 1.0
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
 
 def sd_attmod_v2():
   sd_attmod_v2(v=1)
@@ -1270,3 +1285,4 @@ def all():
   main3()
   main4()
   main5()
+  sd_sanity_check()

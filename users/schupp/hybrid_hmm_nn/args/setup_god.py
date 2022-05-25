@@ -445,6 +445,9 @@ def create_experiment_world_004( # New system that adds devtrain dataset
     if test_construction:
         job_dispatcher.test_net_contruction(returnn_train_config)
 
+    if isinstance(test_construction, str) and test_construction == "advanced":
+        job_dispatcher.test_net_construction_advanced(returnn_train_config)
+
     returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args_03_overwrite_orders(
         system, 
         train_corpus_key=train_corpus_key,

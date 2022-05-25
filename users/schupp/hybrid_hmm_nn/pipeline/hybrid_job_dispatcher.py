@@ -161,6 +161,43 @@ def test_net_contruction(
 
         net.print_network_info()
 
+def test_net_construction_advanced(
+    rt_config : ReturnnConfig
+
+):
+    from returnn.tf.engine import Engine
+    from ..helpers.returnn_test_helper import make_scope, make_feed_dict
+    from returnn.config import Config
+    from returnn.tf.util.data import Dim, SpatialDim, FeatureDim, BatchInfo
+    from returnn.util.basic import hms, NumbersDict, BackendEngine, BehaviorVersion
+    from returnn.tf.network import TFNetwork
+
+
+    from ..helpers import specaugment_new
+
+    # Net trick to filter all functions that are not build ins
+    functions = [ f for f in dir(specaugment_new) if not f[:2] == "__"]
+    funcs = {key:value for key in functions for value in [getattr(specaugment_new, k) for k in functions]}
+
+    #from recipe.returnn_common.tests.returnn_helpers import config_net_dict_via_serialized
+    config = Config({
+        **rt_config.config,
+        **funcs
+    })
+    print("TBS: test config args:")
+    print(rt_config.config)
+
+    BehaviorVersion.set(config.int("behavior_version", 12))
+
+    import tensorflow as tf
+
+    with tf.Graph().as_default() as graph:
+        assert isinstance(graph, tf.Graph)
+        Engine.create_network(
+            config=config, rnd_seed=1,
+            train_flag=False, eval_flag=False, search_flag=False,
+            net_dict=rt_config.config["network"])
+
 def make_and_register_returnn_rasr_train(
     #system,
     returnn_train_config,
