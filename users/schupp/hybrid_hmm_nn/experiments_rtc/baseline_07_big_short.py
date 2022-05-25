@@ -145,6 +145,74 @@ def make_experiment_07_se_block(
   return experiment_data
 
 
+def make_experiment_07_se_block_v2(
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  se_block_for_module = [],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+  # Theses are the versions that use se blocks
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conv_mod_versions import make_conv_mod_006_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.sa_mod_versions import make_self_att_mod_005_se_block
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.ff_mod_versions import make_ff_mod_004_se_block, make_ff_mod_004_se_block_v2
+
+  args_map = {
+    "ff_mod" : args.ff_default_args,
+    "att_mod" : args.sa_default_args,
+    "conv_mod" : args.conv_default_args,
+  }
+
+  for k in se_block_for_module:
+    args_map[k]["use_se_block"] = True # This flag is False per default for all conformer blocks ( i.e.: default is regular module version )
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_04_stoch_depth_dynamic
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+
+      conformer_ff1_func=make_ff_mod_004_se_block_v2,
+      conformer_ff2_func=make_ff_mod_004_se_block_v2,
+
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      conformer_self_att_func=make_self_att_mod_005_se_block,
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conformer_self_conv_func=make_conv_mod_006_se_block,
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
+
+
 # Allowes for custom dimensions for all modules...
 def make_experiment_08_se_constom_dims( # TODO: finish
   args, 
@@ -297,6 +365,19 @@ def baseline():
     se_block_for_module = ["ff_mod"],
   )
 
+
+
+def other_ff_se_version():
+  args = get_defaults()
+  NAME = f"{BASE}+se-block-v2-ff-mod"
+
+  data = make_experiment_07_se_block_v2(
+    args, 
+    NAME,
+    se_block_for_module = ["ff_mod"],
+  )
+
+
 def se_block_conv_module():
   args = get_defaults()
   NAME = f"{BASE}+se-block-v1.0-conv-mod"
@@ -407,19 +488,27 @@ def huge_conformer_normlization(): # TODO; set good normalizations here
   pass
 
 def no_chunking_seq_len():
-  # Experiment w/o chunking, but set max_seq len
-  args = get_defaults()
-  NAME = f"{BASE}+no-chunking"
+  stats = [
+    {"max_seq_len" : 2800},
+    {"batch_size" : 4600},
+    {"max_seq_len" : 4000, "batch_size" : 5400},
+  ]
 
-  args.config_args.pop("chunking")
-  args.config_args["max_seq_len"] = 5000
-  #args.config_args["max_seq"] = 200 #TODO: is that any good
+  for s in stats:
+    # Experiment w/o chunking, but set max_seq len
+    args = get_defaults()
+    NAME = f"{BASE}+no-chunking-" + "-".join([f"{k.replace('_', '-')}={v}" for k, v in s.items()])
 
-  data = make_experiment_07_se_block(
-    args, 
-    NAME,
-    se_block_for_module = ["ff_mod"],
-  )
+    args.config_args.pop("chunking")
+    for x in s:
+      args.config_args[x] = s[x]
+    #args.config_args["max_seq"] = 200 #TODO: is that any good
+
+    data = make_experiment_07_se_block(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
   
 def maybe_optimal_l2_drop():
   # From intial experiments ( very old baseline, the best was L2 = 0.0001, dropout = 0.03)
@@ -441,6 +530,34 @@ def maybe_optimal_l2_drop():
     NAME,
     se_block_for_module = ["ff_mod"],
   )
+
+
+def conv_kernel_size():
+
+  for x in [7, 17, 32, 65]:
+    args = get_defaults()
+    NAME = f"{BASE}+conv-kernel-size-{x}"
+    args.conv_default_args["kernel_size"] = x
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def attention_heads():
+  for a in [4, 16, 32]:
+    args = get_defaults()
+    NAME = f"{BASE}+att-heads={a}"
+
+    args.sa_default_args["num_heads"] = a
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
 
 def half_ration():
 
@@ -544,6 +661,34 @@ def with_l2_TEST():
       #test_construct = True
       )
 
+def learning_rate_optimal_decay():
+  for decay in [0.90, 0.95]:
+    args = get_defaults()
+    NAME = f"{BASE}+lr-decay-fact={decay}"
+
+    learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=decay)
+    args.config_args["learning_rates"] = learning_rates
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
+def learning_rate_optimal_warmups():
+  for wup in [5, 15]:
+    args = get_defaults()
+    NAME = f"{BASE}+warmups={wup}"
+
+    learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=wup, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+    args.config_args["learning_rates"] = learning_rates
+
+    data = make_experiment_08_se_constom_dims(
+      args, 
+      NAME,
+      se_block_for_module = ["ff_mod"],
+    )
+
 
 def l2_on_wide_layers():
   for l2 in [0.01, 0.02]:
@@ -586,6 +731,7 @@ def l2_on_outputs():
 
 def main():
   baseline()
+  other_ff_se_version()
   se_block_conv_module()
 
   num_blocks()
@@ -608,3 +754,8 @@ def main():
 
   #stacking_window_size() TODO: broken
   half_ration()
+  learning_rate_optimal_decay()
+  learning_rate_optimal_warmups()
+
+  conv_kernel_size()
+  attention_heads()
