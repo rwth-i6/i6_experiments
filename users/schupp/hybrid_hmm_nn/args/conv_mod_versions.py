@@ -384,6 +384,9 @@ def make_conv_mod_006_se_block( # TODO
     conv_act = None,
     conv_post_dropout = None,
     use_se_block = False,
+    se_version = 0,
+    se_dim = None,
+    se_act = None,
 
     # Shared network args:
     initialization = None,
@@ -391,7 +394,7 @@ def make_conv_mod_006_se_block( # TODO
 
 ):
 
-    from .network_additions import se_block
+    from .network_additions import se_block, se_block_scale
     net_add = {
         "_conv_laynorm" : {
             'class': "layer_norm",
@@ -421,7 +424,13 @@ def make_conv_mod_006_se_block( # TODO
     next_layer = "_conv_depthwise"
 
     if use_se_block:
-        net_add, next_layer = se_block(net_add, next_layer, prefix="_conv", model_dim=model_dim)
+        if se_version == 0:
+            net_add, next_layer = se_block(net_add, next_layer, prefix="_conv", model_dim=model_dim)
+        elif se_version == 1:
+            if not se_act:
+                net_add, next_layer = se_block_scale(net_add, next_layer, prefix="_conv", model_dim=model_dim, se_dim=se_dim)
+            else:
+                net_add, next_layer = se_block_scale(net_add, next_layer, prefix="_conv", model_dim=model_dim, se_dim=se_dim, se_act=se_act)
 
     net_add2 = {
         "_conv_batchnorm" : {

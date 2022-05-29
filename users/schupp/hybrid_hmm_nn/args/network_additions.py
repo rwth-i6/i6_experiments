@@ -47,6 +47,57 @@ def se_block( # TODO naming convention off here, should have '_00' cause inital 
 
     return net, f"{prefix}_SE_elm_mul"
 
+
+def se_block_scale( 
+    net=None,
+    in_l=None,
+    prefix = None,
+
+    se_dim = None,
+    se_act = "swish",
+
+    # Shared args:
+    model_dim = None,
+):
+
+    assert net, "no net"
+    assert in_l, "no input layer"
+    assert prefix, "needs prefix"
+
+    net_add = {
+        "_SE_reduce": {
+            "class" : "reduce",
+            "mode" : "mean",
+            "from"  : in_l,
+            "axes" : "T"},
+        "_SE_linear1": {
+            "class" : "linear",
+            "from" : "_SE_reduce",
+            "n_out" : se_dim},
+        "_SE_act1" : {
+            "class" : "activation",
+            "activation" : "swish",
+            "from" : "_SE_linear1"},
+        "_SE_linear2" : {
+            "class" : "linear",
+            "from" :  "_SE_act1",
+            "n_out" : model_dim},
+        "_SE_act2" : {
+            "class" : "activation",
+            "activation" : se_act,
+            "from" : "_SE_linear2" },
+        "_SE_elm_mul" :  {
+            "class" : "eval",
+            "eval" : "source(0) * source(1)",
+            "from" : ["_SE_act2", in_l]},
+    }
+
+    net.update(
+        prefix_all_keys(prefix, net_add, in_l)
+    )
+
+    return net, f"{prefix}_SE_elm_mul"
+
 def se_block_02_not_prefixed(
     net=None,
     in_l=None,
@@ -239,6 +290,93 @@ def stochatic_depth_02_speedup(
 
     return net_add, f"{prefix}_cond_train"
 
+
+def stochatic_depth_03_namescopes(
+    subnetwork = None,
+    survival_prob = None,
+    subnet_last = None,
+
+    multipy_by_surivial_prob_ineval = True,
+
+    in_l = None,
+
+    prefix = None,
+
+):
+
+    # Subnetworks need to share the namescopes to share params:
+    # -> so we just add a root namescope with the specific layers name:
+    for layer_name in subnetwork:
+        subnetwork[layer_name]["name_scope"] = f"/{layer_name}"
+    # TODO: verfiy tensorflow namescopes
+
+    random_bernulli = f"tf.compat.v1.distributions.Bernoulli(probs={survival_prob}).sample(sample_shape=())"
+    switch = f"tf.equal({random_bernulli}, 1)"
+
+    eval_case = f"source(0) * {survival_prob} + source(1)"
+    if not multipy_by_surivial_prob_ineval:
+        eval_case = f"source(0) + source(1)"
+
+    net_train = {
+            "class": "cond", 
+            "from": [],
+            "condition": { # First condition only checks if we are in train using TrainFlagLayer
+                "class": "eval", 
+                "from": [], 
+                "out_type": {
+                    "batch_dim_axis": None, 
+                    "shape": (), 
+                    "dtype": "bool"},
+                "eval": switch }, # In training generate random bernulli with 'surival_prob' if 0, then skip layer, if 1 the use layer ...
+            "true_layer": { # TRUE add subnetwork output to redidual ( in_l )
+                "class": "subnetwork", 
+                "from": in_l, 
+                "subnetwork": {
+                    in_l : { # We just copy this overunder the same name
+                        "class" : "copy",
+                        "from" : "data"}, 
+                    **subnetwork, # Most likely a full confore module
+                    "output" : {
+                        "class": "eval",
+                        "from" : [subnet_last, in_l],
+                        "eval" : "source(0) + source(1)"}}}, 
+            "false_layer": { # FALSE: only add the residual i.e.: only 1 * input
+                "class": "copy", 
+                "from": in_l}
+    }
+
+    net_eval = {
+            "class": "subnetwork",
+            "from" : in_l,
+            "subnetwork" : {
+                in_l : { # We just copy this overunder the same name ( need it cause also used as input from the subnet )
+                    "class" : "copy",
+                    "from" : "data"},
+                **subnetwork,
+                "output" : {
+                    "class": "eval",
+                    "from" : [subnet_last, in_l],
+                    "eval" : eval_case}}
+    }
+
+    net_add = {
+        f"{prefix}_cond_train" : {
+            "class" : "cond",
+            "from" : [],
+            "condition" : {
+                "class": "train_flag"
+            },
+            "true_layer" : {
+                **net_train
+            },
+            "false_layer" : {
+                **net_eval
+            }
+        }
+    }
+
+
+    return net_add, f"{prefix}_cond_train"
 
 def stochatic_depth_03_namescopes(
     subnetwork = None,
