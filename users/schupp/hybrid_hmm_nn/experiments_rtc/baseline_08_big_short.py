@@ -466,8 +466,8 @@ def extra_aux2():
   )
 
 def embed_l2_drop():
-  l2s = [0.0001, 0.0]
-  ds =  [0.003   , 0.1]
+  l2s = [0.0001, 0.0, 0.0]
+  ds =  [0.003   , 0.1, 0.2]
   for l2, d in zip(l2s, ds):
     args = get_defaults()
     NAME = f"{BASE}-embed-l2={l2}-drop={d}"
@@ -551,7 +551,7 @@ def skip_connections():
   def even_space_skip(step, blocks): # Start with 1
     i = 1
     l = []
-    while i <= blocks:
+    while step*i <= blocks:
       l.append(step*i)
       i +=1
     return l
@@ -576,6 +576,35 @@ def skip_connections():
         se_block_for_module = ["ff_mod", "conv_mod"],
       )
 
+def se_dim():
+  for d in [26, 32, 48, 64, 128]:
+    args = get_defaults()
+    NAME = f"{BASE}+se-dim={d}"
+
+    args.conv_default_args["se_version"] = 1
+    args.conv_default_args["se_dim"] = d
+
+    make_experiment_10_se_l2_skip(
+      args,
+      NAME,
+        aux_loss_layers = [8],
+        se_block_for_module = ["ff_mod", "conv_mod"],
+      )
+
+def se_act():
+  for d in ["gelu", "relu"]:
+    args = get_defaults()
+    NAME = f"{BASE}+se-act={d}"
+
+    args.conv_default_args["se_version"] = 1
+    args.conv_default_args["se_act"] = d
+
+    make_experiment_10_se_l2_skip(
+      args,
+      NAME,
+        aux_loss_layers = [8],
+        se_block_for_module = ["ff_mod", "conv_mod"],
+      )
 
 
 def main():
@@ -588,3 +617,6 @@ def main():
 
   extra_aux()
   extra_aux2()
+
+  se_dim()
+  se_act()

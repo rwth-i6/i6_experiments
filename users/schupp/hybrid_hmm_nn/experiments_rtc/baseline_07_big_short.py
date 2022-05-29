@@ -389,7 +389,7 @@ def se_block_conv_module():
   )
 
 def num_blocks():
-  for n in [10, 11, 13, 14, 15, 16]:
+  for n in [10, 11, 13, 14, 15, 16, 17]:
     args = get_defaults()
     NAME = f"{BASE}+num-blocks-{n}-aux-at-half"
     args.conformer_defaults['num_blocks'] = n

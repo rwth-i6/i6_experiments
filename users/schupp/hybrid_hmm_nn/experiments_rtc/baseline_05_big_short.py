@@ -267,6 +267,55 @@ def make_experiment_06_stoch_depth(
   return experiment_data
 
 
+def make_experiment_06_stoch_depth_v2( # TODO: not actually needed
+  args, 
+  NAME,
+  aux_loss_layers = [6],
+  dummy_config = None,
+  test_construct = False
+  ):
+
+
+  from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args.conformer_returnn_dict_network_generator import make_conformer_07_sd_se_l2_sk_stoch_depth_v2
+
+  experiment_data = god.create_experiment_world_004( 
+    name=NAME,
+    output_path=OUTPUT_PATH,
+    config_base_args=args.config_args,
+    conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_04_stoch_depth_dynamic,
+    conformer_func_args=OrderedDict(
+      # sampling args
+      sampling_func_args = args.sampling_default_args,
+
+      # Feed forward args, both the same by default
+      ff1_func_args = args.ff_default_args,
+      ff2_func_args = args.ff_default_args,
+
+      # Self attention args
+      sa_func_args = args.sa_default_args,
+
+      # Conv mod args
+      conv_func_args = args.conv_default_args,
+
+      # Shared model args
+      shared_model_args = args.shared_network_args,
+
+      auxilary_at_layer = aux_loss_layers,
+      auxilary_loss_args = args.auxilary_loss_args,
+
+      # Conformer args
+      **args.conformer_defaults ),
+      returnn_train_post_config=args.returnn_train_post_config,
+      returnn_rasr_args_defaults=args.returnn_rasr_args_defaults,
+
+      write_dummpy_config=dummy_config,
+      test_construction=test_construct,
+  )
+
+  return experiment_data
+
+
+
 def make_experiment_06_stoch_depth_DEBUG(
   args, 
   NAME,
@@ -892,6 +941,33 @@ def sd_ff_depth_scale_multiple():
 
     args.conformer_defaults.update(OrderedDict(
       apply_stochastic_depth = sd_args
+    ))
+
+    make_experiment_06_stoch_depth( args, NAME )
+
+
+def sd_ff_depth_scale_multiple_v2():
+  for prob in [0.1, 0.5, 1.0]:
+  
+    args = get_defaults()
+    NAME = f'{BASE}+stoch-depth-v3.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'
+
+    import numpy
+    space = numpy.linspace(1.0, 0.5, num=24)
+
+    def surv_prob_by_layer(l, L=12.0, p=0.2):
+      return 1.0 - ((l/L) * (1.0 - p))
+
+    sd_args = {
+      i : {
+        "ff_mod1" : surv_prob_by_layer(i, p=prob),
+        "ff_mod2" : surv_prob_by_layer(i, p=prob),
+      } for i in range(1, 12 + 1)
+    }
+
+    args.conformer_defaults.update(OrderedDict(
+      apply_stochastic_depth = sd_args,
+      multipy_by_surivial_prob_ineval = True
     ))
 
     make_experiment_06_stoch_depth( args, NAME )
