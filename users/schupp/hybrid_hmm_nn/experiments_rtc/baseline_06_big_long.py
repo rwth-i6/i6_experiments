@@ -770,6 +770,20 @@ def learning_rate_adjusted():
       se_block_for_module = ["ff_mod", "conv_mod"],
     )
 
+def more_aux():
+  args = get_defaults_base_08()
+  NAME = f"{BASE}+aux-4-8-12+long-lr"
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90, min_lr_ratio=1/50, decay_factor=0.99)
+  args.config_args["learning_rates"] = learning_rates
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    aux_loss_layers = [4, 8, 12],
+    se_block_for_module = ["ff_mod", "conv_mod"],
+  )
+
   
 
 
@@ -778,6 +792,8 @@ def embed_dropout():
   args = get_defaults_base_08()
   NAME = f"{BASE}-embed-drop={ds}"
   args.sampling_default_args["embed_dropout"] = ds
+
+
 
   data = make_experiment_07_se_block(
     args, 
@@ -800,3 +816,5 @@ def main():
 
   embed_dropout()
   learning_rate_adjusted()
+
+  more_aux()
