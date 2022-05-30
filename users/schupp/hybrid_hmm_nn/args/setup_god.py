@@ -528,6 +528,7 @@ def create_experiment_world_004( # New system that adds devtrain dataset
             returnn_train_config = returnn_train_config,
             feature_name = "gammatone",
             exp_name = name,
+            use_gpu_and_extra_mem=True
         )
 
     return OrderedDict(

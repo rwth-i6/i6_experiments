@@ -61,9 +61,8 @@ csv_columns = {
 
     "dev/devtrain CE (final ep)" : [],
     "dev/devtrain FER (final ep)" : [],
+    "devtrain WER" : [],
     "dev/devtrain WER (final ep)" : [],
-
-    "wer devother" : [], # TODO: woule be interesing to have
 
     "GPUs used" : [],
 
@@ -269,6 +268,19 @@ for ex in all_experiments:
 
         finished_train = "YES" if data["dev-other"]["finished_eps"] and int(data["dev-other"]["finished_eps"]) == int(config_data["num_epochs"]) else "NO"
 
+        devtrain_WER = f"No data for ep {config_data['num_epochs']}"
+        if "devtrain" in data and str(config_data["num_epochs"]) in data['devtrain']:
+            log.info("Found devtrain WER")
+            devtrain_WER = data['devtrain'][str(config_data["num_epochs"])]
+
+        devWER_final = None
+        if "dev-other" in data and str(config_data["num_epochs"]) in data['dev-other']:
+            devWER_final = data['dev-other'][str(config_data["num_epochs"])]
+
+        dev_devtrain_WER_ration = f"No data for ep {config_data['num_epochs']}"
+        if isinstance(devWER_final, float) and isinstance(devtrain_WER, float):
+            dev_devtrain_WER_ration = devWER_final / devtrain_WER
+
         row = [
             data["name"], # name
             finished_train,
@@ -281,8 +293,8 @@ for ex in all_experiments:
             data["dev-other"]["num_params"], # params
             CE_error_ration,
             FER_error_ration,
-            "TODO: no results yet",
-            "TODO: not yet impemented",
+            devtrain_WER,
+            dev_devtrain_WER_ration,
             "\n" + "\n".join([f'{time}: {gpu}' for gpu, time in zip(log_data["used_gpus"], log_data["time_switched_gpu"])]), # GPU by time
             data["dev-other"]["time_p_sep"],
             "TODO: best lm/am ratio",

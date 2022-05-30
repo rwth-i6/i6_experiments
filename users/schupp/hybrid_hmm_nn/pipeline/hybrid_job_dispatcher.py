@@ -7,6 +7,7 @@ import inspect
 import hashlib
 import returnn.tf.engine
 import os
+from typing import OrderedDict
 
 from sisyphus import tk
 
@@ -301,6 +302,7 @@ def make_and_register_returnn_rasr_search_02(
     limit_eps=None,
     exp_name = None,
     amount_paralel_searches=15, # This was 10 per default earlier
+    use_gpu_and_extra_mem=False
 ):
     # train_job.out_models
     for id in train_job.out_models:
@@ -318,7 +320,8 @@ def make_and_register_returnn_rasr_search_02(
             recog_corpus_key=recog_corpus_key,
             feature_name=feature_name,
             recog_name = f"{exp_name}/{id:03}",
-            amount_paralel_searches=amount_paralel_searches
+            amount_paralel_searches=amount_paralel_searches,
+            use_gpu_and_extra_mem=use_gpu_and_extra_mem
         )
 
 def system_search_for_model(
@@ -328,7 +331,8 @@ def system_search_for_model(
     recog_corpus_key = None,
     feature_name = None,
     recog_name = None,
-    amount_paralel_searches=None
+    amount_paralel_searches=None,
+    use_gpu_and_extra_mem=False
 ):
     returnn_search_config = copy.deepcopy(returnn_train_config)
 
@@ -365,6 +369,14 @@ def system_search_for_model(
     if amount_paralel_searches:
         nn_recog_args["rtf"] = amount_paralel_searches
 
+    if use_gpu_and_extra_mem:
+        nn_recog_args.update(OrderedDict(
+                use_gpu=True,
+                rtf=10,
+                mem=32,
+                lmgc_mem=32
+            ))
+
     system.recog(**nn_recog_args)
 
     system.optimize_am_lm(
@@ -379,7 +391,6 @@ def system_search_for_model(
     # Now do the same for all the *best* checkpoints bug register them regardless of limit_eps:
     # see i6_core GetBestCheckpointJob() 
     # # I'm not sure what heppens when using this on an unfinished training thoug
-
 
 import copy
 
@@ -464,6 +475,7 @@ def make_and_register_final_rasr_search(
     exp_name = None,
 
     for_best_n = 1, # Only for the best, otherwise for the 'n' best
+
 ):
     # This uses 'GetBestCheckpointJob' which I stole from users/zeineldeen
     from ..helpers.returnn_helpers import GetBestCheckpointJob, GetBestEpochJob
@@ -590,6 +602,8 @@ def make_and_register_final_rasr_search_manual_devtrain(
     exp_name = None,
 
     for_best_n = 1, # Only for the best, otherwise for the 'n' best
+
+    use_gpu_and_extra_mem=False
 ):
 
 
@@ -621,7 +635,8 @@ def make_and_register_final_rasr_search_manual_devtrain(
                 returnn_train_config= returnn_train_config,
                 recog_corpus_key=data,
                 feature_name=feature_name,
-                recog_name = f"{rec_name}/{epoch:03}" # This might have run already but that fine
+                recog_name = f"{rec_name}/{epoch:03}", # This might have run already but that fine
+                use_gpu_and_extra_mem=use_gpu_and_extra_mem
             )
 
 

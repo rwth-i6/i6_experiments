@@ -83,7 +83,8 @@ def make_experiment_07_se_block(
   aux_loss_layers = [6],
   se_block_for_module = [],
   dummy_config = None,
-  test_construct = False
+  test_construct = False,
+  devtrain_recog = False
   ):
 
   # Theses are the versions that use se blocks
@@ -140,6 +141,7 @@ def make_experiment_07_se_block(
 
       write_dummpy_config=dummy_config,
       test_construction=test_construct,
+     extra_recog_devtrain = devtrain_recog
   )
 
   return experiment_data
@@ -220,7 +222,8 @@ def make_experiment_08_se_constom_dims( # TODO: finish
   aux_loss_layers = [6],
   se_block_for_module = [],
   dummy_config = None,
-  test_construct = False
+  test_construct = False,
+  devtrain_recog = False,
   ):
 
   # Theses are the versions that use se blocks
@@ -278,6 +281,7 @@ def make_experiment_08_se_constom_dims( # TODO: finish
 
       write_dummpy_config=dummy_config,
       test_construction=test_construct,
+      extra_recog_devtrain=devtrain_recog
   )
 
   return experiment_data
@@ -363,6 +367,7 @@ def baseline():
     args, 
     NAME,
     se_block_for_module = ["ff_mod"],
+    devtrain_recog = True
   )
 
 
@@ -399,6 +404,8 @@ def num_blocks():
       NAME,
       aux_loss_layers = [n//2],
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
+
     )
 
 def conv_dim():
@@ -423,6 +430,7 @@ def att_dim():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 def att_value_dim():
@@ -435,6 +443,7 @@ def att_value_dim():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 def ff_dim():
@@ -447,6 +456,7 @@ def ff_dim():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 def frame_stacking_time_down_factor():
@@ -466,6 +476,7 @@ def frame_stacking_time_down_factor():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
       #test_construct = True
     )
 
@@ -494,6 +505,7 @@ def huge_conformer(): # Baslicly Xl conformer with se block
     args, 
     NAME,
     se_block_for_module = ["ff_mod"],
+    devtrain_recog = True
   )
 
 def huge_conformer_normlization(): # TODO; set good normalizations here
@@ -541,6 +553,7 @@ def maybe_optimal_l2_drop():
     args, 
     NAME,
     se_block_for_module = ["ff_mod"],
+    devtrain_recog = True
   )
 
 
@@ -555,6 +568,7 @@ def conv_kernel_size():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 def attention_heads():
@@ -568,6 +582,7 @@ def attention_heads():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 
@@ -582,6 +597,7 @@ def half_ration():
       args, 
       NAME,
       se_block_for_module = ["ff_mod"],
+      devtrain_recog = True
     )
 
 def stacking_window_size():
@@ -741,15 +757,17 @@ def l2_on_outputs():
       )
 
 
-def main():
-  baseline()
-  other_ff_se_version()
-  se_block_conv_module()
-
+def devtrain_recog():
   num_blocks()
   att_dim()
   ff_dim()
-  conv_dim()
+  baseline()
+
+def main():
+  other_ff_se_version()
+  se_block_conv_module()
+
+  #conv_dim() TODO: some broken
   att_value_dim()
 
   maybe_optimal_l2_drop()
