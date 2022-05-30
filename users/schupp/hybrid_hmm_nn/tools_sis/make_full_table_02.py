@@ -274,8 +274,8 @@ for ex in all_experiments:
             devtrain_WER = data['devtrain'][str(config_data["num_epochs"])]
 
         devWER_final = None
-        if "dev-other" in data and str(config_data["num_epochs"]) in data['dev-other']:
-            devWER_final = data['dev-other'][str(config_data["num_epochs"])]
+        if "dev-other" in data and str(config_data["num_epochs"]) in data['dev-other']['optim_wer_by_ep']:
+            devWER_final = data['dev-other']["optim_wer_by_ep"][str(config_data["num_epochs"])]
 
         dev_devtrain_WER_ration = f"No data for ep {config_data['num_epochs']}"
         if isinstance(devWER_final, float) and isinstance(devtrain_WER, float):
