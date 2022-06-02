@@ -436,6 +436,7 @@ def make_experiment_11_se_l2_sk_sd_v3(
   aux_loss_layers = [6],
   se_block_for_module = [],
   dummy_config = None,
+  extra_config_create_args=None,
   test_construct = False
   ):
 
@@ -460,6 +461,7 @@ def make_experiment_11_se_l2_sk_sd_v3(
     output_path=OUTPUT_PATH,
     config_base_args=args.config_args,
     conformer_create_func=conformer_returnn_dict_network_generator.make_conformer_08_sd_se_l2_sk_sd_v3,
+    extra_returnn_net_creation_args=extra_config_create_args,
     conformer_func_args=OrderedDict(
       # sampling args
       sampling_func_args = args.sampling_default_args,
@@ -506,6 +508,10 @@ def sd_ff_depth_scale_multiple_v2():
   
     args = get_defaults()
     NAME = f'{BASE}+stoch-depth-v4.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'
+    extra_config_create_args = None
+
+    if prob == 0.5:
+      extra_config_create_args = {"recoursion_depth" : 9000}
 
     import numpy
     space = numpy.linspace(1.0, 0.5, num=24)
@@ -528,6 +534,7 @@ def sd_ff_depth_scale_multiple_v2():
     make_experiment_11_se_l2_sk_sd_v3(
       args,
       NAME,
+      extra_config_create_args = extra_config_create_args,
       aux_loss_layers = [8],
       se_block_for_module = ["ff_mod", "conv_mod"],
       #test_construct = True,

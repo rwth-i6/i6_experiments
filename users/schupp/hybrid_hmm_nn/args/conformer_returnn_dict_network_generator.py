@@ -1677,6 +1677,7 @@ def make_conformer_09_sd_se_l2_sk_sd_v3_gn(
 
     per_layer_l2 = None,
     skip_con_after_layer = None,
+    no_specaug=False,
 
     print_net = False
 ):
@@ -1733,7 +1734,6 @@ def make_conformer_09_sd_se_l2_sk_sd_v3_gn(
     model_dim = shared_model_args["model_dim"]
 
     def add_groupnorm_to_module(cur_net, module, layer):
-        print(f"TBS adding layer norm {cur_net}, \n {module}")
         block_str = f"enc_{i:03d}"
         if apply_groupnorm and layer in apply_groupnorm and module in apply_groupnorm[layer]:
             for l in cur_net:
@@ -1744,9 +1744,7 @@ def make_conformer_09_sd_se_l2_sk_sd_v3_gn(
                     cur_net.update(net_add) # Patch in the group norm...
                     cur_net[l] = net_add[last]
                     del cur_net[last]
-                    print(cur_net)
                     break
-                    print("TBS: Adding groupnorm")
         if module == "conv_mod" and convolution_groupnorm and layer in convolution_groupnorm:
             for l in cur_net:
                 if l.endswith("_batchnorm"):
@@ -1862,6 +1860,10 @@ def make_conformer_09_sd_se_l2_sk_sd_v3_gn(
         last,
         output_drop=0.0 # Specific case here should be done also with **filter
     )
+
+    if no_specaug:
+        del net['source']
+        net['source0']["from"] = "data"
 
     if print_net: # TODO: only for debug
         import json

@@ -153,6 +153,7 @@ def get_best_epoch_dev_other(data, optim=False):
     log.debug(f"Best ep {best_ep} (dev-other): {best_wer}")
     return best_ep
 
+all_log_datas = {}
 rows = []
 rows.append(list(csv_columns.keys()))
 for ex in all_experiments:
@@ -275,11 +276,15 @@ for ex in all_experiments:
 
         devWER_final = None
         if "dev-other" in data and str(config_data["num_epochs"]) in data['dev-other']['optim_wer_by_ep']:
-            devWER_final = data['dev-other']["optim_wer_by_ep"][str(config_data["num_epochs"])]
+            devWER_final = float(data['dev-other']["optim_wer_by_ep"][str(config_data["num_epochs"])][-2][:-1])
 
         dev_devtrain_WER_ration = f"No data for ep {config_data['num_epochs']}"
         if isinstance(devWER_final, float) and isinstance(devtrain_WER, float):
             dev_devtrain_WER_ration = devWER_final / devtrain_WER
+
+        # Write the ex log_datas to another file that can be analyzes
+
+        all_log_datas[f"{ex}/{sub_ex}"] = log_data
 
         row = [
             data["name"], # name
@@ -307,3 +312,6 @@ with open('summary_new.csv', 'w' if not args.append else "a") as f:
     writer = csv.writer(f)
     for row in rows:
         writer.writerow(row)
+
+with open('log.datas.experiments.json', "w") as file:
+    json.dump(all_log_datas, file, indent=1)

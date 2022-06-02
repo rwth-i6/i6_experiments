@@ -719,7 +719,7 @@ def learning_rate_optimal_warmups():
 
 
 def l2_on_wide_layers():
-  for l2 in [0.01, 0.02]:
+  for l2 in [0.01, 0.02, 0.003, 0.001]:
     args = get_defaults()
     NAME = f"{BASE}+l2-only-wide-layers={l2}"
     layer_l2 = OrderedDict(
@@ -738,7 +738,7 @@ def l2_on_wide_layers():
       )
 
 def l2_on_outputs():
-  for l2 in [0.01, 0.02]:
+  for l2 in [0.01, 0.02, 0.003, 0.001]:
     args = get_defaults()
     NAME = f"{BASE}+l2-only-outputs={l2}"
     layer_l2 = OrderedDict(
