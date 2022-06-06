@@ -35,7 +35,7 @@ def run_training(returnn_config: ReturnnConfig, name, num_epochs, alias_suffix, 
   tk.register_output(alias + "/plot_se", train_job.out_plot_se)
   tk.register_output(alias + "/plot_lr", train_job.out_plot_lr)
 
-  return train_job.out_checkpoints, train_job.returnn_config
+  return train_job.out_checkpoints, train_job.returnn_config, train_job
 
 
 def run_training_from_file(config_file_path, parameter_dict, name, alias_suffix, time_rqmt, mem_rqmt):
