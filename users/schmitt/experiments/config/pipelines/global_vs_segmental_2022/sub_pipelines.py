@@ -258,7 +258,7 @@ def run_rasr_realignment(
   label_pruning_limit, rasr_am_trainer_exe_path, rasr_nn_trainer_exe_path, model_checkpoint, num_epochs,
   label_recombination_limit, blank_label_index, context_size, label_file, reduction_factors, max_segment_len,
   start_label_index, state_tying_path, num_classes, time_rqmt, blank_allophone_state_idx, length_norm,
-  blank_update_history, loop_update_history, mem_rqmt,
+  blank_update_history, loop_update_history, mem_rqmt, data_key,
   alias_addon=""
 ):
 
@@ -280,7 +280,7 @@ def run_rasr_realignment(
     rasr_exe_path=rasr_am_trainer_exe_path, crp=realignment_crp, model_checkpoint=model_checkpoint,
     mem_rqmt=mem_rqmt, time_rqtm=time_rqmt, am_model_trainer_config=realignment_config,
     blank_allophone_state_idx=blank_allophone_state_idx)
-  realignment_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d" % (alias_addon, num_epochs)))
+  realignment_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d-%s" % (alias_addon, num_epochs, data_key)))
   alias = realignment_job.get_one_alias()
   tk.register_output(alias + "/results", realignment_job.out_alignment)
 
