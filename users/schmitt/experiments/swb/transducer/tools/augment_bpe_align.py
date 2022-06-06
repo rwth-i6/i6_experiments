@@ -194,6 +194,8 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
   matching_cands_g1_count = 0
   pron_not_in_phon_seq_count = 0
   match_bpe_to_phons_err_count = 0
+  num_bpe_single_char_at_start = 0
+  num_segments = 0
 
   while dataset.is_less_than_num_seqs(seq_idx) and seq_idx < float("inf"):
     skip_seq = False
@@ -266,6 +268,10 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
           seg_size += 1
         if bpe_vocab[bpe_idx].endswith("@@"):
           mapping.append([bpe_idx, seg_size])
+          if len(mapping) == 1:
+            num_segments += 1
+            if len(bpe_vocab[bpe_idx].split("@")[0]) in [1]:
+              num_bpe_single_char_at_start += 1
         else:
           mapping.append([bpe_idx, seg_size])
           total_size = sum(size for _, size in mapping)
@@ -428,6 +434,8 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
   print("MATCHING CANDS GREATER 1 COUNT: ", matching_cands_g1_count)
   print("PRON NOT IN SEQ COUNT: ", pron_not_in_phon_seq_count)
   print("MATCH BPE TO PHONS ERR COUNT: ", match_bpe_to_phons_err_count)
+  print("NUM SEGMENTS: ", num_segments)
+  print("NUM FIRST BPE OF SEGMENT IS SINGLE CHAR: ", num_bpe_single_char_at_start)
 
   with open(skipped_seqs_file, "w+") as f:
     f.write(str(skipped_seqs))
