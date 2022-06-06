@@ -122,7 +122,7 @@ def run_rasr_decoding(
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
 
   compile_graph_job = CompileTFGraphJob(compile_config, "output")
-  # compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
+  compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
   alias = name + "/tf-graph" + alias_addon
   tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
@@ -189,7 +189,7 @@ def calc_rasr_search_errors(
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
 
   compile_graph_job = CompileTFGraphJob(compile_config, "output")
-  # compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
+  compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
   alias = name + "/tf-graph" + alias_addon
   tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
