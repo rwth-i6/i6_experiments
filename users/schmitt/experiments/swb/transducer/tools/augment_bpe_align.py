@@ -401,7 +401,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
       continue
 
     # plot some random examples
-    if np.random.rand(1) < 0.0002:
+    if np.random.rand(1) < 0.001:
       plot_aligns(upscaled_bpe_align, phoneme_align, bpe_sil_align, seq_idx)
 
     # dump new alignment into hdf file
@@ -458,6 +458,13 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
      np.array([[0 if i == phoneme_blank_idx else 1 for i in phoneme_align]])],
     axis=0
   )
+
+  matrix_masked = []
+  for i, m in enumerate(matrix):
+    mask = np.ones(matrix.shape)
+    mask[i::3] = np.zeros(m.shape)
+    matrix_masked.append(np.ma.masked_array(matrix, mask))
+
   bpe_align = np.array(bpe_align)
   bpe_silence_align = np.array(bpe_silence_align)
   phoneme_align = np.array(phoneme_align)
@@ -478,7 +485,8 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   ax = plt.gca()
   # fig = plt.gcf()
   # fig.set_size_inches(10, 2)
-  matshow = ax.matshow(matrix, aspect="auto", cmap=plt.cm.get_cmap("Blues"))
+  for mat, cmap in zip(matrix_masked, [plt.cm.get_cmap("Blues"), plt.cm.get_cmap("Reds"), plt.cm.get_cmap("Greens")]):
+    ax.matshow(mat, aspect="auto", cmap=cmap)
   # # create second x axis for hmm alignment labels and plot same matrix
   hmm_ax = ax.twiny()
   bpe_silence_ax = ax.twiny()
@@ -490,20 +498,21 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   ax.set_xticklabels(list(bpe_labels), rotation="vertical")
   # ax.tick_params(axis="x", which="minor", length=0, labelsize=17)
   # ax.tick_params(axis="x", which="major", length=10)
-  ax.set_xlabel("BPE Alignment")
+  ax.set_xlabel("BPE Alignment", color="darkblue")
   # ax.set_ylabel("Output RNA BPE Labels", fontsize=18)
   ax.xaxis.tick_top()
   ax.xaxis.set_label_position('top')
   # ax.spines['top'].set_position(('outward', 50))
   # # for tick in ax.xaxis.get_minor_ticks():
   # #   tick.label1.set_horizontalalignment("center")
+  ax.set_yticklabels(["BPE", "BPE", "BPE + Silence", "Phonemes"])
 
   bpe_silence_ax.set_xlim(ax.get_xlim())
   bpe_silence_ax.set_xticks(list(bpe_silence_ticks))
   # bpe_silence_ax.xaxis.tick_top()
-  bpe_silence_ax.set_xlabel("BPE + Silence Alignment")
+  bpe_silence_ax.set_xlabel("BPE + Silence Alignment", color="darkred")
   bpe_silence_ax.xaxis.set_label_position('top')
-  bpe_silence_ax.spines['top'].set_position(('outward', 50))
+  bpe_silence_ax.spines['top'].set_position(('outward', 70))
   bpe_silence_ax.set_xticklabels(list(bpe_silence_labels), rotation="vertical")
 
   # # set x ticks and labels and positions for hmm axis
@@ -515,7 +524,7 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   # hmm_ax.tick_params(axis="x", which="major", length=0)
   hmm_ax.xaxis.set_ticks_position('bottom')
   hmm_ax.xaxis.set_label_position('bottom')
-  hmm_ax.set_xlabel("HMM Phoneme Alignment")
+  hmm_ax.set_xlabel("HMM Phoneme Alignment", color="darkgreen")
   #
   # time_xticks = [x - .5 for x in range(0, len(phoneme_align), 2)]
   # time_xticks_labels = [x for x in range(0, len(phoneme_align), 2)]
@@ -526,6 +535,7 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   # time_ax.set_xticks(time_xticks)
   # time_ax.set_xticklabels(time_xticks_labels, fontsize=17)
 
+  plt.savefig("plot%s.pdf" % seq_idx)
   plt.savefig("plot%s.png" % seq_idx)
   plt.close()
 
