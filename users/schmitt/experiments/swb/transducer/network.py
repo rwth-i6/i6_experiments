@@ -702,9 +702,9 @@ def get_extended_net_dict(
           "class": "switch", "condition": "prev:output_emit", "true_from": "2d_emb1", "false_from": "2d_emb0"}
       })
     if length_model_type.startswith("seg"):
+      assert max_seg_len is not None
       if length_model_type == "seg-static":
         assert label_dep_means is not None
-        assert max_seg_len is not None
 
         global_length_var_str = "" if global_length_var is None else "*%s" % global_length_var
 
