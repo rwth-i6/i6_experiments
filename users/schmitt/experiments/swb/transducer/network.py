@@ -627,6 +627,18 @@ def get_extended_net_dict(
           'class': 'choice', 'target': "label_ground_truth", 'beam_size': beam_size, 'from': "data",
           "initial_output": sos_idx, "cheating": "exclusive" if task == "train" else None}
       })
+      # these two variants use avg pooling over the segments
+      # because of padding, the segments sometimes have a length of zero
+      # in this case, we clip the seg lens to 1 to avoid nan values in the pooling op
+      if sep_sil_model == "pooling" or length_model_type == "seg-neural":
+        rec_unit_dict.update({
+          "seg_len_is_zero": {
+            "class": "compare", "from": ["segment_lens0"], "value": 0, "kind": "equal"},
+          "segment_lens": {
+            "class": "switch", "condition": "seg_len_is_zero", "is_output_layer": True, "true_from": 1,
+            "false_from": "segment_lens0"},
+          "segment_lens0": {
+            "axis": "t", "class": "gather", "from": "base:data:segment_lens_masked", "position": ":i", }})
       net_dict.update({
         "label_model": {
           "class": "rec", "from": "data:label_ground_truth", "include_eos": True, "back_prop": True,
@@ -647,6 +659,19 @@ def get_extended_net_dict(
               "label_log_prob2",
               "emit_log_prob" if length_scale == 1. else "emit_log_prob_scaled"], "kind": "add", }
         })
+
+        # these two variants use avg pooling over the segments
+        # because of padding, the segments sometimes have a length of zero
+        # in this case, we clip the seg lens to 1 to avoid nan values in the pooling op
+        if sep_sil_model == "pooling" or length_model_type == "seg-neural":
+          rec_unit_dict.update({
+            "seg_len_is_zero": {
+              "class": "compare", "from": ["segment_lens1"], "value": 0, "kind": "equal"},
+            "segment_lens1": {
+              "class": "combine", "from": ["segment_lens0", "const1"], "is_output_layer": True, "kind": "add", },
+            "segment_lens": {
+              "class": "switch", "condition": "seg_len_is_zero", "is_output_layer": True, "true_from": 1,
+              "false_from": "segment_lens1"}})
 
       else:
         rec_unit_dict["label_log_prob"]["from"].append("emit_log_prob" if length_scale == 1. else "emit_log_prob_scaled")
