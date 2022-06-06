@@ -6,7 +6,8 @@ from recipe.i6_core.returnn.search import ReturnnSearchJob, SearchWordsToCTMJob,
   ReturnnSearchFromFileJob
 from recipe.i6_core.recognition.scoring import Hub5ScoreJob
 from recipe.i6_private.users.schmitt.returnn.tools import RASRLatticeToCTMJob, RASRDecodingJob, CompileTFGraphJob, \
-  ConvertCTMBPEToWordsJob, CalcSearchErrorJob, RASRRealignmentJob, DumpRASRAlignJob, DumpAlignmentFromTxtJob
+  ConvertCTMBPEToWordsJob, CalcSearchErrorJob, RASRRealignmentJob, DumpRASRAlignJob, DumpAlignmentFromTxtJob, \
+  WordsToCTMJob
 from recipe.i6_private.users.schmitt.returnn.search import ReturnnDumpSearchJob
 from sisyphus import *
 import copy
@@ -79,7 +80,10 @@ def run_search_from_file(
 
 
 def run_bpe_returnn_decoding(
-  returnn_config: ReturnnConfig, checkpoint, stm_job, name, dataset_key, num_epochs, device="gpu", alias_addon=""):
+  returnn_config: ReturnnConfig, checkpoint, stm_job, name, dataset_key, num_epochs, device="gpu", alias_addon="",
+  concat_seqs=False, stm_path=None,
+  mem_rqmt=4, time_rqmt=2):
+  assert not concat_seqs or stm_path
 
   search_job = ReturnnSearchJob(
     search_data={},
@@ -88,8 +92,8 @@ def run_bpe_returnn_decoding(
     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
     returnn_root="/u/schmitt/src/returnn",
     device=device,
-    mem_rqmt=4,
-    time_rqmt=2)
+    mem_rqmt=mem_rqmt,
+    time_rqmt=time_rqmt)
   search_job.add_alias(name + "/%s/search_%s_%d" % (alias_addon, dataset_key, num_epochs))
   alias = search_job.get_one_alias()
   tk.register_output(alias + "/bpe_search_results", search_job.out_search_file)
@@ -100,12 +104,18 @@ def run_bpe_returnn_decoding(
   alias = name + ("/words_%s_%d" % (dataset_key, num_epochs)) + alias_addon
   tk.register_output(alias + "/word_search_results", bpe_to_words_job.out_word_search_results)
 
-  ctm_job = SearchWordsToCTMJob(
-    bpe_to_words_job.out_word_search_results,
-    stm_job.bliss_corpus)
-  # ctm_job.add_alias(name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
-  alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
-  tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
+  if concat_seqs:
+    ctm_job = WordsToCTMJob(
+      words_path=bpe_to_words_job.out_word_search_results, stm_path=stm_path, dataset_name=dataset_key)
+    alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
+    tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
+  else:
+    ctm_job = SearchWordsToCTMJob(
+      bpe_to_words_job.out_word_search_results,
+      stm_job.bliss_corpus)
+    # ctm_job.add_alias(name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
+    alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
+    tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
 
   return ctm_job.out_ctm_file
 
