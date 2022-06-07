@@ -357,7 +357,7 @@ def make_experiment_09_se_and_l2(
 
 # ------------------------- baseline: 'big-short-03' -----------------------
 # baseline_04_big_short
-# + se-block ff mod
+# + se-block conv mod
 
 def baseline():
   args = get_defaults()
@@ -366,7 +366,7 @@ def baseline():
   data = make_experiment_07_se_block(
     args, 
     NAME,
-    se_block_for_module = ["ff_mod"],
+    se_block_for_module = ["conv_mod"], #"ff_mod"],
     devtrain_recog = True
   )
 

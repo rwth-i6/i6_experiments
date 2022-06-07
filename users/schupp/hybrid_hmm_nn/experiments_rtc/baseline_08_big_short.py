@@ -686,6 +686,14 @@ def decoupled_weight_decay():
         se_block_for_module = ["ff_mod", "conv_mod"],
       )
 
+def even_space_skip(step, blocks): # Start with 1
+  i = 1
+  l = []
+  while step*i <= blocks:
+    l.append(step*i)
+    i +=1
+  return l
+
 def skip_connections():
 
   def even_space_skip(step, blocks): # Start with 1
