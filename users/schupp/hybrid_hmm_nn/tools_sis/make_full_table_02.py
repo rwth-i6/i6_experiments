@@ -313,5 +313,11 @@ with open('summary_new.csv', 'w' if not args.append else "a") as f:
     for row in rows:
         writer.writerow(row)
 
+old_log_data = {}
+with open('log.datas.experiments.json', "r") as file:
+    old_log_data = json.load(file)
+
+old_log_data.update(all_log_datas)
+
 with open('log.datas.experiments.json', "w") as file:
-    json.dump(all_log_datas, file, indent=1)
+    json.dump(old_log_data, file, indent=1)
