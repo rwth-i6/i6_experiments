@@ -504,7 +504,7 @@ def make_experiment_11_se_l2_sk_sd_v3(
 
 
 def sd_ff_depth_scale_multiple_v2():
-  for prob in [0.1, 0.5, 1.0]:
+  for prob in [0.0, 0.1, 0.5, 1.0]:
   
     args = get_defaults()
     NAME = f'{BASE}+stoch-depth-v4.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'
@@ -542,7 +542,7 @@ def sd_ff_depth_scale_multiple_v2():
 
 
 def sd_conv_scale_multiple_v2():
-  for prob in [0.1, 0.5, 1.0]:
+  for prob in [0.0, 0.1, 0.5, 1.0]:
   
     args = get_defaults()
     NAME = f'{BASE}+stoch-depth-v4.0-ff-mod+depth-scale-survival-prob-v1-p={prob}'

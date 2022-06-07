@@ -39,6 +39,7 @@ def get_defaults_03():
   args.returnn_train_post_config["cleanup_old_models"]["keep"] = [40, 60, 80, 100, 110, 120]
   return args
 
+#learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
 def make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
         min_lr_ratio=1/50, decay_factor=0.99):
 

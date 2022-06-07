@@ -935,6 +935,27 @@ def no_specaug():
     se_block_for_module = ["ff_mod", "conv_mod"],
   )
 
+def aux_and_skip():
+  args = get_defaults()
+  NAME = f"{BASE}+aux-and-skip"
+
+  def even_space_skip(step, blocks): # Start with 1
+    i = 1
+    l = []
+    while step*i <= blocks:
+      l.append(step*i)
+      i +=1
+    return l
+
+  skip = even_space_skip(2, args.conformer_defaults["num_blocks"])
+  args.conformer_defaults['skip_con_after_layer'] = skip
+  make_experiment_12_se_l2_sk_sd_v3_GN_ffg_sample_act(
+    args,
+    NAME,
+    aux_loss_layers = [4, 8, 12],
+    se_block_for_module = ["ff_mod", "conv_mod"],
+  )
+
 
 def main():
   groupnorm_groups()
@@ -953,5 +974,7 @@ def main():
 
   baseline()
   chunks()
+
+  aux_and_skip()
 
   no_specaug()
