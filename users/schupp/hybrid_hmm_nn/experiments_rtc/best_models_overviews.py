@@ -171,29 +171,10 @@ def baseline_short_v4():
     args.ff_default_args["ff_post_dropout"] = drop
     data = make_experiment_07_se_block(args, NAME, aux_loss_layers = [8], se_block_for_module = ["conv_mod"])
 
-# + Aux lyer at 4, 12 ( and still at 8 )
-def baseline_short_v4_extra_aux()
-    NAME = "baseline_II_S_v4_extra_aux"
-    from .baseline_08_big_short import make_experiment_07_se_block
-    args = original_args_baseline_II()
-    del args.returnn_rasr_args_defaults["shuffle_data"]
-    params = OrderedDict(
-            segment_order_shuffle = True,
-            segment_order_sort_by_time_length = False)
-    args.returnn_rasr_args_defaults["overwrite_orders"] = {data: params for data in ["train", "dev", "devtrain"]}
-    args.config_args["learning_rates"] = args.lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
-    args.conformer_defaults["num_blocks"] = 16
-    drop = 0.03
-    args.sa_default_args["sa_dropout"] = drop
-    args.sa_default_args["sa_post_dropout"] = drop
-    args.conv_default_args["conv_post_dropout"] = drop
-    args.ff_default_args["ff_activation_dropout"] = drop
-    args.ff_default_args["ff_post_dropout"] = drop
-    data = make_experiment_07_se_block(args, NAME, aux_loss_layers = [4, 8, 12], se_block_for_module = ["conv_mod"])
-
-# + skip connections
-def baseline_short_v5():
-    NAME = "baseline_II_S_v5"
+# + skip connections all even layers
+# Note this is not yet included in Baseline II-S v5
+def baseline_short_v4_skip_even():
+    NAME = "baseline_II_S_v4+skip-all-even"
     from .baseline_08_big_short import make_experiment_10_se_l2_skip, even_space_skip
     args = original_args_baseline_II()
     del args.returnn_rasr_args_defaults["shuffle_data"]
@@ -212,6 +193,27 @@ def baseline_short_v5():
     args.conformer_defaults['skip_con_after_layer'] = even_space_skip(2, args.conformer_defaults["num_blocks"])
     make_experiment_10_se_l2_skip(args, NAME, aux_loss_layers = [8], se_block_for_module = ["conv_mod"])
 
+# + Aux lyer at 4, 12 ( and still at 8 )
+def baseline_short_v5()
+    NAME = "baseline_II_S_v5"
+    from .baseline_08_big_short import make_experiment_07_se_block
+    args = original_args_baseline_II()
+    del args.returnn_rasr_args_defaults["shuffle_data"]
+    params = OrderedDict(
+            segment_order_shuffle = True,
+            segment_order_sort_by_time_length = False)
+    args.returnn_rasr_args_defaults["overwrite_orders"] = {data: params for data in ["train", "dev", "devtrain"]}
+    args.config_args["learning_rates"] = args.lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+    args.conformer_defaults["num_blocks"] = 16
+    drop = 0.03
+    args.sa_default_args["sa_dropout"] = drop
+    args.sa_default_args["sa_post_dropout"] = drop
+    args.conv_default_args["conv_post_dropout"] = drop
+    args.ff_default_args["ff_activation_dropout"] = drop
+    args.ff_default_args["ff_post_dropout"] = drop
+    data = make_experiment_07_se_block(args, NAME, aux_loss_layers = [4, 8, 12], se_block_for_module = ["conv_mod"])
+
+
 # All baseline start with to run with sispiphus
 def run_all_experiments():
     baseline_short_v0()
@@ -219,5 +221,5 @@ def run_all_experiments():
     baseline_short_v2()
     baseline_short_v3()
     baseline_short_v4()
-    baseline_short_v4_extra_aux()
+    baseline_short_v4_skip_even()
     baseline_short_v5()
