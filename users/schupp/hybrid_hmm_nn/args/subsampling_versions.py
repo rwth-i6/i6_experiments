@@ -433,6 +433,7 @@ def make_subsampling_004_feature_stacking(
     window_left = None,
     window_right = None,
     unsampling_strides = None,
+    sampling_activation = "relu",
 
     # General
     initialization = None,
@@ -455,7 +456,7 @@ def make_subsampling_004_feature_stacking(
             "padding": "same", 
             "filter_size": (3, 3),
             "n_out": 32, 
-            "activation": 'relu', 
+            "activation": sampling_activation, 
             "with_bias": True, 
             "in_spatial_dims": ["T", "dim:50"]},  # (T,50,32)
         "conv0p" : {
@@ -481,7 +482,7 @@ def make_subsampling_004_feature_stacking(
             "padding": "same", 
             "filter_size": (3, 3),
             "n_out": 64, 
-            "activation": 'relu', 
+            "activation": sampling_activation, 
             "with_bias": True, 
             "in_spatial_dims": ["T", "dim:25"]}, # (T,25,64)
         "conv1p" : {

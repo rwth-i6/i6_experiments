@@ -1,6 +1,6 @@
 # This contains all the 'best models'
 # Note that the results are from the train configs `baseline_*_big_short` and `baseline_*_big_long`
-# But this fule should be a smaller overview of the best models
+# But this file should be a smaller overview of the best models
 from typing import OrderedDict
 from sisyphus import gs
 
@@ -11,12 +11,14 @@ BASE = "all_baselines"
 # This contains *all* params for Baseline II, ( note that these are progressively modified in other baselines )
 class original_args_baseline_II:
     def lr(self, warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
-        min_lr_ratio=1/50, decay_factor=0.99):
-    num_lr = int(math.log(min_lr_ratio, decay_factor))
-    return list(numpy.linspace(warmup_start, start, num=warmup_subepoch)) + \
-                    [start] * constant_subepoch + \
-                    list(start * numpy.logspace(1, num_lr, num=num_lr, base=decay_factor)) + \
-                    [min_lr_ratio * start]
+            min_lr_ratio=1/50, decay_factor=0.99):
+        import numpy
+        import math
+        num_lr = int(math.log(min_lr_ratio, decay_factor))
+        return list(numpy.linspace(warmup_start, start, num=warmup_subepoch)) + \
+                        [start] * constant_subepoch + \
+                        list(start * numpy.logspace(1, num_lr, num=num_lr, base=decay_factor)) + \
+                        [min_lr_ratio * start]
     def __init__(self):
         self.EP_SPLIT = 40
         self.specaug_args = OrderedDict(
@@ -29,7 +31,7 @@ class original_args_baseline_II:
             min_reps_time = 0,)
         self.config_args =  {
             'task': "train",
-            'extra_tag_tim_setup' : "baseline-big-short",
+            'extra_tag_tim_setup' : "best-models",
             'use_tensorflow': True,
             'multiprocessing': True,
             'update_on_device': True,
@@ -122,7 +124,7 @@ def baseline_short_v1():
             segment_order_shuffle = True,
             segment_order_sort_by_time_length = False)
     args.returnn_rasr_args_defaults["overwrite_orders"] = {data: params for data in ["train", "dev", "devtrain"]}
-    make_experiment_03_rqmt(args, NAME)
+    make_experiment_04_seq_orders(args, NAME)
 
 # + shorter lr
 def baseline_short_v2():
@@ -194,7 +196,8 @@ def baseline_short_v4_skip_even():
     make_experiment_10_se_l2_skip(args, NAME, aux_loss_layers = [8], se_block_for_module = ["conv_mod"])
 
 # + Aux lyer at 4, 12 ( and still at 8 )
-def baseline_short_v5()
+# + subsampling act GELU
+def baseline_short_v5():
     NAME = "baseline_II_S_v5"
     from .baseline_08_big_short import make_experiment_07_se_block
     args = original_args_baseline_II()
@@ -211,6 +214,7 @@ def baseline_short_v5()
     args.conv_default_args["conv_post_dropout"] = drop
     args.ff_default_args["ff_activation_dropout"] = drop
     args.ff_default_args["ff_post_dropout"] = drop
+    args.sampling_default_args["sampling_activation"] = "gelu"
     data = make_experiment_07_se_block(args, NAME, aux_loss_layers = [4, 8, 12], se_block_for_module = ["conv_mod"])
 
 
