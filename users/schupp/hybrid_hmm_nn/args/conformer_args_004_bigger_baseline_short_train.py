@@ -138,3 +138,25 @@ class original_args_big_baseline_00: # Convenient as class
       aux_dim = 256,
       aux_strides = 3
     )
+
+gt_options = {
+  'minfreq': 100,
+  'maxfreq': 7500,
+  'channels': 50,  # 68
+  'warp_freqbreak': None,  # 3700
+  'tempint_type': 'hanning',
+  'tempint_shift': .01,
+  'tempint_length': .025,
+  'flush_before_gap': True,
+  'do_specint': False,  # True
+  'specint_type': 'hanning',
+  'specint_shift': 4,
+  'specint_length': 9,
+  'normalize': True,
+  'preemphasis': True,
+  'legacy_scaling': False,
+  'without_samples': False,
+  'samples_options': {'audio_format': "wav",
+                      'dc_detection': False},
+  'normalization_options': {},
+}
