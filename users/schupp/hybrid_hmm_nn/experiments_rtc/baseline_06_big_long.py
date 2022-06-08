@@ -770,6 +770,8 @@ def learning_rate_adjusted():
       se_block_for_module = ["ff_mod", "conv_mod"],
     )
 
+# + auxilary loss
+# + se block conv-mod (ff)
 def more_aux():
   args = get_defaults_base_08()
   NAME = f"{BASE}+aux-4-8-12+long-lr"
