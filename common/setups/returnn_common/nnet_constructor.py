@@ -58,6 +58,7 @@ class SerializerObject(DelayedBase):
     """
     Any class that can be passed to ReturnnCommonSerializer
     """
+
     def __init__(self):
         # suppress init warning
         super().__init__(None)
@@ -71,6 +72,7 @@ class DimInitArgs:
     :param name: name of the dim
     :param dim: dimension size (feature axis size or label index count for sparse_dim), None for spatial axis
     """
+
     name: str
     dim: Optional[Union[int, tk.Variable]]
     is_feature: bool = False
@@ -87,6 +89,7 @@ class DataInitArgs:
     :param sparse_dim: provide this dim to make the data sparse and define
     :param has_batch_dim: set to False do create data without a batch dim (probably never needed)
     """
+
     name: str
     available_for_inference: bool
     dim_tags: List[DimInitArgs]
@@ -95,8 +98,12 @@ class DataInitArgs:
 
     def __post_init__(self):
         if self.sparse_dim is not None:
-            assert self.sparse_dim.dim is not None, "A sparse dim can not have 'None' as dimension"
-            assert self.sparse_dim.is_feature is True, "A sparse dim should be a feature dim"
+            assert (
+                self.sparse_dim.dim is not None
+            ), "A sparse dim can not have 'None' as dimension"
+            assert (
+                self.sparse_dim.is_feature is True
+            ), "A sparse dim should be a feature dim"
 
     def _sis_hash(self) -> bytes:
         # INFO: asdict is recursive, so DimInitArgs will be converted as well
@@ -119,12 +126,13 @@ class ReturnnCommonSerializer(DelayedBase):
 
     """
 
-    def __init__(self,
-                 serializer_objects: List[SerializerObject],
-                 returnn_common_root: Optional[tk.Path] = None,
-                 packages: Optional[List[Union[str, tk.Path]]]=None,
-                 make_local_package_copy=False,
-                 ):
+    def __init__(
+        self,
+        serializer_objects: List[SerializerObject],
+        returnn_common_root: Optional[tk.Path] = None,
+        packages: Optional[List[Union[str, tk.Path]]] = None,
+        make_local_package_copy=False,
+    ):
         """
 
         :param serializer_objects: all serializer objects which are serialized into a string  in order
@@ -160,9 +168,10 @@ class ReturnnCommonSerializer(DelayedBase):
                 )
                 # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
                 # order here and always chooses the package from recipe/ first...
-            content += (f"sys.path.insert(0, \"{self.returnn_common_root.get()}/..\")\n"
-                        "from returnn_common import nn\n\n"
-                        )
+            content += (
+                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
+                "from returnn_common import nn\n\n"
+            )
 
         if self.make_local_package_copy:
             out_dir = os.path.join(os.getcwd(), "../output")
@@ -174,18 +183,26 @@ class ReturnnCommonSerializer(DelayedBase):
                 else:
                     assert False, "invalid type for packages"
                 target_package_path = os.path.join(out_dir, package_path)
-                pathlib.Path(os.path.dirname(target_package_path)).mkdir(parents=True, exist_ok=True)
-                shutil.copytree(os.path.join(self.root_path, package_path), target_package_path)
+                pathlib.Path(os.path.dirname(target_package_path)).mkdir(
+                    parents=True, exist_ok=True
+                )
+                shutil.copytree(
+                    os.path.join(self.root_path, package_path), target_package_path
+                )
                 content += f"sys.path.insert(0, os.path.dirname(__file__))\n"
         else:
-            content += f"sys.path.insert(0, \"{self.root_path}\")\n"
+            content += f'sys.path.insert(0, "{self.root_path}")\n'
 
         return content + "\n".join([obj.get() for obj in self.serializer_objects])
 
     def _sis_hash(self) -> bytes:
         h = {
-            "delayed_objects": [obj for obj in self.serializer_objects if not isinstance(obj, NonhashedCode)],
-            "returnn_common_root": self.returnn_common_root
+            "delayed_objects": [
+                obj
+                for obj in self.serializer_objects
+                if not isinstance(obj, NonhashedCode)
+            ],
+            "returnn_common_root": self.returnn_common_root,
         }
         return sis_hash_helper(h)
 
@@ -223,14 +240,16 @@ class ReturnnCommonExternData(SerializerObject):
         else:
             sparse_dim_name = None
 
-        content += textwrap.dedent(f"""\
+        content += textwrap.dedent(
+            f"""\
         {constructor_data.name} = nn.Data(
             name="{constructor_data.name}",
             available_for_inference={constructor_data.available_for_inference},
             dim_tags={wrapped_dim_names},
             sparse_dim={sparse_dim_name},
         )
-        """)
+        """
+        )
 
         return content
 
@@ -246,8 +265,10 @@ class ReturnnCommonExternData(SerializerObject):
                 dims.add(constructor_data.sparse_dim)
 
         for dim in dims:
-            content += f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}(\"{dim.name}\", "\
-                       f"{instanciate_delayed(dim.dim)})\n"
+            content += (
+                f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}(\"{dim.name}\", "
+                f"{instanciate_delayed(dim.dim)})\n"
+            )
 
         for constructor_data in self.extern_data:
             content += self.serialize_data(constructor_data)
@@ -255,12 +276,14 @@ class ReturnnCommonExternData(SerializerObject):
         # RETURNN does not allow for "name" in the args, as this is set via the dict key
         # thus, we need to explicitly remove it for now
         for constructor_data in self.extern_data:
-            content += f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n"
-            content += f"{constructor_data.name}_args.pop(\"name\")\n"
+            content += (
+                f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n"
+            )
+            content += f'{constructor_data.name}_args.pop("name")\n'
 
         content += "\nextern_data={\n"
         for constructor_data in self.extern_data:
-            content += f"    \"{constructor_data.name}\": {constructor_data.name}_args,\n"
+            content += f'    "{constructor_data.name}": {constructor_data.name}_args,\n'
         content += "}\n"
         return content
 
@@ -272,9 +295,11 @@ class ReturnnCommonImport(SerializerObject):
     When passed to the ReturnnCommonSerializer it will automatically detect the local package in case of
     `make_local_package_copy=True`, unless specific package paths are given.
     """
-    def __init__(self,
-                 code_object: str,
-                ):
+
+    def __init__(
+        self,
+        code_object: str,
+    ):
         """
 
         :param code_object: path to a python object, e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
@@ -305,7 +330,9 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
     Note that the network constructor function always needs "epoch" as first defined parameter,
     and should return an `nn.Module` object.
     """
-    TEMPLATE = textwrap.dedent("""\
+
+    TEMPLATE = textwrap.dedent(
+        """\
         
         network_kwargs = ${NETWORK_KWARGS}
         
@@ -314,13 +341,15 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
             net = ${FUNCTION_NAME}(epoch=epoch, **network_kwargs)
             return nn.get_returnn_config().get_net_dict_raw_dict(net)
         
-        """)
+        """
+    )
 
-    def __init__(self,
-                 net_func_name: str,
-                 net_func_map: Dict[str, str],
-                 net_kwargs: Dict[str, Any],
-                 ):
+    def __init__(
+        self,
+        net_func_name: str,
+        net_func_map: Dict[str, str],
+        net_kwargs: Dict[str, Any],
+    ):
         """
 
         :param net_func_name: name of the network construction function to be imported
@@ -340,16 +369,13 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
         super().__init__()
         self.net_func_name = net_func_name
         self.net_kwargs = net_kwargs
-        self.net_kwargs.update(
-            {k: CodeWrapper(v) for k,v in net_func_map.items()}
-        )
+        self.net_kwargs.update({k: CodeWrapper(v) for k, v in net_func_map.items()})
 
     def get(self):
         return string.Template(self.TEMPLATE).substitute(
             {
-                'NETWORK_KWARGS': str(self.net_kwargs),
-                'FUNCTION_NAME': self.net_func_name,
-
+                "NETWORK_KWARGS": str(self.net_kwargs),
+                "FUNCTION_NAME": self.net_func_name,
             }
         )
 
@@ -397,6 +423,3 @@ class CodeFromFile(SerializerObject):
                 return sis_hash_helper(f.read())
         else:
             return sis_hash_helper(self.code)
-
-
-
