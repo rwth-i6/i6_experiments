@@ -87,7 +87,7 @@ class DataInitArgs:
     :param available_for_inference: if this data is available during decoding/forward pass etc...
     :param dim_tags: list of dim tags representing an axis of the data, without batch or a hidden sparse dim
     :param sparse_dim: provide this dim to make the data sparse and define
-    :param has_batch_dim: set to False do create data without a batch dim (probably never needed)
+    :param has_batch_dim: set to False to create data without a batch dim (probably never needed)
     """
 
     name: str
@@ -135,10 +135,10 @@ class ReturnnCommonSerializer(DelayedBase):
     ):
         """
 
-        :param serializer_objects: all serializer objects which are serialized into a string  in order
-        :param returnn_common_root:
-        :param packages:
-        :param make_local_package_copy:
+        :param serializer_objects: all serializer objects which are serialized into a string in order
+        :param returnn_common_root: Path to returnn_common, if None, assumes direct import is fine
+        :param packages: Path to packages to import, if None, tries to extract them from serializer_objects
+        :param make_local_package_copy: whether to make a local copy of imported code into the Job directory 
         """
         super().__init__(None)
         self.serializer_objects = serializer_objects
@@ -301,7 +301,6 @@ class ReturnnCommonImport(SerializerObject):
         code_object: str,
     ):
         """
-
         :param code_object: path to a python object, e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
         """
         super().__init__()
