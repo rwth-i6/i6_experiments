@@ -669,6 +669,37 @@ def _export_lexicon_and_vocab(output_prefix):
         )
 
 
+def _export_legacy_bpe(output_prefix):
+    """
+    Export the files for ls-100 2k and ls-960 10k bpe labels
+
+    :param str output_prefix
+    """
+    lexicon_output_prefix = os.path.join(output_prefix, "LibriSpeech", "bpe")
+    ls960_bpe_settings = get_subword_nmt_bpe(
+        corpus_key="train-other-960", bpe_size=10000, output_prefix=output_prefix
+    )
+    ls100_bpe_settings = get_subword_nmt_bpe(
+        corpus_key="train-clean-100", bpe_size=2000, output_prefix=output_prefix
+    )
+    tk.register_output(
+        os.path.join(lexicon_output_prefix, "train-other-960", "bpe_10k.codes"),
+        ls960_bpe_settings.bpe_codes,
+    )
+    tk.register_output(
+        os.path.join(lexicon_output_prefix, "train-other-960", "bpe_10k.vocab"),
+        ls960_bpe_settings.bpe_vocab,
+    )
+    tk.register_output(
+        os.path.join(lexicon_output_prefix, "train-other-100", "bpe_2k.codes"),
+        ls100_bpe_settings.bpe_codes,
+    )
+    tk.register_output(
+        os.path.join(lexicon_output_prefix, "train-other-100", "bpe_2k.vocab"),
+        ls100_bpe_settings.bpe_vocab,
+    )
+
+
 def export_all(output_prefix):
     """
     Registers all LibriSpeech related data as output.
@@ -682,3 +713,4 @@ def export_all(output_prefix):
     _export_datasets(output_prefix)
     _export_lm_data(output_prefix)
     _export_lexicon_and_vocab(output_prefix)
+    _export_legacy_bpe(output_prefix)

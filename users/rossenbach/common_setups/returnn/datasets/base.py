@@ -10,7 +10,7 @@ from typing import *
 
 class GenericDataset(abc.ABC):
     """
-    Basic interface for all datasets
+    Basic interface to create parameter dictionaries for all datasets inheriting from `returnn.datasets.basic.Dataset`
     """
 
     def __init__(self, *, other_opts: Optional[Dict]):

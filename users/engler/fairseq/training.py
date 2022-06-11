@@ -102,7 +102,7 @@ class FairseqHydraTrainingJob(Job):
         :param Path|str fairseq_root: File path to the fairseq git for alternative call of fairseq-hydra-train
             (no need to install fairseq here)
         :param bool use_cache_manager: enables caching of data given in the manifest with the i6 cache manager
-        :param Path|str zipped_audio_dir: using a bundle file for caching is very slow for large manifests. For
+        :param [tk.Path]|[str]|tk.Path|str zipped_audio_dir: using a bundle file for caching is very slow for large manifests. For
             speeding up the audio file transfer using the cache manager, a zipped audio directory might be provided.
             The zipped audio directory is then used for caching instead and unzipped on the node for training
         """
@@ -150,7 +150,10 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
         self.use_cache_manager = use_cache_manager
-        self.zipped_audio_dir = zipped_audio_dir
+        if not isinstance(zipped_audio_dir, list):
+            self.zipped_audio_dir = [zipped_audio_dir]
+        else:
+            self.zipped_audio_dir = zipped_audio_dir
         if self.zipped_audio_dir is not None:
             assert (
                 self.use_cache_manager
@@ -202,7 +205,7 @@ class FairseqHydraTrainingJob(Job):
             ].get_path()
             if self.zipped_audio_dir is None:
                 for name in ["train.tsv", "valid.tsv"]:
-                    with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                    with open(os.path.join(manifest_path, name), "r") as manifest_file:
                         manifest_lines = manifest_file.read().splitlines()
                     audio_path = manifest_lines[0]
                     bundle_lines = map(
@@ -222,55 +225,55 @@ class FairseqHydraTrainingJob(Job):
                         raise
 
                     with open(cached_audio_fn) as local_bundle:
-                        bundle_lines = list(
-                            map(os.path.dirname, local_bundle.readlines())
+                        bundle_lines = list(local_bundle.readlines())
+                        manifest_lines[0] = os.path.commonpath(bundle_lines)
+                        manifest_lines[1:] = map(
+                            lambda line: os.path.relpath(line, manifest_lines[0]),
+                            manifest_lines[1:]
                         )
-                        assert bundle_lines.count(bundle_lines[0]) == len(
-                            bundle_lines
-                        ), f"not all {name} files in same directory"
-                        manifest_lines[0] = bundle_lines[0]
                     with open(
-                        f"{self.out_cached_audio_manifest.get_path()}/{name}", "w"
+                        os.path.join(self.out_cached_audio_manifest.get_path(), name), "w"
                     ) as cached_audio_manifest_file:
                         cached_audio_manifest_file.write("\n".join(manifest_lines))
-            else:  # zipped audio data is given and we cache and unzip the zip file instead
-                try:
-                    cached_audio_zip_dir = (
-                        sp.check_output(["cf", self.zipped_audio_dir])
-                        .strip()
-                        .decode("utf8")
-                    )
-                    local_unzipped_audio_dir = (
-                        f"{os.path.dirname(cached_audio_zip_dir)}/audio"
-                    )
-                    sp.check_call(
-                        [
-                            "unzip",
-                            "-q",
-                            "-n",
-                            cached_audio_zip_dir,
-                            "-d",
-                            local_unzipped_audio_dir,
-                        ]
-                    )
-                except sp.CalledProcessError:
-                    print(
-                        f"Cache manager: Error occurred for caching and unzipping audio data in {self.zipped_audio_dir}"
-                    )
-                    raise
+            else:  # zipped audio data is given and we cache and unzip the zip file(s) instead
+                local_unzipped_dir = []
+                for zip_dir in self.zipped_audio_dir:
+                    try:
+                        cached_audio_zip_dir = (
+                            sp.check_output(["cf", zip_dir])
+                            .strip()
+                            .decode("utf8")
+                        )
+                        local_unzipped_dir.append(os.path.join(os.path.dirname(cached_audio_zip_dir), audio))
+                        sp.check_call(
+                            [
+                                "unzip",
+                                "-q",
+                                "-n",
+                                cached_audio_zip_dir,
+                                "-d",
+                                local_unzipped_dir[-1],
+                            ]
+                        )
+                    except sp.CalledProcessError:
+                        print(
+                            f"Cache manager: Error occurred for caching and unzipping audio data in {local_unzipped_dir[-1]}"
+                        )
+                        raise
+                common_audio_dir = os.path.commonpath(local_unzipped_dir)
                 for name in ["train.tsv", "valid.tsv"]:
-                    with open(f"{manifest_path}/{name}", "r") as manifest_file:
+                    with open(os.path.join(manifest_path, name), "r") as manifest_file:
                         manifest_lines = manifest_file.read().splitlines()
                     for i in range(1, len(manifest_lines)):
                         to_check = (
-                            f"{local_unzipped_audio_dir}/{manifest_lines[i].split()[0]}"
+                            os.path.join(common_audio_dir, manifest_lines[i].split()[0])
                         )
                         assert os.path.exists(
                             to_check
                         ), f"Manifest file {to_check} not found in unzipped directory"
-                    manifest_lines[0] = local_unzipped_audio_dir
+                    manifest_lines[0] = common_audio_dir
                     with open(
-                        f"{self.out_cached_audio_manifest.get_path()}/{name}", "w"
+                        os.path.join(self.out_cached_audio_manifest.get_path(), name), "w"
                     ) as cached_audio_manifest_file:
                         cached_audio_manifest_file.write("\n".join(manifest_lines))
 

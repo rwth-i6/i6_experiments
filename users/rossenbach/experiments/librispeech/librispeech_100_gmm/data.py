@@ -2,7 +2,7 @@ from i6_experiments.common.datasets.librispeech import get_corpus_object_dict, g
 from i6_experiments.common.setups.rasr import RasrDataInput
 
 
-def get_corpus_data_inputs(use_g2p_training=False, use_stress_marker=True):
+def get_corpus_data_inputs(use_g2p_training=False, use_stress_marker=True, unknown_phoneme=True):
     """
 
     :param bool use_g2p_training:
@@ -19,13 +19,13 @@ def get_corpus_data_inputs(use_g2p_training=False, use_stress_marker=True):
         'scale': 10,
     }
     lexicon = {
-        'filename': get_bliss_lexicon(use_stress_marker=use_stress_marker),
+        'filename': get_bliss_lexicon(use_stress_marker=use_stress_marker, add_unknown_phoneme_and_mapping=unknown_phoneme),
         'normalize_pronunciation': False,
     }
 
     if use_g2p_training:
         train_lexicon = {
-            "filename": get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=use_stress_marker)["train-clean-100"],
+            "filename": get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=use_stress_marker, add_unknown_phoneme_and_mapping=unknown_phoneme)["train-clean-100"],
             "normalize_pronunciation": False,
         }
     else:

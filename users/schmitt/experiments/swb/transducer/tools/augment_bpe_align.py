@@ -194,6 +194,8 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
   matching_cands_g1_count = 0
   pron_not_in_phon_seq_count = 0
   match_bpe_to_phons_err_count = 0
+  num_bpe_single_char_at_start = 0
+  num_segments = 0
 
   while dataset.is_less_than_num_seqs(seq_idx) and seq_idx < float("inf"):
     skip_seq = False
@@ -266,6 +268,10 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
           seg_size += 1
         if bpe_vocab[bpe_idx].endswith("@@"):
           mapping.append([bpe_idx, seg_size])
+          if len(mapping) == 1:
+            num_segments += 1
+            if len(bpe_vocab[bpe_idx].split("@")[0]) in [1]:
+              num_bpe_single_char_at_start += 1
         else:
           mapping.append([bpe_idx, seg_size])
           total_size = sum(size for _, size in mapping)
@@ -336,7 +342,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
 
     new_bpe_blank_idx = bpe_blank_idx + 1
     bpe_sil_align = [new_bpe_blank_idx] * len(phoneme_align)
-    prev_end = -1
+    prev_end = 0
     bpe_idx = 0
     # print(seq_idx)
     for start, end in zip(word_starts, word_ends):
@@ -345,44 +351,44 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
         bpe_sil_align[end] = sil_idx
         prev_end = end
       else:
-        size = end - start
+        size = end - prev_end
         if start == 0:
           size += 1
         bpe_map = word_bpe_map[bpe_idx]
         if len(bpe_map) != 1:
-          bpe_sil_align[start] = bpe_map[0][0]
+          # bpe_sil_align[start] = bpe_map[0][0]
+          for i, (bpe, _) in enumerate(bpe_map):
+            if i != len(bpe_map) - 1:
+              frac = 1 / len(bpe_map)
+              offset = max(int(size * frac), 1)
+              if prev_end + offset > len(bpe_sil_align) - 1:
+                print("\n\n")
+                print("CANNOT MATCH BPE ALIGN TO PHON ALIGN")
+                print("BPE: ", bpes)
+                print("PHONEMES: ", phonemes)
+                print("TAG: ", tag)
+                print("PHON ALIGN: ", phoneme_align)
+                print("BPE SIL ALIGN: ", bpe_sil_align)
+                print("BPE ALIGN: ", bpe_align)
+                print("PREV BOUND: ", prev_end)
+                print("BOUND: ", end)
+                print("BOUNDS: ", word_ends)
+                print("OFFSET: ", offset)
+                print("SIZE: ", size)
+                print("FRAC: ", frac)
+                print("BPE MAP: ", bpe_map)
+                print("\n\n")
+                # in this case, it cannot easily be guaranteed that each bpe label gets at least one frame
+                # therefore, we skip
+                skip_seq = True
+                match_bpe_to_phons_err_count += 1
+                break
+              bpe_sil_align[prev_end + offset] = bpe
+              prev_end += offset
+            else:
+              bpe_sil_align[end] = bpe
         else:
           bpe_sil_align[end] = bpe_map[0][0]
-        for i, (bpe, _) in enumerate(bpe_map[1:]):
-          if i != len(bpe_map) - 1:
-            frac = 1 / len(bpe_map[1:])
-            offset = max(int(size * frac), 1)
-            if start + offset > len(bpe_sil_align) - 1:
-              print("\n\n")
-              print("CANNOT MATCH BPE ALIGN TO PHON ALIGN")
-              print("BPE: ", bpes)
-              print("PHONEMES: ", phonemes)
-              print("TAG: ", tag)
-              print("PHON ALIGN: ", phoneme_align)
-              print("BPE SIL ALIGN: ", bpe_sil_align)
-              print("BPE ALIGN: ", bpe_align)
-              print("PREV BOUND: ", prev_end)
-              print("BOUND: ", end)
-              print("BOUNDS: ", word_ends)
-              print("OFFSET: ", offset)
-              print("SIZE: ", size)
-              print("FRAC: ", frac)
-              print("BPE MAP: ", bpe_map)
-              print("\n\n")
-              # in this case, it cannot easily be guaranteed that each bpe label gets at least one frame
-              # therefore, we skip
-              skip_seq = True
-              match_bpe_to_phons_err_count += 1
-              break
-            bpe_sil_align[start + offset] = bpe
-            start += offset
-          else:
-            bpe_sil_align[end] = bpe
         # check, whether there was a problem in the bpe mapping loop
         if skip_seq:
           break
@@ -395,7 +401,7 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
       continue
 
     # plot some random examples
-    if np.random.rand(1) < 0.0002:
+    if np.random.rand(1) < 0.001:
       plot_aligns(upscaled_bpe_align, phoneme_align, bpe_sil_align, seq_idx)
 
     # dump new alignment into hdf file
@@ -428,6 +434,8 @@ def create_augmented_alignment(bpe_upsampling_factor, hdf_dataset, skipped_seqs_
   print("MATCHING CANDS GREATER 1 COUNT: ", matching_cands_g1_count)
   print("PRON NOT IN SEQ COUNT: ", pron_not_in_phon_seq_count)
   print("MATCH BPE TO PHONS ERR COUNT: ", match_bpe_to_phons_err_count)
+  print("NUM SEGMENTS: ", num_segments)
+  print("NUM FIRST BPE OF SEGMENT IS SINGLE CHAR: ", num_bpe_single_char_at_start)
 
   with open(skipped_seqs_file, "w+") as f:
     f.write(str(skipped_seqs))
@@ -450,6 +458,13 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
      np.array([[0 if i == phoneme_blank_idx else 1 for i in phoneme_align]])],
     axis=0
   )
+
+  matrix_masked = []
+  for i, m in enumerate(matrix):
+    mask = np.ones(matrix.shape)
+    mask[i::3] = np.zeros(m.shape)
+    matrix_masked.append(np.ma.masked_array(matrix, mask))
+
   bpe_align = np.array(bpe_align)
   bpe_silence_align = np.array(bpe_silence_align)
   phoneme_align = np.array(phoneme_align)
@@ -470,7 +485,8 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   ax = plt.gca()
   # fig = plt.gcf()
   # fig.set_size_inches(10, 2)
-  matshow = ax.matshow(matrix, aspect="auto", cmap=plt.cm.get_cmap("Blues"))
+  for mat, cmap in zip(matrix_masked, [plt.cm.get_cmap("Blues"), plt.cm.get_cmap("Reds"), plt.cm.get_cmap("Greens")]):
+    ax.matshow(mat, aspect="auto", cmap=cmap)
   # # create second x axis for hmm alignment labels and plot same matrix
   hmm_ax = ax.twiny()
   bpe_silence_ax = ax.twiny()
@@ -482,20 +498,21 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   ax.set_xticklabels(list(bpe_labels), rotation="vertical")
   # ax.tick_params(axis="x", which="minor", length=0, labelsize=17)
   # ax.tick_params(axis="x", which="major", length=10)
-  ax.set_xlabel("BPE Alignment")
+  ax.set_xlabel("BPE Alignment", color="darkblue")
   # ax.set_ylabel("Output RNA BPE Labels", fontsize=18)
   ax.xaxis.tick_top()
   ax.xaxis.set_label_position('top')
   # ax.spines['top'].set_position(('outward', 50))
   # # for tick in ax.xaxis.get_minor_ticks():
   # #   tick.label1.set_horizontalalignment("center")
+  ax.set_yticklabels(["BPE", "BPE", "BPE + Silence", "Phonemes"])
 
   bpe_silence_ax.set_xlim(ax.get_xlim())
   bpe_silence_ax.set_xticks(list(bpe_silence_ticks))
   # bpe_silence_ax.xaxis.tick_top()
-  bpe_silence_ax.set_xlabel("BPE + Silence Alignment")
+  bpe_silence_ax.set_xlabel("BPE + Silence Alignment", color="darkred")
   bpe_silence_ax.xaxis.set_label_position('top')
-  bpe_silence_ax.spines['top'].set_position(('outward', 50))
+  bpe_silence_ax.spines['top'].set_position(('outward', 70))
   bpe_silence_ax.set_xticklabels(list(bpe_silence_labels), rotation="vertical")
 
   # # set x ticks and labels and positions for hmm axis
@@ -507,7 +524,7 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   # hmm_ax.tick_params(axis="x", which="major", length=0)
   hmm_ax.xaxis.set_ticks_position('bottom')
   hmm_ax.xaxis.set_label_position('bottom')
-  hmm_ax.set_xlabel("HMM Phoneme Alignment")
+  hmm_ax.set_xlabel("HMM Phoneme Alignment", color="darkgreen")
   #
   # time_xticks = [x - .5 for x in range(0, len(phoneme_align), 2)]
   # time_xticks_labels = [x for x in range(0, len(phoneme_align), 2)]
@@ -518,6 +535,7 @@ def plot_aligns(bpe_align, phoneme_align, bpe_silence_align, seq_idx):
   # time_ax.set_xticks(time_xticks)
   # time_ax.set_xticklabels(time_xticks_labels, fontsize=17)
 
+  plt.savefig("plot%s.pdf" % seq_idx)
   plt.savefig("plot%s.png" % seq_idx)
   plt.close()
 

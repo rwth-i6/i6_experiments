@@ -19,6 +19,7 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
   num_init_sil_segs = 0
   num_final_sil_segs = 0
   num_seqs = 0
+  max_seg_len = 0
 
   label_dependent_seg_lens = Counter()
   label_dependent_num_segs = Counter()
@@ -34,6 +35,12 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
       print("Progress: %.02f" % (complete_frac * 100))
     dataset.load_seqs(seq_idx, seq_idx + 1)
     data = dataset.get_data(seq_idx, "data")
+
+    if data[-1] == blank_idx:
+      print("LAST IDX IS BLANK!")
+      print(data)
+      print(dataset.get_tag(seq_idx))
+      print("------------------------")
 
     # find non-blanks and silence
     non_blank_idxs = np.where(data != blank_idx)[0]
@@ -60,6 +67,39 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
           # first segment is always one too short because of prev_idx = 0
           if prev_idx == 0:
             seg_len += 1
+
+          if seg_len > max_seg_len:
+            max_seg_len = seg_len
+
+          if seg_len > 20:
+            print("SEQ WITH SEG LEN OVER 20:\n")
+            print(data)
+            print(dataset.get_tag(seq_idx))
+            print("-------------------------------")
+
+          if seg_len > 30:
+            print("SEQ WITH SEG LEN OVER 30:\n")
+            print(data)
+            print(dataset.get_tag(seq_idx))
+            print("-------------------------------")
+
+          if seg_len > 40:
+            print("SEQ WITH SEG LEN OVER 40:\n")
+            print(data)
+            print(dataset.get_tag(seq_idx))
+            print("-------------------------------")
+
+          if seg_len > 60:
+            print("SEQ WITH SEG LEN OVER 60:\n")
+            print(data)
+            print(dataset.get_tag(seq_idx))
+            print("-------------------------------")
+
+          if seg_len > 80:
+            print("SEQ WITH SEG LEN OVER 80:\n")
+            print(data)
+            print(dataset.get_tag(seq_idx))
+            print("-------------------------------")
 
           label_dependent_seg_lens.update({non_blank_data[i]: seg_len})
           label_dependent_num_segs.update([non_blank_data[i]])
@@ -121,6 +161,8 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     f.write("\t\tMean length per sequence: %f \n" % mean_total_label_len)
     f.write("\t\tNum segments: %f \n" % num_label_segs)
     f.write("\n")
+    f.write("Overall maximum segment length: %d \n" % max_seg_len)
+    f.write("\n")
     f.write("\n")
     f.write("Sequence statistics: \n\n")
     f.write("\tMean length: %f \n" % mean_seq_len)
@@ -134,7 +176,7 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
   with open(filename, "w+") as f:
     json.dump(label_dependent_mean_seg_lens, f)
 
-  # plot histograms of sil and non-sil segment lens
+  # plot histograms non-sil segment lens
   hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count]
   plt.hist(hist_data, bins=30, range=(0, 50))
   ax = plt.gca()
@@ -143,17 +185,62 @@ def calc_segment_stats_with_sil(blank_idx, sil_idx):
     # write quantiles to file
     with open("percentile_%s" % n, "w+") as f:
       f.write(str(q))
-    ax.axvline(q)
+    ax.axvline(q, color="r")
   plt.savefig("non_sil_histogram.pdf")
   plt.close()
 
+  # plot histograms non-sil segment lens > 12
+  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if seg_len >= 12]
+  if len(hist_data) > 0:
+    plt.hist(hist_data, bins=30, range=(10, 50))
+    ax = plt.gca()
+    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
+    for n, q in zip([90, 95, 99], quantiles):
+      # write quantiles to file
+      with open("percentile_%s" % n, "w+") as f:
+        f.write(str(q))
+      ax.axvline(q, color="r")
+    plt.savefig("non_sil_histogram_over_11.pdf")
+    plt.close()
+
+  # plot histograms non-sil segment lens > 30
+  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if
+               seg_len >= 30]
+  if len(hist_data) > 0:
+    plt.hist(hist_data, bins=30, range=(30, 100))
+    ax = plt.gca()
+    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
+    for n, q in zip([90, 95, 99], quantiles):
+      # write quantiles to file
+      with open("percentile_%s" % n, "w+") as f:
+        f.write(str(q))
+      ax.axvline(q, color="r")
+    plt.savefig("non_sil_histogram_over_29.pdf")
+    plt.close()
+
+  # plot histograms non-sil segment lens > 80
+  hist_data = [item for seg_len, count in map_non_sil_seg_len_to_count.items() for item in [seg_len] * count if
+               seg_len >= 80]
+  if len(hist_data) > 0:
+    plt.hist(hist_data, bins=30, range=(80, 150))
+    ax = plt.gca()
+    quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
+    for n, q in zip([90, 95, 99], quantiles):
+      # write quantiles to file
+      with open("percentile_%s" % n, "w+") as f:
+        f.write(str(q))
+      ax.axvline(q, color="r")
+    plt.savefig("non_sil_histogram_over_80.pdf")
+    plt.close()
+
+  # plot histograms sil segment lens
   hist_data = [item for seg_len, count in map_sil_seg_len_to_count.items() for item in [seg_len] * count]
   plt.hist(hist_data, bins=40, range=(0, 100))
   if len(hist_data) != 0:
     ax = plt.gca()
     quantiles = [np.quantile(hist_data, q) for q in [.90, .95, .99]]
     for q in quantiles:
-      ax.axvline(q)
+      ax.axvline(q, color="r")
   plt.savefig("sil_histogram.pdf")
   plt.close()
 

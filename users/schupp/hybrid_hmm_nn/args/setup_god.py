@@ -16,6 +16,7 @@
 from typing import OrderedDict
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import librispeech_hybrid_tim_refactor as sys
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import librispeech_hybrid_tim_refactor_02_devtrain as sys_02_devtrain
+from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import librispeech_hybrid_tim_refactor_02_devtrain_rerecog as sys_02_devtrain_rerecog
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.pipeline import hybrid_job_dispatcher as job_dispatcher
 from recipe.i6_experiments.users.schupp.hybrid_hmm_nn.args import conformer_rasr_config_maker as rasr_config_args_maker
 
@@ -41,6 +42,7 @@ def create_experiment_world_001(
     returnn_rasr_args_defaults=None,
 
     final_recog = False, # Should be changed to 'True' per default at some point
+    new_final_recog = False,
 
     test_construction=False,
     print_net = False,
@@ -111,6 +113,16 @@ def create_experiment_world_001(
 
     if final_recog:
         job_dispatcher.make_and_register_final_rasr_search(
+            train_job=train_job,
+            output_path=f"{name}",
+            system = system,
+            returnn_train_config = returnn_train_config,
+            feature_name = "gammatone",
+            exp_name = name,
+        )
+
+    if new_final_recog:
+        job_dispatcher.make_and_register_final_rasr_search_manual(
             train_job=train_job,
             output_path=f"{name}",
             system = system,
@@ -355,14 +367,23 @@ def create_experiment_world_003( # New system that adds devtrain dataset
         )
 
     if extra_recog_devtrain:
+
+        devsystem = sys_02_devtrain_rerecog.LibrispeechHybridSystemTim()
+        # Make a returnn config
+        devsystem.create_rasr_am_config(train_corpus_key=train_corpus_key)
+        devsystem.init_rasr_am_lm_config_recog(
+            recog_corpus_key="devtrain2000"
+        )
+
         job_dispatcher.make_and_register_final_rasr_search_manual_devtrain(
             train_job=train_job,
             output_path=f"{name}",
-            system = system,
+            system = devsystem,
             returnn_train_config = returnn_train_config,
             feature_name = "gammatone",
             exp_name = name,
         )
+
 
     return OrderedDict(
         network = network
@@ -434,6 +455,9 @@ def create_experiment_world_004( # New system that adds devtrain dataset
     if test_construction:
         job_dispatcher.test_net_contruction(returnn_train_config)
 
+    if isinstance(test_construction, str) and test_construction == "advanced":
+        job_dispatcher.test_net_construction_advanced(returnn_train_config)
+
     returnn_rasr_config_args : dict = rasr_config_args_maker.get_returnn_rasr_args_03_overwrite_orders(
         system, 
         train_corpus_key=train_corpus_key,
@@ -489,13 +513,22 @@ def create_experiment_world_004( # New system that adds devtrain dataset
 
     # If this flag is set we will also run an additional recog on the 'devother' dataset
     if extra_recog_devtrain:
+
+        devsystem = sys_02_devtrain_rerecog.LibrispeechHybridSystemTim()
+        # Make a returnn config
+        devsystem.create_rasr_am_config(train_corpus_key=train_corpus_key)
+        devsystem.init_rasr_am_lm_config_recog(
+            recog_corpus_key="devtrain2000"
+        )
+
         job_dispatcher.make_and_register_final_rasr_search_manual_devtrain(
             train_job=train_job,
             output_path=f"{name}",
-            system = system,
+            system = devsystem,
             returnn_train_config = returnn_train_config,
             feature_name = "gammatone",
             exp_name = name,
+            use_gpu_and_extra_mem=True
         )
 
     return OrderedDict(

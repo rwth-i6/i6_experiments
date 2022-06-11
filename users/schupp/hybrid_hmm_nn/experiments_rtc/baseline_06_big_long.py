@@ -647,6 +647,163 @@ def huge_conformer_se_ffmod():
     NAME,
   )
 
+def lr_reset():
+  args = get_defaults()
+  NAME = f'{BASE}+lr-reset'
+  
+  # Shor lr but reset 3 times
+  l1 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  l2 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  l3 = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+
+  args.config_args["learning_rates"] = l1 + l2 + l3
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
+
+
+def old_learning_rate():
+  args = get_defaults()
+  NAME = f'{BASE}+long-lr'
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90, min_lr_ratio=1/50, decay_factor=0.99)
+
+  args.config_args["learning_rates"] = learning_rates
+
+  make_experiment_04_seq_orders(
+    args,
+    NAME,
+  )
+
+
+def sd_ff_depth_scale():
+  args = get_defaults()
+  NAME = f'{BASE}+stoch-depth-v2.0-ff-mod+depth-scale-survival-prob-v1-p=0.2'
+
+  import numpy
+  space = numpy.linspace(1.0, 0.5, num=24)
+
+  def surv_prob_by_layer(l, L=12.0, p=0.2):
+    return 1.0 - ((l/L) * (1.0 - p))
+
+  sd_args = {
+    i : {
+      "ff_mod1" : surv_prob_by_layer(i),
+      "ff_mod2" : surv_prob_by_layer(i),
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
+
+
+def get_defaults_base_08():
+  args = original_args_big_baseline_00()
+  args.config_args["extra_tag_tim_setup"] = 'baseline-big-long-08'
+
+  del args.returnn_rasr_args_defaults["shuffle_data"] # Not needed cause set by default now
+
+  args.returnn_rasr_args_defaults["num_epochs"] = 600
+  args.returnn_train_post_config["cleanup_old_models"]["keep"] = [50, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600]
+
+  params = OrderedDict(
+          segment_order_shuffle = True,
+          segment_order_sort_by_time_length = False, # Already false per default, but lets explicity overwrite it
+  )
+
+  args.returnn_rasr_args_defaults["overwrite_orders"] = {data: params for data in ["train", "dev", "devtrain"]}
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
+  args.config_args["learning_rates"] = learning_rates
+
+  args.conformer_defaults["num_blocks"] = 16
+
+  # Reduced dropout
+  drop = 0.03
+  args.sa_default_args["sa_dropout"] = drop
+  args.sa_default_args["sa_post_dropout"] = drop
+  args.conv_default_args["conv_post_dropout"] = drop
+  args.ff_default_args["ff_activation_dropout"] = drop
+  args.ff_default_args["ff_post_dropout"] = drop
+  # and shorter learning rate
+  return args
+
+def learning_rate_adjusted():
+  def lr_02(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
+        min_lr_ratio=1/50, decay_factor=0.99):
+
+    num_lr = int(math.log(min_lr_ratio, decay_factor))
+    return list(numpy.linspace(warmup_start, start, num=warmup_subepoch)) + \
+                    [start] * constant_subepoch + \
+                    list(start * numpy.logspace(1, num_lr, num=num_lr, base=decay_factor)) + \
+                    [min_lr_ratio * start]
+
+  rates = [
+    lr_02(warmup_start=0.0002, start=0.0005, warmup_subepoch=100, constant_subepoch=100, min_lr_ratio=1/50, decay_factor=0.99),
+    lr_02(warmup_start=0.0002, start=0.0006, warmup_subepoch=50, constant_subepoch=40, min_lr_ratio=1/80, decay_factor=0.99),
+    lr_02(warmup_start=0.0002, start=0.0005, warmup_subepoch=100, constant_subepoch=80, min_lr_ratio=1/40, decay_factor=0.98)
+  ]
+
+  names = [
+    "warmup_start=0.0002-start=0.0005-warmup_subepoch=100-constant_subepoch=100-min_lr_ratio=1/50-decay_factor=0.99",
+    "warmup_start=0.0002start=0.0006warmup_subepoch=50constant_subepoch=40min_lr_ratio=1/80decay_factor=0.99",
+    "warmup_start=0.0002-start=0.0005-warmup_subepoch=100-constant_subepoch=80-min_lr_ratio=1/40-decay_factor=0.98"
+  ]
+  for r, n in zip(rates, names):
+    args = get_defaults_base_08()
+    NAME = f"{BASE}+" + n
+
+    ds = 0.1
+    args.config_args["learning_rates"] = r
+    args.sampling_default_args["embed_dropout"] = ds
+
+    data = make_experiment_07_se_block(
+      args, 
+      NAME,
+      aux_loss_layers = [8],
+      se_block_for_module = ["ff_mod", "conv_mod"],
+    )
+
+# + auxilary loss
+# + se block conv-mod (ff)
+def more_aux():
+  args = get_defaults_base_08()
+  NAME = f"{BASE}+aux-4-8-12+long-lr"
+
+  learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90, min_lr_ratio=1/50, decay_factor=0.99)
+  args.config_args["learning_rates"] = learning_rates
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    aux_loss_layers = [4, 8, 12],
+    se_block_for_module = ["ff_mod", "conv_mod"],
+  )
+
+  
+
+
+def embed_dropout():
+  ds = 0.1
+  args = get_defaults_base_08()
+  NAME = f"{BASE}-embed-drop={ds}"
+  args.sampling_default_args["embed_dropout"] = ds
+
+
+
+  data = make_experiment_07_se_block(
+    args, 
+    NAME,
+    aux_loss_layers = [8],
+    se_block_for_module = ["ff_mod", "conv_mod"],
+  )
+
 
 def main():
   baseline()
@@ -654,3 +811,12 @@ def main():
 
   huge_conformer()
   huge_conformer_se_ffmod()
+  sd_ff_depth_scale()
+
+  lr_reset()
+  old_learning_rate()
+
+  embed_dropout()
+  learning_rate_adjusted()
+
+  more_aux()

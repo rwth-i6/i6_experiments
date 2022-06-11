@@ -1,7 +1,6 @@
 from typing import *
 
-from i6_experiments.common.setups.returnn_common.util import resolve_dim_proxies
-from i6_experiments.common.setups.returnn_common.config import get_network_config_and_prolog
+import time
 
 from returnn_common.nn.transformer import Transformer
 
@@ -81,26 +80,39 @@ class BLSTMDownsamplingTransformerASR(nn.Module):
 
 def get_network(dim_tags_proxy: nn.ReturnnDimTagsProxy, source_data: nn.Data, target_data: nn.Data, feature_dim, time_dim, label_dim, label_time_dim, **kwargs):
 
+    start = time.time()
     with nn.NameCtx.new_root() as name_ctx_network:
+        print("context: %f" % (time.time() - start))
+        start = time.time()
         net = BLSTMDownsamplingTransformerASR(audio_feature_dim=feature_dim, target_vocab=label_dim)
+        print("net building: %f" % (time.time() - start))
+        start = time.time()
         out = net(
             audio_features=nn.get_extern_data(source_data),
             labels=nn.get_extern_data(target_data),
             audio_time_dim=time_dim,
             label_time_dim=label_time_dim,
             label_dim=label_dim,
-            #name=name_ctx_network,
         )
+        print("net calling: %f" % (time.time() - start))
+        start = time.time()
         out.mark_as_default_output()
+        print("mark output: %f" % (time.time() - start))
 
+        start = time.time()
         for param in net.parameters():
             param.weight_decay = 0.1
+        print("weight decay: %f" % (time.time() - start))
 
-        #l2loss = sum(nn.reduce_sum(param ** 2.0) for param in net.parameters())
-        #l2loss.mark_as_loss()
+        start = time.time()
         serializer = nn.ReturnnConfigSerializer(name_ctx_network)
+        print("building serializer %f" % (time.time() - start))
+        start = time.time()
         base_string = serializer.get_base_extern_data_py_code_str()
-        network_string = serializer.get_ext_net_dict_py_code_str(net, ref_base_dims_via_global_config=True)
+        print("extern data string: %f" % (time.time() - start))
+        start = time.time()
+        network_string = serializer.get_ext_net_dict_py_code_str(net, ref_extern_data_dims_via_global_config=True)
+        print("network string: %f" % (time.time() - start))
 
     return network_string, base_string
 

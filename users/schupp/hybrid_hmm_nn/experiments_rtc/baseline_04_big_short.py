@@ -39,6 +39,7 @@ def get_defaults_03():
   args.returnn_train_post_config["cleanup_old_models"]["keep"] = [40, 60, 80, 100, 110, 120]
   return args
 
+#learning_rates = make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=10, min_lr_ratio=1/40, decay_factor=0.98)
 def make_log_lr(warmup_start=0.0002, start=0.0005, warmup_subepoch=10, constant_subepoch=90,
         min_lr_ratio=1/50, decay_factor=0.99):
 
@@ -673,6 +674,14 @@ def subsampling_swish():
 
   make_experiment_09_sampling_act(args, NAME)
 
+def subsampling_gelu():
+  args = get_defaults_03()
+  NAME = f"{BASE}+subsampling-act=gelu"
+
+  args.sampling_default_args["sampling_activation"] = "gelu"
+
+  make_experiment_09_sampling_act(args, NAME)
+
 # -------------------------------- batch norm -------------------------------
 
 # + batchnorm instead of layer-norm
@@ -933,7 +942,22 @@ def sd_attmod(v=0):
     test_construct = True
   )
 
+def sd_sanity_check():
+  args = get_defaults_02()
+  NAME = f"{BASE}+stoch-depth-p=1.0-TEST"
 
+  sd_args = {
+    i : {
+      "ff_mod1" : 1.0,
+      "ff_mod2" : 1.0
+    } for i in range(1, 12 + 1)
+  }
+
+  args.conformer_defaults.update(OrderedDict(
+    apply_stochastic_depth = sd_args
+  ))
+
+  make_experiment_06_stoch_depth( args, NAME )
 
 def sd_attmod_v2():
   sd_attmod_v2(v=1)
@@ -1208,6 +1232,7 @@ def all_activation_experiments():
   conv_mod_relu()
   conv_mod_gelu()
   subsampling_swish()
+  subsampling_gelu()
 
 # ------------------------------- full computation graph ------------------------------------------
 
@@ -1224,6 +1249,7 @@ def main():
   # Norm experiments: 
   batchnorm_no_ln()
   groupnorm_noln()
+  #groupnorm_v2()
   #batchnorm_old_defaults()
 
   huge_conformer()
@@ -1251,7 +1277,7 @@ def main5():
 
   no_frame_stacking()
   switch_conv_att_mod()
-  groupnorm_v2_tfa()
+  #groupnorm_v2_tfa()
 
 
 def all():
@@ -1260,3 +1286,4 @@ def all():
   main3()
   main4()
   main5()
+  sd_sanity_check()

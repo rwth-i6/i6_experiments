@@ -123,7 +123,7 @@ class ConvertPytorchToReturnnJob(Job):
 
         self.out_conversion_config_file = self.output_path("conversion.py")
         self.out_returnn_checkpoint = self.output_path("returnn.checkpoint")
-        self.out_returnn_model_dict = self.output_path("returnn.net.dict.py")
+        self.out_returnn_model_dict = self.output_path("returnn_net_dict.py")
 
         self._config.config["out_returnn_checkpoint"] = self.out_returnn_checkpoint
         self._config.config["out_returnn_model_dict"] = self.out_returnn_model_dict

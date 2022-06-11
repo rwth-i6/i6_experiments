@@ -183,6 +183,8 @@ experiment_data = god.create_experiment_world_001(
     returnn_rasr_args_defaults=returnn_rasr_args_defaults,
 
     test_construction=True,
+    final_recog=False,
+    new_final_recog=True,
     #write_dummpy_config="./test.config"
 )
 

@@ -6,7 +6,8 @@ from recipe.i6_core.returnn.search import ReturnnSearchJob, SearchWordsToCTMJob,
   ReturnnSearchFromFileJob
 from recipe.i6_core.recognition.scoring import Hub5ScoreJob
 from recipe.i6_private.users.schmitt.returnn.tools import RASRLatticeToCTMJob, RASRDecodingJob, CompileTFGraphJob, \
-  ConvertCTMBPEToWordsJob, CalcSearchErrorJob, RASRRealignmentJob, DumpRASRAlignJob, DumpAlignmentFromTxtJob
+  ConvertCTMBPEToWordsJob, CalcSearchErrorJob, RASRRealignmentJob, DumpRASRAlignJob, DumpAlignmentFromTxtJob, \
+  WordsToCTMJob
 from recipe.i6_private.users.schmitt.returnn.search import ReturnnDumpSearchJob
 from sisyphus import *
 import copy
@@ -35,7 +36,7 @@ def run_training(returnn_config: ReturnnConfig, name, num_epochs, alias_suffix, 
   tk.register_output(alias + "/plot_se", train_job.out_plot_se)
   tk.register_output(alias + "/plot_lr", train_job.out_plot_lr)
 
-  return train_job.out_checkpoints, train_job.returnn_config
+  return train_job.out_checkpoints, train_job.returnn_config, train_job
 
 
 def run_training_from_file(config_file_path, parameter_dict, name, alias_suffix, time_rqmt, mem_rqmt):
@@ -79,7 +80,10 @@ def run_search_from_file(
 
 
 def run_bpe_returnn_decoding(
-  returnn_config: ReturnnConfig, checkpoint, stm_job, name, dataset_key, num_epochs, device="gpu", alias_addon=""):
+  returnn_config: ReturnnConfig, checkpoint, stm_job, name, dataset_key, num_epochs, device="gpu", alias_addon="",
+  concat_seqs=False, stm_path=None,
+  mem_rqmt=4, time_rqmt=2):
+  assert not concat_seqs or stm_path
 
   search_job = ReturnnSearchJob(
     search_data={},
@@ -88,8 +92,8 @@ def run_bpe_returnn_decoding(
     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
     returnn_root="/u/schmitt/src/returnn",
     device=device,
-    mem_rqmt=4,
-    time_rqmt=2)
+    mem_rqmt=mem_rqmt,
+    time_rqmt=time_rqmt)
   search_job.add_alias(name + "/%s/search_%s_%d" % (alias_addon, dataset_key, num_epochs))
   alias = search_job.get_one_alias()
   tk.register_output(alias + "/bpe_search_results", search_job.out_search_file)
@@ -100,12 +104,18 @@ def run_bpe_returnn_decoding(
   alias = name + ("/words_%s_%d" % (dataset_key, num_epochs)) + alias_addon
   tk.register_output(alias + "/word_search_results", bpe_to_words_job.out_word_search_results)
 
-  ctm_job = SearchWordsToCTMJob(
-    bpe_to_words_job.out_word_search_results,
-    stm_job.bliss_corpus)
-  # ctm_job.add_alias(name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
-  alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
-  tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
+  if concat_seqs:
+    ctm_job = WordsToCTMJob(
+      words_path=bpe_to_words_job.out_word_search_results, stm_path=stm_path, dataset_name=dataset_key)
+    alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
+    tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
+  else:
+    ctm_job = SearchWordsToCTMJob(
+      bpe_to_words_job.out_word_search_results,
+      stm_job.bliss_corpus)
+    # ctm_job.add_alias(name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon)
+    alias = name + ("/ctm_%s_%d" % (dataset_key, num_epochs)) + alias_addon
+    tk.register_output(alias + "/ctm_search_results", ctm_job.out_ctm_file)
 
   return ctm_job.out_ctm_file
 
@@ -122,7 +132,7 @@ def run_rasr_decoding(
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
 
   compile_graph_job = CompileTFGraphJob(compile_config, "output")
-  # compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
+  compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
   alias = name + "/tf-graph" + alias_addon
   tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
@@ -189,7 +199,7 @@ def calc_rasr_search_errors(
   time_rqmt=10, mem_rqmt=4, gpu_rqmt=1, alias_addon="", debug=False, max_batch_size=256):
 
   compile_graph_job = CompileTFGraphJob(compile_config, "output")
-  # compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
+  compile_graph_job.add_alias(name + "/tf-graph" + alias_addon)
   alias = name + "/tf-graph" + alias_addon
   tk.register_output(alias + "/tf-graph", compile_graph_job.out_graph)
   tk.register_output(alias + "/tf-rec-info", compile_graph_job.out_rec_info)
@@ -258,7 +268,7 @@ def run_rasr_realignment(
   label_pruning_limit, rasr_am_trainer_exe_path, rasr_nn_trainer_exe_path, model_checkpoint, num_epochs,
   label_recombination_limit, blank_label_index, context_size, label_file, reduction_factors, max_segment_len,
   start_label_index, state_tying_path, num_classes, time_rqmt, blank_allophone_state_idx, length_norm,
-  blank_update_history, loop_update_history, mem_rqmt,
+  blank_update_history, loop_update_history, mem_rqmt, data_key,
   alias_addon=""
 ):
 
@@ -280,7 +290,7 @@ def run_rasr_realignment(
     rasr_exe_path=rasr_am_trainer_exe_path, crp=realignment_crp, model_checkpoint=model_checkpoint,
     mem_rqmt=mem_rqmt, time_rqtm=time_rqmt, am_model_trainer_config=realignment_config,
     blank_allophone_state_idx=blank_allophone_state_idx)
-  realignment_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d" % (alias_addon, num_epochs)))
+  realignment_job.add_alias(name + ("/%s/rasr-realignment-epoch-%d-%s" % (alias_addon, num_epochs, data_key)))
   alias = realignment_job.get_one_alias()
   tk.register_output(alias + "/results", realignment_job.out_alignment)
 

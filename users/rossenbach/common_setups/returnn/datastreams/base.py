@@ -69,3 +69,47 @@ class Datastream:
                 **kwargs,
             )
             return data, [time_dim, feature_dim]
+
+
+    def as_nnet_constructor_data(
+            self, name: str, available_for_inference: Optional[bool] = None, **kwargs
+    ):
+        from i6_experiments.users.rossenbach.returnn.nnet_constructor import DataInitArgs, DimInitArgs
+
+        d = self.as_returnn_extern_data_opts(
+            available_for_inference=available_for_inference
+        )
+        time_dim = DimInitArgs(
+            name="%s_time" % name,
+            dim=None,
+        )
+
+        dim = d["dim"]
+
+        if d.get("sparse", False):
+            sparse_dim = DimInitArgs(
+                name="%s_indices" % name,
+                dim=dim,
+                is_feature=True
+            )
+            return DataInitArgs(
+                name=name,
+                available_for_inference=d["available_for_inference"],
+                dim_tags=[time_dim],
+                sparse_dim=sparse_dim,
+            )
+        else:
+            feature_dim = DimInitArgs(
+                name="%s_feature" % name,
+                dim=dim,
+                is_feature=True,
+            )
+            return DataInitArgs(
+                name=name,
+                available_for_inference=d["available_for_inference"],
+                dim_tags=[time_dim, feature_dim],
+                sparse_dim=None,
+            )
+
+
+

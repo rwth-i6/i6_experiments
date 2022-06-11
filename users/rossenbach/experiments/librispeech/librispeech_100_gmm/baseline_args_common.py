@@ -119,6 +119,7 @@ def get_monophone_args():
         'align_iter': 75,
         'splits': 10,
         'accs_per_split': 2,
+        'dump_alignment_score_report': True,
     }
 
     monophone_recognition_args = {
@@ -127,7 +128,7 @@ def get_monophone_args():
         'lm_scales': [10],
         'optimize_am_lm_scale': True,
         # meta.System.recog() args:
-        'feature_flow': 'mfcc+deriv', # +norm
+        'feature_flow': 'mfcc+deriv+norm',
         'pronunciation_scales': [1.0],
         'lm_lookahead': True,
         'lookahead_options': None,
@@ -142,8 +143,8 @@ def get_monophone_args():
         },
         'parallelize_conversion': False,
         'lattice_to_ctm_kwargs': {},
-        'rtf': 10,
-        'mem': 8,
+        'rtf': 20,
+        'mem': 4,
         'use_gpu': False,
     }
 
@@ -228,8 +229,8 @@ def get_triphone_args():
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 10,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 4,
         "parallelize_conversion": True,
     }
 
@@ -291,8 +292,8 @@ def get_vtln_args():
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 10,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 4,
         "parallelize_conversion": True,
     }
 
@@ -353,8 +354,8 @@ def get_sat_args():
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 10,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 4,
         "parallelize_conversion": True,
     }
 
@@ -414,8 +415,8 @@ def get_vtln_sat_args():
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 10,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 4,
         "parallelize_conversion": True,
     }
 

@@ -11,7 +11,7 @@ from i6_core.returnn.training import ReturnnTrainingJob
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 
-from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_bpe
+from i6_experiments.common.datasets.librispeech import get_subword_nmt_bpe
 from i6_experiments.users.rossenbach.setups import returnn_standalone
 
 
@@ -27,7 +27,7 @@ def get_bpe_datastream(bpe_size, is_recog):
     :return:
     """
     # build dataset
-    bpe_settings = get_librispeech_bpe(corpus_key="train-clean-100", bpe_size=bpe_size, unk_label='<unk>')
+    bpe_settings = get_subword_nmt_bpe(corpus_key="train-clean-100", bpe_size=bpe_size, unk_label='<unk>')
     bpe_targets = returnn_standalone.data.vocabulary.BpeDatastream(
         available_for_inference=False,
         bpe_settings=bpe_settings,

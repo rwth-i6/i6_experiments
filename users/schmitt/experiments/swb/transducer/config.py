@@ -158,7 +158,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
-    network_type="default", global_length_var=None,
+    network_type="default", global_length_var=None, chunk_size=60,
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
@@ -167,7 +167,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     super().__init__(*args, **kwargs)
 
     self.batch_size = 10000 if self.task == "train" else 4000
-    chunk_size = 60
+    # chunk_size = 60
     self.chunking = ({
       "data": chunk_size * int(np.prod(time_red)), "alignment": chunk_size}, {
       "data": chunk_size * int(np.prod(time_red)) // 2, "alignment": chunk_size // 2})

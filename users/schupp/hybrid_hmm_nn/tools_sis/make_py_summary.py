@@ -11,7 +11,6 @@ import argparse
 
 from numpy import nan # we need this in case there are any 'nan' in errors or anything ( for when we call eval() )
 
-log.basicConfig(level=log.DEBUG)
 
 # Allowed arguments: (WIP)
 # --basepath conformer      -> the root path alias/*/
@@ -27,8 +26,14 @@ parser.add_argument('-o', '--only', default=None)
 parser.add_argument('-ox', '--only-experiment', default=None)
 parser.add_argument('-fex', '--filter-ex-name', default=None)
 parser.add_argument('-udf', '--update-data-filter', default=None)
+parser.add_argument('-v', '--verbose', action="store_true")
 
 args = parser.parse_args()
+
+if args.verbose:
+    log.basicConfig(level=log.DEBUG)
+else:
+    log.basicConfig(level=log.INFO)
 
 BASE = args.basepath
 
@@ -100,6 +105,7 @@ def parse_experiment_out_string(data_string):
     optim_wer_by_ep = None
     best_ep_by_score = None
     errors_per_ep = None
+    finished_eps = None
 
     float_or_int = r'[\d\.\d]+'
 
@@ -162,13 +168,29 @@ def get_all_data_experiment(experiment_path, name):
             data_by_set[data] = parse_experiment_out_string(_exp_data)
         log.debug(data_by_set[data])
 
+    # for some setups we also calculate devtrain2000 WER, we also check if such an output is present
+    devtrain_report = {}
+    ex_name = experiment_path.split("/")[-1]
+    devtrain2000_path = f"{os.getcwd()}/output/{BASE}/{ex_name}/optimize_recog_{name}_devtrain2000/"
+    log.info(f"checking for {devtrain2000_path}")
+    if os.path.exists(devtrain2000_path):
+        log.info(f"devtrain2000 recog exists")
+        all_reports = glob.glob(f'{devtrain2000_path}/*.log')
+        for rep in all_reports:
+            WER = None
+            ep = int(rep.split("/")[-1].split(".")[-2])
+            with open(rep, 'r') as file:
+                WER = float(file.readline().split("WER")[-1])
+            devtrain_report[ep] = WER
+
     # TODO: there is a lot of redundant data per set, 
     # we should list this under the root key instead
     # but it's pretty annoying to filter, we would need to extract e.g.: finished ep, errors only once!
     return {
         "name" : name,
         "config_path" : f"{os.getcwd()}/{experiment_path}/{name}/train.job/output/returnn.config",
-        **data_by_set
+        **data_by_set,
+        "devtrain" : devtrain_report
     }
 
 for experiment in all_existing_experiments:
@@ -178,7 +200,7 @@ for experiment in all_existing_experiments:
         if not os.path.exists(f"{RESULTS_FOLDER}{ex_path}"):
             os.mkdir(f"{RESULTS_FOLDER}{ex_path}")
 
-        log.debug(f"Starting extraction of: {sub_experiment}")
+        log.info(f"Starting extraction of: {sub_experiment}")
         with open(f"{RESULTS_FOLDER}{ex_path}/{sub_experiment}.json", "w") as file:
             json.dump(
                 get_all_data_experiment(experiment, sub_experiment), 

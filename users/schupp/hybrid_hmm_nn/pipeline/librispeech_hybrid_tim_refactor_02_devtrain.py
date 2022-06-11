@@ -68,22 +68,18 @@ am_path = Path(os.path.join(chris_960h_best_model_path,
 
 librispeech_corpora_keys = [
   "train-other-960",
-  "train-clean-100", # For some reason this aint there anymore TODO: check why...
+  "train-clean-100", # For some reason this aint there anymore TODO: check why
   "dev-clean",
   "dev-other",
   "test-clean",
-  "test-other",
-  "devtrain2000" # Added later hopefully this aint breaking anything
+  "test-other"
 ]
 
 # concurrent dict for corpus segmentation
-CONCURRENT["devtrain2000"] = 10 # Increased from 1
 concurrent = {key: CONCURRENT[key] for key in librispeech_corpora_keys}
 concurrent["train-other-960"] = 100
 
-percent_estimated_2000_segs = 0.0072
 # duration dict
-DURATIONS["devtrain2000"] = DURATIONS["train-other-960"] * percent_estimated_2000_segs
 durations = {key: DURATIONS[key] for key in librispeech_corpora_keys}
 
 # librispeech corpora dict
@@ -92,7 +88,7 @@ librispeech_corpora = {}
 for key in librispeech_corpora_keys:
   librispeech_corpora[key] = tk.Object()
 
-  if key == "train-other-960" or key == "devtrain2000": # TODO: not sure if this makes sense
+  if key == "train-other-960":
     librispeech_corpora[key].corpus_file = Path(os.path.join(chris_960h_best_model_path,
                                                              "train-merged-960.corpus.gz"), cached=True)
   elif key == "train-other-100":
@@ -135,8 +131,6 @@ class LibrispeechHybridSystemTim(meta.System):
   def setup_corpora_and_lexica_config(self, lex_file_path=None, norm_pron=False):
 
     for ck in self.corpus_keys:
-      if ck == "devtrain2000":
-        continue
       j = corpus_recipes.SegmentCorpusJob(self.corpora[ck].corpus_file, self.concurrent[ck])
       self.set_corpus(ck, self.corpora[ck], self.concurrent[ck], j.out_segment_path)
 
@@ -186,15 +180,6 @@ class LibrispeechHybridSystemTim(meta.System):
     self.crp["devtrain2000"] = rasr.CommonRasrParameters(base=self.crp["train-other-960_train"])
     self.crp["devtrain2000"].concurrent = 1
     self.crp["devtrain2000"].segment_path = devtrain_segments
-
-
-    ck = "devtrain2000"
-    self.set_corpus(ck, self.corpora[ck], self.concurrent[ck], devtrain_segments)
-    if lex_file_path is not None:
-      lexicon_config = rasr.RasrConfig()
-      lexicon_config.file = lex_file_path
-      lexicon_config.normalize_pronunciation = norm_pron
-      self.crp[ck].lexicon_config = lexicon_config
 
     # TODO: finish
 
@@ -517,13 +502,6 @@ class LibrispeechHybridSystemTim(meta.System):
       origin_feature_path, "FeatureExtraction.Gammatone.Pwkx0rfszmwj/output/gt.cache.bundle"))
     self.register_alignment('train-other-960', 'align_hmm',
       os.path.join(chris_960h_best_model_path, "AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.bundle"))
-
-    # devtrain2000 very usure about this one TODO this should realy be only a subset
-    self.register_feature('devtrain2000', 'gammatone', os.path.join( chris_960h_best_model_path, "FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle"))
-    # TODO I found the stm for train-other-960 here: /work/asr3/luescher/hiwis/pzheng/librispeech/from-scratch/output/create_corpora/stm lets use it
-    self.stm_files['devtrain2000'] = Path(os.path.join(
-      work_path_features, "corpus/CorpusToStm.KIzanSTEZFZO/output/corpus.stm"), cached=True)
-
 
     # 100h train
     # self.register_feature('train-clean-100', 'gammatone', os.path.join(

@@ -281,6 +281,10 @@ class RasrSystem(meta.System):
             ),
             split_first=False,
         )
+        tk.register_output(
+            f"train/sdm/{corpus_key}.{name}.mix",
+            self.mixtures[corpus_key][f"estimate_mixtures_{name}"],
+        )
 
     # -------------------- Forced Alignment --------------------
 

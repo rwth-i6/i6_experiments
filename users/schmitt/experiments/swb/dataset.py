@@ -85,8 +85,11 @@ def get_dataset_dict(data):
   return d
 
 
-def get_dataset_dict_wo_alignment(data, rasr_config_path, rasr_nn_trainer_exe, vocab, epoch_split=6):
+def get_dataset_dict_wo_alignment(
+        data, rasr_config_path, rasr_nn_trainer_exe, vocab, epoch_split=6, concat_seqs=False, concat_seq_tags=None,
+        concat_seq_lens=None):
   assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
+  assert not concat_seqs or (concat_seq_tags is not None and concat_seq_lens is not None)
   epoch_split = {
     "train": epoch_split}.get(data, 1)
 
@@ -94,7 +97,8 @@ def get_dataset_dict_wo_alignment(data, rasr_config_path, rasr_nn_trainer_exe, v
     "train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
   args = [DelayedFormat("--config={}", rasr_config_path),
-          "--*.corpus.segment-order-shuffle=true", "--*.segment-order-sort-by-time-length=true",
+          "--*.corpus.segment-order-shuffle=true" if not concat_seqs else "--*.corpus.segment-order-shuffle=false",
+          "--*.segment-order-sort-by-time-length=true" if not concat_seqs else "--*.segment-order-sort-by-time-length=false",
           "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1)]
 
   d = {
@@ -115,6 +119,12 @@ def get_dataset_dict_wo_alignment(data, rasr_config_path, rasr_nn_trainer_exe, v
       "estimated_num_seqs": (estimated_num_seqs[data] // epoch_split) if data in estimated_num_seqs else None, }
 
     d.update(partition_epochs_opts)
+
+  if concat_seqs:
+    d = {
+      "class": "ConcatSeqsDataset", "seq_list_file": concat_seq_tags, "seq_len_file": concat_seq_lens,
+      "dataset": d, "seq_ordering": "sorted_reverse",
+    }
 
   return d
 
