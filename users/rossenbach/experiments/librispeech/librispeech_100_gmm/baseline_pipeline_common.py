@@ -23,6 +23,7 @@ def run_librispeech_100_common_baseline():
 
     final_output_args = OutputArgs("final")
     final_output_args.define_corpus_type("train-clean-100", "train")
+    final_output_args.define_corpus_type("dev-clean", "dev")
     final_output_args.define_corpus_type("dev-other", "dev")
     final_output_args.add_feature_to_extract("gt")
 

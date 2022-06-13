@@ -1,3 +1,6 @@
+"""
+DEPRECATED AND UNUSED!
+"""
 import time
 
 from sisyphus import gs
