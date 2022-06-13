@@ -12,7 +12,7 @@ class ReturnnVocabFromBlissLexicon(Job):
 
     Outputs:
 
-    tk.Path out_vocab: path to the pickled returnn vocabulary (``vocab.pkl``)
+    tk.Path out_vocab: path to the pickled Returnn vocabulary (``vocab.pkl``)
     tk.Variable out_vocab_size: integer variable containing the vocabulary size (``vocab_length``)
     """
     def __init__(self, bliss_lexicon):
@@ -34,5 +34,4 @@ class ReturnnVocabFromBlissLexicon(Job):
         vocab = {k: v for v, k in enumerate(lex.phonemes.keys())}
         pickle.dump(vocab, uopen(self.out_vocab, "wb"))
 
-        print("Vocab Size: %i" % len(lex.phonemes))
         self.out_vocab_size.set(len(lex.phonemes))

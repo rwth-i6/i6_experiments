@@ -60,8 +60,6 @@ def ffmpeg_silence_remove(
 class AlignmentCacheSilenceRemoval(Job):
     """
     This Job uses an alignment cache to do silence removal on a given bliss corpus
-
-
     """
     def __init__(self, bliss_corpus, alignment_cache, allophone_file, window_shift, pause_duration=0.0,
                  silence_symbol=None, silence_symbol_duration=0.1, output_format=None, ffmpeg_binary=None):

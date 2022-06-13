@@ -270,7 +270,6 @@ class HDFPhaseReconstruction(Job):
                                        file_format=self.file_format,
                                        corpus_format="bliss")
 
-        corpus_path = os.path.join(self.out_folder.get_path(), "corpus.xml.gz")
         corpus = bliss_corpus.Corpus()
 
 
