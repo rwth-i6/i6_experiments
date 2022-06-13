@@ -403,6 +403,9 @@ class NonhashedCode(SerializerObject):
         else:
             return self.code
 
+    def _sis_hash(self):
+        raise Exception("NonhashedCode must not be hashed")
+
 
 class CodeFromFile(SerializerObject):
     """
