@@ -10,10 +10,10 @@ class TransformerDecoder:
   """
 
   def __init__(self,
-    base_model, target='bpe', dec_layers=6, beam_size=12, ff_init=None, ff_dim=2048, ff_act='relu', att_num_heads=8,
-    dropout=0.1, att_dropout=0.0, softmax_dropout=0.0, embed_dropout=0.1, l2=0.0, embed_pos_enc=False,
-    apply_embed_weight=False, label_smoothing=0.1, mhsa_init=None, mhsa_out_init=None,
-    pos_enc=None, rel_pos_clipping=16):
+               base_model, target='bpe', num_layers=6, beam_size=12, ff_init=None, ff_dim=2048, ff_act='relu', att_num_heads=8,
+               dropout=0.1, att_dropout=0.0, softmax_dropout=0.0, embed_dropout=0.1, l2=0.0, embed_pos_enc=False,
+               apply_embed_weight=False, label_smoothing=0.1, mhsa_init=None, mhsa_out_init=None,
+               pos_enc=None, rel_pos_clipping=16):
 
     self.base_model = base_model
     self.enc_value_dim = base_model.enc_value_dim
@@ -25,7 +25,7 @@ class TransformerDecoder:
     self.att_num_heads = att_num_heads
 
     self.target = target
-    self.dec_layers = dec_layers
+    self.num_layers = num_layers
     self.beam_size = beam_size
 
     self.ff_init = ff_init
@@ -193,7 +193,7 @@ class TransformerDecoder:
       'target_embed', target_embed_raw, dropout=self.embed_dropout, dropout_noise_shape={"*": None})
 
     x = target_embed
-    for i in range(1, self.dec_layers + 1):
+    for i in range(1, self.num_layers + 1):
       x = self._create_decoder_block(subnet_unit, x, i)
     subnet_unit.add_layer_norm_layer('decoder', x)
 

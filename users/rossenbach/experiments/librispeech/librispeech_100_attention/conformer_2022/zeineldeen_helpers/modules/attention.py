@@ -1,5 +1,5 @@
-from recipe.crnn.helpers.zeineldeen.network import ReturnnNetwork
-from recipe.crnn.helpers.zeineldeen.modules.abs_module import AbsModule
+from ..network import ReturnnNetwork
+from .abs_module import AbsModule
 
 
 class ConvLocAwareness(AbsModule):

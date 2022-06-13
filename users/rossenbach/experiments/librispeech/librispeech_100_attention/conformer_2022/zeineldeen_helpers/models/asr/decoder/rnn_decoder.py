@@ -1,6 +1,5 @@
-from recipe.crnn.helpers.zeineldeen.network import ReturnnNetwork
-from recipe.crnn.helpers.zeineldeen.modules.attention import AttentionMechanism
-
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.zeineldeen_helpers.network import ReturnnNetwork
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.zeineldeen_helpers.modules.attention import AttentionMechanism
 
 class RNNDecoder:
   """
@@ -12,9 +11,9 @@ class RNNDecoder:
   """
 
   def __init__(self, base_model, source=None, dropout=0.3, label_smoothing=0.1, target='bpe',
-               beam_size=12, embed_dim=621, embed_dropout=0., dec_lstm_num_units=1000,
-               dec_output_num_units=1000, l2=None, att_dropout=None, rec_weight_dropout=None, dec_zoneout=False,
-               ff_init=None, add_lstm_lm=False, lstm_lm_dim=1000, loc_conv_att_filter_size=None,
+               beam_size=12, embed_dim=621, embed_dropout=0., lstm_num_units=1024,
+               output_num_units=1024, enc_key_dim=1024, l2=None, att_dropout=None, rec_weight_dropout=None, zoneout=False,
+               ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
                loc_conv_att_num_channels=None, reduceout=True, att_num_heads=1, embed_weight_init=None,
                lstm_weights_init=None):
     """
@@ -26,12 +25,13 @@ class RNNDecoder:
     :param int beam_size: value of the beam size
     :param int embed_dim: target embedding dimension
     :param float|None embed_dropout: dropout to be applied on the target embedding
-    :param int dec_lstm_num_units: the number of hidden units for the decoder LSTM
-    :param int dec_output_num_units: the number of hidden dimensions for the last layer before softmax
+    :param int lstm_num_units: the number of hidden units for the decoder LSTM
+    :param int output_num_units: the number of hidden dimensions for the last layer before softmax
+    :param int enc_key_dim: the number of hidden dimensions for the encoder key
     :param float|None l2: weight decay with l2 norm
     :param float|None att_dropout: dropout applied to attention weights
     :param float|None rec_weight_dropout: dropout applied to weight paramters
-    :param bool dec_zoneout: if set, zoneout LSTM cell is used in the decoder instead of nativelstm2
+    :param bool zoneout: if set, zoneout LSTM cell is used in the decoder instead of nativelstm2
     :param str|None ff_init: feed-forward weights initialization
     :param bool add_lstm_lm: add separate LSTM layer that acts as LM-like model
       same as here: https://arxiv.org/abs/2001.07263
@@ -49,7 +49,7 @@ class RNNDecoder:
     self.dropout = dropout
     self.label_smoothing = label_smoothing
 
-    self.enc_key_dim = base_model.enc_key_dim
+    self.enc_key_dim = enc_key_dim
     self.enc_value_dim = base_model.enc_value_dim
     self.att_num_heads = att_num_heads
 
@@ -60,8 +60,8 @@ class RNNDecoder:
     self.embed_dim = embed_dim
     self.embed_dropout = embed_dropout
 
-    self.dec_lstm_num_units = dec_lstm_num_units
-    self.dec_output_num_units = dec_output_num_units
+    self.dec_lstm_num_units = lstm_num_units
+    self.dec_output_num_units = output_num_units
 
     self.ff_init = ff_init
 
@@ -70,7 +70,7 @@ class RNNDecoder:
     self.l2 = l2
     self.att_dropout = att_dropout
     self.rec_weight_dropout = rec_weight_dropout
-    self.dec_zoneout = dec_zoneout
+    self.dec_zoneout = zoneout
 
     self.add_lstm_lm = add_lstm_lm
     self.lstm_lm_dim = lstm_lm_dim
@@ -86,6 +86,7 @@ class RNNDecoder:
     self.network = ReturnnNetwork()
     self.subnet_unit = ReturnnNetwork()
     self.dec_output = None
+    self.output_prob = None
 
   def add_decoder_subnetwork(self, subnet_unit: ReturnnNetwork):
 
@@ -142,12 +143,12 @@ class RNNDecoder:
     else:
       subnet_unit.add_copy_layer('readout', 'readout_in')
 
-    output_prob = subnet_unit.add_softmax_layer(
+    self.output_prob = subnet_unit.add_softmax_layer(
       'output_prob', 'readout', l2=self.l2, loss='ce', loss_opts={'label_smoothing': self.label_smoothing},
       target=self.target, dropout=self.dropout)
 
     subnet_unit.add_choice_layer(
-      'output', output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
+      'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
 
     # recurrent subnetwork
     dec_output = self.network.add_subnet_rec_layer(
