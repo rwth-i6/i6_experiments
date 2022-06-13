@@ -56,7 +56,7 @@ from i6_core.returnn.config import CodeWrapper
 
 class SerializerObject(DelayedBase):
     """
-    Any class that can be passed to ReturnnCommonSerializer
+    Any class that can be passed to :class:`ReturnnCommonSerializer`
     """
 
     def __init__(self):
