@@ -157,10 +157,10 @@ class ReturnnCommonSerializer(DelayedBase):
                 if isinstance(obj, ReturnnCommonImport):
                     self.packages.add(obj._package)
 
-        content = "import os\nimport sys\n"
+        content = ["import os\nimport sys\n"]
 
         if self.returnn_common_root is None:
-            content += "from returnn_common import nn\n\n"
+            content.append("from returnn_common import nn\n\n")
         else:
             if self.make_local_package_copy:
                 assert "/recipe" not in self.returnn_common_root.get(), (
@@ -169,7 +169,7 @@ class ReturnnCommonSerializer(DelayedBase):
                 )
                 # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
                 # order here and always chooses the package from recipe/ first...
-            content += (
+            content.append(
                 f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
                 "from returnn_common import nn\n\n"
             )
@@ -190,11 +190,12 @@ class ReturnnCommonSerializer(DelayedBase):
                 shutil.copytree(
                     os.path.join(self.root_path, package_path), target_package_path
                 )
-                content += f"sys.path.insert(0, os.path.dirname(__file__))\n"
+                content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
-            content += f'sys.path.insert(0, "{self.root_path}")\n'
+            content.append(f'sys.path.insert(0, "{self.root_path}")\n')
 
-        return content + "\n".join([obj.get() for obj in self.serializer_objects])
+        content += [obj.get() for obj in self.serializer_objects]
+        return "".join(content)
 
     def _sis_hash(self) -> bytes:
         h = {
