@@ -1,7 +1,7 @@
 """
 Contains code that is necessary/helpful to generate Returnn Configs that make use of returnn_common
 
-Usage Example:
+Usage Example::
 
     rc_some_unhashed_code = NonhashedCode(code=some_code)
     rc_extern_data = ReturnnCommonExternData(extern_data=extern_data)
