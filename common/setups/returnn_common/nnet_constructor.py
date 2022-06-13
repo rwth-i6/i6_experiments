@@ -150,12 +150,12 @@ class ReturnnCommonSerializer(DelayedBase):
         self.root_path = os.path.join(os.getcwd(), "recipe")
 
     def get(self) -> str:
-        if self.packages == None:
+        if self.packages is None:
             # try to collect packages from objects
             self.packages = set()
-            for object in self.serializer_objects:
-                if isinstance(object, ReturnnCommonImport):
-                    self.packages.add(object._package)
+            for obj in self.serializer_objects:
+                if isinstance(obj, ReturnnCommonImport):
+                    self.packages.add(obj._package)
 
         content = "import os\nimport sys\n"
 
