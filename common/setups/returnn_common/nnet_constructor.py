@@ -388,9 +388,18 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
         return sis_hash_helper(h)
 
 
-class NonhashedCode(SerializerObject):
+class _NonhashedCodeBase(SerializerObject):
     """
-    Insert code as string or from file without any hashing
+    Insert code which is not hashed.
+    """
+
+    def _sis_hash(self):
+        raise Exception(f"Nonhashed code ({self.__class__.__name__}) must not be hashed")
+
+
+class NonhashedCode(_NonhashedCodeBase):
+    """
+    Insert code from raw string which is not hashed.
     """
 
     def __init__(self, code: Union[str, tk.Path]):
@@ -399,14 +408,22 @@ class NonhashedCode(SerializerObject):
 
     def get(self):
         """get"""
-        if isinstance(self.code, tk.Path):
-            with uopen(self.code, "rt") as f:
-                return f.read()
-        else:
-            return self.code
+        return self.code
 
-    def _sis_hash(self):
-        raise Exception("NonhashedCode must not be hashed")
+
+class NonhashedCodeFromFile(_NonhashedCodeBase):
+    """
+    Insert code from file content which is not hashed (neither the file name nor the content).
+    """
+
+    def __init__(self, filename: tk.Path):
+        super().__init__()
+        self.filename = filename
+
+    def get(self):
+        """get"""
+        with uopen(self.filename, "rt") as f:
+            return f.read()
 
 
 class CodeFromFile(SerializerObject):
