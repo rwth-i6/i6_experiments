@@ -155,7 +155,7 @@ class ReturnnCommonSerializer(DelayedBase):
             self.packages = set()
             for obj in self.serializer_objects:
                 if isinstance(obj, ReturnnCommonImport):
-                    self.packages.add(obj._package)
+                    self.packages.add(obj.package)
 
         content = ["import os\nimport sys\n"]
 
@@ -300,24 +300,24 @@ class ReturnnCommonImport(SerializerObject):
 
     def __init__(
         self,
-        code_object: str,
+        code_object_path: str,
     ):
         """
-        :param code_object: path to a python object, e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
+        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
         """
         super().__init__()
-        self.code_object = code_object
+        self.code_object = code_object_path
 
-        self._object_name = self.code_object.split(".")[-1]
-        self._module = ".".join(self.code_object.split(".")[:-1])
-        self._package = ".".join(self.code_object.split(".")[:-2])
+        self.object_name = self.code_object.split(".")[-1]
+        self.module = ".".join(self.code_object.split(".")[:-1])
+        self.package = ".".join(self.code_object.split(".")[:-2])
 
-    def get(self):
+    def get(self) -> str:
         # this is run in the task!
-        return f"from {self._module} import {self._object_name}\n"
+        return f"from {self.module} import {self.object_name}\n"
 
-    def get_name(self):
-        return self._object_name
+    def get_name(self) -> str:
+        return self.object_name
 
     def _sis_hash(self):
         return sis_hash_helper(self.code_object)
