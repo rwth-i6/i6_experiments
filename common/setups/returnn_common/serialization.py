@@ -69,34 +69,32 @@ class SerializerObject(DelayedBase):
 class DimInitArgs:
     """
     A helper class to store input args for a nn.Dim object
-
-    :param name: name of the dim
-    :param dim: dimension size (feature axis size or label index count for sparse_dim), None for spatial axis
-    :param is_feature: If the dim is a feature dim and not a spatial dim.
     """
 
     name: str
+    "name of the dim"
     dim: Optional[Union[int, tk.Variable]]
+    "dimension size (feature axis size or label index count for sparse_dim), None for spatial axis"
     is_feature: bool = False
+    "If the dim is a feature dim and not a spatial dim."
 
 
 @dataclass(frozen=True)
 class DataInitArgs:
     """
     A helper class to store needed input args for a nn.Data object without `returnn_common` dependency
-
-    :param name: name of the data (equivalent to the extern_data entry)
-    :param available_for_inference: if this data is available during decoding/forward pass etc...
-    :param dim_tags: list of dim tags representing an axis of the data, without batch or a hidden sparse dim
-    :param sparse_dim: provide this dim to make the data sparse and define the index size
-    :param has_batch_dim: set to False to create data without a batch dim (probably never needed)
     """
 
     name: str
+    "name of the data (equivalent to the extern_data entry)"
     available_for_inference: bool
+    "if this data is available during decoding/forward pass etc..."
     dim_tags: List[DimInitArgs]
+    "list of dim tags representing an axis of the data, without batch or a hidden sparse dim"
     sparse_dim: Optional[DimInitArgs]
+    "provide this dim to make the data sparse and define the index size"
     has_batch_dim: bool = True
+    "set to False to create data without a batch dim (probably never needed)"
 
     def __post_init__(self):
         if self.sparse_dim is not None:
