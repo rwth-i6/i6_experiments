@@ -11,8 +11,8 @@ Usage Example::
         "i6_experiments.users.some_user.common_modules.constructor_module.some_constructor_function")
 
     rc_network = ReturnnCommonDynamicNetwork(
-        net_func_name=rc_construction_code.get_name(),
-        net_func_map={"net_module": rc_model.get_name(),
+        net_func_name=rc_construction_code.object_name,
+        net_func_map={"net_module": rc_model.object_name,
                       "audio_data": "audio_features",
                       "label_data": "bpe_labels",
                       "audio_feature_dim": "audio_features_feature",
@@ -356,7 +356,7 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
         :param net_func_map: A mapping to define which config objects should be linked to which function parameters
             This can for example be for a network module definition:
             `rc_module = ReturnnCommonImport("my_package.my_net_module")`
-            `'net_module': rc_module.get_name()`
+            `'net_module': rc_module.object_name`
             Or for a known nn.Data object named `bpe_labels` and a constructor parameter named `label_data` just:
             `label_data`: `bpe_labels`
             The `value` objects will be written via `CodeWrapper` to directly refer to the serialized objects within
