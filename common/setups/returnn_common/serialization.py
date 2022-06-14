@@ -254,7 +254,7 @@ class ExternData(SerializerObject):
 
         for dim in dims:
             content.append(
-                f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}(\"{dim.name}\", "
+                f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}({dim.name!r}, "
                 f"{instanciate_delayed(dim.dim)})\n"
             )
 
