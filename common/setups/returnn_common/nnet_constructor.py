@@ -431,19 +431,23 @@ class CodeFromFile(SerializerObject):
     Insert code from a file hashed by file path/name or full content
     """
 
-    def __init__(self, code: tk.Path, hash_full_content=False):
+    def __init__(self, filename: tk.Path, hash_full_content: bool = False):
+        """
+        :param filename:
+        :param hash_full_content: False -> hash filename, True -> hash content (but not filename)
+        """
         super().__init__()
-        self.code = code
+        self.filename = filename
         self.hash_full_content = hash_full_content
 
     def get(self):
         """get"""
-        with uopen(self.code, "rt") as f:
+        with uopen(self.filename, "rt") as f:
             return f.read()
 
     def _sis_hash(self):
         if self.hash_full_content:
-            with uopen(self.code, "rt") as f:
+            with uopen(self.filename, "rt") as f:
                 return sis_hash_helper(f.read())
         else:
-            return sis_hash_helper(self.code)
+            return sis_hash_helper(self.filename)
