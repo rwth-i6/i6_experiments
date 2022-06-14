@@ -223,7 +223,7 @@ class ExternData(SerializerObject):
         self.extern_data = extern_data
 
     @staticmethod
-    def _serialize_data(data: DataInitArgs) -> str:
+    def _serialize_data(data: DataInitArgs) -> List[str]:
         """
         Serialize a single DataInitArgs object
 
@@ -238,11 +238,11 @@ class ExternData(SerializerObject):
             content.append(f"    sparse_dim={data.sparse_dim.name},")
         content.append(f"    available_for_inference={data.available_for_inference},")
         content.append(")\n")
-        return "".join(content)
+        return content
 
     def get(self) -> str:
         """get"""
-        content = ""
+        content = []
 
         # collect dims into a set to only write each Dim once if shared
         dims = set()
@@ -253,7 +253,7 @@ class ExternData(SerializerObject):
                 dims.add(constructor_data.sparse_dim)
 
         for dim in dims:
-            content += (
+            content.append(
                 f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}(\"{dim.name}\", "
                 f"{instanciate_delayed(dim.dim)})\n"
             )
@@ -264,16 +264,18 @@ class ExternData(SerializerObject):
         # RETURNN does not allow for "name" in the args, as this is set via the dict key
         # thus, we need to explicitly remove it for now
         for constructor_data in self.extern_data:
-            content += (
+            content.append(
                 f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n"
             )
-            content += f'{constructor_data.name}_args.pop("name")\n'
+            content.append(f'{constructor_data.name}_args.pop("name")\n')
 
-        content += "\nextern_data={\n"
+        content.append("\nextern_data={\n")
         for constructor_data in self.extern_data:
-            content += f'    "{constructor_data.name}": {constructor_data.name}_args,\n'
-        content += "}\n"
-        return content
+            content.append(
+                f'    "{constructor_data.name}": {constructor_data.name}_args,\n'
+            )
+        content.append("}\n")
+        return "".join(content)
 
 
 class Import(SerializerObject):
