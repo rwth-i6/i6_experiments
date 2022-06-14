@@ -43,14 +43,14 @@ def run():
       self.out_dim = out_dim
       self.output = nn.Linear(out_dim)
 
-    def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim, **kwargs) -> Tuple[nn.Tensor, nn.Dim]:
-      x = specaugment.specaugment_v2(x, in_spatial_dim=in_spatial_dim)
-      x, out_spatial_dim = self.conformer(x, in_spatial_dim=in_spatial_dim, **kwargs)
-      assert isinstance(out_spatial_dim, nn.Dim)
-      if out_spatial_dim != in_spatial_dim:
-        out_spatial_dim.declare_same_as(nn.SpatialDim("downsampled-time"))
+    def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim) -> Tuple[nn.Tensor, nn.Dim]:
+      x = specaugment.specaugment_v2(x, spatial_dim=in_spatial_dim)
+      x, out_spatial_dim_ = self.conformer(x, in_spatial_dim=in_spatial_dim)
+      assert isinstance(out_spatial_dim_, nn.Dim)
+      if out_spatial_dim_ != in_spatial_dim:
+        out_spatial_dim_.declare_same_as(nn.SpatialDim("downsampled-time"))
       x = self.output(x)
-      return x, out_spatial_dim
+      return x, out_spatial_dim_
 
   model = Model(out_dim=output_dim + 1)  # +1 for blank
   inputs = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim]))
