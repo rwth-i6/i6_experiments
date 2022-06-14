@@ -1,16 +1,18 @@
 """
-Contains code that is necessary/helpful to generate Returnn Configs that make use of returnn_common
+Contains code that is necessary/helpful to generate RETURNN configs that make use of returnn_common
 
 Usage Example::
 
-    rc_some_unhashed_code = NonhashedCode(code=some_code)
-    rc_extern_data = ReturnnCommonExternData(extern_data=extern_data)
-    rc_model = ReturnnCommonImport(
+    from i6_experiments.common.setups.returnn_common import serialization
+
+    rc_some_unhashed_code = serialization.NonhashedCode(code=some_code)
+    rc_extern_data = serialization.ExternData(extern_data=extern_data)
+    rc_model = serialization.Import(
         "i6_experiments.users.some_user.common_modules.some_module.SomeNnModuleModel")
-    rc_construction_code = ReturnnCommonImport(
+    rc_construction_code = serialization.Import(
         "i6_experiments.users.some_user.common_modules.constructor_module.some_constructor_function")
 
-    rc_network = ReturnnCommonDynamicNetwork(
+    rc_network = serialization.Network(
         net_func_name=rc_construction_code.object_name,
         net_func_map={"net_module": rc_model.object_name,
                       "audio_data": "audio_features",
@@ -23,14 +25,14 @@ Usage Example::
         net_kwargs={... some additional constructor function args ...}
     )
 
-    serializer = ReturnnCommonSerializer(
-        serializer_objects=[rc_recursionlimit,
-                            rc_extern_data,
-                            rc_model,
-                            rc_construction_code,
-                            rc_network],
+    serializer = serialization.Collection(
+        serializer_objects=[
+          rc_recursionlimit,
+          rc_extern_data,
+          rc_model,
+          rc_construction_code,
+          rc_network],
         returnn_common_root=returnn_common_root,
-        make_local_package_copy=True, # set to false to directly import from the recipes
     )
     returnn_config = ReturnnConfig(
         config=config,
@@ -101,15 +103,16 @@ class DataInitArgs:
 
 class Collection(DelayedBase):
     """
-    A helper class to serialize a Returnn config with returnn_common elements.
+    A helper class to serialize a RETURNN config with returnn_common elements.
     Should be passed to either `returnn_prolog` or `returnn_epilog` in a `ReturnnConfig`
 
     The tasks are:
      - managing the returnn_common version (via sys.path)
-     - managing returnn_common net definitions (via importing a nn.Module class definition, using `ReturnnCommonImport`)
+     - managing returnn_common net definitions (via importing a nn.Module class definition, using :class:`Import`)
      - managing returnn_common net construction which returns the final net, using `ReturnnCommonImport`
        (via importing a (epoch, **kwargs) -> nn.Module function)
-     - managing nn.Dim/Data and the extern_data entry via `ReturnnCommonExternData`, `DimInitArgs` and `DataInitArgs`
+     - managing nn.Dim/Data and the extern_data entry
+       via :class:`ExternData`, :class:`DimInitArgs` and :class:`DataInitArgs`
      - managing the package imports from which all imports can be found
      - optionally make a local copy of all imported code instead if importing it directly out of the recipes
 
