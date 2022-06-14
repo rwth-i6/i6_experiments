@@ -38,6 +38,7 @@ Usage Example::
         python_epilog=[serializer],
     )
 """
+
 from dataclasses import dataclass, asdict
 from typing import Any, List, Union, Optional, Dict
 import os
@@ -56,7 +57,7 @@ from i6_core.returnn.config import CodeWrapper
 
 class SerializerObject(DelayedBase):
     """
-    Any class that can be passed to :class:`ReturnnCommonSerializer`
+    Base class for objects that can be passed to :class:`Collection`
     """
 
     def __init__(self):
@@ -111,7 +112,7 @@ class DataInitArgs:
         return sis_hash_helper(asdict(self))
 
 
-class ReturnnCommonSerializer(DelayedBase):
+class Collection(DelayedBase):
     """
     A helper class to serialize a Returnn config with returnn_common elements.
     Should be passed to either `returnn_prolog` or `returnn_epilog` in a `ReturnnConfig`
@@ -155,7 +156,7 @@ class ReturnnCommonSerializer(DelayedBase):
             # try to collect packages from objects
             self.packages = set()
             for obj in self.serializer_objects:
-                if isinstance(obj, ReturnnCommonImport):
+                if isinstance(obj, Import):
                     self.packages.add(obj.package)
 
         content = ["import os\nimport sys\n"]
@@ -210,7 +211,7 @@ class ReturnnCommonSerializer(DelayedBase):
         return sis_hash_helper(h)
 
 
-class ReturnnCommonExternData(SerializerObject):
+class ExternData(SerializerObject):
     """
     Write nn.Dim, nn.Data and extern_data definitions as string into a config, using DataInitArgs and DimInitArgs
     as definition helpers.
@@ -293,7 +294,7 @@ class ReturnnCommonExternData(SerializerObject):
         return content
 
 
-class ReturnnCommonImport(SerializerObject):
+class Import(SerializerObject):
     """
     A class to indicate a module or function that should be imported within the returnn config
 
@@ -323,7 +324,7 @@ class ReturnnCommonImport(SerializerObject):
         return sis_hash_helper(self.code_object)
 
 
-class ReturnnCommonDynamicNetwork(SerializerObject):
+class Network(SerializerObject):
     """
     Serializes a `get_network` function into the config, which calls
     a defined network construction function and defines the parameters to it.
