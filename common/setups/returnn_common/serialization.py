@@ -223,38 +223,22 @@ class ExternData(SerializerObject):
         self.extern_data = extern_data
 
     @staticmethod
-    def _serialize_data(constructor_data: DataInitArgs) -> str:
+    def _serialize_data(data: DataInitArgs) -> str:
         """
         Serialize a single DataInitArgs object
 
-        :param constructor_data: init args for serialization
+        :param data: init args for serialization
         """
-        content = ""
-        wrapped_dim_names = []
-        for c_dim in constructor_data.dim_tags:
-            wrapped_dim_names.append(CodeWrapper(c_dim.name))
-
-        if constructor_data.has_batch_dim:
-            wrapped_dim_names = [CodeWrapper("nn.batch_dim")] + wrapped_dim_names
-
-        if constructor_data.sparse_dim is not None:
-            sparse_dim = constructor_data.sparse_dim
-            sparse_dim_name = sparse_dim.name
-        else:
-            sparse_dim_name = None
-
-        content += textwrap.dedent(
-            f"""\
-        {constructor_data.name} = nn.Data(
-            name="{constructor_data.name}",
-            available_for_inference={constructor_data.available_for_inference},
-            dim_tags={wrapped_dim_names},
-            sparse_dim={sparse_dim_name},
-        )
-        """
-        )
-
-        return content
+        content = [
+            f"{data.name} = nn.Data(\n",
+            f"    name={data.name},",
+            f"    dim_tags=[{', '.join(dim.name for dim in data.dim_tags)}],",
+        ]
+        if data.sparse_dim is not None:
+            content.append(f"    sparse_dim={data.sparse_dim.name},")
+        content.append(f"    available_for_inference={data.available_for_inference},")
+        content.append(")\n")
+        return "".join(content)
 
     def get(self) -> str:
         """get"""
