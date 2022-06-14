@@ -94,15 +94,6 @@ class DataInitArgs:
     sparse_dim: Optional[DimInitArgs]
     "provide this dim to make the data sparse and define the index size"
 
-    def __post_init__(self):
-        if self.sparse_dim is not None:
-            assert (
-                self.sparse_dim.dim is not None
-            ), "A sparse dim can not have 'None' as dimension"
-            assert (
-                self.sparse_dim.is_feature is True
-            ), "A sparse dim should be a feature dim"
-
     def _sis_hash(self) -> bytes:
         # INFO: asdict is recursive, so DimInitArgs will be converted as well
         return sis_hash_helper(asdict(self))
