@@ -55,9 +55,11 @@ def run():
   model = Model(out_dim=output_dim + 1)  # +1 for blank
   inputs = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, input_dim]))
   logits, out_spatial_dim = model(inputs, in_spatial_dim=time_dim)
+
   targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, targets_time_dim], sparse_dim=output_dim))
   loss = nn.ctc_loss(logits=logits, targets=targets)
   loss.mark_as_loss()
+
   decoded, decoded_spatial_dim = nn.ctc_greedy_decode(logits, in_spatial_dim=out_spatial_dim)
   error = nn.edit_distance(a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_time_dim)
   error.mark_as_loss(as_error=True, custom_inv_norm_factor=nn.length(targets, axis=targets_time_dim))
