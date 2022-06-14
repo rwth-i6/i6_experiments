@@ -222,7 +222,8 @@ class ReturnnCommonExternData(SerializerObject):
         super().__init__()
         self.extern_data = extern_data
 
-    def serialize_data(self, constructor_data: DataInitArgs) -> str:
+    @staticmethod
+    def _serialize_data(constructor_data: DataInitArgs) -> str:
         """
         Serialize a single DataInitArgs object
 
@@ -273,7 +274,7 @@ class ReturnnCommonExternData(SerializerObject):
             )
 
         for constructor_data in self.extern_data:
-            content += self.serialize_data(constructor_data)
+            content += self._serialize_data(constructor_data)
 
         # RETURNN does not allow for "name" in the args, as this is set via the dict key
         # thus, we need to explicitly remove it for now
