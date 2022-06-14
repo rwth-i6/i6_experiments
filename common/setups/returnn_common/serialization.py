@@ -40,7 +40,7 @@ Usage Example::
 """
 
 from dataclasses import dataclass, asdict
-from typing import Any, List, Union, Optional, Dict
+from typing import Any, List, Union, Optional, Dict, Collection
 import os
 import pathlib
 import shutil
@@ -130,7 +130,7 @@ class Collection(DelayedBase):
         self,
         serializer_objects: List[SerializerObject],
         returnn_common_root: Optional[tk.Path] = None,
-        packages: Optional[List[Union[str, tk.Path]]] = None,
+        packages: Optional[Collection[Union[str, tk.Path]]] = None,
         make_local_package_copy=False,
     ):
         """
