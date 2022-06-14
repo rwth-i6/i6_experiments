@@ -193,7 +193,7 @@ class ReturnnCommonSerializer(DelayedBase):
                 )
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
-            content.append(f'sys.path.insert(0, {self.root_path!r})\n')
+            content.append(f"sys.path.insert(0, {self.root_path!r})\n")
 
         content += [obj.get() for obj in self.serializer_objects]
         return "".join(content)
@@ -394,7 +394,9 @@ class _NonhashedCodeBase(SerializerObject):
     """
 
     def _sis_hash(self):
-        raise Exception(f"Nonhashed code ({self.__class__.__name__}) must not be hashed")
+        raise Exception(
+            f"Nonhashed code ({self.__class__.__name__}) must not be hashed"
+        )
 
 
 class NonhashedCode(_NonhashedCodeBase):
