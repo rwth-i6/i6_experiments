@@ -204,7 +204,7 @@ class Collection(DelayedBase):
             "delayed_objects": [
                 obj
                 for obj in self.serializer_objects
-                if not isinstance(obj, NonhashedCode)
+                if not isinstance(obj, _NonhashedCodeBase)
             ],
             "returnn_common_root": self.returnn_common_root,
         }
