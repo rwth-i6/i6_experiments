@@ -245,14 +245,14 @@ class ExternData(SerializerObject):
         content = []
 
         # collect dims into a set to only write each Dim once if shared
-        dims = set()
+        dims = {}  # set but deterministic insertion order
         for constructor_data in self.extern_data:
             for dim in constructor_data.dim_tags:
-                dims.add(dim)
+                dims[dim] = None
             if constructor_data.sparse_dim:
-                dims.add(constructor_data.sparse_dim)
+                dims[constructor_data.sparse_dim] = None
 
-        for dim in dims:
+        for dim in dims.keys():
             content.append(
                 f"{dim.name} = nn.{'FeatureDim' if dim.is_feature else 'SpatialDim'}({dim.name!r}, "
                 f"{instanciate_delayed(dim.dim)})\n"
