@@ -74,7 +74,7 @@ class DimInitArgs:
     name: str
     "name of the dim"
     dim: Optional[Union[int, tk.Variable]]
-    "dimension size (feature axis size or label index count for sparse_dim), None for spatial axis"
+    "dimension size (feature axis size or label index count for sparse_dim), None for dynamic (eg. spatial) axes"
     is_feature: bool = False
     "If the dim is a feature dim and not a spatial dim."
 
