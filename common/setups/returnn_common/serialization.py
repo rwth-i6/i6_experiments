@@ -14,14 +14,15 @@ Usage Example::
 
     rc_network = serialization.Network(
         net_func_name=rc_construction_code.object_name,
-        net_func_map={"net_module": rc_model.object_name,
-                      "audio_data": "audio_features",
-                      "label_data": "bpe_labels",
-                      "audio_feature_dim": "audio_features_feature",
-                      "audio_time_dim": "audio_features_time",
-                      "label_time_dim": "bpe_labels_time",
-                      "label_dim": "bpe_labels_indices"
-                     },
+        net_func_map={
+          "net_module": rc_model.object_name,
+          "audio_data": "audio_features",
+          "label_data": "bpe_labels",
+          "audio_feature_dim": "audio_features_feature",
+          "audio_time_dim": "audio_features_time",
+          "label_time_dim": "bpe_labels_time",
+          "label_dim": "bpe_labels_indices"
+        },
         net_kwargs={... some additional constructor function args ...}
     )
 
