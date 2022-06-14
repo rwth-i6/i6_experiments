@@ -316,9 +316,6 @@ class ReturnnCommonImport(SerializerObject):
         # this is run in the task!
         return f"from {self.module} import {self.object_name}\n"
 
-    def get_name(self) -> str:
-        return self.object_name
-
     def _sis_hash(self):
         return sis_hash_helper(self.code_object)
 
@@ -354,7 +351,7 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
         """
 
         :param net_func_name: name of the network construction function to be imported
-            This should as default be set to `ReturnnCommonImport("my_package.my_function").get_name()`
+            This should as default be set to `ReturnnCommonImport("my_package.my_function").object_name`
             Use the `epoch` parameter for dynamic network definition.
         :param net_func_map: A mapping to define which config objects should be linked to which function parameters
             This can for example be for a network module definition:
