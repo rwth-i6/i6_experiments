@@ -93,8 +93,6 @@ class DataInitArgs:
     "list of dim tags representing an axis of the data, without batch or a hidden sparse dim"
     sparse_dim: Optional[DimInitArgs]
     "provide this dim to make the data sparse and define the index size"
-    has_batch_dim: bool = True
-    "set to False to create data without a batch dim (probably never needed)"
 
     def __post_init__(self):
         if self.sparse_dim is not None:
