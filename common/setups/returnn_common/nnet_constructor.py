@@ -150,6 +150,7 @@ class ReturnnCommonSerializer(DelayedBase):
         self.root_path = os.path.join(os.getcwd(), "recipe")
 
     def get(self) -> str:
+        """get"""
         if self.packages is None:
             # try to collect packages from objects
             self.packages = set()
@@ -257,6 +258,7 @@ class ReturnnCommonExternData(SerializerObject):
         return content
 
     def get(self) -> str:
+        """get"""
         content = ""
 
         # collect dims into a set to only write each Dim once if shared
@@ -314,7 +316,7 @@ class ReturnnCommonImport(SerializerObject):
         self.package = ".".join(self.code_object.split(".")[:-2])
 
     def get(self) -> str:
-        # this is run in the task!
+        """get. this code is run in the task"""
         return f"from {self.module} import {self.object_name}\n"
 
     def _sis_hash(self):
@@ -371,6 +373,7 @@ class ReturnnCommonDynamicNetwork(SerializerObject):
         self.net_kwargs.update({k: CodeWrapper(v) for k, v in net_func_map.items()})
 
     def get(self):
+        """get"""
         return string.Template(self.TEMPLATE).substitute(
             {
                 "NETWORK_KWARGS": str(self.net_kwargs),
@@ -395,6 +398,7 @@ class NonhashedCode(SerializerObject):
         self.code = code
 
     def get(self):
+        """get"""
         if isinstance(self.code, tk.Path):
             with uopen(self.code, "rt") as f:
                 return f.read()
@@ -416,6 +420,7 @@ class CodeFromFile(SerializerObject):
         self.hash_full_content = hash_full_content
 
     def get(self):
+        """get"""
         with uopen(self.code, "rt") as f:
             return f.read()
 
