@@ -192,7 +192,7 @@ class ReturnnCommonSerializer(DelayedBase):
                 )
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
-            content.append(f'sys.path.insert(0, "{self.root_path}")\n')
+            content.append(f'sys.path.insert(0, {self.root_path!r})\n')
 
         content += [obj.get() for obj in self.serializer_objects]
         return "".join(content)
