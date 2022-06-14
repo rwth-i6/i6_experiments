@@ -58,7 +58,7 @@ The helpers here in this Python package potentially allow to realize all of thes
 ```python
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
-from i6_experiments.common.setups.returnn_common.nnet_constructor import ReturnnCommonDynamicNetwork
+from i6_experiments.common.setups.returnn_common.serialization import ReturnnCommonDynamicNetwork
 
 model_def = ReturnnCommonDynamicNetwork("i6_experiments.users.zeyer.model.my_best_model_123")
 config = ReturnnConfig(..., python_epilog=[model_def, ...])
