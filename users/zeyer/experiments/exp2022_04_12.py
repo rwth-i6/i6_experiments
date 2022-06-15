@@ -9,6 +9,7 @@ from ..datasets import librispeech
 # from i6_core.datasets.tf_datasets import DownloadAndPrepareTfDatasetJob
 # from i6_core.datasets.huggingface import DownloadAndPrepareHuggingFaceDatasetJob
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
+from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
 
 
@@ -94,21 +95,13 @@ def run():
 
   returnn_train_config = ReturnnConfig(
     returnn_train_config_dict,
-    python_epilog=[
-      model_py_code_str,
-      # https://github.com/rwth-i6/returnn/issues/957
-      # https://stackoverflow.com/a/16248113/133374
-      """
-import resource
-import sys
-try:
-  resource.setrlimit(resource.RLIMIT_STACK, (2 ** 29, -1))
-except Exception as exc:
-  print(f"resource.setrlimit {type(exc).__name__}: {exc}")
-sys.setrecursionlimit(10 ** 6)
-"""
-    ],
-    python_epilog_hash="",  # TODO ...
+    python_epilog=[serialization.Collection(
+      [
+        serialization.ExplicitHash("my_model"),
+        serialization.PythonEnlargeStackWorkaroundCode,
+        serialization.NonhashedCode(model_py_code_str),
+      ]
+    )],
     post_config=dict(
       log_batch_size=True,
       tf_log_memory_usage=True,
