@@ -198,8 +198,9 @@ class Collection(DelayedBase):
                 for obj in self.serializer_objects
                 if not isinstance(obj, _NonhashedCodeBase)
             ],
-            "returnn_common_root": self.returnn_common_root,
         }
+        if self.returnn_common_root:
+            h["returnn_common_root"] = self.returnn_common_root
         return sis_hash_helper(h)
 
 
