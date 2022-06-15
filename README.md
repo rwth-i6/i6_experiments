@@ -113,13 +113,13 @@ If the access is denied for the Github repositories, you need to add your i6 pub
 This can be done by pasting the content (displayed with `cat ~/.ssh/id_rsa.pub`) into your Github key settings.
 More information on adding keys to a Github account can be found [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account).
 
-5. Create a `config` folder and add a default init file
+4. Create a `config` folder and add a default init file
 ```
 mkdir config
 touch config/__init__.py
 ```
 
-6. Add a main function in the `__init__.py` which will be the root of the full graph:
+5. Add a main function in the `config/__init__.py` which will be the root of the full graph:
 ```
 def main():
     print("Starting main Graph")
@@ -127,6 +127,53 @@ def main():
 ```
 
 You can also check out the [Sisyphus structure page](https://sisyphus-workflow-manager.readthedocs.io/en/latest/structure.html) for more information.
+
+6. Add a `settings.py` with Sisyphus settings. For example:
+
+```python
+VERBOSE_TRACEBACK_TYPE = 'better_exchook'
+USE_SIGNAL_HANDLERS = True
+```
+
+This file is loaded via sisyphus.global_settings.py,
+update_global_settings_from_file specifically.
+See [Sisyphus documentation](https://sisyphus-workflow-manager.readthedocs.io/).
+
+8. Optional: Setup Sisyphus and maybe other setup-wide tools.
+
+```shell
+mkdir -p tools
+cd tools
+```
+
+You might have installed Sisyphus already elsewhere.
+Otherwise, you might want to clone it here as well:
+
+```shell
+git clone git@github.com:rwth-i6/sisyphus.git
+ln -s tools/sisyphus/sis ../sis
+```
+
+For tools like RETURNN, RASR, and others,
+you can choose to have them setup-wide, and not be part of the hash
+(under the assumption that different versions should not change the outcome).
+In that case, for example:
+```shell
+git clone git@github.com:rwth-i6/returnn.git
+```
+In the `settings.py` file, you then can add sth like:
+```python
+import os
+import sys
+
+_root_dir = os.path.dirname(os.path.abspath(__file__))
+
+RETURNN_PYTHON_EXE = sys.executable
+RETURNN_ROOT = _root_dir + "/tools/returnn"
+sys.path.insert(0, RETURNN_ROOT)
+```
+
+Alternatively, you can also use `CloneGitRepositoryJob` to have that explicit as part of the recipe pipeline, to clone RETURNN and maybe other tools.
  
 ## PyCharm setup
 
