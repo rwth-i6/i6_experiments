@@ -9,6 +9,11 @@ Many jobs make use of
 [returnn-common](https://github.com/rwth-i6/returnn_common)
 and [RASR](https://github.com/rwth-i6/rasr).
 
+You can combine i6_core, returnn_common etc
+in one Sisyphus setup to run whole pipelines
+and do new experiments.
+See [setup](#setup) below.
+
 The repository contains two parts: `common` and `users`:
 
 
@@ -29,8 +34,14 @@ they should be submitted (via PR) to [`i6_core`](https://github.com/rwth-i6/i6_c
 ## `Common`
 
 This part is for submitting generic pipelines that are shared among different users.
+This should be stable in the API and also in hashes.
 Any code changed here should go through a PR, or be only about changes that do not change
 the existing API or the resulting pipeline.
+
+There can be exceptions for completely novel sub packages
+which are still under development.
+Those sub packages are clearly marked as *work-in-progress*
+in a corresponding Readme.
 
 As this is still under construction, what kind of pipelines are grouped here is still not decided.
 So far there is:
