@@ -435,6 +435,24 @@ class CodeFromFile(SerializerObject):
             return sis_hash_helper(self.filename)
 
 
+class ExplicitHash(SerializerObject):
+    """
+    Inserts nothing, but uses the given object for hashing
+    """
+
+    # noinspection PyShadowingBuiltins
+    def __init__(self, hash: Any):
+        super().__init__()
+        self.hash = hash
+
+    def get(self) -> str:
+        """get"""
+        return ""
+
+    def _sis_hash(self):
+        return sis_hash_helper(self.hash)
+
+
 PythonEnlargeStackWorkaroundCode = NonhashedCode(
     textwrap.dedent(
         """\
