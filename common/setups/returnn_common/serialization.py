@@ -122,9 +122,10 @@ class Collection(DelayedBase):
     def __init__(
         self,
         serializer_objects: List[SerializerObject],
+        *,
         returnn_common_root: Optional[tk.Path] = None,
         packages: Optional[Set[Union[str, tk.Path]]] = None,
-        make_local_package_copy=False,
+        make_local_package_copy: bool = False,
     ):
         """
 
