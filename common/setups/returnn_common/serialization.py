@@ -431,3 +431,20 @@ class CodeFromFile(SerializerObject):
                 return sis_hash_helper(f.read())
         else:
             return sis_hash_helper(self.filename)
+
+
+PythonEnlargeStackWorkaroundCode = NonhashedCode(
+    textwrap.dedent(
+        """\
+        # https://github.com/rwth-i6/returnn/issues/957
+        # https://stackoverflow.com/a/16248113/133374
+        import resource
+        import sys
+        try:
+            resource.setrlimit(resource.RLIMIT_STACK, (2 ** 29, -1))
+        except Exception as exc:
+            print(f"resource.setrlimit {type(exc).__name__}: {exc}")
+        sys.setrecursionlimit(10 ** 6)
+        """
+    )
+)
