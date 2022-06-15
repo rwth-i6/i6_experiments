@@ -9,12 +9,12 @@ Many jobs make use of
 [returnn-common](https://github.com/rwth-i6/returnn_common)
 and [RASR](https://github.com/rwth-i6/rasr).
 
-You can combine i6_core, returnn_common etc
+You can combine i6_core, i6_experiments, returnn_common, etc
 in one Sisyphus setup to run whole pipelines
 and do new experiments.
 See [setup](#setup) below.
 
-The repository contains two parts: `common` and `users`:
+This `i6_experiments` repository contains two parts: `common` and `users`:
 
 
 ## `Users`
@@ -26,7 +26,7 @@ so that other can easily make use of the code.
 Please be aware that all code under a user folder should be treated as **NOT STABLE**.
 
 If pipeline code turns out to be more generic,
-it should be moved to `common` with a corresponding pull request.
+it should be moved to [`common`](#common) with a corresponding pull request.
 If this pipeline code makes use of additional jobs,
 they should be submitted (via PR) to [`i6_core`](https://github.com/rwth-i6/i6_core).
 
@@ -58,10 +58,38 @@ For further details on the exact location please look into the export function d
 
 # Setup
 
+First you follow 
+
+## Directory setup
+
 1. Create the new setup folder in your user directory, typically like `~/setups/<setup_name>` or `~/experiments/<setup_name>`. This will be your new setup root directory.
 ```
 mkdir ~/experiments/<setup_name>
 cd ~/experiments/<setup_name>
+```
+
+Optional: The setup directory should be a Git repo itself,
+to keep track of the changes. You can do now:
+
+```
+git init .
+edit README.md  # write a short description about your setup
+git add README.md
+git commit . -m initial
+
+# some initial content for gitignore
+cat << EOF > .gitignore
+/output
+/alias
+.*.swp
+*.pyc
+__pycache__
+.idea
+*.history*
+.directory
+EOF
+git add .gitignore
+git commit .gitignore -m gitignore
 ```
 
 2. Create a new work folder under a "work" file system such as `asr3` and link this as `work` into the Sisyphus setup root (`~/experiments/<setup_name>`).
@@ -81,9 +109,8 @@ git clone git@github.com:rwth-i6/i6_experiments.git
 git clone git@github.com:rwth-i6/returnn_common.git
 ```
 
-If the access is denied for the Github repositories, you need to add your i6 public ssh key (usually `~/.ssh/id_rsa.pub`) to your github account.
+If the access is denied for the Github repositories, you need to add your i6 public ssh key (usually `~/.ssh/id_rsa.pub`) to your Github account.
 This can be done by pasting the content (displayed with `cat ~/.ssh/id_rsa.pub`) into your Github key settings.
-
 More information on adding keys to a Github account can be found [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account).
 
 5. Create a `config` folder and add a default init file
@@ -103,8 +130,4 @@ You can also check out the [Sisyphus structure page](https://sisyphus-workflow-m
  
 ## PyCharm setup
 
-For setting up a PyCharm correctly, please have a look [here](https://github.com/rwth-i6/i6_core/wiki/Sisyphus-PyCharm-Setup).
-
-
-
-
+For setting up PyCharm correctly, please have a look [here](https://github.com/rwth-i6/i6_core/wiki/Sisyphus-PyCharm-Setup).
