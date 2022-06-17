@@ -280,8 +280,8 @@ def get_chris_hybrid_system_init_args():
                 'OptimizeAMandLMScaleJob.SAr0espQyDL6/output/bast_lm_score')  # TODO...
 
         crp.lexicon_config = rasr.RasrConfig()
-        crp.lexicon_config.file = tk.Path('oov.lexicon.gz')  # TODO...
-        crp.lexicon_config.normalize_pronunciation = False
+        crp.lexicon_config.file = inputs[name].lexicon["filename"]
+        crp.lexicon_config.normalize_pronunciation = inputs[name].lexicon["normalize_pronunciation"]
 
         features_ = i6_core.util.MultiPath(
             'work/i6_core/features/extraction/'
