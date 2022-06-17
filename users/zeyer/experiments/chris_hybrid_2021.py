@@ -300,19 +300,21 @@ def get_chris_hybrid_system_init_args():
 
         acoustic_mixtures = None
         if name.startswith("train"):
-            acoustic_mixtures = tk.Path("am.mix")  # TODO
+            acoustic_mixtures = tk.Path(
+                f"{prefix_dir}/EstimateMixturesJob.accumulate.6pfu7tgzPX3p/output/am.mix")
 
         alignments = None
         if name.startswith("train"):
             align_paths = i6_core.util.MultiPath(
-                'work/i6_core/mm/alignment/AlignmentJob.nxHHEwIeGHQu/output/alignment.cache.$(TASK)',
-                {i: tk.Path(f'alignment.cache.{i}') for i in range(1, crp.concurrent + 1)},
-                True, gs.BASE_DIR)  # TODO
+                f'{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.$(TASK)',
+                {i: tk.Path(f'{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.{i}')
+                 for i in range(1, crp.concurrent + 1)},
+                True, gs.BASE_DIR)
             alignments = rasr.FlagDependentFlowAttribute(
                 "cache_mode",
                 {
                     "task_dependent": align_paths,
-                    "bundle": tk.Path("align.bundle")  # TODO
+                    "bundle": tk.Path(f"{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.bundle")
                 },
             )
             alignments.hidden_paths = align_paths.hidden_paths
