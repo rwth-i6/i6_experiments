@@ -274,7 +274,9 @@ def get_chris_hybrid_system_init_args():
             crp.language_model_config = rasr.RasrConfig()
             crp.language_model_config.type = lm["type"]
             crp.language_model_config.file = lm["filename"]  # TODO ...
-            crp.language_model_config.scale = lm["scale"]
+            crp.language_model_config.scale = tk.Variable(
+                'work/i6_core/recognition/optimize_parameters/'
+                'OptimizeAMandLMScaleJob.SAr0espQyDL6/output/bast_lm_score')  # TODO...
 
         crp.lexicon_config = rasr.RasrConfig()
         crp.lexicon_config.file = tk.Path('oov.lexicon.gz')  # TODO...
@@ -299,10 +301,25 @@ def get_chris_hybrid_system_init_args():
         if name.startswith("train"):
             acoustic_mixtures = tk.Path("am.mix")  # TODO
 
+        alignments = None
+        if name.startswith("train"):
+            align_paths = i6_core.util.MultiPath(
+                'work/i6_core/mm/alignment/AlignmentJob.nxHHEwIeGHQu/output/alignment.cache.$(TASK)',
+                {i: tk.Path(f'alignment.cache.{i}') for i in range(1, crp.concurrent + 1)},
+                True, gs.BASE_DIR)  # TODO
+            alignments = rasr.FlagDependentFlowAttribute(
+                "cache_mode",
+                {
+                    "task_dependent": align_paths,
+                    "bundle": tk.Path("align.bundle")  # TODO
+                },
+            )
+            alignments.hidden_paths = align_paths.hidden_paths
+
         return hybrid_system.ReturnnRasrDataInput(
             name="init",
             crp=crp,
-            alignments=None,  # TODO
+            alignments=alignments,
             feature_flow=feature_flow,
             features=features_,
             acoustic_mixtures=acoustic_mixtures,
@@ -596,6 +613,8 @@ def get_returnn_configs(
 def test_run():
     new_obj = get_chris_hybrid_system_init_args()
     orig_obj = get_orig_chris_hybrid_system_init_args()
+    # Small cleanup in orig object, which should not be needed.
+    orig_obj['dev_data']['dev-other'].feature_scorers = {}
 
     obj_types = (
         rasr_util.RasrInitArgs,
@@ -634,7 +653,7 @@ def test_run():
             if orig != new:
                 return [f"{prefix} diff: {_repr(orig)} != {_repr(new)}"]
             return []
-        if isinstance(orig, tk.Path):
+        if isinstance(orig, (tk.Path, tk.Variable)):
             return []  # TODO ignore... ?
         if isinstance(orig, obj_types):
             orig_attribs = sorted(vars(orig).keys())
