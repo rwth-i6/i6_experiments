@@ -11,8 +11,7 @@ from typing import Optional, Union, Dict
 import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
 import i6_core.text as text
-
-from i6_core.tools import CloneGitRepositoryJob
+import i6_core.features as features
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
@@ -35,90 +34,15 @@ def run():
   gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
   rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-  nn_args = get_nn_args()
-
-  nn_steps = rasr_util.RasrSteps()
-  nn_steps.add_step("nn", nn_args)
-
-  hybrid_init_args = default_gmm_hybrid_init_args()
-
-  train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(use_eval_data_subset=True)
-
-  lbs_gmm_system = gmm_system.GmmSystem()
-  lbs_gmm_system.init_system(
-    hybrid_init_args=hybrid_init_args,
-    train_data=train_data_inputs,
-    dev_data=dev_data_inputs,
-    test_data=test_data_inputs,
-  )
-
-  nn_train_data = hybrid_system.ReturnnRasrDataInput(
-    name=name,
-    crp=copy.deepcopy(self.crp),
-    alignments=self.alignments,
-    feature_flow=self.feature_flows[feature_flow_key],
-    features=self.features[feature_flow_key],
-    acoustic_mixtures=self.acoustic_mixtures,
-    feature_scorers=self.feature_scorers,
-    shuffle_data=shuffle_data,
-  )
-
-  nn_train_data = lbs_gmm_system.outputs["train-other-960"][
-    "final"
-  ].as_returnn_rasr_data_input(shuffle_data=True)
-  nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
-  nn_train_data_inputs = {
-    "train-other-960.train": nn_train_data,
-  }
-
-  nn_cv_data = lbs_gmm_system.outputs["train-other-960"][
-    "final"
-  ].as_returnn_rasr_data_input()
-  nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
-  nn_cv_data_inputs = {
-    "train-other-960.cv": nn_cv_data,
-  }
-
-  nn_devtrain_data = lbs_gmm_system.outputs["train-other-960"][
-    "final"
-  ].as_returnn_rasr_data_input()
-  nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
-  nn_devtrain_data_inputs = {
-    "train-other-960.devtrain": nn_devtrain_data,
-  }
-  nn_dev_data_inputs = {
-    # "dev-clean": lbs_gmm_system.outputs["dev-clean"][
-    #    "final"
-    # ].as_returnn_rasr_data_input(),
-    "dev-other": lbs_gmm_system.outputs["dev-other"][
-      "final"
-    ].as_returnn_rasr_data_input(),
-  }
-  nn_test_data_inputs = {
-    # "test-clean": lbs_gmm_system.outputs["test-clean"][
-    #    "final"
-    # ].as_returnn_rasr_data_input(),
-    # "test-other": lbs_gmm_system.outputs["test-other"][
-    #    "final"
-    # ].as_returnn_rasr_data_input(),
-  }
-
-  nn_args = get_nn_args()
-
-  nn_steps = rasr_util.RasrSteps()
-  nn_steps.add_step("nn", nn_args)
-
   # TODO ...
+
+  nn_args = get_nn_args()
+
+  nn_steps = rasr_util.RasrSteps()
+  nn_steps.add_step("nn", nn_args)
+
   lbs_nn_system = hybrid_system.HybridSystem()
-  lbs_nn_system.init_system(
-    hybrid_init_args=hybrid_init_args,
-    train_data=nn_train_data_inputs,
-    cv_data=nn_cv_data_inputs,
-    devtrain_data=nn_devtrain_data_inputs,
-    dev_data=nn_dev_data_inputs,
-    test_data=nn_test_data_inputs,
-    train_cv_pairing=[tuple(["train-other-960.train", "train-other-960.cv"])],
-  )
+  lbs_nn_system.init_system(**get_chris_hybrid_system_init_args())
   lbs_nn_system.run(nn_steps)
 
   gs.ALIAS_AND_OUTPUT_SUBDIR = ""
@@ -290,7 +214,80 @@ def get_data_inputs(
     return train_data_inputs, dev_data_inputs, test_data_inputs
 
 
-def orig_chris_run():
+def get_chris_hybrid_system_init_args():
+    # direct paths
+
+    hybrid_init_args = default_gmm_hybrid_init_args()
+
+    train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(use_eval_data_subset=True)
+
+    def _get_data(name: str, inputs, shuffle_data: bool = False):
+        crp = rasr.CommonRasrParameters()
+        rasr.crp_add_default_output(crp)
+        rasr.crp_set_corpus(crp, inputs[name].corpus_object)
+
+        feature_path = rasr.FlagDependentFlowAttribute(
+            "cache_mode",
+            {
+                "task_dependent": None,  #  ,self.feature_caches[corpus]["gt"],
+                "bundle": None,  # self.feature_bundles[corpus]["gt"],
+            },
+        )
+        feature_flow = features.basic_cache_flow(feature_path)
+
+        return hybrid_system.ReturnnRasrDataInput(
+            name="init",
+            crp=crp,
+            alignments=None,  # TODO
+            feature_flow=feature_flow,
+            features=None,
+            acoustic_mixtures=None,
+            feature_scorers=None,
+            shuffle_data=shuffle_data,
+        )
+
+    train_segments = None  # TODO
+    cv_segments = None  # TODO
+    devtrain_segments = None  # TODO
+
+    nn_train_data = _get_data("train-other-960", train_data_inputs, shuffle_data=True)
+    nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
+    nn_train_data_inputs = {"train-other-960.train": nn_train_data}
+
+    nn_cv_data = _get_data("train-other-960", train_data_inputs)
+    nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
+    nn_cv_data_inputs = {"train-other-960.cv": nn_cv_data}
+
+    nn_devtrain_data = _get_data("train-other-960", train_data_inputs)
+    nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
+    nn_devtrain_data_inputs = {"train-other-960.devtrain": nn_devtrain_data}
+    nn_dev_data_inputs = {
+        # "dev-clean": lbs_gmm_system.outputs["dev-clean"][
+        #    "final"
+        # ].as_returnn_rasr_data_input(),
+        "dev-other": _get_data("dev-other", dev_data_inputs)
+    }
+    nn_test_data_inputs = {
+        # "test-clean": lbs_gmm_system.outputs["test-clean"][
+        #    "final"
+        # ].as_returnn_rasr_data_input(),
+        # "test-other": lbs_gmm_system.outputs["test-other"][
+        #    "final"
+        # ].as_returnn_rasr_data_input(),
+    }
+
+    return dict(
+        hybrid_init_args=hybrid_init_args,
+        train_data=nn_train_data_inputs,
+        cv_data=nn_cv_data_inputs,
+        devtrain_data=nn_devtrain_data_inputs,
+        dev_data=nn_dev_data_inputs,
+        test_data=nn_test_data_inputs,
+        train_cv_pairing=[tuple(["train-other-960.train", "train-other-960.cv"])],
+    )
+
+
+def get_orig_chris_hybrid_system_init_args():
     # ******************** Settings ********************
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
@@ -395,30 +392,9 @@ def orig_chris_run():
         # ].as_returnn_rasr_data_input(),
     }
 
-    from pprint import pprint
-    pprint(dict(
-      hybrid_init_args=hybrid_init_args,
-      train_data=nn_train_data_inputs,
-      cv_data=nn_cv_data_inputs,
-      devtrain_data=nn_devtrain_data_inputs,
-      dev_data=nn_dev_data_inputs,
-      test_data=nn_test_data_inputs,
-    ))
-    sys.exit(1)
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
-    nn_args = get_nn_args()
-
-    nn_steps = rasr_util.RasrSteps()
-    nn_steps.add_step("nn", nn_args)
-
-    # ******************** NN System ********************
-
-    returnn_repo = CloneGitRepositoryJob(
-        url="git@github.com:rwth-i6/returnn.git", checkout_folder_name="returnn"
-    )
-
-    lbs_nn_system = hybrid_system.HybridSystem(returnn_root=returnn_repo.out_repository)
-    lbs_nn_system.init_system(
+    return dict(
         hybrid_init_args=hybrid_init_args,
         train_data=nn_train_data_inputs,
         cv_data=nn_cv_data_inputs,
@@ -427,9 +403,6 @@ def orig_chris_run():
         test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["train-other-960.train", "train-other-960.cv"])],
     )
-    lbs_nn_system.run(nn_steps)
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
 
 # from i6_experiments.users.luescher.setups.librispeech.pipeline_hybrid_args
@@ -552,3 +525,43 @@ def get_returnn_configs(
     return {
         "dummy_nn": blstm_base_returnn_config,
     }
+
+
+def test_run():
+    new_obj = get_chris_hybrid_system_init_args()
+    orig_obj = get_orig_chris_hybrid_system_init_args()
+
+    obj_types = (
+        rasr_util.RasrInitArgs,
+        rasr_util.ReturnnRasrDataInput,
+        rasr.CommonRasrParameters,
+    )
+
+    def _assert_equal(prefix, orig, new):
+        if orig is None and new is None:
+            return
+        assert type(orig) == type(new), f"{prefix} diff type: {orig!r} != {new!r}"
+        if isinstance(orig, dict):
+            _assert_equal(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
+            for key in orig.keys():
+                _assert_equal(f"{prefix}[{key!r}]", orig[key], new[key])
+            return
+        if isinstance(orig, set):
+            _assert_equal(f"{prefix}:sorted", sorted(orig), sorted(new))
+            return
+        if isinstance(orig, (list, tuple)):
+            assert len(orig) == len(new), f"{prefix} diff len: {orig!r} != {new!r}"
+            for i in range(len(orig)):
+                _assert_equal(f"{prefix}[{i}]", orig[i], new[i])
+            return
+        if isinstance(orig, (int, float, str)):
+            assert orig == new, f"{prefix} diff: {orig!r} != {new!r}"
+            return
+        if isinstance(orig, obj_types):
+            _assert_equal(f"{prefix}:attribs", set(vars(orig).keys()), set(vars(new).keys()))
+            for key in vars(orig).keys():
+                _assert_equal(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
+            return
+        raise TypeError(f"unexpected type {type(orig)}")
+
+    _assert_equal("obj", orig_obj, new_obj)

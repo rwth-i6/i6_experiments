@@ -1,7 +1,7 @@
 
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
 
-from .chris_hybrid_2021 import orig_chris_run
+from .chris_hybrid_2021 import test_run
 
-orig_chris_run()
+test_run()
 #run()
