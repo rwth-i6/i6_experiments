@@ -219,6 +219,8 @@ def get_data_inputs(
 def get_chris_hybrid_system_init_args():
     # direct paths
 
+    prefix_dir = "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10"
+
     hybrid_init_args = default_gmm_hybrid_init_args()
 
     train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(use_eval_data_subset=True)
@@ -230,7 +232,8 @@ def get_chris_hybrid_system_init_args():
         rasr.crp_add_default_output(crp_base)
         crp_base.acoustic_model_config = rasr.RasrConfig()
         crp_base.acoustic_model_config.state_tying.type = 'cart'
-        crp_base.acoustic_model_config.state_tying.file = tk.Path('cart.tree.xml.gz')
+        crp_base.acoustic_model_config.state_tying.file = tk.Path(
+            f'{prefix_dir}/EstimateCartJob.tuIY1yeG7XGc/output/cart.tree.xml.gz')
         crp_base.acoustic_model_config.allophones.add_from_lexicon = True
         crp_base.acoustic_model_config.allophones.add_all = False
         crp_base.acoustic_model_config.hmm.states_per_phone = 3
@@ -249,7 +252,8 @@ def get_chris_hybrid_system_init_args():
         crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
         crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
         crp_base.acoustic_model_post_config = rasr.RasrConfig()
-        crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones')
+        crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path(
+            f"{prefix_dir}/StoreAllophones.34VPSakJyy0U/output/allophones")
 
         crp = rasr.CommonRasrParameters(base=crp_base)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
@@ -261,19 +265,16 @@ def get_chris_hybrid_system_init_args():
         else:
             crp.concurrent = 20
 
-        if name.startswith("train"):
-            crp.segment_path = tk.Path(f'{name}.segments')  # TODO
-        else:
-            crp.segment_path = i6_core.util.MultiPath(
-                'work/i6_core/corpus/segments/SegmentCorpusJob.hWpF8egk46Sw/output/segments.$(TASK)',
-                {1: tk.Path('segments.1'), 2: tk.Path('segments.2'), },
-                False, gs.BASE_DIR)
+        if not name.startswith("train"):
+            segm_corpus_job = corpus_recipe.SegmentCorpusJob(
+                inputs[name].corpus_object.corpus_file, crp.concurrent)
+            crp.segment_path = segm_corpus_job.out_segment_path
 
         if inputs[name].lm:
             lm = inputs[name].lm
             crp.language_model_config = rasr.RasrConfig()
             crp.language_model_config.type = lm["type"]
-            crp.language_model_config.file = lm["filename"]  # TODO ...
+            crp.language_model_config.file = lm["filename"]
             crp.language_model_config.scale = tk.Variable(
                 'work/i6_core/recognition/optimize_parameters/'
                 'OptimizeAMandLMScaleJob.SAr0espQyDL6/output/bast_lm_score')  # TODO...
@@ -327,9 +328,22 @@ def get_chris_hybrid_system_init_args():
             shuffle_data=shuffle_data,
         )
 
-    train_segments = None  # TODO
-    cv_segments = None  # TODO
-    devtrain_segments = None  # TODO
+    train_corpus_path = train_data_inputs["train-other-960"].corpus_object.corpus_file
+    total_train_num_segments = 281241
+    cv_size = 3000 / total_train_num_segments
+
+    all_segments = corpus_recipe.SegmentCorpusJob(
+        train_corpus_path, 1
+    ).out_single_segment_files[1]
+
+    splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+        all_segments, {"train": 1 - cv_size, "cv": cv_size}
+    )
+    train_segments = splitted_segments_job.out_segments["train"]
+    cv_segments = splitted_segments_job.out_segments["cv"]
+    devtrain_segments = text.TailJob(
+        train_segments, num_lines=1000, zip_output=False
+    ).out
 
     nn_train_data = _get_data("train-other-960", train_data_inputs, shuffle_data=True)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
