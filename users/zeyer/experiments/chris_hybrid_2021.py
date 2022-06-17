@@ -1,6 +1,5 @@
 
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
-
 from sisyphus import gs, tk, Path
 
 
@@ -12,6 +11,8 @@ import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
 import i6_core.text as text
 import i6_core.features as features
+from i6_core.returnn.config import CodeWrapper
+import i6_core.util
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
@@ -222,6 +223,7 @@ def get_chris_hybrid_system_init_args():
     train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(use_eval_data_subset=True)
 
     def _get_data(name: str, inputs, shuffle_data: bool = False):
+
         crp = rasr.CommonRasrParameters()
         rasr.crp_add_default_output(crp)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
@@ -355,6 +357,8 @@ def get_orig_chris_hybrid_system_init_args():
     nn_train_data = lbs_gmm_system.outputs["train-other-960"][
         "final"
     ].as_returnn_rasr_data_input(shuffle_data=True)
+    _dump_crp(nn_train_data.crp)
+    sys.exit(1)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
     nn_train_data_inputs = {
         "train-other-960.train": nn_train_data,
@@ -558,10 +562,118 @@ def test_run():
             assert orig == new, f"{prefix} diff: {orig!r} != {new!r}"
             return
         if isinstance(orig, obj_types):
-            _assert_equal(f"{prefix}:attribs", set(vars(orig).keys()), set(vars(new).keys()))
-            for key in vars(orig).keys():
+            orig_attribs = set(vars(orig).keys())
+            new_attribs = set(vars(new).keys())
+            _assert_equal(f"{prefix}:attribs", orig_attribs, new_attribs)
+            for key in orig_attribs:
                 _assert_equal(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
             return
         raise TypeError(f"unexpected type {type(orig)}")
 
     _assert_equal("obj", orig_obj, new_obj)
+
+
+_valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
+
+
+def _dump_crp(crp: rasr.CommonRasrParameters, *, _lhs=None):
+    if _lhs is None:
+        _lhs = "crp"
+    print(f"{_lhs} = rasr.CommonRasrParameters()")
+    for k, v in vars(crp).items():
+        if isinstance(v, rasr.RasrConfig):
+            _dump_rasr_config(f"{_lhs}.{k}", v, parent_is_config=False)
+        elif isinstance(v, rasr.CommonRasrParameters):
+            _dump_crp(v, _lhs=f"{_lhs}.{k}")
+        elif isinstance(v, dict):
+            _dump_crp_dict(f"{_lhs}.{k}", v)
+        elif isinstance(v, _valid_primitive_types):
+            print(f"{_lhs}.{k} = {_repr(v)}")
+        else:
+            raise TypeError(f"{_lhs}.{k} is type {type(v)}")
+
+
+def _dump_crp_dict(lhs: str, d: dict):
+    for k, v in d.items():
+        if isinstance(v, rasr.RasrConfig):
+            _dump_rasr_config(f"{lhs}.{k}", v, parent_is_config=False)
+        elif isinstance(v, _valid_primitive_types):
+            print(f"{lhs}.{k} = {_repr(v)}")
+        else:
+            raise TypeError(f"{lhs}.{k} is type {type(v)}")
+
+
+def _dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: bool):
+    kwargs = {}
+    for k in ["prolog", "epilog"]:
+        v = getattr(config, f"_{k}")
+        h = getattr(config, f"_{k}_hash")
+        if v:
+            kwargs[k] = v
+            if h != v:
+                kwargs[f"{k}_hash"] = h
+        else:
+            assert not h
+    if kwargs or not parent_is_config:
+        assert config._value is None
+        print(f"{lhs} = rasr.RasrConfig({', '.join(f'{k}={v!r}' for (k, v) in kwargs.items())})")
+    else:
+        if config._value is not None:
+            print(f"{lhs} = {config._value!r}")
+    for k in config:
+        v = config[k]
+        py_attr = k.replace("-", "_")
+        if _is_valid_python_attrib_name(py_attr):
+            sub_lhs = f"{lhs}.{py_attr}"
+        else:
+            sub_lhs = f"{lhs}[{k!r}]"
+        if isinstance(v, rasr.RasrConfig):
+            _dump_rasr_config(sub_lhs, v, parent_is_config=True)
+        else:
+            print(f"{sub_lhs} = {_repr(v)}")
+
+
+def _is_valid_python_attrib_name(name: str) -> bool:
+    # Very hacky. I'm sure there is some clever regexp but I don't find it and too lazy...
+    class Obj:
+        pass
+    obj = Obj()
+    try:
+        exec(f"obj.{name} = 'ok'", {"obj": obj})
+    except SyntaxError:
+        return False
+    assert getattr(obj, name) == "ok"
+    return True
+
+
+def _repr(obj):
+    """
+    Unfortunately some of the repr implementations are messed up, so need to use some custom here.
+    """
+    if isinstance(obj, tk.Path):
+        return f"tk.Path({obj.path!r})"
+    if isinstance(obj, i6_core.util.MultiPath):
+        return _multi_path_repr(obj)
+    if isinstance(obj, dict):
+        return f"{{{', '.join(f'{_repr(k)}: {_repr(v)}' for (k, v) in obj.items())}}}"
+    if isinstance(obj, list):
+        return f"[{', '.join(f'{_repr(v)}' for v in obj)}]"
+    if isinstance(obj, tuple):
+        return f"({''.join(f'{_repr(v)}, ' for v in obj)})"
+    return repr(obj)
+
+
+def _multi_path_repr(p: i6_core.util.MultiPath):
+    args = [p.path_template, p.hidden_paths, p.cached]
+    if p.path_root == gs.BASE_DIR:
+        args.append(CodeWrapper("gs.BASE_DIR"))
+    else:
+        args.append(p.path_root)
+    kwargs = {}
+    if p.hash_overwrite:
+        kwargs["hash_overwrite"] = p.hash_overwrite
+    return (
+        f"MultiPath("
+        f"{', '.join(f'{_repr(v)}' for v in args)}"
+        f"{''.join(f', {k}={_repr(v)}' for (k, v) in kwargs.items())})")
+
