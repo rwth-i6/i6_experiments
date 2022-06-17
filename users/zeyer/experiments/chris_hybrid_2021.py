@@ -228,6 +228,42 @@ def get_chris_hybrid_system_init_args():
         rasr.crp_add_default_output(crp)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
 
+        crp.base = rasr.CommonRasrParameters()
+        crp.base.acoustic_model_config = rasr.RasrConfig()
+        crp.base.acoustic_model_config.state_tying.type = 'cart'
+        crp.base.acoustic_model_config.state_tying.file = tk.Path('cart.tree.xml.gz')
+        crp.base.acoustic_model_config.allophones.add_from_lexicon = True
+        crp.base.acoustic_model_config.allophones.add_all = False
+        crp.base.acoustic_model_config.hmm.states_per_phone = 3
+        crp.base.acoustic_model_config.hmm.state_repetitions = 1
+        crp.base.acoustic_model_config.hmm.across_word_model = True
+        crp.base.acoustic_model_config.hmm.early_recombination = False
+        crp.base.acoustic_model_config.tdp.scale = 1.0
+        crp.base.acoustic_model_config.tdp['*'].loop = 3.0
+        crp.base.acoustic_model_config.tdp['*'].forward = 0.0
+        crp.base.acoustic_model_config.tdp['*'].skip = 30.0
+        crp.base.acoustic_model_config.tdp['*'].exit = 0.0
+        crp.base.acoustic_model_config.tdp.silence.loop = 0.0
+        crp.base.acoustic_model_config.tdp.silence.forward = 3.0
+        crp.base.acoustic_model_config.tdp.silence.skip = 'infinity'
+        crp.base.acoustic_model_config.tdp.silence.exit = 20.0
+        crp.base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
+        crp.base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
+        crp.base.acoustic_model_post_config = rasr.RasrConfig()
+        crp.base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones')
+
+        crp.audio_format = 'wav'
+        # crp.corpus_duration = 960.9000000000001
+        crp.concurrent = 300
+
+        crp.segment_path = i6_core.util.MultiPath(
+            'work/i6_core/corpus/segments/SegmentCorpusJob.hWpF8egk46Sw/output/segments.$(TASK)',
+            {1: tk.Path('segments.1'), 2: tk.Path('segments.2'), })
+
+        crp.lexicon_config = rasr.RasrConfig()
+        crp.lexicon_config.file = tk.Path('oov.lexicon.gz')
+        crp.lexicon_config.normalize_pronunciation = False
+
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
             {
@@ -244,7 +280,7 @@ def get_chris_hybrid_system_init_args():
             feature_flow=feature_flow,
             features=None,
             acoustic_mixtures=None,
-            feature_scorers=None,
+            feature_scorers={},
             shuffle_data=shuffle_data,
         )
 
@@ -357,8 +393,8 @@ def get_orig_chris_hybrid_system_init_args():
     nn_train_data = lbs_gmm_system.outputs["train-other-960"][
         "final"
     ].as_returnn_rasr_data_input(shuffle_data=True)
-    _dump_crp(nn_train_data.crp)
-    sys.exit(1)
+    # _dump_crp(nn_train_data.crp)
+    # sys.exit(1)
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
     nn_train_data_inputs = {
         "train-other-960.train": nn_train_data,
@@ -544,7 +580,7 @@ def test_run():
     def _assert_equal(prefix, orig, new):
         if orig is None and new is None:
             return
-        assert type(orig) == type(new), f"{prefix} diff type: {orig!r} != {new!r}"
+        assert type(orig) == type(new), f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"
         if isinstance(orig, dict):
             _assert_equal(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
             for key in orig.keys():
@@ -554,12 +590,12 @@ def test_run():
             _assert_equal(f"{prefix}:sorted", sorted(orig), sorted(new))
             return
         if isinstance(orig, (list, tuple)):
-            assert len(orig) == len(new), f"{prefix} diff len: {orig!r} != {new!r}"
+            assert len(orig) == len(new), f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"
             for i in range(len(orig)):
                 _assert_equal(f"{prefix}[{i}]", orig[i], new[i])
             return
         if isinstance(orig, (int, float, str)):
-            assert orig == new, f"{prefix} diff: {orig!r} != {new!r}"
+            assert orig == new, f"{prefix} diff: {_repr(orig)} != {_repr(new)}"
             return
         if isinstance(orig, obj_types):
             orig_attribs = set(vars(orig).keys())
