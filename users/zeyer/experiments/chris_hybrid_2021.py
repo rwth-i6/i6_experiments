@@ -1,11 +1,12 @@
 
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
-from sisyphus import gs, tk, Path
 
+
+from sisyphus import gs, tk, Path
 
 import os
 import sys
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, List
 
 import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
@@ -575,38 +576,50 @@ def test_run():
         rasr_util.RasrInitArgs,
         rasr_util.ReturnnRasrDataInput,
         rasr.CommonRasrParameters,
+        rasr.FlowNetwork,
+        rasr.NamedFlowAttribute,
+        rasr.FlagDependentFlowAttribute,
     )
 
-    def _assert_equal(prefix, orig, new):
+    def _collect_diffs(prefix: str, orig, new) -> List[str]:
         if orig is None and new is None:
-            return
-        assert type(orig) == type(new), f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"
+            return []
+        if type(orig) != type(new):
+            return [f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"]
         if isinstance(orig, dict):
-            _assert_equal(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
+            diffs = _collect_diffs(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
+            if diffs:
+                return diffs
             for key in orig.keys():
-                _assert_equal(f"{prefix}[{key!r}]", orig[key], new[key])
-            return
+                diffs += _collect_diffs(f"{prefix}[{key!r}]", orig[key], new[key])
+            return diffs
         if isinstance(orig, set):
-            _assert_equal(f"{prefix}:sorted", sorted(orig), sorted(new))
-            return
+            return _collect_diffs(f"{prefix}:sorted", sorted(orig), sorted(new))
         if isinstance(orig, (list, tuple)):
-            assert len(orig) == len(new), f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"
+            if len(orig) != len(new):
+                return [f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"]
+            diffs = []
             for i in range(len(orig)):
-                _assert_equal(f"{prefix}[{i}]", orig[i], new[i])
-            return
+                diffs += _collect_diffs(f"{prefix}[{i}]", orig[i], new[i])
+            return diffs
         if isinstance(orig, (int, float, str)):
-            assert orig == new, f"{prefix} diff: {_repr(orig)} != {_repr(new)}"
-            return
+            if orig != new:
+                return [f"{prefix} diff: {_repr(orig)} != {_repr(new)}"]
+            return []
         if isinstance(orig, obj_types):
-            orig_attribs = set(vars(orig).keys())
-            new_attribs = set(vars(new).keys())
-            _assert_equal(f"{prefix}:attribs", orig_attribs, new_attribs)
-            for key in orig_attribs:
-                _assert_equal(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
-            return
+            orig_attribs = sorted(vars(orig).keys())
+            new_attribs = sorted(vars(new).keys())
+            diffs = _collect_diffs(f"{prefix}:attribs", orig_attribs, new_attribs)
+            if diffs:
+                return diffs
+            for key in vars(orig).keys():
+                diffs += _collect_diffs(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
+            return diffs
         raise TypeError(f"unexpected type {type(orig)}")
 
-    _assert_equal("obj", orig_obj, new_obj)
+    diffs_ = _collect_diffs("obj", orig_obj, new_obj)
+    if diffs_:
+        raise Exception('Differences:\n' + "\n".join(diffs_))
 
 
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
