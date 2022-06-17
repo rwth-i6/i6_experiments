@@ -256,12 +256,25 @@ def get_chris_hybrid_system_init_args():
 
         crp.audio_format = 'wav'
         # crp.corpus_duration = 960.9000000000001
-        crp.concurrent = 300
+        if name.startswith("train"):
+            crp.concurrent = 300  # only for features
+        else:
+            crp.concurrent = 20
 
-        crp.segment_path = tk.Path(f'{name}.segments')  # TODO
-            #i6_core.util.MultiPath(
-            #'work/i6_core/corpus/segments/SegmentCorpusJob.hWpF8egk46Sw/output/segments.$(TASK)',
-            #{1: tk.Path('segments.1'), 2: tk.Path('segments.2'), })
+        if name.startswith("train"):
+            crp.segment_path = tk.Path(f'{name}.segments')  # TODO
+        else:
+            crp.segment_path = i6_core.util.MultiPath(
+                'work/i6_core/corpus/segments/SegmentCorpusJob.hWpF8egk46Sw/output/segments.$(TASK)',
+                {1: tk.Path('segments.1'), 2: tk.Path('segments.2'), },
+                False, gs.BASE_DIR)
+
+        if inputs[name].lm:
+            lm = inputs[name].lm
+            crp.language_model_config = rasr.RasrConfig()
+            crp.language_model_config.type = lm["type"]
+            crp.language_model_config.file = lm["filename"]  # TODO ...
+            crp.language_model_config.scale = lm["scale"]
 
         crp.lexicon_config = rasr.RasrConfig()
         crp.lexicon_config.file = tk.Path('oov.lexicon.gz')  # TODO...
@@ -280,6 +293,11 @@ def get_chris_hybrid_system_init_args():
             },
         )
         feature_flow = features.basic_cache_flow(feature_path)
+        feature_flow.flags = {"cache_mode": "task_dependent"}
+
+        acoustic_mixtures = None
+        if name.startswith("train"):
+            acoustic_mixtures = tk.Path("am.mix")  # TODO
 
         return hybrid_system.ReturnnRasrDataInput(
             name="init",
@@ -287,7 +305,7 @@ def get_chris_hybrid_system_init_args():
             alignments=None,  # TODO
             feature_flow=feature_flow,
             features=features_,
-            acoustic_mixtures=None,
+            acoustic_mixtures=acoustic_mixtures,
             feature_scorers={},
             shuffle_data=shuffle_data,
         )
