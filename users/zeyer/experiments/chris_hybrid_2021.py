@@ -671,9 +671,9 @@ def _dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: bo
 
 def _is_valid_python_attrib_name(name: str) -> bool:
     # Very hacky. I'm sure there is some clever regexp but I don't find it and too lazy...
-    class Obj:
+    class _Obj:
         pass
-    obj = Obj()
+    obj = _Obj()
     try:
         exec(f"obj.{name} = 'ok'", {"obj": obj})
     except SyntaxError:
