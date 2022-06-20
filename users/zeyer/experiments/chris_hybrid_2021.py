@@ -686,6 +686,15 @@ def test_run():
     if diffs_:
         raise Exception('Differences:\n' + "\n".join(diffs_))
 
+    from base64 import b64encode
+    from sisyphus.hash import sis_hash_helper
+    # Hash orig object: b'c2E8KO5EgTrW4LzOxd2fkC4DoE4p9uwfCBoMWxTX3mA='
+    # Hash new object: b'9YWfAcgEt1wn+Ge+BJvAGIXtitPkJMKWBxUh86Pp+Hs='
+    # Hash orig object: b'c2E8KO5EgTrW4LzOxd2fkC4DoE4p9uwfCBoMWxTX3mA='
+    # Hash new object: b'9YWfAcgEt1wn+Ge+BJvAGIXtitPkJMKWBxUh86Pp+Hs='
+    print("Hash orig object:", b64encode(sis_hash_helper(orig_obj)))
+    print("Hash new object:", b64encode(sis_hash_helper(new_obj)))
+
 
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
 
