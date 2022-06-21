@@ -254,7 +254,7 @@ class Tacotron2NetworkBuilderV2():
 
         return decoder_conf
 
-    def _create_network(self):
+    def create_network(self):
         """
         this creates the network for training depending on the set parameters
         :return: network dictionary

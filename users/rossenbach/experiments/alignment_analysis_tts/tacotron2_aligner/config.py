@@ -1,5 +1,6 @@
 from i6_core.returnn.config import ReturnnConfig
 
+from .tacotron2_network import Tacotron2NetworkBuilderV2
 
 post_config_template = {
     "cleanup_old_models": True,
@@ -12,10 +13,10 @@ post_config_template = {
 }
 
 
-def get_training_config(tacotron_builder, train_dataset, cv_dataset, extern_data, do_eval=False):
+def get_training_config(network_options, train_dataset, cv_dataset, extern_data, do_eval=False):
     """
 
-    :param Tacotron2NetworkBuilderV2 tacotron_builder:
+    :param dict[str, Any] network_options:
     :param datasets.GenericDataset train_dataset:
     :param datasets.GenericDataset cv_dataset:
     :param dict[str, dict[str, Any]] extern_data:
@@ -50,15 +51,21 @@ def get_training_config(tacotron_builder, train_dataset, cv_dataset, extern_data
     }
 
     if do_eval is True:
-        code = tacotron_builder.get_pretraining()
-        config['network'] = tacotron_builder._create_network()
-        config = tacotron_builder.add_decoding(config, dump_attention=True)
-        config = ReturnnConfig(config=config, post_config=post_config_template.copy(), hash_full_python_code=True, python_epilog=code)
+        builder = Tacotron2NetworkBuilderV2(network_options=network_options)
+        config['network'] = builder.create_network()
+        config = builder.add_decoding(config, dump_attention=True)
+        config = ReturnnConfig(config=config, post_config=post_config_template.copy())
     else:
-        code = tacotron_builder.get_pretraining()
-
-        config['network'] = tacotron_builder._create_network()
-        config = ReturnnConfig(config=config, post_config=post_config_template.copy(), python_epilog=code,
-                               hash_full_python_code=True)
+        staged_network_dict = {}
+        for idx in range(5):
+            postnet_loss_scale = max(min((idx/5*0.25), 0.25), 0.01)
+            stop_token_loss_scale = min(idx/5, 1.0)
+            builder = Tacotron2NetworkBuilderV2(
+                network_options=network_options,
+                stop_token_loss_scale=stop_token_loss_scale,
+                postnet_loss_scale=postnet_loss_scale
+            )
+            staged_network_dict[idx*5 + 1] = builder.create_network()
+        config = ReturnnConfig(config=config, post_config=post_config_template.copy(), staged_network_dict=staged_network_dict)
 
     return config
