@@ -23,6 +23,7 @@ def run_hybrid_baseline():
     rasr_repo = CloneGitRepositoryJob("https://github.com/rwth-i6/rasr", commit="d7eaf1a37f4dcb18bc3a78295eb4b1d72a0eccfb").out_repository
     rasr_binaries = MakeJob(
         folder=rasr_repo,
+        make_sequence=["build", "install"],
         configure_opts=["--i6"],
         num_processes=8,
         output_folder_name=None,
@@ -58,7 +59,7 @@ def run_hybrid_baseline():
 
 
     lbs_nn_system = HybridSystem(returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib)
-    lbs_nn_system.crp['base'].set_executables_from_path(rasr_binaries)
+    lbs_nn_system.crp['base'].set_executables(rasr_binaries)
     lbs_nn_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=nn_train_data_inputs,
