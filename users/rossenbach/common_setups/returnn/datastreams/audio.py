@@ -171,7 +171,7 @@ class AudioFeatureDatastream(Datastream):
             use_scalar_only: bool = False,
             returnn_python_exe: Optional[tk.Path] = None,
             returnn_root: Optional[tk.Path] = None,
-            output_path: str = ""):
+            alias_path: str = ""):
         """
         Computes the global feature statistics over a corpus given as zip-dataset.
         Can either add the statistics per channel (default) or as scalar.
@@ -200,7 +200,7 @@ class AudioFeatureDatastream(Datastream):
             extraction_config, returnn_python_exe, returnn_root
         )
         extract_dataset_statistics_job.add_alias(
-            os.path.join(output_path, "extract_dataset_statistics_job")
+            os.path.join(alias_path, "extract_dataset_statistics_job")
         )
         if use_scalar_only:
             self.additional_options[
@@ -222,7 +222,7 @@ def get_default_asr_audio_datastream(
     statistics_ogg_zips: List[tk.Path],
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
-    output_path: str,
+    alias_path: str,
 ) -> AudioFeatureDatastream:
     """
     Returns the AudioFeatureDatastream using the default feature parameters
@@ -234,7 +234,7 @@ def get_default_asr_audio_datastream(
     :param statistics_ogg_zip: ogg zip file(s) of the training corpus for statistics
     :param returnn_python_exe:
     :param returnn_root:
-    :param output_path:
+    :param alias_path:
     """
     # default: mfcc-40-dim
     feature_options = ReturnnAudioFeatureOptions(
@@ -251,7 +251,7 @@ def get_default_asr_audio_datastream(
         statistics_ogg_zips,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_path=output_path,
+        alias_path=alias_path,
     )
     return audio_datastream
 
@@ -260,7 +260,7 @@ def get_default_tts_audio_datastream(
     statistics_ogg_zips: List[tk.Path],
     returnn_python_exe: tk.Path,
     returnn_root: tk.Path,
-    output_path: str,
+    alias_path: str,
 ) -> AudioFeatureDatastream:
     """
     Returns the AudioFeatureDatastream using the default feature parameters
@@ -272,7 +272,7 @@ def get_default_tts_audio_datastream(
     :param statistics_ogg_zip: ogg zip file(s) of the training corpus for statistics
     :param returnn_python_exe:
     :param returnn_root:
-    :param output_path:
+    :param alias_path:
     """
     # default: mfcc-40-dim
     feature_options = ReturnnAudioFeatureOptions(
@@ -292,6 +292,6 @@ def get_default_tts_audio_datastream(
         use_scalar_only=True,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_path=output_path,
+        alias_path=alias_path,
     )
     return audio_datastream
