@@ -49,7 +49,7 @@ def get_audio_datastream(returnn_python_exe, returnn_root, output_path):
         statistics_ogg_zips=[train_clean_100_ogg],
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_path=output_path,
+        alias_path=output_path,
     )
 
     return audio_datastream
