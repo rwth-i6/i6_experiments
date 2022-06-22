@@ -56,19 +56,8 @@ class RasrSystem(meta.System):
     ):
         super().__init__()
 
-        if rasr_root is not None:
-            self.rasr_root = rasr_root
-        elif hasattr(gs, "RASR_ROOT") and gs.RASR_ROOT is not None:
-            self.rasr_root = gs.RASR_ROOT
-        else:
-            self.rasr_root = None
-
-        if rasr_arch is not None:
-            self.rasr_arch = rasr_arch
-        elif hasattr(gs, "RASR_ARCH") and gs.RASR_ARCH is not None:
-            self.rasr_arch = rasr_arch
-        else:
-            self.rasr_arch = None
+        self.rasr_root = rasr_root
+        self.rasr_arch = rasr_arch
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
             self.crp["base"].python_home = gs.RASR_PYTHON_HOME
