@@ -88,8 +88,12 @@ class GmmSystem(RasrSystem):
     corpus -> Path
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        rasr_root: Optional[tk.Path] = None,
+        rasr_arch: Optional[str] = None,
+    ):
+        super().__init__(rasr_root=rasr_root, rasr_arch=rasr_arch)
 
         self.monophone_args: Optional[GmmMonophoneArgs] = None
         self.cart_args: Optional[GmmCartArgs] = None

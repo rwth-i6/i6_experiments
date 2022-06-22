@@ -1,6 +1,6 @@
 __all__ = ["RasrSystem"]
 
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -49,8 +49,26 @@ class RasrSystem(meta.System):
     corpus -> Path
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        rasr_root: Optional[tk.Path] = None,
+        rasr_arch: Optional[str] = None,
+    ):
         super().__init__()
+
+        if rasr_root is not None:
+            self.rasr_root = rasr_root
+        elif hasattr(gs, "RASR_ROOT") and gs.RASR_ROOT is not None:
+            self.rasr_root = gs.RASR_ROOT
+        else:
+            self.rasr_root = None
+
+        if rasr_arch is not None:
+            self.rasr_arch = rasr_arch
+        elif hasattr(gs, "RASR_ARCH") and gs.RASR_ARCH is not None:
+            self.rasr_arch = rasr_arch
+        else:
+            self.rasr_arch = None
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
             self.crp["base"].python_home = gs.RASR_PYTHON_HOME
@@ -102,6 +120,14 @@ class RasrSystem(meta.System):
             concurrent=self.concurrent[corpus_key],
             segment_path=segm_corpus_job.out_segment_path,
         )
+
+        if self.rasr_root is not None and self.rasr_arch is not None:
+            self.crp[corpus_key].set_executables(
+                rasr_root=self.rasr_root, rasr_arch=self.rasr_arch
+            )
+        elif self.rasr_root is not None and self.rasr_arch is None:
+            self.crp[corpus_key].set_executables(rasr_root=self.rasr_root)
+
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
