@@ -93,7 +93,7 @@ class GmmSystem(RasrSystem):
         rasr_binary_path: Optional[tk.Path] = None,
         rasr_arch: Optional[str] = None,
     ):
-        super().__init__(rasr_root=rasr_root, rasr_arch=rasr_arch)
+        super().__init__(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
         self.monophone_args: Optional[GmmMonophoneArgs] = None
         self.cart_args: Optional[GmmCartArgs] = None

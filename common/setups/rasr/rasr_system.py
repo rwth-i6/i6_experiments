@@ -51,12 +51,12 @@ class RasrSystem(meta.System):
 
     def __init__(
         self,
-        rasr_root: Optional[tk.Path] = None,
+        rasr_binary_path: Optional[tk.Path] = None,
         rasr_arch: Optional[str] = None,
     ):
         super().__init__()
 
-        self.rasr_root = rasr_root
+        self.rasr_binary_path = rasr_binary_path
         self.rasr_arch = rasr_arch
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
@@ -110,12 +110,12 @@ class RasrSystem(meta.System):
             segment_path=segm_corpus_job.out_segment_path,
         )
 
-        if self.rasr_root is not None and self.rasr_arch is not None:
+        if self.rasr_binary_path is not None and self.rasr_arch is not None:
             self.crp[corpus_key].set_executables(
-                rasr_root=self.rasr_root, rasr_arch=self.rasr_arch
+                rasr_root=self.rasr_binary_path, rasr_arch=self.rasr_arch
             )
-        elif self.rasr_root is not None and self.rasr_arch is None:
-            self.crp[corpus_key].set_executables(rasr_root=self.rasr_root)
+        elif self.rasr_binary_path is not None and self.rasr_arch is None:
+            self.crp[corpus_key].set_executables(rasr_binary_path=self.rasr_binary_path)
 
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
