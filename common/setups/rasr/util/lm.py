@@ -16,6 +16,8 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
+import i6_experiments.common.setups.rasr.lm_config as lm_config
+
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
@@ -24,40 +26,30 @@ Path = tk.setup_path(__package__)
 # -------------------- LM Rasr Config --------------------
 
 
-def get_arpa_lm_rasr_config(
-    filename: Union[str, Path], scale: float, image: Optional[Union[str, Path]] = None
-):
+def get_arpa_lm_rasr_config(lm_path: Path, scale: float, image: Optional[Path] = None):
     """
-    :param filename: path to ARPA LM
+    :param lm_path: path to ARPA LM
     :param scale: LM scale
     :param image: global cache image
     :rtype: RasrConfig
     """
-    config = rasr.RasrConfig()
-    config.type = "ARPA"
-    config.file = filename
-    config.scale = scale
 
-    if image is not None:
-        config.image = image
+    config = lm_config.ArpaLmRasrConfig(lm_path=lm_path, scale=scale, image=image)
 
-    return config
+    return config.get()
 
 
 def get_nnlm_rasr_config(
     lm_type: str,
     vocab_path: Union[Path, str],
     returnn_lm_inference_config: Union[returnn.ReturnnConfig, Path, str],
-    returnn_checkpoint: Union[returnn.Checkpoint, str],
-    scale: float = 1.0,
+    returnn_checkpoint: returnn.Checkpoint,
     *,
+    scale: Optional[float] = None,
     vocab_unknown_word: str = "<UNK>",
     label_level: str = "word",
-    opt_batch_size: int = 64,
     max_batch_size: int = 128,
-    min_batch_size: int = 4,
     transform_output_negate: bool = True,
-    allow_reduced_history: bool = True,
     native_op_args: Optional[Dict] = None,
     tf_graph_args: Optional[Dict] = None,
     returnn_python_exe: Optional[Union[Path, str]] = None,
@@ -65,7 +57,7 @@ def get_nnlm_rasr_config(
 ):
     """
     create RasrConfig for Neural LM
-    two types are supported: tfrnn (LSTM LM) and simple-transformer (Trafo LM)
+    two types are supported: tfrnn (LSTM/Trafo LM) and simple-tf-neural (Trafo LM)
 
     :param vocab_path: LM vocabulary file
     :param returnn_lm_inference_config: LM RETURNN config, already prepared for inference
@@ -73,69 +65,52 @@ def get_nnlm_rasr_config(
     :param vocab_unknown_word:
     :param label_level:
     :param scale:
-    :param opt_batch_size:
     :param max_batch_size:
-    :param min_batch_size:
     :param transform_output_negate:
-    :param allow_reduced_history:
     :param native_op_args:
     :param tf_graph_args:
     :param returnn_python_exe:
     :param returnn_root:
     :rtype: RasrConfig
     """
-    if native_op_args is None:
-        native_op_args = {}
-    if tf_graph_args is None:
-        tf_graph_args = {}
+    kwargs = locals()
+    del kwargs["lm_type"]
+    del kwargs["native_op_args"]
+    del kwargs["tf_graph_args"]
+    del kwargs["returnn_python_exe"]
+    del kwargs["returnn_root"]
 
-    if not hasattr(native_op_args, "returnn_python_exe"):
-        native_op_args["returnn_python_exe"] = returnn_python_exe
-    if not hasattr(native_op_args, "returnn_root"):
-        native_op_args["returnn_root"] = returnn_root
-
-    if not hasattr(tf_graph_args, "returnn_python_exe"):
-        tf_graph_args["returnn_python_exe"] = returnn_python_exe
-    if not hasattr(tf_graph_args, "returnn_root"):
-        tf_graph_args["returnn_root"] = returnn_root
+    rasr_conf_class = (
+        lm_config.TfRnnLmRasrConfig
+        if lm_type == "tfrnn"
+        else lm_config.SimpleTfNeuralLmRasrConfig
+    )
 
     if isinstance(returnn_checkpoint, str):
         assert returnn_checkpoint.endswith(".index")
         returnn_checkpoint = returnn.Checkpoint(returnn_checkpoint)
 
-    config = rasr.RasrConfig()
-    config.type = lm_type
-    config.scale = scale
+    if tf_graph_args is not None:
+        if not hasattr(tf_graph_args, "returnn_python_exe"):
+            tf_graph_args["returnn_python_exe"] = returnn_python_exe
+        if not hasattr(tf_graph_args, "returnn_root"):
+            tf_graph_args["returnn_root"] = returnn_root
+        kwargs["libraries"] = returnn.CompileNativeOpJob(
+            "NativeLstm2", **native_op_args
+        ).out_op
 
-    config.vocab_file = vocab_path
-    config.vocab_unknown_word = vocab_unknown_word
+    if native_op_args is not None:
+        if not hasattr(native_op_args, "returnn_python_exe"):
+            native_op_args["returnn_python_exe"] = returnn_python_exe
+        if not hasattr(native_op_args, "returnn_root"):
+            native_op_args["returnn_root"] = returnn_root
+        kwargs["meta_graph_path"] = returnn.CompileTFGraphJob(
+            returnn_lm_inference_config, **tf_graph_args
+        ).out_graph
 
-    config.transform_output_negate = transform_output_negate
-    config.allow_reduced_history = allow_reduced_history
+    config = rasr_conf_class(**kwargs)
 
-    config.max_batch_size = max_batch_size
-    config.min_batch_size = min_batch_size
-    config.opt_batch_size = opt_batch_size
-
-    config.input_map.info_0.param_name = label_level
-    config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
-    config.input_map.info_0.seq_length_tensor_name = (
-        "extern_data/placeholders/delayed/delayed_dim0_size"
-    )
-
-    config.loader.type = "meta"
-    config.loader.required_libraries = returnn.CompileNativeOpJob(
-        "NativeLstm2", **native_op_args
-    ).out_op
-    config.loader.meta_graph_file = returnn.CompileTFGraphJob(
-        returnn_lm_inference_config, **tf_graph_args
-    ).out_graph
-    config.loader.saved_model_file = returnn_checkpoint.ckpt_path
-
-    config.output_map.info_0.param_name = "softmax"
-    config.output_map.info_0.tensor_name = "output/output_batch_major"
-
-    return config
+    return config.get()
 
 
 def add_lm_rasr_config_to_crp(
@@ -157,7 +132,7 @@ def add_lm_rasr_config_to_crp(
     lm_type = lm_args.pop("type").lower()
     if lm_type == "arpa":
         crp.language_model_config = get_arpa_lm_rasr_config(**lm_args)
-    elif lm_type == "tfrnn" or lm_type == "simple-transformer":
+    elif lm_type == "tfrnn" or lm_type == "simple-tf-neural":
         lm_args["returnn_python_exe"] = returnn_python_exe
         lm_args["returnn_root"] = returnn_root
         crp.language_model_config = get_nnlm_rasr_config(lm_type=lm_type, **lm_args)
