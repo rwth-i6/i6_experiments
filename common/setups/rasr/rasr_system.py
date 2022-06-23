@@ -196,12 +196,13 @@ class RasrSystem(meta.System):
         python_exe: Optional[tk.Path] = None,
     ):
         """
-        Set explicit binaries and python for RASR.
+        Set explicit binaries and python for RASR with respect to a specific crp entry.
 
-        If this is not done, RasrSystem will take the defaults from the global settings
+        If this is done for the `base` crp, this function should be called before any other call to `system`,
+        especially before `init_system` or `add_corpus`.
 
-        :param binary_path: path to the rasr binary folder
-        :param rasr_arch: rasr architecture suffix
+        :param binary_path: path to a RASR binary folder
+        :param rasr_arch: RASR architecture suffix
         :param python_home: path to the python virtual environment base directory
             in case of None nothing will be set
         :param python_exe: path to the python binary that should be executed
