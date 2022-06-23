@@ -112,7 +112,7 @@ class RasrSystem(meta.System):
 
         if self.rasr_binary_path is not None and self.rasr_arch is not None:
             self.crp[corpus_key].set_executables(
-                rasr_root=self.rasr_binary_path, rasr_arch=self.rasr_arch
+                rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
             )
         elif self.rasr_binary_path is not None and self.rasr_arch is None:
             self.crp[corpus_key].set_executables(rasr_binary_path=self.rasr_binary_path)
