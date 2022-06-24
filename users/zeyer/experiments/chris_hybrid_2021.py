@@ -221,6 +221,9 @@ def get_chris_hybrid_system_init_args():
 
     prefix_dir = "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10"
 
+    def _path(creator: str, path: str) -> tk.Path:
+        return tk.Path(f'{prefix_dir}/{creator}/output/{path}')
+
     hybrid_init_args = default_gmm_hybrid_init_args()
 
     train_data_inputs, dev_data_inputs, test_data_inputs = get_data_inputs(use_eval_data_subset=True)
@@ -232,8 +235,7 @@ def get_chris_hybrid_system_init_args():
         rasr.crp_add_default_output(crp_base)
         crp_base.acoustic_model_config = rasr.RasrConfig()
         crp_base.acoustic_model_config.state_tying.type = 'cart'
-        crp_base.acoustic_model_config.state_tying.file = tk.Path(
-            f'{prefix_dir}/EstimateCartJob.tuIY1yeG7XGc/output/cart.tree.xml.gz')
+        crp_base.acoustic_model_config.state_tying.file = _path('EstimateCartJob.tuIY1yeG7XGc', 'cart.tree.xml.gz')
         crp_base.acoustic_model_config.allophones.add_from_lexicon = True
         crp_base.acoustic_model_config.allophones.add_all = False
         crp_base.acoustic_model_config.hmm.states_per_phone = 3
@@ -252,8 +254,8 @@ def get_chris_hybrid_system_init_args():
         crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
         crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
         crp_base.acoustic_model_post_config = rasr.RasrConfig()
-        crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path(
-            f"{prefix_dir}/StoreAllophones.34VPSakJyy0U/output/allophones")
+        crp_base.acoustic_model_post_config.allophones.add_from_file = _path(
+            "StoreAllophones.34VPSakJyy0U", "allophones")
 
         crp = rasr.CommonRasrParameters(base=crp_base)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
@@ -286,7 +288,7 @@ def get_chris_hybrid_system_init_args():
         features_ = i6_core.util.MultiPath(
             'work/i6_core/features/extraction/'
             'FeatureExtractionJob.Gammatone.hdJwtXZxElZG/output/gt.cache.$(TASK)',
-            {1: tk.Path('gt.cache.1'), 2: tk.Path('gt.cache.2'), },
+            {i: tk.Path(f'gt.cache.{i}') for i in range(1, crp.concurrent + 1)},
             True, gs.BASE_DIR)    # TODO
         feature_path = rasr.FlagDependentFlowAttribute(
             "cache_mode",
@@ -300,8 +302,7 @@ def get_chris_hybrid_system_init_args():
 
         acoustic_mixtures = None
         if name.startswith("train"):
-            acoustic_mixtures = tk.Path(
-                f"{prefix_dir}/EstimateMixturesJob.accumulate.6pfu7tgzPX3p/output/am.mix")
+            acoustic_mixtures = _path("EstimateMixturesJob.accumulate.6pfu7tgzPX3p", "am.mix")
 
         alignments = None
         if name.startswith("train"):
