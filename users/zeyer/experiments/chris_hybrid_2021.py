@@ -659,14 +659,17 @@ def test_run():
         rasr.FlowNetwork,
         rasr.NamedFlowAttribute,
         rasr.FlagDependentFlowAttribute,
+        i6_core.util.MultiPath,
     )
+
+    list_limit = 3
 
     def _collect_diffs(prefix: str, orig, new) -> List[str]:
         if orig is None and new is None:
             return []
         if isinstance(orig, i6_core.util.MultiPath) and isinstance(new, i6_core.util.MultiPath):
-            return []  # TODO ... ignore. allow different sub types
-        if type(orig) != type(new):
+            pass  # allow different sub types
+        elif type(orig) != type(new):
             return [f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"]
         if isinstance(orig, dict):
             diffs = _collect_diffs(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
@@ -683,6 +686,9 @@ def test_run():
             diffs = []
             for i in range(len(orig)):
                 diffs += _collect_diffs(f"{prefix}[{i}]", orig[i], new[i])
+                if len(diffs) > list_limit:
+                    diffs = diffs[:list_limit] + [f"{prefix} ..."]
+                    break
             return diffs
         if isinstance(orig, (int, float, str)):
             if orig != new:
