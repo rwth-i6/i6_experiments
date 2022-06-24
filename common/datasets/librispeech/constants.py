@@ -18,6 +18,18 @@ num_segments = {
     "test-other": 2939,
 }
 
+# concurrent should roughly be set to 5 hours per sub-task for training
+# and 0.5 hours per subtask for recognition
+concurrent = {
+    "train-clean-100": 20,
+    "train-clean-360": 80,
+    "train-other-500": 100,
+    "dev-clean": 10,
+    "dev-other": 10,
+    "test-clean": 10,
+    "test-other": 10,
+}
+
 durations["train-clean-460"] = (
     durations["train-clean-100"] + durations["train-clean-360"]
 )
@@ -30,4 +42,11 @@ num_segments["train-clean-460"] = (
 )
 num_segments["train-other-960"] = (
     num_segments["train-clean-460"] + num_segments["train-other-500"]
+)
+
+concurrent["train-clean-460"] = (
+    concurrent["train-clean-100"] + concurrent["train-clean-360"]
+)
+concurrent["train-other-960"] = (
+    concurrent["train-clean-460"] + concurrent["train-other-500"]
 )
