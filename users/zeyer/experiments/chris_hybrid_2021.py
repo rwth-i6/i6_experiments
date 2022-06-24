@@ -662,7 +662,7 @@ def test_run():
         i6_core.util.MultiPath,
     )
 
-    list_limit = 3
+    limit = 3
 
     def _collect_diffs(prefix: str, orig, new) -> List[str]:
         if orig is None and new is None:
@@ -675,8 +675,17 @@ def test_run():
             diffs = _collect_diffs(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
             if diffs:
                 return diffs
-            for key in orig.keys():
-                diffs += _collect_diffs(f"{prefix}[{key!r}]", orig[key], new[key])
+            num_int_key_diffs = 0
+            keys = list(orig.keys())
+            for i in range(len(keys)):
+                key = keys[i]
+                sub_diffs = _collect_diffs(f"{prefix}[{key!r}]", orig[key], new[key])
+                diffs += sub_diffs
+                if isinstance(key, int) and sub_diffs:
+                    num_int_key_diffs += 1
+                if num_int_key_diffs >= limit and i < len(keys) - 1:
+                    diffs += [f"{prefix} ... ({len(keys) - i - 1} remaining)"]
+                    break
             return diffs
         if isinstance(orig, set):
             return _collect_diffs(f"{prefix}:sorted", sorted(orig), sorted(new))
@@ -684,18 +693,22 @@ def test_run():
             if len(orig) != len(new):
                 return [f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"]
             diffs = []
+            num_diffs = 0
             for i in range(len(orig)):
-                diffs += _collect_diffs(f"{prefix}[{i}]", orig[i], new[i])
-                if len(diffs) > list_limit:
-                    diffs = diffs[:list_limit] + [f"{prefix} ..."]
+                sub_diffs = _collect_diffs(f"{prefix}[{i}]", orig[i], new[i])
+                diffs += sub_diffs
+                if sub_diffs:
+                    num_diffs += 1
+                if num_diffs >= limit and i < len(orig) - 1:
+                    diffs += [f"{prefix} ... ({len(orig) - i - 1} remaining)"]
                     break
             return diffs
         if isinstance(orig, (int, float, str)):
             if orig != new:
                 return [f"{prefix} diff: {_repr(orig)} != {_repr(new)}"]
             return []
-        if isinstance(orig, (tk.Path, tk.Variable)):
-            return []  # TODO ignore... ?
+        if isinstance(orig, tk.AbstractPath):
+            return _collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
         if isinstance(orig, obj_types):
             orig_attribs = sorted(vars(orig).keys())
             new_attribs = sorted(vars(new).keys())
@@ -707,6 +720,29 @@ def test_run():
             return diffs
         raise TypeError(f"unexpected type {type(orig)}")
 
+    class _PathState:
+        def __init__(self, p: tk.AbstractPath):
+            # Adapt AbstractPath._sis_hash:
+            assert not isinstance(p.creator, str)
+            if p.hash_overwrite is None:
+                creator = p.creator
+                path = p.path
+            else:
+                overwrite = p.hash_overwrite
+                assert_msg = "sis_hash for path must be str or tuple of length 2"
+                if isinstance(overwrite, tuple):
+                    assert len(overwrite) == 2, assert_msg
+                    creator, path = overwrite
+                else:
+                    assert isinstance(overwrite, str), assert_msg
+                    creator = None
+                    path = overwrite
+            if hasattr(creator, '_sis_id'):
+                creator = os.path.join(creator._sis_id(), gs.JOB_OUTPUT)
+            self.creator = creator
+            self.path = path
+
+    obj_types += (_PathState,)
     diffs_ = _collect_diffs("obj", orig_obj, new_obj)
     if diffs_:
         raise Exception('Differences:\n' + "\n".join(diffs_))
