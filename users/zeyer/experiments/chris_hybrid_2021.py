@@ -709,8 +709,6 @@ def test_run():
     from sisyphus.hash import sis_hash_helper
     # Hash orig object: b'c2E8KO5EgTrW4LzOxd2fkC4DoE4p9uwfCBoMWxTX3mA='
     # Hash new object: b'9YWfAcgEt1wn+Ge+BJvAGIXtitPkJMKWBxUh86Pp+Hs='
-    # Hash orig object: b'c2E8KO5EgTrW4LzOxd2fkC4DoE4p9uwfCBoMWxTX3mA='
-    # Hash new object: b'9YWfAcgEt1wn+Ge+BJvAGIXtitPkJMKWBxUh86Pp+Hs='
     print("Hash orig object:", b64encode(sis_hash_helper(orig_obj)))
     print("Hash new object:", b64encode(sis_hash_helper(new_obj)))
 
