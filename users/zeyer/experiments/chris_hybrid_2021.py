@@ -317,15 +317,15 @@ def get_chris_hybrid_system_init_args():
         alignments = None
         if name.startswith("train"):
             align_paths = i6_core.util.MultiPath(
-                f'{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.$(TASK)',
-                {i: tk.Path(f'{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.{i}')
+                '<ignore-template>',
+                {i: _path('AlignmentJob.uPtxlMbFI4lx', f'alignment.cache.{i}')
                  for i in range(1, crp.concurrent + 1)},
                 True, gs.BASE_DIR)
             alignments = rasr.FlagDependentFlowAttribute(
                 "cache_mode",
                 {
                     "task_dependent": align_paths,
-                    "bundle": tk.Path(f"{prefix_dir}/AlignmentJob.uPtxlMbFI4lx/output/alignment.cache.bundle")
+                    "bundle": _path("AlignmentJob.uPtxlMbFI4lx", "alignment.cache.bundle")
                 },
             )
             alignments.hidden_paths = align_paths.hidden_paths
@@ -670,7 +670,6 @@ def test_run():
         rasr.FlowNetwork,
         rasr.NamedFlowAttribute,
         rasr.FlagDependentFlowAttribute,
-        i6_core.util.MultiPath,
     )
 
     limit = 3
@@ -720,6 +719,9 @@ def test_run():
             return []
         if isinstance(orig, tk.AbstractPath):
             return _collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
+        if isinstance(orig, i6_core.util.MultiPath):
+            # only hidden_paths relevant (?)
+            return _collect_diffs(f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths)
         if isinstance(orig, obj_types):
             orig_attribs = sorted(vars(orig).keys())
             new_attribs = sorted(vars(new).keys())
