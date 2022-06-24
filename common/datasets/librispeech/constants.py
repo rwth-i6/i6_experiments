@@ -18,8 +18,8 @@ num_segments = {
     "test-other": 2939,
 }
 
-# concurrent should roughly be set to 5 ours per sub-task for training
-# and 0.5 ours per subtask for recognition
+# concurrent should roughly be set to 5 hours per sub-task for training
+# and 0.5 hours per subtask for recognition
 concurrent = {
     "train-clean-100": 20,
     "train-clean-360": 80,
