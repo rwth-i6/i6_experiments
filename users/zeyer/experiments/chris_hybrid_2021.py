@@ -221,8 +221,18 @@ def get_chris_hybrid_system_init_args():
 
     prefix_dir = "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10"
 
+    class _DummyJob:
+        def __init__(self, path: str):
+            self.path = path
+
+        def _sis_id(self):
+            return self.path
+
+        def _sis_path(self, out: str):
+            return f"{prefix_dir}/{self.path}/{out}"
+
     def _path(creator: str, path: str) -> tk.Path:
-        return tk.Path(f'{prefix_dir}/{creator}/output/{path}')
+        return tk.Path(creator=_DummyJob(creator), path=path)
 
     hybrid_init_args = default_gmm_hybrid_init_args()
 
@@ -723,7 +733,7 @@ def test_run():
 
     class _PathState:
         def __init__(self, p: tk.AbstractPath):
-            # Adapt AbstractPath._sis_hash:
+            # Adapted from AbstractPath._sis_hash and a bit simplified:
             assert not isinstance(p.creator, str)
             if p.hash_overwrite is None:
                 creator = p.creator
@@ -739,7 +749,13 @@ def test_run():
                     creator = None
                     path = overwrite
             if hasattr(creator, '_sis_id'):
-                creator = os.path.join(creator._sis_id(), gs.JOB_OUTPUT)
+                creator = creator._sis_id()
+            elif isinstance(creator, str) and creator.endswith(f"/{gs.JOB_OUTPUT}"):
+                creator = creator[:-len(gs.JOB_OUTPUT) - 1]
+            if isinstance(creator, str):
+                # Ignore the full name and job hash.
+                creator = os.path.basename(creator)
+                creator = creator.split(".")[0]
             self.creator = creator
             self.path = path
 
