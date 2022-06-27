@@ -21,8 +21,8 @@ class DBMelFilterbankOptions(AdditionalFeatureOptions):
     """
     additional options for the db_mel_filterbank features
     """
-    f_min: int = 0
-    f_max: int = None
+    fmin: int = 0
+    fmax: int = None
     min_amp: float = 1e-10
     center: bool = True
 
@@ -32,8 +32,8 @@ class MFCCOptions(AdditionalFeatureOptions):
     """
     additional options for the mfcc features
     """
-    f_min: int = 0
-    f_max: int = None
+    fmin: int = 0
+    fmax: int = None
     n_mels: int = 128
 
 
@@ -80,7 +80,7 @@ class ReturnnAudioFeatureOptions:
     num_feature_filters: int = None
     with_delta: bool = False
     features: Union[str, FeatureType] = "mfcc"
-    additional_feature_options: Optional[Union[dict, AdditionalFeatureOptions]] = None
+    feature_options: Optional[Union[dict, AdditionalFeatureOptions]] = None
     sample_rate: Optional[int] = None
     peak_normalization: bool = True
     preemphasis: float = None
@@ -116,13 +116,13 @@ class AudioFeatureDatastream(Datastream):
         if options.features not in KNOWN_FEATURES:
             print("Warning: %s is not a known feature type" % options.features)
 
-        if type(options.additional_feature_options) not in KNOWN_FEATURES.get(
+        if type(options.feature_options) not in KNOWN_FEATURES.get(
             options.features, [type(None)]
         ):
             print(
                 "Warning: possible feature options mismatch, passed %s but expected %s"
                 % (
-                    str(type(options.additional_feature_options)),
+                    str(type(options.feature_options)),
                     str(KNOWN_FEATURES.get(options.features, type(None))),
                 )
             )
@@ -157,10 +157,6 @@ class AudioFeatureDatastream(Datastream):
         """
         audio_opts_dict = dataclasses.asdict(self.options)
         audio_opts_dict.update(self.additional_options)
-        # the additional options itself should not be written as is
-        additional_feature_options = audio_opts_dict.pop("additional_feature_options")
-        if additional_feature_options is not None:
-            audio_opts_dict.update(additional_feature_options)
         return audio_opts_dict
 
 
