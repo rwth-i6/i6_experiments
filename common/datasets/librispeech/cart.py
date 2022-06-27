@@ -7,6 +7,8 @@ __all__ = [
     "CartQuestionsWithStress",
 ]
 
+from typing import Dict
+
 
 class CartQuestionsWithoutStress:
     def __init__(
@@ -428,15 +430,15 @@ class CartQuestionsWithoutStress:
         ]
 
         if add_unknown:
+            unk_dict: Dict[str, str] = {
+                "type": "question",
+                "description": "unknown",
+                "key": "central",
+                "values": self.unknown,
+            }
+
             assert self.steps[1]["name"] == "central"
-            self.steps[1]["questions"].append(
-                {
-                    "type": "question",
-                    "description": "unknown",
-                    "key": "central",
-                    "values": self.unknown,
-                }
-            )
+            self.steps[1]["questions"].append(unk_dict)
 
 
 class CartQuestionsWithStress:
@@ -937,12 +939,12 @@ class CartQuestionsWithStress:
         ]
 
         if add_unknown:
+            unk_dict: Dict[str, str] = {
+                "type": "question",
+                "description": "unknown",
+                "key": "central",
+                "values": self.unknown,
+            }
+
             assert self.steps[1]["name"] == "central"
-            self.steps[1]["questions"].append(
-                {
-                    "type": "question",
-                    "description": "unknown",
-                    "key": "central",
-                    "values": self.unknown,
-                }
-            )
+            self.steps[1]["questions"].append(unk_dict)
