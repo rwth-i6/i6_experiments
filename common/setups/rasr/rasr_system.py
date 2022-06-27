@@ -51,7 +51,7 @@ class RasrSystem(meta.System):
 
     def __init__(
         self,
-        rasr_binary_path: Optional[tk.Path] = None,
+        rasr_binary_path: tk.Path,
         rasr_arch: Optional[str] = None,
     ):
         super().__init__()
