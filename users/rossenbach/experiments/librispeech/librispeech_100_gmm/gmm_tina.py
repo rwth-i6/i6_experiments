@@ -123,8 +123,8 @@ def run_tina_baseline_g2p():
     steps.add_step("tri", tri_args)
     steps.add_step("vtln", vtln_args)
     # SAT pipeline was changed
-    #  steps.add_step("sat", sat_args)
-    # steps.add_step("vtln+sat", vtln_sat_args)
+    steps.add_step("sat", sat_args)
+    steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
     # ******************** GMM System ********************
