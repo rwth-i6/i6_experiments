@@ -85,9 +85,9 @@ def get_audio_datastream(
         features=FeatureType.DB_MEL_FILTERBANK,
         peak_normalization=False,
         preemphasis=0.97,
-        additional_feature_options=DBMelFilterbankOptions(
-            f_min=60,
-            f_max=7600,
+        feature_options=DBMelFilterbankOptions(
+            fmin=60,
+            fmax=7600,
             min_amp=1e-10,
             center=True,
         )
