@@ -1,9 +1,5 @@
 import enum
 
-from sisyphus import Job, Task, tk
-
-from i6_core.lib import corpus, lexicon
-
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 
 class LexiconStrategy(enum.Enum):
