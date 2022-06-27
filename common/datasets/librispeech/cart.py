@@ -9,7 +9,9 @@ __all__ = [
 
 
 class CartQuestionsWithoutStress:
-    def __init__(self, max_leaves=9001, min_obs=1000, add_unknown: bool = True):
+    def __init__(
+        self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True
+    ):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.boundary = "#"
@@ -436,7 +438,7 @@ class CartQuestionsWithoutStress:
 
 
 class CartQuestionsWithStress:
-    def __init__(self, max_leaves=9001, min_obs=1000, add_unknown: bool = True):
+    def __init__(self, max_leaves=12001, min_obs=1000, add_unknown: bool = True):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.boundary = "#"
