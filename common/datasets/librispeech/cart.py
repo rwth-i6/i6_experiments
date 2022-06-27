@@ -97,12 +97,6 @@ class CartQuestionsWithoutStress:
                             }
                         ],
                     },
-                    {
-                        "type": "question",
-                        "description": "unknown",
-                        "key": "central",
-                        "values": self.unknown,
-                    },
                 ],
             },
             {
@@ -433,8 +427,16 @@ class CartQuestionsWithoutStress:
             },
         ]
 
-        if not add_unknown:
-            self.steps[1]["questions"].pop(1)
+        if add_unknown:
+            assert self.steps[1]["name"] == "central"
+            self.steps[1]["questions"].append(
+                {
+                    "type": "question",
+                    "description": "unknown",
+                    "key": "central",
+                    "values": self.unknown,
+                }
+            )
 
 
 class CartQuestionsWithStress:
@@ -553,12 +555,6 @@ class CartQuestionsWithStress:
                                 "values": self.phonemes_str,
                             }
                         ],
-                    },
-                    {
-                        "type": "question",
-                        "description": "unknown",
-                        "key": "central",
-                        "values": self.unknown,
                     },
                 ],
             },
@@ -939,3 +935,14 @@ class CartQuestionsWithStress:
                 ],
             },
         ]
+
+        if add_unknown:
+            assert self.steps[1]["name"] == "central"
+            self.steps[1]["questions"].append(
+                {
+                    "type": "question",
+                    "description": "unknown",
+                    "key": "central",
+                    "values": self.unknown,
+                }
+            )
