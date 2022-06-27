@@ -11,8 +11,8 @@ version listed here. Nevertheless, the most recent "head" should be safe to be u
 from typing import Optional
 
 from sisyphus import tk
-from i6_experiments.common.tools.audio import compile_ffmpeg_binary
-from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
+# from i6_experiments.common.tools.audio import compile_ffmpeg_binary
+# from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.tools.compile import MakeJob
 
