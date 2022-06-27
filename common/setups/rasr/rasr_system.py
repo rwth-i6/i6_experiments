@@ -115,13 +115,9 @@ class RasrSystem(meta.System):
             segment_path=segm_corpus_job.out_segment_path,
         )
 
-        if self.rasr_binary_path is not None and self.rasr_arch is not None:
-            self.crp[corpus_key].set_executables(
-                rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
-            )
-        elif self.rasr_binary_path is not None and self.rasr_arch is None:
-            self.crp[corpus_key].set_executables(rasr_binary_path=self.rasr_binary_path)
-
+        self.crp[corpus_key].set_executables(
+            rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
+        )
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
