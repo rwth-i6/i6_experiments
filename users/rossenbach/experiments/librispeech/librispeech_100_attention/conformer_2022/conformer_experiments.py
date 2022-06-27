@@ -94,6 +94,18 @@ def conformer_baseline():
     search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
     #search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
 
+    # returnn_config = create_config(training_datasets=training_datasets, **args)
+    # returnn_config.config["store_tf_profile"] = True
+    # search_single(exp_prefix + "/profile",
+    #               returnn_config,
+    #               train_job.out_checkpoints[250],
+    #               test_dataset_tuples["dev-other"][0],
+    #               test_dataset_tuples["dev-other"][1],
+    #               returnn_exe,
+    #               returnn_root,
+    #               mem_rqmt=16)
+
+
     ext_lm_search_args = copy.deepcopy(args)
     transf_lm_net = TransformerLM(
         source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
