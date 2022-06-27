@@ -61,12 +61,12 @@ class CartQuestionsWithoutStress:
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary = [self.boundary] + self.phonemes
         self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
-        self.phonemes_boundary_extra = (
+        self.phonemes_boundary_special = (
             [self.boundary] + [self.silence] + [self.unknown] + self.phonemes
             if add_unknown
             else [self.boundary] + [self.silence] + self.phonemes
         )
-        self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
+        self.phonemes_boundary_special_str = " ".join(self.phonemes_boundary_special)
 
         self.steps = [
             {
@@ -518,12 +518,12 @@ class CartQuestionsWithStress:
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary = [self.boundary] + self.phonemes
         self.phonemes_boundary_str = " ".join(self.phonemes_boundary)
-        self.phonemes_boundary_extra = (
+        self.phonemes_boundary_special = (
             [self.boundary] + [self.silence] + [self.unknown] + self.phonemes
             if add_unknown
             else [self.boundary] + [self.silence] + self.phonemes
         )
-        self.phonemes_boundary_extra_str = " ".join(self.phonemes_boundary_extra)
+        self.phonemes_boundary_special_str = " ".join(self.phonemes_boundary_special)
 
         self.steps = [
             {
