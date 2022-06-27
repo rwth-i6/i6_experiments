@@ -54,6 +54,11 @@ class RasrSystem(meta.System):
         rasr_binary_path: tk.Path,
         rasr_arch: str = "linux-x86_64-standard",
     ):
+        """
+
+        :param rasr_binary_path: path to the rasr binary folder
+        :param rasr_arch: RASR compile architecture suffix
+        """
         super().__init__()
 
         self.rasr_binary_path = rasr_binary_path
