@@ -330,58 +330,13 @@ class CartQuestionsWithoutStress:
                             },
                             {
                                 "type": "question",
-                                "description": "vowel_UW",
-                                "values": "UW",
-                            },
-                            {
-                                "type": "question",
                                 "description": "pb",
                                 "values": "P B",
                             },
                             {
                                 "type": "question",
-                                "description": "vowel_UH",
-                                "values": "UH",
-                            },
-                            {
-                                "type": "question",
                                 "description": "td",
                                 "values": "T D",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AW",
-                                "values": "AW",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AY",
-                                "values": "AY",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AA",
-                                "values": "AA",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AE",
-                                "values": "AE",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AH",
-                                "values": "AH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_AO",
-                                "values": "AO",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_IY",
-                                "values": "IY",
                             },
                             {
                                 "type": "question",
@@ -392,36 +347,6 @@ class CartQuestionsWithoutStress:
                                 "type": "question",
                                 "description": "kg",
                                 "values": "K G",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_EH",
-                                "values": "EH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_OY",
-                                "values": "OY",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_OW",
-                                "values": "OW",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_IH",
-                                "values": "IH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_EY",
-                                "values": "EY",
-                            },
-                            {
-                                "type": "question",
-                                "description": "vowel_ER",
-                                "values": "ER",
                             },
                         ],
                     },
