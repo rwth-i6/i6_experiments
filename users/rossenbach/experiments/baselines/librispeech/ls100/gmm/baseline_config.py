@@ -33,12 +33,12 @@ def run_librispeech_100_common_baseline(
     steps = RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    steps.add_step("cart", cart_args)
-    steps.add_step("tri", tri_args)
-    steps.add_step("vtln", vtln_args)
-    steps.add_step("sat", sat_args)
-    steps.add_step("vtln+sat", vtln_sat_args)
-    steps.add_step("output", final_output_args)
+    # steps.add_step("cart", cart_args)
+    # steps.add_step("tri", tri_args)
+    # steps.add_step("vtln", vtln_args)
+    # steps.add_step("sat", sat_args)
+    # steps.add_step("vtln+sat", vtln_sat_args)
+    # steps.add_step("output", final_output_args)
 
     corpus_data = get_corpus_data_inputs("train-clean-100", use_g2p_training=True)
 
