@@ -91,7 +91,7 @@ class GmmSystem(RasrSystem):
     def __init__(
         self,
         rasr_binary_path: tk.Path,
-        rasr_arch: Optional[str] = None,
+        rasr_arch: str = "linux-x86_64-standard",
     ):
         super().__init__(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
