@@ -225,6 +225,21 @@ class CartQuestionsWithoutStress:
                             },
                             {
                                 "type": "question",
+                                "description": "fricat",
+                                "values": "F V TH S Z SH ZH HH",
+                            },
+                            {
+                                "type": "question",
+                                "description": "voiced",
+                                "values": "B D G V Z M N NG L R W JH TH",
+                            },
+                            {
+                                "type": "question",
+                                "description": "voiceless",
+                                "values": "P T K F S SH CH HH",
+                            },
+                            {
+                                "type": "question",
                                 "description": "VOWEL",
                                 "values": "AA AE AH AO AW AY EH ER EY IH IY OW OY UH UW",
                             },
@@ -312,21 +327,6 @@ class CartQuestionsWithoutStress:
                                 "type": "question",
                                 "description": "VOWEL-SAMPA-I",
                                 "values": "IH AY EY OY",
-                            },
-                            {
-                                "type": "question",
-                                "description": "fricat",
-                                "values": "F V TH S Z SH ZH HH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "voiced",
-                                "values": "B D G V Z M N NG L R W JH TH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "voiceless",
-                                "values": "P T K F S SH CH HH",
                             },
                             {
                                 "type": "question",
@@ -684,6 +684,21 @@ class CartQuestionsWithStress:
                             },
                             {
                                 "type": "question",
+                                "description": "fricat",
+                                "values": "F V TH S Z SH ZH HH",
+                            },
+                            {
+                                "type": "question",
+                                "description": "voiced",
+                                "values": "B D G V Z M N NG L R W JH TH",
+                            },
+                            {
+                                "type": "question",
+                                "description": "voiceless",
+                                "values": "P T K F S SH CH HH",
+                            },
+                            {
+                                "type": "question",
                                 "description": "VOWEL",
                                 "values": "AA0 AA1 AA2 AE0 AE1 AE2 AH0 AH1 AH2 AO0 AO1 AO2 AW0 AW1 AW2 AY0 AY1 AY2 EH0 EH1 EH2 ER0 ER1 ER2 EY0 EY1 EY2 IH0 IH1 IH2 IY0 IY1 IY2 OW0 OW1 OW2 OY0 OY1 OY2 UH0 UH1 UH2 UW0 UW1 UW2",
                             },
@@ -821,21 +836,6 @@ class CartQuestionsWithStress:
                                 "type": "question",
                                 "description": "stress2",
                                 "values": "IY2 AE2 UW2 AA2 EH2 AH2 AO2 IH2 EY2 AW2 AY2 ER2 UH2 OY2 OW2",
-                            },
-                            {
-                                "type": "question",
-                                "description": "fricat",
-                                "values": "F V TH S Z SH ZH HH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "voiced",
-                                "values": "B D G V Z M N NG L R W JH TH",
-                            },
-                            {
-                                "type": "question",
-                                "description": "voiceless",
-                                "values": "P T K F S SH CH HH",
                             },
                             {
                                 "type": "question",
