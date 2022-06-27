@@ -1,6 +1,6 @@
 __all__ = ["RasrSystem"]
 
-from typing import List, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -49,8 +49,20 @@ class RasrSystem(meta.System):
     corpus -> Path
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        rasr_binary_path: tk.Path,
+        rasr_arch: str = "linux-x86_64-standard",
+    ):
+        """
+
+        :param rasr_binary_path: path to the rasr binary folder
+        :param rasr_arch: RASR compile architecture suffix
+        """
         super().__init__()
+
+        self.rasr_binary_path = rasr_binary_path
+        self.rasr_arch = rasr_arch
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
             self.crp["base"].python_home = gs.RASR_PYTHON_HOME
@@ -101,6 +113,10 @@ class RasrSystem(meta.System):
             corpus=self.corpora[corpus_key],
             concurrent=self.concurrent[corpus_key],
             segment_path=segm_corpus_job.out_segment_path,
+        )
+
+        self.crp[corpus_key].set_executables(
+            rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
         )
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
