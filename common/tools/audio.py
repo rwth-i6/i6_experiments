@@ -7,8 +7,8 @@ from i6_core.tools.compile import MakeJob
 
 
 def compile_ffmpeg_binary(
-        branch: Optional[str] = None,
-        commit: Optional[str] = None) -> tk.Path:
+    branch: Optional[str] = None, commit: Optional[str] = None
+) -> tk.Path:
     """
     Compiles FFmpeg using the official Github master.
 
