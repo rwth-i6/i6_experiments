@@ -99,7 +99,7 @@ class CartQuestionsWithoutStress:
                     },
                     {
                         "type": "question",
-                        "description": "noise",
+                        "description": "unknown",
                         "key": "central",
                         "values": self.unknown,
                     },
@@ -556,7 +556,7 @@ class CartQuestionsWithStress:
                     },
                     {
                         "type": "question",
-                        "description": "noise",
+                        "description": "unknown",
                         "key": "central",
                         "values": self.unknown,
                     },
