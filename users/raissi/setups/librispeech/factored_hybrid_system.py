@@ -3,7 +3,9 @@ __all__ = ["FactoredHybridSystem"]
 import copy
 import itertools
 import sys
+
 from dataclasses import asdict
+from IPython import embed
 from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
@@ -23,6 +25,7 @@ from i6_core.util import MultiPath, MultiOutputPath
 
 from i6_experiments.common.setups.rasr.nn_system import NnSystem
 from i6_experiments.common.setups.rasr.util import (
+    OggZipHdfDataInput,
     RasrInitArgs,
     ReturnnRasrDataInput,
     RasrSteps,
@@ -35,7 +38,9 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
 )
 from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
     get_label_info,
-    get_alignment_keys
+    get_alignment_keys,
+    get_lexicon_args,
+    get_tdp_values,
 )
 
 
@@ -48,28 +53,7 @@ Path = tk.setup_path(__package__)
 
 class FactoredHybridSystem(NnSystem):
     """
-    - 5 corpora types: train, devtrain, cv, dev and test
-        devtrain is a small split from the train set which is evaluated like
-        the cv but not used for error calculating. Since we can have different
-        datasubsets per subepoch, we do not caculate the tran score/error on
-        a consistent datasubset
-    - two training data settings: defined in returnn config or not
-    - 3 different types of decoding: returnn, rasr, rasr-label-sync
-    - 2 different lm: count, neural
-    - cv is dev for returnn training
-    - dev for lm param tuning
-    - test corpora for final eval
-
-    settings needed:
-    - am
-    - lm
-    - lexicon
-    - ce training
-    - ce recognition
-    - ce rescoring
-    - smbr training
-    - smbr recognition
-    - smbr rescoring
+    #ToDo
     """
 
     def __init__(
@@ -83,6 +67,13 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
         )
+
+        #general modeling approach
+        self.label_info = LabelInfo(**get_label_info())
+        self.lexicon_args = get_lexicon_args()
+        self.tdp_values = get_tdp_values()
+
+
         
         #data infomration
         self.cv_corpora = []
@@ -94,14 +85,13 @@ class FactoredHybridSystem(NnSystem):
         self.dev_input_data = None
         self.test_input_data = None
 
-        self.train_cv_pairing = None
 
         self.datasets = {}
         self.hdfs = {}
+        self.basic_feature_flows = {}
 
-
+        #pipeline info
         self.context_mapper = ContextMapper()
-        self.label_info = LabelInfo(**get_label_info())
         self.stage = PipelineStages(get_alignment_keys())
         
         self.trainers    = None #ToDo external trainer class
@@ -111,14 +101,92 @@ class FactoredHybridSystem(NnSystem):
         self.graphs = {}
 
         self.experiments = {}
-        self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}
-        
-        
+        self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"} #Triphone forward model
+
+    #--------------------- Init procedure -----------------
 
 
+    def _update_crp_am_setting(self, crp_key, tdp_type=None, label_info=None):
+        #ToDo handle different tdp values: default, based on transcription, based on an alignment
+        if label_info is None:
+            label_info = copy.deepcopy(self.label_info)
+
+        if tdp_type is None:
+            tdp_values = self.tdp_values['default']
+            tdp_pattern = self.tdp_values['pattern']
+        else:
+            print("Not implemented")
+            import sys
+            sys.exit()
+
+        crp = self.crp[crp_key]
+        for ind, ele in enumerate(tdp_pattern):
+            for type in ["*", "silence"]:
+                crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
+
+        crp.acoustic_model_config.state_tying.type = label_info.state_tying
+        if label_info.use_word_end_class:
+            crp.acoustic_model_config.state_tying.use_word_end_classes = label_info.use_word_end_class
+        crp.acoustic_model_config.state_tying.use_boundary_classes = label_info.use_boundary_classes
+        crp.acoustic_model_config.hmm.states_per_phone = label_info.n_states_per_phone
+
+        crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
+        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
+        crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
+
+
+    def init_datasets(
+        self,
+        train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
+        cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
+        devtrain_data: Optional[
+            Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
+        ] = None,
+        dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
+        test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
+        train_cv_pairing: Optional[
+            List[Tuple[str, ...]]
+        ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
+    ):
+        #ToDo get rid of feature scorer and other unimportant stuff here
+        devtrain_data = devtrain_data if devtrain_data is not None else {}
+        dev_data = dev_data if dev_data is not None else {}
+        test_data = test_data if test_data is not None else {}
+
+        self._assert_corpus_name_unique(
+            train_data, cv_data, devtrain_data, dev_data, test_data
+        )
+        datasets = [train_data, cv_data, devtrain_data, dev_data, test_data]
+
+        self.train_input_data = train_data
+        self.cv_input_data = cv_data
+        self.devtrain_input_data = devtrain_data
+        self.dev_input_data = dev_data
+        self.test_input_data = test_data
+
+        self.train_corpora.extend(list(train_data.keys()))
+        self.cv_corpora.extend(list(cv_data.keys()))
+        self.devtrain_corpora.extend(list(devtrain_data.keys()))
+        self.dev_corpora.extend(list(dev_data.keys()))
+        self.test_corpora.extend(list(test_data.keys()))
+
+        self._set_train_data(train_data)
+        self._set_train_data(cv_data)
+        self._set_train_data(devtrain_data)
+        self._set_eval_data(dev_data)
+        self._set_eval_data(test_data)
+
+    def _set_train_data(self, data_dict):
+        for c_key, c_data in data_dict.items():
+            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.feature_flows[c_key] = c_data.feature_flow
+
+    def _set_eval_data(self, data_dict):
+        for c_key, c_data in data_dict.items():
+            self.ctm_files[c_key] = {}
+            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.feature_flows[c_key] = c_data.feature_flow
     # -------------------- Helpers --------------------
-
-
     def _add_output_alias_for_train_job(
         self,
         train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
@@ -138,72 +206,6 @@ class FactoredHybridSystem(NnSystem):
     def get_model_path(self, model_job, epoch):
         return model_job.checkpoints[epoch].ckpt_path
 
-
-    # -------------------- Setup --------------------
-    def init_system(
-        self,
-        hybrid_init_args: RasrInitArgs,
-        train_data: Dict[str, Union[ReturnnRasrDataInput]],
-        cv_data: Dict[str, Union[ReturnnRasrDataInput]],
-        devtrain_data: Optional[
-            Dict[str, Union[ReturnnRasrDataInput]]
-        ] = None,
-        dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-        test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-        train_cv_pairing: Optional[
-            List[Tuple[str, ...]]
-        ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
-    ):
-        self.hybrid_init_args = hybrid_init_args
-
-        self._init_am(**self.hybrid_init_args.am_args)
-
-        devtrain_data = devtrain_data if devtrain_data is not None else {}
-        dev_data = dev_data if dev_data is not None else {}
-        test_data = test_data if test_data is not None else {}
-
-        self._assert_corpus_name_unique(
-            train_data, cv_data, devtrain_data, dev_data, test_data
-        )
-
-        self.train_input_data = train_data
-        self.cv_input_data = cv_data
-        self.devtrain_input_data = devtrain_data
-        self.dev_input_data = dev_data
-        self.test_input_data = test_data
-
-        self.train_corpora.extend(list(train_data.keys()))
-        self.cv_corpora.extend(list(cv_data.keys()))
-        self.devtrain_corpora.extend(list(devtrain_data.keys()))
-        self.dev_corpora.extend(list(dev_data.keys()))
-        self.test_corpora.extend(list(test_data.keys()))
-
-        self.set_eval_data(dev_data)
-        self.set_eval_data(test_data)
-
-        self.train_cv_pairing = (
-            list(itertools.product(self.train_corpora, self.cv_corpora))
-            if train_cv_pairing is None
-            else train_cv_pairing
-        )
-
-        for pairing in self.train_cv_pairing:
-            trn_c = pairing[0]
-            cv_c = pairing[1]
-
-            self.jobs[f"{trn_c}_{cv_c}"] = {}
-            self.nn_models[f"{trn_c}_{cv_c}"] = {}
-            self.nn_checkpoints[f"{trn_c}_{cv_c}"] = {}
-            self.nn_configs[f"{trn_c}_{cv_c}"] = {}
-
-    def set_eval_data(self, data_dict):
-        for c_key, c_data in data_dict.items():
-            self.jobs[c_key] = {}
-            self.ctm_files[c_key] = {}
-            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
-            self.feature_flows[c_key] = c_data.feature_flow
-            
-    
 
 
     # -------------------- Training --------------------

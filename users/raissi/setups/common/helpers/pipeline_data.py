@@ -38,22 +38,24 @@ class ContextMapper:
 class LabelInfo:
     def __init__(
         self,
-        n_states,
-        n_contexts,
+        n_states_per_phone,
+        n_phonemes,
         ph_emb_size,
         st_emb_size,
+        state_tying,
         sil_id=None,
-        word_end_class=True,
-        boundary_class=False,
+        use_word_end_class=True,
+        use_boundary_classes=False,
     ):
-        self.n_states = n_states
-        self.n_contexts = n_contexts
-        self.n_state_classes = n_states * n_contexts
+        self.n_states_per_phone = n_states_per_phone
+        self.n_contexts = n_phonemes
+        self.n_state_classes = n_states_per_phone * n_phonemes
         self.sil_id = sil_id
         self.ph_emb_size = ph_emb_size
         self.st_emb_size = st_emb_size
-        self.word_end_class = word_end_class
-        self.boundary_class = boundary_class
+        self.state_tying = state_tying
+        self.use_word_end_class = use_word_end_class
+        self.use_boundary_classes = use_boundary_classes
 
 
 class PipelineStages:
