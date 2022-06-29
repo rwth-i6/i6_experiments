@@ -1,38 +1,19 @@
-from sisyphus import *
-import sys
-import os
 import numpy
 import copy
-import math
-
-from . import zeineldeen_helpers as helpers
+from typing import Any, Dict, Optional
+from dataclasses import dataclass, asdict
 
 from .zeineldeen_helpers.models.asr.encoder.conformer_encoder import ConformerEncoder
 from .zeineldeen_helpers.models.asr.decoder.transformer_decoder import TransformerDecoder
-from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
+from .zeineldeen_helpers.models.asr.decoder.rnn_decoder import RNNDecoder
 from .zeineldeen_helpers.models.lm.external_lm_decoder import ExternalLMDecoder
-from .zeineldeen_helpers.models.lm import generic_lm
 
 from .zeineldeen_helpers import specaugment
 from .zeineldeen_helpers import data_aug
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
-
-config = {
-
-}
-
-# changing these does not change the hash
-post_config = {
-    'use_tensorflow': True,
-    'tf_log_memory_usage': True,
-    'cleanup_old_models': True,
-    'log_batch_size': True,
-    'debug_print_layer_output_template': True,
-    'debug_mode': False,
-    'batching': 'random'
-}
+from .base_config import config, post_config
 
 # -------------------------- LR Scheduling -------------------------- #
 
@@ -100,8 +81,27 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
 
 
 def pretrain_layers_and_dims(
-        idx, net_dict: dict, encoder_args, decoder_args, variant, reduce_dims=True, initial_dim_factor=0.5,
+        idx, net_dict: dict, encoder_type, decoder_type, encoder_args, decoder_args, variant, reduce_dims=True, initial_dim_factor=0.5,
         initial_batch_size=20000, initial_batch_size_idx=3, second_bs=None, second_bs_idx=None, enc_dec_share_grow_frac=True):
+    """
+    Pretraining implementation that works for multiple encoder/decoder combinations
+
+    :param idx:
+    :param net_dict:
+    :param encoder_type:
+    :param decoder_type:
+    :param encoder_args:
+    :param decoder_args:
+    :param variant:
+    :param reduce_dims:
+    :param initial_dim_factor:
+    :param initial_batch_size:
+    :param initial_batch_size_idx:
+    :param second_bs:
+    :param second_bs_idx:
+    :param enc_dec_share_grow_frac:
+    :return:
+    """
 
     InitialDimFactor = initial_dim_factor
 
@@ -154,11 +154,7 @@ def pretrain_layers_and_dims(
     if num_blocks > final_num_blocks:
         return None
 
-    transf_dec_layers = decoder_args_copy['dec_layers']
-    num_transf_layers = min(num_blocks, transf_dec_layers)
-
     encoder_args_copy['num_blocks'] = num_blocks
-    decoder_args_copy['dec_layers'] = num_transf_layers
     decoder_args_copy['label_smoothing'] = 0
     AttNumHeads = encoder_args_copy['att_num_heads']
 
@@ -166,22 +162,28 @@ def pretrain_layers_and_dims(
         grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
-        if enc_dec_share_grow_frac:
-            grow_frac_dec = grow_frac_enc
-        else:
-            grow_frac_dec = 1.0 - float(transf_dec_layers - num_transf_layers) / (transf_dec_layers - StartNumLayers)
-
-        dim_frac_dec = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_dec
-    else:
-        dim_frac_enc = 1
-        dim_frac_dec = 1
-
-    if reduce_dims:
         for key in encoder_keys:
             encoder_args_copy[key] = int(encoder_args[key] * dim_frac_enc / float(AttNumHeads)) * AttNumHeads
 
-        for key in decoder_keys:
-            decoder_args_copy[key] = int(decoder_args[key] * dim_frac_dec / float(AttNumHeads)) * AttNumHeads
+        if decoder_type == TransformerDecoder:
+            transf_dec_layers = decoder_args_copy['num_layers']
+            num_transf_layers = min(num_blocks, transf_dec_layers)
+            decoder_args_copy['num_layers'] = num_transf_layers
+
+            if enc_dec_share_grow_frac:
+                grow_frac_dec = grow_frac_enc
+            else:
+                grow_frac_dec = 1.0 - float(transf_dec_layers - num_transf_layers) / (transf_dec_layers - StartNumLayers)
+
+            dim_frac_dec = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_dec
+
+            for key in decoder_keys:
+                decoder_args_copy[key] = int(decoder_args[key] * dim_frac_dec / float(AttNumHeads)) * AttNumHeads
+        else:
+            dim_frac_dec = 1
+    else:
+        dim_frac_enc = 1
+        dim_frac_dec = 1
 
     # do not enable regulizations in the first pretraining step to make it more stable
     for k in encoder_args_copy.keys():
@@ -208,10 +210,10 @@ def pretrain_layers_and_dims(
             else:
                 decoder_args_copy[k] *= dim_frac_dec
 
-    conformer_encoder = ConformerEncoder(**encoder_args_copy)
+    conformer_encoder = encoder_type(**encoder_args_copy)
     conformer_encoder.create_network()
 
-    transformer_decoder = TransformerDecoder(base_model=conformer_encoder, **decoder_args_copy)
+    transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args_copy)
     transformer_decoder.create_network()
 
     net_dict = conformer_encoder.network.get_net()
@@ -223,19 +225,121 @@ def pretrain_layers_and_dims(
 # -------------------------------------------------------------------- #
 
 
+class EncoderArgs:
+    pass
+
+@dataclass
+class ConformerEncoderArgs(EncoderArgs):
+    num_blocks: int = 12
+    enc_key_dim: int = 512
+    att_num_heads: int = 8
+    ff_dim: int = 2048
+    conv_kernel_size: int = 32
+    input_layer: str = 'lstm-6'
+    pos_enc: str = 'rel'
+
+    sandwich_conv: bool = False
+    subsample: Optional[str] = None
+
+    # ctc
+    with_ctc: bool = True
+    native_ctc: bool = True
+    ctc_loss_scale: Optional[float] = None
+
+
+    # param init
+    ff_init: Optional[str] = None
+    mhsa_init: Optional[str] = None
+    mhsa_out_init: Optional[str] = None
+    conv_module_init: Optional[str] = None
+    start_conv_init: Optional[str] = None
+
+    # dropout
+    dropout: float = 0.1
+    dropout_in: float = 0.1
+    att_dropout: float = 0.1
+    lstm_dropout: float = 0.1
+
+    # norms
+    batch_norm_opts: Optional[Dict[str, Any]] = None
+    use_ln: bool = False
+
+    # other regularization
+    l2: float = 0.0001
+    self_att_l2: float = 0.0
+    rel_pos_clipping: int = 16
+    stoc_layers_prob: float = 0.0
+
+
+class DecoderArgs:
+    pass
+
+@dataclass
+class TransformerDecoderArgs(DecoderArgs):
+    num_layers: int = 6
+    att_num_heads: int = 8
+    ff_dim: int = 2048
+    pos_enc: Optional[str] = None
+    embed_pos_enc: bool = False
+
+    # param init
+    ff_init: Optional[str] = None
+    mhsa_init: Optional[str] = None
+    mhsa_out_init: Optional[str] = None
+
+    # dropout
+    dropout: float = 0.1
+    att_dropout: float = 0.1
+    embed_dropout: float = 0.1
+    softmax_dropout: float = 0.0
+
+    # other regularization
+    l2: float = 0.0
+    rel_pos_clipping: int = 16
+    label_smoothing: float = 0.1
+    apply_embed_weight: bool = False
+
+
+@dataclass
+class RNNDecoderArgs(DecoderArgs):
+    att_num_heads: int = 1
+    lstm_num_units: int = 1024
+    output_num_units: int = 1024
+    embed_dim: int = 640
+    enc_key_dim: int = 1024  # also attention dim  # also attention dim
+
+    # location feedback
+    loc_conv_att_num_channels: Optional[int] = None
+    loc_conv_att_filter_size: Optional[int] = None
+
+    # param init
+    lstm_weights_init: Optional[str] = None
+    embed_weight_init: Optional[str] = None
+
+    # dropout
+    dropout: float = 0.3
+    att_dropout: float = 0.0
+    embed_dropout: float = 0.1
+    rec_weight_dropout: float = 0.0
+
+    # other regularization
+    l2: float = 0.0001
+    zoneout: bool = True
+    reduceout: bool = True
+
+
 def create_config(
-        name, training_datasets, is_recog=False, input_key="audio_features", enc_layers=12, dec_layers=6, enc_key_dim=512,
-        att_num_heads=8, dropout=0.1, input_layer='lstm-6', conv_kernel_size=32, ff_dim=2048, ff_init=None,
-        att_dropout=0.1, lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20, batch_size=10000,
-        accum_grad=2, with_ctc=True, l2=0.0001, pretrain_reps=5, max_seq_length=75, noam_opts=None,
-        warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None, native_ctc=True, pos_enc='rel', embed_pos_enc=False,
-        start_conv_init=None, mhsa_init=None, conv_module_init=None, mhsa_out_init=None, embed_dropout=0.1, speed_pert=True,
-        gradient_clip_global_norm=0.0, rel_pos_clipping=16, subsample=None, dropout_in=0.1, label_smoothing=0.1,
-        apply_embed_weight=False, audio_feature_opts=None, ctc_loss_scale=None, ext_lm_opts=None, beam_size=12, dec_l2=0.0,
-        softmax_dropout=0.0, stoc_layers_prob=0.0, prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_opts=None,
-        decouple_constraints_factor=0.025, batch_norm_opts=None, extra_str=None, preload_from_files=None, min_lr_factor=50,
-        use_ln=False, gradient_clip=0.0, specaug_str_func_opts=None, dec_pos_enc=None, self_att_l2=0.0,
-        sandwich_conv=False, recursion_limit=3000):
+        name, training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False, is_recog=False, input_key="audio_features",
+        lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20, batch_size=10000,
+        accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
+        warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
+        speed_pert=True,
+        gradient_clip_global_norm=0.0,
+        ext_lm_opts=None, beam_size=12,
+        prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
+        decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
+        gradient_clip=0.0, specaug_str_func_opts=None,
+        recursion_limit=3000):
 
     exp_config = copy.deepcopy(config)  # type: dict
 
@@ -273,7 +377,7 @@ def create_config(
 
     # LR scheduling
     if noam_opts:
-        noam_opts['model_d'] = enc_key_dim
+        noam_opts['model_d'] = encoder_args.enc_key_dim
         exp_config['learning_rate'] = noam_opts['lr']
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + noam_lr_str.format(**noam_opts)
@@ -282,7 +386,7 @@ def create_config(
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + warmup_lr_str.format(**warmup_lr_opts)
     else:  # newbob
-        if retrain_opts is not None:
+        if retrain_checkpoint is not None:
             learning_rates = None
         elif isinstance(const_lr, int):
             learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
@@ -305,27 +409,28 @@ def create_config(
         exp_config['newbob_learning_rate_decay'] = lr_decay
 
     # -------------------------- network -------------------------- #
+    encoder_type = None
+    if isinstance(encoder_args, ConformerEncoderArgs):
+        encoder_type = ConformerEncoder
 
-    encoder_args = dict(
-        target=target, input="data:" + input_key, num_blocks=enc_layers, enc_key_dim=enc_key_dim, att_num_heads=att_num_heads, dropout=dropout,
-        att_dropout=att_dropout, ff_init=ff_init, ff_dim=ff_dim, input_layer=input_layer, conv_kernel_size=conv_kernel_size,
-        with_ctc=with_ctc, pos_enc=pos_enc, native_ctc=native_ctc, l2=l2, lstm_dropout=dropout, start_conv_init=start_conv_init,
-        rel_pos_clipping=rel_pos_clipping, subsample=subsample, dropout_in=dropout_in, mhsa_init=mhsa_init,
-        conv_module_init=conv_module_init, mhsa_out_init=mhsa_out_init, ctc_loss_scale=ctc_loss_scale,
-        stoc_layers_prob=stoc_layers_prob, batch_norm_opts=batch_norm_opts, use_ln=use_ln,
-        self_att_l2=self_att_l2, sandwich_conv=sandwich_conv)
+    decoder_type = None
+    if isinstance(decoder_args, TransformerDecoderArgs):
+        decoder_type = TransformerDecoder
+    elif isinstance(decoder_args, RNNDecoderArgs):
+        decoder_type = RNNDecoder
+    else:
+        assert False, "invalid decoder_args type"
 
-    conformer_encoder = ConformerEncoder(**encoder_args)
+    encoder_args = asdict(encoder_args)
+    encoder_args.update({"target": target, "input": "data:" + input_key})
+
+    conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
 
-    decoder_args = dict(
-        target=target, dec_layers=dec_layers, att_dropout=att_dropout, embed_dropout=embed_dropout,
-        dropout=dropout, att_num_heads=att_num_heads, label_smoothing=label_smoothing, embed_pos_enc=embed_pos_enc,
-        ff_dim=ff_dim, ff_init=ff_init, apply_embed_weight=apply_embed_weight, mhsa_init=mhsa_init,
-        mhsa_out_init=mhsa_out_init, l2=dec_l2, softmax_dropout=softmax_dropout, beam_size=beam_size,
-        pos_enc=dec_pos_enc, rel_pos_clipping=rel_pos_clipping)
+    decoder_args = asdict(decoder_args)
+    decoder_args.update({"target": target, "beam_size": beam_size})
 
-    transformer_decoder = TransformerDecoder(base_model=conformer_encoder, **decoder_args)
+    transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     transformer_decoder.create_network()
 
     decision_layer_name = transformer_decoder.decision_layer_name
@@ -345,18 +450,8 @@ def create_config(
     # add hyperparmas
     exp_config.update(hyperparams)
 
-    if retrain_opts is not None:
-        retrain_model_name = retrain_opts.get('model_name', name)
-        idx = retrain_opts['idx']
-        if 'model' in retrain_opts:
-            model = retrain_opts['model']
-            retrain_epoch = model.split('.')[-1]
-        else:
-            assert 'epoch' in retrain_opts
-            retrain_epoch = retrain_opts['epoch']
-            model = name_to_train_job[retrain_model_name].checkpoints[retrain_epoch].ckpt_path
-        exp_config['import_model_train_epoch1'] = model
-        name += '-retrain{}_ep{}'.format(idx, retrain_epoch)
+    if retrain_checkpoint is not None:
+        exp_config['import_model_train_epoch1'] = retrain_checkpoint
 
     if ext_lm_opts and ext_lm_opts.get('preload_from_files'):
         assert 'preload_from_files' not in exp_config
@@ -376,37 +471,51 @@ def create_config(
     if speed_pert:
         python_prolog += [data_aug.speed_pert]
 
+    staged_network_dict = None
+
     # add pretraining
-    if with_pretrain and ext_lm_opts is None and retrain_opts is None:
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None:
+        if with_staged_network:
+            staged_network_dict = {}
+            idx = 0
+            while True:
+                net = pretrain_layers_and_dims(idx, exp_config['network'], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts)
+                if not net:
+                    break
+                net["#copy_param_mode"] =  "subset"
+                staged_network_dict[(idx*pretrain_reps) + 1] = net
+                idx += 1
+            staged_network_dict[(idx*pretrain_reps) + 1] = exp_config["network"]
+            exp_config.pop("network")
+        else:
+            if pretrain_opts is None:
+                pretrain_opts = {}
 
-        if pretrain_opts is None:
-            pretrain_opts = {}
+            pretrain_networks = []
+            idx = 0
+            while True:
+                net = pretrain_layers_and_dims(idx, exp_config['network'], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts)
+                if not net:
+                    break
+                pretrain_networks.append(net)
+                idx += 1
 
-        pretrain_networks = []
-        idx = 0
-        while True:
-            net = pretrain_layers_and_dims(idx, exp_config['network'], encoder_args, decoder_args, **pretrain_opts)
-            if not net:
-                break
-            pretrain_networks.append(net)
-            idx += 1
+            exp_config['pretrain_nets_lookup'] = {k: v for k, v in enumerate(pretrain_networks)}
 
-        exp_config['pretrain_nets_lookup'] = {k: v for k, v in enumerate(pretrain_networks)}
+            exp_config['pretrain'] = {
+                "repetitions": pretrain_reps,
+                "copy_param_mode": "subset",
+                "construction_algo": CodeWrapper('custom_construction_algo')
+            }
 
-        exp_config['pretrain'] = {
-            "repetitions": pretrain_reps,
-            "copy_param_mode": "subset",
-            "construction_algo": CodeWrapper('custom_construction_algo')
-        }
-
-        pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
-        python_prolog += [pretrain_algo_str]
+            pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
+            python_prolog += [pretrain_algo_str]
 
     if extra_str:
         extra_python_code += '\n' + extra_str
 
     returnn_config = ReturnnConfig(
-        exp_config, post_config=post_config, python_prolog=python_prolog, python_epilog=extra_python_code, hash_full_python_code=True,
+        exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog, python_epilog=extra_python_code, hash_full_python_code=True,
         pprint_kwargs={'sort_dicts': False})
 
     return returnn_config

@@ -1,11 +1,4 @@
-import json
-import os
-import pprint
-import string
-
-from sisyphus.hash import sis_hash_helper
-
-from i6_core.returnn.config import ReturnnConfig, instanciate_delayed
+from i6_core.returnn.config import ReturnnConfig
 
 
 def get_specific_returnn_config(returnn_config, epoch=None):
@@ -38,4 +31,7 @@ def get_specific_returnn_config(returnn_config, epoch=None):
 
 
 class ExtendedReturnnConfig(ReturnnConfig):
+    """
+    Placeholder for old setups from Mohammad
+    """
     pass

@@ -1,13 +1,5 @@
 from dataclasses import dataclass
 
-from returnn.import_ import import_
-# common = import_("github.com/rwth-i6/returnn_common", "models/base", "20210805-a44e7fa4209663c4ea6f71a7406d6839ed699df2")
-# from returnn_import.github_com.rwth_i6.returnn_common.v20210805202428_a44e7fa42096.models.base import Module
-# import returnn_import.github_com.rwth_i6.returnn_common.v20210805202428_a44e7fa42096.models._generated_layers as layers
-common = import_("github.com/rwth-i6/returnn_common", "models/base", "20210929-2243f105ba0befb2eba63f53a2350d4e26639532")
-from returnn_import.github_com.rwth_i6.returnn_common.v20210929142536_2243f105ba0b.models.base import Module
-import returnn_import.github_com.rwth_i6.returnn_common.v20210929142536_2243f105ba0b.models._generated_layers as layers
-
 
 def _mask(x, batch_axis, axis, pos, max_amount):
     """

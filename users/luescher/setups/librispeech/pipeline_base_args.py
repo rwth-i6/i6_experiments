@@ -33,24 +33,31 @@ from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
 def get_init_args(
     *,
-    dc_detection: bool = True,
+    dc_detection: bool = False,
     scorer: Optional[str] = None,
-    mfcc_filter_width: Union[float, Dict] = 268.258,
     am_extra_args: Optional[Dict] = None,
+    mfcc_filter_width: Optional[Union[float, Dict]] = None,
     mfcc_cepstrum_options: Optional[Dict] = None,
     mfcc_extra_args: Optional[Dict] = None,
+    gt_normalization: bool = True,
     gt_options_extra_args: Optional[Dict] = None,
 ):
     """
     :param dc_detection:
     :param scorer:
     :param am_extra_args:
-    :param mfcc_filter_width: dict(channels=16, warping_function="mel", f_max=8000, f_min=0)
+    :param mfcc_filter_width: dict(channels=20, warping_function="mel", f_max=8000, f_min=0) or 268.258
     :param mfcc_cepstrum_options:
     :param mfcc_extra_args:
+    :param gt_normalization:
     :param gt_options_extra_args:
     :return:
     """
+    samples_options = {
+        "audio_format": "wav",
+        "dc_detection": dc_detection,
+    }
+
     am_args = {
         "state_tying": "monophone",
         "states_per_phone": 3,
@@ -75,6 +82,14 @@ def get_init_args(
     costa_args = {"eval_recordings": True, "eval_lm": False}
     default_mixture_scorer_args = {"scale": 0.3}
 
+    if mfcc_filter_width is None:
+        mfcc_filter_width = {
+            "channels": 20,
+            "warping_function": "mel",
+            "f_max": 8000,
+            "f_min": 0,
+        }
+
     mfcc_filter_width = (
         features.filter_width_from_channels(**mfcc_filter_width)
         if isinstance(mfcc_filter_width, Dict)
@@ -84,8 +99,9 @@ def get_init_args(
     if mfcc_cepstrum_options is None:
         mfcc_cepstrum_options = {
             "normalize": False,
-            "outputs": 16,
-            "add_epsilon": False,
+            "outputs": 16,  # this is the actual output feature dimension
+            "add_epsilon": not dc_detection,  # when there is no dc-detection we can have log(0) otherwise
+            "epsilon": 1e-10,
         }
 
     feature_extraction_args = {
@@ -98,10 +114,7 @@ def get_init_args(
                 "normalize": True,
                 "normalization_options": None,
                 "without_samples": False,
-                "samples_options": {
-                    "audio_format": "wav",
-                    "dc_detection": dc_detection,
-                },
+                "samples_options": samples_options,
                 "cepstrum_options": mfcc_cepstrum_options,
                 "fft_options": None,
             },
@@ -120,24 +133,18 @@ def get_init_args(
                 "specint_type": "hanning",
                 "specint_shift": 4,
                 "specint_length": 9,
-                "normalize": True,
+                "normalize": gt_normalization,
                 "preemphasis": True,
                 "legacy_scaling": False,
                 "without_samples": False,
-                "samples_options": {
-                    "audio_format": "wav",
-                    "dc_detection": dc_detection,
-                },
+                "samples_options": samples_options,
                 "normalization_options": {},
             }
         },
         "energy": {
             "energy_options": {
                 "without_samples": False,
-                "samples_options": {
-                    "audio_format": "wav",
-                    "dc_detection": dc_detection,
-                },
+                "samples_options": samples_options,
                 "fft_options": {},
             }
         },
@@ -257,7 +264,7 @@ def get_cart_args(
     min_obs: int = 1000,
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
-    add_unknown: bool = True,
+    add_unknown: bool = False,
 ):
     cart_questions_class = FoldedCartQuestions(
         max_leaves=max_leaves,
@@ -640,7 +647,7 @@ def get_final_output():
 
 def get_data_inputs(
     train_corpus="train-other-960",
-    add_unknown_phoneme_and_mapping=True,
+    add_unknown_phoneme_and_mapping: bool = False,
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(

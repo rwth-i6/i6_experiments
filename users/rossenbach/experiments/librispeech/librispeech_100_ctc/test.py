@@ -337,27 +337,6 @@ def ctc_test_no_empty_orth():
     recog_args = get_default_recog_args()
     tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
 
-
-    # system = CtcSystem(
-    #     returnn_config=get_returnn_config(),
-    #     default_training_args=get_default_training_args(),
-    #     recognition_args=recog_args,
-    #     rasr_python_home='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1',
-    #     rasr_python_exe='/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python',
-    # )
-    # train_data, dev_data, test_data = get_corpus_data_inputs(delete_empty_orth=True)
-
-    # gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_100_ctc/ctc_test_no_empty_orth"
-    # system.init_system(
-    #     rasr_init_args=rasr_args,
-    #     train_data=train_data,
-    #     dev_data=dev_data,
-    #     test_data=test_data
-    # )
-    # system.run(("extract", "train", "recog"))
-    # gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
     # Test with feature dropout
     system = CtcSystem(
         returnn_config=get_returnn_config(feature_dropout=True, stronger_specaug=True),

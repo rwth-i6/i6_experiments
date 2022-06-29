@@ -23,6 +23,7 @@ def run_librispeech_100_common_baseline():
 
     final_output_args = OutputArgs("final")
     final_output_args.define_corpus_type("train-clean-100", "train")
+    final_output_args.define_corpus_type("dev-clean", "dev")
     final_output_args.define_corpus_type("dev-other", "dev")
     final_output_args.add_feature_to_extract("gt")
 
@@ -39,6 +40,9 @@ def run_librispeech_100_common_baseline():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_gmm/common_baseline'
     system = gmm_system.GmmSystem()
+    from i6_experiments.common.tools.rasr import compile_rasr_binaries
+    binaries = compile_rasr_binaries()
+    system.set_binaries_for_crp(crp_key="base", rasr_binary_path=binaries)
     start = time.time()
     system.init_system(hybrid_init_args=get_init_args(),
                        train_data=train,

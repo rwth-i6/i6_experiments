@@ -16,6 +16,8 @@ jobs = [
     'work/i6_core/audio/encoding/BlissChangeEncodingJob.da4jvvvtTyUG',
     'work/i6_core/audio/encoding/BlissChangeEncodingJob.gjPZrjES7C9A',
     'work/i6_core/audio/encoding/BlissChangeEncodingJob.vUdgDkgc97ZK',
+    'work/i6_core/corpus/convert/CorpusToTxtJob.4gG5aKOKTRa5',
+    'work/i6_core/corpus/convert/CorpusToTxtJob.sFtuT1uRQfMm',
     'work/i6_core/corpus/stats/ExtractOovWordsFromCorpusJob.AQnble9lAUXO',
     'work/i6_core/corpus/stats/ExtractOovWordsFromCorpusJob.Hde5OgrOSgj5',
     'work/i6_core/corpus/stats/ExtractOovWordsFromCorpusJob.clziMIB5yqmZ',
@@ -73,9 +75,12 @@ jobs = [
     'work/i6_core/returnn/oggzip/BlissToOggZipJob.W2k1lPIRrws8',
     'work/i6_core/returnn/oggzip/BlissToOggZipJob.aEkXwA7HziQ1',
     'work/i6_core/returnn/oggzip/BlissToOggZipJob.uJ4Bsi72tTTX',
+    'work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.Ub8e1Pb8JQ8q',
+    'work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt',
     'work/i6_core/text/processing/PipelineJob.p4BOP5qZ6T1G',
     'work/i6_core/tools/download/DownloadJob.0UXAqd5DuQG7',
     'work/i6_core/tools/download/DownloadJob.6ij8dDC1z4zK',
-    'work/i6_core/tools/download/DownloadJob.ddCQ2YhC3VG0'
+    'work/i6_core/tools/download/DownloadJob.ddCQ2YhC3VG0',
+    'work/i6_core/tools/git/CloneGitRepositoryJob.rEnqw3X2cgyB'
 ]
 

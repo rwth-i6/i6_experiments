@@ -36,23 +36,23 @@ def run():
         use_eval_data_subset=True,
     )
     hybrid_init_args = lbs_gmm_setups.get_init_args()
-    mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
-    cart_args = lbs_gmm_setups.get_cart_args()
+    mono_args = lbs_gmm_setups.get_monophone_args()
+    cart_args = lbs_gmm_setups.get_cart_args(max_leaves=12001)
     tri_args = lbs_gmm_setups.get_triphone_args()
-    vtln_args = lbs_gmm_setups.get_vtln_args(allow_zero_weights=True)
-    sat_args = lbs_gmm_setups.get_sat_args(allow_zero_weights=True)
+    vtln_args = lbs_gmm_setups.get_vtln_args()
+    sat_args = lbs_gmm_setups.get_sat_args()
     vtln_sat_args = lbs_gmm_setups.get_vtln_sat_args()
     final_output_args = lbs_gmm_setups.get_final_output()
 
     steps = rasr_util.RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    steps.add_step("cart", cart_args)
-    steps.add_step("tri", tri_args)
-    steps.add_step("vtln", vtln_args)
-    steps.add_step("sat", sat_args)
-    steps.add_step("vtln+sat", vtln_sat_args)
-    steps.add_step("output", final_output_args)
+    # steps.add_step("cart", cart_args)
+    # steps.add_step("tri", tri_args)
+    # steps.add_step("vtln", vtln_args)
+    # steps.add_step("sat", sat_args)
+    # steps.add_step("vtln+sat", vtln_sat_args)
+    # steps.add_step("output", final_output_args)
 
     # ******************** GMM System ********************
 
@@ -64,7 +64,7 @@ def run():
         test_data=test_data_inputs,
     )
     lbs_gmm_system.run(steps)
-
+    """
     train_corpus_path = lbs_gmm_system.corpora["train-other-960"].corpus_file
     total_train_num_segments = 281241
     cv_size = 3000 / total_train_num_segments
@@ -146,8 +146,5 @@ def run():
         train_cv_pairing=[tuple(["train-other-960.train", "train-other-960.cv"])],
     )
     lbs_nn_system.run(nn_steps)
-
+    """
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
-
-
-run()

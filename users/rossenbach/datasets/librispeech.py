@@ -6,10 +6,12 @@ import os
 from sisyphus import Job, Task, tk
 
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+from i6_core.meta import CorpusObject
 from i6_core.text.processing import HeadJob, PipelineJob
 
-from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict
+from i6_experiments.common.datasets.librispeech import get_bliss_corpus_dict, get_corpus_object_dict
 from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import get_bpe_settings, get_returnn_subword_nmt
+from i6_experiments.users.rossenbach.audio.silence_removal import ffmpeg_silence_remove
 
 
 @lru_cache()
@@ -143,3 +145,32 @@ def get_librispeech_tts_segments():
         dev_segments_per_speaker=4
     )
     return generate_tts_segments_job.out_train_segments, generate_tts_segments_job.out_dev_segments
+
+
+
+@lru_cache()
+def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
+    """
+    This returns the silence-preprocessed version of LibriSpeech train-clean-100 with
+    FFmpeg silence preprocessing using a threshold of -50dB for silence
+    :return:
+    """
+    corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+    train_100_corpus = corpus_object_dict['train-clean-100']
+
+    processed_corpus = CorpusObject()
+    processed_corpus.audio_format = "ogg"
+    # this is not the true duration, but because it is unknown we just copy
+    # this as no further implications to the pipeline except for the RTF settings to estimate SGE usage
+    processed_corpus.duration = train_100_corpus.duration
+    processed_corpus.audio_dir = train_100_corpus.audio_dir
+    processed_corpus.corpus_file = ffmpeg_silence_remove(
+        train_100_corpus.corpus_file,
+        stop_threshold = -50,
+        stop_duration = 0,
+        force_output_format = 'ogg',
+        # the pipeline uses n4.1.4, but we assume that it is safe to user other versions of FFMPEG as well
+        # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
+        ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
+
+    return processed_corpus

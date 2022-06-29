@@ -88,8 +88,17 @@ class GmmSystem(RasrSystem):
     corpus -> Path
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        rasr_binary_path: tk.Path,
+        rasr_arch: str = "linux-x86_64-standard",
+    ):
+        """
+
+        :param rasr_binary_path: path to the rasr binary folder
+        :param rasr_arch: RASR compile architecture suffix
+        """
+        super().__init__(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
         self.monophone_args: Optional[GmmMonophoneArgs] = None
         self.cart_args: Optional[GmmCartArgs] = None

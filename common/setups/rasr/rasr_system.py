@@ -1,6 +1,6 @@
 __all__ = ["RasrSystem"]
 
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -49,8 +49,20 @@ class RasrSystem(meta.System):
     corpus -> Path
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        rasr_binary_path: tk.Path,
+        rasr_arch: str = "linux-x86_64-standard",
+    ):
+        """
+
+        :param rasr_binary_path: path to the rasr binary folder
+        :param rasr_arch: RASR compile architecture suffix
+        """
         super().__init__()
+
+        self.rasr_binary_path = rasr_binary_path
+        self.rasr_arch = rasr_arch
 
         if hasattr(gs, "RASR_PYTHON_HOME") and gs.RASR_PYTHON_HOME is not None:
             self.crp["base"].python_home = gs.RASR_PYTHON_HOME
@@ -101,6 +113,10 @@ class RasrSystem(meta.System):
             corpus=self.corpora[corpus_key],
             concurrent=self.concurrent[corpus_key],
             segment_path=segm_corpus_job.out_segment_path,
+        )
+
+        self.crp[corpus_key].set_executables(
+            rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
         )
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
@@ -184,6 +200,38 @@ class RasrSystem(meta.System):
         for i in args:
             name_list.extend(list(i.keys()))
         assert len(name_list) == len(set(name_list)), "corpus names are not unique"
+
+    # -------------------- base functions --------------------
+
+    def set_binaries_for_crp(
+        self,
+        crp_key: str,
+        rasr_binary_path: tk.Path,
+        rasr_arch: str = "linux-x86_64-standard",
+        python_home: Optional[tk.Path] = None,
+        python_exe: Optional[tk.Path] = None,
+    ):
+        """
+        Set explicit binaries and python for RASR with respect to a specific crp entry.
+
+        If this is done for the `base` crp, this function should be called before any other call to `system`,
+        especially before `init_system` or `add_corpus`.
+
+        :param binary_path: path to a RASR binary folder
+        :param rasr_arch: RASR architecture suffix
+        :param python_home: path to the python virtual environment base directory
+            in case of None nothing will be set
+        :param python_exe: path to the python binary that should be executed
+            in case of None nothing will be set
+        """
+        self.crp[crp_key].set_executables(
+            rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch
+        )
+
+        if python_home is not None:
+            self.crp[crp_key].python_home = python_home
+        if python_exe is not None:
+            self.crp[crp_key].python_program_name = python_exe
 
     def add_corpus(self, corpus_key: str, data: RasrDataInput, add_lm: bool):
         """
