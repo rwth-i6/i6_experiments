@@ -80,6 +80,23 @@ def conformer_baseline():
     training_args['pretrain_opts'] = {'variant': 4}
     training_args['pretrain_reps'] = 6
 
+    # ---------------------------------------------------------
+    # LM Settings
+    transf_lm_net = TransformerLM(
+        source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
+    transf_lm_net.create_network()
+    transf_lm_opts = {
+        'lm_subnet': transf_lm_net.network.get_net(),
+        'lm_output_prob_name': 'lm_output',
+        'is_recurrent': True,
+        'preload_from_files': {
+            'lm_model': {
+                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.016',
+                'prefix': 'lm_'
+            }
+        },
+        'name': 'trafo',
+    }
 
     # ---------------------------------------------------------
     # Initial experiment
@@ -105,23 +122,7 @@ def conformer_baseline():
     #               returnn_root,
     #               mem_rqmt=16)
 
-
     ext_lm_search_args = copy.deepcopy(args)
-    transf_lm_net = TransformerLM(
-        source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
-    transf_lm_net.create_network()
-    transf_lm_opts = {
-        'lm_subnet': transf_lm_net.network.get_net(),
-        'lm_output_prob_name': 'lm_output',
-        'is_recurrent': True,
-        'preload_from_files': {
-            'lm_model': {
-                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.016',
-                'prefix': 'lm_'
-            }
-        },
-        'name': 'trafo',
-    }
     ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
 
     for lm_scale in [0.2, 0.32, 0.4]:
@@ -155,8 +156,8 @@ def conformer_baseline():
 
     # Initial experiment
     name = 'base_conformer_12l_lstm_1l'
-    conformer_enc_args = copy.deepcopy(conformer_enc_args)
-    conformer_enc_args.ctc_loss_scale = 1.0
+    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
+    local_conformer_enc_args.ctc_loss_scale = 1.0
     training_args = copy.deepcopy(training_args)
 
     # pretraining
@@ -164,7 +165,7 @@ def conformer_baseline():
     training_args['pretrain_reps'] = 5
 
     exp_prefix = prefix_name + "/" + name
-    args = copy.deepcopy({**training_args, "encoder_args": conformer_enc_args, "decoder_args": rnn_dec_args})
+    args = copy.deepcopy({**training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
     args['name'] = name
     args['with_staged_network'] = True
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
@@ -177,21 +178,6 @@ def conformer_baseline():
     #search(exp_prefix + "/default_best", returnn_config, get_best_checkpoint(train_job, output_path=exp_prefix), test_dataset_tuples, returnn_exe, returnn_root_search)
 
     ext_lm_search_args = copy.deepcopy(args)
-    transf_lm_net = TransformerLM(
-        source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
-    transf_lm_net.create_network()
-    transf_lm_opts = {
-        'lm_subnet': transf_lm_net.network.get_net(),
-        'lm_output_prob_name': 'lm_output',
-        'is_recurrent': True,
-        'preload_from_files': {
-            'lm_model': {
-                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.016',
-                'prefix': 'lm_'
-            }
-        },
-        'name': 'trafo',
-    }
     ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
 
     for lm_scale in [0.2, 0.32, 0.4]:
@@ -220,3 +206,42 @@ def conformer_baseline():
     #                  returnn_exe,
     #                  returnn_root)
 
+
+    # timing experiment
+    name = 'base_conformer_12l_convsub_lstm_1l'
+    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
+    local_conformer_enc_args.input_layer = "conv"
+    local_conformer_enc_args.ctc_loss_scale = 1.0
+    training_args = copy.deepcopy(training_args)
+
+    # pretraining
+    training_args['pretrain_opts'] = {'variant': 3}
+    training_args['pretrain_reps'] = 5
+
+    exp_prefix = prefix_name + "/" + name
+    args = copy.deepcopy({**training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
+    args['name'] = name
+    args['with_staged_network'] = True
+    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
+                                         commit="cc7d1ab95560910c92b5a43e4f2717370c796154").out_repository
+
+
+    returnn_config = create_config(training_datasets=training_datasets, **args)
+    train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
+    search(exp_prefix + "/default_80", returnn_config, train_job.out_checkpoints[40], test_dataset_tuples, returnn_exe, returnn_root)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
+
+    ext_lm_search_args = copy.deepcopy(args)
+    ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
+
+    for lm_scale in [0.4]:
+        search_args = copy.deepcopy(ext_lm_search_args)
+        search_args['ext_lm_opts']['lm_scale'] = lm_scale
+        returnn_config = create_config(training_datasets=training_datasets, **search_args)
+        search_single(exp_prefix + "/default_last_ext_lm_%.2f" % lm_scale,
+                      returnn_config,
+                      train_job.out_checkpoints[250],
+                      test_dataset_tuples["dev-other"][0],
+                      test_dataset_tuples["dev-other"][1],
+                      returnn_exe,
+                      returnn_root)

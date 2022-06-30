@@ -176,6 +176,40 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
     return test_dataset, test_reference_dict_file
 
 
+@lru_cache()
+def build_profile_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=2000):
+
+    ogg_zip_dict = get_ogg_zip_dict("corpora")
+    bliss_dict = get_bliss_corpus_dict()
+    test_ogg = ogg_zip_dict[dataset_key]
+    from i6_core.corpus.convert import CorpusToTextDictJob
+    from i6_core.corpus.segments import SegmentCorpusJob
+    segments = SegmentCorpusJob(bliss_corpus=bliss_dict, num_segments=1).out_single_segment_files[0]
+
+    test_reference_dict_file = CorpusToTextDictJob(bliss_dict[dataset_key]).out_dictionary
+
+    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
+
+    audio_datastream = get_audio_datastream(returnn_python_exe, returnn_root, output_path)
+
+    data_map = {"audio_features": ("zip_dataset", "data"),
+                "bpe_labels": ("zip_dataset", "classes")}
+
+    test_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
+        path=[test_ogg],
+        audio_opts=audio_datastream.as_returnn_audio_opts(),
+        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+        seq_ordering="sorted_reverse"
+    )
+    test_dataset = returnn_standalone.data.datasets.MetaDataset(
+        data_map=data_map,
+        datasets={"zip_dataset": test_zip_dataset},
+        seq_order_control_dataset="zip_dataset"
+    )
+
+    return test_dataset, test_reference_dict_file
+
+
 def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
     """
 
