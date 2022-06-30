@@ -7,6 +7,9 @@ from i6_experiments.common.datasets.librispeech import (
     get_bliss_lexicon,
     get_g2p_augmented_bliss_lexicon_dict,
 )
+
+from i6_experiments.common.datasets.librispeech.constants import concurrent
+
 from i6_experiments.common.setups.rasr import RasrDataInput
 
 
@@ -68,7 +71,7 @@ def get_corpus_data_inputs(
 
     train_data_inputs[corpus_key] = RasrDataInput(
         corpus_object=corpus_object_dict[corpus_key],
-        concurrent=10,
+        concurrent=concurrent[corpus_key],
         lexicon=train_lexicon,
         lm=lm,
     )
@@ -76,7 +79,7 @@ def get_corpus_data_inputs(
     for dev_key in ["dev-clean", "dev-other"]:
         dev_data_inputs[dev_key] = RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
-            concurrent=10,
+            concurrent=concurrent[dev_key],
             lexicon=lexicon,
             lm=lm,
         )
@@ -84,7 +87,7 @@ def get_corpus_data_inputs(
     for test_key in ["test-clean", "test-other"]:
         test_data_inputs[test_key] = RasrDataInput(
             corpus_object=corpus_object_dict["test-clean"],
-            concurrent=10,
+            concurrent=concurrent[test_key],
             lexicon=lexicon,
             lm=lm,
         )
