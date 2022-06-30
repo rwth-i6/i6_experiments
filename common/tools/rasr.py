@@ -10,6 +10,7 @@ def compile_rasr_binaries_i6mode(
     branch: Optional[str] = None,
     commit: Optional[str] = None,
     rasr_git_repository: str = "https://github.com/rwth-i6/rasr",
+    rasr_arch: str = "linux-x86_64-standard",
 ) -> tk.Path:
     """
     Compile RASR for i6-internal usage
@@ -17,6 +18,7 @@ def compile_rasr_binaries_i6mode(
     :param branch: specify a specific branch
     :param commit: specify a specific commit
     :param rasr_git_repository: where to clone RASR from, usually does not need to be altered
+    :param rasr_arch: RASR compile architecture string
     :return: path to the binary folder
     """
     rasr_repo = CloneGitRepositoryJob(
@@ -27,7 +29,7 @@ def compile_rasr_binaries_i6mode(
         make_sequence=["build", "install"],
         configure_opts=["--i6"],
         num_processes=8,
-        link_outputs={"binaries": "arch/linux-x86_64-standard/"},
+        link_outputs={"binaries": f"arch/{rasr_arch}/"},
     )
     make_job.rqmt["mem"] = 8
     return make_job.out_links["binaries"]

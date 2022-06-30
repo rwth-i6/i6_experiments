@@ -30,7 +30,7 @@ def compile_ffmpeg_binary(
 
     ffmpeg_make_binary = MakeJob(
         folder=ffmpeg_repo.out_repository,
-        make_sequence=None,
+        make_sequence=["all"],
         num_processes=4,
         configure_opts=["--disable-x86asm", "--enable-libvorbis"],
         link_outputs={"ffmpeg": "ffmpeg"},
