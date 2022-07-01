@@ -2,21 +2,15 @@ import os
 
 # -------------------- Sisyphus --------------------
 
-from sisyphus import gs, tk, Path
+from sisyphus import gs
 
 # -------------------- Recipes --------------------
 
-import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
-import i6_core.text as text
-
-from i6_core.tools import CloneGitRepositoryJob
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
-import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
-import i6_experiments.users.luescher.setups.librispeech.pipeline_hybrid_args as lbs_hybrid_setups
 
 
 def run_librispeech_960_common_baseline():
