@@ -10,7 +10,7 @@ __all__ = [
     "get_data_inputs",
 ]
 
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -41,6 +41,9 @@ def get_init_args(
     mfcc_extra_args: Optional[Dict] = None,
     gt_normalization: bool = True,
     gt_options_extra_args: Optional[Dict] = None,
+    tdp_transition: Tuple[
+        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
+    ] = (3.0, 0.0, 30.0, 0.0),
 ):
     """
     :param dc_detection:
@@ -51,6 +54,7 @@ def get_init_args(
     :param mfcc_extra_args:
     :param gt_normalization:
     :param gt_options_extra_args:
+    :param tdp_transition:
     :return:
     """
     samples_options = {
@@ -65,8 +69,8 @@ def get_init_args(
         "across_word_model": True,
         "early_recombination": False,
         "tdp_scale": 1.0,
-        "tdp_transition": (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
-        "tdp_silence": (0.0, 3.0, "infinity", 20.0),
+        "tdp_transition": tdp_transition,  # loop, forward, skip, exit
+        "tdp_silence": (0.0, 3.0, "infinity", 20.0),  # loop, forward, skip, exit
         "tying_type": "global",
         "nonword_phones": "",
         "tdp_nonword": (
