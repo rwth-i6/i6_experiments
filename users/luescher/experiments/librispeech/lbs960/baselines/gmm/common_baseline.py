@@ -12,6 +12,8 @@ import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
 
+from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
+
 
 def run_librispeech_960_common_baseline():
     # ******************** Settings ********************
@@ -19,6 +21,8 @@ def run_librispeech_960_common_baseline():
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
+
+    rasr_binary_path = compile_rasr_binaries_i6mode()
 
     # ******************** GMM Init ********************
 
@@ -50,7 +54,7 @@ def run_librispeech_960_common_baseline():
 
     # ******************** GMM System ********************
 
-    lbs_gmm_system = gmm_system.GmmSystem()
+    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
     lbs_gmm_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=train_data_inputs,
