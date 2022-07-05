@@ -56,7 +56,6 @@ class RasrInitArgs:
         costa_args: dict,
         am_args: dict,
         feature_extraction_args: dict,
-        default_mixture_scorer_args: dict,
         scorer: Optional[str] = None,
         scorer_args: Optional[Dict] = None,
         stm_args: Optional[Dict] = None,
@@ -150,9 +149,6 @@ class RasrInitArgs:
                 'fft_options': {},
             }
         ##################################################
-        :param default_mixture_scorer_args:
-        {"scale": 0.3}
-        ##################################################
         :param scorer:
         "kaldi", "sclite", default is sclite
         ##################################################
@@ -162,7 +158,6 @@ class RasrInitArgs:
         ##################################################
         """
         self.costa_args = costa_args
-        self.default_mixture_scorer_args = default_mixture_scorer_args
         self.scorer = scorer
         self.scorer_args = scorer_args
         self.am_args = am_args
