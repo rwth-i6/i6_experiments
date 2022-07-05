@@ -16,6 +16,7 @@ def run_librispeech_100_common_baseline(
     alias_prefix="baselines/librispeech/ls100/gmm/common_baseline",
 ):
 
+    stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
 
     hybrid_init_args = baseline_args.get_init_args()
@@ -57,4 +58,4 @@ def run_librispeech_100_common_baseline(
     )
     system.run(steps)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+    gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
