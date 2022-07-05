@@ -65,6 +65,7 @@ def get_init_args():
                     "epsilon": 1e-10,
                 },
                 "fft_options": None,
+                "add_feature_output": True,
             },
         },
         "energy": {
@@ -80,7 +81,6 @@ def get_init_args():
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args={"scale": 0.3},
     )
 
 
