@@ -8,7 +8,11 @@ from i6_core.features.filterbank import filter_width_from_channels
 from i6_core import cart
 
 from i6_experiments.common.setups.rasr import util
-from i6_experiments.common.datasets.librispeech.cart import CartQuestionsWithStress, CartQuestionsWithoutStress
+from i6_experiments.common.datasets.librispeech.cart import (
+    CartQuestionsWithStress,
+    CartQuestionsWithoutStress,
+)
+
 
 def get_init_args():
     dc_detection = False
@@ -152,7 +156,9 @@ def get_cart_args(
     :return:
     """
 
-    CartQuestions = CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
+    CartQuestions = (
+        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
+    )
 
     cart_questions_class = CartQuestions(
         max_leaves=max_leaves,
