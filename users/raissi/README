@@ -1,0 +1,3 @@
+experiments:
+ librispeech:
+   data_preparation: all arguments needed for corpora, lexica and feature extraction

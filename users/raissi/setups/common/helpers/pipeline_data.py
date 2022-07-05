@@ -57,6 +57,9 @@ class LabelInfo:
         self.use_word_end_class = use_word_end_class
         self.use_boundary_classes = use_boundary_classes
 
+    def get_number_of_dense_classes(self):
+        return self.n_state_classes * (self.n_contexts**2)
+
 
 class PipelineStages:
     def __init__(self, alignment_keys):
@@ -64,14 +67,14 @@ class PipelineStages:
             zip(alignment_keys, [self._get_context_dict(k) for k in alignment_keys])
         )
 
-    def _get_context_dict(self, label):
+    def _get_context_dict(self, align_k):
         return {
-            "mono": f"mono-from-{label}",
-            "mono-delta": f"mono-delta-from-{label}",
-            "di": f"di-from-{label}",
-            "di-delta": f"di-delta-from-{label}",
-            "tri": f"tri-from-{label}",
-            "tri-delta": f"tridelta-from-{label}",
+            "mono": f"mono-from-{align_k}",
+            "mono-delta": f"mono-delta-from-{align_k}",
+            "di": f"di-from-{align_k}",
+            "di-delta": f"di-delta-from-{align_k}",
+            "tri": f"tri-from-{align_k}",
+            "tri-delta": f"tridelta-from-{align_k}",
         }
 
     def get_name(self, alignment_key, context_type):

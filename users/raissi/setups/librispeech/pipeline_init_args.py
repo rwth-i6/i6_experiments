@@ -1,7 +1,7 @@
 __all__ = [
-    "get_final_output",
     "get_init_args",
     "get_data_inputs",
+    "get_final_output",
 ]
 
 from typing import Dict, Optional, Union
@@ -18,11 +18,11 @@ import i6_core.rasr as rasr
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-# -------------------- helpers --------------------
-# -------------------- functions --------------------
+
 def get_init_args(
     *,
     dc_detection: bool = False,
+    scorer: Optional[str] = None,
     am_extra_args: Optional[Dict] = None,
     mfcc_filter_width: Optional[Union[float, Dict]] = None,
     mfcc_cepstrum_options: Optional[Dict] = None,
@@ -32,6 +32,7 @@ def get_init_args(
 ):
     """
     :param dc_detection:
+    :param scorer:
     :param am_extra_args:
     :param mfcc_filter_width: dict(channels=20, warping_function="mel", f_max=8000, f_min=0) or 268.258
     :param mfcc_cepstrum_options:
@@ -67,6 +68,7 @@ def get_init_args(
         am_args.update(am_extra_args)
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
+    default_mixture_scorer_args = {"scale": 0.3}
 
     if mfcc_filter_width is None:
         mfcc_filter_width = {
@@ -145,19 +147,19 @@ def get_init_args(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args=None,
+        default_mixture_scorer_args=default_mixture_scorer_args,
+        scorer=scorer,
     )
-
-
 
 
 def get_data_inputs(
     train_corpus="train-other-960",
-    add_unknown_phoneme_and_mapping = False,
+    add_unknown_phoneme_and_mapping: bool = False,
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora",
+        audio_format="wav",
+        output_prefix="corpora",
     )
 
     lm = {
@@ -166,17 +168,22 @@ def get_data_inputs(
         "scale": 10,
     }
 
-    train_lexicon = {
-        "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
-            use_stress_marker=False,
+    use_stress_marker = False
+
+    original_bliss_lexicon = {
+        "filename": lbs_dataset.get_bliss_lexicon(
+            use_stress_marker=use_stress_marker,
             add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
-        )[train_corpus],
+        ),
         "normalize_pronunciation": False,
     }
 
-    lexicon = {
-        'filename': lbs_dataset.get_bliss_lexicon(),
-        'normalize_pronunciation': False,
+    augmented_bliss_lexicon = {
+        "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
+            use_stress_marker=use_stress_marker,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        )[train_corpus],
+        "normalize_pronunciation": False,
     }
 
     train_data_inputs = {}
@@ -184,7 +191,9 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=train_lexicon,
+        corpus_object=corpus_object_dict[train_corpus],
+        concurrent=300,
+        lexicon=augmented_bliss_lexicon,
     )
 
     dev_corpus_keys = (
@@ -196,7 +205,7 @@ def get_data_inputs(
         dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=20,
-            lexicon=lexicon,
+            lexicon=original_bliss_lexicon,
             lm=lm,
         )
 
@@ -204,14 +213,11 @@ def get_data_inputs(
         test_data_inputs[tst_key] = rasr_util.RasrDataInput(
             corpus_object=corpus_object_dict[tst_key],
             concurrent=20,
-            lexicon=lexicon,
+            lexicon=original_bliss_lexicon,
             lm=lm,
         )
 
     return train_data_inputs, dev_data_inputs, test_data_inputs
-
-
-
 
 
 def get_final_output():
@@ -225,7 +231,4 @@ def get_final_output():
 
     output_args.add_feature_to_extract("gt")
 
-
     return output_args
-
-

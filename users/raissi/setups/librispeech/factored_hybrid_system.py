@@ -18,15 +18,18 @@ from sisyphus.delayed_ops import DelayedFormat
 # -------------------- Recipes --------------------
 
 import i6_core.features as features
+import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath, MultiOutputPath
 
 from i6_experiments.common.setups.rasr.nn_system import NnSystem
+
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
     RasrInitArgs,
+    RasrDataInput,
     ReturnnRasrDataInput,
     RasrSteps,
 )
@@ -36,12 +39,22 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     LabelInfo,
     PipelineStages
 )
+from i6_experiments.users.raissi.setups.common.helpers.train_helpers import (
+    get_extra_config_segment_order,
+)
+
+from i6_experiments.users.raissi.setups.common.helpers.rasr import (
+    SystemOutput,
+)
+
 from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
     get_label_info,
     get_alignment_keys,
     get_lexicon_args,
     get_tdp_values,
 )
+
+
 
 
 # -------------------- Init --------------------
@@ -55,27 +68,50 @@ class FactoredHybridSystem(NnSystem):
     """
     #ToDo
     """
-
     def __init__(
             self,
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
-            returnn_python_exe: Optional[str] = None,
+            returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+            hybrid_init_args: RasrInitArgs = None,
+            train_data: Dict[str, RasrDataInput] = None,
+            dev_data: Dict[str, RasrDataInput] = None,
+            test_data: Dict[str, RasrDataInput] = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
         )
+        #arguments used for the initialization of the system, they should be set before running the system
+        self.hybrid_init_args = hybrid_init_args
+        self.train_data = train_data
+        self.dev_data = dev_data
+        self.test_data = test_data
+
+        #useful paths
+        self.dependency_path = '/work/asr4/raissi/setups/librispeech/960-ls/dependencies'
 
         #general modeling approach
         self.label_info = LabelInfo(**get_label_info())
         self.lexicon_args = get_lexicon_args()
         self.tdp_values = get_tdp_values()
 
+        #transcription priors in pickle format
+        self.priors = {'monostate':        ('/').join([self.dependency_path , 'priors', 'daniel', 'monostate', 'monostate.pickle']),
+                       'monostate-EOW':    ('/').join([self.dependency_path , 'priors', 'daniel', 'monostate', 'monostate.we.pickle']),
+                       'threepartite':     ('/').join([self.dependency_path , 'priors', 'daniel', 'threepartite', 'threepartite.pickle']),
+                       'threepartite-EOW': ('/').join([self.dependency_path , 'priors', 'daniel', 'threepartite', 'threepartite.we.pickle'])}
 
-        
-        #data infomration
+        self.cv_info = {'pre_path': ('/').join([self.dependency_path, 'data', 'zhou-corpora']),
+                                      'train_dev': 'train-dev.corpus.xml',
+                                      'train_dev_segments': 'train-dev.segments',
+                                      'dev_cv': 'dev-cv.corpus.xml',
+                                      'dev_cv_segments': 'dev-cv.segments',
+                                      'features_path': ('/').join(['FeatureExtraction.Gammatone.yly3ZlDOfaUm', 'output', 'gt.cache.bundle'])
+                                      }
+
+        #dataset infomration
         self.cv_corpora = []
         self.devtrain_corpora = []
 
@@ -90,6 +126,20 @@ class FactoredHybridSystem(NnSystem):
         self.hdfs = {}
         self.basic_feature_flows = {}
 
+        # train information
+        self.initial_nn_args =   {'num_input': 50,
+                                  'num_classes': self.label_info.n_state_classes,
+                                  'partition_epochs': {'train': 20, 'dev': 1},
+                                  'n_epochs': 25,
+                                  #'log_verbosity': 5,
+                                  'returnn_python_exe': returnn_python_exe}
+
+        self.initial_train_args = {'time_rqmt': 168,
+                                   'mem_rqmt': 32,
+                                   'num_classes': self.label_info.n_state_classes,
+                                   'num_epochs': self.initial_nn_args['n_epochs'] * self.initial_nn_args['partition_epochs']['train'],
+                                   'partition_epochs': self.initial_nn_args['partition_epochs']}
+
         #pipeline info
         self.context_mapper = ContextMapper()
         self.stage = PipelineStages(get_alignment_keys())
@@ -101,19 +151,59 @@ class FactoredHybridSystem(NnSystem):
         self.graphs = {}
 
         self.experiments = {}
-        self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"} #Triphone forward model
+
+        #inference related
+        self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}        #Triphone forward model
+        self.mixtures["dummy"] = mm.CreateDummyMixturesJob(self.label_info.get_number_of_dense_classes(),
+                                                           self.initial_nn_args["num_input"]).out_mixtures #gammatones
+
+        self.outputs = {}
+
+    #----------- pipeline construction -----------------
+    def set_experiment_dict(self, key, alignment, context):
+        name = self.stage.get_name(alignment, context)
+        self.experiments[key] = {
+            "name": name,
+            "train_job": None,
+            "graph": {"train": None, "inference": None},
+            "returnn_config": None,
+            "align_job": None,
+            "decode_job": {"runner": None, "args": None}
+        }
 
     #--------------------- Init procedure -----------------
+    def init_system(self):
+        for param in [self.hybrid_init_args, self.train_data, self.dev_data, self.test_data]:
+            assert param is not None
 
+        self._init_am(**self.hybrid_init_args.am_args)
+        self._assert_corpus_name_unique(self.train_data, self.dev_data, self.test_data)
+
+        for corpus_key, rasr_data_input in sorted(self.train_data.items()):
+            add_lm = True if rasr_data_input.lm is not None else False
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=add_lm)
+            self.train_corpora.append(corpus_key)
+
+        for corpus_key, rasr_data_input in sorted(self.dev_data.items()):
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            self.dev_corpora.append(corpus_key)
+
+        for corpus_key, rasr_data_input in sorted(self.test_data.items()):
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            self.test_corpora.append(corpus_key)
 
     def _update_crp_am_setting(self, crp_key, tdp_type=None, label_info=None):
         #ToDo handle different tdp values: default, based on transcription, based on an alignment
         if label_info is None:
             label_info = copy.deepcopy(self.label_info)
 
+        tdp_pattern = self.tdp_values['pattern']
         if tdp_type is None:
             tdp_values = self.tdp_values['default']
-            tdp_pattern = self.tdp_values['pattern']
+
+        elif isinstance(tdp_type, tuple):
+            tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
+
         else:
             print("Not implemented")
             import sys
@@ -148,7 +238,6 @@ class FactoredHybridSystem(NnSystem):
             List[Tuple[str, ...]]
         ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
-        #ToDo get rid of feature scorer and other unimportant stuff here
         devtrain_data = devtrain_data if devtrain_data is not None else {}
         dev_data = dev_data if dev_data is not None else {}
         test_data = test_data if test_data is not None else {}
@@ -176,6 +265,53 @@ class FactoredHybridSystem(NnSystem):
         self._set_eval_data(dev_data)
         self._set_eval_data(test_data)
 
+    def get_system_output(
+        self,
+        corpus_key: str,
+        corpus_type: str,
+        step_idx: int,
+        steps: RasrSteps,
+        extract_features: List[str],
+    ):
+        """
+        :param corpus_key: corpus name identifier
+        :param corpus_type: corpus used for: train, dev or test
+        :param step_idx: select a specific step from the defined list of steps
+        :param steps: all steps in pipeline
+        :param extract_features: list of features to extract for later usage
+        :return GmmOutput:
+        """
+        sys_out = SystemOutput()
+        sys_out.crp = self.crp[corpus_key]
+        sys_out.feature_flows = self.feature_flows[corpus_key]
+        sys_out.features = self.feature_caches[corpus_key]
+
+        for feat_name in extract_features:
+            tk.register_output(
+                f"features/{corpus_key}_{feat_name}_features.bundle",
+                self.feature_bundles[corpus_key][feat_name],
+            )
+
+
+        return sys_out
+
+    def run_output_step(self, step_args, step_idx, steps):
+        for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
+            if (
+                corpus_key
+                not in self.train_corpora + self.dev_corpora + self.test_corpora
+            ):
+                continue
+            if corpus_key not in self.outputs.keys():
+                self.outputs[corpus_key] = {}
+            self.outputs[corpus_key][step_args.name] = self.get_system_output(
+                corpus_key,
+                corpus_type,
+                step_idx,
+                steps,
+                step_args.extract_features,
+            )
+
     def _set_train_data(self, data_dict):
         for c_key, c_data in data_dict.items():
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
@@ -186,7 +322,38 @@ class FactoredHybridSystem(NnSystem):
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
+
+    def prepare_data_for_bw_with_separate_cv(self, dev_key="dev_magic", train_key="train_magic",
+                                             cv_key="cv_magic", bw_key="bw"):
+        cv_corpus = ("/").join(
+            [self.cross_validation_info['pre_path'], self.cross_validation_info['dev_cv']])
+        cv_segment = ("/").join(
+            [self.cross_validation_info['pre_path'], self.cross_validation_info['dev_cv.segments']])
+        self.set_sprint_corpora(dev_key,
+                                cv_key,
+                                cv_segment,
+                                corpus_file=cv_corpus)
+
+        cv_feature_path = Path(("/").join(
+            [self.cross_validation_info['pre_path'], self.cross_validation_info['features_path'], "output",
+             "gt.cache.bundle"]))
+        self.feature_flows[cv_key] = features.basic_cache_flow(cv_feature_path)
+
+        self.csp[bw_key] = copy.deepcopy(self.csp[train_key])
+        self.csp[bw_key].corpus_config.file = ("/").join(
+            [self.cross_validation_info['pre_path'], self.cross_validation_info['merged_corpus_path']])
+        self.csp[bw_key].corpus_config.segments.file = ("/").join(
+            [self.cross_validation_info['pre_path'], self.cross_validation_info['merged_corpus_segment']])
+
     # -------------------- Helpers --------------------
+    def _get_prior_info_dict(self):
+        prior_dict = {}
+        for k in ['left-context', 'center-state', 'right-context']:
+            prior_dict[f'{k}-prior'] = {}
+            prior_dict[f'{k}-prior']['scale'] = 0.0
+            prior_dict[f'{k}-prior']['file'] = None
+        return prior_dict
+
     def _add_output_alias_for_train_job(
         self,
         train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
@@ -200,11 +367,41 @@ class FactoredHybridSystem(NnSystem):
             train_job.out_plot_lr,
         )
 
-    def get_model_checkpoint(self, model_job, epoch):
+    def _get_model_checkpoint(self, model_job, epoch):
         return model_job.checkpoints[epoch]
 
-    def get_model_path(self, model_job, epoch):
+    def _get_model_path(self, model_job, epoch):
         return model_job.checkpoints[epoch].ckpt_path
+
+    def _delete_multitask_components(self, returnn_config):
+        config = copy.deepcopy(returnn_config)
+
+        for o in ["left", "right"]:
+            if 'linear' in config.config['network'][f'{o}-output']['from']:
+                for i in [1, 2]:
+                    for k in ['leftContext', 'triphone']:
+                        del config.config['network'][f'linear{i}-{k}']
+            del config.config['network'][f'{o}-output']
+
+        return config
+
+    def _delete_mlps(self, returnn_config, keys=None, source=None):
+        #source is either a string or a tupe
+        if source is None:
+            source = ['encoder-output']
+        elif isinstance(source, tuple):
+            source = list(source)
+        else: source = [source]
+
+        returnn_cfg = copy.deepcopy(returnn_config)
+        if keys is None:
+            keys = ['left', 'center', 'right']
+        for l in list(returnn_cfg.config['network'].keys()):
+            if 'linear' in l:
+                del returnn_cfg.config['network'][l]
+        for o in keys:
+            returnn_cfg.config['network'][f'{o}-output']['from'] = source
+        return returnn_cfg
 
 
 
@@ -324,6 +521,56 @@ class FactoredHybridSystem(NnSystem):
 
         return train_job
 
+
+    def returnn_rasr_training_fullsum(
+        self,
+        experiment_key,
+        train_corpus_key,
+        dev_corpus_key,
+        train_feature_corpus,
+        dev_feature_corpus,
+        nn_train_args,
+    ):
+        train_data = self.train_input_data[train_corpus_key]
+        dev_data = self.cv_input_data[dev_corpus_key]
+
+        train_crp = train_data.get_crp()
+        dev_crp = dev_data.get_crp()
+
+
+        """
+        if 'extra_rasr_config' not in nn_train_args:
+            nn_train_args['extra_rasr_config'] = get_extra_config_segment_order(size=300)
+        else:
+            extra_rasr_config_additional =  n_train_args['extra_rasr_config']
+            nn_train_args['extra_rasr_config'] = get_extra_config_segment_order(size=300, extra_config=extra_rasr_config_additional)
+        """
+
+        if 'returnn_config' not in nn_train_args:
+            returnn_config = self.experiments[experiment_key]['returnn_config']
+        else: returnn_config = nn_train_args.pop('returnn_config')
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        train_job = returnn.ReturnnRasrTrainingBWJob(
+            train_crp=train_crp,
+            dev_crp=dev_crp,
+            feature_flows={"train": self.feature_flows[train_feature_corpus],
+                           "dev": self.feature_flows[dev_feature_corpus]},
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            **nn_train_args,
+        )
+
+        self._add_output_alias_for_train_job(
+            train_job=train_job,
+            train_corpus_key=train_corpus_key,
+            cv_corpus_key=dev_corpus_key,
+            name=self.experiments[experiment_key]['name'],
+        )
+
+        self.experiments[experiment_key]["train_job"] = train_job
+
     # -------------------- Recognition --------------------
 
 
@@ -333,11 +580,7 @@ class FactoredHybridSystem(NnSystem):
 
     def run(self, steps: RasrSteps):
         if "init" in steps.get_step_names_as_list():
-            print(
-                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
-            )
-            sys.exit(-1)
-
+            self.init_system()
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
                 self.hybrid_init_args.stm_args
@@ -363,20 +606,7 @@ class FactoredHybridSystem(NnSystem):
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
                 self.extract_features(step_args)
+                # ---------- Step Output ----------
+            if step_name.startswith("output"):
+                self.run_output_step(step_args, step_idx=step_idx, steps=steps)
 
-            # ---------- Prepare data ----------
-            if step_name.startswith("data"):
-                self.run_data_preparation_step(step_args)
-
-            # ---------- NN Training ----------
-            if step_name.startswith("nn"):
-                self.run_nn_step(step_args)
-
-            if step_name.startswith("recog"):
-                # call the specific recognition on the Recognizer
-                pass
-                
-            # ---------- Realign ----------
-            if step_name.startswith("realign"):
-                # call the specific function on your Aligner
-                pass
