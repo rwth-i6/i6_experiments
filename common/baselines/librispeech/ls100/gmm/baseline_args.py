@@ -70,7 +70,7 @@ def get_init_args():
             "energy_options": {
                 "without_samples": False,
                 "samples_options": samples_options,
-                "fft_options": {},
+                "fft_options": None,
             }
         },
     }
