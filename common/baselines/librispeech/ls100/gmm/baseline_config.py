@@ -20,7 +20,8 @@ def run_librispeech_100_common_baseline(
 
     hybrid_init_args = baseline_args.get_init_args()
     mono_args = baseline_args.get_monophone_args()
-    cart_args = baseline_args.get_cart_args()
+    # no unknown question needed when G2P is used
+    cart_args = baseline_args.get_cart_args(add_unknown=False)
     tri_args = baseline_args.get_triphone_args()
     vtln_args = baseline_args.get_vtln_args()
     sat_args = baseline_args.get_sat_args()
@@ -43,7 +44,11 @@ def run_librispeech_100_common_baseline(
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
-    corpus_data = get_corpus_data_inputs("train-clean-100", use_g2p_training=True)
+    corpus_data = get_corpus_data_inputs(
+        corpus_key="train-clean-100",
+        use_g2p_training=True,
+        use_stress_marker=False
+    )
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
