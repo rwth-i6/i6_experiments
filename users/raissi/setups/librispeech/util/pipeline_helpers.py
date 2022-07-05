@@ -16,14 +16,14 @@ def get_label_info(
         'ph_emb_size': ph_emb_size,
         'st_emb_size': st_emb_size,
         'sil_id': None, #toDo: a job that gives the sielnce label within a specific state tying
-        'state_tying': 'no-dense-tying',
+        'state_tying': 'monophone-no-tying-dense', #no-tying-dense for decoding
         'use_word_end_class': use_word_end_class,
         'use_boundary_classes': use_boundary_classes,
 
     }
 
 def get_alignment_keys(additional_keys=None):
-    keys = ['GMMmono', 'GMMtri', 'scratch', 'FHmono', 'FHdi', 'FHtri']
+    keys = ['GMMmono', 'GMMtri', 'scratch', 'mono', 'FHmono', 'FHdi', 'FHtri']
     if additional_keys is not None:
         keys.extend(additional_keys)
     return keys
@@ -36,7 +36,16 @@ def get_lexicon_args(add_all_allophones=False, norm_pronunciation=True):
     }
 
 def get_tdp_values():
+    from math import log
+    speech_fwd_three = 0.350 #3/9 for 3partite
+    speech_fwd_mono  = 0.125 #1/8 for phoneme
+    silence_fwd      = 0.04 #1/25 following the
     return {
         'pattern' : ["loop", "forward", "skip", "exit"],
-        'default': {'*': (3.0, 0.0, "infinity", 0.0), 'silence': (0.0, 3.0, "infinity", 20.0)}
+        'default': {'*': (3.0, 0.0, "infinity", 0.0), 'silence': (0.0, 3.0, "infinity", 20.0)},
+        'heuristic' : {'monostate': {'*': (-log(1-speech_fwd_mono), -log(speech_fwd_mono), "infinity", 0.0),
+                                     'silence': (-log(1-silence_fwd), -log(silence_fwd), "infinity", 0.0)},
+                       'threepartite':  {'*': (-log(1-speech_fwd_three), -log(speech_fwd_three), "infinity", 0.0),
+                                     'silence': (-log(1-silence_fwd), -log(silence_fwd), "infinity", 0.0)}
+                       }
     }

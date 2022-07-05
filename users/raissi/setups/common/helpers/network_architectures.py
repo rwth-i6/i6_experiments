@@ -1,6 +1,6 @@
-import recipe.crnn as crnn
-import recipe.sprint as sp
-from recipe.sprint.command import SprintCommand
+import i6_core.returnn as returnn
+import i6_core.rasr as sp
+from i6_core.rasr.command import RasrCommand
 from sisyphus import *
 
 import copy
@@ -9,7 +9,7 @@ from IPython import embed
 
 
 
-def blstm_config(network, partitionEpochs, lr=5e-4, batch_size=5000, max_seqs=100, chunking="50:25", **kwargs):
+def blstm_config(network, partition_epochs, lr=5e-4, batch_size=10000, max_seqs=100, chunking="64:32", **kwargs):
     result = {"batch_size": batch_size,
               "max_seqs": max_seqs,
               "cache_size": "0",
@@ -17,8 +17,8 @@ def blstm_config(network, partitionEpochs, lr=5e-4, batch_size=5000, max_seqs=10
               "chunking": chunking,
               "learning_rate": lr,
               "learning_rate_control": "newbob_multi_epoch",
-              "newbob_multi_num_epochs": partitionEpochs[0],
-              "newbob_multi_update_interval": partitionEpochs[1],
+              "newbob_multi_num_epochs": partition_epochs["train"],
+              "newbob_multi_update_interval": partition_epochs["dev"],
               "learning_rate_control_relative_error_relative_lr": True,
               "learning_rate_control_min_num_epochs_per_new_lr": 3,
               "use_tensorflow": True,
@@ -30,7 +30,7 @@ def blstm_config(network, partitionEpochs, lr=5e-4, batch_size=5000, max_seqs=10
     return result
 
 
-def blstm_network(layers=6 * [512], dropout=0.25, l2=0.1, unit_type="lstmp", specaugment=False):
+def blstm_network(layers=6 * [512], dropout=0.1, l2=0.1, unit_type="lstmp", specaugment=False):
     num_layers = len(layers)
     assert num_layers > 0
     
@@ -159,7 +159,7 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, isBoundary
     return acousticNet
 
 
-def make_config(contextType, contextMapper, extraPython, partitionEpochs,
+def make_config(contextType, contextMapper, python_prolog, python_epilog, partition_epochs,
                 num_input=40, nStates=3, nContexts=47,
                 isBoundary=False, isMinDuration=False, isWordEnd=False,
                 layers=6 * [500], l2=0.01, mlpL2=0.01, dropout=0.1,
@@ -180,56 +180,45 @@ def make_config(contextType, contextMapper, extraPython, partitionEpochs,
     else:
         sharedNetwork = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
     
-    config = get_config_for_context_type(contextType, contextMapper, partitionEpochs,
+    config = get_config_for_context_type(contextType, contextMapper, partition_epochs,
                                          sharedNetwork,
-                                         nStates=nStates, num_input=num_input,
-                                         nContexts=nContexts, ctxEmbSize=ctxEmbSize, stateEmbSize=stateEmbSize,
+                                         stateEmbSize=stateEmbSize,
                                          focalLossFactor=focalLossFactor, labelSmoothing=labelSmoothing,
                                          addMLPs=addMLPs, finalContextType=finalContextType, l2=mlpL2,
                                          sharedDeltaEncoder=sharedDeltaEncoder, **kwargs)
     
-    crnnConfig = crnn.CRNNConfig(config, {}, extra_python_code=extraPython)
+    returnnConfig = returnn.ReturnnConfig(config, python_prolog=python_prolog, python_epilog=python_epilog)
     
-    return crnnConfig
+    return returnnConfig
 
 
-def get_graph_from_crnn_config(crnnConfig, extraPython, name=None, hdf=False):
-    if isinstance(crnnConfig, crnn.CRNNConfig):
-        tf_crnn_config = copy.copy(crnnConfig.config)
+def get_graph_from_returnn_config(returnnConfig, python_prolog, python_epilog):
+    if isinstance(returnnConfig, returnn.ReturnnConfig):
+        tf_returnn_config = copy.copy(returnnConfig.config)
     else:
-        tf_crnn_config = copy.copy(crnnConfig)
+        tf_returnn_config = copy.copy(returnnConfig)
     
-    tf_crnn_config["train"] = {"class": "ExternSprintDataset",
+    tf_returnn_config["train"] = {"class": "ExternSprintDataset",
                                "partitionEpoch": 6,
                                "sprintConfigStr": "",
                                "sprintTrainerExecPath": None}
     
-    tf_crnn_config["dev"] = {"class": "ExternSprintDataset",
+    tf_returnn_config["dev"] = {"class": "ExternSprintDataset",
                              "partitionEpoch": 1,
                              "sprintConfigStr": "",
                              "sprintTrainerExecPath": None}
     
-    if hdf:
-        tf_crnn_config["train"] = {"class": "NextGenHDFDataset",
-                                   "files": [],
-                                   "input_stream_name": "features",
-                                   "partition_epoch": None}
-        
-        tf_crnn_config["dev"] = {"class": "NextGenHDFDataset",
-                                 "files": [],
-                                 "input_stream_name": "features",
-                                 "partition_epoch": None}
+
     
-    conf = crnn.CRNNConfig(tf_crnn_config, {}, extra_python_code=extraPython)
-    crnn_config_file = crnn.WriteCRNNConfigJob(conf).crnn_config_file
-    compiledGraphJob = crnn.CompileTFGraphJob(crnn_config_file)
+    conf = returnn.ReturnnConfig(tf_returnn_config, python_prolog=python_prolog, python_epilog=python_epilog)
+    returnn_config_file = returnn.WriteReturnnConfigJob(conf).out_returnn_config_file
+    compiledGraphJob = returnn.CompileTFGraphJob(out_returnn_config_file)
     
     return compiledGraphJob.graph
 
 
-def get_config_for_context_type(contextType, contextMapper, partitionEpochs,
-                                sharedNetwork, nStateClasses=141, nStates=3, num_input=40,
-                                nContexts=47, ctxEmbSize=10, stateEmbSize=30,
+def get_config_for_context_type(contextType, contextMapper, partition_epochs,
+                                sharedNetwork, ctxEmbSize=10, stateEmbSize=30,
                                 focalLossFactor=2.0, labelSmoothing=0.2,
                                 addMLPs=False, finalContextType=None, l2=0.01, sharedDeltaEncoder=False, **kwargs):
     if contextType.value == contextMapper.get_enum(1):
@@ -263,7 +252,7 @@ def get_config_for_context_type(contextType, contextMapper, partitionEpochs,
     # ToDo: once you hvae your optimal setting add it here using bin_ce_weight
     # if finalCtxType.value == contextMapper.get_enum(6):
     
-    config = blstm_config(network, partitionEpochs, **kwargs)
+    config = blstm_config(network, partition_epochs, **kwargs)
     
     return config
 
@@ -304,6 +293,7 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
         lossOpts["label_smoothing"] = labelSmoothing
     
     if addMLPs:
+
         assert finalCtxType is not None
         assert contextMapper is not None
         # ToDo: complete the options
@@ -409,23 +399,23 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
     else:
-        network["context-output"] = {"class": "softmax",
+        network["left-output"] = {"class": "softmax",
                                      "from": "encoder-output",
                                      "target": "lastLabel",
                                      "loss": "ce",
                                      "loss_opts": copy.copy(lossOpts)}
-        
-        network["future-output"] = {"class": "softmax",
+
+        network["right-output"] = {"class": "softmax",
                                     "from": "encoder-output",
                                     "target": "futureLabel",
                                     "loss": "ce",
                                     "loss_opts": copy.copy(lossOpts)}
-        
-        network["currentState-output"] = {"class": "softmax",
-                                          "from": "encoder-output",
-                                          "target": "alignment",
-                                          "loss": "ce",
-                                          "loss_opts": copy.copy(lossOpts)}
+
+        network["center-output"] = {"class": "softmax",
+                                      "from": "encoder-output",
+                                      "target": "alignment",
+                                      "loss": "ce",
+                                      "loss_opts": copy.copy(lossOpts)}
     
     return network
 
@@ -608,67 +598,67 @@ def get_backward_net(sharedNetwork):
 
 
 ############ BW alignment for factorized hybrid #################
-def get_bw_params_for_cartfree(csp, crnn_config, output_names, loss_wrt_to_act_in=False,
+def get_bw_params_for_cartfree(csp, returnn_config, output_names, loss_wrt_to_act_in=False,
                                am_scale=1.0,
                                import_model=None, exp_average=0.001,
                                prior_scale=1.0, tdp_scale=1.0,
                                mappedSilence=False,
                                extra_config=None, extra_post_config=None):
-    if crnn_config.config['use_tensorflow']:
+    if returnn_config.config['use_tensorflow']:
         inputs = []
         for out in output_names:
             out_denot = out.split("-")[0]
             # prior calculation
             accu_name = ("_").join(['acc-prior', out_denot])
-            crnn_config.config['network'][accu_name] = {'class': 'accumulate_mean',
+            returnn_config.config['network'][accu_name] = {'class': 'accumulate_mean',
                                                         'exp_average': exp_average,
                                                         'from': out,
                                                         'is_prob_distribution': True}
-            
+
             comb_name = ("_").join(['comb-prior', out_denot])
             inputs.append(comb_name)
-            crnn_config.config['network'][comb_name] = {'class': 'combine',
+            returnn_config.config['network'][comb_name] = {'class': 'combine',
                                                         'kind': 'eval',
                                                         'eval': 'am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )',
                                                         'eval_locals': {'am_scale': am_scale,
                                                                         'prior_scale': prior_scale},
                                                         'from': [out, accu_name]}
-            
+
             bw_out = ("_").join(['output-bw', out_denot])
-            crnn_config.config['network'][bw_out] = {'class': 'copy',
+            returnn_config.config['network'][bw_out] = {'class': 'copy',
                                                      'from': out,
                                                      'loss': 'via_layer',
                                                      'loss_opts': {'align_layer': ("/").join(['fast-bw', out_denot]),
                                                                    'loss_wrt_to_act_in': loss_wrt_to_act_in},
                                                      'loss_scale': 1.0}
-        
-        crnn_config.config['network']['fast-bw'] = {'class': 'fast_bw_factorized',
+
+        returnn_config.config['network']['fast-bw'] = {'class': 'fast_bw_factorized',
                                                     'align_target': 'monophone',
                                                     'from': inputs,
                                                     'tdp_scale': tdp_scale,
                                                     'mappedSilence': mappedSilence}
-        
-        crnn_config.config['network']["fast-bw"]['sprint_opts'] = {
-            "sprintExecPath": SprintCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
+
+        returnn_config.config['network']["fast-bw"]['sprint_opts'] = {
+            "sprintExecPath": RasrCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
             "sprintConfigStr": "--config=fastbw.config",
             "sprintControlConfig": {"verbose": True},
             "usePythonSegmentOrder": False,
             "numInstances": 1}
-    
-    
+
+
     else:  # Use Theano
         assert False, "Theano implementation of bw training not supportet yet."
-    
-    if 'chunking' in crnn_config.config:
-        del crnn_config.config['chunking']
-    if 'pretrain' in crnn_config.config and import_model is not None:
-        del crnn_config.config['pretrain']
-    
+
+    if 'chunking' in returnn_config.config:
+        del returnn_config.config['chunking']
+    if 'pretrain' in returnn_config.config and import_model is not None:
+        del returnn_config.config['pretrain']
+
     # start training from existing model
     if import_model is not None:
-        crnn_config.config['import_model_train_epoch1'] = str(import_model)[
-                                                          :-5 if crnn_config.config['use_tensorflow'] else None]
-    
+        returnn_config.config['import_model_train_epoch1'] = str(import_model)[
+                                                          :-5 if returnn_config.config['use_tensorflow'] else None]
+
     # Create additional Sprint config file to compute losses
     mapping = {'corpus': 'neural-network-trainer.corpus',
                'lexicon': [
@@ -678,7 +668,7 @@ def get_bw_params_for_cartfree(csp, crnn_config, output_names, loss_wrt_to_act_i
                }
     config, post_config = sp.build_config_from_mapping(csp, mapping)
     post_config['*'].output_channel.file = 'fastbw.log'
-    
+
     # Define action
     config.neural_network_trainer.action = 'python-control'
     # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
@@ -687,15 +677,108 @@ def get_bw_params_for_cartfree(csp, crnn_config, output_names, loss_wrt_to_act_i
     # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
     config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
     config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
-    
+
     # additional config
     config._update(extra_config)
     post_config._update(extra_post_config)
-    
+
     config["neural-network-trainer"]["*"]["seed"] = 29
     config["neural-network-trainer"]["*"]["corpus"]["select-partition"] = 5
-    
+
     additional_sprint_config_files = {'fastbw': config}
     additional_sprint_post_config_files = {'fastbw': post_config}
-    
-    return crnn_config, additional_sprint_config_files, additional_sprint_post_config_files
+
+    return returnn_config, additional_sprint_config_files, additional_sprint_post_config_files
+
+
+def get_bw_params_for_monophone(csp, returnn_config, loss_wrt_to_act_in=False,
+                                am_scale=1.0, prior_scale=1.0, tdp_scale=1.0,
+                                import_model=None, exp_average=0.001,
+                                out='center-output', fix_tdp_bug=False, fixed_prior=None, normalize_lemma_scores=True,
+                                extra_config=None, extra_post_config=None):
+    if returnn_config.config['use_tensorflow']:
+        inputs = []
+        out_denot = out.split('-')[0]
+        # prior calculation
+        accu_name = ("_").join(['acc-prior', out_denot])
+        if fixed_prior is None:
+            returnn_config.config['network'][accu_name] = {'class': 'accumulate_mean',
+                                                        'exp_average': exp_average,
+                                                        'from': out,
+                                                        'is_prob_distribution': True}
+        else:
+            returnn_config.config['network'][accu_name] = {'class': 'constant',
+                                                        'dtype': 'float32',
+                                                        'value': fixed_prior}
+
+        comb_name = ("_").join(['comb-prior', out_denot])
+        inputs.append(comb_name)
+        returnn_config.config['network'][comb_name] = {'class': 'combine',
+                                                    'kind': 'eval',
+                                                    'eval': 'am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )',
+                                                    'eval_locals': {'am_scale': am_scale,
+                                                                    'prior_scale': prior_scale},
+                                                    'from': [out, accu_name]}
+
+        returnn_config.config['network']['output_bw'] = {'class': 'copy',
+                                                      'from': out,
+                                                      'loss': 'via_layer',
+                                                      'loss_opts': {'align_layer': 'fast_bw',
+                                                                    'loss_wrt_to_act_in': loss_wrt_to_act_in},
+                                                      'loss_scale': 1.0}
+        returnn_config.config['network']['fast_bw'] = {'class': 'fast_bw',
+                                                    'align_target': 'sprint',
+                                                    'from': inputs,
+                                                    'tdp_scale': tdp_scale}
+        returnn_config.config['network']["fast_bw"]['sprint_opts'] = {
+            "sprintExecPath": RasrCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
+            "sprintConfigStr": "--config=fastbw.config",
+            "sprintControlConfig": {"verbose": True},
+            "usePythonSegmentOrder": False,
+            "numInstances": 1}
+
+
+    else:  # Use Theano
+        assert False, "Please set use_tensorflow to True in your config."
+
+    if 'chunking' in returnn_config.config:
+        del returnn_config.config['chunking']
+    if 'pretrain' in returnn_config.config and import_model is not None:
+        del returnn_config.config['pretrain']
+
+    # start training from existing model
+    if import_model is not None:
+        returnn_config.config['import_model_train_epoch1'] = import_model
+
+    # Create additional Sprint config file to compute losses
+    mapping = {'corpus': 'neural-network-trainer.corpus',
+               'lexicon': [
+                   'neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon'],
+               'acoustic_model': [
+                   'neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model']
+               }
+    config, post_config = sp.build_config_from_mapping(csp, mapping)
+    post_config['*'].output_channel.file = 'fastbw.log'
+
+    # Define action
+    config.neural_network_trainer.action = 'python-control'
+    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = False
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = normalize_lemma_scores
+    # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
+    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
+    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
+    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
+
+    # additional config
+    config._update(extra_config)
+    post_config._update(extra_post_config)
+
+    additional_sprint_config_files = {'fastbw': config}
+    additional_sprint_post_config_files = {'fastbw': post_config}
+
+    return returnn_config, additional_sprint_config_files, additional_sprint_post_config_files
+
+
+
+
