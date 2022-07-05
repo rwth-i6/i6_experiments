@@ -145,7 +145,7 @@ def get_cart_args(
     min_obs: int = 1000,
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
-    add_unknown: bool = True,
+    add_unknown: bool = False,
 ):
     """
 
