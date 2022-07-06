@@ -667,10 +667,11 @@ class HybridSystem(NnSystem):
             if step_name.startswith("data"):
                 self.run_data_preparation_step(step_args)
 
-            # ---------- NN Training ----------
+            # ---------- NN Training and Recognition ----------
             if step_name.startswith("nn"):
                 self.run_nn_step(step_name, step_args)
 
+            # ---------- NN Recognition ----------
             if step_name.startswith("recog"):
                 self.run_nn_recog_step(step_args)
 
