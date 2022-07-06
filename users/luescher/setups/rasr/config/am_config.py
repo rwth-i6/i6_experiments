@@ -4,9 +4,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Tuple, Type, Union
 
+
 from sisyphus import tk
 
 import i6_core.am as am
+import i6_core.rasr as rasr
 
 
 class StateTying(Enum):
