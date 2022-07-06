@@ -1,5 +1,6 @@
 __all__ = ["SimpleTfNeuralLmRasrConfig"]
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sisyphus import tk
@@ -8,29 +9,21 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 
+@dataclass()
 class SimpleTfNeuralLmRasrConfig:
-    def __init__(
-        self,
-        vocab_path: tk.Path,
-        meta_graph_path: tk.Path,
-        checkpoint: returnn.Checkpoint,
-        *,
-        scale: Optional[float] = None,
-        unknown_symbol: str = "<UNK>",
-        transform_output_negate: bool = True,
-        output_layer_type: str = "softmax",
-        libraries: Optional[tk.Path] = None,
-        max_batch_size: int = 128,
-    ):
-        self.vocab_path = vocab_path
-        self.meta_graph_path = meta_graph_path
-        self.checkpoint = checkpoint
-        self.scale = scale
-        self.unknown_symbol = unknown_symbol
-        self.transform_output_negate = transform_output_negate
-        self.output_layer_type = output_layer_type
-        self.libraries = libraries
-        self.max_batch_size = max_batch_size
+    """
+    Class for simple-tf-neural LM Params in RASR Config
+    """
+
+    vocab_path: tk.Path
+    meta_graph_path: tk.Path
+    checkpoint: returnn.Checkpoint
+    scale: Optional[float] = None
+    unknown_symbol: str = "<UNK>"
+    transform_output_negate: bool = True
+    output_layer_type: str = "softmax"
+    libraries: Optional[tk.Path] = None
+    max_batch_size: int = 128
 
     def get(self) -> rasr.RasrConfig:
         lm_config = rasr.RasrConfig()

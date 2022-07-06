@@ -1,5 +1,6 @@
 __all__ = ["ArpaLmRasrConfig"]
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sisyphus import tk
@@ -7,22 +8,19 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 
 
+@dataclass()
 class ArpaLmRasrConfig:
-    def __init__(
-        self,
-        lm_path: tk.Path,
-        scale: Optional[float] = None,
-        image: Optional[tk.Path] = None,
-    ):
-        """
+    """
+    Class for ARPA LM Params in RASR Config
 
-        :param lm_path: path to ARPA LM
-        :param scale: LM scale
-        :param image: global cache image
-        """
-        self.lm_path = lm_path
-        self.scale = scale
-        self.image = image
+    lm_path: path to ARPA LM
+    scale: LM scale
+    image: global cache image
+    """
+
+    lm_path: tk.Path
+    scale: Optional[float] = None
+    image: Optional[tk.Path] = None
 
     def get(self) -> rasr.RasrConfig:
         lm_config = rasr.RasrConfig()

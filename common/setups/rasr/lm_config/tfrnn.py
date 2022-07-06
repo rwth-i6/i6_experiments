@@ -1,5 +1,6 @@
 __all__ = ["TfRnnLmRasrConfig"]
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sisyphus import tk
@@ -8,33 +9,23 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 
+@dataclass()
 class TfRnnLmRasrConfig:
-    def __init__(
-        self,
-        vocab_path: tk.Path,
-        meta_graph_path: tk.Path,
-        checkpoint: returnn.Checkpoint,
-        *,
-        scale: Optional[float] = None,
-        unknown_symbol: str = "<UNK>",
-        transform_output_negate: bool = True,
-        output_layer_type: str = "softmax",
-        libraries: Optional[tk.Path] = None,
-        state_manager: str = "transformer",
-        softmax_adapter: Optional[str] = None,
-        common_prefix: bool = False,
-    ):
-        self.vocab_path = vocab_path
-        self.meta_graph_path = meta_graph_path
-        self.checkpoint = checkpoint
-        self.scale = scale
-        self.unknown_symbol = unknown_symbol
-        self.transform_output_negate = transform_output_negate
-        self.output_layer_type = output_layer_type
-        self.libraries = libraries
-        self.state_manager = state_manager
-        self.softmax_adapter = softmax_adapter
-        self.common_prefix = common_prefix
+    """
+    Class for tf-rnn LM Params in RASR Config
+    """
+
+    vocab_path: tk.Path
+    meta_graph_path: tk.Path
+    checkpoint: returnn.Checkpoint
+    scale: Optional[float] = None
+    unknown_symbol: str = "<UNK>"
+    transform_output_negate: bool = True
+    output_layer_type: str = "softmax"
+    libraries: Optional[tk.Path] = None
+    state_manager: str = "transformer"
+    softmax_adapter: Optional[str] = None
+    common_prefix: bool = False
 
     def get(self) -> rasr.RasrConfig:
         lm_config = rasr.RasrConfig()
