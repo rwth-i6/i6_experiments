@@ -59,6 +59,7 @@ def get_nnlm_rasr_config(
     create RasrConfig for Neural LM
     two types are supported: tfrnn (LSTM/Trafo LM) and simple-tf-neural (Trafo LM)
 
+    :param lm_type: which kind of LM to use
     :param vocab_path: LM vocabulary file
     :param returnn_lm_inference_config: LM RETURNN config, already prepared for inference
     :param returnn_checkpoint:
