@@ -5,9 +5,9 @@ __all__ = [
     "RasrSteps",
 ]
 
-
 from collections import OrderedDict
-from typing import Dict, Optional, Union
+from dataclasses import asdict, dataclass
+from typing import Dict, Optional, Union, Tuple, List
 
 import i6_core.meta as meta
 
@@ -48,6 +48,21 @@ class CostaArgs(dict):
         self.eval_lm = eval_lm
 
 
+@dataclass
+class AmArgs:
+    state_tying: str
+    states_per_phone: int
+    state_repetitions: int
+    across_word_model: bool
+    early_recombination: bool
+    tdp_scale: float
+    tdp_transition: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]]
+    tdp_silence: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]]
+    tying_type: str
+    nonword_phones: Union[str, List[str]]
+    tdp_nonword: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]]
+
+
 class RasrInitArgs:
     """
     Class holds general information for the complete pipeline.
@@ -62,7 +77,7 @@ class RasrInitArgs:
     def __init__(
         self,
         costa_args: Union[dict, CostaArgs],
-        am_args: dict,
+        am_args: Union[dict, AmArgs],
         feature_extraction_args: dict,
         scorer: Optional[str] = None,
         scorer_args: Optional[Dict] = None,
@@ -168,7 +183,7 @@ class RasrInitArgs:
         self.costa_args = costa_args
         self.scorer = scorer
         self.scorer_args = scorer_args
-        self.am_args = am_args
+        self.am_args = am_args if not isinstance(am_args, AmArgs) else asdict(am_args)
         self.feature_extraction_args = feature_extraction_args
         self.stm_args = stm_args
 
