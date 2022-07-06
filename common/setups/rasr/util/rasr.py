@@ -7,7 +7,7 @@ __all__ = [
 
 
 from collections import OrderedDict
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 import i6_core.meta as meta
 
@@ -40,6 +40,14 @@ class RasrDataInput:
         self.concurrent = concurrent
 
 
+class CostaArgs(dict):
+    def __init__(self, eval_recordings: bool, eval_lm: bool):
+        super(CostaArgs, self).__init__(eval_recordings=eval_recordings, eval_lm=eval_lm)
+
+        self.eval_recordings = eval_recordings
+        self.eval_lm = eval_lm
+
+
 class RasrInitArgs:
     """
     Class holds general information for the complete pipeline.
@@ -53,7 +61,7 @@ class RasrInitArgs:
 
     def __init__(
         self,
-        costa_args: dict,
+        costa_args: Union[dict, CostaArgs],
         am_args: dict,
         feature_extraction_args: dict,
         scorer: Optional[str] = None,
