@@ -228,14 +228,16 @@ class ExternData(SerializerObject):
         """
         content = [
             f"{data.name} = nn.Data(\n",
-            f"    name=\"{data.name}\",",
+            f'    name="{data.name}",',
             f"    dim_tags=[nn.batch_dim, {', '.join(dim.name for dim in data.dim_tags)}],",
         ]
         if data.sparse_dim is not None:
             content.append(f"    sparse_dim={data.sparse_dim.name},")
         content.append(f"    available_for_inference={data.available_for_inference},")
-        if data.dtype != "float32":  # RETURNN default is float32 so we only append it otherwise
-            content.append(f"    dtype=\"{data.dtype}\",")
+        if (
+            data.dtype != "float32"
+        ):  # RETURNN default is float32 so we only append it otherwise
+            content.append(f'    dtype="{data.dtype}",')
         content.append(")\n")
         return content
 
