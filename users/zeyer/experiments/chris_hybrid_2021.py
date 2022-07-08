@@ -76,7 +76,6 @@ def default_gmm_hybrid_init_args():
   }
 
   costa_args = {"eval_recordings": True, "eval_lm": False}
-  default_mixture_scorer_args = {"scale": 0.3}
 
   mfcc_cepstrum_options = {
     "normalize": False,
@@ -143,7 +142,6 @@ def default_gmm_hybrid_init_args():
     costa_args=costa_args,
     am_args=am_args,
     feature_extraction_args=feature_extraction_args,
-    default_mixture_scorer_args=default_mixture_scorer_args,
     scorer=scorer,
   )
 
