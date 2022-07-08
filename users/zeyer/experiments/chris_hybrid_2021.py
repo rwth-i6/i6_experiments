@@ -685,7 +685,43 @@ def test_run():
                     break
             return diffs
         if isinstance(orig, set):
-            return _collect_diffs(f"{prefix}:sorted", sorted(orig), sorted(new))
+            sorted_orig = sorted(orig)
+            sorted_new = sorted(new)
+            i, j = 0, 0
+            num_diffs = 0
+            diffs = []
+            while i < len(sorted_orig) or j < len(sorted_new):
+                if i < len(sorted_orig) and j < len(sorted_new):
+                    if sorted_orig[i] < sorted_new[j]:
+                        cmp = -1
+                    elif sorted_orig[i] > sorted_new[j]:
+                        cmp = 1
+                    else:
+                        cmp = 0
+                elif i >= len(sorted_orig):
+                    cmp = 1
+                elif j >= len(sorted_new):
+                    cmp = -1
+                else:
+                    assert False
+                if cmp != 0:
+                    num_diffs += 1
+                    if num_diffs <= limit:
+                        diffs += [
+                            f"{prefix} diff: del {_repr(sorted_orig[i])}"
+                            if cmp < 0 else
+                            f"{prefix} diff: add {_repr(sorted_new[j])}"
+                        ]
+                    if cmp < 0:
+                        i += 1
+                    else:
+                        j += 1
+                else:
+                    i += 1
+                    j += 1
+            if num_diffs > limit:
+                diffs += [f"{prefix} ... ({num_diffs - limit} remaining)"]
+            return diffs
         if isinstance(orig, (list, tuple)):
             if len(orig) != len(new):
                 return [f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"]
@@ -710,8 +746,8 @@ def test_run():
             # only hidden_paths relevant (?)
             return _collect_diffs(f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths)
         if isinstance(orig, obj_types):
-            orig_attribs = sorted(vars(orig).keys())
-            new_attribs = sorted(vars(new).keys())
+            orig_attribs = set(vars(orig).keys())
+            new_attribs = set(vars(new).keys())
             diffs = _collect_diffs(f"{prefix}:attribs", orig_attribs, new_attribs)
             if diffs:
                 return diffs
