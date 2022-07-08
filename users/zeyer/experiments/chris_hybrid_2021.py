@@ -1,11 +1,15 @@
 
+"""
+Chris hybrid NN-HMM 2021 params
+"""
+
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
 
 
 from sisyphus import gs, tk
 
 import os
-from typing import Optional, Union, Dict, List
+from typing import Optional, Union, Dict
 import copy
 import numpy as np
 
@@ -21,11 +25,6 @@ import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 from ..utils.diff import collect_diffs
-
-from i6_experiments.users.luescher.helpers.search_params import get_search_parameters
-
-# TODO remove these
-import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
 
 
 def run():
@@ -391,6 +390,8 @@ def get_chris_hybrid_system_init_args():
 
 
 def get_orig_chris_hybrid_system_init_args():
+    import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
+
     # ******************** Settings ********************
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
@@ -656,3 +657,15 @@ def test_run():
     # Hash new object: b'9YWfAcgEt1wn+Ge+BJvAGIXtitPkJMKWBxUh86Pp+Hs='
     print("Hash orig object:", b64encode(sis_hash_helper(orig_obj)))
     print("Hash new object:", b64encode(sis_hash_helper(new_obj)))
+
+
+def get_search_parameters(bp=16.0, bpl=100000, wep=0.5, wepl=15000, lsp=None):
+    search_params = {
+        "beam-pruning": bp,
+        "beam-pruning-limit": bpl,
+        "word-end-pruning": wep,
+        "word-end-pruning-limit": wepl,
+    }
+    if lsp is not None:
+        search_params["lm-state-pruning"] = lsp
+    return search_params
