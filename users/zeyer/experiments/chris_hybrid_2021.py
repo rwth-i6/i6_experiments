@@ -430,7 +430,9 @@ def get_orig_chris_hybrid_system_init_args():
 
     # ******************** GMM System ********************
 
-    lbs_gmm_system = gmm_system.GmmSystem()
+    rasr_binary_path = tk.Path(gs.RASR_ROOT)  # TODO ?
+    rasr_binary_path.hash_overwrite = "RASR_ROOT"  # TODO ?
+    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
     lbs_gmm_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=train_data_inputs,
