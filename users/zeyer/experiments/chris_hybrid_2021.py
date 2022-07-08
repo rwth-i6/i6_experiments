@@ -409,7 +409,7 @@ def get_orig_chris_hybrid_system_init_args():
     ) = lbs_gmm_setups.get_data_inputs(
         use_eval_data_subset=True,
     )
-    hybrid_init_args = lbs_gmm_setups.get_init_args()
+    hybrid_init_args = default_gmm_hybrid_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
     cart_args = lbs_gmm_setups.get_cart_args()
     tri_args = lbs_gmm_setups.get_triphone_args()
