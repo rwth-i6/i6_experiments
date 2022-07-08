@@ -649,19 +649,6 @@ def test_run():
     # Small cleanup in orig object, which should not be needed.
     orig_obj['dev_data']['dev-other'].feature_scorers = {}
 
-    # They differ now because Chris changed them.
-    # However, the options we copied here should actually be the correct ones.
-    # Set them manually now.
-    orig_obj['hybrid_init_args'].feature_extraction_args['mfcc']['mfcc_options']['filter_width'] = 268.258
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['mfcc']['mfcc_options']['samples_options']['dc_detection']) = True
-    del orig_obj['hybrid_init_args'].feature_extraction_args['mfcc']['mfcc_options']['cepstrum_options']["epsilon"]
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['mfcc']['mfcc_options']['cepstrum_options'])["add_epsilon"] = False
-    orig_obj['hybrid_init_args'].feature_extraction_args['gt']['gt_options']['samples_options']['dc_detection'] = True
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['energy']['energy_options']['samples_options'])['dc_detection'] = True
-
     obj_types = (
         rasr_util.RasrInitArgs,
         rasr_util.ReturnnRasrDataInput,
