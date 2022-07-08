@@ -2,28 +2,25 @@
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
 
 
-from sisyphus import gs, tk, Path
+from sisyphus import gs, tk
 
 import os
-import sys
 from typing import Optional, Union, Dict, List
+import copy
+import numpy as np
 
 import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
 import i6_core.text as text
 import i6_core.features as features
-from i6_core.returnn.config import CodeWrapper
 import i6_core.util
+import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
-
-import copy
-import numpy as np
-
-import i6_core.returnn as returnn
+from ..utils.repr import py_repr
 
 from i6_experiments.users.luescher.helpers.search_params import get_search_parameters
 
@@ -667,7 +664,7 @@ def test_run():
         if isinstance(orig, i6_core.util.MultiPath) and isinstance(new, i6_core.util.MultiPath):
             pass  # allow different sub types
         elif type(orig) != type(new):
-            return [f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"]
+            return [f"{prefix} diff type: {py_repr(orig)} != {py_repr(new)}"]
         if isinstance(orig, dict):
             diffs = _collect_diffs(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
             if diffs:
@@ -708,9 +705,9 @@ def test_run():
                     num_diffs += 1
                     if num_diffs <= limit:
                         diffs += [
-                            f"{prefix} diff: del {_repr(sorted_orig[i])}"
+                            f"{prefix} diff: del {py_repr(sorted_orig[i])}"
                             if cmp < 0 else
-                            f"{prefix} diff: add {_repr(sorted_new[j])}"
+                            f"{prefix} diff: add {py_repr(sorted_new[j])}"
                         ]
                     if cmp < 0:
                         i += 1
@@ -724,7 +721,7 @@ def test_run():
             return diffs
         if isinstance(orig, (list, tuple)):
             if len(orig) != len(new):
-                return [f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"]
+                return [f"{prefix} diff len: {py_repr(orig)} != {py_repr(new)}"]
             diffs = []
             num_diffs = 0
             for i in range(len(orig)):
@@ -738,7 +735,7 @@ def test_run():
             return diffs
         if isinstance(orig, (int, float, str)):
             if orig != new:
-                return [f"{prefix} diff: {_repr(orig)} != {_repr(new)}"]
+                return [f"{prefix} diff: {py_repr(orig)} != {py_repr(new)}"]
             return []
         if isinstance(orig, tk.AbstractPath):
             return _collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
@@ -812,7 +809,7 @@ def _dump_crp(crp: rasr.CommonRasrParameters, *, _lhs=None):
         elif isinstance(v, dict):
             _dump_crp_dict(f"{_lhs}.{k}", v)
         elif isinstance(v, _valid_primitive_types):
-            print(f"{_lhs}.{k} = {_repr(v)}")
+            print(f"{_lhs}.{k} = {py_repr(v)}")
         else:
             raise TypeError(f"{_lhs}.{k} is type {type(v)}")
 
@@ -822,7 +819,7 @@ def _dump_crp_dict(lhs: str, d: dict):
         if isinstance(v, rasr.RasrConfig):
             _dump_rasr_config(f"{lhs}.{k}", v, parent_is_config=False)
         elif isinstance(v, _valid_primitive_types):
-            print(f"{lhs}.{k} = {_repr(v)}")
+            print(f"{lhs}.{k} = {py_repr(v)}")
         else:
             raise TypeError(f"{lhs}.{k} is type {type(v)}")
 
@@ -854,7 +851,7 @@ def _dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: bo
         if isinstance(v, rasr.RasrConfig):
             _dump_rasr_config(sub_lhs, v, parent_is_config=True)
         else:
-            print(f"{sub_lhs} = {_repr(v)}")
+            print(f"{sub_lhs} = {py_repr(v)}")
 
 
 def _is_valid_python_attrib_name(name: str) -> bool:
@@ -868,36 +865,3 @@ def _is_valid_python_attrib_name(name: str) -> bool:
         return False
     assert getattr(obj, name) == "ok"
     return True
-
-
-def _repr(obj):
-    """
-    Unfortunately some of the repr implementations are messed up, so need to use some custom here.
-    """
-    if isinstance(obj, tk.Path):
-        return f"tk.Path({obj.path!r})"
-    if isinstance(obj, i6_core.util.MultiPath):
-        return _multi_path_repr(obj)
-    if isinstance(obj, dict):
-        return f"{{{', '.join(f'{_repr(k)}: {_repr(v)}' for (k, v) in obj.items())}}}"
-    if isinstance(obj, list):
-        return f"[{', '.join(f'{_repr(v)}' for v in obj)}]"
-    if isinstance(obj, tuple):
-        return f"({''.join(f'{_repr(v)}, ' for v in obj)})"
-    return repr(obj)
-
-
-def _multi_path_repr(p: i6_core.util.MultiPath):
-    args = [p.path_template, p.hidden_paths, p.cached]
-    if p.path_root == gs.BASE_DIR:
-        args.append(CodeWrapper("gs.BASE_DIR"))
-    else:
-        args.append(p.path_root)
-    kwargs = {}
-    if p.hash_overwrite:
-        kwargs["hash_overwrite"] = p.hash_overwrite
-    return (
-        f"MultiPath("
-        f"{', '.join(f'{_repr(v)}' for v in args)}"
-        f"{''.join(f', {k}={_repr(v)}' for (k, v) in kwargs.items())})")
-
