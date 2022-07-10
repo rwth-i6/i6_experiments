@@ -95,18 +95,18 @@ def get_nnlm_rasr_config(
             tf_graph_args["returnn_python_exe"] = returnn_python_exe
         if not hasattr(tf_graph_args, "returnn_root"):
             tf_graph_args["returnn_root"] = returnn_root
-        kwargs["libraries"] = returnn.CompileNativeOpJob(
-            "NativeLstm2", **native_op_args
-        ).out_op
+        kwargs["meta_graph_path"] = returnn.CompileTFGraphJob(
+            returnn_lm_inference_config, **tf_graph_args
+        ).out_graph
 
     if native_op_args is not None:
         if not hasattr(native_op_args, "returnn_python_exe"):
             native_op_args["returnn_python_exe"] = returnn_python_exe
         if not hasattr(native_op_args, "returnn_root"):
             native_op_args["returnn_root"] = returnn_root
-        kwargs["meta_graph_path"] = returnn.CompileTFGraphJob(
-            returnn_lm_inference_config, **tf_graph_args
-        ).out_graph
+        kwargs["libraries"] = returnn.CompileNativeOpJob(
+            "NativeLstm2", **native_op_args
+        ).out_op
 
     config = rasr_conf_class(**kwargs)
 
