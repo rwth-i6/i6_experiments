@@ -197,6 +197,11 @@ class HybridSystem(NnSystem):
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.set_binaries_for_crp(
+                crp_key=c_key,
+                rasr_binary_path=self.rasr_binary_path,
+                rasr_arch=self.rasr_arch,
+            )
             self.feature_flows[c_key] = c_data.feature_flow
             self.feature_scorers[c_key] = {}
 
