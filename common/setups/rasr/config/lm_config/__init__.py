@@ -1,4 +1,4 @@
 from .arpa import *
 from .combine import *
-from .simpletransformer import *
+from .simpletfneural import *
 from .tfrnn import *
