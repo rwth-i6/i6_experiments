@@ -73,7 +73,7 @@ class ReturnnRasrDataInput:
         lm_lookahead_args=None,
         returnn_python_exe=None,
         returnn_root=None,
-        rasr_root=None,
+        rasr_binary_path=None,
         rasr_arch=None,
     ):
         """
@@ -115,8 +115,8 @@ class ReturnnRasrDataInput:
         if allophone_file is not None:
             crp.acoustic_model_config.allophones.add_from_file = allophone_file
 
-        if rasr_root is not None:
-            rasr_exe_path = {"rasr_binary_path": rasr_root}
+        if rasr_binary_path is not None:
+            rasr_exe_path = {"rasr_binary_path": rasr_binary_path}
             if rasr_arch is not None:
                 rasr_exe_path["rasr_arch"] = rasr_arch
             crp.set_executables(**rasr_exe_path)
