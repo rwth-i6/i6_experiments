@@ -17,7 +17,7 @@ class TfRnnLmRasrConfig:
 
     vocab_path: tk.Path
     meta_graph_path: tk.Path
-    checkpoint: returnn.Checkpoint
+    returnn_checkpoint: returnn.Checkpoint
     scale: Optional[float] = None
     unknown_symbol: str = "<UNK>"
     transform_output_negate: bool = True
@@ -39,7 +39,7 @@ class TfRnnLmRasrConfig:
 
         lm_config.loader.type = "meta"
         lm_config.loader.meta_graph_file = self.meta_graph_path
-        lm_config.loader.saved_model_file = self.checkpoint
+        lm_config.loader.saved_model_file = self.returnn_checkpoint
         if self.libraries is not None:
             lm_config.loader.required_libraries = self.libraries
 

@@ -45,7 +45,7 @@ def get_nnlm_rasr_config(
     returnn_checkpoint: returnn.Checkpoint,
     *,
     scale: Optional[float] = None,
-    vocab_unknown_word: str = "<UNK>",
+    unknown_symbol: str = "<UNK>",
     label_level: str = "word",
     max_batch_size: int = 128,
     transform_output_negate: bool = True,
@@ -62,7 +62,7 @@ def get_nnlm_rasr_config(
     :param vocab_path: LM vocabulary file
     :param returnn_lm_inference_config: LM RETURNN config, already prepared for inference
     :param returnn_checkpoint:
-    :param vocab_unknown_word:
+    :param unknown_symbol:
     :param label_level:
     :param scale:
     :param max_batch_size:
@@ -79,6 +79,11 @@ def get_nnlm_rasr_config(
     del kwargs["tf_graph_args"]
     del kwargs["returnn_python_exe"]
     del kwargs["returnn_root"]
+    del kwargs["returnn_lm_inference_config"]
+
+    # TODO necessary config param?
+    del kwargs["label_level"]
+    del kwargs["max_batch_size"]
 
     rasr_conf_class = (
         lm_config.TfRnnLmRasrConfig
