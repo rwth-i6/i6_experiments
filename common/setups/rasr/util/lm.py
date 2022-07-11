@@ -48,14 +48,14 @@ def get_nnlm_rasr_config(
     *,
     scale: Optional[float] = None,
     unknown_symbol: str = "<UNK>",
-    label_level: str = "word",
-    max_batch_size: int = 128,
+    output_layer_type: str = "softmax",
     transform_output_negate: bool = True,
     native_op_args: Optional[Dict] = None,
     tf_graph_args: Optional[Dict] = None,
     returnn_python_exe: Optional[Union[tk.Path, str]] = None,
     returnn_root: Optional[Union[tk.Path, str]] = None,
     libraries: Optional[Union[tk.Path, List[tk.Path]]] = None,
+    **kwargs,
 ):
     """
     create RasrConfig for Neural LM
@@ -65,10 +65,9 @@ def get_nnlm_rasr_config(
     :param vocab_path: LM vocabulary file
     :param returnn_lm_inference_config: LM RETURNN config, already prepared for inference
     :param returnn_checkpoint:
-    :param unknown_symbol:
-    :param label_level:
     :param scale:
-    :param max_batch_size:
+    :param unknown_symbol:
+    :param output_layer_type:
     :param transform_output_negate:
     :param native_op_args:
     :param tf_graph_args:
@@ -77,53 +76,61 @@ def get_nnlm_rasr_config(
     :param libraries:
     :rtype: RasrConfig
     """
+    if isinstance(returnn_checkpoint, str):
+        assert returnn_checkpoint.endswith(".index")
+        returnn_checkpoint = returnn.Checkpoint(returnn_checkpoint)
+
     if isinstance(libraries, tk.Path):
         libraries = [libraries]
 
     if libraries is None:
         libraries = []
 
-    kwargs = locals()
-    del kwargs["lm_type"]
-    del kwargs["native_op_args"]
-    del kwargs["tf_graph_args"]
-    del kwargs["returnn_python_exe"]
-    del kwargs["returnn_root"]
-    del kwargs["returnn_lm_inference_config"]
-
-    # TODO necessary config param?
-    del kwargs["label_level"]
-    del kwargs["max_batch_size"]
-
-    rasr_conf_class = (
-        lm_config.TfRnnLmRasrConfig
-        if lm_type == "tfrnn"
-        else lm_config.SimpleTfNeuralLmRasrConfig
-    )
-
-    if isinstance(returnn_checkpoint, str):
-        assert returnn_checkpoint.endswith(".index")
-        returnn_checkpoint = returnn.Checkpoint(returnn_checkpoint)
-
-    if tf_graph_args is not None:
+    if tf_graph_args is None:
+        tf_graph_args = {}
         if not hasattr(tf_graph_args, "returnn_python_exe"):
             tf_graph_args["returnn_python_exe"] = returnn_python_exe
         if not hasattr(tf_graph_args, "returnn_root"):
             tf_graph_args["returnn_root"] = returnn_root
-        kwargs["meta_graph_path"] = returnn.CompileTFGraphJob(
-            returnn_lm_inference_config, **tf_graph_args
-        ).out_graph
+    meta_graph_path = returnn.CompileTFGraphJob(
+        returnn_lm_inference_config, **tf_graph_args
+    ).out_graph
 
-    if native_op_args is not None:
+    if native_op_args is None:
+        native_op_args = {}
         if not hasattr(native_op_args, "returnn_python_exe"):
             native_op_args["returnn_python_exe"] = returnn_python_exe
         if not hasattr(native_op_args, "returnn_root"):
             native_op_args["returnn_root"] = returnn_root
-        kwargs["libraries"].append(
-            returnn.CompileNativeOpJob("NativeLstm2", **native_op_args).out_op
-        )
+    libraries.append(returnn.CompileNativeOpJob("NativeLstm2", **native_op_args).out_op)
 
-    config = rasr_conf_class(**kwargs)
+    if lm_type == "tfrnn":
+        config = lm_config.TfRnnLmRasrConfig(
+            vocab_path=vocab_path,
+            meta_graph_path=meta_graph_path,
+            returnn_checkpoint=returnn_checkpoint,
+            scale=scale,
+            unknown_symbol=unknown_symbol,
+            transform_output_negate=transform_output_negate,
+            output_layer_type=output_layer_type,
+            libraries=libraries,
+            state_manager=kwargs["state_manager"],
+            **kwargs,
+        )
+    elif lm_type == "simple-tf-neural":
+        config = lm_config.SimpleTfNeuralLmRasrConfig(
+            vocab_path=vocab_path,
+            meta_graph_path=meta_graph_path,
+            returnn_checkpoint=returnn_checkpoint,
+            scale=scale,
+            unknown_symbol=unknown_symbol,
+            transform_output_negate=transform_output_negate,
+            output_layer_type=output_layer_type,
+            libraries=libraries,
+            **kwargs,
+        )
+    else:
+        raise NotImplementedError
 
     return config.get()
 
