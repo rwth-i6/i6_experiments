@@ -4,7 +4,7 @@ __all__ = [
     "add_lm_rasr_config_to_crp",
 ]
 
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -25,7 +25,9 @@ Path = tk.setup_path(__package__)
 # -------------------- LM Rasr Config --------------------
 
 
-def get_arpa_lm_rasr_config(lm_path: Path, scale: float, image: Optional[Path] = None):
+def get_arpa_lm_rasr_config(
+    lm_path: tk.Path, scale: float, image: Optional[tk.Path] = None
+):
     """
     :param lm_path: path to ARPA LM
     :param scale: LM scale
@@ -40,8 +42,8 @@ def get_arpa_lm_rasr_config(lm_path: Path, scale: float, image: Optional[Path] =
 
 def get_nnlm_rasr_config(
     lm_type: str,
-    vocab_path: Union[Path, str],
-    returnn_lm_inference_config: Union[returnn.ReturnnConfig, Path, str],
+    vocab_path: Union[tk.Path, str],
+    returnn_lm_inference_config: Union[returnn.ReturnnConfig, tk.Path, str],
     returnn_checkpoint: returnn.Checkpoint,
     *,
     scale: Optional[float] = None,
@@ -51,8 +53,9 @@ def get_nnlm_rasr_config(
     transform_output_negate: bool = True,
     native_op_args: Optional[Dict] = None,
     tf_graph_args: Optional[Dict] = None,
-    returnn_python_exe: Optional[Union[Path, str]] = None,
-    returnn_root: Optional[Union[Path, str]] = None,
+    returnn_python_exe: Optional[Union[tk.Path, str]] = None,
+    returnn_root: Optional[Union[tk.Path, str]] = None,
+    libraries: Optional[Union[tk.Path, List[tk.Path]]] = None,
 ):
     """
     create RasrConfig for Neural LM
@@ -71,8 +74,15 @@ def get_nnlm_rasr_config(
     :param tf_graph_args:
     :param returnn_python_exe:
     :param returnn_root:
+    :param libraries:
     :rtype: RasrConfig
     """
+    if isinstance(libraries, tk.Path):
+        libraries = [libraries]
+
+    if libraries is None:
+        libraries = []
+
     kwargs = locals()
     del kwargs["lm_type"]
     del kwargs["native_op_args"]
@@ -109,9 +119,9 @@ def get_nnlm_rasr_config(
             native_op_args["returnn_python_exe"] = returnn_python_exe
         if not hasattr(native_op_args, "returnn_root"):
             native_op_args["returnn_root"] = returnn_root
-        kwargs["libraries"] = returnn.CompileNativeOpJob(
-            "NativeLstm2", **native_op_args
-        ).out_op
+        kwargs["libraries"].append(
+            returnn.CompileNativeOpJob("NativeLstm2", **native_op_args).out_op
+        )
 
     config = rasr_conf_class(**kwargs)
 
@@ -123,8 +133,8 @@ def add_lm_rasr_config_to_crp(
     lm_args: Dict,
     *,
     lm_lookahead_args: Optional[Dict] = None,
-    returnn_python_exe: Optional[Union[str, Path]] = None,
-    returnn_root: Optional[Union[str, Path]] = None,
+    returnn_python_exe: Optional[Union[str, tk.Path]] = None,
+    returnn_root: Optional[Union[str, tk.Path]] = None,
 ):
     """
     adds a LM (ngram or NN) to a crp

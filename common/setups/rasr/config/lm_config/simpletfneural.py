@@ -1,7 +1,7 @@
 __all__ = ["SimpleTfNeuralLmRasrConfig"]
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Union
 
 from sisyphus import tk
 
@@ -22,7 +22,7 @@ class SimpleTfNeuralLmRasrConfig:
     unknown_symbol: str = "<UNK>"
     transform_output_negate: bool = True
     output_layer_type: str = "softmax"
-    libraries: Optional[tk.Path] = None
+    libraries: Optional[Union[tk.Path, List[tk.Path]]] = None
     max_batch_size: int = 128
 
     def get(self) -> rasr.RasrConfig:

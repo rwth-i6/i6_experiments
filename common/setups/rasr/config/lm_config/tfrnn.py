@@ -1,7 +1,7 @@
 __all__ = ["TfRnnLmRasrConfig"]
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Union
 
 from sisyphus import tk
 
@@ -22,7 +22,7 @@ class TfRnnLmRasrConfig:
     unknown_symbol: str = "<UNK>"
     transform_output_negate: bool = True
     output_layer_type: str = "softmax"
-    libraries: Optional[tk.Path] = None
+    libraries: Optional[Union[tk.Path, List[tk.Path]]] = None
     state_manager: str = "transformer"
     softmax_adapter: Optional[str] = None
     common_prefix: bool = False
