@@ -104,6 +104,8 @@ def get_nnlm_rasr_config(
         native_op_args["returnn_root"] = returnn_root
     libraries.append(returnn.CompileNativeOpJob("NativeLstm2", **native_op_args).out_op)
 
+    state_manager = kwargs.pop("state_manager")
+
     if lm_type == "tfrnn":
         config = lm_config.TfRnnLmRasrConfig(
             vocab_path=vocab_path,
@@ -114,7 +116,7 @@ def get_nnlm_rasr_config(
             transform_output_negate=transform_output_negate,
             output_layer_type=output_layer_type,
             libraries=libraries,
-            state_manager=kwargs["state_manager"],
+            state_manager=state_manager,
             **kwargs,
         )
     elif lm_type == "simple-tf-neural":
