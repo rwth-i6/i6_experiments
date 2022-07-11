@@ -104,9 +104,9 @@ def get_nnlm_rasr_config(
         native_op_args["returnn_root"] = returnn_root
     libraries.append(returnn.CompileNativeOpJob("NativeLstm2", **native_op_args).out_op)
 
-    state_manager = kwargs.pop("state_manager")
-
     if lm_type == "tfrnn":
+        state_manager = kwargs.pop("state_manager")
+
         config = lm_config.TfRnnLmRasrConfig(
             vocab_path=vocab_path,
             meta_graph_path=meta_graph_path,
