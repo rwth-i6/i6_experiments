@@ -1,5 +1,6 @@
 from returnn_common import nn
 import numpy as np
+from typing import Tuple
 
 
 def normal_distribution(x: nn.Tensor, *, mu: nn.Tensor, sigma: nn.Tensor) -> nn.Tensor:
@@ -33,6 +34,7 @@ class VarianceNetwork(nn.Module):
         :return: variance [B, N]
         """
         durations = nn.expand_dim(durations, dim=nn.FeatureDim("dur", 1))
+        durations = nn.cast(durations, dtype="float32")
         cat = nn.concat((inp, inp.feature_dim), (durations, durations.feature_dim))
 
         fw_1, _ = self.lstm_1_fw(cat, axis=time_dim, direction=1)
@@ -57,7 +59,6 @@ class GaussianUpsampling(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.out_time_axis = nn.SpatialDim("upsamling_time")
 
     def __call__(
         self,
@@ -65,7 +66,8 @@ class GaussianUpsampling(nn.Module):
         durations: nn.Tensor,
         variances: nn.Tensor,
         time_dim: nn.Dim,
-    ) -> nn.Tensor:
+        out_dim: nn.Dim = None,
+    ) -> Tuple[nn.Tensor, nn.Dim]:
         """
 
         :param inp: H, [B, N, F]
@@ -74,12 +76,14 @@ class GaussianUpsampling(nn.Module):
         :return: upsampled input
         """
 
-        c = nn.cumsum(durations, axis=time_dim) - (0.5 * durations)  # [B,N]
+        durations_float = nn.cast(durations, dtype="float32")
+        c = nn.cumsum(durations_float, axis=time_dim) - (0.5 * durations_float)  # [B,N]
 
         l = nn.reduce(durations, mode="sum", axis=time_dim, use_time_mask=True)  # [B]
         l = nn.cast(l, dtype="int32")
 
-        t, _ = nn.range_from_length(l, out_spatial_dim=self.out_time_axis)  # [B,T]
+        out_time_axis = out_dim if out_dim else nn.SpatialDim("upsamling_time")
+        t, out_time = nn.range_from_length(l, out_spatial_dim=out_time_axis)  # [B,T]
         t = nn.cast(t, dtype="float32")
         t = nn.combine(t, 1, allow_broadcast_all_sources=True, kind="add")
 
@@ -90,4 +94,4 @@ class GaussianUpsampling(nn.Module):
 
         output = nn.dot(w_t, inp, reduce=time_dim)  # [B, T, F]
 
-        return output
+        return output, out_time
