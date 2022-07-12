@@ -642,7 +642,17 @@ def test_run():
     gs.SHOW_JOB_TARGETS = False
 
     new_obj = get_chris_hybrid_system_init_args()
-    orig_obj = get_orig_chris_hybrid_system_init_args()
+    obj_filename = os.path.dirname(os.path.abspath(__file__)) + "/chris_hybrid_2021.pkl"
+    import pickle
+    orig_obj = None
+    if os.path.exists(obj_filename):
+        try:
+            orig_obj = pickle.load(open(obj_filename, "rb"))
+        except EOFError as exc:
+            print("Error reading pickle:", exc)
+    if not orig_obj:
+        orig_obj = get_orig_chris_hybrid_system_init_args()
+        pickle.dump(orig_obj, open(obj_filename, "wb"))
 
     # Small cleanup in orig object, which should not be needed.
     orig_obj['dev_data']['dev-other'].feature_scorers = {}
