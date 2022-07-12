@@ -63,7 +63,7 @@ def get_init_args():
                     "epsilon": 1e-10,
                 },
                 "fft_options": None,
-                "add_feature_output": True,
+                "add_features_output": True,
             },
         },
         "energy": {
