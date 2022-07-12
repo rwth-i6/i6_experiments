@@ -153,7 +153,7 @@ def get_init_args(
 
 def get_data_inputs(
     train_corpus="train-other-960",
-    add_unknown_phoneme_and_mapping = False,
+    add_unknown_phoneme_and_mapping = True,
     use_eval_data_subset: bool = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
@@ -214,8 +214,8 @@ def get_data_inputs(
 
 
 
-def get_final_output():
-    output_args = rasr_util.OutputArgs("final")
+def get_final_output(name="final"):
+    output_args = rasr_util.OutputArgs(name)
 
     output_args.define_corpus_type("train-other-960", "train")
     output_args.define_corpus_type("dev-clean", "dev")

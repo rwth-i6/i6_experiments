@@ -46,19 +46,25 @@ class LabelInfo:
         sil_id=None,
         use_word_end_class=True,
         use_boundary_classes=False,
+        add_unknown_phoneme=True,
     ):
         self.n_states_per_phone = n_states_per_phone
         self.n_contexts = n_phonemes
-        self.n_state_classes = n_states_per_phone * n_phonemes
         self.sil_id = sil_id
         self.ph_emb_size = ph_emb_size
         self.st_emb_size = st_emb_size
         self.state_tying = state_tying
         self.use_word_end_class = use_word_end_class
         self.use_boundary_classes = use_boundary_classes
+        self.add_unknown_phoneme = add_unknown_phoneme
 
-    def get_number_of_dense_classes(self):
-        return self.n_state_classes * (self.n_contexts**2)
+
+    def get_n_of_dense_classes(self):
+        return self.get_n_state_classes() * (self.n_contexts**2)
+
+    def get_n_state_classes(self):
+        return self.n_states_per_phone * self.n_contexts * (1 + int(self.use_word_end_class))
+
 
 
 class PipelineStages:
