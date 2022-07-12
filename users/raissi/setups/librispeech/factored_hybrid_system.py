@@ -16,11 +16,12 @@ import sisyphus.global_settings as gs
 from sisyphus.delayed_ops import DelayedFormat
 
 # -------------------- Recipes --------------------
-
+import i6_core.corpus as corpus_recipe
 import i6_core.features as features
 import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
+import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
 
@@ -43,8 +44,8 @@ from i6_experiments.users.raissi.setups.common.helpers.train_helpers import (
     get_extra_config_segment_order,
 )
 
-from i6_experiments.users.raissi.setups.common.helpers.rasr import (
-    SystemOutput,
+from i6_experiments.users.raissi.setups.common.util.rasr import (
+    SystemInput,
 )
 
 from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
@@ -104,11 +105,15 @@ class FactoredHybridSystem(NnSystem):
                        'threepartite-EOW': ('/').join([self.dependency_path , 'priors', 'daniel', 'threepartite', 'threepartite.we.pickle'])}
 
         self.cv_info = {'pre_path': ('/').join([self.dependency_path, 'data', 'zhou-corpora']),
-                                      'train_dev': 'train-dev.corpus.xml',
-                                      'train_dev_segments': 'train-dev.segments',
-                                      'dev_cv': 'dev-cv.corpus.xml',
-                                      'dev_cv_segments': 'dev-cv.segments',
-                                      'features_path': ('/').join(['FeatureExtraction.Gammatone.yly3ZlDOfaUm', 'output', 'gt.cache.bundle'])
+                                      'train_segments': 'train.segments',
+                                      'train-dev_corpus': 'train-dev.corpus.xml',
+                                      'train-dev_segments': 'train-dev.segments',
+                                      'train-dev_lexicon_withunk': 'oov.withUnkPhm.aligndev.xml.gz',
+                                      'train-dev_lexicon_nounk': 'oov.noUnkPhm.aligndev.xml.gz',
+                                      'cv_corpus': 'dev-cv.corpus.xml',
+                                      'cv_segments': 'dev-cv.segments',
+                                      'features_postpath_cv': ('/').join(['FeatureExtraction.Gammatone.yly3ZlDOfaUm', 'output', 'gt.cache.bundle']),
+                                      'features_tkpath_train': Path('/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle'),
                                       }
 
         #dataset infomration
@@ -128,15 +133,13 @@ class FactoredHybridSystem(NnSystem):
 
         # train information
         self.initial_nn_args =   {'num_input': 50,
-                                  'num_classes': self.label_info.n_state_classes,
                                   'partition_epochs': {'train': 20, 'dev': 1},
                                   'n_epochs': 25,
                                   #'log_verbosity': 5,
                                   'returnn_python_exe': returnn_python_exe}
 
         self.initial_train_args = {'time_rqmt': 168,
-                                   'mem_rqmt': 32,
-                                   'num_classes': self.label_info.n_state_classes,
+                                   'mem_rqmt': 40,
                                    'num_epochs': self.initial_nn_args['n_epochs'] * self.initial_nn_args['partition_epochs']['train'],
                                    'partition_epochs': self.initial_nn_args['partition_epochs']}
 
@@ -154,10 +157,10 @@ class FactoredHybridSystem(NnSystem):
 
         #inference related
         self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}        #Triphone forward model
-        self.mixtures["dummy"] = mm.CreateDummyMixturesJob(self.label_info.get_number_of_dense_classes(),
+        self.mixtures["dummy"] = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
                                                            self.initial_nn_args["num_input"]).out_mixtures #gammatones
 
-        self.outputs = {}
+        self.inputs = {}
 
     #----------- pipeline construction -----------------
     def set_experiment_dict(self, key, alignment, context):
@@ -170,6 +173,19 @@ class FactoredHybridSystem(NnSystem):
             "align_job": None,
             "decode_job": {"runner": None, "args": None}
         }
+
+    def set_crp_pairings(self):
+        keys = self.corpora.keys()
+        train_key = [k for k in keys if 'train' in k][0]
+        all_names = ['train', 'cvtrain', 'devtrain']
+        all_names.extend([n for n in keys if n != train_key])
+        self.crp_names = dict()
+        for k in all_names:
+            if 'train' in k:
+                self.crp_names[k] = f'{train_key}.{k}'
+            else:  self.crp_names[k] = k
+
+
 
     #--------------------- Init procedure -----------------
     def init_system(self):
@@ -192,39 +208,6 @@ class FactoredHybridSystem(NnSystem):
             self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
             self.test_corpora.append(corpus_key)
 
-    def _update_crp_am_setting(self, crp_key, tdp_type=None, label_info=None):
-        #ToDo handle different tdp values: default, based on transcription, based on an alignment
-        if label_info is None:
-            label_info = copy.deepcopy(self.label_info)
-
-        tdp_pattern = self.tdp_values['pattern']
-        if tdp_type is None:
-            tdp_values = self.tdp_values['default']
-
-        elif isinstance(tdp_type, tuple):
-            tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
-
-        else:
-            print("Not implemented")
-            import sys
-            sys.exit()
-
-        crp = self.crp[crp_key]
-        for ind, ele in enumerate(tdp_pattern):
-            for type in ["*", "silence"]:
-                crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
-
-        crp.acoustic_model_config.state_tying.type = label_info.state_tying
-        if label_info.use_word_end_class:
-            crp.acoustic_model_config.state_tying.use_word_end_classes = label_info.use_word_end_class
-        crp.acoustic_model_config.state_tying.use_boundary_classes = label_info.use_boundary_classes
-        crp.acoustic_model_config.hmm.states_per_phone = label_info.n_states_per_phone
-
-        crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
-        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
-        crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
-
-
     def init_datasets(
         self,
         train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
@@ -234,9 +217,6 @@ class FactoredHybridSystem(NnSystem):
         ] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-        train_cv_pairing: Optional[
-            List[Tuple[str, ...]]
-        ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
         devtrain_data = devtrain_data if devtrain_data is not None else {}
         dev_data = dev_data if dev_data is not None else {}
@@ -245,7 +225,6 @@ class FactoredHybridSystem(NnSystem):
         self._assert_corpus_name_unique(
             train_data, cv_data, devtrain_data, dev_data, test_data
         )
-        datasets = [train_data, cv_data, devtrain_data, dev_data, test_data]
 
         self.train_input_data = train_data
         self.cv_input_data = cv_data
@@ -265,26 +244,20 @@ class FactoredHybridSystem(NnSystem):
         self._set_eval_data(dev_data)
         self._set_eval_data(test_data)
 
-    def get_system_output(
+    def get_system_input(
         self,
         corpus_key: str,
-        corpus_type: str,
-        step_idx: int,
-        steps: RasrSteps,
         extract_features: List[str],
     ):
         """
         :param corpus_key: corpus name identifier
-        :param corpus_type: corpus used for: train, dev or test
-        :param step_idx: select a specific step from the defined list of steps
-        :param steps: all steps in pipeline
         :param extract_features: list of features to extract for later usage
         :return GmmOutput:
         """
-        sys_out = SystemOutput()
-        sys_out.crp = self.crp[corpus_key]
-        sys_out.feature_flows = self.feature_flows[corpus_key]
-        sys_out.features = self.feature_caches[corpus_key]
+        sys_in = SystemInput()
+        sys_in.crp = self.crp[corpus_key]
+        sys_in.feature_flows = self.feature_flows[corpus_key]
+        sys_in.features = self.feature_caches[corpus_key]
 
         for feat_name in extract_features:
             tk.register_output(
@@ -293,22 +266,19 @@ class FactoredHybridSystem(NnSystem):
             )
 
 
-        return sys_out
+        return sys_in
 
-    def run_output_step(self, step_args, step_idx, steps):
+    def run_input_step(self, step_args):
         for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
             if (
                 corpus_key
                 not in self.train_corpora + self.dev_corpora + self.test_corpora
             ):
                 continue
-            if corpus_key not in self.outputs.keys():
-                self.outputs[corpus_key] = {}
-            self.outputs[corpus_key][step_args.name] = self.get_system_output(
+            if corpus_key not in self.inputs.keys():
+                self.inputs[corpus_key] = {}
+            self.inputs[corpus_key][step_args.name] = self.get_system_input(
                 corpus_key,
-                corpus_type,
-                step_idx,
-                steps,
                 step_args.extract_features,
             )
 
@@ -322,28 +292,164 @@ class FactoredHybridSystem(NnSystem):
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
+            self.set_sclite_scorer(c_key)
 
-    def prepare_data_for_bw_with_separate_cv(self, dev_key="dev_magic", train_key="train_magic",
-                                             cv_key="cv_magic", bw_key="bw"):
-        cv_corpus = ("/").join(
-            [self.cross_validation_info['pre_path'], self.cross_validation_info['dev_cv']])
-        cv_segment = ("/").join(
-            [self.cross_validation_info['pre_path'], self.cross_validation_info['dev_cv.segments']])
-        self.set_sprint_corpora(dev_key,
-                                cv_key,
-                                cv_segment,
-                                corpus_file=cv_corpus)
+    def _update_crp_am_setting(self, crp_key, tdp_type=None):
+        # ToDo handle different tdp values: default, based on transcription, based on an alignment
+        tdp_pattern = self.tdp_values['pattern']
+        if tdp_type is None:
+            tdp_values = self.tdp_values['default']
 
-        cv_feature_path = Path(("/").join(
-            [self.cross_validation_info['pre_path'], self.cross_validation_info['features_path'], "output",
-             "gt.cache.bundle"]))
-        self.feature_flows[cv_key] = features.basic_cache_flow(cv_feature_path)
+        elif isinstance(tdp_type, tuple):
+            tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
 
-        self.csp[bw_key] = copy.deepcopy(self.csp[train_key])
-        self.csp[bw_key].corpus_config.file = ("/").join(
-            [self.cross_validation_info['pre_path'], self.cross_validation_info['merged_corpus_path']])
-        self.csp[bw_key].corpus_config.segments.file = ("/").join(
-            [self.cross_validation_info['pre_path'], self.cross_validation_info['merged_corpus_segment']])
+        else:
+            print("Not implemented")
+            import sys
+            sys.exit()
+
+        crp = self.crp[crp_key]
+        for ind, ele in enumerate(tdp_pattern):
+            for type in ["*", "silence"]:
+                crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
+
+        crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+        if self.label_info.use_word_end_class:
+            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_class
+        crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+        crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
+
+        crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
+        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
+        crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
+
+    def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type):
+        types = {'train': train_tdp_type, 'eval': eval_tdp_type}
+        for t in types.keys():
+            if types[t] == 'heuristic':
+                if self.label_info.n_states_per_phone > 1:
+                    types[t] = (types[t], 'threepartite')
+                else:
+                    types[t] = (types[t], 'monostate')
+
+        for crp_k in self.crp_names.keys():
+            if 'train' in crp_k:
+                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['train'])
+            else:
+                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'])
+
+
+
+    def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
+        train_corpus_path = self.corpora["train-other-960"].corpus_file
+        total_train_num_segments = 281241
+        cv_size = 3000 / total_train_num_segments
+
+        all_segments = corpus_recipe.SegmentCorpusJob(
+            train_corpus_path, 1
+        ).out_single_segment_files[1]
+
+        splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+            all_segments, {"train": 1 - cv_size, "cv": cv_size}
+        )
+        train_segments = splitted_segments_job.out_segments["train"]
+        cv_segments = splitted_segments_job.out_segments["cv"]
+        devtrain_segments = text.TailJob(
+            train_segments, num_lines=1000, zip_output=False
+        ).out
+
+        # ******************** NN Init ********************
+        nn_train_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input(shuffle_data=True,
+                                                                                            segment_order_sort_by_time_length=True,
+                                                                                            chunk_size=chunk_size)
+        nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
+        nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
+
+        nn_cv_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input()
+        nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
+        nn_cv_data_inputs = {self.crp_names['cvtrain']: nn_cv_data}
+
+        nn_devtrain_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
+        nn_devtrain_data_inputs = {self.crp_names['devtrain']: nn_devtrain_data}
+
+        return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
+
+    def prepare_train_data_with_separate_cv(self, input_key, chunk_size=1152):
+        train_corpus = ("/").join([self.cv_info['pre_path'], self.cv_info['train-dev_corpus']])
+        train_segments = ("/").join([self.cv_info['pre_path'], self.cv_info['train_segments']])
+        train_feature_path = self.cv_info['features_tkpath_train']
+        train_feature_flow = features.basic_cache_flow(train_feature_path)
+
+        cv_corpus = ("/").join([self.cv_info['pre_path'], self.cv_info['cv_corpus']])
+        cv_segments = ("/").join([self.cv_info['pre_path'], self.cv_info['cv_segments']])
+        cv_feature_path = Path(("/").join([self.cv_info['pre_path'], self.cv_info['features_postpath_cv']]))
+        cv_feature_flow = features.basic_cache_flow(cv_feature_path)
+
+        devtrain_segments = text.TailJob(
+            train_segments, num_lines=1000, zip_output=False
+        ).out
+
+        nn_train_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input(shuffle_data=True,
+                                                                                             segment_order_sort_by_time_length=True,
+                                                                                             chunk_size=chunk_size)
+
+        nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
+        nn_train_data.feature_flow = train_feature_flow
+        nn_train_data.features = train_feature_path
+        nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
+
+        nn_cv_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input()
+        nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
+        nn_cv_data.feature_flow = cv_feature_flow
+        nn_cv_data.features = cv_feature_path
+        nn_cv_data_inputs = {self.crp_names['cvtrain']: nn_cv_data}
+
+        nn_devtrain_data = self.inputs["train-other-960"][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
+        nn_devtrain_data_inputs = {self.crp_names['devtrain']: nn_devtrain_data}
+
+        return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
+
+    def get_bw_crp_from_train_crp(self, train_crp_key):
+        crp_bw = copy.deepcopy(self.crp[train_crp_key])
+
+        train_dev_segments = ("/").join([self.cv_info['pre_path'], self.cv_info[f'train-dev_segments']])
+        lexicon_subname = 'with' if self.label_info.add_unknown_phoneme else 'no'
+        train_dev_lexicon = ("/").join([self.cv_info['pre_path'], self.cv_info[f'train-dev_lexicon_{lexicon_subname}unk']])
+
+        crp_bw.corpus_config.segment.file = train_dev_segments
+        crp_bw.lexicon_config.file        =  train_dev_lexicon
+
+        return crp_bw
+
+    def set_rasr_returnn_input_datas(self, input_key, chunk_size=1152, is_cv_separate_from_train=False):
+        for k in self.corpora.keys():
+            assert self.inputs[k] is not None
+            assert self.inputs[k][input_key] is not None
+
+        if is_cv_separate_from_train:
+            f = self.prepare_train_data_with_separate_cv
+        else: f = self.prepare_train_data_with_cv_from_train
+
+        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(input_key, chunk_size)
+
+        nn_dev_data_inputs = {
+            self.crp_names['dev-clean']: self.inputs["dev-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['dev-clean']: self.inputs["dev-other"][input_key].as_returnn_rasr_data_input(),
+        }
+        nn_test_data_inputs = {
+            self.crp_names['test-clean']: self.inputs["test-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['test-other']: self.inputs["test-other"][input_key].as_returnn_rasr_data_input(),
+        }
+
+        self.init_datasets(
+            train_data=nn_train_data_inputs,
+            cv_data=nn_cv_data_inputs,
+            devtrain_data=nn_devtrain_data_inputs,
+            dev_data=nn_dev_data_inputs,
+            test_data=nn_test_data_inputs)
+
 
     # -------------------- Helpers --------------------
     def _get_prior_info_dict(self):
@@ -361,9 +467,9 @@ class FactoredHybridSystem(NnSystem):
         cv_corpus_key: str,
         name: str,
     ):
-        train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_train")
+        train_job.add_alias(f"train/nn_{name}")
         tk.register_output(
-            f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_learning_rate.png",
+            f"train/{name}_learning_rate.png",
             train_job.out_plot_lr,
         )
 
@@ -527,8 +633,6 @@ class FactoredHybridSystem(NnSystem):
         experiment_key,
         train_corpus_key,
         dev_corpus_key,
-        train_feature_corpus,
-        dev_feature_corpus,
         nn_train_args,
     ):
         train_data = self.train_input_data[train_corpus_key]
@@ -538,14 +642,6 @@ class FactoredHybridSystem(NnSystem):
         dev_crp = dev_data.get_crp()
 
 
-        """
-        if 'extra_rasr_config' not in nn_train_args:
-            nn_train_args['extra_rasr_config'] = get_extra_config_segment_order(size=300)
-        else:
-            extra_rasr_config_additional =  n_train_args['extra_rasr_config']
-            nn_train_args['extra_rasr_config'] = get_extra_config_segment_order(size=300, extra_config=extra_rasr_config_additional)
-        """
-
         if 'returnn_config' not in nn_train_args:
             returnn_config = self.experiments[experiment_key]['returnn_config']
         else: returnn_config = nn_train_args.pop('returnn_config')
@@ -554,8 +650,8 @@ class FactoredHybridSystem(NnSystem):
         train_job = returnn.ReturnnRasrTrainingBWJob(
             train_crp=train_crp,
             dev_crp=dev_crp,
-            feature_flows={"train": self.feature_flows[train_feature_corpus],
-                           "dev": self.feature_flows[dev_feature_corpus]},
+            feature_flows={"train": train_data.feature_flow,
+                           "dev": dev_data.feature_flow},
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
@@ -606,7 +702,7 @@ class FactoredHybridSystem(NnSystem):
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
                 self.extract_features(step_args)
-                # ---------- Step Output ----------
-            if step_name.startswith("output"):
-                self.run_output_step(step_args, step_idx=step_idx, steps=steps)
+                # ---------- Step Input ----------
+            if step_name.startswith("input"):
+                self.run_input_step(step_args)
 
