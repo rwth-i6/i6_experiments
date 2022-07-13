@@ -8,6 +8,7 @@ from sisyphus import *
 from .utils import generic_open
 from .dataset.common import GenericDataset, ExplicitDataset
 import numpy
+from typing import List
 
 
 class ConcatSwitchboard(Job):
@@ -272,3 +273,19 @@ class ConcatSwitchboard(Job):
 
   def tasks(self):
     yield Task('run', rqmt={'cpu': 1, 'mem': 1, 'time': 0.1}, mini_task=True)
+
+
+class MergeSeqTagFiles(Job):
+  def __init__(self, seq_tag_file_list: List[str]):
+    self.seq_tag_file_list = seq_tag_file_list
+    self.out_seq_tags = self.output_path("out_seq_tags")
+
+  def tasks(self):
+    yield Task('run', rqmt={'cpu': 1, 'mem': 1, 'time': 0.1}, mini_task=True)
+
+  def run(self):
+    with open(self.out_seq_tags.get_path(), "w+") as out_file:
+      for file_path in self.seq_tag_file_list:
+        with open(file_path, "r") as in_file:
+          for line in in_file:
+            out_file.write(line)
