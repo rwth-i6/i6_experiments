@@ -151,7 +151,7 @@ class TransducerSWBAlignmentConfig(TransducerSWBBaseConfig):
 
 class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
   def __init__(
-    self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax,
+    self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax, enc_type,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
     att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
     length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx,
@@ -217,7 +217,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
         targetb_num_labels=self.targetb_num_labels, scheduled_sampling=scheduled_sampling, lstm_dim=lstm_dim, l2=0.0001,
         beam_size=self.beam_size, length_model_inputs=length_model_inputs, prev_att_in_state=prev_att_in_state,
         targetb_blank_idx=self.targetb_blank_idx, use_att=use_attention, fast_rec_full=fast_rec_full,
-        label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0,
+        label_smoothing=label_smoothing, emit_extra_loss=emit_extra_loss, emit_loss_scale=1.0, enc_type=enc_type,
         global_length_var=global_length_var, exclude_sil_from_label_ctx=exclude_sil_from_label_ctx,
         efficient_loss=efficient_loss, time_reduction=time_red, ctx_size=ctx_size, fast_rec=fast_rec,
         sep_sil_model=sep_sil_model, sil_idx=sil_idx, sos_idx=sos_idx, prev_target_in_readout=prev_target_in_readout,

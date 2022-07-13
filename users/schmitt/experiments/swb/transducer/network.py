@@ -1,6 +1,7 @@
 import json
 
 from recipe.i6_core.returnn.config import CodeWrapper
+from recipe.i6_experiments.users.schmitt.experiments.swb.transducer import conformer
 from sisyphus.delayed_ops import DelayedFunction
 # from returnn.tf.util.data import Dim
 
@@ -254,7 +255,7 @@ def get_alignment_net_dict(pretrain_idx):
 
 import numpy as np
 def get_extended_net_dict(
-  pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type,
+  pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type, enc_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
   exclude_sil_from_label_ctx,
@@ -279,21 +280,6 @@ def get_extended_net_dict(
       "class": "eval",
       "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)"},
     "source0": {"class": "split_dims", "axis": "F", "dims": (-1, 1), "from": "source"},  # (T,40,1)
-
-    # Lingvo: ep.conv_filter_shapes = [(3, 3, 1, 32), (3, 3, 32, 32)],  ep.conv_filter_strides = [(2, 2), (2, 2)]
-    "conv0": {
-      "class": "conv", "from": "source0", "padding": "same", "filter_size": (3, 3), "n_out": 32, "activation": None,
-      "with_bias": True, "auto_use_channel_first": False},  # (T,40,32)
-    "conv0p": {"class": "pool", "mode": "max", "padding": "same", "pool_size": (1, 2), "from": "conv0",
-      "use_channel_first": False},  # (T,20,32)
-    "conv1": {
-      "class": "conv", "from": "conv0p", "padding": "same", "filter_size": (3, 3), "n_out": 32, "activation": None,
-      "with_bias": True, "auto_use_channel_first": False},  # (T,20,32)
-    "conv1p": {"class": "pool", "mode": "max", "padding": "same", "pool_size": (1, 2), "from": "conv1",
-      "use_channel_first": False},  # (T,10,32)
-    "conv_merged": {"class": "merge_dims", "from": "conv1p", "axes": "static"},  # (T,320)
-
-    "encoder": {"class": "copy", "from": "encoder0"},
   })
 
   if hybrid_hmm_like_label_model:
@@ -373,31 +359,58 @@ def get_extended_net_dict(
         "class": "decide", "from": "output_wo_b", "loss": "edit_distance", "target": target, 'only_on_search': True}
     })
 
-  # Add encoder BLSTM stack.
-  src = "conv_merged"
-  num_lstm_layers = 6
-  # time_reduction = [3, 2]
-  if num_lstm_layers >= 1:
-    net_dict.update({
-      "lstm0_fw": {
-        "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": 1,
-        "from": src, "trainable": True}, "lstm0_bw": {
-        "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": -1,
-        "from": src, "trainable": True}})
-    src = ["lstm0_fw", "lstm0_bw"]
-  for i in range(1, num_lstm_layers):
-    red = time_reduction[i - 1] if (i - 1) < len(time_reduction) else 1
-    net_dict.update({
-      "lstm%i_pool" % (i - 1): {"class": "pool", "mode": "max", "padding": "same", "pool_size": (red,), "from": src}})
-    src = "lstm%i_pool" % (i - 1)
-    net_dict.update({
-      "lstm%i_fw" % i: {
-        "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": 1,
-        "from": src, "dropout": 0.3, "trainable": True}, "lstm%i_bw" % i: {
-        "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": -1,
-        "from": src, "dropout": 0.3, "trainable": True}})
-    src = ["lstm%i_fw" % i, "lstm%i_bw" % i]
-  net_dict["encoder0"] = {"class": "copy", "from": src}  # dim: EncValueTotalDim
+  def get_encoder(src_layer: str, enc_type: str):
+    net_dict = {}
+    if enc_type == "lstm":
+      net_dict.update({
+        # Lingvo: ep.conv_filter_shapes = [(3, 3, 1, 32), (3, 3, 32, 32)],  ep.conv_filter_strides = [(2, 2), (2, 2)]
+        "conv0": {
+          "class": "conv", "from": "source0", "padding": "same", "filter_size": (3, 3), "n_out": 32, "activation": None,
+          "with_bias": True, "auto_use_channel_first": False},  # (T,40,32)
+        "conv0p": {"class": "pool", "mode": "max", "padding": "same", "pool_size": (1, 2), "from": "conv0",
+                   "use_channel_first": False},  # (T,20,32)
+        "conv1": {
+          "class": "conv", "from": "conv0p", "padding": "same", "filter_size": (3, 3), "n_out": 32, "activation": None,
+          "with_bias": True, "auto_use_channel_first": False},  # (T,20,32)
+        "conv1p": {"class": "pool", "mode": "max", "padding": "same", "pool_size": (1, 2), "from": "conv1",
+                   "use_channel_first": False},  # (T,10,32)
+        "conv_merged": {"class": "merge_dims", "from": "conv1p", "axes": "static"},  # (T,320)
+
+        "encoder": {"class": "copy", "from": "encoder0"},
+      })
+      # Add encoder BLSTM stack.
+      num_lstm_layers = 6
+      # time_reduction = [3, 2]
+      if num_lstm_layers >= 1:
+        net_dict.update({
+          "lstm0_fw": {
+            "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": 1,
+            "from": src_layer, "trainable": True}, "lstm0_bw": {
+            "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": -1,
+            "from": src_layer, "trainable": True}})
+        src_layer = ["lstm0_fw", "lstm0_bw"]
+      for i in range(1, num_lstm_layers):
+        red = time_reduction[i - 1] if (i - 1) < len(time_reduction) else 1
+        net_dict.update({
+          "lstm%i_pool" % (i - 1): {"class": "pool", "mode": "max", "padding": "same", "pool_size": (red,), "from": src_layer}})
+        src_layer = "lstm%i_pool" % (i - 1)
+        net_dict.update({
+          "lstm%i_fw" % i: {
+            "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": 1,
+            "from": src_layer, "dropout": 0.3, "trainable": True}, "lstm%i_bw" % i: {
+            "class": "rec", "unit": "nativelstm2", "n_out": lstm_dim, "L2": l2, "direction": -1,
+            "from": src_layer, "dropout": 0.3, "trainable": True}})
+        src_layer = ["lstm%i_fw" % i, "lstm%i_bw" % i]
+      net_dict["encoder0"] = {"class": "copy", "from": src_layer}
+    elif enc_type == "conf-wei":
+      net_dict = conformer.get_conformer_encoder_wei()
+    else:
+      assert enc_type == "conf-tim"
+      net_dict = conformer.get_conformer_encoder_tim()
+
+    return net_dict
+
+  net_dict.update(get_encoder(src_layer="conv_merged", enc_type=enc_type))
 
   def get_fast_network_dict(rec, rec_full):
     if not rec:
