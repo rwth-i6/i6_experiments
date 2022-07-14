@@ -7,9 +7,9 @@ import i6_core.util
 from i6_core.returnn.config import CodeWrapper
 
 
-def py_repr(obj):
+def py_repr(obj) -> str:
     """
-    Unfortunately some of the repr implementations are messed up, so need to use some custom here.
+    Unfortunately some __repr__ implementations are messed up, so need to use some custom here.
     """
     if isinstance(obj, tk.Path):
         return f"tk.Path({obj.path!r})"
@@ -26,7 +26,7 @@ def py_repr(obj):
     return repr(obj)
 
 
-def py_multi_path_repr(p: i6_core.util.MultiPath):
+def py_multi_path_repr(p: i6_core.util.MultiPath) -> str:
     """
     repr of MultiPath
     """
