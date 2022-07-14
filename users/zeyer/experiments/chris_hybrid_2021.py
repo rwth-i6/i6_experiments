@@ -24,7 +24,7 @@ import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
-from ..utils.diff import collect_diffs
+from i6_experiments.common.utils.diff import collect_diffs
 
 
 def run():
