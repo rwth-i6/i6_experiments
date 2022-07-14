@@ -19,6 +19,7 @@ https://github.com/rwth-i6/i6_experiments/issues/78
 
 from typing import Any, Optional, TypeVar, Callable
 from sisyphus.hash import short_hash
+from sisyphus.tools import extract_paths
 from i6_experiments.common.utils.dump_py_code import dump_py_code
 import os
 import sys
@@ -45,20 +46,26 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
     hash_via_user = hash
     obj_via_cache = None
     hash_via_cache = None
+    cached_paths_available = False
 
     cache_fn = get_cache_filename_for_func(func)
     if os.path.exists(cache_fn):
         obj_via_cache = load_obj_from_cache_file(cache_fn)
-        # TODO check that all the files also exist, otherwise need to call function anyway
         hash_via_cache = short_hash(obj_via_cache)
+        cached_paths_available = _paths_available(func, obj_via_cache)
 
-    if hash_via_user and hash_via_cache and hash_via_user == hash_via_cache:
+    if (
+        hash_via_user
+        and hash_via_cache
+        and hash_via_user == hash_via_cache
+        and cached_paths_available
+    ):
         print(
             f"Dependency boundary for {func.__qualname__}: using cached object with hash {hash_via_user}"
         )
         return obj_via_cache
 
-    # Either user hash invalid, or cached hash invalid, or user hash not defined.
+    # Either user hash invalid, or cached hash invalid, or not all paths are available, or user hash not defined.
     # In any case, need to check actual function.
     obj_via_func = func()
     assert obj_via_func is not None  # unexpected
@@ -135,3 +142,18 @@ def load_obj_from_cache_file(cache_filename: str) -> Any:
     obj = cache_fn_mod.obj
     assert obj is not None
     return obj
+
+
+def _paths_available(func, obj: Any) -> bool:
+    """
+    :return: True if all paths in obj are available
+    """
+    paths = extract_paths(obj)
+    for path in paths:
+        if not path.available():
+            print(
+                f"Dependency boundary for {func.__qualname__}: path {path} in cached object not available"
+            )
+            # No need to print this for all paths, just the first one is enough.
+            return False
+    return True
