@@ -1,6 +1,8 @@
 """
 Dependency boundary -- Sisyphus graph breakpoint
 
+WARNING: Code is work-in-progress, not stable!
+
 You have a very huge pipeline with thousands of jobs,
 but for your experiments, all the first 90% of the jobs never change,
 and the job outputs are also changed among users.
