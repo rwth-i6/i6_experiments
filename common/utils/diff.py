@@ -1,4 +1,3 @@
-
 """
 Diff utils
 """
@@ -25,7 +24,9 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
     """
     if orig is None and new is None:
         return []
-    if isinstance(orig, i6_core.util.MultiPath) and isinstance(new, i6_core.util.MultiPath):
+    if isinstance(orig, i6_core.util.MultiPath) and isinstance(
+        new, i6_core.util.MultiPath
+    ):
         pass  # allow different sub types
     elif type(orig) != type(new):
         return [f"{prefix} diff type: {py_repr(orig)} != {py_repr(new)}"]
@@ -70,8 +71,8 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
                 if num_diffs <= _limit:
                     diffs += [
                         f"{prefix} diff: del {py_repr(sorted_orig[i])}"
-                        if cmp < 0 else
-                        f"{prefix} diff: add {py_repr(sorted_new[j])}"
+                        if cmp < 0
+                        else f"{prefix} diff: add {py_repr(sorted_new[j])}"
                     ]
                 if cmp < 0:
                     i += 1
@@ -105,7 +106,9 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         return collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
     if isinstance(orig, i6_core.util.MultiPath):
         # only hidden_paths relevant (?)
-        return collect_diffs(f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths)
+        return collect_diffs(
+            f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths
+        )
     if isinstance(orig, _expected_obj_types):
         orig_attribs = set(vars(orig).keys())
         new_attribs = set(vars(new).keys())
@@ -113,7 +116,9 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         if diffs:
             return diffs
         for key in vars(orig).keys():
-            diffs += collect_diffs(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
+            diffs += collect_diffs(
+                f"{prefix}.{key}", getattr(orig, key), getattr(new, key)
+            )
         return diffs
     raise TypeError(f"unexpected type {type(orig)}")
 
@@ -139,10 +144,10 @@ class _PathState:
                 assert isinstance(overwrite, str), assert_msg
                 creator = None
                 path = overwrite
-        if hasattr(creator, '_sis_id'):
+        if hasattr(creator, "_sis_id"):
             creator = creator._sis_id()  # noqa
         elif isinstance(creator, str) and creator.endswith(f"/{gs.JOB_OUTPUT}"):
-            creator = creator[:-len(gs.JOB_OUTPUT) - 1]
+            creator = creator[: -len(gs.JOB_OUTPUT) - 1]
         if isinstance(creator, str):
             # Ignore the full name and job hash.
             creator = os.path.basename(creator)
