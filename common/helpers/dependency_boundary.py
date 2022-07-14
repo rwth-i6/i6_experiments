@@ -97,6 +97,13 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
             f"Dependency boundary for {func.__qualname__}: create or update cache {cache_fn!r}"
         )
         save_obj_to_cache_file(obj_via_func, cache_filename=cache_fn)
+        # Do some check that the dumped object has the same hash.
+        obj_via_cache = load_obj_from_cache_file(cache_fn)
+        hash_via_cache = short_hash(obj_via_cache)
+        if hash_via_func != hash_via_cache:
+            print(
+                f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object"
+            )
 
     return obj_via_func
 
