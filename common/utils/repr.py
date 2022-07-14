@@ -1,4 +1,3 @@
-
 """
 repr
 """
@@ -17,7 +16,9 @@ def py_repr(obj):
     if isinstance(obj, i6_core.util.MultiPath):
         return py_multi_path_repr(obj)
     if isinstance(obj, dict):
-        return f"{{{', '.join(f'{py_repr(k)}: {py_repr(v)}' for (k, v) in obj.items())}}}"
+        return (
+            f"{{{', '.join(f'{py_repr(k)}: {py_repr(v)}' for (k, v) in obj.items())}}}"
+        )
     if isinstance(obj, list):
         return f"[{', '.join(f'{py_repr(v)}' for v in obj)}]"
     if isinstance(obj, tuple):
@@ -40,4 +41,5 @@ def py_multi_path_repr(p: i6_core.util.MultiPath):
     return (
         f"MultiPath("
         f"{', '.join(f'{py_repr(v)}' for v in args)}"
-        f"{''.join(f', {k}={py_repr(v)}' for (k, v) in kwargs.items())})")
+        f"{''.join(f', {k}={py_repr(v)}' for (k, v) in kwargs.items())})"
+    )

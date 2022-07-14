@@ -42,7 +42,9 @@ def _dump_crp_dict(lhs: str, d: dict, *, file=None):
             raise TypeError(f"{lhs}.{k} is type {type(v)}")
 
 
-def dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: bool, file=None):
+def dump_rasr_config(
+    lhs: str, config: rasr.RasrConfig, *, parent_is_config: bool, file=None
+):
     """
     Dump rasr.RasrConfig as Python code
     """
@@ -58,7 +60,10 @@ def dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: boo
             assert not h
     if kwargs or not parent_is_config:
         assert config._value is None  # noqa
-        print(f"{lhs} = rasr.RasrConfig({', '.join(f'{k}={v!r}' for (k, v) in kwargs.items())})", file=file)
+        print(
+            f"{lhs} = rasr.RasrConfig({', '.join(f'{k}={v!r}' for (k, v) in kwargs.items())})",
+            file=file,
+        )
     else:
         if config._value is not None:  # noqa
             print(f"{lhs} = {config._value!r}", file=file)  # noqa

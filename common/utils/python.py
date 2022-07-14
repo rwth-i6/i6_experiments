@@ -10,6 +10,7 @@ def is_valid_python_attrib_name(name: str) -> bool:
     # Very hacky. I'm sure there is some clever regexp but I don't find it and too lazy...
     class _Obj:
         pass
+
     obj = _Obj()
     try:
         exec(f"obj.{name} = 'ok'", {"obj": obj})
