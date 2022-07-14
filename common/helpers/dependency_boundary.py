@@ -127,12 +127,12 @@ def save_obj_to_cache_file(obj: Any, *, cache_filename: str) -> None:
         cache_f.write(
             textwrap.dedent(
                 """\
-            '''
-            Auto-generated code via dependency_boundary.
-            Do not modify by hand!
-            '''
-    
-            """
+                '''
+                Auto-generated code via dependency_boundary.
+                Do not modify by hand!
+                '''
+        
+                """
             )
         )
         dump_py_code(obj, lhs="obj", file=cache_f)
