@@ -12,24 +12,31 @@ from .py_repr import py_repr
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
 
 
-def dump_crp(crp: rasr.CommonRasrParameters, *, _lhs=None, file=None):
+def dump_py_code(obj, *, lhs=None, file=None):
+    """
+    Dump any object as Python code
+    """
+    raise NotImplementedError  # TODO
+
+
+def dump_crp(crp: rasr.CommonRasrParameters, *, lhs=None, file=None):
     """
     Dump rasr.CommonRasrParameters as Python code
     """
-    if _lhs is None:
-        _lhs = "crp"
-    print(f"{_lhs} = rasr.CommonRasrParameters()", file=file)
+    if lhs is None:
+        lhs = "crp"
+    print(f"{lhs} = rasr.CommonRasrParameters()", file=file)
     for k, v in vars(crp).items():
         if isinstance(v, rasr.RasrConfig):
-            dump_rasr_config(f"{_lhs}.{k}", v, parent_is_config=False, file=file)
+            dump_rasr_config(f"{lhs}.{k}", v, parent_is_config=False, file=file)
         elif isinstance(v, rasr.CommonRasrParameters):
-            dump_crp(v, _lhs=f"{_lhs}.{k}", file=file)
+            dump_crp(v, lhs=f"{lhs}.{k}", file=file)
         elif isinstance(v, dict):
-            _dump_crp_dict(f"{_lhs}.{k}", v, file=file)
+            _dump_crp_dict(f"{lhs}.{k}", v, file=file)
         elif isinstance(v, _valid_primitive_types):
-            print(f"{_lhs}.{k} = {py_repr(v)}", file=file)
+            print(f"{lhs}.{k} = {py_repr(v)}", file=file)
         else:
-            raise TypeError(f"{_lhs}.{k} is type {type(v)}")
+            raise TypeError(f"{lhs}.{k} is type {type(v)}")
 
 
 def _dump_crp_dict(lhs: str, d: dict, *, file=None):
