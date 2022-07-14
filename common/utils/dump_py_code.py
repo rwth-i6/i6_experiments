@@ -6,7 +6,7 @@ Dump to Python code utils
 import i6_core.util
 import i6_core.rasr as rasr
 from .python import is_valid_python_attrib_name
-from .repr import py_repr
+from .py_repr import py_repr
 
 
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)

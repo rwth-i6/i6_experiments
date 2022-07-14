@@ -12,7 +12,7 @@ import i6_core.rasr as rasr
 import i6_core.util
 
 import i6_experiments.common.setups.rasr.util as rasr_util
-from .repr import py_repr
+from .py_repr import py_repr
 
 
 _limit = 3
