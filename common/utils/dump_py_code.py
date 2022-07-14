@@ -3,6 +3,8 @@ Dump to Python code utils
 """
 
 
+from typing import Any, Optional, TextIO
+import textwrap
 import i6_core.util
 import i6_core.rasr as rasr
 from .python import is_valid_python_attrib_name
@@ -12,11 +14,31 @@ from .py_repr import py_repr
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
 
 
-def dump_py_code(obj, *, lhs=None, file=None):
+def dump_py_code_common_imports(*, file: Optional[TextIO] = None):
+    """
+    Dump common imports potentially needed for other dumped Python code from here
+    """
+    print(
+        textwrap.dedent(
+            """\
+            from sisyphus import gs, tk            
+            import i6_core.rasr as rasr
+            """
+        ),
+        file=file,
+    )
+
+
+def dump_py_code(obj: Any, *, lhs: str, file: Optional[TextIO] = None):
     """
     Dump any object as Python code
     """
-    raise NotImplementedError  # TODO
+    if isinstance(obj, rasr.CommonRasrParameters):
+        dump_crp(crp=obj, lhs=lhs, file=file)
+    elif isinstance(obj, rasr.RasrConfig):
+        dump_rasr_config(config=obj, parent_is_config=False, lhs=lhs, file=file)
+    else:
+        print(f"{lhs} = {py_repr(obj)}", file=file)
 
 
 def dump_crp(crp: rasr.CommonRasrParameters, *, lhs=None, file=None):

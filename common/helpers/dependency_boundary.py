@@ -20,7 +20,7 @@ https://github.com/rwth-i6/i6_experiments/issues/78
 from typing import Any, Optional, TypeVar, Callable
 from sisyphus.hash import short_hash
 from sisyphus.tools import extract_paths
-from i6_experiments.common.utils.dump_py_code import dump_py_code
+from i6_experiments.common.utils.dump_py_code import dump_py_code, dump_py_code_common_imports
 import os
 import sys
 import textwrap
@@ -135,6 +135,7 @@ def save_obj_to_cache_file(obj: Any, *, cache_filename: str) -> None:
                 """
             )
         )
+        dump_py_code_common_imports(file=cache_f)
         dump_py_code(obj, lhs="obj", file=cache_f)
 
 
