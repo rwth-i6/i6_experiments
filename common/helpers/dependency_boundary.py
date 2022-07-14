@@ -104,6 +104,7 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
             print(
                 f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object"
             )
+            os.remove(cache_fn)
 
     return obj_via_func
 
