@@ -217,14 +217,14 @@ def get_chris_hybrid_system_init_args():
     prefix_dir = "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10"
 
     class _DummyJob:
-        def __init__(self, path: str):
-            self.path = path
+        def __init__(self, job_path: str):
+            self.job_path = job_path
 
         def _sis_id(self):
-            return self.path
+            return self.job_path
 
         def _sis_path(self, out: str):
-            return f"{prefix_dir}/{self.path}/{out}"
+            return f"{prefix_dir}/{self.job_path}/{out}"
 
     def _path(creator: str, path: str) -> tk.Path:
         return tk.Path(creator=_DummyJob(creator), path=path)
