@@ -1,5 +1,6 @@
 """
-py_repr
+py_repr -- repr() which really returns Python compatible code if possible,
+in contrast to some Sisyphus __repr__ implementations.
 """
 
 from sisyphus import gs, tk
