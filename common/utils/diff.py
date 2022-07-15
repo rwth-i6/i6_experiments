@@ -3,6 +3,7 @@ Diff utils
 """
 
 
+import sisyphus
 from sisyphus import gs, tk
 
 import os
@@ -28,6 +29,12 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         new, i6_core.util.MultiPath
     ):
         pass  # allow different sub types
+    elif isinstance(orig, sisyphus.Job) and isinstance(new, sisyphus.Job):
+        # noinspection PyProtectedMember
+        if orig._sis_id() != new._sis_id():
+            # noinspection PyProtectedMember
+            return [f"{prefix} Job diff sis_id {orig._sis_id()} != {new._sis_id()}"]
+        return []
     elif type(orig) != type(new):
         return [f"{prefix} diff type: {py_repr(orig)} != {py_repr(new)}"]
     if isinstance(orig, dict):
@@ -148,10 +155,6 @@ class _PathState:
             creator = creator._sis_id()  # noqa
         elif isinstance(creator, str) and creator.endswith(f"/{gs.JOB_OUTPUT}"):
             creator = creator[: -len(gs.JOB_OUTPUT) - 1]
-        if isinstance(creator, str):
-            # Ignore the full name and job hash.
-            creator = os.path.basename(creator)
-            creator = creator.split(".")[0]
         self.creator = creator
         self.path = path
 
