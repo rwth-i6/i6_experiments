@@ -99,7 +99,7 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
 
     if hash_via_cache and hash_via_cache != hash_via_func:
         print(
-            f"Dependency boundary for {func.__qualname__}: error, cached hash ({hash_via_user}) is invalid,"
+            f"Dependency boundary for {func.__qualname__}: error, cached hash {hash_via_cache} is invalid,"
             " will recreate the cache"
         )
         hash_via_cache = None
@@ -116,7 +116,7 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
             print(
                 f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object"
             )
-            os.remove(cache_fn)
+            # TODO show some diff, use ..utils.diff
 
     return obj_via_func
 
