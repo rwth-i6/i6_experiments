@@ -8,7 +8,7 @@ from sisyphus import gs, tk
 import i6_core.util
 import i6_core.rasr as rasr
 from i6_core.returnn.config import CodeWrapper
-from .python import is_valid_python_attrib_name
+from .python import is_valid_python_identifier_name
 
 
 _valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
@@ -36,6 +36,7 @@ class PythonCodeDumper:
         """
         assert not lhs.startswith("_")  # reserved for us
         assert lhs not in self._other_reserved_names
+        assert is_valid_python_identifier_name(lhs)
 
         if isinstance(obj, rasr.CommonRasrParameters):
             self._dump_crp(crp=obj, lhs=lhs)
@@ -102,7 +103,7 @@ class PythonCodeDumper:
         for k in config:
             v = config[k]
             py_attr = k.replace("-", "_")
-            if is_valid_python_attrib_name(py_attr):
+            if is_valid_python_identifier_name(py_attr):
                 sub_lhs = f"{lhs}.{py_attr}"
             else:
                 sub_lhs = f"{lhs}[{k!r}]"
