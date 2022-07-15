@@ -69,11 +69,6 @@ class PythonCodeDumper:
                     
                     
                     class {lhs}(sisyphus.Job):
-                        # Fake these attribs so that JobSingleton.__call__ results in the same sis_id.
-                        __module__ = {obj.__module__!r}
-                        __name__ = {obj.__name__!r}
-                        __qualname__ = {obj.__qualname__!r}
-
                         def __init__(self, *, sis_hash: str):
                             super().__init__()
                             self.sis_hash = sis_hash
@@ -82,6 +77,10 @@ class PythonCodeDumper:
                         def hash(cls, parsed_args):
                             return parsed_args["sis_hash"]
                     
+                    # Fake these attribs so that JobSingleton.__call__ results in the same sis_id.
+                    {lhs}.__module__ = {obj.__module__!r}
+                    {lhs}.__name__ = {obj.__name__!r}
+                    {lhs}.__qualname__ = {obj.__qualname__!r}                    
                     """
                 ),
                 file=self.file,
