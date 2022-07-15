@@ -24,6 +24,7 @@ import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
+from i6_experiments.common.helpers.dependency_boundary import dependency_boundary
 from i6_experiments.common.utils.diff import collect_diffs
 
 
@@ -390,7 +391,7 @@ def get_chris_hybrid_system_init_args():
 
 
 def get_orig_chris_hybrid_system_init_args():
-    import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
+    from . import chris_hybrid_2021_pipeline_base_args as lbs_gmm_setups
 
     # ******************** Settings ********************
 
@@ -642,17 +643,7 @@ def test_run():
     gs.SHOW_JOB_TARGETS = False
 
     new_obj = get_chris_hybrid_system_init_args()
-    obj_filename = os.path.dirname(os.path.abspath(__file__)) + "/chris_hybrid_2021.pkl"
-    import pickle
-    orig_obj = None
-    if os.path.exists(obj_filename):
-        try:
-            orig_obj = pickle.load(open(obj_filename, "rb"))
-        except EOFError as exc:
-            print("Error reading pickle:", exc)
-    if not orig_obj:
-        orig_obj = get_orig_chris_hybrid_system_init_args()
-        pickle.dump(orig_obj, open(obj_filename, "wb"))
+    orig_obj = dependency_boundary(get_orig_chris_hybrid_system_init_args, hash="YePKvlzrybBk")
 
     # Small cleanup in orig object, which should not be needed.
     orig_obj['dev_data']['dev-other'].feature_scorers = {}
