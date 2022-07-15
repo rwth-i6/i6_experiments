@@ -55,9 +55,19 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
 
     cache_fn = get_cache_filename_for_func(func)
     if os.path.exists(cache_fn):
-        obj_via_cache = load_obj_from_cache_file(cache_fn)
-        hash_via_cache = short_hash(obj_via_cache)
-        cached_paths_available = _paths_available(func, obj_via_cache)
+        try:
+            obj_via_cache = load_obj_from_cache_file(cache_fn)
+            hash_via_cache = short_hash(obj_via_cache)
+            cached_paths_available = _paths_available(func, obj_via_cache)
+        except Exception as exc:
+            print(
+                f"Dependency boundary for {func.__qualname__}:"
+                f" error, exception {type(exc).__name__} {str(exc)!r} while loading the cache,"
+                " will ignore the cache"
+            )
+            obj_via_cache = None
+            hash_via_cache = None
+            cached_paths_available = False
 
     if (
         hash_via_user
