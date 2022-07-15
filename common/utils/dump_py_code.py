@@ -4,6 +4,7 @@ Dump to Python code utils
 
 import re
 import sys
+import os
 import textwrap
 from operator import attrgetter
 from typing import Any, Optional, TextIO
@@ -77,6 +78,7 @@ class PythonCodeDumper:
                         def hash(cls, parsed_args):
                             return parsed_args["sis_hash"]
                     
+                    
                     # Fake these attribs so that JobSingleton.__call__ results in the same sis_id.
                     {lhs}.__module__ = {obj.__module__!r}
                     {lhs}.__name__ = {obj.__name__!r}
@@ -89,12 +91,14 @@ class PythonCodeDumper:
         elif isinstance(obj, sisyphus.Job):
             # noinspection PyProtectedMember
             sis_id = obj._sis_id()
-            _, sis_hash = sis_id.rsplit(".", 1)
+            _, sis_hash = os.path.basename(sis_id).split(".", 1)
             print(
                 f"{lhs} = {self._name_for_obj(type(obj))}(sis_hash={sis_hash!r})",
                 file=self.file,
             )
             self._register_obj(obj, name=lhs)
+            self._import_user_mod("sisyphus.job")
+            print(f"sisyphus.job.created_jobs.pop({lhs}._sis_id())", file=self.file)
         elif isinstance(obj, _valid_primitive_types):
             print(f"{lhs} = {self._py_repr(obj)}", file=self.file)
         else:
