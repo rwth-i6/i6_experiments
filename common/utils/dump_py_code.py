@@ -5,7 +5,6 @@ Dump to Python code utils
 import re
 import sys
 import os
-import textwrap
 from operator import attrgetter
 from typing import Any, Optional, TextIO
 import sisyphus
@@ -24,14 +23,21 @@ class PythonCodeDumper:
     Serialize an object to Python code.
     """
 
-    _other_reserved_names = {"gs", "tk", "rasr", "i6core", "i6experiments"}
+    _other_reserved_names = {
+        "gs",
+        "tk",
+        "rasr",
+        "i6_core",
+        "i6_experiments",
+        "make_fake_job",
+    }
 
     def __init__(self, *, file: Optional[TextIO] = None):
         self.file = file
         # We use id(obj) for identification. To keep id unique, keep all objects alive.
         self._reserved_names = set()
         self._id_to_obj_name = {}  # id -> (obj, name). like pickle memo
-        self._imports = {}  # module name -> module
+        self._imports = set()  # module names
 
     def dump(self, obj: Any, *, lhs: str):
         """
@@ -62,43 +68,17 @@ class PythonCodeDumper:
             self._register_obj(obj, name=lhs)
         elif isinstance(obj, i6_core.util.MultiPath):
             self._dump_multi_path(obj, lhs=lhs)
-        elif isinstance(obj, type) and issubclass(obj, sisyphus.Job):
-            self._import_user_mod("sisyphus")
-            print(
-                textwrap.dedent(
-                    f"""\
-                    
-                    
-                    class {lhs}(sisyphus.Job):
-                        def __init__(self, *, sis_hash: str):
-                            super().__init__()
-                            self.sis_hash = sis_hash
-                    
-                        @classmethod
-                        def hash(cls, parsed_args):
-                            return parsed_args["sis_hash"]
-                    
-                    
-                    # Fake these attribs so that JobSingleton.__call__ results in the same sis_id.
-                    {lhs}.__module__ = {obj.__module__!r}
-                    {lhs}.__name__ = {obj.__name__!r}
-                    {lhs}.__qualname__ = {obj.__qualname__!r}                    
-                    """
-                ),
-                file=self.file,
-            )
-            self._register_obj(obj, name=lhs)
         elif isinstance(obj, sisyphus.Job):
             # noinspection PyProtectedMember
             sis_id = obj._sis_id()
             _, sis_hash = os.path.basename(sis_id).split(".", 1)
+            self._import_reserved("make_fake_job")
             print(
-                f"{lhs} = {self._name_for_obj(type(obj))}(sis_hash={sis_hash!r})",
+                f"{lhs} = make_fake_job("
+                f"module={type(obj).__module__!r}, name={type(obj).__name__!r}, sis_hash={sis_hash!r})",
                 file=self.file,
             )
             self._register_obj(obj, name=lhs)
-            self._import_user_mod("sisyphus.job")
-            print(f"sisyphus.job.created_jobs.pop({lhs}._sis_id())", file=self.file)
         elif isinstance(obj, _valid_primitive_types):
             print(f"{lhs} = {self._py_repr(obj)}", file=self.file)
         else:
@@ -292,7 +272,7 @@ class PythonCodeDumper:
         if name in self._imports:
             return
         print(f"import {name}", file=self.file)
-        self._imports[name] = sys.modules[name]
+        self._imports.add(name)
 
     def _import_reserved(self, name: str):
         if name in self._imports:
@@ -301,6 +281,48 @@ class PythonCodeDumper:
             "gs": "from sisyphus import gs",
             "tk": "from sisyphus import tk",
             "rasr": "import i6_core.rasr as rasr",
+            "make_fake_job": "from i6_experiments.common.utils.dump_py_code import _make_fake_job as make_fake_job",
         }
         print(code[name], file=self.file)
-        self._imports[name] = globals()[name]
+        self._imports.add(name)
+
+
+def _make_fake_job(*, module: str, name: str, sis_hash: str) -> sisyphus.Job:
+    cls = _fake_job_class_cache.get((module, name))
+    if not cls:
+
+        class _FakeJob(_FakeJobBase):
+            pass
+
+        cls = _FakeJob
+        # Fake these attributes so that JobSingleton.__call__ results in the same sis_id.
+        cls.__module__ = module
+        cls.__name__ = name
+        _fake_job_class_cache[(module, name)] = cls
+    job = cls(sis_hash=sis_hash)
+    # Note: If this isinstance(...) is not true,
+    # it's because the job was already registered before with the real job class,
+    # and the JobSingleton returned that real instance.
+    # Anyway, this should not really be a problem.
+    if isinstance(job, cls):
+        # Do not keep the fake job instances registered, in case we later want to create the real instance.
+        # noinspection PyProtectedMember
+        sisyphus.job.created_jobs.pop(job._sis_id())
+    return job
+
+
+class _FakeJobBase(sisyphus.Job):
+    # noinspection PyShadowingNames
+    def __init__(self, *, sis_hash: str):
+        super().__init__()
+        self.sis_hash = sis_hash
+
+    @classmethod
+    def hash(cls, parsed_args):
+        """
+        Sisyphus job hash
+        """
+        return parsed_args["sis_hash"]
+
+
+_fake_job_class_cache = {}
