@@ -24,7 +24,7 @@ import i6_core.rasr as rasr
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
-from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
+from .chris_hybrid_2021_librispeech_cart import FoldedCartQuestions
 
 
 # -------------------- helpers --------------------
