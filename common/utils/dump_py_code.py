@@ -4,8 +4,10 @@ Dump to Python code utils
 
 import re
 import sys
+import textwrap
 from operator import attrgetter
 from typing import Any, Optional, TextIO
+import sisyphus
 from sisyphus import gs, tk
 from sisyphus.hash import sis_hash_helper
 import i6_core.util
@@ -59,6 +61,41 @@ class PythonCodeDumper:
             self._register_obj(obj, name=lhs)
         elif isinstance(obj, i6_core.util.MultiPath):
             self._dump_multi_path(obj, lhs=lhs)
+        elif isinstance(obj, type) and issubclass(obj, sisyphus.Job):
+            self._import_user_mod("sisyphus")
+            print(
+                textwrap.dedent(
+                    f"""\
+                    
+                    
+                    class {lhs}(sisyphus.Job):
+                        # Fake these attribs so that JobSingleton.__call__ results in the same sis_id.
+                        __module__ = {obj.__module__!r}
+                        __name__ = {obj.__name__!r}
+                        __qualname__ = {obj.__qualname__!r}
+
+                        def __init__(self, *, sis_hash: str):
+                            super().__init__()
+                            self.sis_hash = sis_hash
+                    
+                        @classmethod
+                        def hash(cls, parsed_args):
+                            return parsed_args["sis_hash"]
+                    
+                    """
+                ),
+                file=self.file,
+            )
+            self._register_obj(obj, name=lhs)
+        elif isinstance(obj, sisyphus.Job):
+            # noinspection PyProtectedMember
+            sis_id = obj._sis_id()
+            _, sis_hash = sis_id.rsplit(".", 1)
+            print(
+                f"{lhs} = {self._name_for_obj(type(obj))}(sis_hash={sis_hash!r})",
+                file=self.file,
+            )
+            self._register_obj(obj, name=lhs)
         elif isinstance(obj, _valid_primitive_types):
             print(f"{lhs} = {self._py_repr(obj)}", file=self.file)
         else:
@@ -174,8 +211,7 @@ class PythonCodeDumper:
         if id(obj) in self._id_to_obj_name:
             return self._id_to_obj_name[id(obj)][1]
         if isinstance(obj, tk.Path):
-            self._import_reserved("tk")
-            return f"tk.Path({obj.path!r})"
+            return self._py_repr_path(obj)
         if isinstance(obj, dict):
             return self._name_for_obj(obj)
         if isinstance(obj, list):
@@ -199,6 +235,25 @@ class PythonCodeDumper:
             return repr(obj)
         return self._name_for_obj(obj)
 
+    def _py_repr_path(self, p: tk.Path) -> str:
+        args = [self._py_repr(p.path)]
+        if p.creator:
+            args.append(f"creator={self._py_repr(p.creator)}")
+        if p.cached:
+            args.append(f"cached={self._py_repr(p.cached)}")
+        if p.hash_overwrite:
+            args.append(f"hash_overwrite={self._py_repr(p.hash_overwrite)}")
+        # noinspection PyProtectedMember
+        if p._tags:
+            # noinspection PyProtectedMember
+            args.append(f"tags={self._py_repr(p._tags)}")
+        # noinspection PyProtectedMember
+        if p._available:
+            # noinspection PyProtectedMember
+            args.append(f"available={self._py_repr(p._available)}")
+        self._import_reserved("tk")
+        return f"tk.Path({', '.join(args)})"
+
     def _name_for_obj(self, obj: Any) -> str:
         if id(obj) in self._id_to_obj_name:
             return self._id_to_obj_name[id(obj)][1]
@@ -213,10 +268,13 @@ class PythonCodeDumper:
         self._reserved_names.add(name)
 
     def _new_name_for_obj(self, obj: Any) -> str:
-        name = type(obj).__name__
-        name = re.sub(
-            r"(?<!^)(?=[A-Z])", "_", name
-        ).lower()  # https://stackoverflow.com/a/1176023/133374
+        if isinstance(obj, type):
+            name = obj.__name__
+        else:
+            name = type(obj).__name__
+            name = re.sub(
+                r"(?<!^)(?=[A-Z])", "_", name
+            ).lower()  # https://stackoverflow.com/a/1176023/133374
         if not name.startswith("_"):
             name = "_" + name
         i = 0
