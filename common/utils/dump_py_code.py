@@ -210,9 +210,16 @@ class PythonCodeDumper:
             assert attrgetter(obj.__qualname__)(sys.modules[obj.__module__]) is obj
             return f"{obj.__module__}.{obj.__qualname__}"
         if isinstance(obj, str):
-            if obj is gs.BASE_DIR:
-                self._import_reserved("gs")
-                return "gs.BASE_DIR"
+            for name in {"BASE_DIR", "RASR_ROOT"}:
+                v = getattr(gs, name, None)
+                if v:
+                    if obj == v:
+                        self._import_reserved("gs")
+                        return f"gs.{name}"
+                    if obj.startswith(v + "/") or (v.endswith("/") and obj.startswith(v)):
+                        self._import_reserved("gs")
+                        self._import_user_mod("os")
+                        return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v):])})"
             return repr(obj)
         if isinstance(obj, _valid_primitive_types):
             return repr(obj)
