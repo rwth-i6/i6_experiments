@@ -216,7 +216,9 @@ class PythonCodeDumper:
                     if obj == v:
                         self._import_reserved("gs")
                         return f"gs.{name}"
-                    if obj.startswith(v + "/") or (v.endswith("/") and obj.startswith(v)):
+                    if obj.startswith(v + "/") or (
+                        v.endswith("/") and obj.startswith(v)
+                    ):
                         self._import_reserved("gs")
                         self._import_user_mod("os")
                         return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v):])})"
