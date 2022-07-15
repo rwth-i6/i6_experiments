@@ -23,6 +23,7 @@ from typing import Any, Optional, TypeVar, Callable
 from sisyphus.hash import short_hash
 from sisyphus.tools import extract_paths
 from i6_experiments.common.utils.dump_py_code import PythonCodeDumper
+from i6_experiments.common.utils.diff import collect_diffs
 import os
 import sys
 import textwrap
@@ -116,7 +117,13 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
             print(
                 f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object"
             )
-            # TODO show some diff, use ..utils.diff
+            print("Differences:")
+            diffs = collect_diffs("obj", obj_via_func, obj_via_cache)
+            if diffs:
+                for diff in diffs:
+                    print(diff)
+            else:
+                print("(No differences detected?)")
 
     return obj_via_func
 
