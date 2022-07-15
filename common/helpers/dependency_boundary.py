@@ -115,7 +115,8 @@ def dependency_boundary(func: Callable[[], T], *, hash: Optional[str]) -> T:
         hash_via_cache = short_hash(obj_via_cache)
         if hash_via_func != hash_via_cache:
             print(
-                f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object"
+                f"Dependency boundary for {func.__qualname__}: error, dumping logic stores inconsistent object,"
+                f" dumped object hash {hash_via_cache}"
             )
             print("Differences:")
             diffs = collect_diffs("obj", obj_via_func, obj_via_cache)
