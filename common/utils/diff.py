@@ -6,11 +6,11 @@ Diff utils
 import sisyphus
 from sisyphus import gs, tk
 
-import os
 from typing import List
 
 import i6_core.rasr as rasr
 import i6_core.util
+from sisyphus.hash import sis_hash_helper
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 from .py_repr import py_repr
@@ -34,7 +34,7 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         if orig._sis_id() != new._sis_id():
             # noinspection PyProtectedMember
             return [f"{prefix} Job diff sis_id {orig._sis_id()} != {new._sis_id()}"]
-        return []
+        return _sis_hash_diff(prefix, orig, new)
     elif type(orig) != type(new):
         return [f"{prefix} diff type: {py_repr(orig)} != {py_repr(new)}"]
     if isinstance(orig, dict):
@@ -108,14 +108,20 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
     if isinstance(orig, (int, float, str)):
         if orig != new:
             return [f"{prefix} diff: {py_repr(orig)} != {py_repr(new)}"]
-        return []
+        return _sis_hash_diff(prefix, orig, new)
     if isinstance(orig, tk.AbstractPath):
-        return collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
+        diffs = collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
+        if not diffs:
+            return _sis_hash_diff(prefix, orig, new)
+        return diffs
     if isinstance(orig, i6_core.util.MultiPath):
         # only hidden_paths relevant (?)
-        return collect_diffs(
+        diffs = collect_diffs(
             f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths
         )
+        if not diffs:
+            return _sis_hash_diff(prefix, orig, new)
+        return diffs
     if isinstance(orig, _expected_obj_types):
         orig_attribs = set(vars(orig).keys())
         new_attribs = set(vars(new).keys())
@@ -126,6 +132,8 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
             diffs += collect_diffs(
                 f"{prefix}.{key}", getattr(orig, key), getattr(new, key)
             )
+        if not diffs:
+            return _sis_hash_diff(prefix, orig, new)
         return diffs
     raise TypeError(f"unexpected type {type(orig)}")
 
@@ -169,3 +177,11 @@ _expected_obj_types = (
     rasr.FlagDependentFlowAttribute,
     _PathState,
 )
+
+
+def _sis_hash_diff(prefix, a, b) -> List[str]:
+    h1 = sis_hash_helper(a)
+    h2 = sis_hash_helper(b)
+    if h1 == h2:
+        return []
+    return [f"{prefix} diff hash: {py_repr(a)} != {py_repr(b)}"]
