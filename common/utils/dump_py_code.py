@@ -119,13 +119,19 @@ class PythonCodeDumper:
             print(line, file=self.file)
         self._register_obj(obj, name=lhs)
 
-    def _dump_crp(self, crp: rasr.CommonRasrParameters, *, lhs=None):
+    def _dump_crp(self, crp: rasr.CommonRasrParameters, *, lhs: Optional[str] = None):
         if lhs is None:
             lhs = "crp"
+        base_lhs = None
+        if crp.base is not None:
+            base_lhs = self._new_unique_private_name(f"{lhs}_base")
+            self._dump(crp.base, lhs=base_lhs)
         self._import_reserved("rasr")
-        print(f"{lhs} = rasr.CommonRasrParameters()", file=self.file)
+        print(f"{lhs} = rasr.CommonRasrParameters({base_lhs or ''})", file=self.file)
         self._register_obj(crp, name=lhs)
         for k, v in vars(crp).items():
+            if k in {"base"}:
+                continue
             if isinstance(v, dict):
                 self._dump_crp_dict(lhs=f"{lhs}.{k}", d=v)
             else:
@@ -249,7 +255,14 @@ class PythonCodeDumper:
     def _name_for_obj(self, obj: Any) -> str:
         if id(obj) in self._id_to_obj_name:
             return self._id_to_obj_name[id(obj)][1]
-        name = self._new_name_for_obj(obj)
+        if isinstance(obj, type):
+            name = obj.__name__
+        else:
+            name = type(obj).__name__
+            name = re.sub(
+                r"(?<!^)(?=[A-Z])", "_", name
+            ).lower()  # https://stackoverflow.com/a/1176023/133374
+        name = self._new_unique_private_name(name)
         self._dump(obj, lhs=name, check_memo=False)
         return name
 
@@ -259,14 +272,9 @@ class PythonCodeDumper:
         self._id_to_obj_name[id(obj)] = (obj, name)
         self._reserved_names.add(name)
 
-    def _new_name_for_obj(self, obj: Any) -> str:
-        if isinstance(obj, type):
-            name = obj.__name__
-        else:
-            name = type(obj).__name__
-            name = re.sub(
-                r"(?<!^)(?=[A-Z])", "_", name
-            ).lower()  # https://stackoverflow.com/a/1176023/133374
+    def _new_unique_private_name(self, name: str) -> str:
+        name = re.sub(r'[\\/:"\'*?<>\[\].|]+', "_", name)
+        assert is_valid_python_identifier_name(name)
         if not name.startswith("_"):
             name = "_" + name
         i = 0
