@@ -186,7 +186,7 @@ class PythonCodeDumper:
             # noinspection PyProtectedMember
             creator_sis_path = creator._sis_path(gs.JOB_OUTPUT)
             assert p.path_template.startswith(creator_sis_path + "/")
-            path_template = p.path_template[len(creator_sis_path) + 1:]
+            path_template = p.path_template[len(creator_sis_path) + 1 :]
             lines = [
                 f"{lhs} = i6_core.util.MultiOutputPath(",
                 f"    {self._py_repr(creator)},",
