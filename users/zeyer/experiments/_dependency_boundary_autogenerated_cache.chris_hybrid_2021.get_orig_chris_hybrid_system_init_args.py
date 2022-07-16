@@ -512,11 +512,11 @@ _dict13 = {
     300: tk.Path('alignment.cache.300', creator=_alignment_job, cached=True),
 }
 import i6_core.util
-_multi_output_path = i6_core.util.MultiPath(
-    'work/i6_core/mm/alignment/AlignmentJob.7gy7oAckJWhF/output/alignment.cache.$(TASK)',
+_multi_output_path = i6_core.util.MultiOutputPath(
+    _alignment_job,
+    'alignment.cache.$(TASK)',
     _dict13,
-    True,
-    gs.BASE_DIR,
+    cached=True
 )
 _returnn_rasr_data_input.alignments.alternatives = {
     'task_dependent': _multi_output_path,
@@ -832,11 +832,11 @@ _dict15 = {
     299: tk.Path('gt.cache.299', creator=_feature_extraction_job, cached=True),
     300: tk.Path('gt.cache.300', creator=_feature_extraction_job, cached=True),
 }
-_multi_output_path1 = i6_core.util.MultiPath(
-    'work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.XjZYap2Hch8x/output/gt.cache.$(TASK)',
+_multi_output_path1 = i6_core.util.MultiOutputPath(
+    _feature_extraction_job,
+    'gt.cache.$(TASK)',
     _dict15,
-    True,
-    gs.BASE_DIR,
+    cached=True
 )
 _named_flow_attribute.value.alternatives = {
     'task_dependent': _multi_output_path1,
@@ -1191,11 +1191,10 @@ _dict19 = {
     19: tk.Path('segments.19', creator=_segment_corpus_job),
     20: tk.Path('segments.20', creator=_segment_corpus_job),
 }
-_returnn_rasr_data_input3.crp.segment_path = i6_core.util.MultiPath(
-    'work/i6_core/corpus/segments/SegmentCorpusJob.OGYXX2IUHkLb/output/segments.$(TASK)',
+_returnn_rasr_data_input3.crp.segment_path = i6_core.util.MultiOutputPath(
+    _segment_corpus_job,
+    'segments.$(TASK)',
     _dict19,
-    False,
-    gs.BASE_DIR,
 )
 _returnn_rasr_data_input3.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
 _returnn_rasr_data_input3.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
@@ -1260,11 +1259,11 @@ _dict22 = {
     19: tk.Path('gt.cache.19', creator=_feature_extraction_job1, cached=True),
     20: tk.Path('gt.cache.20', creator=_feature_extraction_job1, cached=True),
 }
-_multi_output_path2 = i6_core.util.MultiPath(
-    'work/i6_core/features/extraction/FeatureExtractionJob.Gammatone.Fry3ECJUrnJj/output/gt.cache.$(TASK)',
+_multi_output_path2 = i6_core.util.MultiOutputPath(
+    _feature_extraction_job1,
+    'gt.cache.$(TASK)',
     _dict22,
-    True,
-    gs.BASE_DIR,
+    cached=True
 )
 _named_flow_attribute1.value.alternatives = {
     'task_dependent': _multi_output_path2,
