@@ -160,7 +160,7 @@ def save_obj_to_cache_file(obj: Any, *, cache_filename: str) -> None:
                 """
             )
         )
-        PythonCodeDumper(file=cache_f).dump(obj, lhs="obj")
+        PythonCodeDumper(file=cache_f, use_fake_jobs=True).dump(obj, lhs="obj")
 
 
 def load_obj_from_cache_file(cache_filename: str) -> Any:

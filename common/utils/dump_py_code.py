@@ -32,8 +32,13 @@ class PythonCodeDumper:
         "make_fake_job",
     }
 
-    def __init__(self, *, file: Optional[TextIO] = None):
+    def __init__(self, *, file: Optional[TextIO] = None, use_fake_jobs: bool = False):
+        """
+        :param file: File to write the code to. None means stdout.
+        :param use_fake_jobs: If True, use :func:`_make_fake_job`, avoids indirect dependencies
+        """
         self.file = file
+        self.use_fake_jobs = use_fake_jobs
         # We use id(obj) for identification. To keep id unique, keep all objects alive.
         self._reserved_names = set()
         self._id_to_obj_name = {}  # id -> (obj, name). like pickle memo
@@ -69,15 +74,23 @@ class PythonCodeDumper:
         elif isinstance(obj, i6_core.util.MultiPath):
             self._dump_multi_path(obj, lhs=lhs)
         elif isinstance(obj, sisyphus.Job):
-            # noinspection PyProtectedMember
-            sis_id = obj._sis_id()
-            _, sis_hash = os.path.basename(sis_id).split(".", 1)
-            self._import_reserved("make_fake_job")
-            print(
-                f"{lhs} = make_fake_job("
-                f"module={type(obj).__module__!r}, name={type(obj).__name__!r}, sis_hash={sis_hash!r})",
-                file=self.file,
-            )
+            if self.use_fake_jobs:
+                # noinspection PyProtectedMember
+                sis_id = obj._sis_id()
+                _, sis_hash = os.path.basename(sis_id).split(".", 1)
+                self._import_reserved("make_fake_job")
+                print(
+                    f"{lhs} = make_fake_job("
+                    f"module={type(obj).__module__!r}, name={type(obj).__name__!r}, sis_hash={sis_hash!r})",
+                    file=self.file,
+                )
+            else:
+                lines = [f"{lhs} = {self._py_repr(type(obj))}("]
+                # noinspection PyProtectedMember
+                for k, v in obj._sis_kwargs.items():
+                    lines.append(f"    {k}={self._py_repr(v)},")
+                lines.append(")")
+                print("\n".join(lines), file=self.file)
             self._register_obj(obj, name=lhs)
         elif isinstance(obj, _valid_primitive_types):
             print(f"{lhs} = {self._py_repr(obj)}", file=self.file)
