@@ -325,6 +325,10 @@ class PythonCodeDumper:
 
 
 def _make_fake_job(*, module: str, name: str, sis_hash: str) -> sisyphus.Job:
+    """
+    We want to make a fake job for the creator of tk.Path, such that the dependency_boundary files
+    are properly registered as job outputs.
+    """
     cls = _fake_job_class_cache.get((module, name))
     if not cls:
 
