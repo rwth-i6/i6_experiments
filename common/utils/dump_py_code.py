@@ -178,13 +178,33 @@ class PythonCodeDumper:
                 self._dump(v, lhs=sub_lhs)
 
     def _dump_multi_path(self, p: i6_core.util.MultiPath, *, lhs: str):
-        lines = [
-            f"{lhs} = i6_core.util.MultiPath(",
-            f"    {self._py_repr(p.path_template)},",
-            f"    {self._py_repr(p.hidden_paths)},",
-            f"    {self._py_repr(p.cached)},",
-            f"    {self._py_repr(p.path_root)},",
-        ]
+        if type(p) == i6_core.util.MultiOutputPath:
+            assert p.hidden_paths  # need to infer creator
+            hidden_path = next(iter(p.hidden_paths.values()))
+            assert hidden_path.creator  # need to infer creator
+            creator = hidden_path.creator
+            # noinspection PyProtectedMember
+            creator_sis_path = creator._sis_path(gs.JOB_OUTPUT)
+            assert p.path_template.startswith(creator_sis_path + "/")
+            path_template = p.path_template[len(creator_sis_path) + 1:]
+            lines = [
+                f"{lhs} = i6_core.util.MultiOutputPath(",
+                f"    {self._py_repr(creator)},",
+                f"    {self._py_repr(path_template)},",
+                f"    {self._py_repr(p.hidden_paths)},",
+            ]
+            if p.cached:
+                lines.append("    cached=True")
+        elif type(p) == i6_core.util.MultiPath:
+            lines = [
+                f"{lhs} = i6_core.util.MultiPath(",
+                f"    {self._py_repr(p.path_template)},",
+                f"    {self._py_repr(p.hidden_paths)},",
+                f"    cached={self._py_repr(p.cached)},",
+                f"    path_root={self._py_repr(p.path_root)},",
+            ]
+        else:
+            raise TypeError(f"unexpected type {type(p)}")
         if p.hash_overwrite:
             lines.append(f"    hash_overwrite={self._py_repr(p.hash_overwrite)},")
         lines.append(")")
