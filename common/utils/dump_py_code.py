@@ -370,6 +370,8 @@ class _FakeJobBase(sisyphus.Job):
     def __init__(self, *, sis_hash: str):
         super().__init__()
         self.sis_hash = sis_hash
+        # Make sure our outputs are never cleaned up.
+        self.set_keep_value(99)
 
     @classmethod
     def hash(cls, parsed_args):
