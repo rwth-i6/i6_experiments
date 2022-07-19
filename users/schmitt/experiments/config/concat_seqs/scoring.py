@@ -165,11 +165,11 @@ class ScliteHubScoreJob(Job):
   Wraps the SCTK hubscr.pl script, which is used to calculate the WER for Switchboard, Hub 5'00, Hub 5'01, rts03.
   """
   CorpusNameMap = {"dev": "hub5e_00"}
-  OrigCorpusNames = ["hub5e_00", "hub5e_01", "rt03s", "train"]
+  OrigCorpusNames = ["hub5e_00", "hub5e_01", "rt03s", "train", "cv"]
   ResultsSubsets = {
     "hub5e_00": ["Callhome", "Switchboard", "Overall"],
     "hub5e_01": ["Switchboard", "Switchboard-2 Phase III", "Switchboard-Cell", "Overall"],
-    "rt03s": ["Swbd", "Fisher", "Overall"], "train": ["train"]}
+    "rt03s": ["Swbd", "Fisher", "Overall"], "train": ["train"], "cv": ["cv"]}
 
   # This must be set in advance.
   RefsStmFiles = {}  # type: typing.Dict[str,Path]  # name -> path (use "hub5e_00", not "dev")
