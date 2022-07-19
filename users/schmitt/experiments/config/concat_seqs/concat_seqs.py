@@ -117,10 +117,16 @@ class ConcatSwitchboard(Job):
       def can_add(self):
         if self.num_seqs >= self_job.num:
           return False
-        return tag == self.rec_tag
+        if tag.startswith("switchboard-1"):
+          return tag.split("/")[1] == self.rec_tag.split("/")[1]
+        else:
+          return tag == self.rec_tag
 
       def add(self):
-        assert tag == self.rec_tag
+        if tag.startswith("switchboard-1"):
+          assert tag.split("/")[1] == self.rec_tag.split("/")[1]
+        else:
+          assert tag == self.rec_tag
         # assert tag2 == self.rec_tag2  -- sometimes "en_4910_B1" vs "en_4910_B" ...? just ignore
         assert flags.lower() == self.flags.lower()
         assert full_seq_tag not in self.seq_tags
@@ -170,7 +176,7 @@ class ConcatSwitchboard(Job):
         # Example STM entry (one seq):
         # en_4156a 1 en_4156_A 301.85 302.48 <O,en,F,en-F>  oh yeah
         m = re.match(
-          "^([a-zA-Z0-9_]+)\\s+1\\s+([a-zA-Z0-9_]+)\\s+([0-9.]+)\\s+([0-9.]+)\\s+<([a-zA-Z0-9,\\-]+)>(.*)$", line)
+          "^([a-zA-Z0-9_/-]+)\\s+1\\s+([a-zA-Z0-9_]+)\\s+([0-9.]+)\\s+([0-9.]+)\\s+<([a-zA-Z0-9,\\-]+)>(.*)$", line)
         assert m, "unexpected line: %r" % line
         tag, tag2, start_s, end_s, flags, txt = m.groups()
         txt = txt.strip()
@@ -195,7 +201,10 @@ class ConcatSwitchboard(Job):
           full_seq_tag = extended_seq_tag
           extended_seq_tag = None
         else:
-          full_seq_tag = "%s/%s/%i" % (self.corpus_name, tag, seq_idx_in_tag)
+          if tag.startswith("switchboard-1"):
+            full_seq_tag = "%s" % tag
+          else:
+            full_seq_tag = "%s/%s/%i" % (self.corpus_name, tag, seq_idx_in_tag)
 
         orig_seqs.append(ConcatenatedSeq())
         if not concatenated_seqs or not concatenated_seqs[-1].can_add():
