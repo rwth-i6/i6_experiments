@@ -265,7 +265,7 @@ class TuningSystem:
                             wer = self._get_scorer(
                                 prefix, epoch, optlm=(key in ["optlm", "wers"]),
                                 reestimate_prior='reestimate_prior' in kwargs
-                            ).wer
+                            ).out_wer
                         except KeyError:
                             assert key in ["optlm", "wers"], "Something went wrong"
                             wer = None

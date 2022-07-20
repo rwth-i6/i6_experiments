@@ -89,6 +89,7 @@ class LibriNNSystem(NNSystem):
                                      'save_interval': 4,
                                      'time_rqmt': 120,
                                      'mem_rqmt' : 24,
+                                     'log_verbosity': 5,
                                      'use_python_control': True,
                                      'feature_flow': 'gt'}
 

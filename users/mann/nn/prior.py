@@ -19,26 +19,32 @@ def prepare_static_prior(config=None, network=None, prob=False):
         )
 
 
+class SimpleEqualityArray(np.ndarray):
+    """Helper numpy array subclass only overriding equality operator to work with RETURNN."""
+    def __eq__(self, other):
+        return super().__eq__(other).all()
+
 def make_loader_code(path):
-    return 'list(np.loadtxt("{}"))'.format(path)
+    return returnn.CodeWrapper('np.loadtxt("{}").view({})'.format(
+        path, SimpleEqualityArray.__name__
+    ))
 
 def add_static_prior(config, prior_txt):
     assert isinstance(config, returnn.ReturnnConfig)
     code = prior_txt.function(make_loader_code) \
         if isinstance(prior_txt, Path) \
-            else returnn.CodeWrapper(make_loader_code(prior_txt))
+            else make_loader_code(prior_txt)
     config.config["array_priors"] = code
-    import_code = "import numpy as np"
+    import_code = (
+        "import numpy as np",
+        SimpleEqualityArray,
+    )
     try:
         if import_code not in config.python_prolog:
-            config.python_prolog += (import_code,)
+            config.python_prolog += import_code
     except TypeError:
-        config.python_prolog = (import_code,)
+        config.python_prolog = import_code
 
-class SimpleEqualityArray(np.ndarray):
-    """Helper numpy array subclass only overriding equality operator to work with RETURNN."""
-    def __eq__(self, other):
-        return super().__eq__(other).all()
 
 def add_static_prior_from_var(config, prior_var, numpy=False):
     assert isinstance(config, returnn.ReturnnConfig)

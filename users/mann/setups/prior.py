@@ -296,4 +296,8 @@ def get_prior_from_transcription_job(
     tk.register_output("prior_from_transcription", prior_job.out_prior_txt_file)
     tk.register_output("prior_from_transcription.png", prior_job.out_prior_png_file)
 
-    return prior_job.out_prior_txt_file
+    return {
+        "txt": prior_job.out_prior_txt_file,
+        "xml": prior_job.out_prior_xml_file,
+        "png": prior_job.out_prior_png_file
+    }

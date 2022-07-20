@@ -141,7 +141,7 @@ class SegmentStatistics(Job):
     ax.set_ylabel('Count')
     plt.savefig(self.plot_path.get_path())
 
-class FilterSegmentsByAlignmentFailures(FilterSegmentsByListJob):
+class ExtractAlignmentFailuresJob(FilterSegmentsByListJob):
     def __init__(self, single_segment_files, alignment_logs,
             # FilterSegmentByList arguments
             filter_list=None, invert_match=False):
@@ -169,6 +169,30 @@ class FilterSegmentsByAlignmentFailures(FilterSegmentsByListJob):
                     segments += [m.group(1)] if m else []
         with open(self.filter_list.get_path(), 'w') as bad_segment_file:
             bad_segment_file.write('\n'.join(segments))
+
+class ExtractAlignmentFailuresJob(Job):
+    def __init__(self, alignment_logs):
+        assert isinstance(alignment_logs, (list, dict))
+        if isinstance(alignment_logs, dict):
+            alignment_logs = list(alignment_logs.values())
+        self.alignment_logs = alignment_logs
+
+        self.out_filter_list = self.output_path('bad.segments')
+
+    def tasks(self):
+        yield Task('run', resume='run', mini_task=True)
+
+    def run(self):
+        prog = re.compile("Alignment did not reach any final state in segment \\'(.+)\\'")
+        segments = []
+        for log in self.alignment_logs:
+            log_path = log.get_path() if isinstance(log, Path) else log
+            with gzip.open(log_path, 'rt') as log_file:
+                for line in log_file:
+                    m = prog.search(line)
+                    segments += [m.group(1)] if m else []
+        with open(self.out_filter_list.get_path(), 'w') as f:
+            f.write('\n'.join(segments))
 
 
 class LexiconToUpperCase(Job):

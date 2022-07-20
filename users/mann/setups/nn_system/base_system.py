@@ -59,6 +59,7 @@ def feature_path(stub):
 # -------------------- System --------------------
 
 from i6_experiments.common.setups.rasr import RasrSystem
+from i6_experiments.common.setups.rasr.nn_system import NnSystem as CommonNnSystem
 
 from dataclasses import dataclass
 from typing import Union
@@ -71,27 +72,22 @@ class ExpConfig:
   compile_crnn_config: Union[dict, crnn.ReturnnConfig]
 
 class BaseSystem(RasrSystem):
-  def __init__(self):
-    super().__init__()
-    # self.csp['base'].python_home                   = gs.SPRINT_PYTHON_HOME
-    # self.csp['base'].python_program_name           = gs.SPRINT_PYTHON_EXE
+  def __init__(
+    self,
+    rasr_binary_path,
+    native_ops_path,
+    returnn_root=None,
+    returnn_python_exe=None,
+    returnn_python_home=None,
+    **kwargs
+  ):
+    super().__init__(rasr_binary_path=rasr_binary_path, **kwargs)
+    self.native_ops_path = native_ops_path
+    self.returnn_root = returnn_root
+    self.returnn_python_home = returnn_python_home
+    self.returnn_python_exe = returnn_python_exe
+    self._num_classes_dict = {}
 
-  def set_scorer(self):
-    for c,v in self.subcorpus_mapping.items():
-      if c == 'train':
-        continue
-      self.scorers[c]        = self.corpus_recipe.scorers[v]
-      self.scorer_args[c]    = self.corpus_recipe.scorer_args[v]
-      self.scorer_hyp_arg[c] = 'hyp'
-
-  def feature_path(self, stub, corpus):
-    path = stub
-    return {
-      'caches': util.MultiPath(path + "$(TASK)",
-          {i: path + "{}".format(i) for i in range(self.concurrent[corpus])}, cached=True),
-      'bundle': Path(path + "bundle", cached=True)
-    }
-  
   @property
   def csp(self):
     return self.crp
@@ -99,168 +95,6 @@ class BaseSystem(RasrSystem):
   @csp.setter
   def csp(self, crp):
     self.crp = crp
-
-  @tk.block()
-  def init_corpora(self):
-    for c in self.subcorpus_mapping.keys():
-      if c.split('-')[0] in self.corpus_recipe.corpora:
-        corpus_set = c.split('-')[0]
-      else: # assume is eval set
-        corpus_set = 'eval'
-      self.corpora[c] = self.corpus_recipe.corpora[corpus_set][self.subcorpus_mapping[c]]
-      j = corpus_recipes.SegmentCorpus(self.corpora[c].corpus_file, self.concurrent[corpus_set])
-      self.set_corpus(c, self.corpora[c], self.concurrent[corpus_set], j.segment_path)
-
-      self.jobs[c]['segment_corpus'] = j
-      tk.register_output('%s.corpus.gz' % c, self.corpora[c].corpus_file)
-
-  def init_am(self, **kwargs):
-    self.csp['base'].acoustic_model_config = am.acoustic_model_config(**kwargs)
-  
-  def set_transition_probabilities(
-      self,
-      spf=None, spl=None, sif=None, sil=None,
-      speech_transitions=None,
-      silence_transitions=None,
-      silence_exit=20.0,
-      corpus='base'):
-    assert (spf or spl) and (sif or sil)
-    speech_transition  = probability_to_penalty(complete_tuple_normal(spl, spf)) + ('infinity', 0.0)
-    silence_transition = probability_to_penalty(complete_tuple_normal(sil, sif)) + ('infinity', silence_exit)
-    self.set_tdps(corpus, speech_transition, silence_transition)
-
-  def set_tdps(self, corpus='train',
-               tdp_transition=(3.0, 0.0, 30.0,  0.0),
-               tdp_silence=(0.0, 3.0, 'infinity', 20.0)):
-    # TODO: mach base zu dev
-    if corpus != 'base':
-      self.csp[corpus].acoustic_model_config = \
-        copy.deepcopy(self.csp['base'].acoustic_model_config)
-
-    config = self.csp[corpus].acoustic_model_config
-    config.tdp['*'].loop        = tdp_transition[0]
-    config.tdp['*'].forward     = tdp_transition[1]
-    config.tdp['*'].skip        = tdp_transition[2]
-    config.tdp['*'].exit        = tdp_transition[3]
-
-    config.tdp.silence.loop     = tdp_silence[0]
-    config.tdp.silence.forward  = tdp_silence[1]
-    config.tdp.silence.skip     = tdp_silence[2]
-    config.tdp.silence.exit     = tdp_silence[3]
-  
-  def get_tdps(self, corpus='train', log=True):
-    import math
-    f = float
-    if log:
-      f = lambda x: math.exp(-float(x))
-    config = self.csp[corpus].acoustic_model_config
-    speech_transitions = (
-      config.tdp['*'].loop,
-      config.tdp['*'].forward,
-      config.tdp['*'].skip,
-      config.tdp['*'].exit)
-    silence_transitions = (
-      config.tdp.silence.loop,
-      config.tdp.silence.forward,
-      config.tdp.silence.skip,
-      config.tdp.silence.exit)
-    return tuple(map(f, speech_transitions)), tuple(map(f, silence_transitions))
-
-  def init_lm(self, lm_path=None):
-    assert lm_path or any(hasattr(self.corpus_recipe, attr) for attr in ("lm", "lms")), \
-      "Could not find language model"
-    if lm_path: lm = lm_path
-    else:
-      lm = self.corpus_recipe.lm if hasattr(self.corpus_recipe, "lm") else self.corpus_recipe.lms
-    for c in self.subcorpus_mapping.keys():
-      if c == 'train':
-        continue
-      self.csp[c].language_model_config = sprint.SprintConfig()
-      self.csp[c].language_model_config.type  = 'ARPA'
-      self.csp[c].language_model_config.file  = lm
-      self.csp[c].language_model_config.scale = 12.0
-
-  @tk.block()
-  def init_lexica(self, train_lexicon=None, eval_lexicon=None, normalize_pronunciation=True):
-    if train_lexicon is None:
-      train_lexicon = self.corpus_recipe.lexicon['train']
-    if eval_lexicon is None:
-      eval_lexicon  = self.corpus_recipe.lexicon['eval']
-
-    for c in self.corpora:
-      self.csp[c].lexicon_config                         = sprint.SprintConfig()
-      if c == 'train':
-        self.csp[c].lexicon_config.file                  = train_lexicon
-      else:
-        self.csp[c].lexicon_config.file                  = eval_lexicon
-      self.csp[c].lexicon_config.normalize_pronunciation = normalize_pronunciation
-
-    tk.register_output('train.lexicon.gz', train_lexicon)
-    tk.register_output('eval.lexicon.gz',  eval_lexicon)
-
-  @tk.block()
-  def init_cart_questions(self, *args, **kwargs):
-    self.cart_questions = cart.PythonCartQuestions(*args, **kwargs)
-
-  @tk.block()
-  def extract_features(self):
-    if 'mfcc' in self.features:
-      for c in self.subcorpus_mapping.keys():
-        self.mfcc_features(c)
-        self.energy_features(c)
-      self.normalize('train', 'mfcc+deriv', self.subcorpus_mapping.keys())
-      self.add_energy_to_features('train', 'mfcc+deriv+norm')
-      tk.register_output('train.mfcc.normalization.matrix', self.normalization_matrices['train']['mfcc+deriv+norm'])
-    if 'mfcc40' in self.features:
-      num_features = 40
-      filter_width = 268.258 * 16 / num_features
-      mfcc_options = {'filter_width'    : filter_width,
-                      'cepstrum_options': {'outputs': num_features}}
-      for c in self.subcorpus_mapping.keys():
-        self.mfcc_features(c,mfcc_options=mfcc_options,name='mfcc40')
-    if 'gt' in self.features:
-      for c in self.subcorpus_mapping.keys():
-        self.gt_features(c, gt_options=self.gt_options)
-    unknown_features = set(self.features).difference({'mfcc', 'mfcc40', 'gt'})
-    if len(unknown_features) > 0:
-      raise ValueError('Invalid features: %s' % unknown_features)
-
-  @tk.block()
-  def extract_nn_features(self, name, corpus, nn_flow, nn_opts=None):
-    port_name_mapping = {'features': name}
-    job_name = "%s_features" % name
-    opts = {'rtf':5., 'mem': 5}
-    if nn_opts is not None:
-      opts.update(nn_opts)
-
-    self.jobs[corpus]['%s_features' % name] = f = features.FeatureExtraction(self.csp[corpus], nn_flow, port_name_mapping=port_name_mapping, job_name=job_name, **opts)
-    f.add_alias('%s_%s_features' % (corpus,name))
-    self.feature_caches [corpus][name] = f.feature_path[name]
-    self.feature_bundles[corpus][name] = f.feature_bundle[name]
-
-    feature_path = sprint.FlagDependentFlowAttribute('cache_mode', { 'task_dependent' : self.feature_caches [corpus][name],
-                                                                     'bundle'         : self.feature_bundles[corpus][name] })
-    self.feature_flows[corpus][name] = features.basic_cache_flow(feature_path)
-    self.feature_flows[corpus]['uncached_%s' % name] = nn_flow
-
-  def concat_features(self, corpus, names):
-    if not type(names) == list:
-      names = [names]
-    fullname = '+'.join(names)
-    flows = [self.feature_flows[corpus][name] for name in names]
-
-    net = sprint.FlowNetwork()
-    net.add_param('id')
-    net.add_output('features')
-    concat = net.add_node('generic-vector-f32-concat', 'concat')
-    for i,flow in enumerate(flows):
-      mapping = net.add_net(flow)
-      net.interconnect_inputs(flow, mapping)
-      net.link(mapping[flow.get_output_links('features').pop()], concat+':in%d' % i)
-
-    net.link(concat, 'network:features')
-
-    self.feature_flows[corpus][fullname] = net
 
   def get_state_tying(self):
     return self.csp['base'].acoustic_model_config.state_tying.type
@@ -281,10 +115,15 @@ class BaseSystem(RasrSystem):
       print("changed")
     
   def num_classes(self):
+    if self.get_state_tying() in self._num_classes_dict:
+      return self._num_classes_dict[self.get_state_tying()]
     state_tying = DumpStateTyingJob(self.csp["train"]).out_state_tying
     tk.register_output("state-tying_mono", state_tying)
     num_states = ExtractStateTyingStats(state_tying).num_states
     return num_states
+  
+  def set_num_classes(self, state_tying, num_classes):
+    self._num_classes_dict[state_tying] = num_classes
   
   def set_decoder(self, decoder, **kwargs):
     assert hasattr(decoder, "decode"), "Decoder object must provide 'decode' method"
@@ -363,7 +202,7 @@ class BaseSystem(RasrSystem):
                                initial_flow                = self.feature_flows[corpus][initial_flow],
                                context_flow                = self.feature_flows[corpus]['%s+context' % context_flow],
                                alignment                   = meta.select_element(self.alignments, corpus, alignment),
-                               questions                   = self.cart_questions,
+                               questions                   = self.cart_questions[corpus],
                                num_dim                     = num_dim,
                                num_iter                    = num_iter,
                                eigenvalue_args             = eigenvalue_args,
@@ -380,49 +219,22 @@ class BaseSystem(RasrSystem):
       csp.acoustic_model_config.state_tying.type = 'cart'
       csp.acoustic_model_config.state_tying.file = cart_lda.last_cart_tree
 
-  @tk.block()
-  def triphone_training(self, name, feature_flow, initial_alignment, splits, accs_per_split, **kwargs):
-    action_sequence =   ['accumulate'] \
-                      + meta.align_then_split_and_accumulate_sequence(splits, accs_per_split, mark_align=False) \
-                      + ['align!']
-
-    self.train(name     = name,
-               corpus   = 'train',
-               sequence = action_sequence,
-               flow     = feature_flow,
-               initial_alignment = meta.select_element(self.alignments, 'train', initial_alignment),
-               align_keep_values = { 'default': 5, 'selected': tk.gs.JOB_DEFAULT_KEEP_VALUE },
-               **kwargs)
-
-  def recognition(self, name, iters, corpus, feature_flow, feature_scorer, pronunciation_scale, lm_scale, search_parameters, rtf, mem, **kwargs):
-    with tk.block('%s_recognition' % name):
-      for it in iters:
-        self.recog(name   = '%s.iter-%d' % (name, it),
-                   corpus = corpus,
-                   flow           = feature_flow,
-                   feature_scorer = list(feature_scorer) + [it - 1],
-                   pronunciation_scale = pronunciation_scale,
-                   lm_scale            = lm_scale,
-                   search_parameters = search_parameters,
-                   rtf = rtf,
-                   mem = mem,
-                   **kwargs)
-        self.jobs[corpus]['lat2ctm_%s.iter-%d' % (name, it)].rqmt = { 'time': max(self.csp[corpus].corpus_duration / (2. * self.concurrent[corpus]), .5), 'cpu': 1, 'mem': 5 }
-  
   def init_nn(self, name, corpus, dev_size, bad_segments=None, dump=False, alignment_logs=None):
     all_segments = corpus_recipes.SegmentCorpusJob(self.corpora[corpus].corpus_file, 1)
     if alignment_logs is True:
       import glob
       log_path_pattern = os.path.join(
         os.path.dirname(
-          select_element(self.alignments, corpus, 'init_align').value.get_path(),
+          select_element(self.alignments, corpus, 'init_align').get_path(),
         ),
         "alignment.log.*.gz"
       )
       alignment_logs = glob.glob(log_path_pattern)
     if alignment_logs is not None:
       import i6_experiments.users.mann.experimental.extractors as extr
-      all_segments = extr.FilterSegmentsByAlignmentFailures({1: all_segments.single_segment_files[1]}, alignment_logs)
+      from i6_core.corpus.filter import FilterSegmentsByListJob
+      filter_list = extr.ExtractAlignmentFailuresJob(alignment_logs).out_filter_list
+      all_segments = FilterSegmentsByListJob({1: all_segments.out_single_segment_files[1]}, filter_list)
     new_segments = corpus_recipes.ShuffleAndSplitSegmentsJob(segment_file = all_segments.out_single_segment_files[1],
                                                           split        = { 'train': 1.0 - dev_size, 'dev': dev_size })
 
@@ -441,17 +253,17 @@ class BaseSystem(RasrSystem):
     self.jobs[corpus]['shuffle_and_split_segments_%s' % name] = new_segments
 
     if 'train_corpus' not in self.default_nn_training_args:
-      self.default_nn_training_args['train_corpus'] = '%s_train' % self.init_nn_args['name']
+      self.default_nn_training_args['train_corpus'] = '%s_train' % name
     if 'dev_corpus'   not in self.default_nn_training_args:
-      self.default_nn_training_args['dev_corpus']   = '%s_dev'   % self.init_nn_args['name']
+      self.default_nn_training_args['dev_corpus']   = '%s_dev'   % name
     if 'feature_flow' not in self.default_nn_training_args:
-      self.default_nn_training_args['feature_flow'] = 'mfcc+context%d' % self.init_nn_args['window_size']
+      self.default_nn_training_args['feature_flow'] = 'mfcc+context%d' % window_size
 
     if 'feature_dimension' not in self.default_scorer_args:
-      self.default_scorer_args['feature_dimension'] = self.init_nn_args['window_size'] * 16
+      self.default_scorer_args['feature_dimension'] = window_size * 16
 
     if 'flow' not in self.default_recognition_args:
-      self.default_recognition_args['flow'] = 'mfcc+context%d' % self.init_nn_args['window_size']
+      self.default_recognition_args['flow'] = 'mfcc+context%d' % window_size
 
     if dump:
       overlay_name = 'crnn_train_dump'
@@ -492,9 +304,10 @@ class BaseSystem(RasrSystem):
     ):
     if hasattr(crnn_config, "build_compile_config"):
     # if custom_compile:
-      config_dict = crnn_config.build_compile_config()
+      config = crnn_config.build_compile_config()
     else:
-      config_dict = copy.deepcopy(crnn_config)
+      config = copy.deepcopy(crnn_config)
+    config_dict = config.config
     if output_tensor_name is None:
       output_tensor_name = 'output/output_batch_major'
     # Replace lstm unit to nativelstm2
@@ -514,17 +327,17 @@ class BaseSystem(RasrSystem):
       # config_dict['network']['output']['class'] = 'linear'
       # config_dict['network']['output']['activation'] = 'log_softmax'
       config_dict['target'] = 'classes'
-    config_dict['num_outputs']['classes'] = [self.functor_value(self.default_nn_training_args['num_classes']), 1]
+    config_dict['num_outputs']['classes'] = [self.num_classes(), 1]
     window = config_dict.get('window', 1)
     if window > 1:
       feature_flow = lda.add_context_flow(feature_flow, max_size=window, right=window // 2)
 
     model_path = tk.uncached_path(model.model)[:-5]
-    if not isinstance(config_dict, crnn.CRNNConfig):
+    if not isinstance(config_dict, crnn.ReturnnConfig):
       # print("Not of instance CRNNConfig")
-      config_dict = crnn.CRNNConfig(config_dict, {})
+      config_dict = crnn.ReturnnConfig(config_dict, {})
     compile_graph_job = crnn.CompileTFGraphJob(
-      config_dict, **compile_args
+      config, **compile_args
     )
     # print("Prolog: ", getattr(compile_graph_job.crnn_config, "python_prolog", "--"))
     if alias is not None:
@@ -537,7 +350,7 @@ class BaseSystem(RasrSystem):
     if not add_tf_flow:
       return feature_flow
 
-    tf_graph = compile_graph_job.graph
+    tf_graph = compile_graph_job.out_graph
 
     # Setup TF AM flow node
     tf_flow = sprint.FlowNetwork()
@@ -548,7 +361,7 @@ class BaseSystem(RasrSystem):
     tf_flow.link('network:input-features', tf_fwd + ':features')
     tf_flow.link(tf_fwd + ':log-posteriors', 'network:features')
 
-    tf_flow.config = sprint.SprintConfig()
+    tf_flow.config = sprint.RasrConfig()
 
     tf_flow.config[tf_fwd].input_map.info_0.param_name              = 'features'
     tf_flow.config[tf_fwd].input_map.info_0.tensor_name             = 'extern_data/placeholders/data/data'
@@ -563,7 +376,7 @@ class BaseSystem(RasrSystem):
 
     # tf_flow.config[tf_fwd].loader.required_libraries = '/u/beck/setups/swb1/dependencies/returnn_native_ops/NativeLstm2/9fa3cd7f72/NativeLstm2.so'
     if req_libraries is NotSpecified:
-      tf_flow.config[tf_fwd].loader.required_libraries = gs.TF_NATIVE_OPS
+      tf_flow.config[tf_fwd].loader.required_libraries = self.native_ops_path
     elif req_libraries is not None:
       if isinstance(req_libraries, list):
         req_libraries = ':'.join(req_libraries)
@@ -596,6 +409,10 @@ class BaseSystem(RasrSystem):
     train_args.update(training_args)
     train_args['name']        = name
     train_args['crnn_config'] = crnn_config
+    if self.returnn_root is not None:
+      train_args['returnn_root'] = self.returnn_root
+    if self.returnn_python_exe is not None:
+      train_args['returnn_python_exe'] = self.returnn_python_exe
 
     with tk.block('NN - %s' % name):
       self.train_nn(**train_args)
@@ -656,7 +473,7 @@ class BaseSystem(RasrSystem):
 
 
   def nn_and_recog(self, name, training_args, crnn_config, scorer_args,  
-                   recognition_args, epochs=None, reestimate_prior=False, compile_args=None,
+                   recognition_args, epochs=None, reestimate_prior='CRNN', compile_args=None,
                    optimize=True, use_tf_flow=False, label_sync_decoding=False, 
                   #  delayed_build=False,
                    alt_training=False,
@@ -669,6 +486,10 @@ class BaseSystem(RasrSystem):
     train_args.update(training_args)
     train_args['name']        = name
     train_args['returnn_config'] = crnn_config # if not delayed_build else crnn_config.build()
+    if self.returnn_root is not None:
+      train_args['returnn_root'] = self.returnn_root
+    if self.returnn_python_exe is not None:
+      train_args['returnn_python_exe'] = self.returnn_python_exe
 
     with tk.block('NN - %s' % name):
       if alt_training:
@@ -722,20 +543,25 @@ class BaseSystem(RasrSystem):
     score_args.update(scorer_args)
     if reestimate_prior=='CRNN':
       num_classes  = self.functor_value(training_args["num_classes"])
-      score_features = crnn.sprint_training.CRNNSprintComputePriorJob(
-        train_csp    = self.csp[training_args['train_corpus']],
-        dev_csp      = self.csp[training_args['dev_corpus']],
+      score_features = crnn.ReturnnRasrComputePriorJob(
+        train_crp    = self.csp[training_args['train_corpus']],
+        dev_crp      = self.csp[training_args['dev_corpus']],
         feature_flow = self.feature_flows[training_args['feature_corpus']][training_args['feature_flow']],
         num_classes  = self.functor_value(training_args["num_classes"]),
         alignment    = select_element(self.alignments, training_args["feature_corpus"], training_args["alignment"]),
-        model        = self.jobs[training_args['feature_corpus']]['train_nn_%s' % name].models[epoch],
-        crnn_python_exe = training_args.get("crnn_python_exe", None),
-        crnn_root       = training_args.get("crnn_root", None)
+        returnn_config = crnn_config,
+        model_checkpoint = self.jobs[training_args['feature_corpus']]['train_nn_%s' % name].out_checkpoints[epoch],
+        returnn_python_exe = training_args.get("crnn_python_exe", None),
+        returnn_root = training_args.get("crnn_root", None)
       )
       self.jobs[training_args["feature_corpus"]]["crnn_compute_prior_%s" % scorer_name] = score_features
       scorer_name += '-prior'
       score_args['name'] = scorer_name
-      score_args['prior_file'] = score_features.prior
+      score_args['prior_file'] = score_features.out_prior_xml_file
+    elif reestimate_prior == 'transcription':
+      from i6_experiments.users.mann.setups.prior import get_prior_from_transcription_job
+      prior = get_prior_from_transcription_job(self, self.num_frames["train"])
+      score_args['prior_file'] = prior["xml"]
     elif reestimate_prior == True:
       assert False, "reestimating prior using sprint is not yet possible, you should implement it or use 'CRNN'"
 
@@ -751,12 +577,12 @@ class BaseSystem(RasrSystem):
       recog_args.update(recognition_args)
     recog_args['name']           = 'crnn-%s%s' % (recog_name, '-prior' if reestimate_prior else '')
     feature_flow_net = meta.system.select_element(self.feature_flows, recog_args['corpus'], recog_args['flow'])
-    model = self.jobs[training_args['feature_corpus']]['train_nn_%s' % name].models[epoch]
+    model = self.jobs[training_args['feature_corpus']]['train_nn_%s' % name].out_models[epoch]
     compile_args = copy.deepcopy(compile_args)
     if compile_crnn_config is None:
       compile_crnn_config = crnn_config
     compile_network_extra_config = compile_args.pop('compile_network_extra_config', {})
-    compile_crnn_config['network'].update(compile_network_extra_config)
+    compile_crnn_config.config['network'].update(compile_network_extra_config)
     if "alias" in compile_args and not isinstance(compile_args['alias'], str):
       compile_args['alias'] = name
     recog_args['flow'] = tf_flow = self.get_tf_flow(
@@ -766,8 +592,13 @@ class BaseSystem(RasrSystem):
       req_libraries=recog_args.pop('req_libraries', NotSpecified),
       **compile_args,
     )
+    if score_args['prior_mixtures'] is not None:
+      prior_mixtures = select_element(self.mixtures, training_args['feature_corpus'], score_args['prior_mixtures']) 
+    else:
+      from i6_core.mm import CreateDummyMixturesJob
+      prior_mixtures = CreateDummyMixturesJob(self.num_classes(), 50).out_mixtures
     recog_args['feature_scorer'] = scorer = sprint.PrecomputedHybridFeatureScorer(
-      prior_mixtures=select_element(self.mixtures, training_args['feature_corpus'], score_args['prior_mixtures']),
+      prior_mixtures=prior_mixtures,
       priori_scale=score_args.get('prior_scale', 0.),
       # prior_file=score_features.prior if reestimate_prior else None,
       prior_file=score_args.get("prior_file", None),
@@ -781,27 +612,6 @@ class BaseSystem(RasrSystem):
         self.recog_and_optimize(**recog_args)
       else:
         self.recog(**recog_args)
-
-
-  def train_nn_multi_alignments(self, name, feature_corpus, train_corpus, dev_corpus, feature_flow, alignments, crnn_config, num_classes, **kwargs):
-    dataset_mapping = { 
-      key: dict(train_csp    = self.csp[train_corpus],
-                dev_csp      = self.csp[dev_corpus],
-                feature_flow = self.feature_flows[feature_corpus][feature_flow],
-                alignment    = select_element(self.alignments, feature_corpus, alignment)
-      )
-      for key, alignment in alignments.items()
-    }
-
-    j = crnn.CRNNMultiSprintTrainingJob(
-      dataset_mapping = dataset_mapping,
-      crnn_config     = crnn_config,
-      num_classes     = self.functor_value(num_classes),
-      **kwargs)
-    self.jobs[feature_corpus]['train_nn_%s' % name] = j
-    self.nn_models[feature_corpus][name] = j.models
-    self.nn_checkpoints[feature_corpus][name] = j.checkpoints
-    self.nn_configs[feature_corpus][name] = j.crnn_config_file
 
 
   def nn_align(self, nn_name, crnn_config, epoch, scorer_suffix='', use_tf=True, mem_rqmt=8,
@@ -923,8 +733,10 @@ from types import MappingProxyType
 Auto = object()
 
 class NNSystem(BaseSystem):
-  def __init__(self, num_input=None, epochs=None):
-    super().__init__()
+  def __init__(self, num_input=None, epochs=None, rasr_binary_path=Default, **kwargs):
+    if rasr_binary_path is Default:
+      rasr_binary_path = tk.Path(gs.RASR_ROOT).join_right('arch/linux-x86_64-standard')
+    super().__init__(rasr_binary_path, **kwargs)
 
     assert num_input and epochs
     self.default_epochs = epochs
@@ -932,101 +744,26 @@ class NNSystem(BaseSystem):
     self.nn_config_dicts = {'train': {}}
     self.compile_configs = {}
 
-    self.base_crnn_config = {
-      "num_input" : num_input,
-      "l2" : 0.01,
-      "lr" : 0.00025,
-      "dropout" : 0.1,
-      "batch_size" : 5000,
-      "max_seqs" : 200,
-      "nadam" : True,
-      "gradient_clip" : 0,
-      "learning_rate_control" : "newbob_multi_epoch",
-      "learning_rate_control_error_measure" : 'dev_score_output_bw',
-      "min_learning_rate" : 1e-6,
-      "update_on_device" : True,
-      "cache_size" : "0",
-      "batching" : "random",
-      "chunking" : "50:25",
-      "truncation" : -1,
-      "gradient_noise" : 0.1,
-      "learning_rate_control_relative_error_relative_lr" : True,
-      "learning_rate_control_min_num_epochs_per_new_lr" : 4,
-      "newbob_learning_rate_decay" : 0.9,
-      "newbob_multi_num_epochs" : 8,
-      "newbob_multi_update_interval" : 4,
-      "optimizer_epsilon" : 1e-08,
-      "use_tensorflow" : True,
-      "multiprocessing" : True,
-      "cleanup_old_models" : {'keep': epochs}
-    }
-
-    self.base_lstm_config = {
-      "layers": 6 * [512],
-    }
-
-    self.base_ffnn_config = {
-      "layers": 6 * [1700],
-      "num_input": num_input * 15,
-      "window": 15
-    }
-
-    self.base_viterbi_args = {
-      "lr": 0.0008,
-      "learning_rates": [ 
-        0.0003,
-        0.0003555555555555555,
-        0.0004111111111111111,
-        0.00046666666666666666,
-        0.0005222222222222222,
-        0.0005777777777777778,
-        0.0006333333333333334,
-        0.0006888888888888888,
-        0.0007444444444444445,
-        0.0008]
-    }
-
-    self.base_tcnn_config = {
-      "layers": 6 * [1700],
-      "filters": 5 * [2] + 1 * [1],
-      "dilation": [1, 2, 4, 8, 16, 1]
-    }
-
-    self.base_bw_args = {
-      "am_scale" : 0.7,
-      "tdp_scale" : 1.0,
-      "prior_scale": 1.0
-    }
-
-    self.base_lstm_bw_args = {
-      "am_scale" : 1.0,
-      "tdp_scale" : 1.0,
-      "prior_scale": 0.7, 
-    }
-
-    self.base_pretrain_args = {
-      "initial_am" : 0.01,
-      "final_am": 0.7,
-      "final_epoch": 5,
-    }
-
     from i6_experiments.users.mann.setups.tdps import CombinedModelApplicator
     self.plugins = {
       "tdps": CombinedModelApplicator(self),
     }
 
     from i6_experiments.users.mann.nn.lstm import viterbi_lstm
-    from i6_experiments.users.mann.nn import prior, pretrain, bw
+    from i6_experiments.users.mann.nn import prior, pretrain, bw, get_learning_rates
     import i6_experiments.users.mann.setups.prior as tp
     def make_bw_lstm(num_input, epochs, num_frames, numpy=False):
       viterbi_config = viterbi_lstm(num_input, epochs)
       bw_config = bw.ScaleConfig.copy_add_bw(
         viterbi_config, self.csp["train"],
-        am_scale=0.7, prior_scale=0.035
+        am_scale=0.7, prior_scale=0.035,
+        num_classes=self.num_classes(),
       )
+      bw_config.config["learning_rates"] = get_learning_rates(increase=70, decay=70)
+      del bw_config.config["learning_rate"]
       priors_txt = tp.get_prior_from_transcription_job(
         self, total_frames=num_frames
-      )
+      )["txt"]
       prior.prepare_static_prior(bw_config, prob=True)
       prior.add_static_prior(bw_config, priors_txt)
       return pretrain.PretrainConfigHolder(
@@ -1146,7 +883,7 @@ class NNSystem(BaseSystem):
       scorer_args=None, recognition_args=None,
       training_args=None, compile_args=None,
       delayed_build=Auto,
-      reestimate_prior=False, optimize=True, use_tf_flow=True,
+      reestimate_prior='CRNN', optimize=True, use_tf_flow=True,
       compile_crnn_config=None, plugin_args=None,
       fast_bw_args={},
       label_sync_decoding=False, **kwargs):

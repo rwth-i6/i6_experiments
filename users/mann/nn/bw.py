@@ -2,6 +2,8 @@ import copy
 
 import numpy as np
 
+from sisyphus import tk
+
 from i6_core import returnn
 from i6_core.rasr import RasrCommand
 # from .inspect import InspectTFCheckpointJob
@@ -11,7 +13,7 @@ def add_bw_layer(csp, crnn_config, am_scale=1.0, ce_smoothing=0.0,
                  import_model=None, exp_average=0.001, 
                  prior_scale=1.0, tdp_scale=1.0,
                  learning_rate=0.00025, learning_rate_warmup=None,
-                 chunking=False
+                 chunking=False, keep_ce=False, num_classes=None,
                  ):
     crnn_config = crnn_config.config
     # maybe remove chunking
@@ -55,8 +57,15 @@ def add_bw_layer(csp, crnn_config, am_scale=1.0, ce_smoothing=0.0,
         "usePythonSegmentOrder": False,
         "numInstances": 1}
 
-    crnn_config['network']['output']['loss']       = 'via_layer'
-    crnn_config['network']['output']['loss_opts']  = {"loss_wrt_to_act_in": "softmax", "align_layer": "fast_bw"}
+    crnn_config['network']['output_bw'] = {'class': 'copy', 'from': 'output'}
+    crnn_config['network']['output_bw']['loss']       = 'via_layer'
+    crnn_config['network']['output_bw']['loss_opts']  = {"loss_wrt_to_act_in": "softmax", "align_layer": "fast_bw"}
+
+    if not keep_ce:
+        assert isinstance(num_classes, (int, tk.Variable))
+        del crnn_config['network']['output']['loss']
+        del crnn_config['network']['output']['loss_opts']
+        crnn_config['network']['output']['n_out'] = num_classes
 
 
 class ScaleConfig(returnn.ReturnnConfig):
@@ -65,7 +74,6 @@ class ScaleConfig(returnn.ReturnnConfig):
         if isinstance(config, returnn.ReturnnConfig):
             res = copy.deepcopy(config)
             res.__class__ = cls
-            # res.is_prior_relative = False
             return res
         return cls.from_config(returnn.ReturnnConfig(config))
     
