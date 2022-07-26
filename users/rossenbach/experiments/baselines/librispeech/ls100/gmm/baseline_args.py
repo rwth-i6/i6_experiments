@@ -28,7 +28,7 @@ def get_init_args():
         "across_word_model": True,
         "early_recombination": False,
         "tdp_scale": 1.0,
-        "tdp_transition": (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
+        "tdp_transition": (3.0, 0.0, "infinity", 0.0),  # loop, forward, skip, exit
         "tdp_silence": (0.0, 3.0, "infinity", 20.0),
         "tying_type": "global",
         "nonword_phones": "",
@@ -63,6 +63,7 @@ def get_init_args():
                     "epsilon": 1e-10,
                 },
                 "fft_options": None,
+                "add_feature_output": True,
             },
         },
         "energy": {
@@ -78,7 +79,6 @@ def get_init_args():
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args={"scale": 0.3},  # TODO what should this be?
     )
 
 
