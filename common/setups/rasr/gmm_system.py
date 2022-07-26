@@ -559,16 +559,16 @@ class GmmSystem(RasrSystem):
         :param kwargs:
         :return:
         """
+        self.vtln_features(
+            name=name,
+            corpus=train_corpus_key,
+            raw_feature_flow=self.feature_flows[train_corpus_key][raw_feature_flow_key],
+            warping_map=self.vtln_files[train_corpus_key][
+                vtln_files_key + "_warping_map"
+            ],
+            **kwargs,
+        )
         for c in eval_corpora_keys:
-            self.vtln_features(
-                name=name,
-                corpus=train_corpus_key,
-                raw_feature_flow=self.feature_flows[c][raw_feature_flow_key],
-                warping_map=self.vtln_files[train_corpus_key][
-                    vtln_files_key + "_warping_map"
-                ],
-                **kwargs,
-            )
             self.feature_flows[c][
                 raw_feature_flow_key + "+vtln"
             ] = vtln.recognized_warping_factor_flow(
@@ -1394,6 +1394,7 @@ class GmmSystem(RasrSystem):
 
         for trn_c in self.train_corpora:
             self.store_allophones(trn_c)
+            tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
