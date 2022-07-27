@@ -20,6 +20,7 @@ class TfRnnLmRasrConfig:
     returnn_checkpoint: returnn.Checkpoint
     scale: Optional[float] = None
     unknown_symbol: str = "<UNK>"
+    transform_output_log: bool = True
     transform_output_negate: bool = True
     output_layer_type: str = "softmax"
     libraries: Optional[Union[tk.Path, List[tk.Path]]] = None
@@ -32,6 +33,7 @@ class TfRnnLmRasrConfig:
         lm_config.type = "tfrnn"
         lm_config.vocab_file = self.vocab_path
         lm_config.vocab_unknown_word = self.unknown_symbol
+        lm_config.transform_output_log = self.transform_output_log
         lm_config.transform_output_negate = self.transform_output_negate
 
         if self.scale is not None:
@@ -54,39 +56,41 @@ class TfRnnLmRasrConfig:
         lm_config.output_map.info_0.param_name = self.output_layer_type
         lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
 
-        if self.state_manager == "lstm":
-            return lm_config
-
-        lm_config.input_map.info_1.param_name = "state-lengths"
-        lm_config.input_map.info_1.tensor_name = (
-            "output/rec/dec_0_self_att_att/state_lengths"
-        )
-
         lm_config.state_manager.type = self.state_manager
 
-        if self.softmax_adapter is not None:
-            lm_config.softmax_adapter.type = self.softmax_adapter
-        if self.softmax_adapter in ("blas_nce", "quantized-blas-nce-16bit"):
-            lm_config.output_map.info_0.tensor_name = "output/rec/decoder/add"
-            lm_config.output_map.info_1.param_name = "weights"
-            lm_config.output_map.info_1.tensor_name = "output/rec/output/W/read"
-            lm_config.output_map.info_2.param_name = "bias"
-            lm_config.output_map.info_2.tensor_name = "output/rec/output/b/read"
-        if self.softmax_adapter == "quantized-blas-nce-16bit":
-            lm_config.softmax_adapter.weights_bias_epsilon = 0.001
+        if self.state_manager == "lstm":
+            return lm_config
+        elif self.state_manager == "transformer":
+            lm_config.input_map.info_1.param_name = "state-lengths"
+            lm_config.input_map.info_1.tensor_name = (
+                "output/rec/dec_0_self_att_att/state_lengths"
+            )
 
-        if self.common_prefix:
-            lm_config.state_manager.min_batch_size = 0
-            lm_config.state_manager.min_common_prefix_length = 0
+            if self.softmax_adapter is not None:
+                lm_config.softmax_adapter.type = self.softmax_adapter
+            if self.softmax_adapter in ("blas_nce", "quantized-blas-nce-16bit"):
+                lm_config.output_map.info_0.tensor_name = "output/rec/decoder/add"
+                lm_config.output_map.info_1.param_name = "weights"
+                lm_config.output_map.info_1.tensor_name = "output/rec/output/W/read"
+                lm_config.output_map.info_2.param_name = "bias"
+                lm_config.output_map.info_2.tensor_name = "output/rec/output/b/read"
+            if self.softmax_adapter == "quantized-blas-nce-16bit":
+                lm_config.softmax_adapter.weights_bias_epsilon = 0.001
 
-            for i in range(6):
-                c = lm_config.state_manager.var_map[f"item-{i}"]
-                c.var_name = f"output/rec/dec_{i}_self_att_att/keep_state_var:0"
-                c.common_prefix_initial_value = (
-                    f"output/rec/dec_{i}_self_att_att/zeros_1:0"
-                )
-                c.common_prefix_initializer = (
-                    f"output/rec/dec_{i}_self_att_att/common_prefix/Assign:0"
-                )
+            if self.common_prefix:
+                lm_config.state_manager.min_batch_size = 0
+                lm_config.state_manager.min_common_prefix_length = 0
+
+                for i in range(6):
+                    c = lm_config.state_manager.var_map[f"item-{i}"]
+                    c.var_name = f"output/rec/dec_{i}_self_att_att/keep_state_var:0"
+                    c.common_prefix_initial_value = (
+                        f"output/rec/dec_{i}_self_att_att/zeros_1:0"
+                    )
+                    c.common_prefix_initializer = (
+                        f"output/rec/dec_{i}_self_att_att/common_prefix/Assign:0"
+                    )
+        else:
+            raise NotImplementedError
 
         return lm_config
