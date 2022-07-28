@@ -12,7 +12,10 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.data.datasets imp
   MetaDataset,
   HDFDataset,
 )
-from i6_private.users.hilmes.data.datastream import AudioFeatureDatastream, ReturnnAudioFeatureOptions
+from i6_private.users.hilmes.data.datastream import (
+  AudioFeatureDatastream,
+  ReturnnAudioFeatureOptions,
+)
 
 post_config_template = {
   "cleanup_old_models": True,
@@ -69,8 +72,12 @@ class LJSpeechMiniGLVocoder:
       audio_datastream.options.sample_rate is not None
     ), "please specify a sample_rate in the AudioFeatureDatastream"
     self._sample_rate = audio_datastream.options.sample_rate
-    self._linear_size = 2 ** int(np.ceil(np.log2(self._sample_rate * audio_datastream.options.window_len)) - 1)
-    self._target_audio_opts = self._get_target_datastream(audio_datastream, self._linear_size)
+    self._linear_size = 2 ** int(
+      np.ceil(np.log2(self._sample_rate * audio_datastream.options.window_len)) - 1
+    )
+    self._target_audio_opts = self._get_target_datastream(
+      audio_datastream, self._linear_size
+    )
 
     self._returnn_gpu_exe = returnn_gpu_exe
     self._returnn_root = returnn_root
@@ -81,9 +88,26 @@ class LJSpeechMiniGLVocoder:
     :rtype: dict[str, Any]
     """
     network = {
-      "transform": {"class": "linear", "activation": "relu", "from": ["data"], "n_out": self._model_size},
-      "lstm0_bw": {"class": "rec", "direction": -1, "from": ["data"], "n_out": self._model_size, "unit": "nativelstm2"},
-      "lstm0_fw": {"class": "rec", "direction": 1, "from": ["data"], "n_out": self._model_size, "unit": "nativelstm2"},
+      "transform": {
+        "class": "linear",
+        "activation": "relu",
+        "from": ["data"],
+        "n_out": self._model_size,
+      },
+      "lstm0_bw": {
+        "class": "rec",
+        "direction": -1,
+        "from": ["data"],
+        "n_out": self._model_size,
+        "unit": "nativelstm2",
+      },
+      "lstm0_fw": {
+        "class": "rec",
+        "direction": 1,
+        "from": ["data"],
+        "n_out": self._model_size,
+        "unit": "nativelstm2",
+      },
       "lstm1_bw": {
         "class": "rec",
         "direction": -1,
@@ -127,7 +151,9 @@ class LJSpeechMiniGLVocoder:
     return network
 
   @classmethod
-  def _get_target_datastream(self, source_audio_opts: AudioFeatureDatastream, linear_size: int):
+  def _get_target_datastream(
+    self, source_audio_opts: AudioFeatureDatastream, linear_size: int
+  ):
     """
     This is a classmethod so that it can be used from outside if needed
 
@@ -143,7 +169,9 @@ class LJSpeechMiniGLVocoder:
       peak_normalization=False,
       preemphasis=source_audio_opts.options.preemphasis,
     )
-    target_audio = AudioFeatureDatastream(available_for_inference=False, options=options)
+    target_audio = AudioFeatureDatastream(
+      available_for_inference=False, options=options
+    )
     return target_audio
 
   def _get_training_dataset(self):
@@ -191,10 +219,14 @@ class LJSpeechMiniGLVocoder:
     return dev_dataset.as_returnn_opts()
 
   def _get_forward_dataset(self, hdf_input):
-    source_dev_dataset = HDFDataset(files=hdf_input, partition_epoch=1, seq_ordering="sorted_reverse")
+    source_dev_dataset = HDFDataset(
+      files=hdf_input, partition_epoch=1, seq_ordering="sorted_reverse"
+    )
 
     dev_dataset = MetaDataset(
-      data_map={"data": ("source", "data")}, datasets={"source": source_dev_dataset}, seq_order_control_dataset="source"
+      data_map={"data": ("source", "data")},
+      datasets={"source": source_dev_dataset},
+      seq_order_control_dataset="source",
     )
     return dev_dataset.as_returnn_opts()
 
@@ -261,18 +293,27 @@ class LJSpeechMiniGLVocoder:
     self.train_job.add_alias(os.path.join(self._alias_path, "training"))
 
     self.best_checkpoint = GetBestCheckpointJob(
-      self.train_job.out_model_dir, self.train_job.out_learning_rates, key="dev_score_log_output"
+      self.train_job.out_model_dir,
+      self.train_job.out_learning_rates,
+      key="dev_score_log_output",
     ).out_checkpoint
 
-    tk.register_output(os.path.join(self._alias_path, "training.models"), self.train_job.out_model_dir)
-    tk.register_output(os.path.join(self._alias_path, "training.config"), self.train_job.out_returnn_config_file)
+    tk.register_output(
+      os.path.join(self._alias_path, "training.models"), self.train_job.out_model_dir
+    )
+    tk.register_output(
+      os.path.join(self._alias_path, "training.config"),
+      self.train_job.out_returnn_config_file,
+    )
 
   def vocode(self, hdf_input, iterations=1, checkpoint=None, name=None, cleanup=False):
     if name is None:
       name = self._alias_path
     forward_config = self.build_forward_config(hdf_input)
     forward_job = ReturnnForwardJob(
-      model_checkpoint=self.train_job.out_checkpoints[checkpoint] if checkpoint else self.best_checkpoint,
+      model_checkpoint=self.train_job.out_checkpoints[checkpoint]
+      if checkpoint
+      else self.best_checkpoint,
       returnn_config=forward_config,
       time_rqmt=1,
       returnn_python_exe=self._returnn_gpu_exe,
@@ -280,7 +321,9 @@ class LJSpeechMiniGLVocoder:
     )
     # this job is never needed to be kept
     forward_job.set_keep_value(20)
-    from i6_experiments.users.rossenbach.tts.vocoder.griffin_lim import HDFPhaseReconstruction
+    from i6_experiments.users.rossenbach.tts.vocoder.griffin_lim import (
+      HDFPhaseReconstruction,
+    )
 
     hdf_reconstruct = HDFPhaseReconstruction(
       hdf_file=forward_job.out_default_hdf,
@@ -329,7 +372,8 @@ def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
 def get_default_vocoder(name, corpus_data):
   returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher.sh")
   old_root = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn", commit="7cfab7d7f1496a99e02d3b8c0a327bb725d1219f"
+    "https://github.com/rwth-i6/returnn",
+    commit="7cfab7d7f1496a99e02d3b8c0a327bb725d1219f",
   ).out_repository
 
   output_path = name

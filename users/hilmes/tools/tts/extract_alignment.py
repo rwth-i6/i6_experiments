@@ -12,6 +12,7 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
   """
   Takes given rasr alignment bundle and converts it to a hdf which contains the aligned durations
   """
+
   def __init__(
     self,
     rasr_alignment: tk.Path,
@@ -73,7 +74,10 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
           tags.append(key)
           start_time = 0
           space_insert = False
-          alignment = [(a[0], sprint_cache.allophones[a[1]]) for a in sprint_cache.read(key, "align")]
+          alignment = [
+            (a[0], sprint_cache.allophones[a[1]])
+            for a in sprint_cache.read(key, "align")
+          ]
           # Start computing duration sequence from rasr alignment
           last_allophone = None
           for time, allophone in alignment:
@@ -89,10 +93,10 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
               space_insert = False
             # Insert word boundary token between words where there is no silence
             elif (
-                self.boundary_token not in gmm_seq[-1]
-                and allophone != last_allophone
-                and "@i" in allophone
-                and phoneme != self.boundary_token
+              self.boundary_token not in gmm_seq[-1]
+              and allophone != last_allophone
+              and "@i" in allophone
+              and phoneme != self.boundary_token
             ):
               seq.append(time - start_time)
               gmm_seq.append(self.boundary_token)
@@ -112,13 +116,19 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
           if self.target_duration_hdf is not None:
             # take the difference between returnn feature extraction and rasr feature extraction in account
             difference = len(alignment) - returnn_length_dict[key]
-            assert -1 <= difference <= 1, ("The difference must not be greater, remember to use center=False"
-                                           "for the RETURNN feature extration")
+            assert -1 <= difference <= 1, (
+              "The difference must not be greater, remember to use center=False"
+              "for the RETURNN feature extration"
+            )
           else:
             difference = 0
           seq.append(len(alignment) - start_time - difference)
           # Assert that number of durations fit the given alignment
-          assert len(alignment) == (sum(seq)+difference), (key, len(alignment), sum(seq))
+          assert len(alignment) == (sum(seq) + difference), (
+            key,
+            len(alignment),
+            sum(seq),
+          )
           # manually add start/end token with duration 0
           seq = numpy.insert(seq, 0, 0)
           seq = numpy.append(seq, 0)

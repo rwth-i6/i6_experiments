@@ -6,7 +6,11 @@ from copy import deepcopy
 from returnn_common.nn import min_returnn_behavior_version
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob
-from i6_core.corpus import CorpusReplaceOrthFromReferenceCorpus, MergeCorporaJob, SegmentCorpusJob
+from i6_core.corpus import (
+  CorpusReplaceOrthFromReferenceCorpus,
+  MergeCorporaJob,
+  SegmentCorpusJob,
+)
 from i6_experiments.common.setups.returnn_common.serialization import (
   Collection,
   ExternData,
@@ -20,7 +24,9 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data impor
   TTSTrainingDatasets,
   TTSEvalDataset,
 )
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import get_default_vocoder
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
+  get_default_vocoder,
+)
 from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
 from i6_private.users.hilmes.util.asr_evaluation import asr_evaluation
 
@@ -68,14 +74,21 @@ def get_training_config(
     "max_seqs": 60,
   }
 
-  extern_data = [datastream.as_nnet_constructor_data(key) for key, datastream in training_datasets.datastreams.items()]
+  extern_data = [
+    datastream.as_nnet_constructor_data(key)
+    for key, datastream in training_datasets.datastreams.items()
+  ]
   config["train"] = training_datasets.train.as_returnn_opts()
   config["dev"] = training_datasets.cv.as_returnn_opts()
 
   rc_recursionlimit = PythonEnlargeStackWorkaroundCode
   rc_extern_data = ExternData(extern_data=extern_data)
-  rc_model = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel")
-  rc_construction_code = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network")
+  rc_model = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel"
+  )
+  rc_construction_code = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network"
+  )
 
   rc_network = Network(
     net_func_name=rc_construction_code.object_name,
@@ -105,15 +118,20 @@ def get_training_config(
     make_local_package_copy=True,
     packages={
       "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks",
-      "i6_experiments.users.hilmes.modules"}
+      "i6_experiments.users.hilmes.modules",
+    },
   )
 
-  returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+  returnn_config = ReturnnConfig(
+    config=config, post_config=post_config, python_epilog=[serializer]
+  )
 
   return returnn_config
 
 
-def get_forward_config(returnn_common_root, datasets, use_true_durations: bool = False, **kwargs):
+def get_forward_config(
+  returnn_common_root, datasets, use_true_durations: bool = False, **kwargs
+):
   """
   Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_model
   :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
@@ -122,8 +140,11 @@ def get_forward_config(returnn_common_root, datasets, use_true_durations: bool =
   :return: RETURNN forward config
   """
   from copy import deepcopy
+
   eval_datasets = deepcopy(datasets)
-  eval_datasets.datastreams["duration_data"].available_for_inference = use_true_durations
+  eval_datasets.datastreams[
+    "duration_data"
+  ].available_for_inference = use_true_durations
 
   config = {
     "behavior_version": min_returnn_behavior_version,
@@ -132,13 +153,20 @@ def get_forward_config(returnn_common_root, datasets, use_true_durations: bool =
     "forward_use_search": True,
     "target": "dec_output",
   }
-  extern_data = [datastream.as_nnet_constructor_data(key) for key, datastream in eval_datasets.datastreams.items()]
+  extern_data = [
+    datastream.as_nnet_constructor_data(key)
+    for key, datastream in eval_datasets.datastreams.items()
+  ]
   config["eval"] = datasets.cv.as_returnn_opts()
 
   rc_recursionlimit = PythonEnlargeStackWorkaroundCode
   rc_extern_data = ExternData(extern_data=extern_data)
-  rc_model = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel")
-  rc_construction_code = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network")
+  rc_model = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel"
+  )
+  rc_construction_code = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network"
+  )
 
   rc_network = Network(
     net_func_name=rc_construction_code.object_name,
@@ -168,7 +196,8 @@ def get_forward_config(returnn_common_root, datasets, use_true_durations: bool =
     make_local_package_copy=True,
     packages={
       "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks",
-      "i6_experiments.users.hilmes.modules"}
+      "i6_experiments.users.hilmes.modules",
+    },
   )
 
   returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
@@ -243,17 +272,23 @@ def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
     config=config,
     returnn_root=returnn_root,
     returnn_exe=returnn_exe,
-    prefix=name
+    prefix=name,
   )
   forward_hdf = forward_job.out_hdf_files["output.hdf"]
   default_vocoder = get_default_vocoder(name=name, corpus_data=vocoder_data)
   default_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
-  forward_vocoded, vocoder_forward_job = default_vocoder.vocode(forward_hdf, iterations=30, cleanup=True)
+  forward_vocoded, vocoder_forward_job = default_vocoder.vocode(
+    forward_hdf, iterations=30, cleanup=True
+  )
   verification = VerifyCorpus(forward_vocoded).out
-  cleanup = MultiJobCleanup([forward_job, vocoder_forward_job], verification, output_only=True)
+  cleanup = MultiJobCleanup(
+    [forward_job, vocoder_forward_job], verification, output_only=True
+  )
   tk.register_output(name + "/ctc_model" + "/".join(["cleanup", name]), cleanup.out)
 
-  corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+  corpus_object_dict = get_corpus_object_dict(
+    audio_format="ogg", output_prefix="corpora"
+  )
   cv_synth_corpus_job = CorpusReplaceOrthFromReferenceCorpus(
     forward_vocoded, corpus_object_dict["train-clean-100"].corpus_file
   )
@@ -273,16 +308,16 @@ def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
 
 
 def synthesize_with_splits(
-    name,
-    corpus: tk.Path,
-    job_splits: int,
-    datasets: TTSTrainingDatasets,
-    returnn_root,
-    returnn_exe,
-    returnn_common_root,
-    checkpoint,
-    vocoder,
-    **tts_model_kwargs,
+  name,
+  corpus: tk.Path,
+  job_splits: int,
+  datasets: TTSTrainingDatasets,
+  returnn_root,
+  returnn_exe,
+  returnn_common_root,
+  checkpoint,
+  vocoder,
+  **tts_model_kwargs,
 ):
   """
 
@@ -305,7 +340,9 @@ def synthesize_with_splits(
   for i in range(job_splits):
     name = name + "/synth_corpus/part_%i/" % i
     eval_data = deepcopy(datasets.train)  # TODO, das geht schöner!!!
-    eval_data.datasets["audio"]["segment_file"] = forward_segments.out_single_segment_files[i + 1]
+    eval_data.datasets["audio"][
+      "segment_file"
+    ] = forward_segments.out_single_segment_files[i + 1]
     eval_dataset = TTSEvalDataset(cv=eval_data, datastreams=datasets.datastreams)
     forward_config = get_forward_config(
       returnn_common_root=returnn_common_root,
@@ -324,22 +361,32 @@ def synthesize_with_splits(
     forward_hdf = last_forward_job.out_hdf_files["output.hdf"]
     tk.register_output(name, forward_hdf)
 
-    forward_vocoded, vocoder_forward_job = vocoder.vocode(forward_hdf, iterations=30, cleanup=True, name=name)
+    forward_vocoded, vocoder_forward_job = vocoder.vocode(
+      forward_hdf, iterations=30, cleanup=True, name=name
+    )
     tk.register_output(name + "synthesized_corpus.xml.gz", forward_vocoded)
     output_corpora.append(forward_vocoded)
     verification = VerifyCorpus(forward_vocoded).out
     verifications.append(verification)
 
-    cleanup = MultiJobCleanup([last_forward_job, vocoder_forward_job], verification, output_only=True)
-    tk.register_output(name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out)
+    cleanup = MultiJobCleanup(
+      [last_forward_job, vocoder_forward_job], verification, output_only=True
+    )
+    tk.register_output(
+      name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out
+    )
 
   from i6_core.corpus.transform import MergeStrategy
 
-  merge_job = MergeCorporaJob(output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT)
+  merge_job = MergeCorporaJob(
+    output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT
+  )
   for verfication in verifications:
     merge_job.add_input(verfication)
 
-  corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+  corpus_object_dict = get_corpus_object_dict(
+    audio_format="ogg", output_prefix="corpora"
+  )
   cv_synth_corpus = CorpusReplaceOrthFromReferenceCorpus(
     bliss_corpus=merge_job.out_merged_corpus,
     reference_bliss_corpus=corpus_object_dict["train-clean-100"].corpus_file,

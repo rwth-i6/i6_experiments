@@ -5,10 +5,15 @@ from sisyphus import gs, tk
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.default_tools import RASR_BINARY_PATH
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.default_tools import (
+  RASR_BINARY_PATH,
+)
 
 from i6_private.users.hilmes.nar_tts.GMM import baseline_args
-from i6_private.users.hilmes.nar_tts.GMM.data import get_corpus_data_inputs, get_synth_corpus_data_inputs
+from i6_private.users.hilmes.nar_tts.GMM.data import (
+  get_corpus_data_inputs,
+  get_synth_corpus_data_inputs,
+)
 
 
 def run_librispeech_100_common_baseline(
@@ -51,11 +56,17 @@ def run_librispeech_100_common_baseline(
   )
   system.run(steps)
   system.align(
-    name="tts_align", corpus="tts_align", feature_scorer=("train-clean-100", "train_mono"), flow="mfcc+deriv+norm"
+    name="tts_align",
+    corpus="tts_align",
+    feature_scorer=("train-clean-100", "train_mono"),
+    flow="mfcc+deriv+norm",
   )
 
   gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
-  return system.alignments["tts_align"]["tts_align"].alternatives["bundle"], system.allophone_files["base"]
+  return (
+    system.alignments["tts_align"]["tts_align"].alternatives["bundle"],
+    system.allophone_files["base"],
+  )
 
 
 def run_librispeech_100_synthesized_training(alias_prefix, synth_corpus):

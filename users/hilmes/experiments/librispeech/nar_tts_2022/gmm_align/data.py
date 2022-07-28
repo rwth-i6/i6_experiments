@@ -54,7 +54,9 @@ def get_corpus_data_inputs():
   sil_pp_train_clean_100.corpus_file = sil_pp_train_clean_100_tts_train_xml
 
   g2p_lexica = get_g2p_augmented_bliss_lexicon_dict(
-    output_prefix="corpora", add_unknown_phoneme_and_mapping=False, use_stress_marker=False
+    output_prefix="corpora",
+    add_unknown_phoneme_and_mapping=False,
+    use_stress_marker=False,
   )
   lm = None
   train_lexicon = {
@@ -86,7 +88,9 @@ def get_corpus_data_inputs():
     "normalize_pronunciation": False,
   }
 
-  corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
+  corpus_object_dict = get_corpus_object_dict(
+    audio_format="wav", output_prefix="corpora"
+  )
 
   for dev_key in ["dev-other"]:
     dev_data_inputs[dev_key] = RasrDataInput(
@@ -129,7 +133,9 @@ def get_synth_corpus_data_inputs(synth_corpus):
   synth_corpus.corpus_file = sil_pp_train_clean_100_tts_train_xml
 
   g2p_lexica = get_g2p_augmented_bliss_lexicon_dict(
-    output_prefix="corpora", add_unknown_phoneme_and_mapping=False, use_stress_marker=False
+    output_prefix="corpora",
+    add_unknown_phoneme_and_mapping=False,
+    use_stress_marker=False,
   )
   lm = None
   train_lexicon = {
@@ -161,7 +167,9 @@ def get_synth_corpus_data_inputs(synth_corpus):
     "normalize_pronunciation": False,
   }
 
-  corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
+  corpus_object_dict = get_corpus_object_dict(
+    audio_format="wav", output_prefix="corpora"
+  )
 
   for dev_key in ["dev-other"]:
     dev_data_inputs[dev_key] = RasrDataInput(

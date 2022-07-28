@@ -7,9 +7,12 @@ from i6_experiments.common.setups.returnn_common.serialization import (
   ExternData,
   Import,
   Network,
-  PythonEnlargeStackWorkaroundCode
+  PythonEnlargeStackWorkaroundCode,
 )
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import GenericDataset
+from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
+  GenericDataset,
+)
+
 
 def get_training_config(returnn_common_root, training_datasets, **kwargs):
   """
@@ -55,15 +58,22 @@ def get_training_config(returnn_common_root, training_datasets, **kwargs):
     "max_seqs": 200,
   }
 
-  extern_data = [datastream.as_nnet_constructor_data(key) for key, datastream in training_datasets.datastreams.items()]
+  extern_data = [
+    datastream.as_nnet_constructor_data(key)
+    for key, datastream in training_datasets.datastreams.items()
+  ]
 
   config["train"] = training_datasets.train.as_returnn_opts()
   config["dev"] = training_datasets.cv.as_returnn_opts()
 
   rc_recursionlimit = PythonEnlargeStackWorkaroundCode
   rc_extern_data = ExternData(extern_data=extern_data)
-  rc_model = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner")
-  rc_construction_code = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.construct_network")
+  rc_model = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner"
+  )
+  rc_construction_code = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.construct_network"
+  )
 
   rc_network = Network(
     net_func_name=rc_construction_code.object_name,
@@ -89,15 +99,21 @@ def get_training_config(returnn_common_root, training_datasets, **kwargs):
     ],
     returnn_common_root=returnn_common_root,
     make_local_package_copy=True,
-    packages={"i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks"}
+    packages={
+      "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks"
+    },
   )
 
-  returnn_config = ReturnnConfig(config=config, post_config=post_config, python_epilog=[serializer])
+  returnn_config = ReturnnConfig(
+    config=config, post_config=post_config, python_epilog=[serializer]
+  )
 
   return returnn_config
 
 
-def get_forward_config(returnn_common_root, forward_dataset: GenericDataset, datastreams, **kwargs):
+def get_forward_config(
+  returnn_common_root, forward_dataset: GenericDataset, datastreams, **kwargs
+):
   """
   Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
   :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
@@ -114,12 +130,18 @@ def get_forward_config(returnn_common_root, forward_dataset: GenericDataset, dat
     "target": "extract_alignment",
   }
   config["eval"] = forward_dataset.as_returnn_opts()
-  extern_data = [datastream.as_nnet_constructor_data(key) for key, datastream in datastreams.items()]
+  extern_data = [
+    datastream.as_nnet_constructor_data(key) for key, datastream in datastreams.items()
+  ]
 
   rc_recursionlimit = PythonEnlargeStackWorkaroundCode
   rc_extern_data = ExternData(extern_data=extern_data)
-  rc_model = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner")
-  rc_construction_code = Import("i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.construct_network")
+  rc_model = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner"
+  )
+  rc_construction_code = Import(
+    "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.construct_network"
+  )
 
   rc_network = Network(
     net_func_name=rc_construction_code.object_name,
@@ -145,7 +167,9 @@ def get_forward_config(returnn_common_root, forward_dataset: GenericDataset, dat
     ],
     returnn_common_root=returnn_common_root,
     make_local_package_copy=True,
-    packages={"i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks"}
+    packages={
+      "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks"
+    },
   )
 
   returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])

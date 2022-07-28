@@ -4,7 +4,12 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
   get_alignment_data,
 )
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_pipeline import get_training_config, get_forward_config, ctc_training, ctc_forward
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_pipeline import (
+  get_training_config,
+  get_forward_config,
+  ctc_training,
+  ctc_forward,
+)
 
 
 @lru_cache
@@ -33,17 +38,28 @@ def get_baseline_ctc_alignment():
     name + "/datasets", returnn_exe=returnn_exe, returnn_root=returnn_root
   )
 
-  aligner_config = get_training_config(returnn_common_root=returnn_common_root, training_datasets=training_datasets)
+  aligner_config = get_training_config(
+    returnn_common_root=returnn_common_root, training_datasets=training_datasets
+  )
 
   train_job = ctc_training(
     config=aligner_config,
     returnn_exe=returnn_exe,
     returnn_root=returnn_root,
-    prefix=name
+    prefix=name,
   )
 
   aligner_forward_confg = get_forward_config(
-    returnn_common_root=returnn_common_root, forward_dataset=training_datasets.joint, datastreams=training_datasets.datastreams)
+    returnn_common_root=returnn_common_root,
+    forward_dataset=training_datasets.joint,
+    datastreams=training_datasets.datastreams,
+  )
 
-  durations_hdf = ctc_forward(train_job.out_checkpoints[100], aligner_forward_confg, returnn_exe, returnn_root, name)
+  durations_hdf = ctc_forward(
+    train_job.out_checkpoints[100],
+    aligner_forward_confg,
+    returnn_exe,
+    returnn_root,
+    name,
+  )
   return durations_hdf

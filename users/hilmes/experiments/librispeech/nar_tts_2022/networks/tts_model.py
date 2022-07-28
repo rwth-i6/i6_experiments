@@ -38,7 +38,9 @@ class Conv1DBlock(nn.Module):
       padding="same",
       with_bias=False,
     )
-    self.bn = nn.BatchNorm(epsilon=bn_epsilon, use_mask=False)  # TODO: defaults okay and same, use_mask=False right?
+    self.bn = nn.BatchNorm(
+      epsilon=bn_epsilon, use_mask=False
+    )  # TODO: defaults okay and same, use_mask=False right?
     self.dropout = dropout
     self.l2 = l2
 
@@ -56,7 +58,9 @@ class Conv1DBlock(nn.Module):
 
     conv = nn.relu(conv)
     bn = self.bn(conv)
-    drop = nn.dropout(bn, dropout=self.dropout, axis=[nn.batch_dim, time_dim,bn.feature_dim])
+    drop = nn.dropout(
+      bn, dropout=self.dropout, axis=[nn.batch_dim, time_dim, bn.feature_dim]
+    )
 
     return drop
 
@@ -93,7 +97,9 @@ class ConvStack(nn.Module):
     if len(set(dim_sizes)) == 1:  # all sizes equal
       out_dims = [nn.FeatureDim("conv_dim", dim_sizes[0])] * num_layers
     else:
-      out_dims = [nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x]) for x in range(num_layers)]
+      out_dims = [
+        nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x]) for x in range(num_layers)
+      ]
 
     self.stack = nn.Sequential(
       [
@@ -224,12 +230,17 @@ class DurationPredictor(nn.Module):
     self.dropout = dropout
     self.l2 = l2
 
-    self.lin_dim = nn.FeatureDim("pred_lin_dim", 1)  # fixed to one to predict one duration per time/batch
+    self.lin_dim = nn.FeatureDim(
+      "pred_lin_dim", 1
+    )  # fixed to one to predict one duration per time/batch
     # simplify tags a bit if possible
     if len(set(conv_sizes)) == 1:  # all sizes equal
       out_dims = [nn.FeatureDim("dur_conv_dim", conv_sizes[0])] * num_layers
     else:
-      out_dims = [nn.FeatureDim("dur_conv_dim_%s" % str(x), conv_sizes[x]) for x in range(num_layers)]
+      out_dims = [
+        nn.FeatureDim("dur_conv_dim_%s" % str(x), conv_sizes[x])
+        for x in range(num_layers)
+      ]
 
     self.modules = nn.ModuleList()
     self.norms = nn.ModuleList()
@@ -297,7 +308,9 @@ class NARTTSModel(nn.Module):
 
     # dims
     self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
-    self.speaker_embedding_dim = nn.FeatureDim("speaker_embedding_dim", speaker_embedding_size)
+    self.speaker_embedding_dim = nn.FeatureDim(
+      "speaker_embedding_dim", speaker_embedding_size
+    )
     self.enc_lstm_dim = nn.FeatureDim("enc_lstm_dim", enc_lstm_size)
     self.dec_lstm_size = dec_lstm_size
 
@@ -348,7 +361,9 @@ class NARTTSModel(nn.Module):
     duration_float = None
     # input data prep
     if self.training:
-      durations, _ = nn.reinterpret_new_dim(durations, in_dim=duration_time, out_dim=time_dim)
+      durations, _ = nn.reinterpret_new_dim(
+        durations, in_dim=duration_time, out_dim=time_dim
+      )
       durations = nn.squeeze(durations, axis=durations.feature_dim)
       duration_int = nn.cast(durations, dtype="int32")
       duration_float = nn.cast(durations, dtype="float32")  # [B, Label-time]
@@ -379,12 +394,18 @@ class NARTTSModel(nn.Module):
       (speaker_embedding, speaker_embedding.feature_dim),
       allow_broadcast=True,
     )
-    duration_in = nn.dropout(duration_in, dropout=self.dropout, axis=duration_in.feature_dim)
+    duration_in = nn.dropout(
+      duration_in, dropout=self.dropout, axis=duration_in.feature_dim
+    )
 
-    duration_prediction = self.duration(inp=duration_in, time_dim=time_dim)  # [B, Label-time, 1]
+    duration_prediction = self.duration(
+      inp=duration_in, time_dim=time_dim
+    )  # [B, Label-time, 1]
 
     if self.training or self.use_true_durations:
-      duration_prediction_loss = nn.mean_absolute_difference(duration_prediction, duration_float)
+      duration_prediction_loss = nn.mean_absolute_difference(
+        duration_prediction, duration_float
+      )
       duration_prediction_loss.mark_as_loss()
     else:
       rint = nn.rint(duration_prediction)
@@ -402,10 +423,14 @@ class NARTTSModel(nn.Module):
         out_dim=speech_time,
       )
     else:
-      rep, rep_dim = nn.repeat(encoder, axis=time_dim, repetitions=duration_int, out_dim=speech_time)
+      rep, rep_dim = nn.repeat(
+        encoder, axis=time_dim, repetitions=duration_int, out_dim=speech_time
+      )
 
     # decoder
-    dec_lin = self.decoder(rep=rep, speaker_embedding=speaker_embedding, time_dim=rep_dim)
+    dec_lin = self.decoder(
+      rep=rep, speaker_embedding=speaker_embedding, time_dim=rep_dim
+    )
 
     # prepare target speech for loss
     if self.training:
@@ -415,7 +440,9 @@ class NARTTSModel(nn.Module):
         out_dim=dec_lin.feature_dim,
       )
 
-      dec_lin_loss = nn.mean_absolute_difference(dec_lin, target_speech)  # TODO: Is this correct?
+      dec_lin_loss = nn.mean_absolute_difference(
+        dec_lin, target_speech
+      )  # TODO: Is this correct?
       dec_lin_loss.mark_as_loss()
 
     # dec_lin.mark_as_default_output()

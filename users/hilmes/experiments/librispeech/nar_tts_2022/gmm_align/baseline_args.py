@@ -49,7 +49,9 @@ def get_init_args():
       "mfcc_options": {
         "warping_function": "mel",
         # to be compatible with our old magic number, we have to use 20 features
-        "filter_width": filter_width_from_channels(channels=20, warping_function="mel", f_max=8000),
+        "filter_width": filter_width_from_channels(
+          channels=20, warping_function="mel", f_max=8000
+        ),
         "normalize": True,
         "normalization_options": None,
         "without_samples": False,
@@ -135,7 +137,9 @@ def get_monophone_args():
     "use_gpu": False,
   }
 
-  return gmm_system.GmmMonophoneArgs(linear_alignment_args, monophone_training_args, monophone_recognition_args)
+  return gmm_system.GmmMonophoneArgs(
+    linear_alignment_args, monophone_training_args, monophone_recognition_args
+  )
 
 
 def get_cart_args(

@@ -50,7 +50,9 @@ class Conv1DBlock(nn.Module):
 
     conv = nn.relu(conv)
     bn = self.bn(conv)
-    drop = nn.dropout(bn, dropout=self.dropout, axis=[nn.batch_dim, time_dim, bn.feature_dim])
+    drop = nn.dropout(
+      bn, dropout=self.dropout, axis=[nn.batch_dim, time_dim, bn.feature_dim]
+    )
 
     return drop
 
@@ -87,7 +89,9 @@ class ConvStack(nn.Module):
     if len(set(dim_sizes)) == 1:  # all sizes equal
       out_dims = [nn.FeatureDim("conv_dim", dim_sizes[0])] * num_layers
     else:
-      out_dims = [nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x]) for x in range(num_layers)]
+      out_dims = [
+        nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x]) for x in range(num_layers)
+      ]
 
     self.stack = nn.Sequential(
       [
@@ -129,7 +133,9 @@ class TTSDecoder(nn.Module):
     self.lstm_2_fw = nn.LSTM(out_dim=self.lstm_dim)
     self.lstm_2_bw = nn.LSTM(out_dim=self.lstm_dim)
 
-  def __call__(self, phoneme_probs: nn.Tensor, speaker_embedding: nn.Tensor, audio_time: nn.Dim):
+  def __call__(
+    self, phoneme_probs: nn.Tensor, speaker_embedding: nn.Tensor, audio_time: nn.Dim
+  ):
     """
     :param phoneme_probs:
     :param speaker_embedding:
@@ -228,7 +234,9 @@ class CTCAligner(nn.Module):
     cat = nn.concat((enc_fw, enc_fw.feature_dim), (enc_bw, enc_bw.feature_dim))
 
     # spectogram loss
-    spectogram_encoder = nn.dropout(cat, dropout=self.spectogram_drop, axis=cat.feature_dim)
+    spectogram_encoder = nn.dropout(
+      cat, dropout=self.spectogram_drop, axis=cat.feature_dim
+    )
     spectogram_encoder = self.spectogram_lin(spectogram_encoder)
     softmax = nn.softmax(spectogram_encoder, axis=spectogram_encoder.feature_dim)
     ctc = nn.ctc_loss(logits=spectogram_encoder, targets=phonemes)
@@ -247,11 +255,15 @@ class CTCAligner(nn.Module):
         in_dim=audio_features.feature_dim,
         out_dim=reconstruction_lin.feature_dim,
       )
-      reconstruction_loss = nn.mean_squared_difference(reconstruction_lin, audio_features)
+      reconstruction_loss = nn.mean_squared_difference(
+        reconstruction_lin, audio_features
+      )
       reconstruction_loss.mark_as_loss(scale=self.reconstruction_scale)
       return reconstruction_lin
     else:
-      slice_out, slice_dim = nn.slice(softmax, axis=softmax.feature_dim, slice_start=0, slice_end=43)
+      slice_out, slice_dim = nn.slice(
+        softmax, axis=softmax.feature_dim, slice_start=0, slice_end=43
+      )
       padding = nn.pad(
         slice_out,
         axes=slice_out.feature_dim,
@@ -259,7 +271,9 @@ class CTCAligner(nn.Module):
         padding=[(0, 1)],
         value=0,
       )
-      extract_alignment = nn.forced_alignment(padding, align_target=phonemes, topology="ctc", input_type="prob")
+      extract_alignment = nn.forced_alignment(
+        padding, align_target=phonemes, topology="ctc", input_type="prob"
+      )
       dur_dump = nn.hdf_dump(extract_alignment, filename="durations.hdf")
       return dur_dump
 

@@ -3,10 +3,25 @@ Pipeline file for experiments with the standard CTC TTS model
 """
 from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_tts_data, get_tts_data_from_rasr_alignment
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_experiments import get_baseline_ctc_alignment
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pipeline import get_training_config, tts_training, get_forward_config, tts_forward, gl_swer, synthesize_with_splits
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import get_default_vocoder
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
+  get_tts_data,
+  get_tts_data_from_rasr_alignment,
+)
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_experiments import (
+  get_baseline_ctc_alignment,
+)
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pipeline import (
+  get_training_config,
+  tts_training,
+  get_forward_config,
+  tts_forward,
+  gl_swer,
+  synthesize_with_splits,
+)
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
+  get_default_vocoder,
+)
+
 
 def ctc_baseline():
   """
@@ -26,7 +41,9 @@ def ctc_baseline():
     commit="79876b18552f61a3af7c21c670475fee51ef3991",
     checkout_folder_name="returnn_common",
   ).out_repository
-  name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/ctc_baseline"
+  name = (
+    "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/ctc_baseline"
+  )
   alignment = get_baseline_ctc_alignment()
   training_datasets, vocoder_data = get_tts_data(
     name + "/datasets",
@@ -44,10 +61,7 @@ def ctc_baseline():
     gauss_up=False,
   )
   train_job = tts_training(
-    config=train_config,
-    returnn_exe=returnn_exe,
-    returnn_root=returnn_root,
-    prefix=name
+    config=train_config, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=name
   )
   forward_config = get_forward_config(
     returnn_common_root=returnn_common_root,
@@ -62,7 +76,7 @@ def ctc_baseline():
     returnn_root=returnn_root,
     returnn_exe=returnn_exe,
     checkpoint=train_job.out_checkpoints[205],
-    config=forward_config
+    config=forward_config,
   )
 
   name = name + "/gauss_up"
@@ -74,10 +88,7 @@ def ctc_baseline():
     gauss_up=True,
   )
   train_job = tts_training(
-    config=train_config,
-    returnn_exe=returnn_exe,
-    returnn_root=returnn_root,
-    prefix=name
+    config=train_config, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=name
   )
   forward_config = get_forward_config(
     returnn_common_root=returnn_common_root,
@@ -92,7 +103,7 @@ def ctc_baseline():
     returnn_root=returnn_root,
     returnn_exe=returnn_exe,
     checkpoint=train_job.out_checkpoints[205],
-    config=forward_config
+    config=forward_config,
   )
 
 
@@ -137,10 +148,7 @@ def gmm_duration_cheat():
     gauss_up=False,
   )
   train_job = tts_training(
-    config=train_config,
-    returnn_exe=returnn_exe,
-    returnn_root=returnn_root,
-    prefix=name
+    config=train_config, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=name
   )
   # synthesis
   # no cheating
@@ -156,7 +164,7 @@ def gmm_duration_cheat():
     vocoder=default_vocoder,
     embedding_size=256,
     speaker_embedding_size=256,
-    gauss_up=False
+    gauss_up=False,
   )
   synthetic_data_dict["repeat_real"] = synth_corpus
 
@@ -174,7 +182,7 @@ def gmm_duration_cheat():
     embedding_size=256,
     speaker_embedding_size=256,
     gauss_up=False,
-    use_true_durations=True
+    use_true_durations=True,
   )
   synthetic_data_dict["repeat_cheat"] = synth_corpus
 
@@ -187,10 +195,7 @@ def gmm_duration_cheat():
     gauss_up=True,
   )
   train_job = tts_training(
-    config=train_config,
-    returnn_exe=returnn_exe,
-    returnn_root=returnn_root,
-    prefix=name
+    config=train_config, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=name
   )
   # synthesis
   # no cheating
@@ -206,7 +211,7 @@ def gmm_duration_cheat():
     vocoder=default_vocoder,
     embedding_size=256,
     speaker_embedding_size=256,
-    gauss_up=True
+    gauss_up=True,
   )
   synthetic_data_dict["gauss_up_real"] = synth_corpus
 
@@ -224,7 +229,7 @@ def gmm_duration_cheat():
     embedding_size=256,
     speaker_embedding_size=256,
     gauss_up=True,
-    use_true_durations=True
+    use_true_durations=True,
   )
   synthetic_data_dict["gauss_up_cheat"] = synth_corpus
 

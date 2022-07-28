@@ -36,7 +36,9 @@ from i6_experiments.users.hilmes.data.datastream import (
 from i6_experiments.users.hilmes.tools.tts.extract_alignment import (
   ExtractDurationsFromRASRAlignmentJob,
 )
-from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import ViterbiToDurationsJob
+from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import (
+  ViterbiToDurationsJob,
+)
 from i6_experiments.users.hilmes.data.tts_preprocessing import (
   extend_lexicon,
   process_corpus_text_with_extended_lexicon,
@@ -51,7 +53,9 @@ def dump_dataset(config, returnn_root, returnn_gpu_exe):
   :param returnn_gpu_exe:
   :return:
   """
-  dataset_dump = ReturnnDumpHDFJob(data=config, returnn_root=returnn_root, returnn_python_exe=returnn_gpu_exe)
+  dataset_dump = ReturnnDumpHDFJob(
+    data=config, returnn_root=returnn_root, returnn_python_exe=returnn_gpu_exe
+  )
   return dataset_dump.out_hdf
 
 
@@ -181,7 +185,9 @@ def get_tts_audio_datastream(
     peak_normalization=False,
   )
 
-  audio_datastream = AudioFeatureDatastream(available_for_inference=available_for_inference, options=options)
+  audio_datastream = AudioFeatureDatastream(
+    available_for_inference=available_for_inference, options=options
+  )
 
   audio_datastream.add_global_statistics_to_audio_feature_datastream(
     train_ogg_zip,
@@ -249,7 +255,9 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
     seq_ordering="sorted",
   )
 
-  extern_data = {"data": log_mel_datastream.as_returnn_extern_data_opts(available_for_inference=True)}
+  extern_data = {
+    "data": log_mel_datastream.as_returnn_extern_data_opts(available_for_inference=True)
+  }
   data_keys = ["data"]
   hdf_dict = get_returnn_length_hdfs(
     dataset_dict=ogg_zip.as_returnn_opts(),
@@ -262,7 +270,9 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
   return hdf_dict["data"]
 
 
-def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones):
+def get_tts_data_from_rasr_alignment(
+  output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones
+):
   """
   Build the datastreams for TTS training from RASR alignment
   :param output_path:
@@ -302,7 +312,9 @@ def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, ras
     returnn_root=returnn_root,
   ).out_ogg_zip
 
-  speaker_label_job = SpeakerLabelHDFFromBliss(bliss_corpus=sil_pp_train_clean_100_co.corpus_file)
+  speaker_label_job = SpeakerLabelHDFFromBliss(
+    bliss_corpus=sil_pp_train_clean_100_co.corpus_file
+  )
   train_speakers = speaker_label_job.out_speaker_hdf
 
   # get datastreams
@@ -317,7 +329,9 @@ def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, ras
     center=False,
   )
 
-  lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+  lexicon = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[
+    "train-clean-100"
+  ]
   librispeech_g2p_lexicon = extend_lexicon(lexicon)
 
   vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, output_path)
@@ -347,7 +361,9 @@ def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, ras
 
   speaker_hdf_dataset = HDFDataset(files=[train_speakers])
   train_duration_hdf = HDFDataset(files=[durations])
-  train_dataset = _make_meta_dataset(train_ogg_zip, speaker_hdf_dataset, train_duration_hdf)
+  train_dataset = _make_meta_dataset(
+    train_ogg_zip, speaker_hdf_dataset, train_duration_hdf
+  )
 
   cv_ogg_zip = OggZipDataset(
     path=zip_dataset,
@@ -383,7 +399,9 @@ def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, ras
   )
   tk.register_output(output_path + "/returnn_extraction", dump_audio)
 
-  tts_datasets = TTSTrainingDatasets(train=train_dataset, cv=cv_dataset, datastreams=datastreams)
+  tts_datasets = TTSTrainingDatasets(
+    train=train_dataset, cv=cv_dataset, datastreams=datastreams
+  )
   vocoder_data = VocoderDataclass(
     zip=zip_dataset,
     audio_opts=audio_datastream_vocoder,
@@ -530,7 +548,9 @@ def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
   )
 
   tk.register_output(output_path + "/alignment.hdf", alignment)
-  viterbi_job = ViterbiToDurationsJob(alignment, skip_token=43, time_rqmt=4, mem_rqmt=16)
+  viterbi_job = ViterbiToDurationsJob(
+    alignment, skip_token=43, time_rqmt=4, mem_rqmt=16
+  )
   viterbi_job.add_alias(output_path + "/viterbi_to_alignments")
   durations = viterbi_job.out_durations_hdf
   tk.register_output(output_path + "/durations.hdf", durations)
@@ -553,7 +573,9 @@ def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
   )
   speaker_hdf_dataset = HDFDataset(files=[train_speakers])
   duration_hdf_dataset = HDFDataset(files=[durations])
-  train_dataset = _make_meta_dataset(train_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset)
+  train_dataset = _make_meta_dataset(
+    train_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset
+  )
 
   cv_ogg_zip = OggZipDataset(
     path=zip_dataset,
@@ -565,7 +587,9 @@ def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
   )
   cv_dataset = _make_meta_dataset(cv_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset)
 
-  training_datasets = TTSTrainingDatasets(train=train_dataset, cv=cv_dataset, datastreams=datastreams)
+  training_datasets = TTSTrainingDatasets(
+    train=train_dataset, cv=cv_dataset, datastreams=datastreams
+  )
   vocoder_data = VocoderDataclass(
     zip=zip_dataset,
     audio_opts=log_mel_datastream,
