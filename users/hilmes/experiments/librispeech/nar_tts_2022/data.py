@@ -13,7 +13,7 @@ from i6_experiments.common.datasets.librispeech import (
 from i6_experiments.users.rossenbach.datasets.librispeech import (
   get_librispeech_tts_segments,
 )
-from i6_private.users.hilmes.data.librispeech import (
+from i6_experiments.users.hilmes.data.librispeech import (
   get_ls_train_clean_100_tts_silencepreprocessed,
 )
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
@@ -25,7 +25,7 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
 from i6_experiments.users.rossenbach.tts.speaker_embedding import (
   SpeakerLabelHDFFromBliss,
 )
-from i6_private.users.hilmes.data.datastream import (
+from i6_experiments.users.hilmes.data.datastream import (
   Datastream,
   LabelDatastream,
   DurationDatastream,
@@ -33,11 +33,11 @@ from i6_private.users.hilmes.data.datastream import (
   ReturnnAudioFeatureOptions,
   DBMelFilterbankOptions,
 )
-from i6_private.users.hilmes.nar_tts.GMM.extract_alignment import (
+from i6_experiments.users.hilmes.tools.tts.extract_alignment import (
   ExtractDurationsFromRASRAlignmentJob,
 )
-from i6_private.users.hilmes.tools.tts.viterbi_to_durations import ViterbiToDurationsJob
-from i6_private.users.hilmes.data.tts_preprocessing import (
+from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import ViterbiToDurationsJob
+from i6_experiments.users.hilmes.data.tts_preprocessing import (
   extend_lexicon,
   process_corpus_text_with_extended_lexicon,
 )
@@ -262,7 +262,7 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
   return hdf_dict["data"]
 
 
-def get_tts_datastreams_from_rasr_alignment(output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones):
+def get_tts_data_from_rasr_alignment(output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones):
   """
   Build the datastreams for TTS training from RASR alignment
   :param output_path:
@@ -482,14 +482,13 @@ def get_alignment_data(output_path, returnn_exe, returnn_root):
   return align_dataset
 
 
-def get_tts_datastreams_phoneme(output_path, returnn_exe, returnn_root, alignment, train_data):
+def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
   """
   Build the datastreams for TTS training
   :param output_path:
   :param returnn_exe:
   :param returnn_root:
   :param alignment:
-  :param train_data:
   :return:
   """
   sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()

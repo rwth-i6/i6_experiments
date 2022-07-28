@@ -2,12 +2,11 @@
 Pipeline file for experiments with the standard CTC TTS model
 """
 from sisyphus import tk
-from returnn_common.nn import min_returnn_behavior_version
 from copy import deepcopy
+from returnn_common.nn import min_returnn_behavior_version
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob
-from i6_core.corpus import CorpusReplaceOrthFromReferenceCorpus, MergeCorporaJob
-from i6_core.corpus.segments import SegmentCorpusJob
+from i6_core.corpus import CorpusReplaceOrthFromReferenceCorpus, MergeCorporaJob, SegmentCorpusJob
 from i6_experiments.common.setups.returnn_common.serialization import (
   Collection,
   ExternData,
@@ -27,13 +26,12 @@ from i6_private.users.hilmes.util.asr_evaluation import asr_evaluation
 
 
 def get_training_config(
-  returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, gauss_up: bool = False, **kwargs
+  returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, **kwargs
 ):
   """
   Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_model
   :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
   :param training_datasets: datasets for training
-  :param gauss_up: Whether to enable gaussian upsampling in the network
   :param kwargs: arguments to be passed to the network construction
   :return: RETURNN training config
   """
@@ -92,7 +90,7 @@ def get_training_config(
       "speech_time_dim": "audio_features_time",
       "duration_time_dim": "duration_data_time",
     },
-    net_kwargs={"training": True, "gauss_up": gauss_up, **kwargs},
+    net_kwargs={"training": True, **kwargs},
   )
 
   serializer = Collection(
@@ -115,12 +113,11 @@ def get_training_config(
   return returnn_config
 
 
-def get_forward_config(returnn_common_root, datasets, gauss_up: bool = False, use_true_durations: bool = False, **kwargs):
+def get_forward_config(returnn_common_root, datasets, use_true_durations: bool = False, **kwargs):
   """
   Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_model
   :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
   :param datasets: datasets for training
-  :param gauss_up: whether to use gaussian upsampling
   :param kwargs: arguments to be passed to the network construction
   :return: RETURNN forward config
   """
@@ -179,7 +176,58 @@ def get_forward_config(returnn_common_root, datasets, gauss_up: bool = False, us
   return returnn_config
 
 
-def gl_swer_on_forward_hdf(name, forward_hdf, vocoder_data, forward_job, returnn_root, returnn_exe):
+def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=205):
+  """
+
+  :param config:
+  :param returnn_exe:
+  :param returnn_root:
+  :param prefix:
+  :param num_epochs:
+  :return:
+  """
+  # TODO: num epochs
+  train_job = ReturnnTrainingJob(
+    config,
+    log_verbosity=5,
+    num_epochs=num_epochs,
+    time_rqmt=120,
+    mem_rqmt=32,
+    cpu_rqmt=4,
+    returnn_python_exe=returnn_exe,
+    returnn_root=returnn_root,
+  )
+  train_job.add_alias(prefix + "/training")
+  tk.register_output(prefix + "/training.models", train_job.out_model_dir)
+
+  return train_job
+
+
+def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
+  """
+
+  :param checkpoint:
+  :param config:
+  :param returnn_exe:
+  :param returnn_root:
+  :param prefix:
+  :return:
+  """
+  forward_job = ReturnnForwardJob(
+    model_checkpoint=checkpoint,
+    returnn_config=config,
+    hdf_outputs=[],
+    returnn_python_exe=returnn_exe,
+    returnn_root=returnn_root,
+  )
+  forward_job.add_alias(prefix + "/forward")
+  forward_hdf = forward_job.out_hdf_files["output.hdf"]
+  tk.register_output(prefix + "/test_forward", forward_hdf)
+
+  return forward_job
+
+
+def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
   """
 
   :param name:
@@ -190,6 +238,14 @@ def gl_swer_on_forward_hdf(name, forward_hdf, vocoder_data, forward_job, returnn
   :param returnn_exe:
   :return:
   """
+  forward_job = tts_forward(
+    checkpoint=checkpoint,
+    config=config,
+    returnn_root=returnn_root,
+    returnn_exe=returnn_exe,
+    prefix=name
+  )
+  forward_hdf = forward_job.out_hdf_files["output.hdf"]
   default_vocoder = get_default_vocoder(name=name, corpus_data=vocoder_data)
   default_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
   forward_vocoded, vocoder_forward_job = default_vocoder.vocode(forward_hdf, iterations=30, cleanup=True)
@@ -215,3 +271,79 @@ def gl_swer_on_forward_hdf(name, forward_hdf, vocoder_data, forward_job, returnn
     returnn_python_exe=returnn_exe,
   )
 
+
+def synthesize_with_splits(
+    name,
+    corpus: tk.Path,
+    job_splits: int,
+    datasets: TTSTrainingDatasets,
+    returnn_root,
+    returnn_exe,
+    returnn_common_root,
+    checkpoint,
+    vocoder,
+    **tts_model_kwargs,
+):
+  """
+
+  :param name:
+  :param corpus:
+  :param job_splits: number of splits performed
+  :param datasets: datasets including datastream supposed to hold the audio data in .train
+  :param returnn_root:
+  :param returnn_exe:
+  :param returnn_common_root:
+  :param checkpoint:
+  :param vocoder:
+  :param tts_model_kwargs: kwargs to be passed to the tts model for synthesis
+  :return:
+  """
+  forward_segments = SegmentCorpusJob(corpus, job_splits)
+
+  verifications = []
+  output_corpora = []
+  for i in range(job_splits):
+    name = name + "/synth_corpus/part_%i/" % i
+    eval_data = deepcopy(datasets.train)  # TODO, das geht schöner!!!
+    eval_data.datasets["audio"]["segment_file"] = forward_segments.out_single_segment_files[i + 1]
+    eval_dataset = TTSEvalDataset(cv=eval_data, datastreams=datasets.datastreams)
+    forward_config = get_forward_config(
+      returnn_common_root=returnn_common_root,
+      datasets=eval_dataset,
+      **tts_model_kwargs,
+    )
+
+    last_forward_job = ReturnnForwardJob(
+      model_checkpoint=checkpoint,
+      returnn_config=forward_config,
+      hdf_outputs=[],
+      returnn_python_exe=returnn_exe,
+      returnn_root=returnn_root,
+    )
+    last_forward_job.add_alias(name + "forward")
+    forward_hdf = last_forward_job.out_hdf_files["output.hdf"]
+    tk.register_output(name, forward_hdf)
+
+    forward_vocoded, vocoder_forward_job = vocoder.vocode(forward_hdf, iterations=30, cleanup=True, name=name)
+    tk.register_output(name + "synthesized_corpus.xml.gz", forward_vocoded)
+    output_corpora.append(forward_vocoded)
+    verification = VerifyCorpus(forward_vocoded).out
+    verifications.append(verification)
+
+    cleanup = MultiJobCleanup([last_forward_job, vocoder_forward_job], verification, output_only=True)
+    tk.register_output(name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out)
+
+  from i6_core.corpus.transform import MergeStrategy
+
+  merge_job = MergeCorporaJob(output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT)
+  for verfication in verifications:
+    merge_job.add_input(verfication)
+
+  corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+  cv_synth_corpus = CorpusReplaceOrthFromReferenceCorpus(
+    bliss_corpus=merge_job.out_merged_corpus,
+    reference_bliss_corpus=corpus_object_dict["train-clean-100"].corpus_file,
+  ).out_corpus
+
+  tk.register_output(name + "synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
+  return cv_synth_corpus
