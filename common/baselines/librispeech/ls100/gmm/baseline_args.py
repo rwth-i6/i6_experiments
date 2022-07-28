@@ -315,7 +315,6 @@ def get_sat_args():
         "cache_regex": "^mfcc.*$",
         "splits": 10,
         "accs_per_split": 2,
-        "align_keep_values": {7: 20},
     }
 
     sat_recognition_args = {
