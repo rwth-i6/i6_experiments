@@ -1393,8 +1393,9 @@ class GmmSystem(RasrSystem):
                 self.jobs[all_c]["costa"].update_rqmt("run", {"mem": 8, "time": 24})
 
         for trn_c in self.train_corpora:
+            # TODO: this will always overwrite base if we have multiple corpora
             self.store_allophones(trn_c)
-            tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
+            tk.register_output(f"{trn_c}.allophones", self.allophone_files["base"])
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
