@@ -1,20 +1,20 @@
+"""
+Definition of all changeable pipeline parameters of the GMM-RASR-Pipeline
+
+The parameters defined here are based on the past experience with training LibriSpeech-100h and 960h models,
+but no excessive tuning has been done.
+"""
 from i6_core.features.filterbank import filter_width_from_channels
 from i6_core import cart
 
-from i6_experiments.common.setups.rasr import gmm_system
-
-from i6_experiments.common.setups.rasr.util import *
-from i6_experiments.users.luescher.cart.librispeech import (
-    FoldedCartQuestions,
-    UnfoldedCartQuestions,
+from i6_experiments.common.setups.rasr import util
+from i6_experiments.common.datasets.librispeech.cart import (
+    CartQuestionsWithStress,
+    CartQuestionsWithoutStress,
 )
 
 
 def get_init_args():
-    """
-    :return:
-    :rtype: hybrid.GmmInitArgs
-    """
     dc_detection = False
     samples_options = {
         "audio_format": "wav",
@@ -63,19 +63,19 @@ def get_init_args():
                     "epsilon": 1e-10,
                 },
                 "fft_options": None,
-                "add_feature_output": True,
+                "add_features_output": True,
             },
         },
         "energy": {
             "energy_options": {
                 "without_samples": False,
                 "samples_options": samples_options,
-                "fft_options": {},
+                "fft_options": None,
             }
         },
     }
 
-    return RasrInitArgs(
+    return util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
@@ -132,18 +132,18 @@ def get_monophone_args():
         "use_gpu": False,
     }
 
-    return gmm_system.GmmMonophoneArgs(
+    return util.GmmMonophoneArgs(
         linear_alignment_args, monophone_training_args, monophone_recognition_args
     )
 
 
 def get_cart_args(
-    use_stress_marker=False,
+    use_stress_marker: bool = False,
     max_leaves: int = 12001,
     min_obs: int = 1000,
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
-    add_unknown: bool = True,
+    add_unknown: bool = False,
 ):
     """
 
@@ -156,7 +156,9 @@ def get_cart_args(
     :return:
     """
 
-    CartQuestions = UnfoldedCartQuestions if use_stress_marker else FoldedCartQuestions
+    CartQuestions = (
+        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
+    )
 
     cart_questions_class = CartQuestions(
         max_leaves=max_leaves,
@@ -165,7 +167,7 @@ def get_cart_args(
     )
 
     cart_questions = cart.PythonCartQuestions(
-        phonemes=cart_questions_class.phonemes_boundary_extra,
+        phonemes=cart_questions_class.phonemes_boundary_special,
         steps=cart_questions_class.steps,
         max_leaves=max_leaves,
         hmm_states=hmm_states,
@@ -183,7 +185,7 @@ def get_cart_args(
         "generalized_eigenvalue_args": {"all": {"verification_tolerance": 1e16}},
     }
 
-    return GmmCartArgs(
+    return util.GmmCartArgs(
         cart_questions=cart_questions,
         cart_lda_args=cart_lda_args,
     )
@@ -233,7 +235,7 @@ def get_triphone_args():
         "feature_flow_key": "mfcc+context+lda",
     }
 
-    return GmmTriphoneArgs(
+    return util.GmmTriphoneArgs(
         training_args=triphone_training_args,
         recognition_args=triphone_recognition_args,
         sdm_args=sdm_args,
@@ -296,7 +298,7 @@ def get_vtln_args():
         "feature_flow_key": "mfcc+context+lda+vtln",
     }
 
-    return GmmVtlnArgs(
+    return util.GmmVtlnArgs(
         training_args=vtln_training_args,
         recognition_args=vtln_recognition_args,
         sdm_args=sdm_args,
@@ -317,7 +319,7 @@ def get_sat_args():
     }
 
     sat_recognition_args = {
-        "prev_ctm": PrevCtm(
+        "prev_ctm": util.PrevCtm(
             prev_step_key="tri",
             pronunciation_scale=1.0,
             lm_scale=25,
@@ -358,7 +360,7 @@ def get_sat_args():
         "feature_flow_key": "mfcc+context+lda+cmllr",
     }
 
-    return GmmSatArgs(
+    return util.GmmSatArgs(
         training_args=sat_training_args,
         recognition_args=sat_recognition_args,
         sdm_args=sdm_args,
@@ -378,7 +380,7 @@ def get_vtln_sat_args():
     }
 
     vtln_sat_recognition_args = {
-        "prev_ctm": PrevCtm(
+        "prev_ctm": util.PrevCtm(
             prev_step_key="vtln",
             pronunciation_scale=1.0,
             lm_scale=25,
@@ -391,7 +393,7 @@ def get_vtln_sat_args():
         "iters": [8, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
         "pronunciation_scales": [1.0],
-        "lm_scales": [22],
+        "lm_scales": [25],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -419,7 +421,7 @@ def get_vtln_sat_args():
         "feature_flow_key": "mfcc+context+lda+vtln+cmllr",
     }
 
-    return GmmVtlnSatArgs(
+    return util.GmmVtlnSatArgs(
         training_args=vtln_sat_training_args,
         recognition_args=vtln_sat_recognition_args,
         sdm_args=sdm_args,
