@@ -1394,8 +1394,8 @@ class GmmSystem(RasrSystem):
 
         for trn_c in self.train_corpora:
             # TODO: this will always overwrite base if we have multiple corpora
-            self.store_allophones(trn_c)
-            tk.register_output(f"{trn_c}.allophones", self.allophone_files["base"])
+            self.store_allophones(source_corpus=trn_c, target_corpus=trn_c)
+            tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
