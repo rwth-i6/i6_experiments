@@ -66,6 +66,7 @@ def get_init_args():
                     'window_shift': 0.0125,
                     'window_length': 0.05,
                 },
+                "add_features_output": True,
             }
         },
         'energy': {
@@ -84,7 +85,6 @@ def get_init_args():
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args={"scale": 0.3},  # TODO what should this be?
     )
 
 

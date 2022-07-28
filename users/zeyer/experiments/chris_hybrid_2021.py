@@ -1,34 +1,31 @@
 
+"""
+Chris hybrid NN-HMM 2021 params
+"""
+
 # /work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/
 
 
-from sisyphus import gs, tk, Path
+from sisyphus import gs, tk
 
 import os
-import sys
-from typing import Optional, Union, Dict, List
+from typing import Optional, Union, Dict
+import copy
+import numpy as np
 
 import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
 import i6_core.text as text
 import i6_core.features as features
-from i6_core.returnn.config import CodeWrapper
 import i6_core.util
+import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.hybrid_system as hybrid_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
-
-import copy
-import numpy as np
-
-import i6_core.returnn as returnn
-
-from i6_experiments.users.luescher.helpers.search_params import get_search_parameters
-
-# TODO remove these
-import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
+from i6_experiments.common.helpers.dependency_boundary import dependency_boundary
+from i6_experiments.common.utils.diff import collect_diffs
 
 
 def run():
@@ -76,7 +73,6 @@ def default_gmm_hybrid_init_args():
   }
 
   costa_args = {"eval_recordings": True, "eval_lm": False}
-  default_mixture_scorer_args = {"scale": 0.3}
 
   mfcc_cepstrum_options = {
     "normalize": False,
@@ -143,7 +139,6 @@ def default_gmm_hybrid_init_args():
     costa_args=costa_args,
     am_args=am_args,
     feature_extraction_args=feature_extraction_args,
-    default_mixture_scorer_args=default_mixture_scorer_args,
     scorer=scorer,
   )
 
@@ -222,14 +217,14 @@ def get_chris_hybrid_system_init_args():
     prefix_dir = "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10"
 
     class _DummyJob:
-        def __init__(self, path: str):
-            self.path = path
+        def __init__(self, job_path: str):
+            self.job_path = job_path
 
         def _sis_id(self):
-            return self.path
+            return self.job_path
 
         def _sis_path(self, out: str):
-            return f"{prefix_dir}/{self.path}/{out}"
+            return f"{prefix_dir}/{self.job_path}/{out}"
 
     def _path(creator: str, path: str) -> tk.Path:
         return tk.Path(creator=_DummyJob(creator), path=path)
@@ -396,6 +391,8 @@ def get_chris_hybrid_system_init_args():
 
 
 def get_orig_chris_hybrid_system_init_args():
+    from . import chris_hybrid_2021_pipeline_base_args as lbs_gmm_setups
+
     # ******************** Settings ********************
 
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
@@ -411,7 +408,7 @@ def get_orig_chris_hybrid_system_init_args():
     ) = lbs_gmm_setups.get_data_inputs(
         use_eval_data_subset=True,
     )
-    hybrid_init_args = lbs_gmm_setups.get_init_args()
+    hybrid_init_args = default_gmm_hybrid_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
     cart_args = lbs_gmm_setups.get_cart_args()
     tri_args = lbs_gmm_setups.get_triphone_args()
@@ -432,7 +429,9 @@ def get_orig_chris_hybrid_system_init_args():
 
     # ******************** GMM System ********************
 
-    lbs_gmm_system = gmm_system.GmmSystem()
+    rasr_binary_path = tk.Path(gs.RASR_ROOT)  # TODO ?
+    rasr_binary_path.hash_overwrite = "RASR_ROOT"  # TODO ?
+    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
     lbs_gmm_system.init_system(
         hybrid_init_args=hybrid_init_args,
         train_data=train_data_inputs,
@@ -644,125 +643,12 @@ def test_run():
     gs.SHOW_JOB_TARGETS = False
 
     new_obj = get_chris_hybrid_system_init_args()
-    orig_obj = get_orig_chris_hybrid_system_init_args()
+    orig_obj = dependency_boundary(get_orig_chris_hybrid_system_init_args, hash="YePKvlzrybBk")
 
     # Small cleanup in orig object, which should not be needed.
     orig_obj['dev_data']['dev-other'].feature_scorers = {}
 
-    # They differ now because Chris changed them.
-    # However, the options we copied here should actually be the correct ones.
-    # Set them manually now.
-    orig_obj['hybrid_init_args'].feature_extraction_args['mfcc']['mfcc_options']['filter_width'] = 268.258
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['mfcc']['mfcc_options']['samples_options']['dc_detection']) = True
-    del orig_obj['hybrid_init_args'].feature_extraction_args['mfcc']['mfcc_options']['cepstrum_options']["epsilon"]
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['mfcc']['mfcc_options']['cepstrum_options'])["add_epsilon"] = False
-    orig_obj['hybrid_init_args'].feature_extraction_args['gt']['gt_options']['samples_options']['dc_detection'] = True
-    (orig_obj['hybrid_init_args']
-     .feature_extraction_args['energy']['energy_options']['samples_options'])['dc_detection'] = True
-
-    obj_types = (
-        rasr_util.RasrInitArgs,
-        rasr_util.ReturnnRasrDataInput,
-        rasr.CommonRasrParameters,
-        rasr.RasrConfig,
-        rasr.FlowNetwork,
-        rasr.NamedFlowAttribute,
-        rasr.FlagDependentFlowAttribute,
-    )
-
-    limit = 3
-
-    def _collect_diffs(prefix: str, orig, new) -> List[str]:
-        if orig is None and new is None:
-            return []
-        if isinstance(orig, i6_core.util.MultiPath) and isinstance(new, i6_core.util.MultiPath):
-            pass  # allow different sub types
-        elif type(orig) != type(new):
-            return [f"{prefix} diff type: {_repr(orig)} != {_repr(new)}"]
-        if isinstance(orig, dict):
-            diffs = _collect_diffs(f"{prefix}:keys", set(orig.keys()), set(new.keys()))
-            if diffs:
-                return diffs
-            num_int_key_diffs = 0
-            keys = list(orig.keys())
-            for i in range(len(keys)):
-                key = keys[i]
-                sub_diffs = _collect_diffs(f"{prefix}[{key!r}]", orig[key], new[key])
-                diffs += sub_diffs
-                if isinstance(key, int) and sub_diffs:
-                    num_int_key_diffs += 1
-                if num_int_key_diffs >= limit and i < len(keys) - 1:
-                    diffs += [f"{prefix} ... ({len(keys) - i - 1} remaining)"]
-                    break
-            return diffs
-        if isinstance(orig, set):
-            return _collect_diffs(f"{prefix}:sorted", sorted(orig), sorted(new))
-        if isinstance(orig, (list, tuple)):
-            if len(orig) != len(new):
-                return [f"{prefix} diff len: {_repr(orig)} != {_repr(new)}"]
-            diffs = []
-            num_diffs = 0
-            for i in range(len(orig)):
-                sub_diffs = _collect_diffs(f"{prefix}[{i}]", orig[i], new[i])
-                diffs += sub_diffs
-                if sub_diffs:
-                    num_diffs += 1
-                if num_diffs >= limit and i < len(orig) - 1:
-                    diffs += [f"{prefix} ... ({len(orig) - i - 1} remaining)"]
-                    break
-            return diffs
-        if isinstance(orig, (int, float, str)):
-            if orig != new:
-                return [f"{prefix} diff: {_repr(orig)} != {_repr(new)}"]
-            return []
-        if isinstance(orig, tk.AbstractPath):
-            return _collect_diffs(f"{prefix}:path-state", _PathState(orig), _PathState(new))
-        if isinstance(orig, i6_core.util.MultiPath):
-            # only hidden_paths relevant (?)
-            return _collect_diffs(f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths)
-        if isinstance(orig, obj_types):
-            orig_attribs = sorted(vars(orig).keys())
-            new_attribs = sorted(vars(new).keys())
-            diffs = _collect_diffs(f"{prefix}:attribs", orig_attribs, new_attribs)
-            if diffs:
-                return diffs
-            for key in vars(orig).keys():
-                diffs += _collect_diffs(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
-            return diffs
-        raise TypeError(f"unexpected type {type(orig)}")
-
-    class _PathState:
-        def __init__(self, p: tk.AbstractPath):
-            # Adapted from AbstractPath._sis_hash and a bit simplified:
-            assert not isinstance(p.creator, str)
-            if p.hash_overwrite is None:
-                creator = p.creator
-                path = p.path
-            else:
-                overwrite = p.hash_overwrite
-                assert_msg = "sis_hash for path must be str or tuple of length 2"
-                if isinstance(overwrite, tuple):
-                    assert len(overwrite) == 2, assert_msg
-                    creator, path = overwrite
-                else:
-                    assert isinstance(overwrite, str), assert_msg
-                    creator = None
-                    path = overwrite
-            if hasattr(creator, '_sis_id'):
-                creator = creator._sis_id()
-            elif isinstance(creator, str) and creator.endswith(f"/{gs.JOB_OUTPUT}"):
-                creator = creator[:-len(gs.JOB_OUTPUT) - 1]
-            if isinstance(creator, str):
-                # Ignore the full name and job hash.
-                creator = os.path.basename(creator)
-                creator = creator.split(".")[0]
-            self.creator = creator
-            self.path = path
-
-    obj_types += (_PathState,)
-    diffs_ = _collect_diffs("obj", orig_obj, new_obj)
+    diffs_ = collect_diffs("obj", orig_obj, new_obj)
     if diffs_:
         raise Exception('Differences:\n' + "\n".join(diffs_))
 
@@ -774,107 +660,13 @@ def test_run():
     print("Hash new object:", b64encode(sis_hash_helper(new_obj)))
 
 
-_valid_primitive_types = (type(None), int, float, str, bool, i6_core.util.MultiPath)
-
-
-def _dump_crp(crp: rasr.CommonRasrParameters, *, _lhs=None):
-    if _lhs is None:
-        _lhs = "crp"
-    print(f"{_lhs} = rasr.CommonRasrParameters()")
-    for k, v in vars(crp).items():
-        if isinstance(v, rasr.RasrConfig):
-            _dump_rasr_config(f"{_lhs}.{k}", v, parent_is_config=False)
-        elif isinstance(v, rasr.CommonRasrParameters):
-            _dump_crp(v, _lhs=f"{_lhs}.{k}")
-        elif isinstance(v, dict):
-            _dump_crp_dict(f"{_lhs}.{k}", v)
-        elif isinstance(v, _valid_primitive_types):
-            print(f"{_lhs}.{k} = {_repr(v)}")
-        else:
-            raise TypeError(f"{_lhs}.{k} is type {type(v)}")
-
-
-def _dump_crp_dict(lhs: str, d: dict):
-    for k, v in d.items():
-        if isinstance(v, rasr.RasrConfig):
-            _dump_rasr_config(f"{lhs}.{k}", v, parent_is_config=False)
-        elif isinstance(v, _valid_primitive_types):
-            print(f"{lhs}.{k} = {_repr(v)}")
-        else:
-            raise TypeError(f"{lhs}.{k} is type {type(v)}")
-
-
-def _dump_rasr_config(lhs: str, config: rasr.RasrConfig, *, parent_is_config: bool):
-    kwargs = {}
-    for k in ["prolog", "epilog"]:
-        v = getattr(config, f"_{k}")
-        h = getattr(config, f"_{k}_hash")
-        if v:
-            kwargs[k] = v
-            if h != v:
-                kwargs[f"{k}_hash"] = h
-        else:
-            assert not h
-    if kwargs or not parent_is_config:
-        assert config._value is None
-        print(f"{lhs} = rasr.RasrConfig({', '.join(f'{k}={v!r}' for (k, v) in kwargs.items())})")
-    else:
-        if config._value is not None:
-            print(f"{lhs} = {config._value!r}")
-    for k in config:
-        v = config[k]
-        py_attr = k.replace("-", "_")
-        if _is_valid_python_attrib_name(py_attr):
-            sub_lhs = f"{lhs}.{py_attr}"
-        else:
-            sub_lhs = f"{lhs}[{k!r}]"
-        if isinstance(v, rasr.RasrConfig):
-            _dump_rasr_config(sub_lhs, v, parent_is_config=True)
-        else:
-            print(f"{sub_lhs} = {_repr(v)}")
-
-
-def _is_valid_python_attrib_name(name: str) -> bool:
-    # Very hacky. I'm sure there is some clever regexp but I don't find it and too lazy...
-    class _Obj:
-        pass
-    obj = _Obj()
-    try:
-        exec(f"obj.{name} = 'ok'", {"obj": obj})
-    except SyntaxError:
-        return False
-    assert getattr(obj, name) == "ok"
-    return True
-
-
-def _repr(obj):
-    """
-    Unfortunately some of the repr implementations are messed up, so need to use some custom here.
-    """
-    if isinstance(obj, tk.Path):
-        return f"tk.Path({obj.path!r})"
-    if isinstance(obj, i6_core.util.MultiPath):
-        return _multi_path_repr(obj)
-    if isinstance(obj, dict):
-        return f"{{{', '.join(f'{_repr(k)}: {_repr(v)}' for (k, v) in obj.items())}}}"
-    if isinstance(obj, list):
-        return f"[{', '.join(f'{_repr(v)}' for v in obj)}]"
-    if isinstance(obj, tuple):
-        return f"({''.join(f'{_repr(v)}, ' for v in obj)})"
-    return repr(obj)
-
-
-def _multi_path_repr(p: i6_core.util.MultiPath):
-    args = [p.path_template, p.hidden_paths, p.cached]
-    if p.path_root == gs.BASE_DIR:
-        args.append(CodeWrapper("gs.BASE_DIR"))
-    else:
-        args.append(p.path_root)
-    kwargs = {}
-    if p.hash_overwrite:
-        kwargs["hash_overwrite"] = p.hash_overwrite
-    return (
-        f"MultiPath("
-        f"{', '.join(f'{_repr(v)}' for v in args)}"
-        f"{''.join(f', {k}={_repr(v)}' for (k, v) in kwargs.items())})")
-
+def get_search_parameters(bp=16.0, bpl=100000, wep=0.5, wepl=15000, lsp=None):
+    search_params = {
+        "beam-pruning": bp,
+        "beam-pruning-limit": bpl,
+        "word-end-pruning": wep,
+        "word-end-pruning-limit": wepl,
+    }
+    if lsp is not None:
+        search_params["lm-state-pruning"] = lsp
+    return search_params
