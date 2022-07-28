@@ -1393,7 +1393,9 @@ class GmmSystem(RasrSystem):
                 self.jobs[all_c]["costa"].update_rqmt("run", {"mem": 8, "time": 24})
 
         for trn_c in self.train_corpora:
-            self.store_allophones(trn_c)
+            # TODO: allophones are no longer written into "base" crp,
+            # so look out for potential issues
+            self.store_allophones(source_corpus=trn_c, target_corpus=trn_c)
             tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
 
         for eval_c in self.dev_corpora + self.test_corpora:
