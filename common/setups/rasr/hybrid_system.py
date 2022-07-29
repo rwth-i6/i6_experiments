@@ -264,7 +264,7 @@ class HybridSystem(NnSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         devtrain_data: Optional[
@@ -276,7 +276,7 @@ class HybridSystem(NnSystem):
             List[Tuple[str, ...]]
         ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
-        self.rasr_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
 
         self._init_am(**self.rasr_init_args.am_args)
 

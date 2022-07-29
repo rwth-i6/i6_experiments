@@ -126,7 +126,7 @@ class GmmSystem(RasrSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         train_data: Dict[str, RasrDataInput],
         dev_data: Dict[str, RasrDataInput],
         test_data: Dict[str, RasrDataInput],
@@ -152,7 +152,7 @@ class GmmSystem(RasrSystem):
         :param vtln_sat_args:
         :return:
         """
-        self.rasr_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
         self.monophone_args = monophone_args
         self.cart_args = cart_args
         self.triphone_args = triphone_args
