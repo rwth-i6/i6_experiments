@@ -2,7 +2,6 @@
 Pipeline file for experiments with the standard CTC TTS model
 """
 from sisyphus import tk
-from copy import deepcopy
 from returnn_common.nn import min_returnn_behavior_version
 from i6_core.returnn import ReturnnConfig, ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob
@@ -22,13 +21,10 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 from i6_experiments.common.datasets.librispeech import get_corpus_object_dict
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
   TTSTrainingDatasets,
-  TTSEvalDataset,
-)
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
-  get_default_vocoder,
+  TTSForwardData,
 )
 from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
-from i6_private.users.hilmes.util.asr_evaluation import asr_evaluation
+from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation import asr_evaluation
 
 
 def get_training_config(
@@ -130,7 +126,7 @@ def get_training_config(
 
 
 def get_forward_config(
-  returnn_common_root, datasets, use_true_durations: bool = False, **kwargs
+  returnn_common_root, forward_dataset: TTSForwardData, use_true_durations: bool = False, **kwargs
 ):
   """
   Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_model
@@ -139,12 +135,6 @@ def get_forward_config(
   :param kwargs: arguments to be passed to the network construction
   :return: RETURNN forward config
   """
-  from copy import deepcopy
-
-  eval_datasets = deepcopy(datasets)
-  eval_datasets.datastreams[
-    "duration_data"
-  ].available_for_inference = use_true_durations
 
   config = {
     "behavior_version": min_returnn_behavior_version,
@@ -155,9 +145,9 @@ def get_forward_config(
   }
   extern_data = [
     datastream.as_nnet_constructor_data(key)
-    for key, datastream in eval_datasets.datastreams.items()
+    for key, datastream in forward_dataset.datastreams.items()
   ]
-  config["eval"] = datasets.cv.as_returnn_opts()
+  config["eval"] = forward_dataset.dataset.as_returnn_opts()
 
   rc_recursionlimit = PythonEnlargeStackWorkaroundCode
   rc_extern_data = ExternData(extern_data=extern_data)
@@ -250,19 +240,17 @@ def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     returnn_root=returnn_root,
   )
   forward_job.add_alias(prefix + "/forward")
-  forward_hdf = forward_job.out_hdf_files["output.hdf"]
-  tk.register_output(prefix + "/test_forward", forward_hdf)
 
   return forward_job
 
 
-def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
+def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
   """
 
   :param name:
-  :param forward_hdf:
-  :param vocoder_data:
-  :param forward_job:
+  :param vocoder:
+  :param checkpoint:
+  :param config:
   :param returnn_root:
   :param returnn_exe:
   :return:
@@ -275,9 +263,7 @@ def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
     prefix=name,
   )
   forward_hdf = forward_job.out_hdf_files["output.hdf"]
-  default_vocoder = get_default_vocoder(name=name, corpus_data=vocoder_data)
-  default_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
-  forward_vocoded, vocoder_forward_job = default_vocoder.vocode(
+  forward_vocoded, vocoder_forward_job = vocoder.vocode(
     forward_hdf, iterations=30, cleanup=True
   )
   verification = VerifyCorpus(forward_vocoded).out
@@ -309,9 +295,10 @@ def gl_swer(name, vocoder_data, checkpoint, config, returnn_root, returnn_exe):
 
 def synthesize_with_splits(
   name,
-  corpus: tk.Path,
+  reference_corpus: tk.Path,
+  corpus_name: str,
   job_splits: int,
-  datasets: TTSTrainingDatasets,
+  datasets: TTSForwardData,
   returnn_root,
   returnn_exe,
   returnn_common_root,
@@ -322,7 +309,8 @@ def synthesize_with_splits(
   """
 
   :param name:
-  :param corpus:
+  :param corpus: Needs to be the matching corpus for datasets
+  :param corpus_name: Name of the corpus for the ReplaceOrthJob
   :param job_splits: number of splits performed
   :param datasets: datasets including datastream supposed to hold the audio data in .train
   :param returnn_root:
@@ -333,22 +321,18 @@ def synthesize_with_splits(
   :param tts_model_kwargs: kwargs to be passed to the tts model for synthesis
   :return:
   """
-  forward_segments = SegmentCorpusJob(corpus, job_splits)
+  forward_segments = SegmentCorpusJob(reference_corpus, job_splits)
 
   verifications = []
   output_corpora = []
   for i in range(job_splits):
     name = name + "/synth_corpus/part_%i/" % i
-    eval_data = deepcopy(datasets.train)  # TODO, das geht schöner!!!
-    eval_data.datasets["audio"][
-      "segment_file"
-    ] = forward_segments.out_single_segment_files[i + 1]
-    eval_dataset = TTSEvalDataset(cv=eval_data, datastreams=datasets.datastreams)
     forward_config = get_forward_config(
       returnn_common_root=returnn_common_root,
-      datasets=eval_dataset,
+      datasets=datasets.dataset,
       **tts_model_kwargs,
     )
+    forward_config.config["eval"]["datasets"]["audio"]["segment_file"] = forward_segments.out_single_segment_files[i + 1]
 
     last_forward_job = ReturnnForwardJob(
       model_checkpoint=checkpoint,
@@ -379,17 +363,14 @@ def synthesize_with_splits(
   from i6_core.corpus.transform import MergeStrategy
 
   merge_job = MergeCorporaJob(
-    output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT
+    output_corpora, corpus_name, merge_strategy=MergeStrategy.FLAT
   )
   for verfication in verifications:
     merge_job.add_input(verfication)
 
-  corpus_object_dict = get_corpus_object_dict(
-    audio_format="ogg", output_prefix="corpora"
-  )
   cv_synth_corpus = CorpusReplaceOrthFromReferenceCorpus(
     bliss_corpus=merge_job.out_merged_corpus,
-    reference_bliss_corpus=corpus_object_dict["train-clean-100"].corpus_file,
+    reference_bliss_corpus=reference_corpus,
   ).out_corpus
 
   tk.register_output(name + "synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)

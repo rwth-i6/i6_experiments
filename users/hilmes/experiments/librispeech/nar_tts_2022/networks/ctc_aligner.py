@@ -170,6 +170,7 @@ class CTCAligner(nn.Module):
     spectogram_drop: float = 0.35,
     reconstruction_scale: int = 0.5,
     training=True,
+    phoneme_vocab_size: int = 44,
   ):
     """
     :param audio_emb_size: Embedding size for audio features
@@ -191,7 +192,7 @@ class CTCAligner(nn.Module):
     self.enc_conv_stack = ConvStack()
     self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim)
     self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim)
-    self.spectogram_lin = nn.Linear(out_dim=nn.FeatureDim("spectogram_lin", 44))
+    self.spectogram_lin = nn.Linear(out_dim=nn.FeatureDim("spectogram_lin", phoneme_vocab_size))
     self.tts_decoder = TTSDecoder()
     self.reconstruction_lin = nn.Linear(out_dim=nn.FeatureDim("reconstruction_dim", 80))
 

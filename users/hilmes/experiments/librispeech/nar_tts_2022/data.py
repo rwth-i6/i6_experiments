@@ -1,11 +1,13 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Any, Optional
 from sisyphus import tk
+from copy import deepcopy
 
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.returnn.hdf import ReturnnDumpHDFJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from i6_core.returnn.dataset import get_returnn_length_hdfs
+from i6_core.meta import CorpusObject
 
 from i6_experiments.common.datasets.librispeech import (
   get_g2p_augmented_bliss_lexicon_dict,
@@ -39,6 +41,7 @@ from i6_experiments.users.hilmes.tools.tts.extract_alignment import (
 from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import (
   ViterbiToDurationsJob,
 )
+from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import DistributeSpeakerEmbeddings
 from i6_experiments.users.hilmes.data.tts_preprocessing import (
   extend_lexicon,
   process_corpus_text_with_extended_lexicon,
@@ -83,12 +86,12 @@ class TTSTrainingDatasets:
 
 
 @dataclass(frozen=True)
-class TTSEvalDataset:
+class TTSForwardData:
   """
   Dataclass for TTS Datasets
   """
 
-  cv: GenericDataset
+  dataset: GenericDataset
   datastreams: Dict[str, Datastream]
 
 
@@ -126,6 +129,34 @@ def _make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset):
     },
     seq_order_control_dataset="audio",
   )
+  return meta_dataset
+
+
+def _make_inference_meta_dataset(audio_dataset, speaker_dataset, duration_dataset: Optional):
+  """
+  :param OggZipDataset audio_dataset:
+  :param HDFDataset speaker_dataset:
+  :param HDFDataset duration_dataset:
+  :return:
+  :rtype: MetaDataset
+  """
+  data_map = {
+      "phonemes": ("audio", "classes"),
+      "speaker_labels": ("speaker", "data"),
+    }
+  datasets = {"audio": audio_dataset.as_returnn_opts(),
+      "speaker": speaker_dataset.as_returnn_opts()}
+
+  if duration_dataset is not None:
+    data_map["duration_data"] = ("duration", "data")
+    datasets["duration"] = duration_dataset.as_returnn_opts()
+
+  meta_dataset = MetaDataset(
+    data_map=data_map,
+    datasets=datasets,
+    seq_order_control_dataset="audio",
+  )
+
   return meta_dataset
 
 
@@ -408,7 +439,7 @@ def get_tts_data_from_rasr_alignment(
     train_segments=train_segments,
     dev_segments=cv_segments,
   )
-  return tts_datasets, vocoder_data, new_corpus
+  return tts_datasets, vocoder_data, new_corpus, durations
 
 
 def get_alignment_data(output_path, returnn_exe, returnn_root):
@@ -500,7 +531,7 @@ def get_alignment_data(output_path, returnn_exe, returnn_root):
   return align_dataset
 
 
-def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
+def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignment):
   """
   Build the datastreams for TTS training
   :param output_path:
@@ -598,3 +629,49 @@ def get_tts_data(output_path, returnn_exe, returnn_root, alignment):
   )
 
   return training_datasets, vocoder_data
+
+
+def get_inference_dataset(corpus_file: tk.Path,
+    returnn_root, returnn_exe, datastreams: Dict[str, Any], durations: Optional, speaker_embedding_hdf, process_corpus: bool = True):
+
+  if process_corpus:
+    librispeech_g2p_lexicon = extend_lexicon(
+      get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+    )
+
+    inference_corpus = process_corpus_text_with_extended_lexicon(
+      bliss_corpus=corpus_file,
+      lexicon=librispeech_g2p_lexicon,
+    )
+  else:
+    inference_corpus = corpus_file
+
+  zip_dataset = BlissToOggZipJob(
+    bliss_corpus=inference_corpus,
+    no_conversion=True,
+    returnn_python_exe=returnn_exe,
+    returnn_root=returnn_root,
+    no_audio=True
+  ).out_ogg_zip
+
+  inference_ogg_zip = OggZipDataset(
+    path=zip_dataset,
+    audio_opts=None,
+    target_opts=datastreams["phonemes"].as_returnn_targets_opts(),
+    segment_file=None,
+    partition_epoch=1,
+    seq_ordering="sorted_reverse",
+  )
+  speaker_hdf = DistributeSpeakerEmbeddings(speaker_embedding_hdf=speaker_embedding_hdf, bliss_corpus=inference_corpus).out
+  speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
+  duration_hdf_dataset = None
+  if durations is not None:
+    duration_hdf_dataset = HDFDataset(files=[durations])
+  inference_dataset = _make_inference_meta_dataset(inference_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset)
+
+  datastreams = deepcopy(datastreams)
+  del datastreams["audio_features"]
+  if durations is None:
+    del datastreams["duration_data"]
+
+  return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)

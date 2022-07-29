@@ -37,16 +37,17 @@ def extend_lexicon(lex: tk.Path) -> tk.Path:
   :return: bliss lexicon
   :rtype: Path
   """
-  static_bliss_lexcion = WriteLexiconJob(get_tts_extension_lexicon()).out_bliss_lexicon
+  static_bliss_lexicon = WriteLexiconJob(get_tts_extension_lexicon()).out_bliss_lexicon
   merge_lex = MergeLexiconJob(
-    bliss_lexica=[static_bliss_lexcion, lex], sort_phonemes=True, sort_lemmata=False
+    bliss_lexica=[static_bliss_lexicon, lex], sort_phonemes=True, sort_lemmata=False
   ).out_bliss_lexicon
   # manually add blank
   lex = lexicon.Lexicon()
-  lex.load(merge_lex)
   lex.add_lemma(lexicon.Lemma(orth=["[blank]"], phon=["[blank]"]))
   lex.add_phoneme("[blank]", variation="none")
-  lex = WriteLexiconJob(lex).out_bliss_lexicon
+  lex = MergeLexiconJob(
+    bliss_lexica=[merge_lex, lex], sort_phonemes=False, sort_lemmata=False
+  ).out_bliss_lexicon
 
   return lex
 
