@@ -1,8 +1,10 @@
 import os
 
+from typing import Optional
+
 # -------------------- Sisyphus --------------------
 
-from sisyphus import gs
+from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
@@ -15,9 +17,12 @@ import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lb
 from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 
 
-def run_librispeech_960_common_baseline():
+def run_librispeech_960_common_baseline(
+    g2p_python: Optional[str] = None, g2p_path: Optional[str] = None
+):
     # ******************** Settings ********************
 
+    alias_and_output_dir_tmp = gs.ALIAS_AND_OUTPUT_SUBDIR
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
@@ -32,6 +37,8 @@ def run_librispeech_960_common_baseline():
         test_data_inputs,
     ) = lbs_gmm_setups.get_data_inputs(
         use_eval_data_subset=True,
+        g2p_python=g2p_python,
+        g2p_path=g2p_path,
     )
     hybrid_init_args = lbs_gmm_setups.get_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args()
@@ -63,4 +70,4 @@ def run_librispeech_960_common_baseline():
     )
     lbs_gmm_system.run(steps)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+    gs.ALIAS_AND_OUTPUT_SUBDIR = alias_and_output_dir_tmp
