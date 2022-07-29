@@ -58,7 +58,7 @@ def _export_lexicon_and_vocab(output_prefix):
 
     # folded / without stress marker
     bliss_lexicon = get_bliss_lexicon(
-        output_prefix=output_prefix, use_stress_marker=True
+        output_prefix=output_prefix, use_stress_marker=False
     )
     tk.register_output(
         os.path.join(lexicon_output_prefix, "librispeech.lexicon.folded.xml.gz"),
@@ -78,7 +78,7 @@ def _export_lexicon_and_vocab(output_prefix):
 
     # with stress marker
     bliss_lexicon = get_bliss_lexicon(
-        output_prefix=output_prefix, use_stress_marker=False
+        output_prefix=output_prefix, use_stress_marker=True
     )
     tk.register_output(
         os.path.join(lexicon_output_prefix, "librispeech.lexicon.xml.gz"),
