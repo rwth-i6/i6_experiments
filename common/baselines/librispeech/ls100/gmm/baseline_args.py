@@ -12,6 +12,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
     CartQuestionsWithStress,
     CartQuestionsWithoutStress,
 )
+from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 
 def get_init_args():
@@ -75,10 +76,15 @@ def get_init_args():
         },
     }
 
+    scorer_args = {
+        "sctk_binary_path": SCTK_BINARY_PATH
+    }
+
     return util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
+        scorer_args=scorer_args
     )
 
 
