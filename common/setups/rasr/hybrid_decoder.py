@@ -26,11 +26,11 @@ class HybridDecoder(BaseDecoder):
 
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         eval_data: Dict[str, ReturnnRasrDataInput],
         nn_recog_args: NnRecogArgs,
     ):
-        self.hybrid_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
 
         self._init_am(**self.hybrid_init_args.am_args)
 
