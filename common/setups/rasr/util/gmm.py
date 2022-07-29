@@ -14,7 +14,7 @@ __all__ = [
 
 import copy
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
@@ -189,7 +189,7 @@ class GmmTriphoneArgs:
 class GmmVtlnArgs:
     def __init__(
         self,
-        training_args: Dict[str, Union[str, int, Dict]],
+        training_args: Dict[str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]],
         recognition_args: dict,
         test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
@@ -212,6 +212,7 @@ class GmmVtlnArgs:
                 'accs_per_split': 2,
                 'initial_alignment': "train_tri",  # if using run function not needed
                 'feature_flow': "mfcc+context+lda+vtln",
+                'align_extra_args': {'extra_config': rasr.RasrConfig},
             }
 
         vtln align time = 8
@@ -241,11 +242,11 @@ class PrevCtm:
     Defines a previous ctm output from a recognition which is used to extract the
     speaker alignments for SAT adaptation for the dev/train sets.
 
-    :param prev_step_key: name of the step, e.g. "tri"
-    :param pronunciation_scale: one of the existing pronunciation scales
-    :param lm_scale: one of the existing lm-scales
-    :param iteration: one of the existing GMM iterations
-    :param optimized_lm: use automatically optimized lm.scale which might differ from param lm_scale
+    prev_step_key: name of the step, e.g. "tri"
+    pronunciation_scale: one of the existing pronunciation scales
+    lm_scale: one of the existing lm-scales
+    iteration: one of the existing GMM iterations
+    optimized_lm: use automatically optimized lm scale which might differ from param lm_scale
     """
 
     prev_step_key: str
