@@ -20,9 +20,10 @@ class HybridDecoder(BaseDecoder):
         """
         super().__init__(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
+        self.rasr_init_args = None
         self.eval_corpora = []
-
         self.eval_input_data = None
+        self.nn_recog_args = None
 
     def init_system(
         self,
@@ -31,15 +32,8 @@ class HybridDecoder(BaseDecoder):
         nn_recog_args: NnRecogArgs,
     ):
         self.rasr_init_args = rasr_init_args
-
-        self._init_am(**self.hybrid_init_args.am_args)
-
         self.eval_input_data = eval_data
-
         self.eval_corpora.extend(list(eval_data.keys()))
-
-        self._set_e
-
         self.nn_recog_args = nn_recog_args
 
     def recognition(self):
