@@ -67,12 +67,16 @@ class HybridSystem(NnSystem):
 
     def __init__(
         self,
+        rasr_binary_path: tk.Path,
+        rasr_arch: str = "linux-x86_64-standard",
         returnn_root: Optional[tk.Path] = None,
         returnn_python_home: Optional[tk.Path] = None,
         returnn_python_exe: Optional[tk.Path] = None,
         blas_lib: Optional[tk.Path] = None,
     ):
         super().__init__(
+            rasr_binary_path=rasr_binary_path,
+            rasr_arch=rasr_arch,
             returnn_root=returnn_root,
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
@@ -260,7 +264,7 @@ class HybridSystem(NnSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         devtrain_data: Optional[
@@ -272,9 +276,9 @@ class HybridSystem(NnSystem):
             List[Tuple[str, ...]]
         ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
-        self.hybrid_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
 
-        self._init_am(**self.hybrid_init_args.am_args)
+        self._init_am(**self.rasr_init_args.am_args)
 
         devtrain_data = devtrain_data if devtrain_data is not None else {}
         dev_data = dev_data if dev_data is not None else {}
@@ -668,8 +672,8 @@ class HybridSystem(NnSystem):
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
-                self.hybrid_init_args.stm_args
-                if self.hybrid_init_args.stm_args is not None
+                self.rasr_init_args.stm_args
+                if self.rasr_init_args.stm_args is not None
                 else {}
             )
             self.create_stm_from_corpus(eval_c, **stm_args)
@@ -679,7 +683,7 @@ class HybridSystem(NnSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 if step_args is None:
-                    step_args = self.hybrid_init_args.feature_extraction_args
+                    step_args = self.rasr_init_args.feature_extraction_args
                 for all_c in (
                     self.train_corpora
                     + self.cv_corpora

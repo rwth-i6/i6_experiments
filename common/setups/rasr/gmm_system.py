@@ -126,7 +126,7 @@ class GmmSystem(RasrSystem):
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         train_data: Dict[str, RasrDataInput],
         dev_data: Dict[str, RasrDataInput],
         test_data: Dict[str, RasrDataInput],
@@ -152,7 +152,7 @@ class GmmSystem(RasrSystem):
         :param vtln_sat_args:
         :return:
         """
-        self.hybrid_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
         self.monophone_args = monophone_args
         self.cart_args = cart_args
         self.triphone_args = triphone_args
@@ -160,7 +160,7 @@ class GmmSystem(RasrSystem):
         self.sat_args = sat_args
         self.vtln_sat_args = vtln_sat_args
 
-        self._init_am(**self.hybrid_init_args.am_args)
+        self._init_am(**self.rasr_init_args.am_args)
 
         self._assert_corpus_name_unique(train_data, dev_data, test_data)
 
@@ -1354,7 +1354,7 @@ class GmmSystem(RasrSystem):
             steps = RasrSteps()
             for s in steps_tmp:
                 if s == "extract":
-                    steps.add_step(s, self.hybrid_init_args.feature_extraction_args)
+                    steps.add_step(s, self.rasr_init_args.feature_extraction_args)
                 elif s == "mono":
                     steps.add_step(s, self.monophone_args)
                 elif s == "cart":
@@ -1385,7 +1385,7 @@ class GmmSystem(RasrSystem):
 
         # ---------- Corpus statistics, allophones, scoring: stm and sclite ----------
         for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
-            costa_args = copy.deepcopy(self.hybrid_init_args.costa_args)
+            costa_args = copy.deepcopy(self.rasr_init_args.costa_args)
             if self.crp[all_c].language_model_config is None:
                 costa_args["eval_lm"] = False
             self.costa(all_c, prefix="costa/", **costa_args)
@@ -1400,8 +1400,8 @@ class GmmSystem(RasrSystem):
 
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
-                self.hybrid_init_args.stm_args
-                if self.hybrid_init_args.stm_args is not None
+                self.rasr_init_args.stm_args
+                if self.rasr_init_args.stm_args is not None
                 else {}
             )
             self.create_stm_from_corpus(eval_c, **stm_args)

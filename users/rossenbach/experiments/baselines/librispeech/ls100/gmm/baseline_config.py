@@ -19,7 +19,7 @@ def run_librispeech_100_common_baseline(
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
 
-    hybrid_init_args = baseline_args.get_init_args()
+    rasr_init_args = baseline_args.get_init_args()
     mono_args = baseline_args.get_monophone_args()
     # no unknown question needed when G2P is used
     cart_args = baseline_args.get_cart_args(add_unknown=False)
@@ -36,7 +36,7 @@ def run_librispeech_100_common_baseline(
     # final_output_args.add_feature_to_extract("gt")
 
     steps = RasrSteps()
-    steps.add_step("extract", hybrid_init_args.feature_extraction_args)
+    steps.add_step("extract", rasr_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
     steps.add_step("cart", cart_args)
     steps.add_step("tri", tri_args)
@@ -51,7 +51,7 @@ def run_librispeech_100_common_baseline(
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
-        hybrid_init_args=hybrid_init_args,
+        rasr_init_args=rasr_init_args,
         train_data=corpus_data.train_data,
         dev_data=corpus_data.dev_data,
         test_data=corpus_data.test_data,

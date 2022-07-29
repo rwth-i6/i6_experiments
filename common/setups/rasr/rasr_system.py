@@ -71,7 +71,7 @@ class RasrSystem(meta.System):
 
         rasr.FlowNetwork.default_flags["cache_mode"] = "task_dependent"
 
-        self.hybrid_init_args = None
+        self.rasr_init_args = None
 
         self.train_corpora = []
         self.dev_corpora = []
@@ -165,22 +165,22 @@ class RasrSystem(meta.System):
         :param eval_corpus_key:
         :return:
         """
-        if self.hybrid_init_args.scorer == "kaldi":
+        if self.rasr_init_args.scorer == "kaldi":
             scorer_args = (
-                self.hybrid_init_args.scorer_args
-                if self.hybrid_init_args.scorer_args is not None
+                self.rasr_init_args.scorer_args
+                if self.rasr_init_args.scorer_args is not None
                 else dict(mapping={"[SILENCE]": ""})
             )
             self.set_kaldi_scorer(
                 corpus=eval_corpus_key,
                 **scorer_args,
             )
-        elif self.hybrid_init_args.scorer == "hub5":
+        elif self.rasr_init_args.scorer == "hub5":
             self.set_hub5_scorer(corpus=eval_corpus_key)
         else:
             scorer_args = (
-                self.hybrid_init_args.scorer_args
-                if self.hybrid_init_args.scorer_args is not None
+                self.rasr_init_args.scorer_args
+                if self.rasr_init_args.scorer_args is not None
                 else dict(sort_files=False)
             )
             self.set_sclite_scorer(
