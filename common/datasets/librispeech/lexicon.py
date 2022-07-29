@@ -168,6 +168,8 @@ def get_g2p_augmented_bliss_lexicon_dict(
     use_stress_marker=False,
     add_unknown_phoneme_and_mapping=True,
     output_prefix="datasets",
+    g2p_train_args=None,
+    g2p_apply_args=None,
 ):
     """
     Given the original LibriSpeech bliss lexicon, it is possible to estimate the pronunciation for
@@ -177,6 +179,8 @@ def get_g2p_augmented_bliss_lexicon_dict(
     :param bool use_stress_marker: uses phoneme symbols with stress markers
     :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
     :param str output_prefix:
+    :param g2p_train_args:
+    :param g2p_apply_args:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
@@ -207,6 +211,8 @@ def get_g2p_augmented_bliss_lexicon_dict(
                 g2p_augmenter = G2PBasedOovAugmenter(
                     original_bliss_lexicon=current_bliss_lexicon,
                     train_lexicon=original_bliss_lexicon,
+                    train_args=g2p_train_args,
+                    apply_args=g2p_apply_args,
                 )
                 current_bliss_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
                     bliss_corpus=bliss_corpus,
