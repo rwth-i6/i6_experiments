@@ -29,8 +29,6 @@ from i6_experiments.common.datasets.librispeech.cart import (
     CartQuestionsWithStress,
 )
 
-from i6_experiments.common.datasets.librispeech.cart import CartQuestionsWithoutStress
-
 # -------------------- helpers --------------------
 # -------------------- functions --------------------
 
@@ -667,6 +665,8 @@ def get_data_inputs(
     train_corpus="train-other-960",
     add_unknown_phoneme_and_mapping: bool = False,
     use_eval_data_subset: bool = False,
+    g2p_python: Optional[Union[str, tk.Path]] = None,
+    g2p_path: Optional[Union[str, tk.Path]] = None,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
@@ -689,10 +689,18 @@ def get_data_inputs(
         "normalize_pronunciation": False,
     }
 
+    g2p_train_apply_args = {}
+    if g2p_python is not None:
+        g2p_train_apply_args["g2p_python"] = g2p_python
+    if g2p_path is not None:
+        g2p_train_apply_args["g2p_path"] = g2p_path
+
     augmented_bliss_lexicon = {
         "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
             use_stress_marker=use_stress_marker,
             add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+            g2p_train_args=g2p_train_apply_args,
+            g2p_apply_args=g2p_train_apply_args,
         )[train_corpus],
         "normalize_pronunciation": False,
     }
