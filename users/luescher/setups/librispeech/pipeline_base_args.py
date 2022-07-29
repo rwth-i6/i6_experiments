@@ -24,6 +24,10 @@ import i6_core.rasr as rasr
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
+from i6_experiments.common.datasets.librispeech.cart import (
+    CartQuestionsWithoutStress,
+    CartQuestionsWithStress,
+)
 
 from i6_experiments.common.datasets.librispeech.cart import CartQuestionsWithoutStress
 
@@ -41,9 +45,22 @@ def get_init_args(
     mfcc_extra_args: Optional[Dict] = None,
     gt_normalization: bool = True,
     gt_options_extra_args: Optional[Dict] = None,
+    tying_type: str = "global",
+    nonword_phones: str = "",
     tdp_transition: Tuple[
         Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ] = (3.0, 0.0, 30.0, 0.0),
+    ] = (3.0, 0.0, "infinity", 0.0),
+    tdp_silence: Tuple[
+        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
+    ] = (0.0, 3.0, "infinity", 20.0),
+    tdp_nonword: Tuple[
+        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
+    ] = (
+        0.0,
+        3.0,
+        "infinity",
+        6.0,
+    ),
 ):
     """
     :param dc_detection:
@@ -54,7 +71,11 @@ def get_init_args(
     :param mfcc_extra_args:
     :param gt_normalization:
     :param gt_options_extra_args:
+    :param tying_type:
+    :param nonword_phones:
     :param tdp_transition:
+    :param tdp_silence:
+    :param tdp_nonword:
     :return:
     """
     samples_options = {
@@ -69,22 +90,16 @@ def get_init_args(
         "across_word_model": True,
         "early_recombination": False,
         "tdp_scale": 1.0,
+        "tying_type": tying_type,
+        "nonword_phones": nonword_phones,
         "tdp_transition": tdp_transition,  # loop, forward, skip, exit
-        "tdp_silence": (0.0, 3.0, "infinity", 20.0),  # loop, forward, skip, exit
-        "tying_type": "global",
-        "nonword_phones": "",
-        "tdp_nonword": (
-            0.0,
-            3.0,
-            "infinity",
-            6.0,
-        ),  # only used when tying_type = global-and-nonword
+        "tdp_silence": tdp_silence,  # loop, forward, skip, exit
+        "tdp_nonword": tdp_nonword,  # only used when tying_type = global-and-nonword
     }
     if am_extra_args is not None:
         am_args.update(am_extra_args)
 
-    costa_args = {"eval_recordings": True, "eval_lm": False}
-    default_mixture_scorer_args = {"scale": 0.3}
+    costa_args = {"eval_recordings": True, "eval_lm": True}
 
     if mfcc_filter_width is None:
         mfcc_filter_width = {
@@ -121,6 +136,7 @@ def get_init_args(
                 "samples_options": samples_options,
                 "cepstrum_options": mfcc_cepstrum_options,
                 "fft_options": None,
+                "add_features_output": True,
             },
         },
         "gt": {
@@ -163,7 +179,6 @@ def get_init_args(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args=default_mixture_scorer_args,
         scorer=scorer,
     )
 
@@ -195,6 +210,7 @@ def get_monophone_args(
         "align_iter": train_align_iter,
         "splits": 10,
         "accs_per_split": 2,
+        "dump_alignment_score_report": True,
     }
 
     monophone_recognition_args = {
@@ -204,34 +220,29 @@ def get_monophone_args(
         "optimize_am_lm_scale": True,
         # meta.System.recog() args:
         "feature_flow": feature_flow,
-        "pronunciation_scales": [6.0],
+        "pronunciation_scales": [1.0],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
         "eval_single_best": True,
         "eval_best_in_lattice": True,
         "search_parameters": {
-            "beam-pruning": 18.0,
-            "beam-pruning-limit": 100000,
-            "word-end-pruning": 0.75,
-            "word-end-pruning-limit": 15000,
+            "beam-pruning": 15.0,
+            "beam-pruning-limit": 50000,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 10000,
         },
         "parallelize_conversion": False,
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
-        "rtf": 50,
-        "mem": 8,
+        "rtf": 20,
+        "mem": 4,
         "use_gpu": False,
     }
 
     monophone_test_recognition_args = None
-    # {
-    #    "optimize_am_lm_scale": False,
-    #    "pronunciation_scales": [1.0],
-    #    "lm_scales": [11.0],
-    # }
 
     if allow_zero_weights:
         allow_zero_weights_extra_config = rasr.RasrConfig()
@@ -264,20 +275,24 @@ def get_monophone_args(
 
 
 def get_cart_args(
+    use_stress_marker: bool = False,
     max_leaves: int = 12001,
     min_obs: int = 1000,
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
 ):
-    cart_questions_class = CartQuestionsWithoutStress(
+    CartQuestions = (
+        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
+    )
+    cart_questions_class = CartQuestions(
         max_leaves=max_leaves,
         min_obs=min_obs,
         add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
-        phonemes=cart_questions_class.phonemes_boundary_special_str,
+        phonemes=cart_questions_class.phonemes_boundary_special,
         steps=cart_questions_class.steps,
         max_leaves=max_leaves,
         hmm_states=hmm_states,
@@ -653,6 +668,8 @@ def get_data_inputs(
     train_corpus="train-other-960",
     add_unknown_phoneme_and_mapping: bool = False,
     use_eval_data_subset: bool = False,
+    g2p_python: Optional[Union[str, tk.Path]] = None,
+    g2p_path: Optional[Union[str, tk.Path]] = None,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
@@ -675,10 +692,18 @@ def get_data_inputs(
         "normalize_pronunciation": False,
     }
 
+    g2p_train_apply_args = {}
+    if g2p_python is not None:
+        g2p_train_apply_args["g2p_python"] = g2p_python
+    if g2p_path is not None:
+        g2p_train_apply_args["g2p_path"] = g2p_path
+
     augmented_bliss_lexicon = {
         "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
             use_stress_marker=use_stress_marker,
             add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+            g2p_train_args=g2p_train_apply_args,
+            g2p_apply_args=g2p_train_apply_args,
         )[train_corpus],
         "normalize_pronunciation": False,
     }
