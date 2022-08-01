@@ -69,7 +69,10 @@ class PriorArgs:
 
 
 class SearchJobArgs(TypedDict):
-    search_params: Dict[str, Any]
+    feature_flow: rasr.FlowNetwork
+    feature_scorer: Type(rasr.FeatureScorer)
+    search_parameters: Dict[str, Any]
+    model_combination_config: Optional[rasr.RasrConfig]
 
 
 class Lattice2CtmArgs(TypedDict):
