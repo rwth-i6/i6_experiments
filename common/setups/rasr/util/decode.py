@@ -77,6 +77,10 @@ class SearchJobArgs(TypedDict):
 
 class Lattice2CtmArgs(TypedDict):
     best_path_algo: str
+    fill_empty_segments: bool
+    encoding: str
+    extra_config: Optional[rasr.RasrConfig]
+    extra_post_config: Optional[rasr.RasrConfig]
 
 
 class ScorerArgs(TypedDict):
