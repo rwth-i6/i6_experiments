@@ -2,12 +2,11 @@ __all__ = ["SpeechTdp", "SilenceTdp", "NonSpeechTdp", "AmRasrConfig"]
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
 import i6_core.am as am
-import i6_core.rasr as rasr
 
 
 class StateTying(Enum):
@@ -63,11 +62,11 @@ class AmRasrConfig:
     across_word_model: bool = True
     early_recombination: bool = False
     tdp_scale: float = 1.0
-    tdp_transition: SpeechTdp = SpeechTdp()
-    tdp_silence: SilenceTdp = SilenceTdp()
+    tdp_transition: Type[Tdp] = SpeechTdp()
+    tdp_silence: Type[Tdp] = SilenceTdp()
     tying_type: str = "global"
     nonword_phones: str = ""
-    tdp_nonword: NonSpeechTdp = NonSpeechTdp()  # only used when tying_type = global-and-nonword
+    tdp_nonword: Type[Tdp] = NonSpeechTdp()  # only used when tying_type = global-and-nonword
     state_tying_file: Optional[tk.Path] = None
 
     def get(self):
