@@ -5,19 +5,19 @@ def get_label_info(
     n_states=3,
     ph_emb_size=32,
     st_emb_size=128,
-    use_word_end_class=True,
+    use_word_end_classes=True,
     use_boundary_classes=False,
     is_folded=True,
 ):
 
     return {
         'n_states_per_phone': n_states,
-        'n_phonemes': 42 if is_folded else 72,
+        'n_contexts': 42 if is_folded else 72,
         'ph_emb_size': ph_emb_size,
         'st_emb_size': st_emb_size,
         'sil_id': None, #toDo: a job that gives the sielnce label within a specific state tying
         'state_tying': 'monophone-no-tying-dense', #no-tying-dense for decoding
-        'use_word_end_class': use_word_end_class,
+        'use_word_end_classes': use_word_end_classes,
         'use_boundary_classes': use_boundary_classes,
 
     }

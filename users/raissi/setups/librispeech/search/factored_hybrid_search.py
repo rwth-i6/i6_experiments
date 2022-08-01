@@ -19,9 +19,14 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextMapper
 )
 
-from i6_experiments.decoder.rtf import (
+from i6_experiments.users.raissi.setups.common.decoder.rtf import (
     ExtractSearchStatisticsJob
 )
+from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
+    FactoredHybridFeatureScorer
+)
+
+
 
 
 def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtures,
@@ -35,7 +40,7 @@ def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtur
         if not prior_info['center-state-prior']['scale']:
             print('You are setting prior scale equale to zero, are you sure?')
 
-        return rasr.FactoredHybridFeatureScorer(
+        return FactoredHybridFeatureScorer(
             featureScorerConfig,
             prior_mixtures=mixtures,
             context_type=context_type.value,
@@ -75,10 +80,10 @@ class FHDecoder:
         graph,
         mixtures,
         eval_files,
+        tf_library=None,
         gpu=True,
         tm=default_tm,
         output_string="output/output_batch_major",
-        tf_library=None,
         is_multi_encoder_output=False,
         silence_id=40,
     ):
@@ -99,7 +104,7 @@ class FHDecoder:
         self.silence_id = silence_id
 
         self.eval_files = (
-            eval_files  # s.stm_files["eval_magic"], s.glm_files["eval_magic"]
+            eval_files  # ctm file as ref
         )
 
         self.bellman_post_config = False
@@ -519,8 +524,8 @@ class FHDecoder:
 
         self.tfrnn_lms["kazuki_full"] = rnn_lm_config
 
-    def recognize_count_lm(self, priorInfo, lmScale, posteriorScales=None, nContexts=42, nStatePerPhone=3,
-                           numEncoderOutputs=1024, isMinDuration=False, useWordEndClass=False, transitionScales=None, silencePenalties=None,
+    def recognize_count_lm(self, priorInfo, lmScale, posteriorScales=None, n_contexts=42, n_states_per_phone=3,
+                           num_encoder_output=1024, is_min_duration=False, use_word_end_classes=False, transitionScales=None, silencePenalties=None,
                            useEstimatedTdps=False, forwardProbfile=None,
                            addAllAllos=True,
                            tdpScale=1.0, tdpExit=0.0, tdpNonword=20.0, silExit=20.0, tdpSkip=30.0, spLoop=3.0, spFwd=0.0, silLoop=0.0, silFwd=3.0,
@@ -533,18 +538,11 @@ class FHDecoder:
         loopScale = forwardScale = 1.0
         silFwdPenalty = silLoopPenalty = 0.0
 
-        name = (
-            self.name
-            + "Beam-"
-            + str(beam)
-            + "Lm-"
-            + str(lmScale)
-            + "pronScale-"
-            + str(pronScale)
-        )
+        name = ('-').join([self.name, f"Beam{beam}", f"Lm{lmScale}", "pronScale-"])
         for k in ['left-context', 'center-state', 'right-context']:
             if priorInfo[f'{k}-prior']['file'] is not None:
-                name = f'{name}-{k}-priorScale-{priorInfo[f"{k}-prior"]["scale"]}'
+                k_ = k.split("-")[0]
+                name = f"{name}-{k_}-priorScale-{priorInfo[f'{k}-prior']['scale']}"
 
         if tdpScale > 0:
             name += f'tdpScale-{tdpScale}tdpEx-{tdpExit}silExitEx-{silExit}tdpNEx-{tdpNonword}'
@@ -571,43 +569,45 @@ class FHDecoder:
             name += "addAll-allos"
 
         # am config update
-        searchCsp = copy.deepcopy(self.search_crp)
-        state_tying = searchCsp.acoustic_model_config.state_tying.type
+        searchCrp = copy.deepcopy(self.search_crp)
+        state_tying = searchCrp.acoustic_model_config.state_tying.type
 
-        searchCsp.acoustic_model_config = am.acoustic_model_config(
+        searchCrp.acoustic_model_config = am.acoustic_model_config(
             state_tying=state_tying,
-            states_per_phone=nStatePerPhone,
+            states_per_phone=n_states_per_phone,
             state_repetitions=1,
             across_word_model=True,
             early_recombination=False,
             tdp_scale=tdpScale,
-            tdp_transition=(spLoop, spFwd, tdpSkip, tdpExit),
+            tdp_transition=(spLoop, spFwd, 'infinity', tdpExit),
             tdp_silence=(silLoop, silFwd, 'infinity', silExit),
-            tying_type="global-and-nonword",
-            nonword_phones="[LAUGHTER],[NOISE],[VOCALIZEDNOISE]",
-            tdp_nonword=(silLoop, silFwd, 'infinity', tdpNonword),
         )
 
-        searchCsp.acoustic_model_config.allophones["add-all"] = addAllAllos
-        searchCsp.acoustic_model_config.allophones["add-from-lexicon"] = not addAllAllos
+        searchCrp.acoustic_model_config.allophones["add-all"] = addAllAllos
+        searchCrp.acoustic_model_config.allophones["add-from-lexicon"] = not addAllAllos
 
         if 'tying-dense' in state_tying:
-            useBoundaryClasses = self.search_crp.acoustic_model_config["state-tying"][
+            use_boundary_classes = self.search_crp.acoustic_model_config["state-tying"][
                 "use-boundary-classes"
             ]
-            searchCsp.acoustic_model_config["state-tying"][
+            searchCrp.acoustic_model_config["state-tying"][
                 "use-boundary-classes"
-            ] = useBoundaryClasses
+            ] = use_boundary_classes
 
-        if useWordEndClass:
-            searchCsp.acoustic_model_config["state-tying"]["use-word-end-classes"] = True
+        if use_word_end_classes:
+            searchCrp.acoustic_model_config["state-tying"]["use-word-end-classes"] = True
 
         # lm config update
-        searchCsp.language_model_config.scale = lmScale
+        searchCrp.language_model_config.scale = lmScale
         # additional config
-        modelCombinationConfig = rasr.RasrConfig()
-        modelCombinationConfig.pronunciation_scale = pronScale
+        if searchCrp.lexicon_config.normalize_pronunciation:
+            modelCombinationConfig = rasr.RasrConfig()
+            modelCombinationConfig.pronunciation_scale = pronScale
+        else:
+            modelCombinationConfig = None
+            pronScale = 1.0
         # additional search parameters
+        name += f'pronScale{pronScale}'
         rqms = self.get_requirements(beam)
         sp = self.get_search_params(beam, beamLimit, wePruning, wePruningLimit, isCount=True)
 
@@ -619,20 +619,24 @@ class FHDecoder:
         else:
             adv_search_extra_config = None
 
-        featureScorer = get_feature_scorer(context_type=self.context_type, context_mapper=self.context_mapper,
+        self.feature_scorer = featureScorer = get_feature_scorer(context_type=self.context_type, context_mapper=self.context_mapper,
                                            featureScorerConfig=self.featureScorerConfig,
                                            mixtures=self.mixtures, silence_id=self.silence_id,
                                            prior_info=priorInfo,
-                                           posterior_scales=posteriorScales, num_label_contexts=nContexts, num_states_per_phone=nStatePerPhone,
-                                           num_encoder_output=numEncoderOutputs,
+                                           posterior_scales=posteriorScales, num_label_contexts=n_contexts, num_states_per_phone=n_states_per_phone,
+                                           num_encoder_output=num_encoder_output,
                                            loop_scale=loopScale, forward_scale=forwardScale,
                                            silence_loop_penalty=silLoopPenalty, silence_forward_penalty=silFwdPenalty,
                                            use_estimated_tdps=useEstimatedTdps, state_dependent_tdp_file=forwardProbfile,
-                                           is_min_duration=isMinDuration, use_word_end_classes=useWordEndClass,
-                                           use_boundary_classes=useBoundaryClasses, is_multi_encoder_output=self.is_multi_encoder_output)
+                                           is_min_duration=is_min_duration, use_word_end_classes=use_word_end_classes,
+                                           use_boundary_classes=use_boundary_classes, is_multi_encoder_output=self.is_multi_encoder_output)
+
+        if altas is not None:
+            prepath = 'decoding-gridsearch/'
+        else: prepath = 'decoding/'
 
         search = recog.AdvancedTreeSearchJob(
-            crp=searchCsp,
+            crp=searchCrp,
             feature_flow=self.featureScorerFlow,
             feature_scorer=featureScorer,
             search_parameters=sp,
@@ -647,45 +651,90 @@ class FHDecoder:
             extra_post_config=None,
         )
         search.rqmt["cpu"] = 2
-        search.add_alias("recog_%s" % name)
+        search.add_alias(f"{prepath}recog_%s" % name)
 
         if calculateStat:
             stat = ExtractSearchStatisticsJob(list(search.log_file.values()), 3.61)
-            stat.add_alias(f"stats_{name}")
+            stat.add_alias(f"statistics/stats_{name}")
             tk.register_output(f"rtf_decode_{name}", stat.decoding_rtf)
 
         if keep_value is not None:
             search.keep_value(keep_value)
 
-        if altas is not None:
-            prepath = 'grid/'
-        else: prepath = ''
+
 
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
         lat2ctm = recog.LatticeToCtmJob(
-            crp=searchCsp,
-            lattice_cache=search.lattice_bundle,
+            crp=searchCrp,
+            lattice_cache=search.out_lattice_bundle,
             parallelize=True,
             best_path_algo="bellman-ford",
             extra_config=lat2ctm_extra_config,
         )
 
-        sKwrgs = copy.copy(self.scorerArgs)
-        sKwrgs["hyp"] = lat2ctm.ctm_file
+        sKwrgs = copy.copy(self.eval_files)
+        sKwrgs["hyp"] = lat2ctm.out_ctm_file
         scorer = recog.ScliteJob(**sKwrgs)
-        tk.register_output(f"{prepath}{name}.wer", scorer.report_dir)
+        tk.register_output(f"{prepath}{name}.wer", scorer.out_report_dir)
 
-        if runOptJobor or (altas is None and beam > 15.0):
+        if beam > 15.0:
             opt = recog.OptimizeAMandLMScaleJob(
                 crp=searchCrp,
-                lattice_cache=search.lattice_bundle,
+                lattice_cache=search.out_lattice_bundle,
                 initial_am_scale=pronScale,
                 initial_lm_scale=lmScale,
                 scorer_cls=recog.ScliteJob,
                 scorer_kwargs=sKwrgs,
                 opt_only_lm_scale=onlyLmOpt,
             )
-            tk.register_output(f"{prepath}{name}.onlyLmOpt{onlyLmOpt}.optlm.txt", opt.log_file)
+            tk.register_output(f"{prepath}{name}.onlyLmOpt{onlyLmOpt}.optlm.txt", opt.out_log_file)
+
+
+    def align(
+        self,
+        name,
+        crp,
+        rtf=10,
+        mem=8,
+        am_trainer_exe_path=None,
+        default_tdp=True,
+    ):
+
+        alignCrp = copy.deepcopy(crp)
+        if am_trainer_exe_path is not None:
+            alignCrp.acoustic_model_trainer_exe = am_trainer_exe_path
+
+
+        if default_tdp:
+            v = (3.0, 0.0, 'infinity', 0.0)
+            sv = (0.0, 3.0, 'infinity', 0.0)
+            keys = ["loop", "forward", "skip", "exit"]
+            for i, k in enumerate(keys):
+                alignCrp.acoustic_model_config.tdp["*"][k] = v[i]
+                alignCrp.acoustic_model_config.tdp["silence"][k] = sv[i]
+
+        #make sure it is correct for the fh feature scorer scorer
+        alignCrp.acoustic_model_config.state_tying.type = 'no-tying-dense'
+
+        # make sure the FSA is not buggy
+        alignCrp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
+        alignCrp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
+        alignCrp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
+        alignCrp.acoustic_model_config["*"]["fix-tdp-leaving-epsilon-arc"] = True
+
+
+        alignment = mm.AlignmentJob(
+            crp=alignCrp,
+            feature_flow=self.featureScorerFlow,
+            feature_scorer=self.feature_scorer,
+            use_gpu=self.gpu,
+            rtf=rtf,
+        )
+        alignment.rqmt["cpu"] = 2
+        alignment.rqmt["mem"] = 8
+        alignment.add_alias(f'alignments/align_{name}')
+        tk.register_output("alignments/realignment-{}".format(name), alignment.out_alignment_bundle)
+        return alignment
 
 

@@ -199,7 +199,7 @@ def get_graph_from_returnn_config(returnnConfig, python_prolog, python_epilog):
         tf_returnn_config = copy.copy(returnnConfig)
     
     tf_returnn_config["train"] = {"class": "ExternSprintDataset",
-                               "partitionEpoch": 6,
+                               "partitionEpoch": 1,
                                "sprintConfigStr": "",
                                "sprintTrainerExecPath": None}
     
@@ -212,9 +212,9 @@ def get_graph_from_returnn_config(returnnConfig, python_prolog, python_epilog):
     
     conf = returnn.ReturnnConfig(tf_returnn_config, python_prolog=python_prolog, python_epilog=python_epilog)
     returnn_config_file = returnn.WriteReturnnConfigJob(conf).out_returnn_config_file
-    compiledGraphJob = returnn.CompileTFGraphJob(out_returnn_config_file)
+    compiledGraphJob = returnn.CompileTFGraphJob(returnn_config_file)
     
-    return compiledGraphJob.graph
+    return compiledGraphJob.out_graph
 
 
 def get_config_for_context_type(contextType, contextMapper, partition_epochs,
