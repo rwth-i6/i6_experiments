@@ -9,69 +9,72 @@ from i6_core.text.processing import PipelineJob
 
 
 def get_tts_extension_lexicon():
-  """
-  Add the phoneme and lemma entries for special TTS symbols
+    """
+    Add the phoneme and lemma entries for special TTS symbols
 
-  :param bool include_punctuation:
-  :return: the lexicon with special lemmas and phonemes
-  :rtype: lexicon.Lexicon
-  """
-  lex = lexicon.Lexicon()
+    :param bool include_punctuation:
+    :return: the lexicon with special lemmas and phonemes
+    :rtype: lexicon.Lexicon
+    """
+    lex = lexicon.Lexicon()
 
-  lex.add_lemma(lexicon.Lemma(orth=["[space]"], phon=["[space]"]))
-  lex.add_phoneme("[space]", variation="none")
+    lex.add_lemma(lexicon.Lemma(orth=["[space]"], phon=["[space]"]))
+    lex.add_phoneme("[space]", variation="none")
 
-  lex.add_lemma(lexicon.Lemma(orth=["[start]"], phon=["[start]"]))
-  lex.add_phoneme("[start]", variation="none")
+    lex.add_lemma(lexicon.Lemma(orth=["[start]"], phon=["[start]"]))
+    lex.add_phoneme("[start]", variation="none")
 
-  lex.add_lemma(lexicon.Lemma(orth=["[end]"], phon=["[end]"]))
-  lex.add_phoneme("[end]", variation="none")
+    lex.add_lemma(lexicon.Lemma(orth=["[end]"], phon=["[end]"]))
+    lex.add_phoneme("[end]", variation="none")
 
-  return lex
+    return lex
 
 
 def extend_lexicon(lex: tk.Path) -> tk.Path:
-  """
-  Extends a bliss lexicon with TTS specific makers
+    """
+    Extends a bliss lexicon with TTS specific makers
 
-  :return: bliss lexicon
-  :rtype: Path
-  """
-  static_bliss_lexicon = WriteLexiconJob(get_tts_extension_lexicon()).out_bliss_lexicon
-  merge_lex = MergeLexiconJob(
-    bliss_lexica=[static_bliss_lexicon, lex], sort_phonemes=True, sort_lemmata=False
-  ).out_bliss_lexicon
-  # manually add blank
-  lex = lexicon.Lexicon()
-  lex.add_lemma(lexicon.Lemma(orth=["[blank]"], phon=["[blank]"]))
-  lex.add_phoneme("[blank]", variation="none")
-  lex = MergeLexiconJob(
-    bliss_lexica=[merge_lex, lex], sort_phonemes=False, sort_lemmata=False
-  ).out_bliss_lexicon
+    :return: bliss lexicon
+    :rtype: Path
+    """
+    static_bliss_lexicon = WriteLexiconJob(
+        get_tts_extension_lexicon()
+    ).out_bliss_lexicon
+    merge_lex = MergeLexiconJob(
+        bliss_lexica=[static_bliss_lexicon, lex], sort_phonemes=True, sort_lemmata=False
+    ).out_bliss_lexicon
+    # manually add blank
+    lex = lexicon.Lexicon()
+    lex.add_lemma(lexicon.Lemma(orth=["[blank]"], phon=["[blank]"]))
+    lex.add_phoneme("[blank]", variation="none")
+    lex = WriteLexiconJob(lex).out_bliss_lexicon
+    lex = MergeLexiconJob(
+        bliss_lexica=[merge_lex, lex], sort_phonemes=False, sort_lemmata=False
+    ).out_bliss_lexicon
 
-  return lex
+    return lex
 
 
 def process_corpus_text_with_extended_lexicon(
-  bliss_corpus: tk.Path, lexicon: tk.Path
+    bliss_corpus: tk.Path, lexicon: tk.Path
 ) -> tk.Path:
-  """
-  Apply the lexicon to a corpus file, and insert [start], [end] and [space] tokens.
+    """
+    Apply the lexicon to a corpus file, and insert [start], [end] and [space] tokens.
 
-  :param bliss_corpus: A bliss corpus for conversion
-  :param lexicon: A lexicon that includes the TTS markers, e.g. use `extend_lexicon`
-  """
-  bliss_text = CorpusToTxtJob(bliss_corpus).out_txt
+    :param bliss_corpus: A bliss corpus for conversion
+    :param lexicon: A lexicon that includes the TTS markers, e.g. use `extend_lexicon`
+    """
+    bliss_text = CorpusToTxtJob(bliss_corpus).out_txt
 
-  add_start_command = "sed 's/^/[start] /g'"
-  add_end_command = "sed 's/$/ [end]/g'"
+    add_start_command = "sed 's/^/[start] /g'"
+    add_end_command = "sed 's/$/ [end]/g'"
 
-  tokenized_text = PipelineJob(bliss_text, [add_start_command, add_end_command]).out
-  processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(
-    bliss_corpus, tokenized_text
-  ).out_corpus
+    tokenized_text = PipelineJob(bliss_text, [add_start_command, add_end_command]).out
+    processed_bliss_corpus = CorpusReplaceOrthFromTxtJob(
+        bliss_corpus, tokenized_text
+    ).out_corpus
 
-  converted_bliss_corpus = ApplyLexiconToCorpusJob(
-    processed_bliss_corpus, lexicon, word_separation_orth="[space]"
-  ).out_corpus
-  return converted_bliss_corpus
+    converted_bliss_corpus = ApplyLexiconToCorpusJob(
+        processed_bliss_corpus, lexicon, word_separation_orth="[space]"
+    ).out_corpus
+    return converted_bliss_corpus

@@ -6,11 +6,9 @@ from sisyphus import gs
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
 
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align import (
-    baseline_args,
-)
+from i6_experiments.common.baselines.librispeech.ls100.gmm import baseline_args
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.data import (
-    get_corpus_data_inputs,
+    get_synth_corpus_data_inputs,
 )
 
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.default_tools import (
@@ -18,8 +16,9 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.
 )
 
 
-def run_librispeech_100_common_tts_baseline(
-    alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/baseline",
+def run_librispeech_100_with_synthetic_data(
+    synth_corpus,
+    alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/synthetic",
 ):
 
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
@@ -51,7 +50,7 @@ def run_librispeech_100_common_tts_baseline(
     # steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
-    corpus_data = get_corpus_data_inputs()
+    corpus_data = get_synth_corpus_data_inputs(synth_corpus)
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
@@ -61,16 +60,4 @@ def run_librispeech_100_common_tts_baseline(
         test_data=corpus_data.test_data,
     )
     system.run(steps)
-
-    system.align(
-        name="tts_align",
-        corpus="tts_align",
-        feature_scorer=("train-clean-100", "train_mono"),
-        flow="mfcc+deriv+norm",
-    )
-
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
-    return (
-        system.alignments["tts_align"]["tts_align"].alternatives["bundle"],
-        system.allophone_files["train-clean-100"],
-    )
