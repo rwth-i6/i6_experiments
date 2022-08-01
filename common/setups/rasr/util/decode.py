@@ -4,6 +4,7 @@ __all__ = [
     "SearchJobArgs",
     "Lattice2CtmArgs",
     "ScorerArgs",
+    "OptimizeJobArgs",
 ]
 
 from dataclasses import dataclass
