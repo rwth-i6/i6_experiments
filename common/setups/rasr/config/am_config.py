@@ -1,6 +1,7 @@
-__all__ = ["TransitionTdp", "SilenceTdp", "AmRasrConfig"]
+__all__ = ["SpeechTdp", "SilenceTdp", "NonSpeechTdp", "AmRasrConfig"]
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional, Tuple, Union
 
 from sisyphus import tk
@@ -9,8 +10,14 @@ import i6_core.am as am
 import i6_core.rasr as rasr
 
 
+class StateTying(Enum):
+    MONOPHONE = 1
+    CART = 2
+    DENSE = 3
+
+
 @dataclass()
-class _Tdp:
+class Tdp:
     loop: Union[float, str]
     forward: Union[float, str]
     skip: Union[float, str]
@@ -25,36 +32,42 @@ class _Tdp:
 
 
 @dataclass()
-class TransitionTdp(_Tdp):
-    loop: Union[float, str] = 3.0
-    forward: Union[float, str] = 0.0
-    skip: Union[float, str] = "infinity"
-    exit: Union[float, str] = 0.0
+class SpeechTdp(Tdp):
+    loop: Union[float, str] = field(default=3.0)
+    forward: Union[float, str] = field(default=0.0)
+    skip: Union[float, str] = field(default="infinity")
+    exit: Union[float, str] = field(default=0.0)
 
 
 @dataclass()
-class SilenceTdp(_Tdp):
-    loop: Union[float, str] = 0.0
-    forward: Union[float, str] = 3.0
-    skip: Union[float, str] = "infinity"
-    exit: Union[float, str] = 20.0
+class SilenceTdp(Tdp):
+    loop: Union[float, str] = field(default=0.0)
+    forward: Union[float, str] = field(default=3.0)
+    skip: Union[float, str] = field(default="infinity")
+    exit: Union[float, str] = field(default=20.0)
+
+
+@dataclass()
+class NonSpeechTdp(Tdp):
+    loop: Union[float, str] = field(default=0.0)
+    forward: Union[float, str] = field(default=3.0)
+    skip: Union[float, str] = field(default="infinity")
+    exit: Union[float, str] = field(default=6.0)
 
 
 @dataclass()
 class AmRasrConfig:
-    state_tying: str = "monophone"
+    state_tying: StateTying = StateTying.MONOPHONE
     states_per_phone: int = 3
     state_repetitions: int = 1
     across_word_model: bool = True
     early_recombination: bool = False
     tdp_scale: float = 1.0
-    tdp_transition: TransitionTdp = TransitionTdp()
+    tdp_transition: SpeechTdp = SpeechTdp()
     tdp_silence: SilenceTdp = SilenceTdp()
     tying_type: str = "global"
     nonword_phones: str = ""
-    tdp_nonword: TransitionTdp = TransitionTdp(
-        0.0, 3.0, "infinity", 6.0
-    )  # only used when tying_type = global-and-nonword
+    tdp_nonword: NonSpeechTdp = NonSpeechTdp()  # only used when tying_type = global-and-nonword
     state_tying_file: Optional[tk.Path] = None
 
     def get(self):
