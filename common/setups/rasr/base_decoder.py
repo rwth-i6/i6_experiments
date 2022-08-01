@@ -59,13 +59,28 @@ class BaseDecoder:
         lexicon_config: rasr.RasrConfig,
         language_model_config: rasr.RasrConfig,
         lm_lookahead_config: rasr.RasrConfig,
-        lm_rescoring_config: Optional[rasr.RasrConfig] = None,
+        acoustic_model_post_config: Optional[rasr.RasrConfig] = None,
+        lexicon_post_config: Optional[rasr.RasrConfig] = None,
+        language_model_post_config: Optional[rasr.RasrConfig] = None,
+        extra_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
+        extra_post_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
     ):
         self.crp["base"].acoustic_model_config = acoustic_model_config
         self.crp["base"].lexicon_config = lexicon_config
         self.crp["base"].language_model_config = language_model_config
         self.crp["base"].lm_lookahead_config = lm_lookahead_config
-        self.crp["base"].lm_rescoring_config = lm_rescoring_config
+
+        if acoustic_model_post_config is not None:
+            self.crp["base"].acoustic_model_post_config = acoustic_model_post_config
+        if lexicon_post_config is not None:
+            self.crp["base"].lexicon_post_config_post_config = lexicon_post_config
+        if language_model_post_config is not None:
+            self.crp["base"].language_model_post_config = language_model_post_config
+
+        for k, v in extra_configs.items():
+            self.crp["base"][k] = v
+        for k, v in extra_post_configs.items():
+            self.crp["base"][k] = v
 
     def set_crp(self, name: str, crp: rasr.CommonRasrParameters):
         self.crp[name] = copy.deepcopy(crp)
