@@ -66,10 +66,10 @@ class AmRasrConfig:
     tdp_silence: Type[Tdp] = SilenceTdp()
     tying_type: str = "global"
     nonword_phones: str = ""
-    tdp_nonword: Type[Tdp] = NonSpeechTdp()  # only used when tying_type = global-and-nonword
+    tdp_nonword: Optional[Type[Tdp]] = NonSpeechTdp()  # only used when tying_type = global-and-nonword
     state_tying_file: Optional[tk.Path] = None
 
-    def get(self):
+    def get_config(self):
         am_config = am.acoustic_model_config(
             state_tying=self.state_tying,
             states_per_phone=self.states_per_phone,

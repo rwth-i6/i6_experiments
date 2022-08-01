@@ -14,7 +14,7 @@ from sisyphus import tk
 
 import i6_core.rasr as rasr
 
-from ..config.am_config import TransitionTdp, SilenceTdp
+from ..config.am_config import Tdp
 
 
 class BaseRecognitionParameters:
@@ -26,16 +26,16 @@ class BaseRecognitionParameters:
         prior_scales: List[float],
         pronunciation_scales: List[Optional[float]],
         tdp_scales: List[float],
-        transition_tdp: List[TransitionTdp],
-        silence_tdp: List[SilenceTdp],
+        transition_tdps: List[Type[Tdp]],
+        silence_tdps: List[Type[Tdp]],
     ):
         self.am_scales = am_scales
         self.lm_scales = lm_scales
         self.prior_scales = prior_scales
         self.pronunciation_scales = pronunciation_scales
         self.tdp_scales = tdp_scales
-        self.transition_tdp = transition_tdp
-        self.silence_tdp = silence_tdp
+        self.transition_tdps = transition_tdps
+        self.silence_tdps = silence_tdps
 
     def _get_iter(self):
         return [
@@ -46,8 +46,8 @@ class BaseRecognitionParameters:
                 self.prior_scales,
                 self.pronunciation_scales,
                 self.tdp_scales,
-                self.transition_tdp,
-                self.silence_tdp,
+                self.transition_tdps,
+                self.silence_tdps,
             )
         ]
 
@@ -70,7 +70,7 @@ class PriorArgs:
 
 class SearchJobArgs(TypedDict):
     feature_flow: rasr.FlowNetwork
-    feature_scorer: Type(rasr.FeatureScorer)
+    feature_scorer: Type[rasr.FeatureScorer]
     search_parameters: Dict[str, Any]
     model_combination_config: Optional[rasr.RasrConfig]
 
