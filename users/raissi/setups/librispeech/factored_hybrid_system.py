@@ -99,6 +99,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+            rasr_binary_path: Optional[str] = tk.Path(gs.RASR_ROOT),
             hybrid_init_args: RasrInitArgs = None,
             train_data: Dict[str, RasrDataInput] = None,
             dev_data: Dict[str, RasrDataInput] = None,
@@ -108,6 +109,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_root=returnn_root,
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
+            rasr_binary_path=rasr_binary_path,
         )
         #arguments used for the initialization of the system, they should be set before running the system
         self.hybrid_init_args = hybrid_init_args
