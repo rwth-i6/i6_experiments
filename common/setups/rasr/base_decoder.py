@@ -1,6 +1,7 @@
 __all__ = ["BaseDecoder"]
 
 import copy
+import logging
 from typing import Dict, Optional, Type, Union
 
 from sisyphus import tk
@@ -8,6 +9,7 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
+from i6_core.corpus import CorpusToStmJob
 from i6_core.meta import CorpusObject
 
 
@@ -16,7 +18,7 @@ from .util.decode import (
     PriorArgs,
     SearchJobArgs,
     Lattice2CtmArgs,
-    ScorerArgs,
+    ScliteScorerArgs,
     OptimizeJobArgs,
 )
 
@@ -57,17 +59,15 @@ class BaseDecoder:
         lexicon_config: rasr.RasrConfig,
         language_model_config: rasr.RasrConfig,
         lm_lookahead_config: rasr.RasrConfig,
-        model_combination_config: Optional[rasr.RasrConfig] = None,
         lm_rescoring_config: Optional[rasr.RasrConfig] = None,
     ):
         self.crp["base"].acoustic_model_config = acoustic_model_config
         self.crp["base"].lexicon_config = lexicon_config
         self.crp["base"].language_model_config = language_model_config
         self.crp["base"].lm_lookahead_config = lm_lookahead_config
-        self.crp["base"].model_combination_config = model_combination_config
         self.crp["base"].lm_rescoring_config = lm_rescoring_config
 
-    def copy_crp_from_system(self, name: str, crp: rasr.CommonRasrParameters):
+    def set_crp(self, name: str, crp: rasr.CommonRasrParameters):
         self.crp[name] = copy.deepcopy(crp)
 
     def init_eval_datasets(self, eval_datasets: Dict[str, CorpusObject]):
@@ -80,32 +80,48 @@ class BaseDecoder:
         self,
         name: str,
         corpus_key: str,
-        search_job_args: SearchJobArgs,
-        lat_2_ctm_args: Lattice2CtmArgs,
-        scorer_args: ScorerArgs,
-    ):
-        adv_tree_search_job = self.search_job_class(**search_job_args)
-        adv_tree_search_job.set_vis_name(
+        search_job_args: Union[SearchJobArgs, Dict],
+        lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
+        scorer_args: Union[ScliteScorerArgs, Dict],
+        scorer_hyp_param_name: str,
+    ) -> (Type[tk.Job], recog.LatticeToCtmJob, Type[tk.Job]):
+        search_job = self.search_job_class(**search_job_args)
+        search_job.set_vis_name(
             f"Recog: {self.alias_output_prefix}{name}. Corpus: {corpus_key}"
         )
-        adv_tree_search_job.add_alias(
-            f"{self.alias_output_prefix}recog_{corpus_key}/{name}"
-        )
+        search_job.add_alias(f"{self.alias_output_prefix}recog_{corpus_key}/{name}")
 
-        lat_2_ctm_job = recog.LatticeToCtmJob(**lat_2_ctm_args)
+        lat_2_ctm_job = recog.LatticeToCtmJob(
+            crp=self.crp[corpus_key],
+            lattice_cache=search_job.out_lattice_bundle,
+            parallelize=False,
+            **lat_2_ctm_args,
+        )
         lat_2_ctm_job.add_alias(
             f"{self.alias_output_prefix}lattice2ctm_{corpus_key}/{name}"
         )
 
-        scorer_job = self.scorer_job_class(**scorer_args)
+        scorer_job = self.scorer_job_class(
+            **{scorer_hyp_param_name: lat_2_ctm_job.out_ctm_file}, **scorer_args
+        )
         scorer_job.add_alias(f"{self.alias_output_prefix}scoring_{corpus_key}/{name}")
         tk.register_output(
             f"{self.alias_output_prefix}recog_{corpus_key}/{name}.reports",
             scorer_job.out_report_dir,
         )
 
+        return search_job, lat_2_ctm_job, scorer_job
+
     def _optimize_scales(
-        self, name: str, corpus_key: str, optimize_args: OptimizeJobArgs
+        self,
+        name: str,
+        corpus_key: str,
+        lattice_cache,
+        initial_am_scale,
+        initial_lm_scale,
+        scorer_class,
+        scorer_kwargs,
+        optimize_args: OptimizeJobArgs,
     ) -> (float, float):
         opt_job = recog.OptimizeAMandLMScaleJob(**optimize_args)
         opt_job.add_alias(f"{self.alias_output_prefix}optimize_{corpus_key}/{name}")
@@ -115,8 +131,14 @@ class BaseDecoder:
     def decode(
         self,
         name,
-        recognition_parameters: Union[BaseRecognitionParameters, Dict],
+        recognition_parameters: BaseRecognitionParameters,
         prior: PriorArgs,
+        *,
+        search_job_args: Union[SearchJobArgs, Dict],
+        lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
+        scorer_args: Union[ScliteScorerArgs, Dict],
+        optimize_parameters: Union[OptimizeJobArgs, Dict],
+        scorer_hyp_param_name: str = "hyp",
         optimize_am_lm_scales: bool = False,
     ):
         for corpus_key in self.eval_corpora:
