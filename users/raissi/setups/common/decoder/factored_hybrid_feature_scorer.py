@@ -2,7 +2,7 @@ __all__ = ["FactoredHybridFeatureScorer"]
 
 import i6_core.rasr as rasr
 
-class FactoredHybridFeatureScorer(FeatureScorer):
+class FactoredHybridFeatureScorer(rasr.FeatureScorer):
 
     def __init__(self, fs_tf_config, context_type,
                  prior_mixtures, prior_info,

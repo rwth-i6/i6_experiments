@@ -25,7 +25,10 @@ import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
 
-from i6_experiments.common.setups.rasr.nn_system import NnSystem
+
+from i6_experiments.common.setups.rasr.nn_system import (
+    NnSystem
+)
 
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
@@ -35,11 +38,29 @@ from i6_experiments.common.setups.rasr.util import (
     RasrSteps,
 )
 
+
+
+#get_recog_ctx_args*() functions are imported here
+from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import *
+from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
+
+
+from i6_experiments.users.raissi.returnn.rasr_returnn_bw import (
+ReturnnRasrTrainingBWJob
+)
+
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
+    ContextEnum,
     ContextMapper,
     LabelInfo,
-    PipelineStages
+    PipelineStages,
+    #SprintFeatureToHdf
 )
+
+from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
+    get_graph_from_returnn_config
+)
+
 from i6_experiments.users.raissi.setups.common.helpers.train_helpers import (
     get_extra_config_segment_order,
 )
@@ -53,6 +74,10 @@ from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import
     get_alignment_keys,
     get_lexicon_args,
     get_tdp_values,
+)
+
+from i6_experiments.users.raissi.setups.librispeech.search.factored_hybrid_search import(
+    FHDecoder
 )
 
 
@@ -146,6 +171,7 @@ class FactoredHybridSystem(NnSystem):
         #pipeline info
         self.context_mapper = ContextMapper()
         self.stage = PipelineStages(get_alignment_keys())
+        self.contexts = {'mono': ContextEnum(self.context_mapper.get_enum(1))}
         
         self.trainers    = None #ToDo external trainer class
         self.recognizers = {}
@@ -157,8 +183,6 @@ class FactoredHybridSystem(NnSystem):
 
         #inference related
         self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}        #Triphone forward model
-        self.mixtures["dummy"] = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
-                                                           self.initial_nn_args["num_input"]).out_mixtures #gammatones
 
         self.inputs = {}
 
@@ -171,7 +195,8 @@ class FactoredHybridSystem(NnSystem):
             "graph": {"train": None, "inference": None},
             "returnn_config": None,
             "align_job": None,
-            "decode_job": {"runner": None, "args": None}
+            "decode_job": {"runner": None, "args": None},
+            "extra_returnn_code": {"epilog": "", "prolog": ""}
         }
 
     def set_crp_pairings(self):
@@ -185,8 +210,68 @@ class FactoredHybridSystem(NnSystem):
                 self.crp_names[k] = f'{train_key}.{k}'
             else:  self.crp_names[k] = k
 
+    # -------------------- Helpers --------------------
+    def _get_prior_info_dict(self):
+        prior_dict = {}
+        for k in ['left-context', 'center-state', 'right-context']:
+            prior_dict[f'{k}-prior'] = {}
+            prior_dict[f'{k}-prior']['scale'] = 0.0
+            prior_dict[f'{k}-prior']['file'] = None
+        return prior_dict
 
+    def _add_output_alias_for_train_job(
+        self,
+        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
+        train_corpus_key: str,
+        cv_corpus_key: str,
+        name: str,
+    ):
+        train_job.add_alias(f"train/nn_{name}")
+        tk.register_output(
+            f"train/{name}_learning_rate.png",
+            train_job.out_plot_lr,
+        )
 
+    def _get_model_checkpoint(self, model_job, epoch):
+        return model_job.out_checkpoints[epoch]
+
+    def _get_model_path(self, model_job, epoch):
+        return model_job.out_checkpoints[epoch].ckpt_path
+
+    def _delete_multitask_components(self, returnn_config):
+        config = copy.deepcopy(returnn_config)
+
+        for o in ["left", "right"]:
+            if 'linear' in config.config['network'][f'{o}-output']['from']:
+                for i in [1, 2]:
+                    for k in ['leftContext', 'triphone']:
+                        del config.config['network'][f'linear{i}-{k}']
+            del config.config['network'][f'{o}-output']
+
+        return config
+
+    def _delete_mlps(self, returnn_config, keys=None, source=None):
+        #source is either a string or a tupe
+        if source is None:
+            source = ['encoder-output']
+        elif isinstance(source, tuple):
+            source = list(source)
+        else: source = [source]
+
+        returnn_cfg = copy.deepcopy(returnn_config)
+        if keys is None:
+            keys = ['left', 'center', 'right']
+        for l in list(returnn_cfg.config['network'].keys()):
+            if 'linear' in l:
+                del returnn_cfg.config['network'][l]
+        for o in keys:
+            returnn_cfg.config['network'][f'{o}-output']['from'] = source
+        return returnn_cfg
+
+    def set_local_flf_tool(self, path=None):
+        if path is None:
+            path = "/u/raissi/dev/rasr-dense/src/Tools/Flf/flf-tool.linux-x86_64-standard"
+        self.csp["base"].flf_tool_exe = path
     #--------------------- Init procedure -----------------
     def init_system(self):
         for param in [self.hybrid_init_args, self.train_data, self.dev_data, self.test_data]:
@@ -313,9 +398,13 @@ class FactoredHybridSystem(NnSystem):
             for type in ["*", "silence"]:
                 crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
 
-        crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-        if self.label_info.use_word_end_class:
-            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_class
+        if 'train' in crp_key:
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+        else:
+            crp.acoustic_model_config.state_tying.type = 'no-tying-dense' #for correct statis tree of dependency
+
+        if self.label_info.use_word_end_classes:
+            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
         crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
         crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
 
@@ -339,6 +428,7 @@ class FactoredHybridSystem(NnSystem):
                 self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'])
 
 
+    #----- data preparation for train-----------------------------------------------------
 
     def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
         train_corpus_path = self.corpora["train-other-960"].corpus_file
@@ -436,7 +526,7 @@ class FactoredHybridSystem(NnSystem):
 
         nn_dev_data_inputs = {
             self.crp_names['dev-clean']: self.inputs["dev-clean"][input_key].as_returnn_rasr_data_input(),
-            self.crp_names['dev-clean']: self.inputs["dev-other"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['dev-other']: self.inputs["dev-other"][input_key].as_returnn_rasr_data_input(),
         }
         nn_test_data_inputs = {
             self.crp_names['test-clean']: self.inputs["test-clean"][input_key].as_returnn_rasr_data_input(),
@@ -449,67 +539,6 @@ class FactoredHybridSystem(NnSystem):
             devtrain_data=nn_devtrain_data_inputs,
             dev_data=nn_dev_data_inputs,
             test_data=nn_test_data_inputs)
-
-
-    # -------------------- Helpers --------------------
-    def _get_prior_info_dict(self):
-        prior_dict = {}
-        for k in ['left-context', 'center-state', 'right-context']:
-            prior_dict[f'{k}-prior'] = {}
-            prior_dict[f'{k}-prior']['scale'] = 0.0
-            prior_dict[f'{k}-prior']['file'] = None
-        return prior_dict
-
-    def _add_output_alias_for_train_job(
-        self,
-        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
-        train_corpus_key: str,
-        cv_corpus_key: str,
-        name: str,
-    ):
-        train_job.add_alias(f"train/nn_{name}")
-        tk.register_output(
-            f"train/{name}_learning_rate.png",
-            train_job.out_plot_lr,
-        )
-
-    def _get_model_checkpoint(self, model_job, epoch):
-        return model_job.checkpoints[epoch]
-
-    def _get_model_path(self, model_job, epoch):
-        return model_job.checkpoints[epoch].ckpt_path
-
-    def _delete_multitask_components(self, returnn_config):
-        config = copy.deepcopy(returnn_config)
-
-        for o in ["left", "right"]:
-            if 'linear' in config.config['network'][f'{o}-output']['from']:
-                for i in [1, 2]:
-                    for k in ['leftContext', 'triphone']:
-                        del config.config['network'][f'linear{i}-{k}']
-            del config.config['network'][f'{o}-output']
-
-        return config
-
-    def _delete_mlps(self, returnn_config, keys=None, source=None):
-        #source is either a string or a tupe
-        if source is None:
-            source = ['encoder-output']
-        elif isinstance(source, tuple):
-            source = list(source)
-        else: source = [source]
-
-        returnn_cfg = copy.deepcopy(returnn_config)
-        if keys is None:
-            keys = ['left', 'center', 'right']
-        for l in list(returnn_cfg.config['network'].keys()):
-            if 'linear' in l:
-                del returnn_cfg.config['network'][l]
-        for o in keys:
-            returnn_cfg.config['network'][f'{o}-output']['from'] = source
-        return returnn_cfg
-
-
 
     # -------------------- Training --------------------
 
@@ -647,7 +676,7 @@ class FactoredHybridSystem(NnSystem):
         else: returnn_config = nn_train_args.pop('returnn_config')
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        train_job = returnn.ReturnnRasrTrainingBWJob(
+        train_job = ReturnnRasrTrainingBWJob(
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flows={"train": train_data.feature_flow,
@@ -666,11 +695,145 @@ class FactoredHybridSystem(NnSystem):
         )
 
         self.experiments[experiment_key]["train_job"] = train_job
-
-    # -------------------- Recognition --------------------
-
+        self.set_graph_for_experiment(experiment_key)
 
 
+    #---------------------Prior Estimation--------------
+    def create_hdf(self):
+        path = '/work/asr4/raissi/setups/librispeech/960-ls/work--upto-09-2021/i6_private/users/raissi/helpers/sprint_align_to_hdf_for_context/SprintFeatureToHdf.twVD2EEjzYj3/output/data.hdf'
+        self.hdfs['960'] =  [('.').join([path, f'{i}']) for i in range(100)]
+        #path = '/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache'
+        #feature_caches = [('.').join([path, f'{i}']) for i in range(1, 101)]
+        #hdfJob = SprintFeatureToHdf(feature_caches)
+        #self.hdfs['960'] = hdfJob.hdf_files
+
+        #hdfJob.add_alias(f"960_hdf_dump")
+        #tk.register_output(f"960_hdf.0", hdfJob.hdf_files[0])
+
+    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None):
+
+        if nStateClasses is None:
+            nStateClasses = self.label_info.get_n_state_classes()
+
+        if tm is None:
+            tm = self.tf_map
+
+        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
+        model_checkpoint = self._get_model_checkpoint(
+            self.experiments[key]["train_job"], epoch
+        )
+        graph = self.experiments[key]["graph"]["inference"]
+
+        estimateJob = EstimateMonophonePriors_(model=model_checkpoint,
+                                               graph=graph,
+                                               dataPaths=self.hdfs['960'],
+                                               datasetIndices=list(range(50)),
+                                               libraryPath=tf_library,
+                                               nStates=nStateClasses,
+                                               tensorMap=tm,
+                                               gpu=1)
+        if name is not None:
+            estimateJob.add_alias(f"priors/priors-{name}")
+        xmlJob = DumpXmlForMonophone(estimateJob.priorFiles,
+                                     estimateJob.numSegments,
+                                     nStates=nStateClasses)
+        priorFiles = [xmlJob.centerPhonemeXml]
+        if name is not None:
+            xmlName = f"priors/{name}-xmlpriors"
+        else:
+            xmlName = "mono-prior"
+        tk.register_output(xmlName, priorFiles[0])
+        self.experiments[key]["priors"] = priorFiles
+
+    # -------------------- Decoding --------------------
+    def set_graph_for_experiment(self, key):
+        config = copy.deepcopy(self.experiments[key]["returnn_config"])
+        name = self.experiments[key]["name"]
+        python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
+        python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
+
+        t_graph = get_graph_from_returnn_config(config, python_prolog, python_epilog)
+        if "source" in config.config["network"].keys():  # specaugment
+            for k in ["fwd", "bwd"]:
+                config.config["network"][f"{k}_1"]["from"] = "data"
+            infer_graph = get_graph_from_returnn_config(config, python_prolog, python_epilog)
+        else: infer_graph = t_graph
+
+        self.experiments[key]["graph"]["inference"] = infer_graph
+        tk.register_output(f'graphs/{name}-infer_graph', infer_graph)
+
+    def get_recognizer_and_args(
+            self,
+            key,
+            context_type,
+            epoch,
+            crp_corpus=None,
+            gpu=True,
+            is_min_duration=False,
+            is_multi_encoder_output=False,
+            tf_library=None,
+    ):
+
+
+        name = ('-').join([self.experiments[key]["name"], crp_corpus, f'e{epoch}-'])
+        if context_type.value in [self.context_mapper.get_enum(i) for i in range(6, 9)]:
+            name = f'{self.experiments[key]["name"]}-delta-e{epoch}-'
+
+        model_path = self._get_model_path(self.experiments[key]["train_job"], epoch)
+        num_encoder_output = (
+                self.experiments[key]["returnn_config"].config["network"]["fwd_1"]["n_out"]
+                * 2
+        )
+
+        isSpecAug = (
+            True
+            if "source"
+               in self.experiments[key]["returnn_config"].config["network"].keys()
+            else False
+        )
+        if context_type.value in [
+            self.context_mapper.get_enum(1),
+            self.context_mapper.get_enum(7),
+        ]:
+            if isSpecAug:
+                recog_args = get_recog_mono_specAug_args()
+            else:
+                recog_args = get_recog_mono_args()
+        else:
+            print("implement other contexts")
+            assert (False)
+
+        recog_args["use_word_end_classes"] = self.label_info.use_word_end_classes
+        recog_args["n_states_per_phone"]   = self.label_info.n_states_per_phone
+        recog_args["n_contexts"]           = self.label_info.n_contexts
+        recog_args["is_min_duration"]      = is_min_duration
+        recog_args["num_encoder_output"]   = num_encoder_output
+
+        if context_type.value not in [
+            self.context_mapper.get_enum(1),
+            self.context_mapper.get_enum(7),
+        ]:
+            recog_args["recogArgsCount"].update(recog_args["sharedRecogArgs"])
+            recog_args["recogArgsLstm"].update(recog_args["sharedRecogArgs"])
+
+        dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
+                                                   self.initial_nn_args["num_input"]).out_mixtures  # gammatones
+        recognizer = FHDecoder(
+            name=name,
+            search_crp=self.crp[crp_corpus],
+            context_type=context_type,
+            context_mapper=self.context_mapper,
+            feature_path=self.feature_flows[crp_corpus],
+            model_path=model_path,
+            graph=self.experiments[key]["graph"]["inference"],
+            mixtures=dummy_mixtures,
+            eval_files=self.scorer_args[crp_corpus],
+            tf_library=tf_library,
+            is_multi_encoder_output=is_multi_encoder_output,
+            gpu=gpu,
+        )
+
+        return recognizer, recog_args
 
     # -------------------- run setup  --------------------
 
