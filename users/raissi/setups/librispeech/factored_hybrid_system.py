@@ -99,8 +99,8 @@ class FactoredHybridSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-            rasr_binary_path: Optional[str] = tk.Path(gs.RASR_ROOT),
-            hybrid_init_args: RasrInitArgs = None,
+            rasr_binary_path: Optional[str] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
+            rasr_init_args: RasrInitArgs = None,
             train_data: Dict[str, RasrDataInput] = None,
             dev_data: Dict[str, RasrDataInput] = None,
             test_data: Dict[str, RasrDataInput] = None,
@@ -112,7 +112,7 @@ class FactoredHybridSystem(NnSystem):
             rasr_binary_path=rasr_binary_path,
         )
         #arguments used for the initialization of the system, they should be set before running the system
-        self.hybrid_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
         self.train_data = train_data
         self.dev_data = dev_data
         self.test_data = test_data
@@ -276,10 +276,10 @@ class FactoredHybridSystem(NnSystem):
         self.csp["base"].flf_tool_exe = path
     #--------------------- Init procedure -----------------
     def init_system(self):
-        for param in [self.hybrid_init_args, self.train_data, self.dev_data, self.test_data]:
+        for param in [self.rasr_init_args, self.train_data, self.dev_data, self.test_data]:
             assert param is not None
 
-        self._init_am(**self.hybrid_init_args.am_args)
+        self._init_am(**self.rasr_init_args.am_args)
         self._assert_corpus_name_unique(self.train_data, self.dev_data, self.test_data)
 
         for corpus_key, rasr_data_input in sorted(self.train_data.items()):
@@ -844,8 +844,8 @@ class FactoredHybridSystem(NnSystem):
             self.init_system()
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
-                self.hybrid_init_args.stm_args
-                if self.hybrid_init_args.stm_args is not None
+                self.rasr_init_args.stm_args
+                if self.rasr_init_args.stm_args is not None
                 else {}
             )
             self.create_stm_from_corpus(eval_c, **stm_args)
@@ -855,7 +855,7 @@ class FactoredHybridSystem(NnSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 if step_args is None:
-                    step_args = self.hybrid_init_args.feature_extraction_args
+                    step_args = self.rasr_init_args.feature_extraction_args
                 for all_c in (
                     self.train_corpora
                     + self.cv_corpora
