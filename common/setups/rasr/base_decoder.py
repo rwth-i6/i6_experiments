@@ -186,27 +186,68 @@ class BaseDecoder:
         scorer_hyp_param_name: str = "hyp",
         optimize_am_lm_scales: bool = False,
     ):
-        for corpus_key in self.eval_corpora:
-            self._recog(
+        for (
+            corpus_key,
+            am_sc,
+            lm_sc,
+            prior_sc,
+            pron_sc,
+            tdp_sc,
+            tdp_trans,
+            tdp_sil,
+        ) in zip(self.eval_corpora, recognition_parameters):
+            if scorer_args["ref"] is None:
+                logging.warning("Using no cleanup during STM creation.")
+                scorer_args["ref"] = CorpusToStmJob(
+                    self.crp[corpus_key].corpus_config.file,
+                    exclude_non_speech=False,
+                    remove_punctuation=False,
+                    fix_whitespace=False,
+                ).out_stm_path
+
+            self._set_scales_and_tdps(
+                corpus_key=corpus_key,
+                am_scale=am_sc,
+                lm_scale=lm_sc,
+                prior_scale=prior_sc,
+                tdp_scale=tdp_sc,
+                tdp_transition=tdp_trans,
+                tdp_silence=tdp_sil,
+            )
+
+            if pron_sc is not None:
+                model_combination_config = rasr.RasrConfig()
+                model_combination_config.pronunciation_scale = pron_sc
+            else:
+                model_combination_config = None
+            search_job_args["model_combination_config"] = model_combination_config
+
+            search_job, lat_2_ctm_job, scorer_job = self._recog(
                 name=name,
                 corpus_key=corpus_key,
-                search_job_args={},
-                lat_2_ctm_args={},
-                scorer_args={},
+                search_job_args=search_job_args,
+                lat_2_ctm_args=lat_2_ctm_args,
+                scorer_args=scorer_args,
+                scorer_hyp_param_name=scorer_hyp_param_name,
             )
             if optimize_am_lm_scales:
                 best_am_scale, best_lm_scale = self._optimize_scales(
-                    scorer_cls=self.scorer_job_class,
+                    name=name,
+                    corpus_key=corpus_key,
+                    lattice_cache=search_job.out_lattice_bundle,
+                    initial_am_scale=am_sc,
+                    initial_lm_scale=lm_sc,
+                    scorer_class=self.scorer_job_class,
                     scorer_kwargs={},
-                    opt_only_lm_scale=True if best_am_scale == 1.0 else False,
+                    optimize_args=optimize_parameters,
                 )
-                search_job_args = {}
                 self._recog(
                     name=f"{name}-opt",
                     corpus_key=corpus_key,
-                    search_job_args={},
-                    lat_2_ctm_args={},
-                    scorer_args={},
+                    search_job_args=search_job_args,
+                    lat_2_ctm_args=lat_2_ctm_args,
+                    scorer_args=scorer_args,
+                    scorer_hyp_param_name=scorer_hyp_param_name,
                 )
 
     def get_results(self):
