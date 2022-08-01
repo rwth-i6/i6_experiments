@@ -83,10 +83,12 @@ class Lattice2CtmArgs(TypedDict):
     extra_post_config: Optional[rasr.RasrConfig]
 
 
-class ScorerArgs(TypedDict):
+class ScliteScorerArgs(TypedDict):
+    ref: Optional[tk.Path]
     cer: bool
     sort_files: bool
     additional_args: Optional[List[str]]
+    sctk_binary_path: Optional[tk.Path]
 
 
 class OptimizeJobArgs(TypedDict):
