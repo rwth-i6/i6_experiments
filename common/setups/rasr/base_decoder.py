@@ -76,6 +76,51 @@ class BaseDecoder:
             self.crp[corpus_key] = rasr.CommonRasrParameters(base=self.crp["base"])
             rasr.crp_set_corpus(self.crp[corpus_key], corpus_object)
 
+    @staticmethod
+    def _get_scales_string(
+        am_scale, lm_scale, pronunciation_scale, tdp_scale, prior_scale
+    ):
+        out_str = ""
+        out_str += f"am{am_scale:2f.2f}"
+        out_str += f"_lm{lm_scale:2f.2f}"
+        out_str += f"_pron{pronunciation_scale:2f.2f}"
+        out_str += f"_tdp{tdp_scale:2f.2f}"
+        out_str += f"_prior{prior_scale:2f.2f}"
+        return out_str
+
+    def _set_scales_and_tdps(
+        self,
+        corpus_key,
+        am_scale,
+        lm_scale,
+        prior_scale,
+        tdp_scale,
+        tdp_transition,
+        tdp_silence,
+    ):
+        self.crp[corpus_key].acoustic_model_config.scale = am_scale
+        self.crp[corpus_key].language_model_config.scale = lm_scale
+
+        self.crp[corpus_key].mixture_set.prior_scale = prior_scale
+
+        self.crp[corpus_key].acoustic_model_config.tdp.scale = tdp_scale
+        self.crp[corpus_key].acoustic_model_config.tdp["*"].loop = tdp_transition.loop
+        self.crp[corpus_key].acoustic_model_config.tdp[
+            "*"
+        ].forward = tdp_transition.forward
+        self.crp[corpus_key].acoustic_model_config.tdp["*"].skip = tdp_transition.skip
+        self.crp[corpus_key].acoustic_model_config.tdp[
+            "*"
+        ].exit = tdp_transition.transition
+        self.crp[corpus_key].acoustic_model_config.tdp.silence.loop = tdp_silence.loop
+        self.crp[
+            corpus_key
+        ].acoustic_model_config.tdp.silence.forward = tdp_silence.forward
+        self.crp[corpus_key].acoustic_model_config.tdp.silence.skip = tdp_silence.skip
+        self.crp[
+            corpus_key
+        ].acoustic_model_config.tdp.silence.exit = tdp_silence.transition
+
     def _recog(
         self,
         name: str,
