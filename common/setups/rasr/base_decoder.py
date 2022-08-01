@@ -1,7 +1,7 @@
 __all__ = ["BaseDecoder"]
 
 import copy
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Type, Union
 
 from sisyphus import tk
 
@@ -30,8 +30,8 @@ class BaseDecoder:
         append: bool = False,
         unbuffered: bool = False,
         compress_after_run: bool = True,
-        search_job_class: tk.Job = recog.AdvancedTreeSearchJob,
-        scorer_job_class: tk.Job = recog.ScliteJob,
+        search_job_class: Type[tk.Job] = recog.AdvancedTreeSearchJob,
+        scorer_job_class: Type[tk.Job] = recog.ScliteJob,
         alias_output_prefix: str = "",
     ):
         self.rasr_binary_path = rasr_binary_path
