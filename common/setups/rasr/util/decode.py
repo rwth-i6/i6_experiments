@@ -92,5 +92,8 @@ class ScliteScorerArgs(TypedDict):
 
 
 class OptimizeJobArgs(TypedDict):
-    crp: rasr.CommonRasrParameters
-    lattice_cache: Any
+    opt_only_lm_scale: bool
+    maxiter: int
+    precision: int
+    extra_config: Optional[rasr.RasrConfig]
+    extra_post_config: Optional[rasr.RasrConfig]
