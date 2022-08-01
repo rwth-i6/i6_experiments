@@ -33,7 +33,9 @@ class ReturnnRasrDataInput:
         ] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
-        shuffle_data: bool = True,
+        shuffle_data: bool = False,
+        segment_order_sort_by_time_length: bool = False,
+        chunk_size:int = 384,
         **kwargs,
     ):
         self.name = name
@@ -44,6 +46,8 @@ class ReturnnRasrDataInput:
         self.acoustic_mixtures = acoustic_mixtures
         self.feature_scorers = feature_scorers
         self.shuffle_data = shuffle_data
+        self.segment_order_sort_by_time_length = segment_order_sort_by_time_length
+        self.chunk_size = chunk_size
 
     @staticmethod
     def get_data_dict():
@@ -112,6 +116,8 @@ class ReturnnRasrDataInput:
         segment_path: Optional[Union[str, tk.Path]] = None,
         concurrent: Optional[int] = None,
         shuffle_data: bool = True,
+        segment_order_sort_by_time_length: bool = True,
+        chunk_size: Optional[int] = None,
     ):
         if corpus_file is not None:
             self.crp.corpus_config.file = corpus_file
@@ -124,23 +130,31 @@ class ReturnnRasrDataInput:
         if concurrent is not None:
             self.crp.concurrent = concurrent
 
+        if chunk_size is None:
+            chunk_size = self.chunk_size
+
         if self.shuffle_data or shuffle_data:
             self.crp.corpus_config.segment_order_shuffle = True
+
+        if self.segment_order_sort_by_time_length or segment_order_sort_by_time_length:
             self.crp.corpus_config.segment_order_sort_by_time_length = True
-            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = chunk_size
 
     def get_crp(self, **kwargs):
         """
         constructs and returns a CommonRasrParameters from the given settings and files
         :rtype CommonRasrParameters:
         """
+
         if self.crp is None:
             self.build_crp(**kwargs)
 
         if self.shuffle_data:
             self.crp.corpus_config.segment_order_shuffle = True
+
+        if self.segment_order_sort_by_time_length:
             self.crp.corpus_config.segment_order_sort_by_time_length = True
-            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
+            self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = self.chunk_size
 
         return self.crp
 

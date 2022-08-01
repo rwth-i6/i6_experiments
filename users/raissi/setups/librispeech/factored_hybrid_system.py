@@ -45,9 +45,7 @@ from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args
 from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
 
 
-from i6_experiments.users.raissi.returnn.rasr_returnn_bw import (
-ReturnnRasrTrainingBWJob
-)
+
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextEnum,
@@ -676,7 +674,7 @@ class FactoredHybridSystem(NnSystem):
         else: returnn_config = nn_train_args.pop('returnn_config')
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        train_job = ReturnnRasrTrainingBWJob(
+        train_job = returnn.ReturnnRasrTrainingBWJob(
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flows={"train": train_data.feature_flow,

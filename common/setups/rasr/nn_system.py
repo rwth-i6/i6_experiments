@@ -46,12 +46,17 @@ class NnSystem(RasrSystem):
 
     def __init__(
         self,
+        rasr_binary_path: tk.Path = None,
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
         returnn_python_exe: Optional[str] = None,
         blas_lib: Optional[str] = None,
     ):
-        super().__init__()
+
+        rasr_binary_path = rasr_binary_path or (
+            gs.RASR_ROOT if hasattr(gs, "RASR_ROOT") else None
+        )
+        super().__init__(rasr_binary_path=rasr_binary_path)
 
         self.returnn_root = returnn_root or (
             gs.RETURNN_ROOT if hasattr(gs, "RETURNN_ROOT") else None

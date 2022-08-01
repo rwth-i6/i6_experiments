@@ -116,7 +116,7 @@ class RasrSystem(meta.System):
         )
 
         self.crp[corpus_key].set_executables(
-            rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
+            rasr_root=self.rasr_binary_path, rasr_arch=self.rasr_arch
         )
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
@@ -225,7 +225,7 @@ class RasrSystem(meta.System):
             in case of None nothing will be set
         """
         self.crp[crp_key].set_executables(
-            rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch
+            rasr_root=rasr_binary_path, rasr_arch=rasr_arch
         )
 
         if python_home is not None:
