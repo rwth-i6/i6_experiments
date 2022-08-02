@@ -366,7 +366,7 @@ class RasrSystem(meta.System):
             corpus=target_corpus_key,
             flow=flow,
             feature_scorer=selected_feature_scorer,
-            kwargs=kwargs,
+            **kwargs,
         )
 
         align_job = self.jobs[target_corpus_key]["alignment_%s" % name]
