@@ -50,7 +50,7 @@ from i6_experiments.users.hilmes.data.tts_preprocessing import (
 )
 
 
-def dump_dataset(config, returnn_root, returnn_gpu_exe):
+def dump_dataset(config, returnn_root, returnn_gpu_exe, name):
     """
     wrapper around DumpHDFJob
     :param config:
@@ -61,6 +61,7 @@ def dump_dataset(config, returnn_root, returnn_gpu_exe):
     dataset_dump = ReturnnDumpHDFJob(
         data=config, returnn_root=returnn_root, returnn_python_exe=returnn_gpu_exe
     )
+    dataset_dump.add_alias(name + "/dump_dataset")
     return dataset_dump.out_hdf
 
 
@@ -427,20 +428,6 @@ def get_tts_data_from_rasr_alignment(
         available_for_inference=False,
         center=True,
     )
-    # Temporary debugging
-    full_ogg = OggZipDataset(
-        path=zip_dataset,
-        audio_opts=log_mel_datastream.as_returnn_audio_opts(),
-        target_opts=vocab_datastream.as_returnn_targets_opts(),
-        partition_epoch=1,
-        seq_ordering="laplace:.1000",
-    )
-    dump_audio = dump_dataset(
-        full_ogg.as_returnn_opts(),
-        returnn_root=returnn_root,
-        returnn_gpu_exe=returnn_exe,
-    )
-    tk.register_output(output_path + "/returnn_extraction", dump_audio)
 
     tts_datasets = TTSTrainingDatasets(
         train=train_dataset, cv=cv_dataset, datastreams=datastreams
@@ -646,7 +633,7 @@ def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignmen
         dev_segments=cv_segments,
     )
 
-    return training_datasets, vocoder_data
+    return training_datasets, vocoder_data, sil_pp_train_clean_100_tts, durations
 
 
 def get_inference_dataset(

@@ -44,30 +44,33 @@ def run_librispeech_100_common_tts_baseline(
     steps = RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    # steps.add_step("cart", cart_args)
-    # steps.add_step("tri", tri_args)
-    # steps.add_step("vtln", vtln_args)
-    # steps.add_step("sat", sat_args)
-    # steps.add_step("vtln+sat", vtln_sat_args)
+    steps.add_step("forced_align_mono",
+      {"name": "tts_align", "target_corpus_key": "tts_align", "flow": "mfcc+deriv+norm",
+       "feature_scorer": ("train-clean-100", "train_mono"), "corpus_keys": ["tts_align"]})
+    steps.add_step("cart", cart_args)
+    steps.add_step("tri", tri_args)
+    steps.add_step("vtln", vtln_args)
+    steps.add_step("sat", sat_args)
+    steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
     corpus_data = get_corpus_data_inputs()
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
-        hybrid_init_args=hybrid_init_args,
+        rasr_init_args=hybrid_init_args,
         train_data=corpus_data.train_data,
         dev_data=corpus_data.dev_data,
         test_data=corpus_data.test_data,
     )
     system.run(steps)
 
-    system.align(
-        name="tts_align",
-        corpus="tts_align",
-        feature_scorer=("train-clean-100", "train_mono"),
-        flow="mfcc+deriv+norm",
-    )
+    #system.align(
+    #    name="tts_align",
+    #    corpus="tts_align",
+    #    feature_scorer=("train-clean-100", "train_mono"),
+    #    flow="mfcc+deriv+norm",
+    #)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
     return (

@@ -339,7 +339,7 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
     )
     forward_hdf = forward_job.out_hdf_files["output.hdf"]
     forward_vocoded, vocoder_forward_job = vocoder.vocode(
-        forward_hdf, iterations=30, cleanup=True
+        forward_hdf, iterations=30, cleanup=True, name=name
     )
     verification = VerifyCorpus(forward_vocoded).out
     cleanup = MultiJobCleanup(
@@ -452,3 +452,33 @@ def synthesize_with_splits(
 
     tk.register_output(name + "synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
     return cv_synth_corpus
+
+
+def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job):
+    """
+
+    :param returnn_common_root:
+    :param returnn_exe:
+    :param returnn_root:
+    :param datasets:
+    :param prefix:
+    :param train_job:
+    :return:
+    """
+
+    extraction_config = get_extraction_config(
+        speaker_embedding_size=256,
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=datasets.cv, datastreams=datasets.datastreams
+        ),
+    )
+    extraction_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[200],
+        config=extraction_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=prefix + "/extract_speak_emb",
+    )
+    speaker_embedding_hdf = extraction_job.out_default_hdf
+    return speaker_embedding_hdf

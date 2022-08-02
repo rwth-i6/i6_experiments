@@ -43,18 +43,18 @@ def run_librispeech_100_with_synthetic_data(
     steps = RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    # steps.add_step("cart", cart_args)
-    # steps.add_step("tri", tri_args)
-    # steps.add_step("vtln", vtln_args)
-    # steps.add_step("sat", sat_args)
-    # steps.add_step("vtln+sat", vtln_sat_args)
+    steps.add_step("cart", cart_args)
+    steps.add_step("tri", tri_args)
+    steps.add_step("vtln", vtln_args)
+    steps.add_step("sat", sat_args)
+    steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
     corpus_data = get_synth_corpus_data_inputs(synth_corpus)
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
-        hybrid_init_args=hybrid_init_args,
+        rasr_init_args=hybrid_init_args,
         train_data=corpus_data.train_data,
         dev_data=corpus_data.dev_data,
         test_data=corpus_data.test_data,
