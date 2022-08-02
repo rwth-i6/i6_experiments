@@ -95,25 +95,24 @@ def ctc_baseline():
             checkpoint=train_job.out_checkpoints[200],
             config=forward_config,
         )
+        speaker_embedding_hdf = build_speaker_embedding_dataset(
+          returnn_common_root=returnn_common_root,
+          returnn_exe=returnn_exe,
+          returnn_root=returnn_root,
+          datasets=training_datasets,
+          prefix=exp_name,
+          train_job=train_job
+        )
+        synth_dataset = get_inference_dataset(
+          corpus,
+          returnn_root=returnn_root,
+          returnn_exe=returnn_exe,
+          datastreams=training_datasets.datastreams,
+          speaker_embedding_hdf=speaker_embedding_hdf,
+          durations=durations,
+          process_corpus=False,
+        )
         for duration in ["pred", "cheat"]:
-            speaker_embedding_hdf = build_speaker_embedding_dataset(
-                returnn_common_root=returnn_common_root,
-                returnn_exe=returnn_exe,
-                returnn_root=returnn_root,
-                datasets=training_datasets,
-                prefix=exp_name,
-                train_job=train_job
-            )
-            synth_dataset = get_inference_dataset(
-                corpus,
-                returnn_root=returnn_root,
-                returnn_exe=returnn_exe,
-                datastreams=training_datasets.datastreams,
-                speaker_embedding_hdf=speaker_embedding_hdf,
-                durations=durations,
-                process_corpus=False,
-            )
-
             synth_corpus = synthesize_with_splits(
                 name=exp_name + f"/{duration}",
                 reference_corpus=corpus,

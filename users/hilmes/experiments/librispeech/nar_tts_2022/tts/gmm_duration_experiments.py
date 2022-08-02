@@ -59,148 +59,62 @@ def gmm_duration_cheat(rasr_alignment, rasr_allophones):
     job_splits = 10
     synthetic_data_dict = {}
 
-    exp_name = name + "/repeat"
-    train_config = get_training_config(
-        returnn_common_root=returnn_common_root,
-        training_datasets=training_datasets,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=False,
-    )
-    train_job = tts_training(
-        config=train_config,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        prefix=exp_name,
-        num_epochs=200,
-    )
-    # synthesis
+    for upsampling in ["repeat", "gauss"]:
 
-    # no cheating
-    speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        datasets=training_datasets,
-        prefix=exp_name,
-        train_job=train_job
-    )
-    synth_dataset = get_inference_dataset(
-        reference_corpus.corpus_file,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        datastreams=training_datasets.datastreams,
-        speaker_embedding_hdf=speaker_embedding_hdf,
-        durations=durations_hdf,
-        process_corpus=False,
-    )
+      exp_name = name + f"/{upsampling}"
+      train_config = get_training_config(
+          returnn_common_root=returnn_common_root,
+          training_datasets=training_datasets,
+          embedding_size=256,
+          speaker_embedding_size=256,
+          gauss_up=(upsampling == "gauss"),
+      )
+      train_job = tts_training(
+          config=train_config,
+          returnn_exe=returnn_exe,
+          returnn_root=returnn_root,
+          prefix=exp_name,
+          num_epochs=200,
+      )
+      # synthesis
 
-    synth_corpus = synthesize_with_splits(
-        name=exp_name + "/real",
-        reference_corpus=reference_corpus.corpus_file,
-        corpus_name="train-clean-100",
-        job_splits=job_splits,
-        datasets=synth_dataset,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
-        checkpoint=train_job.out_checkpoints[200],
-        vocoder=default_vocoder,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=False,
-    )
-    synthetic_data_dict["gmm_repeat_real"] = synth_corpus
+      # no cheating
+      speaker_embedding_hdf = build_speaker_embedding_dataset(
+          returnn_common_root=returnn_common_root,
+          returnn_exe=returnn_exe,
+          returnn_root=returnn_root,
+          datasets=training_datasets,
+          prefix=exp_name,
+          train_job=train_job
+      )
+      synth_dataset = get_inference_dataset(
+          reference_corpus.corpus_file,
+          returnn_root=returnn_root,
+          returnn_exe=returnn_exe,
+          datastreams=training_datasets.datastreams,
+          speaker_embedding_hdf=speaker_embedding_hdf,
+          durations=durations_hdf,
+          process_corpus=False,
+      )
 
-    # duration cheating
-    synth_corpus = synthesize_with_splits(
-        name=exp_name + "/cheat",
-        reference_corpus=reference_corpus.corpus_file,
-        corpus_name="train-clean-100",
-        job_splits=job_splits,
-        datasets=synth_dataset,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
-        checkpoint=train_job.out_checkpoints[200],
-        vocoder=default_vocoder,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=False,
-        use_true_durations=True,
-    )
-    synthetic_data_dict["gmm_repeat_cheat"] = synth_corpus
-
-    exp_name = name + "/gauss_up"
-    train_config = get_training_config(
-        returnn_common_root=returnn_common_root,
-        training_datasets=training_datasets,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=True,
-    )
-    train_job = tts_training(
-        config=train_config,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        prefix=exp_name,
-        num_epochs=200,
-    )
-    # synthesis
-
-    speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        datasets=training_datasets,
-        prefix=exp_name,
-        train_job=train_job
-    )
-    synth_dataset = get_inference_dataset(
-        reference_corpus.corpus_file,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        datastreams=training_datasets.datastreams,
-        speaker_embedding_hdf=speaker_embedding_hdf,
-        durations=durations_hdf,
-        process_corpus=False,
-    )
-
-    # no cheating
-    synth_corpus = synthesize_with_splits(
-        name=exp_name + "/real",
-        reference_corpus=reference_corpus.corpus_file,
-        corpus_name="train-clean-100",
-        job_splits=job_splits,
-        datasets=synth_dataset,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
-        checkpoint=train_job.out_checkpoints[200],
-        vocoder=default_vocoder,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=True,
-    )
-    synthetic_data_dict["gmm_gauss_up_real"] = synth_corpus
-
-    # duration cheating
-    synth_corpus = synthesize_with_splits(
-        name=exp_name + "/cheat",
-        reference_corpus=reference_corpus.corpus_file,
-        corpus_name="train-clean-100",
-        job_splits=job_splits,
-        datasets=synth_dataset,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
-        checkpoint=train_job.out_checkpoints[200],
-        vocoder=default_vocoder,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=True,
-        use_true_durations=True,
-    )
-    synthetic_data_dict["gmm_gauss_up_cheat"] = synth_corpus
+      for dur_pred in ["pred", "cheat"]:
+        synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+        )
+        synthetic_data_dict[f"gmm_{upsampling}_{dur_pred}"] = synth_corpus
 
     return synthetic_data_dict
+

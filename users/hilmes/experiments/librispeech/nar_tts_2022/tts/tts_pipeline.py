@@ -401,7 +401,7 @@ def synthesize_with_splits(
     verifications = []
     output_corpora = []
     for i in range(job_splits):
-        name = name + "/synth_corpus/part_%i/" % i
+        split_name = name + "/synth_corpus/part_%i/" % i
         forward_config = get_forward_config(
             returnn_common_root=returnn_common_root,
             forward_dataset=datasets,
@@ -418,14 +418,14 @@ def synthesize_with_splits(
             returnn_python_exe=returnn_exe,
             returnn_root=returnn_root,
         )
-        last_forward_job.add_alias(name + "forward")
+        last_forward_job.add_alias(split_name + "forward")
         forward_hdf = last_forward_job.out_hdf_files["output.hdf"]
-        tk.register_output(name, forward_hdf)
+        tk.register_output(split_name, forward_hdf)
 
         forward_vocoded, vocoder_forward_job = vocoder.vocode(
-            forward_hdf, iterations=30, cleanup=True, name=name
+            forward_hdf, iterations=30, cleanup=True, name=split_name
         )
-        tk.register_output(name + "synthesized_corpus.xml.gz", forward_vocoded)
+        tk.register_output(split_name + "synthesized_corpus.xml.gz", forward_vocoded)
         output_corpora.append(forward_vocoded)
         verification = VerifyCorpus(forward_vocoded).out
         verifications.append(verification)
@@ -434,7 +434,7 @@ def synthesize_with_splits(
             [last_forward_job, vocoder_forward_job], verification, output_only=True
         )
         tk.register_output(
-            name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out
+            split_name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out
         )
 
     from i6_core.corpus.transform import MergeStrategy
