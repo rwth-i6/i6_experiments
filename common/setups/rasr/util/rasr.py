@@ -198,13 +198,13 @@ class RasrSteps:
     def get_step_names_as_list(self):
         return list(self._step_names_args.keys())
 
-    def get_non_gmm_steps(self):
+    def get_non_gmm_steps_as_list(self):
         return ["forced_align"]
 
     def get_gmm_steps_names_as_list(self):
         step_names = self.get_step_names_as_list()
         # TODO nicer list comprehension
-        for non_gmm_step in self.get_non_gmm_steps():
+        for non_gmm_step in self.get_non_gmm_steps_as_list():
             step_names = [
                 name for name in step_names if not name.startswith(non_gmm_step)
             ]
