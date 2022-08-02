@@ -22,7 +22,6 @@ assert (
 RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 
 
-SCTK_BINARY_PATH = None
-# SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
+SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 # SCTK_BINARY_PATH = compile_sctk()  # use most recent SCTK
 SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
