@@ -65,13 +65,13 @@ class AmRasrConfig:
     across_word_model: bool = True
     early_recombination: bool = False
     tdp_scale: float = 1.0
-    tdp_transition: Type[Tdp] = SpeechTdp()
-    tdp_silence: Type[Tdp] = SilenceTdp()
+    tdp_speech: Tdp = field(default_factory=SpeechTdp)
+    tdp_silence: Tdp = field(default_factory=SilenceTdp)
     tying_type: str = "global"
     nonword_phones: str = ""
-    tdp_nonword: Optional[
-        Type[Tdp]
-    ] = NonSpeechTdp()  # only used when tying_type = global-and-nonword
+    tdp_nonword: Optional[Tdp] = field(
+        default_factory=NonSpeechTdp
+    )  # only used when tying_type = global-and-nonword
     state_tying_file: Optional[tk.Path] = None
 
     def get_config(self):
@@ -82,7 +82,7 @@ class AmRasrConfig:
             across_word_model=self.across_word_model,
             early_recombination=self.early_recombination,
             tdp_scale=self.tdp_scale,
-            tdp_transition=self.tdp_transition,
+            tdp_transition=self.tdp_speech,
             tdp_silence=self.tdp_silence,
             tying_type=self.tying_type,
             nonword_phones=self.nonword_phones,
