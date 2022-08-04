@@ -1,6 +1,6 @@
 __all__ = [
     "BaseRecognitionParameters",
-    "PriorArgs",
+    "PriorPath",
     "SearchJobArgs",
     "Lattice2CtmArgs",
     "ScliteScorerArgs",
@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Type, TypedDict
+from typing import Any, Dict, List, Optional, Type, TypedDict, Union
 
 from sisyphus import tk
 
@@ -26,28 +26,31 @@ class BaseRecognitionParameters:
         prior_scales: List[float],
         pronunciation_scales: List[Optional[float]],
         tdp_scales: List[float],
-        transition_tdps: List[Type[Tdp]],
+        speech_tdps: List[Type[Tdp]],
         silence_tdps: List[Type[Tdp]],
+        nonspeech_tdps: List[Optional[Type[Tdp]]],
     ):
         self.am_scales = am_scales
         self.lm_scales = lm_scales
         self.prior_scales = prior_scales
         self.pronunciation_scales = pronunciation_scales
         self.tdp_scales = tdp_scales
-        self.transition_tdps = transition_tdps
+        self.speech_tdps = speech_tdps
         self.silence_tdps = silence_tdps
+        self.nonspeech_tdps = nonspeech_tdps
 
     def _get_iter(self):
         return [
-            (am, lm, pron, tdp, trans, sil, pri)
-            for am, lm, pri, pron, tdp, trans, sil in zip(
+            (am, lm, pri, pron, tdp, speech, sil, nonspeech)
+            for am, lm, pri, pron, tdp, speech, sil, nonspeech in zip(
                 self.am_scales,
                 self.lm_scales,
                 self.prior_scales,
                 self.pronunciation_scales,
                 self.tdp_scales,
-                self.transition_tdps,
+                self.speech_tdps,
                 self.silence_tdps,
+                self.nonspeech_tdps,
             )
         ]
 
@@ -63,16 +66,33 @@ class BaseRecognitionParameters:
 
 
 @dataclass()
-class PriorArgs:
+class PriorPath:
     acoustic_mixture_path: tk.Path
     prior_xml_path: tk.Path
 
 
+class LookaheadOptions(TypedDict):
+    test: str
+
+
 class SearchJobArgs(TypedDict):
-    feature_flow: rasr.FlowNetwork
+    use_gpu: bool
+    rtf: float
+    mem: int
+    cpu: int
+    extra_config: Optional[rasr.RasrConfig]
+    extra_post_config: Optional[rasr.RasrConfig]
+
+
+class AdvTreeSearchJobArgs(SearchJobArgs):
     feature_scorer: Type[rasr.FeatureScorer]
     search_parameters: Dict[str, Any]
-    model_combination_config: Optional[rasr.RasrConfig]
+    lm_lookahead: bool
+    lookahead_options: Optional[Union[LookaheadOptions, Dict]]
+    create_lattice: bool
+    eval_single_best: bool
+    eval_best_in_lattice: bool
+    lmgc_mem: int
 
 
 class Lattice2CtmArgs(TypedDict):

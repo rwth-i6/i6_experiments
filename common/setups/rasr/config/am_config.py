@@ -1,4 +1,4 @@
-__all__ = ["SpeechTdp", "SilenceTdp", "NonSpeechTdp", "AmRasrConfig"]
+__all__ = ["Tdp", "SpeechTdp", "SilenceTdp", "NonSpeechTdp", "AmRasrConfig"]
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -28,6 +28,9 @@ class Tdp:
         Union[float, str], Union[float, str], Union[float, str], Union[float, str]
     ]:
         return self.loop, self.forward, self.skip, self.exit
+
+    def __str__(self):
+        return f"loop{self.loop}_forward{self.forward}_skip{self.skip}_exit{self.exit}"
 
 
 @dataclass()
