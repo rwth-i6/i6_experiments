@@ -1,6 +1,7 @@
 __all__ = ["BaseDecoder"]
 
 import copy
+import itertools
 import logging
 from typing import Dict, List, Optional, Type, Union
 
@@ -240,7 +241,7 @@ class BaseDecoder:
     def decode(
         self,
         name: str,
-        feature_scorer: List[Optional[rasr.FeatureScorer]],
+        feature_scorers: List[Optional[rasr.FeatureScorer]],
         feature_flow: rasr.FlowNetwork,
         recognition_parameters: BaseRecognitionParameters,
         *,
@@ -262,7 +263,9 @@ class BaseDecoder:
             tdp_speech,
             tdp_silence,
             tdp_nonspeech,
-        ) in zip(self.eval_corpora, feature_scorer, recognition_parameters):
+        ) in itertools.product(
+            self.eval_corpora, feature_scorers, recognition_parameters
+        ):
             if scorer_args["ref"] is None:
                 logging.warning("Using no cleanup during STM creation.")
                 scorer_args["ref"] = CorpusToStmJob(
