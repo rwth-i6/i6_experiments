@@ -1,6 +1,6 @@
 __all__ = ["get_tf_flow", "add_tf_flow_to_base_flow"]
 
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from sisyphus import tk
 
@@ -11,7 +11,7 @@ import i6_core.returnn as returnn
 def get_tf_flow(
     checkpoint_path: Union[tk.Path, returnn.Checkpoint],
     tf_graph_path: tk.Path,
-    returnn_op_path: Optional[tk.Path] = None,
+    returnn_op_path: Optional[Union[tk.Path, List[tk.Path]]] = None,
     forward_output_layer: str = "log_output",
     tf_fwd_input_name: str = "tf-fwd-input",
 ) -> rasr.FlowNetwork:
