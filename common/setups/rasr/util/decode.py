@@ -1,5 +1,5 @@
 __all__ = [
-    "BaseRecognitionParameters",
+    "RecognitionParameters",
     "PriorPath",
     "SearchJobArgs",
     "Lattice2CtmArgs",
@@ -17,7 +17,7 @@ import i6_core.rasr as rasr
 from ..config.am_config import Tdp
 
 
-class BaseRecognitionParameters:
+class RecognitionParameters:
     def __init__(
         self,
         *,
