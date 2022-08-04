@@ -15,7 +15,7 @@ from i6_core.meta import CorpusObject
 
 from .config.am_config import Tdp
 from .util.decode import (
-    BaseRecognitionParameters,
+    RecognitionParameters,
     SearchJobArgs,
     Lattice2CtmArgs,
     ScliteScorerArgs,
@@ -241,9 +241,9 @@ class BaseDecoder:
     def decode(
         self,
         name: str,
-        feature_scorers: List[Optional[rasr.FeatureScorer]],
+        feature_scorer: Optional[rasr.FeatureScorer],
         feature_flow: rasr.FlowNetwork,
-        recognition_parameters: BaseRecognitionParameters,
+        recognition_parameters: RecognitionParameters,
         *,
         search_job_args: Union[SearchJobArgs, Dict],
         lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
@@ -254,7 +254,6 @@ class BaseDecoder:
     ):
         for (
             corpus_key,
-            scorer,
             am_sc,
             lm_sc,
             prior_sc,
@@ -263,9 +262,7 @@ class BaseDecoder:
             tdp_speech,
             tdp_silence,
             tdp_nonspeech,
-        ) in itertools.product(
-            self.eval_corpora, feature_scorers, recognition_parameters
-        ):
+        ) in itertools.product(self.eval_corpora, recognition_parameters):
             if scorer_args["ref"] is None:
                 logging.warning("Using no cleanup during STM creation.")
                 scorer_args["ref"] = CorpusToStmJob(
@@ -295,7 +292,7 @@ class BaseDecoder:
             search_job, lat_2_ctm_job, scorer_job = self._recog(
                 name=name,
                 corpus_key=derived_corpus_key,
-                feature_scorer=scorer,
+                feature_scorer=feature_scorer,
                 feature_flow=feature_flow,
                 search_job_args=search_job_args,
                 lat_2_ctm_args=lat_2_ctm_args,
@@ -329,7 +326,7 @@ class BaseDecoder:
                 self._recog(
                     name=f"{name}-opt",
                     corpus_key=optimized_corpus_key,
-                    feature_scorer=scorer,
+                    feature_scorer=feature_scorer,
                     feature_flow=feature_flow,
                     search_job_args=search_job_args,
                     lat_2_ctm_args=lat_2_ctm_args,
