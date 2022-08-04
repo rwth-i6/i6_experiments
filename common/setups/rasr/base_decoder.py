@@ -3,7 +3,7 @@ __all__ = ["BaseDecoder"]
 import copy
 import itertools
 import logging
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, Optional, Type, Union
 
 from sisyphus import tk
 
@@ -97,8 +97,8 @@ class BaseDecoder:
         lm_scale: float,
         prior_scale: float,
         tdp_scale: float,
-        tdp_speech: Optional[Tdp],
-        tdp_silence: Optional[Tdp],
+        tdp_speech: Tdp,
+        tdp_silence: Tdp,
         tdp_nonspeech: Optional[Tdp] = None,
         pronunciation_scale: Optional[float] = None,
     ):
