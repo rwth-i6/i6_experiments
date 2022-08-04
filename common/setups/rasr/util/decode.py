@@ -69,6 +69,7 @@ class BaseRecognitionParameters:
 class PriorPath:
     acoustic_mixture_path: tk.Path
     prior_xml_path: tk.Path
+    priori_scale: float
 
 
 class LookaheadOptions(TypedDict):
