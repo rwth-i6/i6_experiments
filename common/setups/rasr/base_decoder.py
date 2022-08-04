@@ -239,7 +239,7 @@ class BaseDecoder:
 
     def decode(
         self,
-        name,
+        name: str,
         feature_scorer: List[Optional[rasr.FeatureScorer]],
         feature_flow: rasr.FlowNetwork,
         recognition_parameters: BaseRecognitionParameters,
