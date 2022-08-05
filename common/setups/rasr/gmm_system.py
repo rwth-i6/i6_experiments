@@ -1095,14 +1095,15 @@ class GmmSystem(RasrSystem):
             ][-1]
 
         if corpus_type == "train":
-            gmm_step_list = steps.get_gmm_steps_names_as_list()
-            step_list = steps.get_step_names_as_list()
-            dist_last_step = 1 + (len(step_list) - len(gmm_step_list))
+            # print(steps.get_prev_gmm_step(step_idx))
+            # gmm_step_list = steps.get_gmm_steps_names_as_list()
+            # step_list = steps.get_step_names_as_list()
+            # dist_last_step = 1 + (len(step_list) - len(gmm_step_list))
             gmm_output.alignments = self.alignments[corpus_key][
-                f"train_{gmm_step_list[step_idx - dist_last_step]}"
+                f"train_{steps.get_prev_gmm_step(step_idx)}"
             ][-1]
             gmm_output.acoustic_mixtures = self.mixtures[corpus_key][
-                f"train_{gmm_step_list[step_idx - dist_last_step]}"
+                f"train_{steps.get_prev_gmm_step(step_idx)}"
             ][-1]
 
         return gmm_output

@@ -214,3 +214,18 @@ class RasrSteps:
 
     def get_args_via_idx(self, idx):
         return list(self._step_names_args.values())[idx]
+
+    def get_prev_gmm_step(self, idx):
+        """
+        returns the previous gmm step based on given index
+        """
+        step_names = list(
+            filter(
+                lambda x: not any(
+                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
+                ),
+                self.get_step_names_as_list()[:idx],
+            )
+        )
+        print(step_names[-1])
+        return step_names[-1]
