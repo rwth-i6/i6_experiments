@@ -667,8 +667,8 @@ def get_data_inputs(
     train_corpus="train-other-960",
     add_unknown_phoneme_and_mapping: bool = False,
     use_eval_data_subset: bool = False,
-    g2p_python: Optional[Union[str, tk.Path]] = None,
-    g2p_path: Optional[Union[str, tk.Path]] = None,
+    g2p_python: Optional[tk.Path] = None,
+    g2p_path: Optional[tk.Path] = None,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
