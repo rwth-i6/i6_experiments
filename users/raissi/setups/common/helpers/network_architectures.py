@@ -1,15 +1,27 @@
-import i6_core.returnn as returnn
-import i6_core.rasr as sp
-from i6_core.rasr.command import RasrCommand
-from sisyphus import *
-
 import copy
 from IPython import embed
 
+from sisyphus import *
 
+import i6_core.returnn as returnn
+import i6_core.rasr as sp
+
+from i6_core.rasr.command import RasrCommand
+
+from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
+    ContextEnum,
+    ContextMapper
+)
+
+context_mapper = ContextMapper()
 
 
 def blstm_config(network, partition_epochs, lr=5e-4, batch_size=10000, max_seqs=100, chunking="64:32", **kwargs):
+    key_interval = "learning_rate_control_min_num_epochs_per_new_lr"
+    if key_interval in kwargs:
+        update_interval = kwargs[key_interval]
+    else:
+        update_interval = partition_epochs["dev"]
     result = {"batch_size": batch_size,
               "max_seqs": max_seqs,
               "cache_size": "0",
@@ -18,19 +30,16 @@ def blstm_config(network, partition_epochs, lr=5e-4, batch_size=10000, max_seqs=
               "learning_rate": lr,
               "learning_rate_control": "newbob_multi_epoch",
               "newbob_multi_num_epochs": partition_epochs["train"],
-              "newbob_multi_update_interval": partition_epochs["dev"],
-              "learning_rate_control_relative_error_relative_lr": True,
-              "learning_rate_control_min_num_epochs_per_new_lr": 3,
+              "newbob_multi_update_interval": update_interval,
               "use_tensorflow": True,
               "multiprocessing": True,
-    
               "network": network}
     result.update(**kwargs)
     
     return result
 
 
-def blstm_network(layers=6 * [512], dropout=0.1, l2=0.1, unit_type="lstmp", specaugment=False):
+def blstm_network(layers=6 * [512], dropout=0.1, l2=0.1, unit_type="nativelstm2", specaugment=False):
     num_layers = len(layers)
     assert num_layers > 0
     
@@ -61,19 +70,6 @@ def blstm_network(layers=6 * [512], dropout=0.1, l2=0.1, unit_type="lstmp", spec
     return result
 
 
-"""
-        u32 result = e;
-        u32 boundaryClass = result % 4;
-        result = (result - boundaryClass)/4;
-        u32 stateClass = result % 3;
-        result = (result - stateClass)/3;
-        u32 futureLabel = result % 47;
-        result = (result - futureLabel)/ 47;
-        u32 pastLabel = result % 47;
-        u32 centerPhoneme = (result - pastLabel)/ 47;
-"""
-
-
 def add_delta_blstm_(network, name, l2=0.01, source_layer=None):
     if source_layer is None:
         source_layer = 'encoder-output'
@@ -89,110 +85,114 @@ def add_delta_blstm_(network, name, l2=0.01, source_layer=None):
     return network
 
 
-def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, isBoundary=True, nContexts=47, nStates=3,
-                                                 unit_type="lstmp",
-                                                 specaugment=False, isMinDuration=False, isWordEnd=False):
+def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_boundary_classes=True, n_contexts=47, n_states_per_phone=3,
+                                                 unit_type="nativelstm2",
+                                                 specaugment=False, is_min_duration=False, use_word_end_classes=False):
     acousticNet = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
+    assert (not (use_boundary_classes and use_word_end_classes))
     
-    assert (not (isBoundary and isWordEnd))
-    
-    if isBoundary:
-        stateInput = "popBoundry"
+    if use_boundary_classes:
+        labelingInput = "popBoundry"
         acousticNet["boundryClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.floormod(source(0),%d)" % 4,
                                        "out_type": {'dim': 4, 'dtype': 'int32', 'sparse': True}}
         acousticNet["popBoundry"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.floordiv(source(0),%d)" % 4,
-                                     "out_type": {'dim': (nContexts ** 3) * nStates, 'dtype': 'int32',
+                                     "out_type": {'dim': (n_contexts ** 3) * n_states_per_phone, 'dtype': 'int32',
                                                   'sparse': True}}
     
-    elif isWordEnd:
-        stateInput = "popWordEnd"
+    elif use_word_end_classes:
+        labelingInput = "popWordEnd"
         acousticNet["wordEndClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.floormod(source(0),%d)" % 2,
                                        "out_type": {'dim': 2, 'dtype': 'int32', 'sparse': True}}
         acousticNet["popWordEnd"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.floordiv(source(0),%d)" % 2,
-                                     "out_type": {'dim': (nContexts ** 3) * nStates, 'dtype': 'int32',
+                                     "out_type": {'dim': (n_contexts ** 3) * n_states_per_phone,
+                                                  'dtype': 'int32',
                                                   'sparse': True}}
     
     else:
-        stateInput = "data:classes"
-    
-    acousticNet["stateId"] = {"class": "eval", "from": stateInput, "eval": "tf.floormod(source(0),%d)" % nStates,
-                              "out_type": {'dim': nStates, 'dtype': 'int32', 'sparse': True}}
-    acousticNet["popStateId"] = {"class": "eval", "from": stateInput, "eval": "tf.floordiv(source(0),%d)" % nStates,
-                                 "out_type": {'dim': (nContexts ** 3), 'dtype': 'int32',
-                                              'sparse': True}}
-    acousticNet["futureLabel"] = {"class": "eval", "from": "popStateId",
-                                  "eval": "tf.floormod(source(0),%d)" % nContexts,
+        labelingInput = "data:classes"
+
+    acousticNet["futureLabel"] = {"class": "eval", "from": labelingInput,
+                                  "eval": "tf.floormod(source(0),%d)" % n_contexts,
                                   "register_as_extern_data": "futureLabel",
-                                  "out_type": {'dim': nContexts, 'dtype': 'int32', 'sparse': True}}
-    acousticNet["popFutureLabel"] = {"class": "eval", "from": "popStateId",
-                                     "eval": "tf.floordiv(source(0),%d)" % nContexts,
-                                     "out_type": {'dim': (nContexts ** 2), 'dtype': 'int32', 'sparse': True}}
-    
+                                  "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
+    acousticNet["popFutureLabel"] = {"class": "eval", "from": labelingInput,
+                                     "eval": "tf.floordiv(source(0),%d)" % n_contexts,
+                                     "out_type": {'dim': (n_contexts ** 2), 'dtype': 'int32', 'sparse': True}}
+
     acousticNet["pastLabel"] = {"class": "eval", "from": "popFutureLabel",
-                                "eval": "tf.floormod(source(0),%d)" % nContexts, "register_as_extern_data": "pastLabel",
-                                "out_type": {'dim': nContexts, 'dtype': 'int32', 'sparse': True}}
+                                "eval": "tf.floormod(source(0),%d)" % n_contexts,
+                                "register_as_extern_data": "pastLabel",
+                                "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
+    acousticNet["popPastLabel"] = {"class": "eval", "from": "popFutureLabel",
+                                   "eval": "tf.floordiv(source(0),%d)" % n_contexts,
+                                   "out_type": {'dim': (n_contexts ** 2), 'dtype': 'int32', 'sparse': True}}
+
+    acousticNet["stateId"] = {"class": "eval", "from": "popPastLabel",
+                              "eval": "tf.floormod(source(0),%d)" % n_states_per_phone,
+                              "out_type": {'dim': n_states_per_phone, 'dtype': 'int32', 'sparse': True}}
+
+    acousticNet["centerPhoneme"] = {"class": "eval", "from": "popPastLabel",
+                                    "eval": "tf.floordiv(source(0),%d)" % n_states_per_phone,
+                                    "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
     
-    acousticNet["centerPhoneme"] = {"class": "eval", "from": "popFutureLabel",
-                                    "eval": "tf.floordiv(source(0),%d)" % nContexts,
-                                    "out_type": {'dim': nContexts, 'dtype': 'int32', 'sparse': True}}
-    
-    if isMinDuration:
-        if isWordEnd:
+    if is_min_duration:
+        if use_word_end_classes:
             acousticNet["centerState"] = {"class": "eval", "from": ["centerPhoneme", "wordEndClass"],
                                           "eval": "(source(0)*2)+source(1)",
                                           "register_as_extern_data": "centerState",
-                                          "out_type": {'dim': nContexts * 2, 'dtype': 'int32', 'sparse': True}}
+                                          "out_type": {'dim': n_contexts * 2, 'dtype': 'int32', 'sparse': True}}
         else:
             acousticNet["centerPhoneme"]["register_as_extern_data"] = "centerState"
     else:
-        if isWordEnd:
+        if use_word_end_classes:
             acousticNet["centerState"] = {"class": "eval", "from": ["centerPhoneme", "stateId", "wordEndClass"],
-                                          "eval": "(((source(0)*2)+source(2))*3)+source(1)",
+                                          "eval": f"(((source(0)*{n_states_per_phone})+source(2))*2)+source(1)",
                                           "register_as_extern_data": "centerState",
-                                          "out_type": {'dim': nContexts * nStates * 2, 'dtype': 'int32',
+                                          "out_type": {'dim': n_contexts * n_states_per_phone * 2, 'dtype': 'int32',
                                                        'sparse': True}}
         else:
             acousticNet["centerState"] = {"class": "eval", "from": ["centerPhoneme", "stateId"],
-                                          "eval": "(source(0)*3)+source(1)", "register_as_extern_data": "centerState",
-                                          "out_type": {'dim': nContexts * nStates, 'dtype': 'int32', 'sparse': True}}
+                                          "eval": f"(source(0)*{n_states_per_phone})+source(1)", "register_as_extern_data": "centerState",
+                                          "out_type": {'dim': n_contexts * n_states_per_phone, 'dtype': 'int32', 'sparse': True}}
     
     return acousticNet
 
 
-def make_config(contextType, contextMapper, python_prolog, python_epilog, partition_epochs,
-                num_input=40, nStates=3, nContexts=47,
-                isBoundary=False, isMinDuration=False, isWordEnd=False,
-                layers=6 * [500], l2=0.01, mlpL2=0.01, dropout=0.1,
-                ctxEmbSize=10, stateEmbSize=30, focalLossFactor=2.0, labelSmoothing=0.0,
-                addMLPs=False, finalContextType=None, sprint=False,
-                unit_type="lstmp", specaugment=False, sharedDeltaEncoder=False, **kwargs):
-    if sprint:
-        sharedNetwork = get_common_subnetwork_for_targets_with_blstm(layers,
+def make_config(context_type, partition_epochs,
+                python_prolog=None, python_epilog="",
+                n_states_per_phone=3, n_contexts=47,
+                use_boundary_classes=False, is_min_duration=False, use_word_end_classes=False,
+                layers=6 * [500], l2=0.01, mlp_l2=0.01, dropout=0.1,
+                ph_emb_size=64, st_emb_size=256, focal_loss_factor=2.0, label_smoothing=0.0,
+                add_mlps=False, final_context_type=None, eval_dense_label=False,
+                unit_type="nativelstm2", specaugment=False, shared_delta_encoder=False, **kwargs):
+    if eval_dense_label:
+        shared_network = get_common_subnetwork_for_targets_with_blstm(layers,
                                                                      dropout,
                                                                      l2,
-                                                                     isBoundary=isBoundary,
-                                                                     nContexts=nContexts,
-                                                                     nStates=nStates,
+                                                                     use_boundary_classes=use_boundary_classes,
+                                                                     n_contexts=n_contexts,
+                                                                     n_states_per_phone=n_states_per_phone,
                                                                      unit_type=unit_type,
                                                                      specaugment=specaugment,
-                                                                     isMinDuration=isMinDuration,
-                                                                     isWordEnd=isWordEnd)
+                                                                     is_min_duration=is_min_duration,
+                                                                     use_word_end_classes=use_word_end_classes)
     else:
-        sharedNetwork = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
+        shared_network = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
     
-    config = get_config_for_context_type(contextType, contextMapper, partition_epochs,
-                                         sharedNetwork,
-                                         stateEmbSize=stateEmbSize,
-                                         focalLossFactor=focalLossFactor, labelSmoothing=labelSmoothing,
-                                         addMLPs=addMLPs, finalContextType=finalContextType, l2=mlpL2,
-                                         sharedDeltaEncoder=sharedDeltaEncoder, **kwargs)
+    config = get_config_for_context_type(context_type, partition_epochs,
+                                         shared_network,
+                                         st_emb_size=st_emb_size, ph_emb_size=ph_emb_size,
+                                         focal_loss_factor=focal_loss_factor, label_smoothing=label_smoothing,
+                                         add_mlps=add_mlps, final_context_type=final_context_type, l2=mlp_l2,
+                                         shared_delta_encoder=shared_delta_encoder, **kwargs)
     
     returnnConfig = returnn.ReturnnConfig(config, python_prolog=python_prolog, python_epilog=python_epilog)
     
     return returnnConfig
 
 
-def get_graph_from_returnn_config(returnnConfig, python_prolog, python_epilog):
+def get_graph_from_returnn_config(returnnConfig, python_prolog=None, python_epilog=None):
     if isinstance(returnnConfig, returnn.ReturnnConfig):
         tf_returnn_config = copy.copy(returnnConfig.config)
     else:
@@ -217,40 +217,38 @@ def get_graph_from_returnn_config(returnnConfig, python_prolog, python_epilog):
     return compiledGraphJob.out_graph
 
 
-def get_config_for_context_type(contextType, contextMapper, partition_epochs,
-                                sharedNetwork, ctxEmbSize=10, stateEmbSize=30,
-                                focalLossFactor=2.0, labelSmoothing=0.2,
-                                addMLPs=False, finalContextType=None, l2=0.01, sharedDeltaEncoder=False, **kwargs):
-    if contextType.value == contextMapper.get_enum(1):
-        network = get_monophone_net(sharedNetwork,
-                                    addMLPs=addMLPs,
-                                    finalCtxType=finalContextType,
-                                    contextMapper=contextMapper,
-                                    ctxEmbSize=ctxEmbSize,
-                                    stateEmbSize=stateEmbSize,
-                                    focalLossFactor=focalLossFactor,
-                                    labelSmoothing=labelSmoothing,
+def get_config_for_context_type(context_type, partition_epochs,
+                                shared_network, ph_emb_size=64, st_emb_size=256,
+                                focal_loss_factor=2.0, label_smoothing=0.2,
+                                add_mlps=False, final_context_type=None, l2=0.01, shared_delta_encoder=False, **kwargs):
+
+    if context_type.value == context_mapper.get_enum(1):
+        network = get_monophone_net(shared_network,
+                                    add_mlps=add_mlps,
+                                    final_ctx_type=final_context_type,
+                                    ph_emb_size=ph_emb_size,
+                                    st_emb_size=st_emb_size,
+                                    focal_loss_factor=focal_loss_factor,
+                                    label_smoothing=label_smoothing,
                                     l2=l2,
-                                    sharedDeltaEncoder=sharedDeltaEncoder)
+                                    shared_delta_encoder=shared_delta_encoder)
     
+    elif context_type.value == context_mapper.get_enum(2):
+        network = get_diphone_net(shared_network)
     
-    elif contextType.value == contextMapper.get_enum(2):
-        network = get_diphone_net(sharedNetwork)
+    elif context_type.value == context_mapper.get_enum(3):
+        network = get_symmetric_net(shared_network)
     
-    elif contextType.value == contextMapper.get_enum(3):
-        network = get_symmetric_net(sharedNetwork)
+    elif context_type.value == context_mapper.get_enum(4):
+        network = get_forward_net(shared_network)
     
-    elif contextType.value == contextMapper.get_enum(4):
-        network = get_forward_net(sharedNetwork)
-    
-    elif contextType.value == contextMapper.get_enum(5):
-        network = get_backward_net(sharedNetwork)
+    elif context_type.value == context_mapper.get_enum(5):
+        network = get_backward_net(shared_network)
     
     else:
         return None
 
     # ToDo: once you hvae your optimal setting add it here using bin_ce_weight
-    # if finalCtxType.value == contextMapper.get_enum(6):
     
     config = blstm_config(network, partition_epochs, **kwargs)
     
@@ -278,26 +276,24 @@ def set_Mlp_component(network, layerName, outputSize, sourceLayer="encoder-outpu
     return network
 
 
-def get_monophone_net(sharedNetwork, addMLPs=False,
-                      finalCtxType=None, contextMapper=None, ctxEmbSize=10, stateEmbSize=30,
-                      focalLossFactor=2.0, labelSmoothing=0.0, l2=None, sharedDeltaEncoder=False):
-    network = copy.copy(sharedNetwork)
+def get_monophone_net(shared_network, add_mlps=False,
+                      final_ctx_type=None, ph_emb_size=10, st_emb_size=30,
+                      focal_loss_factor=2.0, label_smoothing=0.0, l2=None, shared_delta_encoder=False):
+    network = copy.copy(shared_network)
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     
-    encoder_out_len = sharedNetwork['fwd_1']['n_out'] * 2
+    encoder_out_len = shared_network['fwd_1']['n_out'] * 2
     
     lossOpts = {}
-    if focalLossFactor > 0.0:
-        lossOpts["focal_loss_factor"] = focalLossFactor
-    if labelSmoothing > 0.0:
-        lossOpts["label_smoothing"] = labelSmoothing
+    if focal_loss_factor > 0.0:
+        lossOpts["focal_loss_factor"] = focal_loss_factor
+    if label_smoothing > 0.0:
+        lossOpts["label_smoothing"] = label_smoothing
     
-    if addMLPs:
+    if add_mlps:
 
-        assert finalCtxType is not None
-        assert contextMapper is not None
-        # ToDo: complete the options
-        if finalCtxType.value == contextMapper.get_enum(3):
+        assert final_ctx_type is not None
+        if final_ctx_type.value == context_mapper.get_enum(3):
             set_Mlp_component(network, "contexts", encoder_out_len, l2=l2)
             set_Mlp_component(network, "triphone", 1020, l2=l2)
             
@@ -319,9 +315,9 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
         
-        elif finalCtxType.value == contextMapper.get_enum(4):
-            diOut = encoder_out_len + ctxEmbSize
-            triOut = encoder_out_len + ctxEmbSize + stateEmbSize
+        elif final_ctx_type.value == context_mapper.get_enum(4):
+            diOut = encoder_out_len + ph_emb_size
+            triOut = encoder_out_len + ph_emb_size + st_emb_size
             set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
             set_Mlp_component(network, "diphone", diOut, l2=l2)
             set_Mlp_component(network, "triphone", triOut, l2=l2)
@@ -343,7 +339,7 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
         
-        elif finalCtxType.value == contextMapper.get_enum(5):
+        elif final_ctx_type.value == context_mapper.get_enum(5):
             set_Mlp_component(network, "centerState", encoder_out_len, l2=l2)
             set_Mlp_component(network, "diphone", 1030, l2=l2)
             set_Mlp_component(network, "triphone", 1040, l2=l2)
@@ -366,13 +362,13 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
                                         "loss_opts": copy.copy(lossOpts)}
         
         
-        elif finalCtxType.value == contextMapper.get_enum(6):
-            diOut = encoder_out_len + ctxEmbSize
-            triOut = encoder_out_len + ctxEmbSize + stateEmbSize
+        elif final_ctx_type.value == context_mapper.get_enum(6):
+            diOut = encoder_out_len + ph_emb_size
+            triOut = encoder_out_len + ph_emb_size + st_emb_size
             delta_blstm_n = "deltaEncoder-output"
             
             set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
-            if sharedDeltaEncoder:
+            if shared_delta_encoder:
                 add_delta_blstm_(network, name=delta_blstm_n, l2=l2, source_layer=['fwd_6', 'bwd_6'])
                 set_Mlp_component(network, "diphone", diOut, sourceLayer=delta_blstm_n, l2=l2)
                 set_Mlp_component(network, "triphone", triOut, sourceLayer=delta_blstm_n, l2=l2)
@@ -420,8 +416,8 @@ def get_monophone_net(sharedNetwork, addMLPs=False,
     return network
 
 
-def get_diphone_net(sharedNetwork):
-    network = copy.copy(sharedNetwork)
+def get_diphone_net(shared_network):
+    network = copy.copy(shared_network)
     
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     network["pastEmbed"] = {"class": "linear", "activation": None, "from": ["data:lastLabel"], "n_out": 10}
@@ -451,8 +447,8 @@ def get_diphone_net(sharedNetwork):
     return network
 
 
-def get_symmetric_net(sharedNetwork):
-    network = copy.copy(sharedNetwork)
+def get_symmetric_net(shared_network):
+    network = copy.copy(shared_network)
     
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     
@@ -492,8 +488,8 @@ def get_symmetric_net(sharedNetwork):
     return network
 
 
-def get_forward_net(sharedNetwork):
-    network = copy.copy(sharedNetwork)
+def get_forward_net(shared_network):
+    network = copy.copy(shared_network)
     
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     
@@ -544,8 +540,8 @@ def get_forward_net(sharedNetwork):
     return network
 
 
-def get_backward_net(sharedNetwork):
-    network = copy.copy(sharedNetwork)
+def get_backward_net(shared_network):
+    network = copy.copy(shared_network)
     
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     

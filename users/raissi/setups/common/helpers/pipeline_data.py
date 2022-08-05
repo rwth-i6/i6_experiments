@@ -70,7 +70,10 @@ class LabelInfo:
 
 
     def get_n_of_dense_classes(self):
-        return self.get_n_state_classes() * (self.n_contexts**2)
+        n_contexts = self.n_contexts
+        if not self.add_unknown_phoneme:
+            n_contexts+=1
+        return self.n_states_per_phone * (n_contexts**3) * (1 + int(self.use_word_end_classes))
 
     def get_n_state_classes(self):
         return self.n_states_per_phone * self.n_contexts * (1 + int(self.use_word_end_classes))
