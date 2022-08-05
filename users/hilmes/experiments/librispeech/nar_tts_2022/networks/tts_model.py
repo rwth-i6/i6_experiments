@@ -40,11 +40,11 @@ class Conv1DBlock(nn.Module):
         )
         self.bn = nn.BatchNorm(
             epsilon=bn_epsilon, use_mask=False
-        )  # TODO: defaults okay and same, use_mask=False right?
+        )
         self.dropout = dropout
         self.l2 = l2
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim) -> nn.Tensor:
         """
         First convolution, relu, then L2 regularization, batchnorm and dropout
 
@@ -54,7 +54,7 @@ class Conv1DBlock(nn.Module):
         conv, _ = self.conv(inp, in_spatial_dim=time_dim)
         # set weight decay
         for param in self.conv.parameters():
-            param.weight_decay = self.l2  # TODO: L2 on filter, is this correct?
+            param.weight_decay = self.l2
 
         conv = nn.relu(conv)
         bn = self.bn(conv)
@@ -115,7 +115,7 @@ class ConvStack(nn.Module):
             ]
         )
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
         Applies all conv blocks in sequence
 
@@ -126,6 +126,42 @@ class ConvStack(nn.Module):
         return out
 
 
+class LConvBlock(nn.Module):
+    """
+    LConvBlock from Parallel tacotron 1
+    """
+    def __init__(self, linear_size: int = 512, num_heads: int = 8, filter_size: int = 17):
+        super(LConvBlock, self).__init__()
+        self.lin_dim = nn.FeatureDim("LConv_linear", linear_size)
+
+        self.glu = nn.Linear(self.lin_dim * 2)
+        self.linear_up = nn.Linear(self.lin_dim * 4)
+        self.linear_down = nn.Linear(self.lin_dim)
+        self.conv = nn.Conv1d(
+            out_dim=self.lin_dim,
+            filter_size=filter_size,
+            groups=num_heads,
+            with_bias=False,
+            padding='same'
+        )
+
+    def __call__(self, inp: nn.Tensor) -> nn.Tensor:
+
+        residual = inp
+        x = self.glu(inp)
+        x = nn.gating(x)  # GLU
+        x, _ = self.conv(x)  # grouped conv / lightweight conv
+        x = x + residual
+
+        residual = x
+        x = self.linear_up(x)
+        x = nn.relu(x)
+        x = self.linear_down(x)
+        x = x + residual
+
+        return x
+
+
 class Decoder(nn.Module):
     """
     Decoder Block of the CTC Model
@@ -133,8 +169,8 @@ class Decoder(nn.Module):
 
     def __init__(
         self,
-        dec_lstm_size_1: int = 800,
-        dec_lstm_size_2: int = 800,
+        dec_lstm_size_1: int = 1024,
+        dec_lstm_size_2: int = 1024,
         linear_size: int = 80,
         dropout: int = 0.5,
     ):
@@ -160,7 +196,7 @@ class Decoder(nn.Module):
         self.linear_out = nn.Linear(out_dim=self.linear_dim)
         self.linear_ref = nn.Linear(out_dim=self.linear_dim)
 
-    def __call__(self, rep: nn.Tensor, speaker_embedding: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, rep: nn.Tensor, speaker_embedding: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
 
         :param rep: upsampled / repeated input
@@ -259,7 +295,7 @@ class DurationPredictor(nn.Module):
 
         self.linear = nn.Linear(out_dim=self.lin_dim)
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
         Applies numlayers convolutional layers with a linear transformation at the end
 
@@ -283,6 +319,33 @@ class DurationPredictor(nn.Module):
         return softplus
 
 
+class VariationalAutoEncoder(nn.Module):
+  """
+  VAE from Tacotron 1
+  """
+
+  def __init__(self, num_lconv_blocks: int = 3 , num_mixed_blocks: int = 6, linear_size: int = 512, num_heads: int = 8,
+               lconv_filter_size: int = 17, dropout: float = 0.5, conv_filter_size: int = 5, out_size=32):
+    super(VariationalAutoEncoder, self).__init__()
+    self.lconv_stack = nn.Sequential(
+        [LConvBlock(
+            linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size) for _ in range(num_lconv_blocks)])
+    self.mixed_stack = nn.Sequential()
+    for _ in range(num_mixed_blocks):
+        self.mixed_stack.append(LConvBlock(linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size))
+        self.mixed_stack.append(Conv1DBlock(dim=linear_size, filter_size=conv_filter_size, dropout=dropout))
+    self.lin_out = nn.Linear(nn.FeatureDim("VAE_out_dim", out_size))
+
+  def __call__(self, spectrogramm: nn.Tensor, spectrogramm_time: nn.SpatialDim) -> nn.Tensor:
+    x = self.lconv_stack(spectrogramm)
+    x = self.mixed_stack(x)
+    len_x = nn.length(x, axis=spectrogramm_time)  # [B]
+    sum_x = nn.reduce(x, mode="sum", axis=spectrogramm_time, use_time_mask=True)  # [B, F]
+    x = sum_x / len_x  # global avg pooling
+    x = self.lin_out(x)
+    return x
+
+
 class NARTTSModel(nn.Module):
     """
     NAR TTS Model from Timur Schümann implemented in returnn common
@@ -293,7 +356,7 @@ class NARTTSModel(nn.Module):
         embedding_size: int,
         speaker_embedding_size: int,
         enc_lstm_size: int = 256,
-        dec_lstm_size: int = 800,
+        dec_lstm_size: int = 1024,
         dropout: int = 0.5,
         training: bool = True,
         gauss_up: bool = False,
@@ -348,7 +411,7 @@ class NARTTSModel(nn.Module):
         label_time: nn.Dim,
         speech_time: nn.Dim,
         duration_time: Union[nn.Dim, None],
-    ):
+    ) -> nn.Tensor:
         """
 
         :param text:

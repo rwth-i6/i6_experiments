@@ -40,7 +40,7 @@ class Conv1DBlock(nn.Module):
         )
         self.bn = nn.BatchNorm(
             epsilon=bn_epsilon, use_mask=False
-        )  # TODO: defaults okay?
+        )
         self.dropout = dropout
         self.l2 = l2
 
@@ -48,7 +48,7 @@ class Conv1DBlock(nn.Module):
         conv, _ = self.conv(inp, in_spatial_dim=time_dim)
         # set weight decay
         for param in self.conv.parameters():
-            param.weight_decay = self.l2  # TODO: L2 on filter, is this correct?
+            param.weight_decay = self.l2
 
         conv = nn.relu(conv)
         bn = self.bn(conv)
@@ -154,6 +154,7 @@ class TTSDecoder(nn.Module):
         )
         lstm_fw, _ = self.lstm_1_fw(cat, axis=audio_time, direction=1)
         lstm_bw, _ = self.lstm_1_bw(cat, axis=audio_time, direction=-1)
+        # TODO maybe dropout?
         cat = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
         lstm_fw, _ = self.lstm_2_fw(cat, axis=audio_time, direction=1)
         lstm_bw, _ = self.lstm_2_bw(cat, axis=audio_time, direction=-1)
@@ -172,7 +173,7 @@ class CTCAligner(nn.Module):
         speaker_emb_size: int = 256,
         hidden_size: int = 256,
         enc_lstm_size: int = 512,
-        spectogram_drop: float = 0.35,
+        spectrogram_drop: float = 0.35,
         reconstruction_scale: int = 0.5,
         training=True,
         phoneme_vocab_size: int = 44,
@@ -182,7 +183,7 @@ class CTCAligner(nn.Module):
         :param speaker_emb_size: Embedding size for speaker embedding
         :param hidden_size: Feature dimension inside the network
         :param enc_lstm_size: Encoder LSTM dimension size
-        :param spectogram_drop: Dropout for spectrogram encoder
+        :param spectrogram_drop: Dropout for spectrogram encoder
         :param reconstruction_scale: Loss scale for reconstruction loss
         """
         super(CTCAligner, self).__init__()
@@ -205,7 +206,7 @@ class CTCAligner(nn.Module):
             out_dim=nn.FeatureDim("reconstruction_dim", 80)
         )
 
-        self.spectogram_drop = spectogram_drop
+        self.spectrogram_drop = spectrogram_drop
         self.reconstruction_scale = reconstruction_scale
         self.training = training
 
@@ -245,7 +246,7 @@ class CTCAligner(nn.Module):
 
         # spectogram loss
         spectogram_encoder = nn.dropout(
-            cat, dropout=self.spectogram_drop, axis=cat.feature_dim
+            cat, dropout=self.spectrogram_drop, axis=cat.feature_dim
         )
         spectogram_encoder = self.spectogram_lin(spectogram_encoder)
         softmax = nn.softmax(spectogram_encoder, axis=spectogram_encoder.feature_dim)

@@ -127,6 +127,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
     sil_pp_train_clean_100 = get_ls_train_clean_100_tts_silencepreprocessed()
     train_segments, dev_segments = get_librispeech_tts_segments()
     synth_co = CorpusObject()
+    synth_co.audio_format = "ogg"
     synth_co.corpus_file = synth_corpus
     synth_co.duration = sil_pp_train_clean_100.duration
     # remove the dev segments from the GMM training corpus
@@ -184,13 +185,13 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
             lm=lm,
         )
 
-    for test_key in ["test-clean", "test-other"]:
-        test_data_inputs[test_key] = RasrDataInput(
-            corpus_object=corpus_object_dict["test-clean"],
-            concurrent=constants.concurrent[test_key],
-            lexicon=lexicon,
-            lm=lm,
-        )
+    # for test_key in ["test-clean", "test-other"]:
+    #    test_data_inputs[test_key] = RasrDataInput(
+    #        corpus_object=corpus_object_dict["test-clean"],
+    #        concurrent=constants.concurrent[test_key],
+    #        lexicon=lexicon,
+    #        lm=lm,
+    #    )
 
     return CorpusData(
         train_data=train_data_inputs,
