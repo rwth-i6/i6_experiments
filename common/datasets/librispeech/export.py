@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 from sisyphus import tk
 
@@ -9,15 +8,9 @@ from .lexicon import get_bliss_lexicon, get_g2p_augmented_bliss_lexicon_dict
 from .vocab import get_subword_nmt_bpe
 
 
-def _export_datasets(
-    output_prefix: str,
-    returnn_python_exe: Optional[tk.Path] = None,
-    returnn_root: Optional[tk.Path] = None,
-):
+def _export_datasets(output_prefix):
     """
-    :param output_prefix:
-    :param returnn_python_exe:
-    :param returnn_root:
+    :param str output_prefix:
     """
 
     # export all bliss corpora
@@ -34,11 +27,7 @@ def _export_datasets(
             )
 
     # export all ogg zip corpora
-    ogg_corpus_dict = get_ogg_zip_dict(
-        output_prefix=output_prefix,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-    )
+    ogg_corpus_dict = get_ogg_zip_dict(output_prefix=output_prefix)
     for name, ogg_corpus in ogg_corpus_dict.items():
         tk.register_output(
             os.path.join(output_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus
@@ -137,11 +126,7 @@ def _export_legacy_bpe(output_prefix):
     )
 
 
-def export_all(
-    output_prefix: str,
-    returnn_python_exe: Optional[tk.Path] = None,
-    returnn_root: Optional[tk.Path] = None,
-):
+def export_all(output_prefix):
     """
     Registers all LibriSpeech related data as output.
 
@@ -151,7 +136,7 @@ def export_all(
 
     :param str output_prefix:
     """
-    _export_datasets(output_prefix, returnn_python_exe, returnn_root)
+    _export_datasets(output_prefix)
     _export_lm_data(output_prefix)
     _export_lexicon_and_vocab(output_prefix)
     _export_legacy_bpe(output_prefix)
