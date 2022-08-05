@@ -1095,11 +1095,14 @@ class GmmSystem(RasrSystem):
             ][-1]
 
         if corpus_type == "train":
+            gmm_step_list = steps.get_gmm_steps_names_as_list()
+            step_list = steps.get_step_names_as_list()
+            dist_last_step = 1 + (len(step_list) - len(gmm_step_list))
             gmm_output.alignments = self.alignments[corpus_key][
-                f"train_{steps.get_gmm_steps_names_as_list()[step_idx - 1]}"
+                f"train_{gmm_step_list[step_idx - dist_last_step]}"
             ][-1]
             gmm_output.acoustic_mixtures = self.mixtures[corpus_key][
-                f"train_{steps.get_gmm_steps_names_as_list()[step_idx - 1]}"
+                f"train_{gmm_step_list[step_idx - dist_last_step]}"
             ][-1]
 
         return gmm_output
@@ -1447,7 +1450,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
-                corpus_keys = step_args.pop("corpus_keys", [])
+                corpus_keys = step_args.pop("corpus_keys", [self.train_corpora])
                 for corpus in corpus_keys:
                     self.forced_align(
                         feature_scorer_corpus_key=corpus,

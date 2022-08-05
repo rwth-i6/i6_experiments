@@ -202,7 +202,14 @@ class RasrSteps:
         return ["forced_align"]
 
     def get_gmm_steps_names_as_list(self):
-        step_names = filter(lambda x: not any(x.startswith(step) for step in self.get_non_gmm_steps_as_list()), self.get_step_names_as_list())
+        step_names = list(
+            filter(
+                lambda x: not any(
+                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
+                ),
+                self.get_step_names_as_list(),
+            )
+        )
         return step_names
 
     def get_args_via_idx(self, idx):
