@@ -244,11 +244,11 @@ class PrevCtm:
     Defines a previous ctm output from a recognition which is used to extract the
     speaker alignments for SAT adaptation for the dev/train sets.
 
-    prev_step_key: name of the step, e.g. "tri"
-    pronunciation_scale: one of the existing pronunciation scales
-    lm_scale: one of the existing lm-scales
-    iteration: one of the existing GMM iterations
-    optimized_lm: use automatically optimized lm scale which might differ from param lm_scale
+    :param prev_step_key: name of the step, e.g. "tri"
+    :param pronunciation_scale: one of the existing pronunciation scales
+    :param lm_scale: one of the existing lm-scales
+    :param iteration: one of the existing GMM iterations
+    :param optimized_lm: use automatically optimized lm scale which might differ from param lm_scale
     """
 
     prev_step_key: str
