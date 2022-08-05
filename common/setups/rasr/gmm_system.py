@@ -1450,7 +1450,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
-                corpus_keys = step_args.pop("corpus_keys", [self.train_corpora])
+                corpus_keys = step_args.pop("corpus_keys", self.train_corpora)
                 for corpus in corpus_keys:
                     self.forced_align(
                         feature_scorer_corpus_key=corpus,
