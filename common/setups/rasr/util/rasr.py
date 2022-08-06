@@ -227,5 +227,4 @@ class RasrSteps:
                 self.get_step_names_as_list()[:idx],
             )
         )
-        print(step_names[-1])
         return step_names[-1]
