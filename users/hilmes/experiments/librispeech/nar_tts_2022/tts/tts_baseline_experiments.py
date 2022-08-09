@@ -71,6 +71,8 @@ def ctc_baseline():
             speaker_embedding_size=256,
             gauss_up=(upsampling == "gauss"),
         )
+        if upsampling == "gauss":
+            train_config.config["learning_rates"] = [0.0001, 0.001]
         train_job = tts_training(
             config=train_config,
             returnn_exe=returnn_exe,
@@ -86,6 +88,7 @@ def ctc_baseline():
             embedding_size=256,
             speaker_embedding_size=256,
             gauss_up=(upsampling == "gauss"),
+            calc_speaker_embedding=True,
         )
         gl_swer(
             name=exp_name,
@@ -131,4 +134,39 @@ def ctc_baseline():
             )
             synthetic_data_dict[f"ctc_{upsampling}_{duration}"] = synth_corpus
 
+    exp_name = name + "/vae"
+    train_config = get_training_config(
+        returnn_common_root=returnn_common_root,
+        training_datasets=training_datasets,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=False,
+        use_vae=True,
+        batch_size=18000
+    )
+    train_job = tts_training(
+        config=train_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=exp_name,
+        num_epochs=200,
+    )
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=training_datasets.cv, datastreams=training_datasets.datastreams
+        ),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=False,
+        use_vae=True
+    )
+    gl_swer(
+        name=exp_name,
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+    )
     return synthetic_data_dict

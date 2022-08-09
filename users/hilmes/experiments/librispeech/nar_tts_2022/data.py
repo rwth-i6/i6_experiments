@@ -32,6 +32,7 @@ from i6_experiments.users.hilmes.data.datastream import (
     LabelDatastream,
     DurationDatastream,
     AudioFeatureDatastream,
+    SpeakerEmbeddingDatastream,
     ReturnnAudioFeatureOptions,
     DBMelFilterbankOptions,
 )
@@ -50,16 +51,16 @@ from i6_experiments.users.hilmes.data.tts_preprocessing import (
 )
 
 
-def dump_dataset(config, returnn_root, returnn_gpu_exe, name):
+def dump_dataset(dataset, returnn_root, returnn_gpu_exe, name):
     """
     wrapper around DumpHDFJob
-    :param config:
+    :param dataset:
     :param returnn_root:
     :param returnn_gpu_exe:
     :return:
     """
     dataset_dump = ReturnnDumpHDFJob(
-        data=config, returnn_root=returnn_root, returnn_python_exe=returnn_gpu_exe
+        data=dataset, returnn_root=returnn_root, returnn_python_exe=returnn_gpu_exe
     )
     dataset_dump.add_alias(name + "/dump_dataset")
     return dataset_dump.out_hdf
@@ -643,6 +644,7 @@ def get_inference_dataset(
     datastreams: Dict[str, Any],
     durations: Optional,
     speaker_embedding_hdf,
+    speaker_embedding_size=256,
     process_corpus: bool = True,
 ):
 
@@ -691,5 +693,8 @@ def get_inference_dataset(
     del datastreams["audio_features"]
     if durations is None:
         del datastreams["duration_data"]
+    datastreams["speaker_labels"] = SpeakerEmbeddingDatastream(
+        available_for_inference=True, embedding_size=speaker_embedding_size)
 
     return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
+

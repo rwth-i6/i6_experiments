@@ -12,7 +12,7 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.data.datasets imp
   MetaDataset,
   HDFDataset,
 )
-from i6_private.users.hilmes.data.datastream import (
+from i6_experiments.users.hilmes.data.datastream import (
   AudioFeatureDatastream,
   ReturnnAudioFeatureOptions,
 )

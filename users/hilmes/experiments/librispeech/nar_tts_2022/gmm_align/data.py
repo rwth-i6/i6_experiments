@@ -118,25 +118,17 @@ def get_corpus_data_inputs():
 
 def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
     """
-    TODO, also TODO shift back to 10
-    :return: a 3-sized tuple containing lists of RasrDataInput for train, dev and test
+        :return: a 3-sized tuple containing lists of RasrDataInput for train, dev and test
     """
 
     # segments for train-clean-100-tts-train and train-clean-100-tts-dev
     # (1004 segments for dev, 4 segments for each of the 251 speakers)
     sil_pp_train_clean_100 = get_ls_train_clean_100_tts_silencepreprocessed()
-    train_segments, dev_segments = get_librispeech_tts_segments()
     synth_co = CorpusObject()
     synth_co.audio_format = "ogg"
     synth_co.corpus_file = synth_corpus
     synth_co.duration = sil_pp_train_clean_100.duration
     # remove the dev segments from the GMM training corpus
-    sil_pp_train_clean_100_tts_train_xml = FilterCorpusBySegmentsJob(
-        synth_co.corpus_file,
-        train_segments,
-        compressed=True,
-    ).out_corpus
-    synth_co.corpus_file = sil_pp_train_clean_100_tts_train_xml
 
     g2p_lexica = get_g2p_augmented_bliss_lexicon_dict(
         output_prefix="corpora",
@@ -177,7 +169,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
         audio_format="wav", output_prefix="corpora"
     )
 
-    for dev_key in ["dev-other"]:
+    for dev_key in ["dev-clean", "dev-other"]:
         dev_data_inputs[dev_key] = RasrDataInput(
             corpus_object=corpus_object_dict[dev_key],
             concurrent=constants.concurrent[dev_key],
