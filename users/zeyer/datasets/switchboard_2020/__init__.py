@@ -10,6 +10,10 @@ import os
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 
 
+_my_dir = os.path.dirname(os.path.abspath(__file__))
+_rasr_configs_dir = _my_dir + "/rasr_configs"
+
+
 class _Bpe(VocabConfig):
   def __init__(self, dim, codes: str, vocab: str):
     super(_Bpe, self).__init__()
@@ -102,8 +106,8 @@ class SwitchboardExternSprint(DatasetConfig):
 
     # TODO fix relative paths (dependencies, RASR config)
     files = {
-        # TODO where to store this config file?
-        "config": "config/training.config",
+        # TODO hash relative to base dir?
+        "config": f"{_rasr_configs_dir}/merged.config",
         "corpus": "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name}
     if data in {"train", "cv", "devtrain"}:
         files["segments"] = "dependencies/seg_%s" % {
@@ -119,6 +123,8 @@ class SwitchboardExternSprint(DatasetConfig):
         lambda: "--*.corpus.file=" + cf(files["corpus"]),
         lambda: "--*.corpus.segments.file=" + (cf(files["segments"]) if "segments" in files else ""),
         lambda: "--*.feature-cache-path=" + cf(files["features"]),
+        # TODO hash relative to base dir?
+        f"--*.feature-extraction.file={_rasr_configs_dir}/merged.config",
         "--*.log-channel.file=/dev/null",
         "--*.window-size=1",
     ]
