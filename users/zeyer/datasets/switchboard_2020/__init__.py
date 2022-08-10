@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import Dict, Any, Optional
 import os
 
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 
 
@@ -99,16 +101,22 @@ class SwitchboardExternSprint(DatasetConfig):
     """
     Get dataset
     """
-    from returnn_common.cache_manager import cf
     assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
     epoch_split = {"train": self.train_epoch_split}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
 
     # TODO fix relative paths (dependencies, RASR config)
     files = {
-        # TODO hash relative to base dir?
-        "config": f"{_rasr_configs_dir}/merged.config",
-        "corpus": "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name}
+        "config": tk.Path(
+            f"{_rasr_configs_dir}/merged.config",
+            hash_overwrite="merged.config"),
+        "feature_extraction_config": tk.Path(
+            f"{_rasr_configs_dir}/base.cache.flow",
+            hash_overwrite="base.cache.flow"),
+        "corpus": tk.Path(
+            "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
+            hash_overwrite="irie-switchboard-corpora-%s.corpus.gz" % corpus_name,
+            cached=True)}
     if data in {"train", "cv", "devtrain"}:
         files["segments"] = "dependencies/seg_%s" % {
             "train": "train", "cv": "cv_head3000", "devtrain": "train_head3000"}[data]
@@ -118,13 +126,11 @@ class SwitchboardExternSprint(DatasetConfig):
     estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
     args = [
-        "--config=" + files["config"],
-        # TODO lambdas would not work here? use some Delayed* wrapper?
-        lambda: "--*.corpus.file=" + cf(files["corpus"]),
-        lambda: "--*.corpus.segments.file=" + (cf(files["segments"]) if "segments" in files else ""),
-        lambda: "--*.feature-cache-path=" + cf(files["features"]),
-        # TODO hash relative to base dir?
-        f"--*.feature-extraction.file={_rasr_configs_dir}/merged.config",
+        DelayedFormat("--config={}", files["config"]),
+        DelayedFormat("--*.corpus.file={}", files["corpus"]),
+        DelayedFormat("--*.corpus.segments.file={}", (files["segments"] if "segments" in files else "")),
+        DelayedFormat("--*.feature-cache-path={}", files["features"]),
+        DelayedFormat("--*.feature-extraction.file={}", files["feature_extraction_config"]),
         "--*.log-channel.file=/dev/null",
         "--*.window-size=1",
     ]
