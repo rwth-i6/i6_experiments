@@ -258,12 +258,13 @@ def get_chris_hybrid_system_init_args():
         crp_base.acoustic_model_config.tdp.silence.exit = 20.0
         crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
         crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
-        crp_base.acoustic_model_post_config = rasr.RasrConfig()
-        crp_base.acoustic_model_post_config.allophones.add_from_file = _path(
-            "StoreAllophones.34VPSakJyy0U", "allophones")
 
         crp = rasr.CommonRasrParameters(base=crp_base)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
+        crp.set_executables(tk.Path(gs.RASR_ROOT, hash_overwrite="RASR_ROOT"))
+        crp.acoustic_model_post_config = rasr.RasrConfig()
+        crp.acoustic_model_post_config.allophones.add_from_file = _path(
+            "StoreAllophones.34VPSakJyy0U", "allophones")
 
         crp.audio_format = 'wav'
         # crp.corpus_duration = 960.9000000000001
@@ -643,7 +644,7 @@ def test_run():
     gs.SHOW_JOB_TARGETS = False
 
     new_obj = get_chris_hybrid_system_init_args()
-    orig_obj = dependency_boundary(get_orig_chris_hybrid_system_init_args, hash="YePKvlzrybBk")
+    orig_obj = dependency_boundary(get_orig_chris_hybrid_system_init_args, hash="SfEtodPqm7gG")
 
     # Small cleanup in orig object, which should not be needed.
     orig_obj['dev_data']['dev-other'].feature_scorers = {}
