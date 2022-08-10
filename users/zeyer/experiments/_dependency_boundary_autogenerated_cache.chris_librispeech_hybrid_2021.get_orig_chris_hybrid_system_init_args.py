@@ -103,7 +103,7 @@ import i6_core.rasr as rasr
 _returnn_rasr_data_input_crp_base = rasr.CommonRasrParameters()
 _returnn_rasr_data_input_crp_base.acoustic_model_config = rasr.RasrConfig()
 _returnn_rasr_data_input_crp_base.acoustic_model_config.state_tying.type = 'cart'
-from i6_experiments.common.utils.dump_py_code import _make_fake_job as make_fake_job
+from i6_experiments.common.utils.fake_job import make_fake_job
 _estimate_cart_job = make_fake_job(module='i6_core.cart.estimate', name='EstimateCartJob', sis_hash='GUv9i8tzV7DN')
 from sisyphus import tk
 _returnn_rasr_data_input_crp_base.acoustic_model_config.state_tying.file = tk.Path('cart.tree.xml.gz', creator=_estimate_cart_job)
