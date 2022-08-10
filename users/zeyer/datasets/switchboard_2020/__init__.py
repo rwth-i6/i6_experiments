@@ -91,7 +91,7 @@ class SwitchboardExternSprint(DatasetConfig):
       "dev": self.get_dataset("cv"),
       "devtrain": self.get_dataset("devtrain")}
 
-  def get_dataset(self, data: str):
+  def get_dataset(self, data: str) -> Dict[str, Any]:
     """
     Get dataset
     """
@@ -102,6 +102,7 @@ class SwitchboardExternSprint(DatasetConfig):
 
     # TODO fix relative paths (dependencies, RASR config)
     files = {
+        # TODO where to store this config file?
         "config": "config/training.config",
         "corpus": "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name}
     if data in {"train", "cv", "devtrain"}:
@@ -114,6 +115,7 @@ class SwitchboardExternSprint(DatasetConfig):
 
     args = [
         "--config=" + files["config"],
+        # TODO lambdas would not work here? use some Delayed* wrapper?
         lambda: "--*.corpus.file=" + cf(files["corpus"]),
         lambda: "--*.corpus.segments.file=" + (cf(files["segments"]) if "segments" in files else ""),
         lambda: "--*.feature-cache-path=" + cf(files["features"]),
@@ -126,7 +128,9 @@ class SwitchboardExternSprint(DatasetConfig):
         "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1),
     ]
     d = {
-        "class": "ExternSprintDataset", "sprintTrainerExecPath": "sprint-executables/nn-trainer",
+        "class": "ExternSprintDataset",
+        # TODO how to set sprint exec here?
+        "sprintTrainerExecPath": "sprint-executables/nn-trainer",
         "sprintConfigStr": args,
         "suppress_load_seqs_print": True,  # less verbose
         "input_stddev": 3.,
