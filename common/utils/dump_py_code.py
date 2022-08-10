@@ -275,7 +275,14 @@ class PythonCodeDumper:
         if p.cached:
             args.append(f"cached={self._py_repr(p.cached)}")
         if p.hash_overwrite:
-            args.append(f"hash_overwrite={self._py_repr(p.hash_overwrite)}")
+            hash_overwrite = p.hash_overwrite
+            if (
+                isinstance(hash_overwrite, tuple)  # always with newer Sisyphus
+                and hash_overwrite[0] is None
+                and isinstance(hash_overwrite[1], str)
+            ):
+                hash_overwrite = hash_overwrite[1]  # simplify
+            args.append(f"hash_overwrite={self._py_repr(hash_overwrite)}")
         # noinspection PyProtectedMember
         if p._tags:
             # noinspection PyProtectedMember
