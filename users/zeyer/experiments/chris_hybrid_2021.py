@@ -408,7 +408,7 @@ def get_orig_chris_hybrid_system_init_args():
     ) = lbs_gmm_setups.get_data_inputs(
         use_eval_data_subset=True,
     )
-    hybrid_init_args = default_gmm_hybrid_init_args()
+    rasr_init_args = default_gmm_hybrid_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args(allow_zero_weights=True)
     cart_args = lbs_gmm_setups.get_cart_args()
     tri_args = lbs_gmm_setups.get_triphone_args()
@@ -418,7 +418,7 @@ def get_orig_chris_hybrid_system_init_args():
     final_output_args = lbs_gmm_setups.get_final_output()
 
     steps = rasr_util.RasrSteps()
-    steps.add_step("extract", hybrid_init_args.feature_extraction_args)
+    steps.add_step("extract", rasr_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
     steps.add_step("cart", cart_args)
     steps.add_step("tri", tri_args)
@@ -433,7 +433,7 @@ def get_orig_chris_hybrid_system_init_args():
     rasr_binary_path.hash_overwrite = "RASR_ROOT"  # TODO ?
     lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
     lbs_gmm_system.init_system(
-        hybrid_init_args=hybrid_init_args,
+        rasr_init_args=rasr_init_args,
         train_data=train_data_inputs,
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
@@ -504,7 +504,7 @@ def get_orig_chris_hybrid_system_init_args():
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
     return dict(
-        hybrid_init_args=hybrid_init_args,
+        hybrid_init_args=rasr_init_args,
         train_data=nn_train_data_inputs,
         cv_data=nn_cv_data_inputs,
         devtrain_data=nn_devtrain_data_inputs,
