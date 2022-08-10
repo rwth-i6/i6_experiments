@@ -105,24 +105,30 @@ class SwitchboardExternSprint(DatasetConfig):
     epoch_split = {"train": self.train_epoch_split}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
 
-    # TODO fix relative paths (dependencies, RASR config)
     files = {
         "config": tk.Path(
             f"{_rasr_configs_dir}/merged.config",
-            hash_overwrite="merged.config"),
+            hash_overwrite="switchboard2020/merged.config"),
         "feature_extraction_config": tk.Path(
             f"{_rasr_configs_dir}/base.cache.flow",
-            hash_overwrite="base.cache.flow"),
+            hash_overwrite="switchboard2020/base.cache.flow"),
         "corpus": tk.Path(
             "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
-            hash_overwrite="irie-switchboard-corpora-%s.corpus.gz" % corpus_name,
+            hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
             cached=True)}
     if data in {"train", "cv", "devtrain"}:
-        files["segments"] = "dependencies/seg_%s" % {
+        filename = "dependencies/seg_%s" % {
             "train": "train", "cv": "cv_head3000", "devtrain": "train_head3000"}[data]
-    files["features"] = "/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.%s.bundle" % corpus_name
+        files["segments"] = tk.Path(
+            "/u/zeyer/setups/switchboard/2019-10-22--e2e-bpe1k/" + filename,
+            hash_overwrite="switchboard2020/" + filename,
+            cached=True)
+    files["features"] = tk.Path(
+        "/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.%s.bundle" % corpus_name,
+        hash_overwrite="switchboard2020/tuske-features-gt.%s.bundle" % corpus_name,
+        cached=True)
     for k, v in sorted(files.items()):
-        assert os.path.exists(v), "%s %r does not exist" % (k, v)
+        assert isinstance(v, tk.Path)
     estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
     args = [
