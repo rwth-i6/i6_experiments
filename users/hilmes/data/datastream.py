@@ -233,7 +233,7 @@ class SpeakerEmbeddingDatastream(Datastream):
   def __init__(
     self,
     available_for_inference: bool,
-    embedding_size: tk.Variable,
+    embedding_size: Union[tk.Variable, int],
     unk_label=None,
   ):
     """

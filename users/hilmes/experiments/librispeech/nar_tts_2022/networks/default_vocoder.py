@@ -16,6 +16,7 @@ from i6_experiments.users.hilmes.data.datastream import (
   AudioFeatureDatastream,
   ReturnnAudioFeatureOptions,
 )
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_vocoder_data
 
 post_config_template = {
   "cleanup_old_models": True,
@@ -319,6 +320,7 @@ class LJSpeechMiniGLVocoder:
       returnn_python_exe=self._returnn_gpu_exe,
       returnn_root=self._returnn_root,
     )
+    forward_job.add_alias(name + "/vocoder_forward")
     # this job is never needed to be kept
     forward_job.set_keep_value(20)
     from i6_experiments.users.rossenbach.tts.vocoder.griffin_lim import (
@@ -369,14 +371,16 @@ def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
   return mini_vocoder
 
 
-def get_default_vocoder(name, corpus_data):
+def get_default_vocoder(name):
   returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher.sh")
+
   old_root = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn",
     commit="7cfab7d7f1496a99e02d3b8c0a327bb725d1219f",
   ).out_repository
-
+  corpus_data = get_vocoder_data(output_path=name)
   output_path = name
 
   mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, old_root)
+  mini_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
   return mini_vocoder

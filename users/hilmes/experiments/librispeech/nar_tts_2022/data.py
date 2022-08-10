@@ -6,8 +6,8 @@ from copy import deepcopy
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.returnn.hdf import ReturnnDumpHDFJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
-from i6_core.returnn.dataset import get_returnn_length_hdfs
-from i6_core.meta import CorpusObject
+from i6_experiments.common.helpers.dataset import get_returnn_length_hdfs
+from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.datasets.librispeech import (
     get_g2p_augmented_bliss_lexicon_dict,
@@ -285,7 +285,7 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
         None,
         returnn_exe,
         returnn_root,
-        output_path=output_path + "center_false",
+        output_path=output_path + "/center_false",
         available_for_inference=False,
         center=False,
     )
@@ -348,7 +348,7 @@ def get_tts_data_from_rasr_alignment(
     converter.add_alias(output_path + "/extract_job")
 
     durations = converter.out_durations_hdf
-    tk.register_output(output_path + "durations.hdf", durations)
+    tk.register_output(output_path + "/durations.hdf", durations)
     new_corpus = converter.out_bliss
     zip_dataset = BlissToOggZipJob(
         bliss_corpus=new_corpus,
@@ -369,7 +369,7 @@ def get_tts_data_from_rasr_alignment(
         train_segments,
         returnn_exe,
         returnn_root,
-        output_path=output_path + "center_false",
+        output_path=output_path + "/center_false",
         available_for_inference=False,
         center=False,
     )
@@ -425,7 +425,7 @@ def get_tts_data_from_rasr_alignment(
         train_segments,
         returnn_exe,
         returnn_root,
-        output_path=output_path + "center_true",
+        output_path=output_path + "/center_true",
         available_for_inference=False,
         center=True,
     )
@@ -533,6 +533,55 @@ def get_alignment_data(output_path, returnn_exe, returnn_root):
     return align_dataset
 
 
+def get_vocoder_data(output_path):
+    returnn_exe = tk.Path(
+        "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
+        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+    )
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="aadac2637ed6ec00925b9debf0dbd3c0ee20d6a6",
+    ).out_repository
+    sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+
+    librispeech_g2p_lexicon = extend_lexicon(
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+    )
+
+    sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+        lexicon=librispeech_g2p_lexicon,
+    )
+    train_segments, cv_segments = get_librispeech_tts_segments()
+
+    zip_job = BlissToOggZipJob(
+        bliss_corpus=sil_pp_train_clean_100_tts,
+        no_conversion=True,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+    )
+    zip_job.add_alias(output_path + "/bliss_to_ogg")
+    zip_dataset = zip_job.out_ogg_zip
+
+    log_mel_datastream = get_tts_audio_datastream(
+        zip_dataset,
+        train_segments,
+        returnn_exe,
+        returnn_root,
+        output_path=output_path + "/center_true",
+        available_for_inference=False,
+        center=True,
+    )
+
+    vocoder_data = VocoderDataclass(
+        zip=zip_dataset,
+        audio_opts=log_mel_datastream,
+        train_segments=train_segments,
+        dev_segments=cv_segments,
+    )
+    return vocoder_data
+
+
 def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignment):
     """
     Build the datastreams for TTS training
@@ -553,12 +602,14 @@ def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignmen
         lexicon=librispeech_g2p_lexicon,
     )
 
-    zip_dataset = BlissToOggZipJob(
+    zip_job = BlissToOggZipJob(
         bliss_corpus=sil_pp_train_clean_100_tts,
         no_conversion=True,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-    ).out_ogg_zip
+    )
+    zip_job.add_alias(output_path + "/bliss_to_ogg")
+    zip_dataset = zip_job.out_ogg_zip
 
     train_segments, cv_segments = get_librispeech_tts_segments()
 
@@ -627,14 +678,8 @@ def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignmen
     training_datasets = TTSTrainingDatasets(
         train=train_dataset, cv=cv_dataset, datastreams=datastreams
     )
-    vocoder_data = VocoderDataclass(
-        zip=zip_dataset,
-        audio_opts=log_mel_datastream,
-        train_segments=train_segments,
-        dev_segments=cv_segments,
-    )
 
-    return training_datasets, vocoder_data, sil_pp_train_clean_100_tts, durations
+    return training_datasets, sil_pp_train_clean_100_tts, durations
 
 
 def get_inference_dataset(

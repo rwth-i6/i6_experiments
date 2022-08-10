@@ -493,7 +493,7 @@ class NARTTSModel(nn.Module):
         )
 
         if self.use_true_durations:
-            duration_prediction = duration_int
+            duration_prediction = duration_float
         else:
             duration_prediction = self.duration(
                 inp=duration_in, time_dim=time_dim

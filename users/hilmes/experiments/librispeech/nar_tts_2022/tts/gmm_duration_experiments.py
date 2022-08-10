@@ -5,7 +5,7 @@ from i6_experiments.common.datasets.librispeech import (
     get_corpus_object_dict,
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
-    get_tts_data_from_rasr_alignment,
+    get_tts_data_from_rasr_alignment, get_vocoder_data
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pipeline import (
     get_training_config,
@@ -42,6 +42,14 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
         commit="79876b18552f61a3af7c21c670475fee51ef3991",
         checkout_folder_name="returnn_common",
     ).out_repository
+    synthetic_data_dict = {}
+    job_splits = 10
+    reference_corpus = get_corpus_object_dict(
+        audio_format="ogg", output_prefix="corpora"
+    )["train-clean-100"]
+    default_vocoder = get_default_vocoder(
+        name="experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_duration_cheat/vocoder/")
+
     for align_name, alignment in alignments.items():
         name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_duration_cheat/{align_name}"
         (
@@ -56,16 +64,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
             rasr_alignment=alignment,
             rasr_allophones=rasr_allophones,
         )
-        reference_corpus = get_corpus_object_dict(
-            audio_format="ogg", output_prefix="corpora"
-        )["train-clean-100"]
-        default_vocoder = get_default_vocoder(name=name, corpus_data=vocoder_data)
-        default_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
-        job_splits = 10
-        synthetic_data_dict = {}
 
         for upsampling in ["repeat", "gauss"]:
-
           exp_name = name + f"/{upsampling}"
           train_config = get_training_config(
               returnn_common_root=returnn_common_root,
@@ -74,6 +74,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
               speaker_embedding_size=256,
               gauss_up=(upsampling == "gauss"),
           )
+          if upsampling == "gauss":
+              train_config.config["learning_rates"] = [0.0001, 0.001]
           train_job = tts_training(
               config=train_config,
               returnn_exe=returnn_exe,
@@ -138,5 +140,5 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
             )
             synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
 
-        return synthetic_data_dict
+    return synthetic_data_dict
 

@@ -57,10 +57,10 @@ def get_baseline_ctc_alignment():
 
   returnn_root_job = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn",
-    branch="bene_force_align_flag",
+    commit="asdasd",  # TODO: 240f119b54d52a4324ab300c301f8e003e0a398c
   )
   returnn_root = returnn_root_job.out_repository
-  returnn_root.hash_overwrite = "baseline_ctc_alignment_forward"
+  returnn_root.hash_overwrite = "baseline_ctc_alignment_returnn_forward"
   returnn_root_job.hold()
   durations_hdf = ctc_forward(
     train_job.out_checkpoints[100],

@@ -3,11 +3,9 @@ Pipeline file for experiments with the standard CTC TTS model
 """
 from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_experiments.common.datasets.librispeech import (
-    get_corpus_object_dict,
-)
+
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
-    get_tts_data_from_ctc_align,
+    get_tts_data_from_ctc_align, get_vocoder_data
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_experiments import (
     get_baseline_ctc_alignment,
@@ -38,10 +36,12 @@ def ctc_baseline():
         "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
         hash_overwrite="GENERIC_RETURNN_LAUNCHER",
     )
-    returnn_root = CloneGitRepositoryJob(
+    returnn_root_job = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn",
-        commit="aadac2637ed6ec00925b9debf0dbd3c0ee20d6a6",
-    ).out_repository
+        commit="240f119b54d52a4324ab300c301f8e003e0a398c",
+    )
+    returnn_root_job.hash_overwrite = "ctc_baseline_returnn"
+    returnn_root = returnn_root_job.out_repository
     returnn_common_root = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn_common",
         commit="79876b18552f61a3af7c21c670475fee51ef3991",
@@ -51,14 +51,13 @@ def ctc_baseline():
         "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/ctc_baseline"
     )
     alignment = get_baseline_ctc_alignment()
-    training_datasets, vocoder_data, corpus, durations = get_tts_data_from_ctc_align(
+    training_datasets, corpus, durations = get_tts_data_from_ctc_align(
         name + "/datasets",
         returnn_exe=returnn_exe,
         returnn_root=returnn_root,
         alignment=alignment,
     )
-    default_vocoder = get_default_vocoder(name=name, corpus_data=vocoder_data)
-    default_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
+    default_vocoder = get_default_vocoder(name=name)
     synthetic_data_dict = {}
     job_splits = 10
 
