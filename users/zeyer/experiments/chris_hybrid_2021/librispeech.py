@@ -392,7 +392,7 @@ def get_chris_hybrid_system_init_args():
 
 
 def get_orig_chris_hybrid_system_init_args():
-    from . import chris_hybrid_2021_pipeline_base_args as lbs_gmm_setups
+    from . import pipeline_base_args as lbs_gmm_setups
 
     # ******************** Settings ********************
 
