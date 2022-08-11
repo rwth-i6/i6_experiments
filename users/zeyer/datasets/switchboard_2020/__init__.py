@@ -9,11 +9,15 @@ import os
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
-from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from returnn_common.datasets.interface import Task, DatasetConfig, VocabConfig
 
 
 _my_dir = os.path.dirname(os.path.abspath(__file__))
 _rasr_configs_dir = _my_dir + "/rasr_configs"
+
+
+def get_switchboard_task() -> Task:
+    raise NotImplementedError  # TODO...
 
 
 class _Bpe(VocabConfig):
