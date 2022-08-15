@@ -29,152 +29,152 @@ from i6_experiments.common.utils.diff import collect_diffs
 
 
 def run():
-  filename_handle = os.path.splitext(os.path.basename(__file__))[0]
-  gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
-  rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
+    filename_handle = os.path.splitext(os.path.basename(__file__))[0]
+    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
+    rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-  # TODO ...
+    # TODO ...
 
-  nn_args = get_nn_args()
+    nn_args = get_nn_args()
 
-  nn_steps = rasr_util.RasrSteps()
-  nn_steps.add_step("nn", nn_args)
+    nn_steps = rasr_util.RasrSteps()
+    nn_steps.add_step("nn", nn_args)
 
-  lbs_nn_system = hybrid_system.HybridSystem()
-  lbs_nn_system.init_system(**get_chris_hybrid_system_init_args())
-  lbs_nn_system.run(nn_steps)
+    lbs_nn_system = hybrid_system.HybridSystem()
+    lbs_nn_system.init_system(**get_chris_hybrid_system_init_args())
+    lbs_nn_system.run(nn_steps)
 
-  gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+    gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
 
 def default_gmm_hybrid_init_args():
-  # hybrid_init_args = lbs_gmm_setups.get_init_args()
-  dc_detection: bool = True
-  scorer: Optional[str] = None
-  mfcc_filter_width: Union[float, Dict] = 268.258
+    # hybrid_init_args = lbs_gmm_setups.get_init_args()
+    dc_detection: bool = True
+    scorer: Optional[str] = None
+    mfcc_filter_width: Union[float, Dict] = 268.258
 
-  am_args = {
-    "state_tying": "monophone",
-    "states_per_phone": 3,
-    "state_repetitions": 1,
-    "across_word_model": True,
-    "early_recombination": False,
-    "tdp_scale": 1.0,
-    "tdp_transition": (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
-    "tdp_silence": (0.0, 3.0, "infinity", 20.0),
-    "tying_type": "global",
-    "nonword_phones": "",
-    "tdp_nonword": (
-      0.0,
-      3.0,
-      "infinity",
-      6.0,
-    ),  # only used when tying_type = global-and-nonword
-  }
+    am_args = {
+        "state_tying": "monophone",
+        "states_per_phone": 3,
+        "state_repetitions": 1,
+        "across_word_model": True,
+        "early_recombination": False,
+        "tdp_scale": 1.0,
+        "tdp_transition": (3.0, 0.0, 30.0, 0.0),  # loop, forward, skip, exit
+        "tdp_silence": (0.0, 3.0, "infinity", 20.0),
+        "tying_type": "global",
+        "nonword_phones": "",
+        "tdp_nonword": (
+            0.0,
+            3.0,
+            "infinity",
+            6.0,
+        ),  # only used when tying_type = global-and-nonword
+    }
 
-  costa_args = {"eval_recordings": True, "eval_lm": False}
+    costa_args = {"eval_recordings": True, "eval_lm": False}
 
-  mfcc_cepstrum_options = {
-    "normalize": False,
-    "outputs": 16,
-    "add_epsilon": False,
-  }
+    mfcc_cepstrum_options = {
+        "normalize": False,
+        "outputs": 16,
+        "add_epsilon": False,
+    }
 
-  feature_extraction_args = {
-    "mfcc": {
-      "num_deriv": 2,
-      "num_features": None,  # 33 (confusing name: # max features, above -> clipped)
-      "mfcc_options": {
-        "warping_function": "mel",
-        "filter_width": mfcc_filter_width,
-        "normalize": True,
-        "normalization_options": None,
-        "without_samples": False,
-        "samples_options": {
-          "audio_format": "wav",
-          "dc_detection": dc_detection,
+    feature_extraction_args = {
+        "mfcc": {
+            "num_deriv": 2,
+            "num_features": None,  # 33 (confusing name: # max features, above -> clipped)
+            "mfcc_options": {
+                "warping_function": "mel",
+                "filter_width": mfcc_filter_width,
+                "normalize": True,
+                "normalization_options": None,
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": dc_detection,
+                },
+                "cepstrum_options": mfcc_cepstrum_options,
+                "fft_options": None,
+            },
         },
-        "cepstrum_options": mfcc_cepstrum_options,
-        "fft_options": None,
-      },
-    },
-    "gt": {
-      "gt_options": {
-        "minfreq": 100,
-        "maxfreq": 7500,
-        "channels": 50,
-        # "warp_freqbreak": 7400,
-        "tempint_type": "hanning",
-        "tempint_shift": 0.01,
-        "tempint_length": 0.025,
-        "flush_before_gap": True,
-        "do_specint": False,
-        "specint_type": "hanning",
-        "specint_shift": 4,
-        "specint_length": 9,
-        "normalize": True,
-        "preemphasis": True,
-        "legacy_scaling": False,
-        "without_samples": False,
-        "samples_options": {
-          "audio_format": "wav",
-          "dc_detection": dc_detection,
+        "gt": {
+            "gt_options": {
+                "minfreq": 100,
+                "maxfreq": 7500,
+                "channels": 50,
+                # "warp_freqbreak": 7400,
+                "tempint_type": "hanning",
+                "tempint_shift": 0.01,
+                "tempint_length": 0.025,
+                "flush_before_gap": True,
+                "do_specint": False,
+                "specint_type": "hanning",
+                "specint_shift": 4,
+                "specint_length": 9,
+                "normalize": True,
+                "preemphasis": True,
+                "legacy_scaling": False,
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": dc_detection,
+                },
+                "normalization_options": {},
+            }
         },
-        "normalization_options": {},
-      }
-    },
-    "energy": {
-      "energy_options": {
-        "without_samples": False,
-        "samples_options": {
-          "audio_format": "wav",
-          "dc_detection": dc_detection,
+        "energy": {
+            "energy_options": {
+                "without_samples": False,
+                "samples_options": {
+                    "audio_format": "wav",
+                    "dc_detection": dc_detection,
+                },
+                "fft_options": {},
+            }
         },
-        "fft_options": {},
-      }
-    },
-  }
+    }
 
-  return rasr_util.RasrInitArgs(
-    costa_args=costa_args,
-    am_args=am_args,
-    feature_extraction_args=feature_extraction_args,
-    scorer=scorer,
-  )
+    return rasr_util.RasrInitArgs(
+        costa_args=costa_args,
+        am_args=am_args,
+        feature_extraction_args=feature_extraction_args,
+        scorer=scorer,
+    )
 
 
 def get_data_inputs(
-      train_corpus="train-other-960",
-      add_unknown_phoneme_and_mapping=True,
-      use_eval_data_subset: bool = False,
-  ):
+        train_corpus="train-other-960",
+        add_unknown_phoneme_and_mapping=True,
+        use_eval_data_subset: bool = False,
+):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-      audio_format="wav",
-      output_prefix="corpora",
+        audio_format="wav",
+        output_prefix="corpora",
     )
 
     lm = {
-      "filename": lbs_dataset.get_arpa_lm_dict()["4gram"],
-      "type": "ARPA",
-      "scale": 10,
+        "filename": lbs_dataset.get_arpa_lm_dict()["4gram"],
+        "type": "ARPA",
+        "scale": 10,
     }
 
     use_stress_marker = False
 
     original_bliss_lexicon = {
-      "filename": lbs_dataset.get_bliss_lexicon(
-        use_stress_marker=use_stress_marker,
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
-      ),
-      "normalize_pronunciation": False,
+        "filename": lbs_dataset.get_bliss_lexicon(
+            use_stress_marker=use_stress_marker,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        ),
+        "normalize_pronunciation": False,
     }
 
     augmented_bliss_lexicon = {
-      "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
-        use_stress_marker=use_stress_marker,
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
-      )[train_corpus],
-      "normalize_pronunciation": False,
+        "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
+            use_stress_marker=use_stress_marker,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        )[train_corpus],
+        "normalize_pronunciation": False,
     }
 
     train_data_inputs = {}
@@ -182,31 +182,31 @@ def get_data_inputs(
     test_data_inputs = {}
 
     train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
-      corpus_object=corpus_object_dict[train_corpus],
-      concurrent=300,
-      lexicon=augmented_bliss_lexicon,
+        corpus_object=corpus_object_dict[train_corpus],
+        concurrent=300,
+        lexicon=augmented_bliss_lexicon,
     )
 
     dev_corpus_keys = (
-      ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
+        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
     )
     test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
 
     for dev_key in dev_corpus_keys:
-      dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[dev_key],
-        concurrent=20,
-        lexicon=original_bliss_lexicon,
-        lm=lm,
-      )
+        dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
+            corpus_object=corpus_object_dict[dev_key],
+            concurrent=20,
+            lexicon=original_bliss_lexicon,
+            lm=lm,
+        )
 
     for tst_key in test_corpus_keys:
-      test_data_inputs[tst_key] = rasr_util.RasrDataInput(
-        corpus_object=corpus_object_dict[tst_key],
-        concurrent=20,
-        lexicon=original_bliss_lexicon,
-        lm=lm,
-      )
+        test_data_inputs[tst_key] = rasr_util.RasrDataInput(
+            corpus_object=corpus_object_dict[tst_key],
+            concurrent=20,
+            lexicon=original_bliss_lexicon,
+            lm=lm,
+        )
 
     return train_data_inputs, dev_data_inputs, test_data_inputs
 
