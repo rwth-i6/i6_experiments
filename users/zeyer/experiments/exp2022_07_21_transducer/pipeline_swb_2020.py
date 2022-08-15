@@ -21,29 +21,29 @@ Model = Any
 
 
 @dataclasses.dataclass(frozen=True)
-class Setup:
+class State:
     task: Task
 
     alignment: Optional[Alignment] = None
     model: Optional[Model] = None
 
 
-def from_scratch_training(setup: Setup) -> Setup:
+def from_scratch_training(state: State) -> State:
     pass
 
 
-def get_alignments(setup: Setup) -> Setup:
+def get_alignments(state: State) -> State:
     pass
 
 
-def train_extended(setup: Setup) -> Setup:
+def train_extended(state: State) -> State:
     pass
 
 
 def run():
     task = get_switchboard_task()
-    setup0 = Setup(task=task)
-    setup1 = from_scratch_training(setup0)
-    setup2 = get_alignments(setup1)
-    setup3 = train_extended(setup2)
-    setup4 = train_extended(setup3)
+    step0 = State(task=task)
+    step1 = from_scratch_training(step0)
+    step2 = get_alignments(step1)
+    step3 = train_extended(step2)
+    step4 = train_extended(step3)
