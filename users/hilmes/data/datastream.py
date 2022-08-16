@@ -225,7 +225,7 @@ class LabelDatastream(Datastream):
 
 class SpeakerEmbeddingDatastream(Datastream):
   """
-  Defines a datastream for speaker embeddings
+  Defines a datastream for speaker embeddings in hdf
 
   This defines a word-(unit)-based vocabulary
   """
@@ -234,14 +234,11 @@ class SpeakerEmbeddingDatastream(Datastream):
     self,
     available_for_inference: bool,
     embedding_size: Union[tk.Variable, int],
-    unk_label=None,
   ):
     """
 
     :param bool available_for_inference:
-    :param tk.Path vocab: word vocab file path (pickle)
     :Param tk.Variable|int embedding_size:
-    :param str unk_label: unknown label
     """
     super().__init__(available_for_inference)
     self.embedding_size = embedding_size

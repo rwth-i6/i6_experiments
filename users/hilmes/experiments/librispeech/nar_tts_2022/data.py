@@ -43,7 +43,7 @@ from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import (
     ViterbiToDurationsJob,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import (
-    DistributeSpeakerEmbeddings,
+    DistributeSpeakerEmbeddings, RandomSpeakerAssignmentJob, SingularizeHDFPerSpeakerJob, DistributeHDFByMappingJob
 )
 from i6_experiments.users.hilmes.data.tts_preprocessing import (
     extend_lexicon,
@@ -137,7 +137,7 @@ def _make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset):
 
 
 def _make_inference_meta_dataset(
-    audio_dataset, speaker_dataset, duration_dataset: Optional
+    audio_dataset, speaker_dataset, duration_dataset: Optional[HDFDataset], prior_dataset: Optional[HDFDataset] = None
 ):
     """
     :param OggZipDataset audio_dataset:
@@ -158,6 +158,10 @@ def _make_inference_meta_dataset(
     if duration_dataset is not None:
         data_map["duration_data"] = ("duration", "data")
         datasets["duration"] = duration_dataset.as_returnn_opts()
+
+    if prior_dataset is not None:
+        data_map["speaker_prior"] = ("prior", "data")
+        datasets["prior"] = prior_dataset.as_returnn_opts()
 
     meta_dataset = MetaDataset(
         data_map=data_map,
@@ -682,7 +686,7 @@ def get_tts_data_from_ctc_align(output_path, returnn_exe, returnn_root, alignmen
     return training_datasets, sil_pp_train_clean_100_tts, durations
 
 
-def get_inference_dataset(
+def get_inference_dataset_old(
     corpus_file: tk.Path,
     returnn_root,
     returnn_exe,
@@ -740,6 +744,94 @@ def get_inference_dataset(
         del datastreams["duration_data"]
     datastreams["speaker_labels"] = SpeakerEmbeddingDatastream(
         available_for_inference=True, embedding_size=speaker_embedding_size)
+
+    return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
+
+
+def get_inference_dataset(
+    corpus_file: tk.Path,
+    returnn_root,
+    returnn_exe,
+    datastreams: Dict[str, Any],
+    speaker_embedding_hdf,
+    durations: Optional = None,
+    speaker_prior_hdf: Optional = None,
+    speaker_embedding_size=256,
+    speaker_prior_size=8,
+    process_corpus: bool = True,
+):
+    """
+    Builds the inference dataset, gives option for different additional datasets to be passed depending on experiment
+    :param corpus_file:
+    :param returnn_root:
+    :param returnn_exe:
+    :param datastreams:
+    :param speaker_embedding_hdf:
+    :param durations:
+    :param speaker_prior_hdf:
+    :param speaker_embedding_size:
+    :param speaker_prior_size:
+    :param process_corpus:
+    :return:
+    """
+
+    if process_corpus:
+        librispeech_g2p_lexicon = extend_lexicon(
+            get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[
+                "train-clean-100"
+            ]
+        )
+
+        inference_corpus = process_corpus_text_with_extended_lexicon(
+            bliss_corpus=corpus_file,
+            lexicon=librispeech_g2p_lexicon,
+        )
+    else:
+        inference_corpus = corpus_file
+
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=inference_corpus,
+        no_conversion=True,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        no_audio=True,
+    ).out_ogg_zip
+
+    inference_ogg_zip = OggZipDataset(
+        path=zip_dataset,
+        audio_opts=None,
+        target_opts=datastreams["phonemes"].as_returnn_targets_opts(),
+        segment_file=None,
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+    )
+    mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file).out_mapping
+    speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file).out_hdf
+    speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
+    speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
+    if speaker_prior_hdf is not None:
+        prior_hdf = DistributeHDFByMappingJob(hdf_file=speaker_prior_hdf, mapping=mapping_pkl).out_hdf
+        prior_hdf_dataset = HDFDataset(files=[prior_hdf])
+    else:
+        prior_hdf_dataset = None
+
+    duration_hdf_dataset = None
+    if durations is not None:
+        duration_hdf_dataset = HDFDataset(files=[durations])
+    inference_dataset = _make_inference_meta_dataset(
+        inference_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset, prior_dataset=prior_hdf_dataset
+    )
+
+    datastreams = deepcopy(datastreams)
+    del datastreams["audio_features"]
+    if durations is None:
+        del datastreams["duration_data"]
+    datastreams["speaker_labels"] = SpeakerEmbeddingDatastream(
+        available_for_inference=True, embedding_size=speaker_embedding_size)
+    if speaker_prior_hdf is not None:
+        datastreams["speaker_prior"] = SpeakerEmbeddingDatastream(
+            available_for_inference=True, embedding_size=speaker_prior_size
+        )
 
     return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
 

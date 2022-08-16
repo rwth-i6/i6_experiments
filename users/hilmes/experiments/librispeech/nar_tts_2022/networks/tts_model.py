@@ -2,7 +2,7 @@
 Implementation of the CTC NAR Network
 """
 from returnn_common import nn
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 
 
 class Conv1DBlock(nn.Module):
@@ -366,6 +366,7 @@ class NARTTSModel(nn.Module):
         gauss_up: bool = False,
         use_true_durations: bool = False,
         dump_speaker_embeddings: bool = False,
+        dump_vae: bool = False,
         use_vae: bool = False,
         calc_speaker_embedding: bool = False,
     ):
@@ -378,6 +379,9 @@ class NARTTSModel(nn.Module):
         self.use_true_durations = use_true_durations
         self.dump_speaker_embeddings = dump_speaker_embeddings
         self.calc_speaker_embedding = calc_speaker_embedding
+        if dump_vae:
+          assert use_vae, "Needs to use VAE in order to dump it!"
+        self.dump_vae = dump_vae
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -425,6 +429,8 @@ class NARTTSModel(nn.Module):
         label_time: nn.Dim,
         speech_time: Union[nn.Dim, None],
         duration_time: Union[nn.Dim, None],
+        speaker_prior: Union[nn.Tensor, None],
+        prior_time: Union[nn.Dim, None]
     ) -> nn.Tensor:
         """
 
@@ -439,6 +445,7 @@ class NARTTSModel(nn.Module):
         """
         duration_int = None
         duration_float = None
+        latents = None
         # input data prep
         if self.training or self.use_true_durations:
             durations, _ = nn.reinterpret_new_dim(
@@ -453,18 +460,28 @@ class NARTTSModel(nn.Module):
         else:
             speaker_embedding = label_notime
         if self.use_vae:
-            vae_speaker_embedding = self.vae_embedding(target_speech)  # TODO: this is not in the paper I think but doesnt make sense otherwise
-            latents = self.vae(vae_speaker_embedding, speech_time)
+            if speaker_prior is None:
+                vae_speaker_embedding = self.vae_embedding(target_speech)  # TODO: this is not in the paper I think but doesnt make sense otherwise
+                latents = self.vae(vae_speaker_embedding, speech_time)
+            else:
+                latents = nn.squeeze(speaker_prior, axis=prior_time)
             speaker_embedding = nn.concat(
                 (speaker_embedding, speaker_embedding.feature_dim),
                 (latents, latents.feature_dim)
             )
 
-        if self.dump_speaker_embeddings:
+        if self.dump_vae and self.dump_speaker_embeddings:
+          speaker_embedding = nn.concat(
+            (speaker_embedding, speaker_embedding.feature_dim),
+            (latents, latents.feature_dim)
+          )
+          return speaker_embedding
+        elif self.dump_speaker_embeddings:
             return speaker_embedding
+        elif self.dump_vae:
+            return latents
 
         # embedding
-
         emb = self.embedding(text)
 
         # conv block
@@ -473,12 +490,10 @@ class NARTTSModel(nn.Module):
         # lstm encoder
         enc_lstm_fw, _ = self.enc_lstm_fw(conv, axis=time_dim, direction=1)
         enc_lstm_bw, _ = self.enc_lstm_bw(conv, axis=time_dim, direction=-1)
-
         cat = nn.concat(
             (enc_lstm_fw, enc_lstm_fw.feature_dim),
             (enc_lstm_bw, enc_lstm_bw.feature_dim),
         )
-
         encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
         # duration predictor
@@ -541,12 +556,12 @@ class NARTTSModel(nn.Module):
 
             dec_lin_loss = nn.mean_absolute_difference(
                 dec_lin, target_speech
-            )  # TODO: Is this correct?
+            )
             dec_lin_loss.mark_as_loss()
 
         # dec_lin.mark_as_default_output()
 
-        return dec_lin  # TODO: Is this the correct output?
+        return dec_lin
 
 
 def construct_network(
@@ -560,6 +575,8 @@ def construct_network(
     label_time_dim: nn.Dim,  # speaker_label time
     speech_time_dim: nn.Dim,  # audio features time
     duration_time_dim: nn.Dim,  # durations time
+    speaker_prior: Optional[nn.Data] = None,  # VAE speaker prior
+    prior_time: Optional[nn.Dim] = None,  # VAE speaker prior time
     **kwargs
 ):
     net = net_module(**kwargs)
@@ -568,10 +585,12 @@ def construct_network(
         durations=nn.get_extern_data(duration_data) if duration_data is not None else None,
         speaker_labels=nn.get_extern_data(label_data) if label_data is not None else None,
         target_speech=nn.get_extern_data(audio_data) if audio_data is not None else None,
+        speaker_prior=nn.get_extern_data(speaker_prior) if speaker_prior is not None else None,
         time_dim=time_dim or None,
         label_time=label_time_dim or None,
         speech_time=speech_time_dim or None,
         duration_time=duration_time_dim or None,
+        prior_time=prior_time or None
     )
     out.mark_as_default_output()
 

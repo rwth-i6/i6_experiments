@@ -19,7 +19,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.d
     get_default_vocoder,
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
-    get_inference_dataset, TTSForwardData
+    get_inference_dataset_old, TTSForwardData
 )
 
 
@@ -112,7 +112,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
               train_job=train_job
           )
           for dur_pred in ["pred", "cheat"]:
-            synth_dataset = get_inference_dataset(
+            synth_dataset = get_inference_dataset_old(
                 new_corpus,
                 returnn_root=returnn_root,
                 returnn_exe=returnn_exe,

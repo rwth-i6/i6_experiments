@@ -283,7 +283,7 @@ class CTCAligner(nn.Module):
                 value=0,
             )
             extract_alignment = nn.forced_alignment(
-                padding, align_target=phonemes, topology="ctc", input_type="prob"
+                padding, align_target=phonemes, topology="ctc", input_type="prob", blank_included=True
             )
             dur_dump = nn.hdf_dump(extract_alignment, filename="durations.hdf")
             return dur_dump
