@@ -7,7 +7,7 @@ import dataclasses
 from typing import Any, Optional
 
 from i6_experiments.users.zeyer.datasets.switchboard_2020 import get_switchboard_task
-from returnn_common.datasets.interface import Task, DatasetConfig, VocabConfig
+from returnn_common.datasets.interface import SupervisedTask, DatasetConfig, VocabConfig
 
 
 # This an alignment for one specific dataset.
@@ -22,13 +22,13 @@ Model = Any
 
 @dataclasses.dataclass(frozen=True)
 class State:
-    task: Task
+    task: SupervisedTask
 
     alignment: Optional[Alignment] = None
     model: Optional[Model] = None
 
 
-def from_scratch_training(state: State) -> State:
+def from_scratch_training(task: SupervisedTask) -> State:
     pass
 
 
@@ -42,8 +42,8 @@ def train_extended(state: State) -> State:
 
 def run():
     task = get_switchboard_task()
-    step0 = State(task=task)
-    step1 = from_scratch_training(step0)
+
+    step1 = from_scratch_training(task)
     step2 = get_alignments(step1)
     step3 = train_extended(step2)
     step4 = train_extended(step3)
