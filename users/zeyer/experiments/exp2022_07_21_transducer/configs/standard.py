@@ -73,8 +73,6 @@ EpochSplit = 6
 
 
 # _import_baseline_setup = "ctcalign.prior0.lstm6l.withchar.lrkeyfix"
-# _alignment = "%s.epoch-150" % _import_baseline_setup
-# _alignment = "rna-tf2c.enc-6lgrow2l.ctc.lm1-1024.attwb5.fast-warm.fixinf.scratch-lm.mlr50.epoch-215"
 # alignment from config (without swap), but instead did alignment = tf.where(alignment==0, 1030, alignment)
 # because the RNA-model hat blank-label-idx=0, instead of the last idx in all other models, so we swap it.
 _alignment = "rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50.epoch-150.swap"
@@ -166,7 +164,7 @@ window = 1
 
 # Note: We control the warmup in the pretrain construction.
 learning_rate = 0.001
-learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10))  # warmup
+learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10))  # warmup (not in original?)
 min_learning_rate = learning_rate / 50.
 
 
@@ -351,7 +349,7 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
     from TFUtil import where_bc, nd_indices, tile_transposed
     scores = scores_in + scores_base  # (batch,beam,dim)
     dim = layer.output.dim
-    
+
     u = layer.explicit_search_sources[0].output  # prev:u actually. [B*beam], pos in target [0..decT-1]
     assert u.shape == ()
     u_t = tf.reshape(tf.reshape(u.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # u beam might differ from base_beam_in
@@ -365,7 +363,7 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
     targets_u = tf.gather_nd(targets_exp, indices=nd_indices(where_bc(allow_target, u_t, 0)))  # [B*beam]
     targets_u = tf.reshape(targets_u, (batch_dim, base_beam_in))  # (batch,beam)
     allow_target = tf.reshape(allow_target, (batch_dim, base_beam_in))  # (batch,beam)
-    
+
     #t = layer.explicit_search_sources[1].output  # prev:t actually. [B*beam], pos in encoder [0..encT-1]
     #assert t.shape == ()
     #t_t = tf.reshape(tf.reshape(t.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # t beam might differ from base_beam_in
@@ -539,7 +537,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     from TFUtil import where_bc, nd_indices, tile_transposed
 
     dim = layer.output.dim
-    
+
     prev_str = layer.explicit_search_sources[0].output  # [B*beam], str
     prev_str_t = tf.reshape(prev_str.placeholder, (batch_dim, -1))[:,:base_beam_in]
     prev_out = layer.explicit_search_sources[1].output  # [B*beam], int32
@@ -554,7 +552,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
 
     # Pre-filter approx (should be much faster), sum approx (better).
     scores_base = tf.reshape(get_filtered_score_cpp(prev_str_t, tf.reshape(scores_base, (batch_dim, base_beam_in)), labels), (batch_dim, base_beam_in, 1))
-    
+
     scores = scores_in + scores_base  # (batch,beam,dim)
 
     # Mask -> max approx, in all possible options, slow.
@@ -562,9 +560,9 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     #masked_scores = where_bc(mask, scores, float("-inf"))
     # Sum approx in all possible options, slow.
     #masked_scores = get_new_score_cpp(prev_str_t, prev_out_t, scores, labels)
-    
+
     #scores = where_bc(end_flags[:,:,None], scores, masked_scores)
-    
+
     return scores
 
 
@@ -585,7 +583,7 @@ def get_most_recent_align_hdf_files(epoch0):
     return [AlignmentFilenamePattern % j for j in range(i, i + EpochSplit)]
 
 
-import_model_train_epoch1 = "base/data-train/rna3c-lm4a.convtrain.switchout6.l2a_1e_4.nohdf.encbottle256.attwb5_am.dec1la-n128.decdrop03.decwdrop03.pretrain_less2_rep6.mlr50.emit2.fl2.fixmask.rna-align-blank0-scratch-swap.encctc.devtrain/net-model/network.pretrain.150"
+#import_model_train_epoch1 = "base/data-train/base2.conv2l.specaug4a/net-model/network.160"
 #_train_setup_dir = "data-train/base2.conv2l.specaug4a"
 #model = _train_setup_dir + "/net-model/network"
 preload_from_files = {
@@ -896,13 +894,13 @@ def get_net_dict(pretrain_idx):
                 "eval": out_str},
 
             "output_is_not_blank": {"class": "compare", "from": "output_", "value": targetb_blank_idx, "kind": "not_equal", "initial_output": True},
-            
+
             # This "output_emit" is True on the first label but False otherwise, and False on blank.
             "output_emit": {"class": "copy", "from": "output_is_not_blank", "initial_output": True, "is_output_layer": True},
 
             "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
             "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
-            
+
             # pos in target, [B]
             "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
             "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
@@ -956,7 +954,7 @@ def custom_construction_algo(idx, net_dict):
     return get_net_dict(pretrain_idx=idx)
 
 # No repetitions here. We explicitly do that in the construction.
-# pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
+pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
 
 
 num_epochs = 150
