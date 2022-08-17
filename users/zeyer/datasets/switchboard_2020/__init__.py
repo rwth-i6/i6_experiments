@@ -9,15 +9,10 @@ import os
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
-from returnn_common.datasets.interface import SupervisedTask, DatasetConfig, VocabConfig
-
+from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 
 _my_dir = os.path.dirname(os.path.abspath(__file__))
 _rasr_configs_dir = _my_dir + "/rasr_configs"
-
-
-def get_switchboard_task() -> SupervisedTask:
-    raise NotImplementedError  # TODO...
 
 
 class _Bpe(VocabConfig):
@@ -59,11 +54,15 @@ class SwitchboardExternSprint(DatasetConfig):
   For hybrid NN-HMM, you need to be careful.
   E.g. sprint_interface_dataset_opts need to match, using correct `input_stddev` and maybe `bpe`.
   """
+
   def __init__(self, *,
                vocab: Optional[VocabConfig] = None,
+               main_key: Optional[str] = None,
                train_epoch_split=6):
     super(SwitchboardExternSprint, self).__init__()
     self.vocab = vocab
+    assert main_key in {None, "train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
+    self.main_key = main_key
     self.train_epoch_split = train_epoch_split
 
   @classmethod
@@ -101,6 +100,14 @@ class SwitchboardExternSprint(DatasetConfig):
       "dev": self.get_dataset("cv"),
       "devtrain": self.get_dataset("devtrain")}
 
+  def get_main_name(self) -> str:
+    assert self.main_key, "main key not defined"
+    return self.main_key
+
+  def get_main_dataset(self) -> Dict[str]:
+    assert self.main_key, "main key not defined"
+    return self.get_dataset(self.main_key)
+
   def get_dataset(self, data: str) -> Dict[str, Any]:
     """
     Get dataset
@@ -116,10 +123,7 @@ class SwitchboardExternSprint(DatasetConfig):
         "feature_extraction_config": tk.Path(
             f"{_rasr_configs_dir}/base.cache.flow",
             hash_overwrite="switchboard2020/base.cache.flow"),
-        "corpus": tk.Path(
-            "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
-            hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
-            cached=True)}
+        "corpus": get_bliss_xml_corpus(corpus_name)}
     if data in {"train", "cv", "devtrain"}:
         filename = "dependencies/seg_%s" % {
             "train": "train", "cv": "cv_head3000", "devtrain": "train_head3000"}[data]
@@ -164,3 +168,12 @@ class SwitchboardExternSprint(DatasetConfig):
     }
     d.update(partition_epochs_opts)
     return d
+
+
+def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
+    corpus_name = {"hub5e_00": "dev"}.get(corpus_name, corpus_name)
+    assert corpus_name in {"dev", "hub5e_01", "rt03s", "train"}
+    return tk.Path(
+        "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
+        hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
+        cached=True)
