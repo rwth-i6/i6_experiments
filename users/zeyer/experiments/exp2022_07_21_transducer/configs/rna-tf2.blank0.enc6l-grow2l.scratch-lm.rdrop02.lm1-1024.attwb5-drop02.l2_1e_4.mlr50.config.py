@@ -1,8 +1,3 @@
-#!crnn/rnn.py
-# kate: syntax python;
-# -*- mode: python -*-
-# sublime: syntax 'Packages/Python Improved/PythonImproved.tmLanguage'
-# vim:set expandtab tabstop=4 fenc=utf-8 ff=unix ft=python:
 
 # via:
 # /u/irie/setups/switchboard/2018-02-13--end2end-zeyer/config-train/bpe_1k.multihead-mlp-h1.red8.enc6l.encdrop03.decbs.ls01.pretrain2.nbd07.config
@@ -258,7 +253,7 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
     from TFUtil import where_bc, nd_indices, tile_transposed
     scores = scores_in + scores_base  # (batch,beam,dim)
     dim = layer.output.dim
-    
+
     u = layer.explicit_search_sources[0].output  # prev:u actually. [B*beam], pos in target [0..decT-1]
     assert u.shape == ()
     u_t = tf.reshape(tf.reshape(u.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # u beam might differ from base_beam_in
@@ -272,7 +267,7 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
     targets_u = tf.gather_nd(targets_exp, indices=nd_indices(where_bc(allow_target, u_t, 0)))  # [B*beam]
     targets_u = tf.reshape(targets_u, (batch_dim, base_beam_in))  # (batch,beam)
     allow_target = tf.reshape(allow_target, (batch_dim, base_beam_in))  # (batch,beam)
-    
+
     #t = layer.explicit_search_sources[1].output  # prev:t actually. [B*beam], pos in encoder [0..encT-1]
     #assert t.shape == ()
     #t_t = tf.reshape(tf.reshape(t.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # t beam might differ from base_beam_in
@@ -446,7 +441,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     from TFUtil import where_bc, nd_indices, tile_transposed
 
     dim = layer.output.dim
-    
+
     prev_str = layer.explicit_search_sources[0].output  # [B*beam], str
     prev_str_t = tf.reshape(prev_str.placeholder, (batch_dim, -1))[:,:base_beam_in]
     prev_out = layer.explicit_search_sources[1].output  # [B*beam], int32
@@ -461,7 +456,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
 
     # Pre-filter approx (should be much faster), sum approx (better).
     scores_base = tf.reshape(get_filtered_score_cpp(prev_str_t, tf.reshape(scores_base, (batch_dim, base_beam_in)), labels), (batch_dim, base_beam_in, 1))
-    
+
     scores = scores_in + scores_base  # (batch,beam,dim)
 
     # Mask -> max approx, in all possible options, slow.
@@ -469,9 +464,9 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     #masked_scores = where_bc(mask, scores, float("-inf"))
     # Sum approx in all possible options, slow.
     #masked_scores = get_new_score_cpp(prev_str_t, prev_out_t, scores, labels)
-    
+
     #scores = where_bc(end_flags[:,:,None], scores, masked_scores)
-    
+
     return scores
 
 
@@ -655,7 +650,7 @@ def get_net_dict(pretrain_idx):
 
         # Encoder LSTMs added below, resulting in "encoder0".
 
-        "encoder": {"class": "copy", "from": "encoder0"},        
+        "encoder": {"class": "copy", "from": "encoder0"},
         "enc_ctx0": {"class": "linear", "from": "encoder", "activation": None, "with_bias": False, "n_out": EncKeyTotalDim, "L2": l2, "dropout": 0.2},
         "enc_ctx_win": {"class": "window", "from": "enc_ctx0", "window_size": 5},  # [B,T,W,D]
         "enc_val": {"class": "copy", "from": "encoder"},
@@ -720,7 +715,7 @@ def get_net_dict(pretrain_idx):
             'att': {"class": "dot", "from": ['att_weights', 'enc_val_win'],
                     "red1": "static:0", "red2": "static:0", "var1": None, "var2": "f"},  # (B, V)
 
-            
+
             "prev_out_non_blank": {
                 "class": "reinterpret_data", "from": "prev:output", "set_sparse_dim": target_num_labels},
                 # "class": "reinterpret_data", "from": "prev:output_wo_b", "set_sparse_dim": target_num_labels},  # [B,]
@@ -751,7 +746,7 @@ def get_net_dict(pretrain_idx):
             "time_dim_axis": 0 if task == "train" else None}}, # (T, U+1, B, 1000)
 
             "readout": {"class": "reduce_out", "mode": "max", "num_pieces": 2, "from": "readout_in"},
-              
+
             "label_log_prob": {
                 "class": "linear", "from": "readout", "activation": "log_softmax", "dropout": 0.3, "n_out": target_num_labels},  # (B, T, U+1, 1030)
             "emit_prob0": {"class": "linear", "from": "readout", "activation": None, "n_out": 1, "is_output_layer": True},  # (B, T, U+1, 1)
@@ -791,13 +786,13 @@ def get_net_dict(pretrain_idx):
                 "eval": out_str},
 
             "output_is_not_blank": {"class": "compare", "from": "output", "value": targetb_blank_idx, "kind": "not_equal", "initial_output": True},
-            
+
             # initial state=True so that we are consistent to the training and the initial state is correctly set.
             "output_emit": {"class": "copy", "from": "output_is_not_blank", "initial_output": True, "is_output_layer": True},
 
             "const0": {"class": "constant", "value": 0, "collocate_with": ["du", "dt"]},
             "const1": {"class": "constant", "value": 1, "collocate_with": ["du", "dt"]},
-            
+
             # pos in target, [B]
             # "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
             # "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
