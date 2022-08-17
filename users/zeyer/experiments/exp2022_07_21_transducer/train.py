@@ -5,18 +5,21 @@ helpers for training
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
-from returnn_common.datasets.interface import DatasetConfig
+from .model import Model, ModelDefinition
 from .task import Task
 
 
-def train(state: State) -> State:
+def train(task: Task, model_definition: ModelDefinition) -> Model:
+    """train"""
+    num_epochs = 100
     returnn_train_job = ReturnnTrainingJob(
-        _build_train_config(),
-        log_verbosity=5, num_epochs=100,
+        _build_train_config(task=task, model_definition=model_definition),
+        log_verbosity=5, num_epochs=num_epochs,
         time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+    return Model(definition=model_definition, checkpoint=returnn_train_job.out_checkpoints[num_epochs])
 
 
-def _build_train_config(task: Task):
+def _build_train_config(task: Task, model_definition: ModelDefinition):
     import numpy
     returnn_train_config_dict = dict(
         use_tensorflow=True,
@@ -24,6 +27,9 @@ def _build_train_config(task: Task):
 
         # TODO dataset...
 
+        # TODO or move all these params to the model definition... ?
+        #   although, those are all really train specific
+        #   although the model def itself also contains train specific stuff...
         batching="random",
         batch_size=20000,
         max_seqs=200,

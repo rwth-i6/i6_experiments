@@ -1,8 +1,14 @@
+"""
+Task definition
+"""
 
 from i6_experiments.users.zeyer.datasets.base import Task, ScoreResultCollection, MeasureType
 
 
 def get_switchboard_task() -> Task:
+    """
+    Switchboard
+    """
     from i6_experiments.users.zeyer.datasets.switchboard_2020 import bpe1k, SwitchboardExternSprint
     from i6_experiments.users.zeyer.datasets.switchboard_2020.score import score
 
@@ -26,5 +32,5 @@ def get_switchboard_task() -> Task:
         main_measure_name="hub5e_01",
 
         score_recog_output_func=score,
-        collect_score_results_func=None,
+        collect_score_results_func=None,  # TODO
     )

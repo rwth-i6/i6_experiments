@@ -29,7 +29,7 @@ class Task:
     main_measure_name: str  # e.g. dataset name but arbitrary, just to describe the main measure value
 
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
-    collect_score_results_func: Callable[[List[ScoreResult]], ScoreResultCollection]
+    collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection]
 
 
 @dataclasses.dataclass
@@ -55,7 +55,7 @@ class ScoreResultCollection:
     """
     Intended to cover all relevant results over all eval datasets.
     """
-    main_measure_value: tk.Variable  # e.g. the final best WER% on test-other
+    main_measure_value: tk.Path  # e.g. the final best WER% on test-other
     output: tk.Path  # JSON dict with all score outputs
 
 
