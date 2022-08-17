@@ -1,3 +1,6 @@
+"""
+Scoring function
+"""
 
 from sisyphus import tk
 from i6_core.returnn.search import SearchWordsToCTMJob
@@ -40,4 +43,5 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
 
 
 def score(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+    """score"""
     return _score(hyp_words=recog_output.output, corpus_name=dataset.get_main_name())

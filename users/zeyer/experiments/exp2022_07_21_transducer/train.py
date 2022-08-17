@@ -9,6 +9,13 @@ from returnn_common.datasets.interface import DatasetConfig
 from .task import Task
 
 
+def train(state: State) -> State:
+    returnn_train_job = ReturnnTrainingJob(
+        _build_train_config(),
+        log_verbosity=5, num_epochs=100,
+        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+
+
 def _build_train_config(task: Task):
     import numpy
     returnn_train_config_dict = dict(
@@ -59,10 +66,3 @@ def _build_train_config(task: Task):
         sort_config=False,
     )
     return returnn_train_config
-
-
-def train(state: State) -> State:
-    returnn_train_job = ReturnnTrainingJob(
-        returnn_train_config,
-        log_verbosity=5, num_epochs=100,
-        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
