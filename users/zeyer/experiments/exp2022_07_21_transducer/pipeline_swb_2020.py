@@ -5,10 +5,8 @@ https://github.com/rwth-i6/returnn-experiments/tree/master/2020-rnn-transducer
 
 import dataclasses
 from typing import Any, Optional
-
-from i6_experiments.users.zeyer.datasets.switchboard_2020 import get_switchboard_task
-from returnn_common.datasets.interface import SupervisedTask, DatasetConfig, VocabConfig
-
+from sisyphus import tk
+from .task import Task, ScoreResultCollection, get_switchboard_task
 
 # This an alignment for one specific dataset.
 # TODO Type unclear... this is a dataset as well?
@@ -17,18 +15,20 @@ Alignment = Any
 AlignmentCollection = Any
 
 
-Model = Any
+@dataclasses.dataclass(frozen=True)
+class Model:
+    definition: Any
+    checkpoint: tk.Path
 
 
 @dataclasses.dataclass(frozen=True)
 class State:
-    task: SupervisedTask
+    task: Task
+    model: Model
+    alignment: Optional[AlignmentCollection] = None
 
-    alignment: Optional[Alignment] = None
-    model: Optional[Model] = None
 
-
-def from_scratch_training(task: SupervisedTask) -> State:
+def from_scratch_training(task: Task) -> State:
     pass
 
 
@@ -47,3 +47,5 @@ def run():
     step2 = get_alignments(step1)
     step3 = train_extended(step2)
     step4 = train_extended(step3)
+
+    tk.register_output('final_out')

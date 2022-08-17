@@ -5,9 +5,11 @@ helpers for training
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
+from returnn_common.datasets.interface import DatasetConfig
+from .task import Task
 
 
-def _build_train_config():
+def _build_train_config(task: Task):
     import numpy
     returnn_train_config_dict = dict(
         use_tensorflow=True,
@@ -31,7 +33,7 @@ def _build_train_config():
         learning_rate_control_relative_error_relative_lr=True,
         learning_rate_control_min_num_epochs_per_new_lr=3,
         use_learning_rate_control_always=True,
-        newbob_multi_num_epochs=librispeech.default_epoch_split,
+        newbob_multi_num_epochs=task.train_epoch_split,
         newbob_multi_update_interval=1,
         newbob_learning_rate_decay=0.9,
     )
@@ -56,9 +58,10 @@ def _build_train_config():
         ),
         sort_config=False,
     )
+    return returnn_train_config
 
 
-def _train(state: State) -> State:
+def train(state: State) -> State:
     returnn_train_job = ReturnnTrainingJob(
         returnn_train_config,
         log_verbosity=5, num_epochs=100,
