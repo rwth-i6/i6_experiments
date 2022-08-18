@@ -167,57 +167,9 @@ learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10)
 min_learning_rate = learning_rate / 50.
 
 
-def targetb_linear(source, **kwargs):
-    from TFUtil import get_rnnt_linear_aligned_output
-    enc = source(1, as_data=True, auto_convert=False)
-    dec = source(0, as_data=True, auto_convert=False)
-    enc_lens = enc.get_sequence_lengths()
-    dec_lens = dec.get_sequence_lengths()
-    out, out_lens = get_rnnt_linear_aligned_output(
-        input_lens=enc_lens,
-        target_lens=dec_lens, targets=dec.get_placeholder_as_batch_major(),
-        blank_label_idx=targetb_blank_idx,
-        targets_consume_time=True)
-    return out
-
-def targetb_linear_out(sources, **kwargs):
-    from TFUtil import Data
-    enc = sources[1].output
-    dec = sources[0].output
-    size = enc.get_sequence_lengths() #  + dec.get_sequence_lengths()
-    #output_len_tag.set_tag_on_size_tensor(size)
-    return Data(name="targetb_linear", sparse=True, dim=targetb_num_labels, size_placeholder={0: size})
-
-def targetb_search_or_fallback(source, **kwargs):
-    import tensorflow as tf
-    from TFUtil import where_bc
-    ts_linear = source(0)  # (B,T)
-    ts_search = source(1)  # (B,T)
-    l = source(2, auto_convert=False)  # (B,)
-    return where_bc(tf.less(l[:, None], 0.01), ts_search, ts_linear)
-
-
 #import_model_train_epoch1 = "base/data-train/base2.conv2l.specaug4a/net-model/network.160"
 #_train_setup_dir = "data-train/base2.conv2l.specaug4a"
 #model = _train_setup_dir + "/net-model/network"
-preload_from_files = {
-  #"base": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2018-10-02--e2e-bpe1k/data-train/base2.conv2l.specaug4a/net-model/network.160",
-  #},
-  #"encoder": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2017-12-11--returnn/data-train/#dropout01.l2_1e_2.6l.n500.inpstddev3.fl2.max_seqs100.grad_noise03.nadam.lr05e_3.nbm6.nbrl.grad_clip_inf.nbm3.run1/net-model/network.077",
-  #},
-  #"encoder": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "ignore_params_prefixes": {"output/"},
-  #  "filename": "/u/zeyer/setups/switchboard/2019-10-22--e2e-bpe1k/data-train/%s/net-model/network.pretrain.250" % _import_baseline_setup,
-  #}
-}
 #lm_model_filename = "/work/asr3/irie/experiments/lm/switchboard/2018-01-23--lmbpe-zeyer/data-train/bpe1k_clean_i256_m2048_m2048.sgd_b16_lr0_cl2.newbobabs.d0.2/net-model/network.023"
 
 
@@ -259,7 +211,6 @@ def get_net_dict(pretrain_idx):
         #    net_dict["#config"]["param_variational_noise"] = 0.1
         #pretrain_idx -= len(lr_warmup)
 
-    use_targetb_search_as_target = False  # not have_existing_align or epoch0 < StoreAlignmentUpToEpoch
     keep_linear_align = False  # epoch0 is not None and epoch0 < EpochSplit * 2
 
     # We import the model, thus no growing.
@@ -290,7 +241,7 @@ def get_net_dict(pretrain_idx):
         "num_lstm_layers": num_lstm_layers,
         "dim_frac": dim_frac,
         "have_existing_align": have_existing_align,
-        "use_targetb_search_as_target": use_targetb_search_as_target,
+        "use_targetb_search_as_target": False,
         "keep_linear_align": keep_linear_align,
     }
 
@@ -330,10 +281,6 @@ def get_net_dict(pretrain_idx):
             "class": "decide", "from": "output_wo_b", "loss": "edit_distance", "target": target,
             'only_on_search': True},
 
-        "targetb_linear": {
-            "class": "eval", "from": ["data:%s" % target, "encoder"], "eval": targetb_linear,
-            "out_type": targetb_linear_out},
-
         # Target for decoder ('output') with search ("extra.search") in training.
         # The layer name must be smaller than "t_target" such that this is created first.
         "1_targetb_base": {
@@ -343,7 +290,7 @@ def get_net_dict(pretrain_idx):
 
         "2_targetb_target": {
             "class": "eval",
-            "from": "targetb_search_or_fallback" if use_targetb_search_as_target else "data:targetb_base",
+            "from": "data:targetb_base",
             "eval": "source(0)",
             "register_as_extern_data": "targetb" if task == "train" else None},
 
