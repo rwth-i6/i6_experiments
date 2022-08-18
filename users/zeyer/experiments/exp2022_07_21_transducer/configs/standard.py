@@ -17,12 +17,11 @@ from TFUtil import DimensionTag
 use_tensorflow = True
 task = config.value("task", "train")
 device = "gpu"
-multiprocessing = True
-update_on_device = True
+full_sum_train = False
 
 debug_mode = False
 if int(os.environ.get("DEBUG", "0")):
-    print("** DEBUG MODE")
+    # print("** DEBUG MODE")
     debug_mode = True
 
 if config.has("beam_size"):
@@ -62,13 +61,13 @@ output_len_tag = DimensionTag(kind=DimensionTag.Types.Spatial, description="outp
 # use "same_dim_tags_as": {"t": time_tag} if same time tag ("data" and "alignment"). e.g. for RNA. not for RNN-T.
 extern_data = {
     "data": {"dim": 40, "same_dim_tags_as": {"t": time_tag}},  # Gammatone 40-dim
+    target: {"dim": target_num_labels, "sparse": True},  # see vocab
     "alignment": {"dim": targetb_num_labels, "sparse": True, "same_dim_tags_as": {"t": output_len_tag}},
-    #"align_score": {"shape": (1,), "dtype": "float32"},
+    "align_score": {"shape": (1,), "dtype": "float32"},
 }
 if task != "train":
     # During train, we add this via the network (from prev alignment, or linear seg). Otherwise it's not available.
     extern_data["targetb"] = {"dim": targetb_num_labels, "sparse": True, "available_for_inference": False}
-    extern_data[target] = {"dim": target_num_labels, "sparse": True}  # must not be used for chunked training
 EpochSplit = 6
 
 
@@ -82,7 +81,7 @@ def get_sprint_dataset(data):
     epoch_split = {"train": EpochSplit}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
     hdf_files = None
-    if data in {"train", "cv", "devtrain"}:
+    if not full_sum_train and data in {"train", "cv", "devtrain"}:
         hdf_files = ["base/dump-align/data/%s.data-%s.hdf" % (_alignment, {"cv": "dev", "devtrain": "train"}.get(data, data))]
 
     # see /u/tuske/work/ASR/switchboard/corpus/readme
@@ -564,23 +563,6 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     #scores = where_bc(end_flags[:,:,None], scores, masked_scores)
 
     return scores
-
-
-StoreAlignmentUpToEpoch = 10 * EpochSplit  # 0 based, exclusive
-AlignmentFilenamePattern = "net-model/alignments.%i.hdf"
-
-def get_most_recent_align_hdf_files(epoch0):
-    """
-    :param int epoch0: 0-based (sub) epoch
-    :return: filenames or None if there is nothing completed yet
-    :rtype: list[str]|None
-    """
-    if epoch0 < EpochSplit:
-        return None
-    if epoch0 > StoreAlignmentUpToEpoch:
-        epoch0 = StoreAlignmentUpToEpoch  # first epoch after
-    i = ((epoch0 - EpochSplit) // EpochSplit) * EpochSplit
-    return [AlignmentFilenamePattern % j for j in range(i, i + EpochSplit)]
 
 
 #import_model_train_epoch1 = "base/data-train/base2.conv2l.specaug4a/net-model/network.160"

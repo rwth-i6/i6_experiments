@@ -15,8 +15,7 @@ from TFUtil import DimensionTag
 use_tensorflow = True
 task = config.value("task", "train")
 device = "gpu"
-multiprocessing = True
-update_on_device = True
+full_sum_train = True
 
 debug_mode = False
 if int(os.environ.get("DEBUG", "0")):
@@ -69,10 +68,15 @@ if task != "train":
     extern_data["targetb"] = {"dim": targetb_num_labels, "sparse": True, "available_for_inference": False}
 EpochSplit = 6
 
+_alignment = None
+
 def get_sprint_dataset(data, hdf_files=None):
     assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
     epoch_split = {"train": EpochSplit}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
+    hdf_files = None
+    if not full_sum_train and data in {"train", "cv", "devtrain"}:
+        hdf_files = ["base/dump-align/data/%s.data-%s.hdf" % (_alignment, {"cv": "dev", "devtrain": "train"}.get(data, data))]
 
     # see /u/tuske/work/ASR/switchboard/corpus/readme
     # and zoltans mail https://mail.google.com/mail/u/0/#inbox/152891802cbb2b40
@@ -110,7 +114,30 @@ def get_sprint_dataset(data, hdf_files=None):
         "partition_epoch": epoch_split,
         "estimated_num_seqs": (estimated_num_seqs[data] // epoch_split) if data in estimated_num_seqs else None,
     }
-    d.update(partition_epochs_opts)
+    if hdf_files:
+        align_opts = {
+            "class": "HDFDataset", "files": hdf_files,
+            "use_cache_manager": True,
+            "seq_list_filter_file": files["segments"],  # otherwise not right selection
+            #"unique_seq_tags": True  # dev set can exist multiple times
+            }
+        align_opts.update(partition_epochs_opts)  # this dataset will control the seq list
+        if data == "train":
+            align_opts["seq_ordering"] = "laplace:%i" % (estimated_num_seqs[data] // 1000)
+            align_opts["seq_order_seq_lens_file"] = "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
+        d = {
+            "class": "MetaDataset",
+            "datasets": {"sprint": d, "align": align_opts},
+            "data_map": {
+                "data": ("sprint", "data"),
+                # target: ("sprint", target),
+                "alignment": ("align", "data"),
+                #"align_score": ("align", "scores")
+                },
+            "seq_order_control_dataset": "align",  # it must support get_all_tags
+        }
+    else:
+        d.update(partition_epochs_opts)
     return d
 
 sprint_interface_dataset_opts = {
@@ -130,6 +157,7 @@ window = 1
 
 # Note: We control the warmup in the pretrain construction.
 learning_rate = 0.001
+learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10))  # warmup (not in original?)
 min_learning_rate = learning_rate / 50.
 
 
@@ -152,13 +180,14 @@ def summary(name, x):
     tf.summary.histogram("%s_hist" % name, tf.reduce_max(tf.abs(x), axis=2))
 
 
-def _mask(x, batch_axis, axis, pos, max_amount):
+def _mask(x, batch_axis, axis, pos, max_amount, mask_value=0.):
     """
-    :param tf.Tensor x: (batch,time,feature)
+    :param tf.Tensor x: (batch,time,[feature])
     :param int batch_axis:
     :param int axis:
     :param tf.Tensor pos: (batch,)
     :param int|tf.Tensor max_amount: inclusive
+    :param float|int mask_value:
     """
     import tensorflow as tf
     ndim = x.get_shape().ndims
@@ -174,11 +203,11 @@ def _mask(x, batch_axis, axis, pos, max_amount):
         cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
-    x = where_bc(cond, 0.0, x)
+    x = where_bc(cond, mask_value, x)
     return x
 
 
-def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
+def random_mask(x, batch_axis, axis, min_num, max_num, max_dims, mask_value=0.):
     """
     :param tf.Tensor x: (batch,time,feature)
     :param int batch_axis:
@@ -186,6 +215,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     :param int|tf.Tensor min_num:
     :param int|tf.Tensor max_num: inclusive
     :param int|tf.Tensor max_dims: inclusive
+    :param float|int mask_value:
     """
     import tensorflow as tf
     n_batch = tf.shape(x)[batch_axis]
@@ -201,7 +231,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     # indices = tf.Print(indices, ["indices", indices, tf.shape(indices)])
     if isinstance(num, int):
         for i in range(num):
-            x = _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims)
+            x = _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, mask_value=mask_value)
     else:
         _, x = tf.while_loop(
             cond=lambda i, _: tf.less(i, tf.reduce_max(num)),
@@ -209,7 +239,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
                 i + 1,
                 tf.where(
                     tf.less(i, num),
-                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims),
+                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, mask_value=mask_value),
                     x)),
             loop_vars=(0, x))
     return x
@@ -236,6 +266,65 @@ def transform(data, network, time_factor=1):
         return x_masked
     x = network.cond_on_train(get_masked, lambda: x)
     return x
+
+
+def switchout_target(self, source, **kwargs):
+    import tensorflow as tf
+    from TFUtil import where_bc
+    network = self.network
+    time_factor = 6
+    data = source(0, as_data=True)
+    assert data.is_batch_major  # just not implemented otherwise
+    x = data.placeholder
+    def get_switched():
+        x_ = x
+        shape = tf.shape(x)
+        n_batch = tf.shape(x)[data.batch_dim_axis]
+        n_time = tf.shape(x)[data.time_dim_axis]
+        take_rnd_mask = tf.less(tf.random_uniform(shape=shape, minval=0., maxval=1.), 0.05)
+        take_blank_mask = tf.less(tf.random_uniform(shape=shape, minval=0., maxval=1.), 0.5)
+        rnd_label = tf.random_uniform(shape=shape, minval=0, maxval=target_num_labels, dtype=tf.int32)
+        rnd_label = where_bc(take_blank_mask, targetb_blank_idx, rnd_label)
+        x_ = where_bc(take_rnd_mask, rnd_label, x_)
+        x_ = random_mask(
+          x_, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
+          min_num=0, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // (50 // time_factor), 1),
+          max_dims=20 // time_factor,
+          mask_value=targetb_blank_idx)
+        #x_ = tf.Print(x_, ["switch", x[0], "to", x_[0]], summarize=100)
+        return x_
+    x = network.cond_on_train(get_switched, lambda: x)
+    return x
+
+
+def targetb_linear(source, **kwargs):
+    from TFUtil import get_rnnt_linear_aligned_output
+    enc = source(1, as_data=True, auto_convert=False)
+    dec = source(0, as_data=True, auto_convert=False)
+    enc_lens = enc.get_sequence_lengths()
+    dec_lens = dec.get_sequence_lengths()
+    out, out_lens = get_rnnt_linear_aligned_output(
+        input_lens=enc_lens,
+        target_lens=dec_lens, targets=dec.get_placeholder_as_batch_major(),
+        blank_label_idx=targetb_blank_idx,
+        targets_consume_time=True)
+    return out
+
+def targetb_linear_out(sources, **kwargs):
+    from TFUtil import Data
+    enc = sources[1].output
+    dec = sources[0].output
+    size = enc.get_sequence_lengths() #  + dec.get_sequence_lengths()
+    #output_len_tag.set_tag_on_size_tensor(size)
+    return Data(name="targetb_linear", sparse=True, dim=targetb_num_labels, size_placeholder={0: size})
+
+def targetb_search_or_fallback(source, **kwargs):
+    import tensorflow as tf
+    from TFUtil import where_bc
+    ts_linear = source(0)  # (B,T)
+    ts_search = source(1)  # (B,T)
+    l = source(2, auto_convert=False)  # (B,)
+    return where_bc(tf.less(l[:, None], 0.01), ts_search, ts_linear)
 
 
 def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in, end_flags, **kwargs):
@@ -421,8 +510,8 @@ def get_filtered_score_cpp(prev_str, scores, labels):
     """
     import TFUtil
     import tensorflow as tf
-    labels_t = TFUtil.get_shared_vocab(labels)
-    with tf.device("cpu:0"):
+    with tf.device("/cpu:0"):
+        labels_t = TFUtil.get_shared_vocab(labels)
         return get_filtered_score_op()(prev_str, scores, labels_t)
 
 
