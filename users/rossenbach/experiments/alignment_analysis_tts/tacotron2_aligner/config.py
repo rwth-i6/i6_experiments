@@ -1,4 +1,5 @@
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.training import Checkpoint
 
 from .tacotron2_network import Tacotron2NetworkBuilderV2
 
@@ -69,3 +70,78 @@ def get_training_config(network_options, train_dataset, cv_dataset, extern_data,
         config = ReturnnConfig(config=config, post_config=post_config_template.copy(), staged_network_dict=staged_network_dict)
 
     return config
+
+
+def get_finetune_config(model_checkpoint, network_options, train_dataset, cv_dataset, extern_data, do_eval=False):
+    """
+
+    :param Checkpoint model_checkpoint:
+    :param dict[str, Any] network_options:
+    :param datasets.GenericDataset train_dataset:
+    :param datasets.GenericDataset cv_dataset:
+    :param dict[str, dict[str, Any]] extern_data:
+    :return:
+    :rtype: ReturnnConfig
+    """
+    config = {
+        "behavior_version": 1,
+        ############
+        'optimizer': {'class': 'adam', 'epsilon': 1e-8},
+        "accum_grad_multiple_step": 2,
+        "gradient_clip": 1,
+        "gradient_noise": 0,
+        "learning_rate_control": "newbob_multi_epoch",
+        "learning_rate_control_min_num_epochs_per_new_lr": 5,
+        "learning_rate_control_relative_error_relative_lr": True,
+        "learning_rates": [0.00025], # one quarter of the original
+        "use_learning_rate_control_always": True,
+        ############
+        "newbob_learning_rate_decay": 0.9,
+        "newbob_multi_num_epochs": 5,
+        "newbob_multi_update_interval": 1,
+        "newbob_relative_error_threshold": 0,
+        #############
+        "batch_size": 10000,  # number of audio frames
+        "max_seq_length": {'data': 1290},  # 3*0.0125*430 seconds
+        "max_seqs": 200,
+        #############
+        "train": train_dataset.as_returnn_opts(),
+        "dev": cv_dataset.as_returnn_opts(),
+        "extern_data": extern_data,
+        "import_model_train_epoch1": model_checkpoint.index_path,
+    }
+
+    if do_eval is True:
+        builder = Tacotron2NetworkBuilderV2(network_options=network_options)
+        config['network'] = builder.create_network()
+        config = builder.add_decoding(config, dump_attention=True)
+        config = ReturnnConfig(config=config, post_config=post_config_template.copy())
+    else:
+        postnet_loss_scale = 0.25
+        stop_token_loss_scale = 1.0
+        builder = Tacotron2NetworkBuilderV2(
+            network_options=network_options,
+            stop_token_loss_scale=stop_token_loss_scale,
+            postnet_loss_scale=postnet_loss_scale
+        )
+        config["network"] = builder.create_network()
+        config = ReturnnConfig(config=config, post_config=post_config_template.copy())
+
+    return config
+
+
+def get_forward_config(
+        model_checkpoint: Checkpoint,
+        network_options,
+        extern_data,
+        dataset):
+    config = {
+        "behavior_version": 1,
+        ############
+        "batch_size": 10000,  # number of audio frames
+        "max_seq_length": {'data': 1290},  # 3*0.0125*430 seconds
+        "max_seqs": 200,
+        #############
+        "extern_data": extern_data,
+        "load": model_checkpoint.ckpt_path,
+    }

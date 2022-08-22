@@ -148,7 +148,6 @@ def get_librispeech_tts_segments():
 
 
 
-@lru_cache()
 def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
     """
     This returns the silence-preprocessed version of LibriSpeech train-clean-100 with
