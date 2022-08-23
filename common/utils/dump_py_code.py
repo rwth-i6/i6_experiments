@@ -255,9 +255,11 @@ class PythonCodeDumper:
                     if obj == v:
                         self._import_reserved("gs")
                         return f"gs.{name}"
-                    if obj.startswith(v + "/") or (
-                        v.endswith("/") and obj.startswith(v)
-                    ):
+                    if obj.startswith(v + "/"):
+                        self._import_reserved("gs")
+                        self._import_user_mod("os")
+                        return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v) + 1:])})"
+                    if v.endswith("/") and obj.startswith(v):
                         self._import_reserved("gs")
                         self._import_user_mod("os")
                         return f"os.path.join(gs.{name}, {self._py_repr(obj[len(v):])})"
@@ -273,7 +275,14 @@ class PythonCodeDumper:
         if p.cached:
             args.append(f"cached={self._py_repr(p.cached)}")
         if p.hash_overwrite:
-            args.append(f"hash_overwrite={self._py_repr(p.hash_overwrite)}")
+            hash_overwrite = p.hash_overwrite
+            if (
+                isinstance(hash_overwrite, tuple)  # always with newer Sisyphus
+                and hash_overwrite[0] is None
+                and isinstance(hash_overwrite[1], str)
+            ):
+                hash_overwrite = hash_overwrite[1]  # simplify
+            args.append(f"hash_overwrite={self._py_repr(hash_overwrite)}")
         # noinspection PyProtectedMember
         if p._tags:
             # noinspection PyProtectedMember
@@ -331,54 +340,7 @@ class PythonCodeDumper:
             "gs": "from sisyphus import gs",
             "tk": "from sisyphus import tk",
             "rasr": "import i6_core.rasr as rasr",
-            "make_fake_job": "from i6_experiments.common.utils.dump_py_code import _make_fake_job as make_fake_job",
+            "make_fake_job": "from i6_experiments.common.utils.fake_job import make_fake_job",
         }
         print(code[name], file=self.file)
         self._imports.add(name)
-
-
-def _make_fake_job(*, module: str, name: str, sis_hash: str) -> sisyphus.Job:
-    """
-    We want to make a fake job for the creator of tk.Path, such that the dependency_boundary files
-    are properly registered as job outputs.
-    """
-    cls = _fake_job_class_cache.get((module, name))
-    if not cls:
-
-        class _FakeJob(_FakeJobBase):
-            pass
-
-        cls = _FakeJob
-        # Fake these attributes so that JobSingleton.__call__ results in the same sis_id.
-        cls.__module__ = module
-        cls.__name__ = name
-        _fake_job_class_cache[(module, name)] = cls
-    job = cls(sis_hash=sis_hash)
-    # Note: If this isinstance(...) is not true,
-    # it's because the job was already registered before with the real job class,
-    # and the JobSingleton returned that real instance.
-    # Anyway, this should not really be a problem.
-    if isinstance(job, cls):
-        # Do not keep the fake job instances registered, in case we later want to create the real instance.
-        # noinspection PyProtectedMember
-        sisyphus.job.created_jobs.pop(job._sis_id())
-    return job
-
-
-class _FakeJobBase(sisyphus.Job):
-    # noinspection PyShadowingNames
-    def __init__(self, *, sis_hash: str):
-        super().__init__()
-        self.sis_hash = sis_hash
-        # Make sure our outputs are never cleaned up.
-        self.set_keep_value(99)
-
-    @classmethod
-    def hash(cls, parsed_args):
-        """
-        Sisyphus job hash
-        """
-        return parsed_args["sis_hash"]
-
-
-_fake_job_class_cache = {}

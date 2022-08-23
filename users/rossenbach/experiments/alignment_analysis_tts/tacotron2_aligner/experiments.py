@@ -5,7 +5,7 @@ from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
 
 from .pipeline import build_training_dataset, tts_training
-from .config import get_training_config
+from .config import get_training_config, get_finetune_config
 
 
 baseline_network_options = {
@@ -68,14 +68,12 @@ baseline_network_options = {
 def run_tacotron2_aligner_training():
 
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-    returnn_root_data = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="37ba06ab2697e7af4de96037565fdf4f78acdb80").out_repository
     returnn_root_training = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                                   commit="fbeca88980962ad47e2622a3be517c2a43b2b530").out_repository
 
     prefix_path = "experiments/alignment_analysis_tts/tacotron2_aligner/baseline/"
 
-    train_dataset, cv_dataset, extern_data = build_training_dataset(returnn_root=returnn_root_data, returnn_cpu_exe=returnn_exe, alias_path=prefix_path)
+    train_dataset, cv_dataset, extern_data = build_training_dataset()
 
     network_options = copy.deepcopy(baseline_network_options)
 
@@ -85,7 +83,19 @@ def run_tacotron2_aligner_training():
         cv_dataset=cv_dataset,
         extern_data=extern_data
     )
-    tts_training(returnn_config=config, num_epochs=200, returnn_gpu_exe=returnn_exe, returnn_root=returnn_root_training, output_path=prefix_path)
+    train_job = tts_training(returnn_config=config, num_epochs=200, returnn_gpu_exe=returnn_exe, returnn_root=returnn_root_training, output_path=prefix_path + "training/")
+
+    finetune_options = copy.deepcopy(network_options)
+    finetune_options["frame_reduction_factor"] = 2
+    finetune_config = get_finetune_config(
+        model_checkpoint=train_job.out_checkpoints[200],
+        network_options=finetune_options,
+        train_dataset=train_dataset,
+        cv_dataset=cv_dataset,
+        extern_data=extern_data
+    )
+    finetune_job = tts_training(returnn_config=finetune_config, num_epochs=50, returnn_gpu_exe=returnn_exe, returnn_root=returnn_root_training, output_path=prefix_path + "finetune/")
+
 
 
 

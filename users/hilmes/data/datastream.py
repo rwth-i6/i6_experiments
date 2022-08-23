@@ -223,6 +223,44 @@ class LabelDatastream(Datastream):
     return {"vocab_file": self.vocab, "unknown_label": self.unk_label, **kwargs}
 
 
+class SpeakerEmbeddingDatastream(Datastream):
+  """
+  Defines a datastream for speaker embeddings in hdf
+
+  This defines a word-(unit)-based vocabulary
+  """
+
+  def __init__(
+    self,
+    available_for_inference: bool,
+    embedding_size: Union[tk.Variable, int],
+  ):
+    """
+
+    :param bool available_for_inference:
+    :Param tk.Variable|int embedding_size:
+    """
+    super().__init__(available_for_inference)
+    self.embedding_size = embedding_size
+
+  def as_returnn_extern_data_opts(
+    self, available_for_inference: Optional[bool] = None, **kwargs
+  ) -> Dict[str, Any]:
+    """
+    :param available_for_inference:
+    :rtype: dict[str]
+    """
+    d = {
+      **super().as_returnn_extern_data_opts(
+        available_for_inference=available_for_inference
+      ),
+      "shape": (None, self.embedding_size),
+      "dim": self.embedding_size,
+    }
+    d.update(kwargs)
+    return d
+
+
 class DurationDatastream(Datastream):
   """
   Helper class for duration Datastreams

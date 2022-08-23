@@ -6,16 +6,9 @@ from sisyphus import gs
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
 
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align import (
-    baseline_args,
-)
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.data import (
-    get_corpus_data_inputs,
-)
-
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.default_tools import (
-    RASR_BINARY_PATH,
-)
+from . import baseline_args
+from .data import get_corpus_data_inputs
+from ..default_tools import RASR_BINARY_PATH
 
 
 def run_librispeech_100_common_tts_baseline(
@@ -44,16 +37,16 @@ def run_librispeech_100_common_tts_baseline(
     steps = RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    steps.add_step("forced_align_mono",
-      {"name": "tts_align_mono", "target_corpus_key": "tts_align", "flow": "mfcc+deriv+norm",
-       "feature_scorer": ("train-clean-100", "train_mono"), "corpus_keys": ["tts_align"]})
+    #steps.add_step("forced_align_mono",
+    #  {"name": "tts_align_mono", "target_corpus_key": "tts_align", "flow": "mfcc+deriv+norm",
+    #   "feature_scorer": ("train-clean-100", "train_mono"), "corpus_keys": ["tts_align"]})
     steps.add_step("cart", cart_args)
     steps.add_step("tri", tri_args)
     steps.add_step("vtln", vtln_args)
     steps.add_step("sat", sat_args)
-    steps.add_step("forced_align_sat",
-      {"name": "tts_align_sat", "target_corpus_key": "tts_align", "flow": sat_args.training_args["feature_flow_key"],
-       "feature_scorer": ("train-clean-100", "train_sat"), "corpus_keys": ["tts_align"]})
+    #steps.add_step("forced_align_sat",
+    #  {"name": "tts_align_sat", "target_corpus_key": "tts_align", "flow": sat_args.training_args["feature_flow_key"],
+    #   "feature_scorer": ("train-clean-100", "train_sat"), "corpus_keys": ["tts_align"]})
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
@@ -76,10 +69,10 @@ def run_librispeech_100_common_tts_baseline(
     #)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
-    alignments = {}
-    for align in ["tts_align_mono", "tts_align_sat"]:
-        alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
-    return (
-        alignments,
-        system.allophone_files["train-clean-100"],
-    )
+    #alignments = {}
+    #for align in ["tts_align_mono", "tts_align_sat"]:
+    #    alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
+    #return (
+    #    alignments,
+    #    system.allophone_files["train-clean-100"],
+    #)

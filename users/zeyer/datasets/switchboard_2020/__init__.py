@@ -7,7 +7,12 @@ from __future__ import annotations
 from typing import Dict, Any, Optional
 import os
 
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+
+_my_dir = os.path.dirname(os.path.abspath(__file__))
+_rasr_configs_dir = _my_dir + "/rasr_configs"
 
 
 class _Bpe(VocabConfig):
@@ -49,11 +54,15 @@ class SwitchboardExternSprint(DatasetConfig):
   For hybrid NN-HMM, you need to be careful.
   E.g. sprint_interface_dataset_opts need to match, using correct `input_stddev` and maybe `bpe`.
   """
+
   def __init__(self, *,
                vocab: Optional[VocabConfig] = None,
+               main_key: Optional[str] = None,
                train_epoch_split=6):
     super(SwitchboardExternSprint, self).__init__()
     self.vocab = vocab
+    assert main_key in {None, "train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
+    self.main_key = main_key
     self.train_epoch_split = train_epoch_split
 
   @classmethod
@@ -91,32 +100,51 @@ class SwitchboardExternSprint(DatasetConfig):
       "dev": self.get_dataset("cv"),
       "devtrain": self.get_dataset("devtrain")}
 
-  def get_dataset(self, data: str):
+  def get_main_name(self) -> str:
+    assert self.main_key, "main key not defined"
+    return self.main_key
+
+  def get_main_dataset(self) -> Dict[str]:
+    assert self.main_key, "main key not defined"
+    return self.get_dataset(self.main_key)
+
+  def get_dataset(self, data: str) -> Dict[str, Any]:
     """
     Get dataset
     """
-    from returnn_common.cache_manager import cf
     assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
     epoch_split = {"train": self.train_epoch_split}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
 
-    # TODO fix relative paths (dependencies, RASR config)
     files = {
-        "config": "config/training.config",
-        "corpus": "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name}
+        "config": tk.Path(
+            f"{_rasr_configs_dir}/merged.config",
+            hash_overwrite="switchboard2020/merged.config"),
+        "feature_extraction_config": tk.Path(
+            f"{_rasr_configs_dir}/base.cache.flow",
+            hash_overwrite="switchboard2020/base.cache.flow"),
+        "corpus": get_bliss_xml_corpus(corpus_name)}
     if data in {"train", "cv", "devtrain"}:
-        files["segments"] = "dependencies/seg_%s" % {
+        filename = "dependencies/seg_%s" % {
             "train": "train", "cv": "cv_head3000", "devtrain": "train_head3000"}[data]
-    files["features"] = "/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.%s.bundle" % corpus_name
+        files["segments"] = tk.Path(
+            "/u/zeyer/setups/switchboard/2019-10-22--e2e-bpe1k/" + filename,
+            hash_overwrite="switchboard2020/" + filename,
+            cached=True)
+    files["features"] = tk.Path(
+        "/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.%s.bundle" % corpus_name,
+        hash_overwrite="switchboard2020/tuske-features-gt.%s.bundle" % corpus_name,
+        cached=True)
     for k, v in sorted(files.items()):
-        assert os.path.exists(v), "%s %r does not exist" % (k, v)
+        assert isinstance(v, tk.Path)
     estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
     args = [
-        "--config=" + files["config"],
-        lambda: "--*.corpus.file=" + cf(files["corpus"]),
-        lambda: "--*.corpus.segments.file=" + (cf(files["segments"]) if "segments" in files else ""),
-        lambda: "--*.feature-cache-path=" + cf(files["features"]),
+        DelayedFormat("--config={}", files["config"]),
+        DelayedFormat("--*.corpus.file={}", files["corpus"]),
+        DelayedFormat("--*.corpus.segments.file={}", (files["segments"] if "segments" in files else "")),
+        DelayedFormat("--*.feature-cache-path={}", files["features"]),
+        DelayedFormat("--*.feature-extraction.file={}", files["feature_extraction_config"]),
         "--*.log-channel.file=/dev/null",
         "--*.window-size=1",
     ]
@@ -126,7 +154,9 @@ class SwitchboardExternSprint(DatasetConfig):
         "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1),
     ]
     d = {
-        "class": "ExternSprintDataset", "sprintTrainerExecPath": "sprint-executables/nn-trainer",
+        "class": "ExternSprintDataset",
+        # TODO how to set sprint exec here?
+        "sprintTrainerExecPath": "sprint-executables/nn-trainer",
         "sprintConfigStr": args,
         "suppress_load_seqs_print": True,  # less verbose
         "input_stddev": 3.,
@@ -138,3 +168,12 @@ class SwitchboardExternSprint(DatasetConfig):
     }
     d.update(partition_epochs_opts)
     return d
+
+
+def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
+    corpus_name = {"hub5e_00": "dev"}.get(corpus_name, corpus_name)
+    assert corpus_name in {"dev", "hub5e_01", "rt03s", "train"}
+    return tk.Path(
+        "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
+        hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
+        cached=True)

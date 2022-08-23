@@ -16,7 +16,7 @@ from i6_experiments.users.hilmes.data.datastream import (
   AudioFeatureDatastream,
   ReturnnAudioFeatureOptions,
 )
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_vocoder_data
+from .vocoder_data import get_vocoder_data
 
 post_config_template = {
   "cleanup_old_models": True,
@@ -378,7 +378,7 @@ def get_default_vocoder(name):
     "https://github.com/rwth-i6/returnn",
     commit="7cfab7d7f1496a99e02d3b8c0a327bb725d1219f",
   ).out_repository
-  corpus_data = get_vocoder_data(output_path=name)
+  corpus_data = get_vocoder_data()
   output_path = name
 
   mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, old_root)

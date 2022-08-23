@@ -17,12 +17,11 @@ from TFUtil import DimensionTag
 use_tensorflow = True
 task = config.value("task", "train")
 device = "gpu"
-multiprocessing = True
-update_on_device = True
+full_sum_train = False
 
 debug_mode = False
 if int(os.environ.get("DEBUG", "0")):
-    print("** DEBUG MODE")
+    # print("** DEBUG MODE")
     debug_mode = True
 
 if config.has("beam_size"):
@@ -62,19 +61,17 @@ output_len_tag = DimensionTag(kind=DimensionTag.Types.Spatial, description="outp
 # use "same_dim_tags_as": {"t": time_tag} if same time tag ("data" and "alignment"). e.g. for RNA. not for RNN-T.
 extern_data = {
     "data": {"dim": 40, "same_dim_tags_as": {"t": time_tag}},  # Gammatone 40-dim
+    target: {"dim": target_num_labels, "sparse": True},  # see vocab
     "alignment": {"dim": targetb_num_labels, "sparse": True, "same_dim_tags_as": {"t": output_len_tag}},
-    #"align_score": {"shape": (1,), "dtype": "float32"},
+    "align_score": {"shape": (1,), "dtype": "float32"},
 }
 if task != "train":
     # During train, we add this via the network (from prev alignment, or linear seg). Otherwise it's not available.
     extern_data["targetb"] = {"dim": targetb_num_labels, "sparse": True, "available_for_inference": False}
-    extern_data[target] = {"dim": target_num_labels, "sparse": True}  # must not be used for chunked training
 EpochSplit = 6
 
 
 # _import_baseline_setup = "ctcalign.prior0.lstm6l.withchar.lrkeyfix"
-# _alignment = "%s.epoch-150" % _import_baseline_setup
-# _alignment = "rna-tf2c.enc-6lgrow2l.ctc.lm1-1024.attwb5.fast-warm.fixinf.scratch-lm.mlr50.epoch-215"
 # alignment from config (without swap), but instead did alignment = tf.where(alignment==0, 1030, alignment)
 # because the RNA-model hat blank-label-idx=0, instead of the last idx in all other models, so we swap it.
 _alignment = "rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50.epoch-150.swap"
@@ -84,7 +81,7 @@ def get_sprint_dataset(data):
     epoch_split = {"train": EpochSplit}.get(data, 1)
     corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
     hdf_files = None
-    if data in {"train", "cv", "devtrain"}:
+    if not full_sum_train and data in {"train", "cv", "devtrain"}:
         hdf_files = ["base/dump-align/data/%s.data-%s.hdf" % (_alignment, {"cv": "dev", "devtrain": "train"}.get(data, data))]
 
     # see /u/tuske/work/ASR/switchboard/corpus/readme
@@ -166,446 +163,13 @@ window = 1
 
 # Note: We control the warmup in the pretrain construction.
 learning_rate = 0.001
-learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10))  # warmup
+learning_rates = list(numpy.linspace(learning_rate * 0.1, learning_rate, num=10))  # warmup (not in original?)
 min_learning_rate = learning_rate / 50.
 
 
-def summary(name, x):
-    """
-    :param str name:
-    :param tf.Tensor x: (batch,time,feature)
-    """
-    import tensorflow as tf
-    # tf.summary.image wants [batch_size, height,  width, channels],
-    # we have (batch, time, feature).
-    img = tf.expand_dims(x, axis=3)  # (batch,time,feature,1)
-    img = tf.transpose(img, [0, 2, 1, 3])  # (batch,feature,time,1)
-    tf.summary.image(name, img, max_outputs=10)
-    tf.summary.scalar("%s_max_abs" % name, tf.reduce_max(tf.abs(x)))
-    mean = tf.reduce_mean(x)
-    tf.summary.scalar("%s_mean" % name, mean)
-    stddev = tf.sqrt(tf.reduce_mean(tf.square(x - mean)))
-    tf.summary.scalar("%s_stddev" % name, stddev)
-    tf.summary.histogram("%s_hist" % name, tf.reduce_max(tf.abs(x), axis=2))
-
-
-def _mask(x, batch_axis, axis, pos, max_amount, mask_value=0.):
-    """
-    :param tf.Tensor x: (batch,time,[feature])
-    :param int batch_axis:
-    :param int axis:
-    :param tf.Tensor pos: (batch,)
-    :param int|tf.Tensor max_amount: inclusive
-    :param float|int mask_value:
-    """
-    import tensorflow as tf
-    ndim = x.get_shape().ndims
-    n_batch = tf.shape(x)[batch_axis]
-    dim = tf.shape(x)[axis]
-    amount = tf.random_uniform(shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32)
-    pos2 = tf.minimum(pos + amount, dim)
-    idxs = tf.expand_dims(tf.range(0, dim), 0)  # (1,dim)
-    pos_bc = tf.expand_dims(pos, 1)  # (batch,1)
-    pos2_bc = tf.expand_dims(pos2, 1)  # (batch,1)
-    cond = tf.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
-    if batch_axis > axis:
-        cond = tf.transpose(cond)  # (dim,batch)
-    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
-    from TFUtil import where_bc
-    x = where_bc(cond, mask_value, x)
-    return x
-
-
-def random_mask(x, batch_axis, axis, min_num, max_num, max_dims, mask_value=0.):
-    """
-    :param tf.Tensor x: (batch,time,feature)
-    :param int batch_axis:
-    :param int axis:
-    :param int|tf.Tensor min_num:
-    :param int|tf.Tensor max_num: inclusive
-    :param int|tf.Tensor max_dims: inclusive
-    :param float|int mask_value:
-    """
-    import tensorflow as tf
-    n_batch = tf.shape(x)[batch_axis]
-    if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
-        num = min_num
-    else:
-        num = tf.random_uniform(shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32)
-    # https://github.com/tensorflow/tensorflow/issues/9260
-    # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
-    z = -tf.log(-tf.log(tf.random_uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
-    _, indices = tf.nn.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
-    # indices should be sorted, and of shape (batch,num), entries (int32) in [0,dim)
-    # indices = tf.Print(indices, ["indices", indices, tf.shape(indices)])
-    if isinstance(num, int):
-        for i in range(num):
-            x = _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, mask_value=mask_value)
-    else:
-        _, x = tf.while_loop(
-            cond=lambda i, _: tf.less(i, tf.reduce_max(num)),
-            body=lambda i, x: (
-                i + 1,
-                tf.where(
-                    tf.less(i, num),
-                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, mask_value=mask_value),
-                    x)),
-            loop_vars=(0, x))
-    return x
-
-
-def transform(data, network, time_factor=1):
-    x = data.placeholder
-    import tensorflow as tf
-    # summary("features", x)
-    step = network.global_train_step
-    step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
-    step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
-    def get_masked():
-        x_masked = x
-        x_masked = random_mask(
-          x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
-          min_num=step1 + step2, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-          max_dims=20 // time_factor)
-        x_masked = random_mask(
-          x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-          min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-          max_dims=data.dim // 5)
-        #summary("features_mask", x_masked)
-        return x_masked
-    x = network.cond_on_train(get_masked, lambda: x)
-    return x
-
-
-def switchout_target(self, source, **kwargs):
-    import tensorflow as tf
-    from TFUtil import where_bc
-    network = self.network
-    time_factor = 6
-    data = source(0, as_data=True)
-    assert data.is_batch_major  # just not implemented otherwise
-    x = data.placeholder
-    def get_switched():
-        x_ = x
-        shape = tf.shape(x)
-        n_batch = tf.shape(x)[data.batch_dim_axis]
-        n_time = tf.shape(x)[data.time_dim_axis]
-        take_rnd_mask = tf.less(tf.random_uniform(shape=shape, minval=0., maxval=1.), 0.05)
-        take_blank_mask = tf.less(tf.random_uniform(shape=shape, minval=0., maxval=1.), 0.5)
-        rnd_label = tf.random_uniform(shape=shape, minval=0, maxval=target_num_labels, dtype=tf.int32)
-        rnd_label = where_bc(take_blank_mask, targetb_blank_idx, rnd_label)
-        x_ = where_bc(take_rnd_mask, rnd_label, x_)
-        x_ = random_mask(
-          x_, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
-          min_num=0, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // (50 // time_factor), 1),
-          max_dims=20 // time_factor,
-          mask_value=targetb_blank_idx)
-        #x_ = tf.Print(x_, ["switch", x[0], "to", x_[0]], summarize=100)
-        return x_
-    x = network.cond_on_train(get_switched, lambda: x)
-    return x
-
-
-def targetb_linear(source, **kwargs):
-    from TFUtil import get_rnnt_linear_aligned_output
-    enc = source(1, as_data=True, auto_convert=False)
-    dec = source(0, as_data=True, auto_convert=False)
-    enc_lens = enc.get_sequence_lengths()
-    dec_lens = dec.get_sequence_lengths()
-    out, out_lens = get_rnnt_linear_aligned_output(
-        input_lens=enc_lens,
-        target_lens=dec_lens, targets=dec.get_placeholder_as_batch_major(),
-        blank_label_idx=targetb_blank_idx,
-        targets_consume_time=True)
-    return out
-
-def targetb_linear_out(sources, **kwargs):
-    from TFUtil import Data
-    enc = sources[1].output
-    dec = sources[0].output
-    size = enc.get_sequence_lengths() #  + dec.get_sequence_lengths()
-    #output_len_tag.set_tag_on_size_tensor(size)
-    return Data(name="targetb_linear", sparse=True, dim=targetb_num_labels, size_placeholder={0: size})
-
-def targetb_search_or_fallback(source, **kwargs):
-    import tensorflow as tf
-    from TFUtil import where_bc
-    ts_linear = source(0)  # (B,T)
-    ts_search = source(1)  # (B,T)
-    l = source(2, auto_convert=False)  # (B,)
-    return where_bc(tf.less(l[:, None], 0.01), ts_search, ts_linear)
-
-
-def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in, end_flags, **kwargs):
-    """
-    :param ChoiceLayer layer:
-    :param tf.Tensor batch_dim: scalar
-    :param tf.Tensor scores_base: (batch,base_beam_in,1). existing beam scores
-    :param tf.Tensor scores_in: (batch,base_beam_in,dim). log prob frame distribution
-    :param tf.Tensor end_flags: (batch,base_beam_in)
-    :param tf.Tensor base_beam_in: int32 scalar, 1 or prev beam size
-    :rtype: tf.Tensor
-    :return: (batch,base_beam_in,dim), combined scores
-    """
-    import tensorflow as tf
-    from TFUtil import where_bc, nd_indices, tile_transposed
-    scores = scores_in + scores_base  # (batch,beam,dim)
-    dim = layer.output.dim
-    
-    u = layer.explicit_search_sources[0].output  # prev:u actually. [B*beam], pos in target [0..decT-1]
-    assert u.shape == ()
-    u_t = tf.reshape(tf.reshape(u.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # u beam might differ from base_beam_in
-    targets = layer.network.parent_net.extern_data.data[target]  # BPE targets, [B,decT]
-    assert targets.shape == (None,) and targets.is_batch_major
-    target_lens = targets.get_sequence_lengths()  # [B]
-    target_lens_exp = tile_transposed(target_lens, axis=0, multiples=base_beam_in)  # [B*beam]
-    missing_targets = target_lens_exp - u_t  # [B*beam]
-    allow_target = tf.greater(missing_targets, 0)  # [B*beam]
-    targets_exp = tile_transposed(targets.placeholder, axis=0, multiples=base_beam_in)  # [B*beam,decT]
-    targets_u = tf.gather_nd(targets_exp, indices=nd_indices(where_bc(allow_target, u_t, 0)))  # [B*beam]
-    targets_u = tf.reshape(targets_u, (batch_dim, base_beam_in))  # (batch,beam)
-    allow_target = tf.reshape(allow_target, (batch_dim, base_beam_in))  # (batch,beam)
-    
-    #t = layer.explicit_search_sources[1].output  # prev:t actually. [B*beam], pos in encoder [0..encT-1]
-    #assert t.shape == ()
-    #t_t = tf.reshape(tf.reshape(t.placeholder, (batch_dim, -1))[:,:base_beam_in], (-1,))  # t beam might differ from base_beam_in
-    t_t = layer.network.get_rec_step_index() - 1  # scalar
-    inputs = layer.network.parent_net.get_layer("encoder").output  # encoder, [B,encT]
-    input_lens = inputs.get_sequence_lengths()  # [B]
-    input_lens_exp = tile_transposed(input_lens, axis=0, multiples=base_beam_in)  # [B*beam]
-    allow_blank = tf.less(missing_targets, input_lens_exp - t_t)  # [B*beam]
-    allow_blank = tf.reshape(allow_blank, (batch_dim, base_beam_in))  # (batch,beam)
-
-    dim_idxs = tf.range(dim)[None,None,:]  # (1,1,dim)
-    masked_scores = where_bc(
-        tf.logical_or(
-            tf.logical_and(tf.equal(dim_idxs, targetb_blank_idx), allow_blank[:,:,None]),
-            tf.logical_and(tf.equal(dim_idxs, targets_u[:,:,None]), allow_target[:,:,None])),
-        scores, float("-inf"))
-
-    return where_bc(end_flags[:,:,None], scores, masked_scores)
-
-
-def get_vocab_tf():
-    from GeneratingDataset import Vocabulary
-    import TFUtil
-    import tensorflow as tf
-    vocab = Vocabulary.create_vocab(**sprint_interface_dataset_opts["bpe"])
-    labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
-    labels = [(l + " ").replace("@@ ", "") for l in labels] + [""]
-    labels_t = TFUtil.get_shared_vocab(labels)
-    return labels_t
-
-
-def get_vocab_sym(i):
-    """
-    :param tf.Tensor i: e.g. [B], int32
-    :return: same shape as input, string
-    :rtype: tf.Tensor
-    """
-    import tensorflow as tf
-    return tf.gather(params=get_vocab_tf(), indices=i)
-
-
-def out_str(source, **kwargs):
-    # ["prev:out_str", "output_emit", "output"]
-    import tensorflow as tf
-    from TFUtil import where_bc
-    return source(0) + where_bc(source(1), get_vocab_sym(source(2)), tf.constant(""))
-
-
-def get_filtered_score_op(verbose=False):
-    cpp_code = """
-    #include "tensorflow/core/framework/op.h"
-    #include "tensorflow/core/framework/op_kernel.h"
-    #include "tensorflow/core/framework/shape_inference.h"
-    #include "tensorflow/core/framework/resource_mgr.h"
-    #include "tensorflow/core/framework/resource_op_kernel.h"
-    #include "tensorflow/core/framework/tensor.h"
-    #include "tensorflow/core/platform/macros.h"
-    #include "tensorflow/core/platform/mutex.h"
-    #include "tensorflow/core/platform/types.h"
-    #include "tensorflow/core/public/version.h"
-    #include <cmath>
-    #include <map>
-    #include <set>
-    #include <string>
-    #include <tuple>
-
-    using namespace tensorflow;
-
-    REGISTER_OP("GetFilteredScore")
-    .Input("prev_str: string")
-    .Input("scores: float32")
-    .Input("labels: string")
-    .Output("new_scores: float32")
-    .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-        c->set_output(0, c->input(1));
-        return Status::OK();
-    });
-
-    class GetFilteredScoreOp : public OpKernel {
-    public:
-    using OpKernel::OpKernel;
-    void Compute(OpKernelContext* context) override {
-        const Tensor* prev_str = &context->input(0);
-        const Tensor* scores = &context->input(1);
-        const Tensor* labels = &context->input(2);
-
-        int n_batch = prev_str->shape().dim_size(0);
-        int n_beam = prev_str->shape().dim_size(1);
-
-        Tensor* ret;
-        OP_REQUIRES_OK(context, context->allocate_output(0, TensorShape({n_batch, n_beam}), &ret));
-        for(int bat = 0; bat < n_batch; ++bat)
-            for(int hyp = 0; hyp < n_beam; ++hyp)
-                ret->tensor<float, 2>()(bat, hyp) = scores->tensor<float, 2>()(bat, hyp);
-        
-        for(int bat = 0; bat < n_batch; ++bat) {
-            std::map<std::string, std::set<int> > new_hyps;  // seq -> set of hyp idx
-
-            for(int hyp = 0; hyp < n_beam; ++hyp) {
-                auto& seq_set = new_hyps[prev_str->tensor<string, 2>()(bat, hyp)];
-                seq_set.insert(hyp);
-            }
-
-            for(const auto& items : new_hyps) {
-                if(std::get<1>(items).size() > 1) {
-                    float best_score = 0.;
-                    int best_idx = -1;
-                    for(int idx : std::get<1>(items)) {
-                        float score = scores->tensor<float, 2>()(bat, idx);
-                        if(score > best_score || best_idx == -1) {
-                            best_score = score;
-                            best_idx = idx;
-                        }
-                    }
-
-                    float sum_score = 0.;
-                    for(int idx : std::get<1>(items)) {
-                        float score = scores->tensor<float, 2>()(bat, idx);
-                        sum_score += expf(score - best_score);
-                    }
-                    sum_score = logf(sum_score) + best_score;
-
-                    for(int idx : std::get<1>(items)) {
-                        if(idx != best_idx)
-                            ret->tensor<float, 2>()(bat, idx) = -std::numeric_limits<float>::infinity();
-                        else
-                            ret->tensor<float, 2>()(bat, idx) = sum_score;
-                    }
-                }
-            }
-        }
-    }
-    };
-    REGISTER_KERNEL_BUILDER(Name("GetFilteredScore").Device(DEVICE_CPU), GetFilteredScoreOp);
-    """
-    from TFUtil import OpCodeCompiler
-    compiler = OpCodeCompiler(
-        base_name="GetFilteredScore", code_version=1, code=cpp_code,
-        is_cpp=True, use_cuda_if_available=False, verbose=verbose)
-    tf_mod = compiler.load_tf_module()
-    return tf_mod.get_filtered_score
-
-
-def get_filtered_score_cpp(prev_str, scores, labels):
-    """
-    :param tf.Tensor prev_str: (batch,beam)
-    :param tf.Tensor scores: (batch,beam)
-    :param list[bytes] labels: len (dim)
-    :return: scores with logsumexp at best, others -inf, (batch,beam)
-    :rtype: tf.Tensor
-    """
-    import TFUtil
-    import tensorflow as tf
-    with tf.device("/cpu:0"):
-        labels_t = TFUtil.get_shared_vocab(labels)
-        return get_filtered_score_op()(prev_str, scores, labels_t)
-
-
-def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in, end_flags, **kwargs):
-    """
-    :param ChoiceLayer layer:
-    :param tf.Tensor batch_dim: scalar
-    :param tf.Tensor scores_base: (batch,base_beam_in,1). existing beam scores
-    :param tf.Tensor scores_in: (batch,base_beam_in,dim). log prob frame distribution
-    :param tf.Tensor end_flags: (batch,base_beam_in)
-    :param tf.Tensor base_beam_in: int32 scalar, 1 or prev beam size
-    :rtype: tf.Tensor
-    :return: (batch,base_beam_in,dim), combined scores
-    """
-    import tensorflow as tf
-    from TFUtil import where_bc, nd_indices, tile_transposed
-
-    dim = layer.output.dim
-    
-    prev_str = layer.explicit_search_sources[0].output  # [B*beam], str
-    prev_str_t = tf.reshape(prev_str.placeholder, (batch_dim, -1))[:,:base_beam_in]
-    prev_out = layer.explicit_search_sources[1].output  # [B*beam], int32
-    prev_out_t = tf.reshape(prev_out.placeholder, (batch_dim, -1))[:,:base_beam_in]
-
-    from GeneratingDataset import Vocabulary
-    import TFUtil
-    import tensorflow as tf
-    vocab = Vocabulary.create_vocab(**sprint_interface_dataset_opts["bpe"])
-    labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
-    labels = [(l + " ").replace("@@ ", "").encode("utf8") for l in labels] + [b""]
-
-    # Pre-filter approx (should be much faster), sum approx (better).
-    scores_base = tf.reshape(get_filtered_score_cpp(prev_str_t, tf.reshape(scores_base, (batch_dim, base_beam_in)), labels), (batch_dim, base_beam_in, 1))
-    
-    scores = scores_in + scores_base  # (batch,beam,dim)
-
-    # Mask -> max approx, in all possible options, slow.
-    #mask = get_score_mask_cpp(prev_str_t, prev_out_t, scores, labels)
-    #masked_scores = where_bc(mask, scores, float("-inf"))
-    # Sum approx in all possible options, slow.
-    #masked_scores = get_new_score_cpp(prev_str_t, prev_out_t, scores, labels)
-    
-    #scores = where_bc(end_flags[:,:,None], scores, masked_scores)
-    
-    return scores
-
-
-StoreAlignmentUpToEpoch = 10 * EpochSplit  # 0 based, exclusive
-AlignmentFilenamePattern = "net-model/alignments.%i.hdf"
-
-def get_most_recent_align_hdf_files(epoch0):
-    """
-    :param int epoch0: 0-based (sub) epoch
-    :return: filenames or None if there is nothing completed yet
-    :rtype: list[str]|None
-    """
-    if epoch0 < EpochSplit:
-        return None
-    if epoch0 > StoreAlignmentUpToEpoch:
-        epoch0 = StoreAlignmentUpToEpoch  # first epoch after
-    i = ((epoch0 - EpochSplit) // EpochSplit) * EpochSplit
-    return [AlignmentFilenamePattern % j for j in range(i, i + EpochSplit)]
-
-
-import_model_train_epoch1 = "base/data-train/rna3c-lm4a.convtrain.switchout6.l2a_1e_4.nohdf.encbottle256.attwb5_am.dec1la-n128.decdrop03.decwdrop03.pretrain_less2_rep6.mlr50.emit2.fl2.fixmask.rna-align-blank0-scratch-swap.encctc.devtrain/net-model/network.pretrain.150"
+#import_model_train_epoch1 = "base/data-train/base2.conv2l.specaug4a/net-model/network.160"
 #_train_setup_dir = "data-train/base2.conv2l.specaug4a"
 #model = _train_setup_dir + "/net-model/network"
-preload_from_files = {
-  #"base": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2018-10-02--e2e-bpe1k/data-train/base2.conv2l.specaug4a/net-model/network.160",
-  #},
-  #"encoder": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2017-12-11--returnn/data-train/#dropout01.l2_1e_2.6l.n500.inpstddev3.fl2.max_seqs100.grad_noise03.nadam.lr05e_3.nbm6.nbrl.grad_clip_inf.nbm3.run1/net-model/network.077",
-  #},
-  #"encoder": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "ignore_params_prefixes": {"output/"},
-  #  "filename": "/u/zeyer/setups/switchboard/2019-10-22--e2e-bpe1k/data-train/%s/net-model/network.pretrain.250" % _import_baseline_setup,
-  #}
-}
 #lm_model_filename = "/work/asr3/irie/experiments/lm/switchboard/2018-01-23--lmbpe-zeyer/data-train/bpe1k_clean_i256_m2048_m2048.sgd_b16_lr0_cl2.newbobabs.d0.2/net-model/network.023"
 
 
@@ -647,7 +211,6 @@ def get_net_dict(pretrain_idx):
         #    net_dict["#config"]["param_variational_noise"] = 0.1
         #pretrain_idx -= len(lr_warmup)
 
-    use_targetb_search_as_target = False  # not have_existing_align or epoch0 < StoreAlignmentUpToEpoch
     keep_linear_align = False  # epoch0 is not None and epoch0 < EpochSplit * 2
 
     # We import the model, thus no growing.
@@ -678,7 +241,7 @@ def get_net_dict(pretrain_idx):
         "num_lstm_layers": num_lstm_layers,
         "dim_frac": dim_frac,
         "have_existing_align": have_existing_align,
-        "use_targetb_search_as_target": use_targetb_search_as_target,
+        "use_targetb_search_as_target": False,
         "keep_linear_align": keep_linear_align,
     }
 
@@ -718,10 +281,6 @@ def get_net_dict(pretrain_idx):
             "class": "decide", "from": "output_wo_b", "loss": "edit_distance", "target": target,
             'only_on_search': True},
 
-        "targetb_linear": {
-            "class": "eval", "from": ["data:%s" % target, "encoder"], "eval": targetb_linear,
-            "out_type": targetb_linear_out},
-
         # Target for decoder ('output') with search ("extra.search") in training.
         # The layer name must be smaller than "t_target" such that this is created first.
         "1_targetb_base": {
@@ -731,7 +290,7 @@ def get_net_dict(pretrain_idx):
 
         "2_targetb_target": {
             "class": "eval",
-            "from": "targetb_search_or_fallback" if use_targetb_search_as_target else "data:targetb_base",
+            "from": "data:targetb_base",
             "eval": "source(0)",
             "register_as_extern_data": "targetb" if task == "train" else None},
 
@@ -896,13 +455,13 @@ def get_net_dict(pretrain_idx):
                 "eval": out_str},
 
             "output_is_not_blank": {"class": "compare", "from": "output_", "value": targetb_blank_idx, "kind": "not_equal", "initial_output": True},
-            
+
             # This "output_emit" is True on the first label but False otherwise, and False on blank.
             "output_emit": {"class": "copy", "from": "output_is_not_blank", "initial_output": True, "is_output_layer": True},
 
             "const0": {"class": "constant", "value": 0, "collocate_with": "du"},
             "const1": {"class": "constant", "value": 1, "collocate_with": "du"},
-            
+
             # pos in target, [B]
             "du": {"class": "switch", "condition": "output_emit", "true_from": "const1", "false_from": "const0"},
             "u": {"class": "combine", "from": ["prev:u", "du"], "kind": "add", "initial_output": 0},
@@ -956,7 +515,7 @@ def custom_construction_algo(idx, net_dict):
     return get_net_dict(pretrain_idx=idx)
 
 # No repetitions here. We explicitly do that in the construction.
-# pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
+pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
 
 
 num_epochs = 150

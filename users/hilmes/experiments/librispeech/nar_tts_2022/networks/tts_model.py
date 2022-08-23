@@ -2,7 +2,7 @@
 Implementation of the CTC NAR Network
 """
 from returnn_common import nn
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 
 
 class Conv1DBlock(nn.Module):
@@ -40,11 +40,11 @@ class Conv1DBlock(nn.Module):
         )
         self.bn = nn.BatchNorm(
             epsilon=bn_epsilon, use_mask=False
-        )  # TODO: defaults okay and same, use_mask=False right?
+        )
         self.dropout = dropout
         self.l2 = l2
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim) -> nn.Tensor:
         """
         First convolution, relu, then L2 regularization, batchnorm and dropout
 
@@ -54,7 +54,7 @@ class Conv1DBlock(nn.Module):
         conv, _ = self.conv(inp, in_spatial_dim=time_dim)
         # set weight decay
         for param in self.conv.parameters():
-            param.weight_decay = self.l2  # TODO: L2 on filter, is this correct?
+            param.weight_decay = self.l2
 
         conv = nn.relu(conv)
         bn = self.bn(conv)
@@ -115,7 +115,7 @@ class ConvStack(nn.Module):
             ]
         )
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
         Applies all conv blocks in sequence
 
@@ -126,6 +126,47 @@ class ConvStack(nn.Module):
         return out
 
 
+class LConvBlock(nn.Module):
+    """
+    LConvBlock from Parallel tacotron 1 with grouped/depthwise convolution instead of full lightweight conv
+    """
+    def __init__(self, linear_size: Union[int, nn.Dim] = 512, num_heads: int = 8, filter_size: int = 17):
+        super(LConvBlock, self).__init__()
+        if isinstance(linear_size, int):
+            self.groups = linear_size
+            self.lin_dim = nn.FeatureDim("LConv_linear", linear_size)
+        else:
+            self.lin_dim = linear_size
+            self.groups = linear_size.dimension
+
+        self.glu = nn.Linear(self.lin_dim * 2)
+        self.linear_up = nn.Linear(self.lin_dim * 4)
+        self.linear_down = nn.Linear(self.lin_dim)
+        self.conv = nn.Conv1d(
+            out_dim=self.lin_dim,
+            filter_size=filter_size,
+            groups=self.groups,
+            with_bias=False,
+            padding='same'
+        )
+
+    def __call__(self, spectrogramm: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
+
+        residual = spectrogramm
+        x = self.glu(spectrogramm)
+        x = nn.gating(x)  # GLU
+        x, _ = self.conv(x, in_spatial_dim=time_dim)  # grouped conv / lightweight conv
+        x = x + residual
+
+        residual = x
+        x = self.linear_up(x)
+        x = nn.relu(x)
+        x = self.linear_down(x)
+        x = x + residual
+
+        return x
+
+
 class Decoder(nn.Module):
     """
     Decoder Block of the CTC Model
@@ -133,8 +174,8 @@ class Decoder(nn.Module):
 
     def __init__(
         self,
-        dec_lstm_size_1: int = 800,
-        dec_lstm_size_2: int = 800,
+        dec_lstm_size_1: int = 1024,
+        dec_lstm_size_2: int = 1024,
         linear_size: int = 80,
         dropout: int = 0.5,
     ):
@@ -160,7 +201,7 @@ class Decoder(nn.Module):
         self.linear_out = nn.Linear(out_dim=self.linear_dim)
         self.linear_ref = nn.Linear(out_dim=self.linear_dim)
 
-    def __call__(self, rep: nn.Tensor, speaker_embedding: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, rep: nn.Tensor, speaker_embedding: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
 
         :param rep: upsampled / repeated input
@@ -259,7 +300,7 @@ class DurationPredictor(nn.Module):
 
         self.linear = nn.Linear(out_dim=self.lin_dim)
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim):
+    def __call__(self, inp: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
         """
         Applies numlayers convolutional layers with a linear transformation at the end
 
@@ -283,6 +324,32 @@ class DurationPredictor(nn.Module):
         return softplus
 
 
+class VariationalAutoEncoder(nn.Module):
+  """
+  VAE from Tacotron 1
+  """
+
+  def __init__(self, num_lconv_blocks: int = 3 , num_mixed_blocks: int = 6, linear_size: Union[int, nn.Dim] = 512,
+               num_heads: int = 8,
+               lconv_filter_size: int = 17, dropout: float = 0.5, conv_filter_size: int = 5, out_size=32):
+    super(VariationalAutoEncoder, self).__init__()
+    self.lconv_stack = nn.Sequential(
+        [LConvBlock(
+            linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size) for _ in range(num_lconv_blocks)])
+    self.mixed_stack = nn.Sequential()
+    for _ in range(num_mixed_blocks):
+        self.mixed_stack.append(LConvBlock(linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size))
+        self.mixed_stack.append(Conv1DBlock(dim=linear_size, filter_size=conv_filter_size, dropout=dropout))
+    self.lin_out = nn.Linear(nn.FeatureDim("VAE_out_dim", out_size))
+
+  def __call__(self, spectrogramm: nn.Tensor, spectrogramm_time: nn.SpatialDim) -> nn.Tensor:
+    x = self.lconv_stack(spectrogramm, time_dim=spectrogramm_time)
+    x = self.mixed_stack(x, time_dim=spectrogramm_time)
+    x = nn.reduce(x, mode="mean", axis=spectrogramm_time, use_time_mask=True)  # [B, F]
+    x = self.lin_out(x)  # [B, F]
+    return x
+
+
 class NARTTSModel(nn.Module):
     """
     NAR TTS Model from Timur Schümann implemented in returnn common
@@ -290,15 +357,18 @@ class NARTTSModel(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,
-        speaker_embedding_size: int,
+        embedding_size: int = 256,
+        speaker_embedding_size: int = 256,
         enc_lstm_size: int = 256,
-        dec_lstm_size: int = 800,
+        dec_lstm_size: int = 1024,
         dropout: int = 0.5,
         training: bool = True,
         gauss_up: bool = False,
         use_true_durations: bool = False,
         dump_speaker_embeddings: bool = False,
+        dump_vae: bool = False,
+        use_vae: bool = False,
+        calc_speaker_embedding: bool = False,
     ):
         super(NARTTSModel, self).__init__()
 
@@ -308,6 +378,10 @@ class NARTTSModel(nn.Module):
         self.gauss_up = gauss_up
         self.use_true_durations = use_true_durations
         self.dump_speaker_embeddings = dump_speaker_embeddings
+        self.calc_speaker_embedding = calc_speaker_embedding
+        if dump_vae:
+          assert use_vae, "Needs to use VAE in order to dump it!"
+        self.dump_vae = dump_vae
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -337,18 +411,27 @@ class NARTTSModel(nn.Module):
             self.variance_net = None
             self.upsamling = None
         self.duration = DurationPredictor()
+        self.use_vae = use_vae
+        if self.use_vae:
+            vae_lin_dim = nn.FeatureDim("vae_embedding", 512)
+            self.vae_embedding = nn.Linear(vae_lin_dim)
+            self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim)
+        else:
+            self.vae = None
 
     def __call__(
         self,
         text: nn.Tensor,
-        durations: nn.Tensor,
+        durations: Union[nn.Tensor, None],
         speaker_labels: nn.Tensor,
         target_speech: nn.Tensor,
         time_dim: nn.Dim,
         label_time: nn.Dim,
-        speech_time: nn.Dim,
+        speech_time: Union[nn.Dim, None],
         duration_time: Union[nn.Dim, None],
-    ):
+        speaker_prior: Union[nn.Tensor, None],
+        prior_time: Union[nn.Dim, None]
+    ) -> nn.Tensor:
         """
 
         :param text:
@@ -362,8 +445,9 @@ class NARTTSModel(nn.Module):
         """
         duration_int = None
         duration_float = None
+        latents = None
         # input data prep
-        if self.training:
+        if self.training or self.use_true_durations:
             durations, _ = nn.reinterpret_new_dim(
                 durations, in_dim=duration_time, out_dim=time_dim
             )
@@ -371,10 +455,31 @@ class NARTTSModel(nn.Module):
             duration_int = nn.cast(durations, dtype="int32")
             duration_float = nn.cast(durations, dtype="float32")  # [B, Label-time]
         label_notime = nn.squeeze(speaker_labels, axis=label_time)
-        speaker_embedding = self.speaker_embedding(label_notime)
+        if self.training or self.calc_speaker_embedding:
+            speaker_embedding = self.speaker_embedding(label_notime)
+        else:
+            speaker_embedding = label_notime
+        if self.use_vae:
+            if speaker_prior is None:
+                vae_speaker_embedding = self.vae_embedding(target_speech)  # TODO: this is not in the paper I think but doesnt make sense otherwise
+                latents = self.vae(vae_speaker_embedding, speech_time)
+            else:
+                latents = nn.squeeze(speaker_prior, axis=prior_time)
+            speaker_embedding = nn.concat(
+                (speaker_embedding, speaker_embedding.feature_dim),
+                (latents, latents.feature_dim)
+            )
 
-        if self.dump_speaker_embeddings:
+        if self.dump_vae and self.dump_speaker_embeddings:
+          speaker_embedding = nn.concat(
+            (speaker_embedding, speaker_embedding.feature_dim),
+            (latents, latents.feature_dim)
+          )
+          return speaker_embedding
+        elif self.dump_speaker_embeddings:
             return speaker_embedding
+        elif self.dump_vae:
+            return latents
 
         # embedding
         emb = self.embedding(text)
@@ -385,12 +490,10 @@ class NARTTSModel(nn.Module):
         # lstm encoder
         enc_lstm_fw, _ = self.enc_lstm_fw(conv, axis=time_dim, direction=1)
         enc_lstm_bw, _ = self.enc_lstm_bw(conv, axis=time_dim, direction=-1)
-
         cat = nn.concat(
             (enc_lstm_fw, enc_lstm_fw.feature_dim),
             (enc_lstm_bw, enc_lstm_bw.feature_dim),
         )
-
         encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
         # duration predictor
@@ -404,11 +507,14 @@ class NARTTSModel(nn.Module):
             duration_in, dropout=self.dropout, axis=duration_in.feature_dim
         )
 
-        duration_prediction = self.duration(
-            inp=duration_in, time_dim=time_dim
-        )  # [B, Label-time, 1]
+        if self.use_true_durations:
+            duration_prediction = duration_float
+        else:
+            duration_prediction = self.duration(
+                inp=duration_in, time_dim=time_dim
+            )  # [B, Label-time, 1]
 
-        if self.training or self.use_true_durations:
+        if self.training:
             duration_prediction_loss = nn.mean_absolute_difference(
                 duration_prediction, duration_float
             )
@@ -450,12 +556,12 @@ class NARTTSModel(nn.Module):
 
             dec_lin_loss = nn.mean_absolute_difference(
                 dec_lin, target_speech
-            )  # TODO: Is this correct?
+            )
             dec_lin_loss.mark_as_loss()
 
         # dec_lin.mark_as_default_output()
 
-        return dec_lin  # TODO: Is this the correct output?
+        return dec_lin
 
 
 def construct_network(
@@ -469,18 +575,22 @@ def construct_network(
     label_time_dim: nn.Dim,  # speaker_label time
     speech_time_dim: nn.Dim,  # audio features time
     duration_time_dim: nn.Dim,  # durations time
+    speaker_prior: Optional[nn.Data] = None,  # VAE speaker prior
+    prior_time: Optional[nn.Dim] = None,  # VAE speaker prior time
     **kwargs
 ):
     net = net_module(**kwargs)
     out = net(
-        text=nn.get_extern_data(phoneme_data),
-        durations=nn.get_extern_data(duration_data),
-        speaker_labels=nn.get_extern_data(label_data),
-        target_speech=nn.get_extern_data(audio_data),
-        time_dim=time_dim,
-        label_time=label_time_dim,
-        speech_time=speech_time_dim,
-        duration_time=duration_time_dim,
+        text=nn.get_extern_data(phoneme_data) if phoneme_data is not None else None,
+        durations=nn.get_extern_data(duration_data) if duration_data is not None else None,
+        speaker_labels=nn.get_extern_data(label_data) if label_data is not None else None,
+        target_speech=nn.get_extern_data(audio_data) if audio_data is not None else None,
+        speaker_prior=nn.get_extern_data(speaker_prior) if speaker_prior is not None else None,
+        time_dim=time_dim or None,
+        label_time=label_time_dim or None,
+        speech_time=speech_time_dim or None,
+        duration_time=duration_time_dim or None,
+        prior_time=prior_time or None
     )
     out.mark_as_default_output()
 

@@ -103,8 +103,8 @@ import i6_core.rasr as rasr
 _returnn_rasr_data_input_crp_base = rasr.CommonRasrParameters()
 _returnn_rasr_data_input_crp_base.acoustic_model_config = rasr.RasrConfig()
 _returnn_rasr_data_input_crp_base.acoustic_model_config.state_tying.type = 'cart'
-from i6_experiments.common.utils.dump_py_code import _make_fake_job as make_fake_job
-_estimate_cart_job = make_fake_job(module='i6_core.cart.estimate', name='EstimateCartJob', sis_hash='L1uXOGIzhJ2g')
+from i6_experiments.common.utils.fake_job import make_fake_job
+_estimate_cart_job = make_fake_job(module='i6_core.cart.estimate', name='EstimateCartJob', sis_hash='GUv9i8tzV7DN')
 from sisyphus import tk
 _returnn_rasr_data_input_crp_base.acoustic_model_config.state_tying.file = tk.Path('cart.tree.xml.gz', creator=_estimate_cart_job)
 _returnn_rasr_data_input_crp_base.acoustic_model_config.allophones.add_from_lexicon = True
@@ -124,9 +124,7 @@ _returnn_rasr_data_input_crp_base.acoustic_model_config.tdp.silence.skip = 'infi
 _returnn_rasr_data_input_crp_base.acoustic_model_config.tdp.silence.exit = 20.0
 _returnn_rasr_data_input_crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
 _returnn_rasr_data_input_crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
-_returnn_rasr_data_input_crp_base.acoustic_model_post_config = rasr.RasrConfig()
-_store_allophones_job = make_fake_job(module='i6_core.lexicon.allophones', name='StoreAllophonesJob', sis_hash='Ye7tHb2GABEd')
-_returnn_rasr_data_input_crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
+_returnn_rasr_data_input_crp_base.acoustic_model_post_config = None
 _returnn_rasr_data_input_crp_base.corpus_config = None
 _returnn_rasr_data_input_crp_base.corpus_post_config = None
 _returnn_rasr_data_input_crp_base.lexicon_config = None
@@ -190,25 +188,28 @@ _shuffle_and_split_segments_job = make_fake_job(module='i6_core.corpus.segments'
 _returnn_rasr_data_input.crp.segment_path = tk.Path('train.segments', creator=_shuffle_and_split_segments_job)
 from sisyphus import gs
 import os
-_returnn_rasr_data_input.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/acoustic-model-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/allophone-tool.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/costa.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-extraction.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-statistics.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/flf-tool.linux-x86_64-standard')
 _returnn_rasr_data_input.crp.kws_tool_exe = None
-_returnn_rasr_data_input.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lattice-processor.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lm-util.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/nn-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/speech-recognizer.linux-x86_64-standard')
 _returnn_rasr_data_input.crp.lexicon_config = rasr.RasrConfig()
 _g2_p_output_to_bliss_lexicon_job = make_fake_job(module='i6_core.g2p.convert', name='G2POutputToBlissLexiconJob', sis_hash='SIIDsOAhK3bA')
 _returnn_rasr_data_input.crp.lexicon_config.file = tk.Path('oov.lexicon.gz', creator=_g2_p_output_to_bliss_lexicon_job, cached=True)
 _returnn_rasr_data_input.crp.lexicon_config.normalize_pronunciation = False
+_returnn_rasr_data_input.crp.acoustic_model_post_config = rasr.RasrConfig()
+_store_allophones_job = make_fake_job(module='i6_core.lexicon.allophones', name='StoreAllophonesJob', sis_hash='w3QrnaS2VbXx')
+_returnn_rasr_data_input.crp.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
 import i6_core.rasr.flow
 _returnn_rasr_data_input.alignments = object.__new__(i6_core.rasr.flow.FlagDependentFlowAttribute)
 _returnn_rasr_data_input.alignments.flag = 'cache_mode'
-_alignment_job = make_fake_job(module='i6_core.mm.alignment', name='AlignmentJob', sis_hash='7gy7oAckJWhF')
+_alignment_job = make_fake_job(module='i6_core.mm.alignment', name='AlignmentJob', sis_hash='kJlXQfRnYiCX')
 _dict13 = {
     1: tk.Path('alignment.cache.1', creator=_alignment_job, cached=True),
     2: tk.Path('alignment.cache.2', creator=_alignment_job, cached=True),
@@ -529,7 +530,7 @@ _named_flow_attribute = object.__new__(i6_core.rasr.flow.NamedFlowAttribute)
 _named_flow_attribute.name = 'cache'
 _named_flow_attribute.value = object.__new__(i6_core.rasr.flow.FlagDependentFlowAttribute)
 _named_flow_attribute.value.flag = 'cache_mode'
-_feature_extraction_job = make_fake_job(module='i6_core.features.extraction', name='FeatureExtractionJob', sis_hash='Gammatone.XjZYap2Hch8x')
+_feature_extraction_job = make_fake_job(module='i6_core.features.extraction', name='FeatureExtractionJob', sis_hash='Gammatone.v3q8Zc1deFVj')
 _dict15 = {
     1: tk.Path('gt.cache.1', creator=_feature_extraction_job, cached=True),
     2: tk.Path('gt.cache.2', creator=_feature_extraction_job, cached=True),
@@ -864,7 +865,7 @@ _returnn_rasr_data_input.feature_flow.flags = {
 _returnn_rasr_data_input.feature_flow.config = None
 _returnn_rasr_data_input.feature_flow.post_config = None
 _returnn_rasr_data_input.features = _multi_output_path1
-_estimate_mixtures_job = make_fake_job(module='i6_core.mm.mixtures', name='EstimateMixturesJob', sis_hash='accumulate.W4UuIQqwlVCv')
+_estimate_mixtures_job = make_fake_job(module='i6_core.mm.mixtures', name='EstimateMixturesJob', sis_hash='accumulate.7lOMBxKEZsTk')
 _returnn_rasr_data_input.acoustic_mixtures = tk.Path('am.mix', creator=_estimate_mixtures_job, cached=True)
 _returnn_rasr_data_input.feature_scorers = {
 }
@@ -895,8 +896,7 @@ _returnn_rasr_data_input1_crp_base.acoustic_model_config.tdp.silence.skip = 'inf
 _returnn_rasr_data_input1_crp_base.acoustic_model_config.tdp.silence.exit = 20.0
 _returnn_rasr_data_input1_crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
 _returnn_rasr_data_input1_crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
-_returnn_rasr_data_input1_crp_base.acoustic_model_post_config = rasr.RasrConfig()
-_returnn_rasr_data_input1_crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
+_returnn_rasr_data_input1_crp_base.acoustic_model_post_config = None
 _returnn_rasr_data_input1_crp_base.corpus_config = None
 _returnn_rasr_data_input1_crp_base.corpus_post_config = None
 _returnn_rasr_data_input1_crp_base.lexicon_config = None
@@ -956,20 +956,22 @@ _returnn_rasr_data_input1.crp.audio_format = 'wav'
 _returnn_rasr_data_input1.crp.corpus_duration = 960.9000000000001
 _returnn_rasr_data_input1.crp.concurrent = 1
 _returnn_rasr_data_input1.crp.segment_path = tk.Path('cv.segments', creator=_shuffle_and_split_segments_job)
-_returnn_rasr_data_input1.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input1.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/acoustic-model-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/allophone-tool.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/costa.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-extraction.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-statistics.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/flf-tool.linux-x86_64-standard')
 _returnn_rasr_data_input1.crp.kws_tool_exe = None
-_returnn_rasr_data_input1.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input1.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input1.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lattice-processor.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lm-util.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/nn-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input1.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/speech-recognizer.linux-x86_64-standard')
 _returnn_rasr_data_input1.crp.lexicon_config = rasr.RasrConfig()
 _returnn_rasr_data_input1.crp.lexicon_config.file = tk.Path('oov.lexicon.gz', creator=_g2_p_output_to_bliss_lexicon_job, cached=True)
 _returnn_rasr_data_input1.crp.lexicon_config.normalize_pronunciation = False
+_returnn_rasr_data_input1.crp.acoustic_model_post_config = rasr.RasrConfig()
+_returnn_rasr_data_input1.crp.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
 _returnn_rasr_data_input1.alignments = _returnn_rasr_data_input.alignments
 _returnn_rasr_data_input1.feature_flow = _returnn_rasr_data_input.feature_flow
 _returnn_rasr_data_input1.features = _multi_output_path1
@@ -1002,8 +1004,7 @@ _returnn_rasr_data_input2_crp_base.acoustic_model_config.tdp.silence.skip = 'inf
 _returnn_rasr_data_input2_crp_base.acoustic_model_config.tdp.silence.exit = 20.0
 _returnn_rasr_data_input2_crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
 _returnn_rasr_data_input2_crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
-_returnn_rasr_data_input2_crp_base.acoustic_model_post_config = rasr.RasrConfig()
-_returnn_rasr_data_input2_crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
+_returnn_rasr_data_input2_crp_base.acoustic_model_post_config = None
 _returnn_rasr_data_input2_crp_base.corpus_config = None
 _returnn_rasr_data_input2_crp_base.corpus_post_config = None
 _returnn_rasr_data_input2_crp_base.lexicon_config = None
@@ -1064,20 +1065,22 @@ _returnn_rasr_data_input2.crp.corpus_duration = 960.9000000000001
 _returnn_rasr_data_input2.crp.concurrent = 1
 _tail_job = make_fake_job(module='i6_core.text.processing', name='TailJob', sis_hash='zN9qqvtxote7')
 _returnn_rasr_data_input2.crp.segment_path = tk.Path('out.gz', creator=_tail_job)
-_returnn_rasr_data_input2.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input2.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/acoustic-model-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/allophone-tool.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/costa.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-extraction.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-statistics.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/flf-tool.linux-x86_64-standard')
 _returnn_rasr_data_input2.crp.kws_tool_exe = None
-_returnn_rasr_data_input2.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input2.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input2.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lattice-processor.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lm-util.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/nn-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input2.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/speech-recognizer.linux-x86_64-standard')
 _returnn_rasr_data_input2.crp.lexicon_config = rasr.RasrConfig()
 _returnn_rasr_data_input2.crp.lexicon_config.file = tk.Path('oov.lexicon.gz', creator=_g2_p_output_to_bliss_lexicon_job, cached=True)
 _returnn_rasr_data_input2.crp.lexicon_config.normalize_pronunciation = False
+_returnn_rasr_data_input2.crp.acoustic_model_post_config = rasr.RasrConfig()
+_returnn_rasr_data_input2.crp.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
 _returnn_rasr_data_input2.alignments = _returnn_rasr_data_input.alignments
 _returnn_rasr_data_input2.feature_flow = _returnn_rasr_data_input.feature_flow
 _returnn_rasr_data_input2.features = _multi_output_path1
@@ -1110,8 +1113,7 @@ _returnn_rasr_data_input3_crp_base.acoustic_model_config.tdp.silence.skip = 'inf
 _returnn_rasr_data_input3_crp_base.acoustic_model_config.tdp.silence.exit = 20.0
 _returnn_rasr_data_input3_crp_base.acoustic_model_config.tdp.entry_m1.loop = 'infinity'
 _returnn_rasr_data_input3_crp_base.acoustic_model_config.tdp.entry_m2.loop = 'infinity'
-_returnn_rasr_data_input3_crp_base.acoustic_model_post_config = rasr.RasrConfig()
-_returnn_rasr_data_input3_crp_base.acoustic_model_post_config.allophones.add_from_file = tk.Path('allophones', creator=_store_allophones_job)
+_returnn_rasr_data_input3_crp_base.acoustic_model_post_config = None
 _returnn_rasr_data_input3_crp_base.corpus_config = None
 _returnn_rasr_data_input3_crp_base.corpus_post_config = None
 _returnn_rasr_data_input3_crp_base.lexicon_config = None
@@ -1196,17 +1198,17 @@ _returnn_rasr_data_input3.crp.segment_path = i6_core.util.MultiOutputPath(
     'segments.$(TASK)',
     _dict19,
 )
-_returnn_rasr_data_input3.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input3.crp.acoustic_model_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'acoustic-model-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/acoustic-model-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.allophone_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'allophone-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/allophone-tool.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.costa_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'costa.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/costa.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.feature_extraction_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-extraction.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-extraction.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.feature_statistics_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'feature-statistics.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/feature-statistics.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.flf_tool_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'flf-tool.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/flf-tool.linux-x86_64-standard')
 _returnn_rasr_data_input3.crp.kws_tool_exe = None
-_returnn_rasr_data_input3.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
-_returnn_rasr_data_input3.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT')
+_returnn_rasr_data_input3.crp.lattice_processor_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lattice-processor.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lattice-processor.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.lm_util_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'lm-util.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/lm-util.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.nn_trainer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'nn-trainer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/nn-trainer.linux-x86_64-standard')
+_returnn_rasr_data_input3.crp.speech_recognizer_exe = tk.Path(os.path.join(gs.RASR_ROOT, 'speech-recognizer.linux-x86_64-standard'), hash_overwrite='RASR_ROOT/speech-recognizer.linux-x86_64-standard')
 _returnn_rasr_data_input3.crp.lexicon_config = rasr.RasrConfig()
 _merge_lexicon_job = make_fake_job(module='i6_core.lexicon.modification', name='MergeLexiconJob', sis_hash='9BsYzLqAlJeq')
 _returnn_rasr_data_input3.crp.lexicon_config.file = tk.Path('lexicon.xml.gz', creator=_merge_lexicon_job)
@@ -1217,12 +1219,12 @@ _download_job = make_fake_job(module='i6_core.tools.download', name='DownloadJob
 _returnn_rasr_data_input3.crp.language_model_config.file = tk.Path('4-gram.arpa.gz', creator=_download_job)
 import sisyphus.job_path
 _returnn_rasr_data_input3.crp.language_model_config.scale = object.__new__(sisyphus.job_path.Variable)
-_optimize_a_mand_l_m_scale_job = make_fake_job(module='i6_core.recognition.optimize_parameters', name='OptimizeAMandLMScaleJob', sis_hash='zWRdUtl3UJh3')
+_optimize_a_mand_l_m_scale_job = make_fake_job(module='i6_core.recognition.optimize_parameters', name='OptimizeAMandLMScaleJob', sis_hash='y9ETphimgLX0')
 _dict20 = {
     'creator': _optimize_a_mand_l_m_scale_job,
     'path': 'bast_lm_score',
     'cached': False,
-    'hash_overwrite': None,
+    '_hash_overwrite': None,
     '_tags': None,
     '_available': None,
     'pickle': False,
@@ -1236,7 +1238,7 @@ _named_flow_attribute1 = object.__new__(i6_core.rasr.flow.NamedFlowAttribute)
 _named_flow_attribute1.name = 'cache'
 _named_flow_attribute1.value = object.__new__(i6_core.rasr.flow.FlagDependentFlowAttribute)
 _named_flow_attribute1.value.flag = 'cache_mode'
-_feature_extraction_job1 = make_fake_job(module='i6_core.features.extraction', name='FeatureExtractionJob', sis_hash='Gammatone.Fry3ECJUrnJj')
+_feature_extraction_job1 = make_fake_job(module='i6_core.features.extraction', name='FeatureExtractionJob', sis_hash='Gammatone.BWIJ9k2uU6VK')
 _dict22 = {
     1: tk.Path('gt.cache.1', creator=_feature_extraction_job1, cached=True),
     2: tk.Path('gt.cache.2', creator=_feature_extraction_job1, cached=True),

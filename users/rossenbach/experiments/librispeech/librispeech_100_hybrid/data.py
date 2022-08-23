@@ -14,7 +14,7 @@ def get_corpus_data_inputs(gmm_system):
 
     train_corpus_path = gmm_system.corpora["train-clean-100"].corpus_file
     total_train_num_segments = 28539
-    cv_size = 3000 / total_train_num_segments
+    cv_size = 1000 / total_train_num_segments
 
     all_segments = corpus_recipe.SegmentCorpusJob(
         train_corpus_path, 1
@@ -33,27 +33,24 @@ def get_corpus_data_inputs(gmm_system):
 
     nn_train_data = gmm_system.outputs["train-clean-100"][
         "final"
-    ].as_returnn_rasr_data_input(shuffle_data=True)
+    ].as_returnn_rasr_data_input(shuffle_data=True, feature_flow_key="gt")
     nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
-    # nn_train_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_train_data_inputs = {
         "train-clean-100.train": nn_train_data,
     }
 
     nn_cv_data = gmm_system.outputs["train-clean-100"][
         "final"
-    ].as_returnn_rasr_data_input()
+    ].as_returnn_rasr_data_input(feature_flow_key="gt")
     nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
-    # nn_cv_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_cv_data_inputs = {
         "train-clean-100.cv": nn_cv_data,
     }
 
     nn_devtrain_data = gmm_system.outputs["train-clean-100"][
         "final"
-    ].as_returnn_rasr_data_input()
+    ].as_returnn_rasr_data_input(feature_flow_key="gt")
     nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
-    # nn_devtrain_data.crp.set_executables(rasr_root="/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/")
     nn_devtrain_data_inputs = {
         "train-clean-100.devtrain": nn_devtrain_data,
     }
@@ -63,7 +60,7 @@ def get_corpus_data_inputs(gmm_system):
         # ].as_returnn_rasr_data_input(),
         "dev-other": gmm_system.outputs["dev-other"][
             "final"
-        ].as_returnn_rasr_data_input(),
+        ].as_returnn_rasr_data_input(feature_flow_key="gt"),
     }
     nn_test_data_inputs = {
         # "test-clean": gmm_system.outputs["test-clean"][

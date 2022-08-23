@@ -25,10 +25,11 @@ from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
 from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation import (
     asr_evaluation,
 )
-
+from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
+from i6_experiments.users.hilmes.data.librispeech import get_ls_train_clean_100_tts_silencepreprocessed
 
 def get_training_config(
-    returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, **kwargs
+    returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_model
@@ -50,7 +51,7 @@ def get_training_config(
         "behavior_version": 12,
         ############
         "optimizer": {"class": "adam", "epsilon": 1e-8},
-        "accum_grad_multiple_step": 2,
+        "accum_grad_multiple_step": round(18000 * 2 / batch_size),
         "gradient_clip": 1,
         "gradient_noise": 0,
         "learning_rate_control": "newbob_multi_epoch",
@@ -65,7 +66,7 @@ def get_training_config(
         "newbob_multi_update_interval": 1,
         "newbob_relative_error_threshold": 0,
         #############
-        "batch_size": 18000,
+        "batch_size": batch_size,
         "max_seq_length": {"audio_features": 1600},
         "max_seqs": 60,
     }
@@ -129,6 +130,7 @@ def get_forward_config(
     returnn_common_root,
     forward_dataset: TTSForwardData,
     use_true_durations: bool = False,
+    use_calculated_prior: bool = False,
     **kwargs,
 ):
     """
@@ -141,7 +143,7 @@ def get_forward_config(
 
     config = {
         "behavior_version": 12,
-        "forward_batch_size": 18000,
+        "forward_batch_size": 4000,
         "max_seqs": 60,
         "forward_use_search": True,
         "target": "dec_output",
@@ -155,25 +157,30 @@ def get_forward_config(
     rc_recursionlimit = PythonEnlargeStackWorkaroundCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
-        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel"
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
     )
     rc_construction_code = Import(
-        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network"
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.construct_network"
     )
+    net_func_map = {
+            "net_module": rc_model.object_name,
+            "phoneme_data": "phonemes",
+            "duration_data": "duration_data" if use_true_durations else "None",
+            "label_data": "speaker_labels",
+            "audio_data": "None",
+            "time_dim": "phonemes_time",
+            "label_time_dim": "speaker_labels_time",
+            "speech_time_dim": "None",
+            "duration_time_dim": "duration_data_time" if use_true_durations else "None",
+        }
+    if use_calculated_prior:
+        assert kwargs["use_vae"], "Need to also set use_vae in network kwargs"
+        net_func_map["speaker_prior"] = "speaker_prior"
+        net_func_map["prior_time"] = "speaker_prior_time"
 
     rc_network = Network(
         net_func_name=rc_construction_code.object_name,
-        net_func_map={
-            "net_module": rc_model.object_name,
-            "phoneme_data": "phonemes",
-            "duration_data": "duration_data",
-            "label_data": "speaker_labels",
-            "audio_data": "audio_features",
-            "time_dim": "phonemes_time",
-            "label_time_dim": "speaker_labels_time",
-            "speech_time_dim": "audio_features_time",
-            "duration_time_dim": "duration_data_time",
-        },
+        net_func_map=net_func_map,
         net_kwargs={
             "training": False,
             "use_true_durations": use_true_durations,
@@ -202,7 +209,7 @@ def get_forward_config(
     return returnn_config
 
 
-def get_extraction_config(
+def get_speaker_extraction_config(
     returnn_common_root, forward_dataset: TTSForwardData, **kwargs
 ):
     """
@@ -228,10 +235,10 @@ def get_extraction_config(
     rc_recursionlimit = PythonEnlargeStackWorkaroundCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
-        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.NARTTSModel"
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
     )
     rc_construction_code = Import(
-        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.construct_network"
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.construct_network"
     )
 
     rc_network = Network(
@@ -248,6 +255,75 @@ def get_extraction_config(
             "duration_time_dim": "duration_data_time",
         },
         net_kwargs={"training": False, "dump_speaker_embeddings": True, **kwargs},
+    )
+
+    serializer = Collection(
+        serializer_objects=[
+            rc_recursionlimit,
+            rc_extern_data,
+            rc_model,
+            rc_construction_code,
+            rc_network,
+        ],
+        returnn_common_root=returnn_common_root,
+        make_local_package_copy=True,
+        packages={
+            "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks",
+            "i6_experiments.users.hilmes.modules",
+        },
+    )
+
+    returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
+
+    return returnn_config
+
+
+def get_vae_prior_config(
+    returnn_common_root, forward_dataset: TTSForwardData, **kwargs
+):
+    """
+
+    :param returnn_common_root:
+    :param forward_dataset:
+    :param kwargs:
+    :return:
+    """
+    config = {
+        "behavior_version": 12,
+        "forward_batch_size": 18000,
+        "max_seqs": 60,
+        "forward_use_search": True,
+        "target": "dec_output",
+    }
+    extern_data = [
+        datastream.as_nnet_constructor_data(key)
+        for key, datastream in forward_dataset.datastreams.items()
+    ]
+    config["eval"] = forward_dataset.dataset.as_returnn_opts()
+
+    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_extern_data = ExternData(extern_data=extern_data)
+    rc_model = Import(
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
+    )
+    rc_construction_code = Import(
+        "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.construct_network"
+    )
+
+    rc_network = Network(
+        net_func_name=rc_construction_code.object_name,
+        net_func_map={
+            "net_module": rc_model.object_name,
+            "phoneme_data": "phonemes",
+            "duration_data": "duration_data",
+            "label_data": "speaker_labels",
+            "audio_data": "audio_features",
+            "time_dim": "phonemes_time",
+            "label_time_dim": "speaker_labels_time",
+            "speech_time_dim": "audio_features_time",
+            "duration_time_dim": "duration_data_time",
+        },
+        net_kwargs={"training": False, "dump_vae": True, "use_vae": True, **kwargs},
     )
 
     serializer = Collection(
@@ -321,7 +397,7 @@ def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
 
 def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
     """
-
+    Griffin Lin synthetic WER
     :param name:
     :param vocoder:
     :param checkpoint:
@@ -341,11 +417,12 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
     forward_vocoded, vocoder_forward_job = vocoder.vocode(
         forward_hdf, iterations=30, cleanup=True, name=name
     )
+
     verification = VerifyCorpus(forward_vocoded).out
     cleanup = MultiJobCleanup(
         [forward_job, vocoder_forward_job], verification, output_only=True
     )
-    tk.register_output(name + "/ctc_model" + "/".join(["cleanup", name]), cleanup.out)
+    tk.register_output(name + "/ctc_model/cleanup.log", cleanup.out)
 
     corpus_object_dict = get_corpus_object_dict(
         audio_format="ogg", output_prefix="corpora"
@@ -362,7 +439,7 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
     asr_evaluation(
         config_file=librispeech_trafo,
         corpus=cv_synth_corpus,
-        output_path=name + "/ctc_model",
+        output_path=name,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
     )
@@ -384,7 +461,7 @@ def synthesize_with_splits(
     """
 
     :param name:
-    :param corpus: Needs to be the matching corpus for datasets
+    :param reference_corpus: Needs to be the matching corpus for datasets
     :param corpus_name: Name of the corpus for the ReplaceOrthJob
     :param job_splits: number of splits performed
     :param datasets: datasets including datastream supposed to hold the audio data in .train
@@ -401,7 +478,7 @@ def synthesize_with_splits(
     verifications = []
     output_corpora = []
     for i in range(job_splits):
-        split_name = name + "/synth_corpus/part_%i/" % i
+        split_name = name + "/synth_corpus/part_%i" % i
         forward_config = get_forward_config(
             returnn_common_root=returnn_common_root,
             forward_dataset=datasets,
@@ -418,14 +495,14 @@ def synthesize_with_splits(
             returnn_python_exe=returnn_exe,
             returnn_root=returnn_root,
         )
-        last_forward_job.add_alias(split_name + "forward")
+        last_forward_job.add_alias(split_name + "/forward")
         forward_hdf = last_forward_job.out_hdf_files["output.hdf"]
-        tk.register_output(split_name, forward_hdf)
+        tk.register_output(split_name + "/foward.hdf", forward_hdf)
 
         forward_vocoded, vocoder_forward_job = vocoder.vocode(
             forward_hdf, iterations=30, cleanup=True, name=split_name
         )
-        tk.register_output(split_name + "synthesized_corpus.xml.gz", forward_vocoded)
+        tk.register_output(split_name + "/synthesized_corpus.xml.gz", forward_vocoded)
         output_corpora.append(forward_vocoded)
         verification = VerifyCorpus(forward_vocoded).out
         verifications.append(verification)
@@ -434,7 +511,7 @@ def synthesize_with_splits(
             [last_forward_job, vocoder_forward_job], verification, output_only=True
         )
         tk.register_output(
-            split_name + "/".join(["cleanup", "synth_corpus/part_%i/" % i]), cleanup.out
+            split_name + "/cleanup/cleanup.log", cleanup.out
         )
 
     from i6_core.corpus.transform import MergeStrategy
@@ -450,11 +527,11 @@ def synthesize_with_splits(
         reference_bliss_corpus=reference_corpus,
     ).out_corpus
 
-    tk.register_output(name + "synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
+    tk.register_output(name + "/synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
     return cv_synth_corpus
 
 
-def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job):
+def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job, epoch=200):
     """
 
     :param returnn_common_root:
@@ -466,15 +543,16 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
     :return:
     """
 
-    extraction_config = get_extraction_config(
+    extraction_config = get_speaker_extraction_config(
         speaker_embedding_size=256,
+        training=True,
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
-            dataset=datasets.cv, datastreams=datasets.datastreams
+            dataset=datasets.cv, datastreams=datasets.datastreams  # cv is fine here cause we assume all speakers in cv
         ),
     )
     extraction_job = tts_forward(
-        checkpoint=train_job.out_checkpoints[200],
+        checkpoint=train_job.out_checkpoints[epoch],
         config=extraction_config,
         returnn_exe=returnn_exe,
         returnn_root=returnn_root,
@@ -482,3 +560,38 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
     )
     speaker_embedding_hdf = extraction_job.out_default_hdf
     return speaker_embedding_hdf
+
+
+def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job, corpus, epoch=200):
+    """
+
+    :param returnn_common_root:
+    :param returnn_exe:
+    :param returnn_root:
+    :param datasets:
+    :param prefix:
+    :param train_job:
+    :param corpus
+    :return:
+    """
+
+    vae_extraction_config = get_vae_prior_config(
+        speaker_embedding_size=256,
+        training=True,
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=datasets.cv, datastreams=datasets.datastreams
+        ),
+    )
+    vae_extraction_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[epoch],
+        config=vae_extraction_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=prefix + "/extract_vae_prior",
+    )
+    vae_prior_hdf = vae_extraction_job.out_default_hdf
+    priors = CalculateSpeakerPriorJob(
+        vae_hdf=vae_prior_hdf, corpus_file=corpus).out_prior
+    tk.register_output(prefix + "/calculated_priors", priors)
+    return priors
