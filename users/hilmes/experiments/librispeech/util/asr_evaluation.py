@@ -30,7 +30,7 @@ def asr_evaluation(
     :param segment_file:
     :return:
     """
-    cv_synth_ogg_job = BlissToOggZipJob(corpus)
+    cv_synth_ogg_job = BlissToOggZipJob(corpus, segments=segment_file)
 
     parameter_dict = {"ext_eval_zip": cv_synth_ogg_job.out_ogg_zip}
     parameter_dict.update(additional_parameters or {})

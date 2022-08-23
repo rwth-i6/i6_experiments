@@ -757,7 +757,7 @@ def get_inference_dataset(
     durations: Optional = None,
     speaker_prior_hdf: Optional = None,
     speaker_embedding_size=256,
-    speaker_prior_size=8,
+    speaker_prior_size=32,
     process_corpus: bool = True,
 ):
     """
@@ -834,4 +834,5 @@ def get_inference_dataset(
         )
 
     return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
+
 

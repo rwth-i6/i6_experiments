@@ -27,6 +27,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation imp
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
 from i6_experiments.users.hilmes.data.librispeech import get_ls_train_clean_100_tts_silencepreprocessed
+from i6_core.returnn.oggzip import BlissToOggZipJob
 
 def get_training_config(
     returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
@@ -131,6 +132,8 @@ def get_forward_config(
     forward_dataset: TTSForwardData,
     use_true_durations: bool = False,
     use_calculated_prior: bool = False,
+    use_audio_data: bool = False,
+    batch_size: int = 4000,
     **kwargs,
 ):
     """
@@ -143,11 +146,12 @@ def get_forward_config(
 
     config = {
         "behavior_version": 12,
-        "forward_batch_size": 4000,
+        "forward_batch_size": batch_size,
         "max_seqs": 60,
         "forward_use_search": True,
         "target": "dec_output",
     }
+
     extern_data = [
         datastream.as_nnet_constructor_data(key)
         for key, datastream in forward_dataset.datastreams.items()
@@ -167,10 +171,10 @@ def get_forward_config(
             "phoneme_data": "phonemes",
             "duration_data": "duration_data" if use_true_durations else "None",
             "label_data": "speaker_labels",
-            "audio_data": "None",
+            "audio_data": "audio_features" if use_audio_data else "None",
             "time_dim": "phonemes_time",
             "label_time_dim": "speaker_labels_time",
-            "speech_time_dim": "None",
+            "speech_time_dim": "audio_features_time" if use_audio_data else "None",
             "duration_time_dim": "duration_data_time" if use_true_durations else "None",
         }
     if use_calculated_prior:
@@ -456,6 +460,7 @@ def synthesize_with_splits(
     returnn_common_root,
     checkpoint,
     vocoder,
+    batch_size: int = 4000,
     **tts_model_kwargs,
 ):
     """
@@ -482,6 +487,7 @@ def synthesize_with_splits(
         forward_config = get_forward_config(
             returnn_common_root=returnn_common_root,
             forward_dataset=datasets,
+            batch_size=batch_size,
             **tts_model_kwargs,
         )
         forward_config.config["eval"]["datasets"]["audio"][
@@ -562,7 +568,8 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
     return speaker_embedding_hdf
 
 
-def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job, corpus, epoch=200):
+def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_root, dataset, datastreams, prefix, train_job, corpus,
+    epoch=200):
     """
 
     :param returnn_common_root:
@@ -574,13 +581,12 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
     :param corpus
     :return:
     """
-
     vae_extraction_config = get_vae_prior_config(
         speaker_embedding_size=256,
         training=True,
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
-            dataset=datasets.cv, datastreams=datasets.datastreams
+            dataset=dataset, datastreams=datastreams
         ),
     )
     vae_extraction_job = tts_forward(

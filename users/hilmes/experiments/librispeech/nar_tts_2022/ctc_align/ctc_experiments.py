@@ -102,7 +102,7 @@ def get_loss_scale_alignments():
     name + "/datasets", returnn_exe=returnn_exe, returnn_root=returnn_root
   )
   alignments = {}
-  for loss in [0.25, 1]:
+  for loss in [0.25, 0.4, 0.6, 0.75, 1]:
     # 0.5 default already ran in baseline above
     exp_name = name + f"_{loss}"
     aligner_config = get_training_config(

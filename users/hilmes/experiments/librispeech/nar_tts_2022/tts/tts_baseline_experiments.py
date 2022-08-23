@@ -5,7 +5,7 @@ from sisyphus import tk
 from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
-    get_tts_data_from_ctc_align, get_vocoder_data
+    get_tts_data_from_ctc_align, get_librispeech_tts_segments
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_experiments import (
     get_baseline_ctc_alignment, get_loss_scale_alignments
@@ -28,7 +28,10 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data impor
     get_inference_dataset
 )
 from i6_experiments.common.datasets.librispeech import (
-    get_corpus_object_dict,
+    get_corpus_object_dict
+)
+from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation import (
+    asr_evaluation,
 )
 from copy import deepcopy
 
@@ -68,6 +71,20 @@ def ctc_baseline():
     default_vocoder = get_default_vocoder(name=name)
     synthetic_data_dict = {}
     job_splits = 10
+
+    librispeech_trafo = tk.Path(
+        "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
+        "pretrain3.natctc_recognize_pretrained.config"
+    )
+    train_segments, cv_segments = get_librispeech_tts_segments()
+    asr_evaluation(
+        config_file=librispeech_trafo,
+        corpus=reference_corpus.corpus_file,
+        output_path=name,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_exe,
+        segment_file=cv_segments
+    )
 
     for upsampling in ["repeat", "gauss"]:
         exp_name = name + f"/{upsampling}"
@@ -159,8 +176,8 @@ def ctc_baseline():
         num_epochs=200,
     )
     vae_swer_dataset = deepcopy(training_datasets.cv)
-    vae_swer_dataset.datasets["audio"]["available_for_inference"] = True
     vae_swer_datastreams = deepcopy(training_datasets.datastreams)
+    vae_swer_datastreams["audio_features"].available_for_inference = True
     forward_config = get_forward_config(
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
@@ -169,7 +186,8 @@ def ctc_baseline():
         embedding_size=256,
         speaker_embedding_size=256,
         calc_speaker_embedding=True,
-        use_vae=True
+        use_vae=True,
+        use_audio_data=True,
     )
     gl_swer(
         name=exp_name,
@@ -179,11 +197,16 @@ def ctc_baseline():
         checkpoint=train_job.out_checkpoints[200],
         config=forward_config,
     )
+    vae_dataset = deepcopy(training_datasets.cv)
+    vae_dataset.datasets["audio"]["segment_file"] = None
+    vae_datastreams = deepcopy(training_datasets.datastreams)
+    vae_datastreams["audio_features"].available_for_inference = True
     speaker_prior_hdf = build_vae_speaker_prior_dataset(
           returnn_common_root=returnn_common_root,
           returnn_exe=returnn_exe,
           returnn_root=returnn_root,
-          datasets=training_datasets,
+          dataset=vae_dataset,
+          datastreams=vae_datastreams,
           prefix=exp_name,
           train_job=train_job,
           corpus=reference_corpus.corpus_file
@@ -223,6 +246,7 @@ def ctc_baseline():
             use_true_durations=(duration == "cheat"),
             use_vae=True,
             use_calculated_prior=True,
+            batch_size=3000 if (duration == "pred") else 4000,
         )
         synthetic_data_dict[f"ctc_vae_{duration}"] = synth_corpus
     return synthetic_data_dict
@@ -254,7 +278,7 @@ def ctc_loss_scale():
     default_vocoder = get_default_vocoder(name=name)
     alignments = get_loss_scale_alignments()
     for scale, alignment in alignments.items():
-        exp_name = name + f"loss_scale_{scale}"
+        exp_name = name + f"_{scale}"
         training_datasets, corpus, durations = get_tts_data_from_ctc_align(
             exp_name + "/datasets",
             returnn_exe=returnn_exe,
