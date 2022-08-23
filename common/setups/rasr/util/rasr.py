@@ -198,5 +198,40 @@ class RasrSteps:
     def get_step_names_as_list(self):
         return list(self._step_names_args.keys())
 
+    def get_non_gmm_steps_as_list(self):
+        """
+        Returns all steps that do not produce new mixtures/alignments
+        """
+        return ["forced_align"]
+
+    def get_gmm_steps_names_as_list(self):
+        """
+        Returns all steps that return new mixtures/alignments
+        Is the inverse of `get_non_gmm_steps_as_list`
+        """
+        step_names = list(
+            filter(
+                lambda x: not any(
+                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
+                ),
+                self.get_step_names_as_list(),
+            )
+        )
+        return step_names
+
     def get_args_via_idx(self, idx):
         return list(self._step_names_args.values())[idx]
+
+    def get_prev_gmm_step(self, idx):
+        """
+        returns the previous gmm step based on given index
+        """
+        step_names = list(
+            filter(
+                lambda x: not any(
+                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
+                ),
+                self.get_step_names_as_list()[:idx],
+            )
+        )
+        return step_names[-1]
