@@ -199,9 +199,16 @@ class RasrSteps:
         return list(self._step_names_args.keys())
 
     def get_non_gmm_steps_as_list(self):
+        """
+        Returns all steps that do not produce new mixtures/alignments
+        """
         return ["forced_align"]
 
     def get_gmm_steps_names_as_list(self):
+        """
+        Returns all steps that return new mixtures/alignments
+        Is the inverse of `get_non_gmm_steps_as_list`
+        """
         step_names = list(
             filter(
                 lambda x: not any(
