@@ -7,7 +7,7 @@ from i6_core.returnn import ReturnnConfig, ReturnnForwardJob
 def get_returnn_length_hdfs(
     dataset_dict: Dict[str, Any],
     extern_data: Dict[str, Any],
-    dataset_keys: List,
+    dataset_keys: List[str],
     returnn_exe: tk.Path,
     returnn_root: tk.Path,
     job_alias: Optional[str] = None,
@@ -25,7 +25,7 @@ def get_returnn_length_hdfs(
     :param job_alias: full alias of the forward job
     :param mem_rqmt: job memory requirement in GB
     :param time_rqmt: job time requirement in hours
-    :return:
+    :return: dict of hdfs paths containing the lengths of a datastream
     """
     post_config = {"use_tensorflow": True}
     config = {
