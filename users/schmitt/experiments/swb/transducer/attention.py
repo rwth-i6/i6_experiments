@@ -26,7 +26,8 @@ import copy
 def add_attention(
   net_dict, att_seg_emb_size, att_seg_use_emb, att_win_size, task, EncValueTotalDim, EncValueDecFactor, EncKeyTotalDim,
   att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area, att_ctx_reg,
-  AttNumHeads, EncValuePerHeadDim, l2, EncKeyPerHeadDim, AttentionDropout, att_query, ctx_with_bias):
+  AttNumHeads, EncValuePerHeadDim, l2, EncKeyPerHeadDim, AttentionDropout, att_query, ctx_with_bias,
+  segment_center_window_size=None):
   """This function expects a network dictionary of an "extended transducer" model and adds a self-attention mechanism
   according to some parameters set in the returnn config.
 
@@ -85,6 +86,27 @@ def add_attention(
         "class": "combine", "kind": "add", "from": ["segment_lens0", "const1"],
         "is_output_layer": False if att_win_size == "full" and task != "train" else True},  # (B,)
     })
+
+    if segment_center_window_size is not None:
+      assert type(segment_center_window_size) == int
+      net_dict["output"]["unit"]["segment_starts1"] = net_dict["output"]["unit"]["segment_starts"].copy()
+      net_dict["output"]["unit"]["segment_lens1"] = net_dict["output"]["unit"]["segment_lens"].copy()
+      net_dict["output"]["unit"]["segment_starts1"]["false_from"] = "prev:segment_starts1"
+      net_dict["output"]["unit"]["segment_lens0"]["from"][1] = "segment_starts1"
+      net_dict["output"]["unit"].update({
+        "segment_starts": {
+          "class": "eval", "from": ["segment_starts1", "segment_lens1"], "is_output_layer": True,
+          "eval": "source(0) + source(1) - %d" % segment_center_window_size
+        },
+        "segment_ends": {
+          "class": "eval", "from": ["segment_starts1", "segment_lens1"],
+          "eval": "source(0) + source(1) + %d" % segment_center_window_size
+        },
+        "segment_lens": {
+          "class": "eval", "from": ["segment_ends", "segment_starts"], "is_output_layer": True,
+          "eval": "source(0) - source(1)"
+        }
+      })
 
   def add_segmental_embedding_vector():
     def get_one_hot_embedding(nd, idx):
