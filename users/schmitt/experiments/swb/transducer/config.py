@@ -158,7 +158,7 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
-    network_type="default", global_length_var=None, chunk_size=60,
+    network_type="default", global_length_var=None, chunk_size=60, segment_center_window_size=None,
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
@@ -233,7 +233,8 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
           att_seg_clamp_size=att_seg_clamp_size, att_seg_left_size=att_seg_left_size, att_ctx_reg=att_ctx_reg,
           att_seg_right_size=att_seg_right_size, att_area=att_area, AttNumHeads=att_num_heads,
           EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
-          EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias)
+          EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias,
+          segment_center_window_size=segment_center_window_size)
     else:
       assert network_type in ["global_import", "global_import_w_feedback", "global_import_wo_feedback_wo_state_vector"]
       if network_type in [
@@ -265,3 +266,6 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
 
     if self.task == "search":
       self.extern_data[self.target] = {"dim": self.target_num_labels, "sparse": True}
+
+    if enc_type == "conf-wei":
+      self.import_prolog += ["import sys", "sys.setrecursionlimit(4000)"]
