@@ -4135,7 +4135,7 @@ def get_conformer_encoder_wei():
                'from': 'conv_1_pool',
                'n_out': 64,
                'padding': 'same',
-               'strides': (2, 1),
+               'strides': (3, 1),
                'with_bias': True},
     'conv_3': {'L2': 0.01,
                'activation': 'swish',
@@ -5047,7 +5047,7 @@ def get_conformer_encoder_wei():
                                             'num_heads': 8,
                                             'total_key_dim': 512},
     'conformer_9_output': {'class': 'layer_norm', 'from': 'conformer_9_ffmod_2_half_res_add'},
-    'encoder': {'class': 'reinterpret_data', 'from': 'conformer_12_output', 'size_base': 'data:classes'},
+    'encoder': {'class': 'reinterpret_data', 'from': 'conformer_12_output'},
   }
 
   return network
