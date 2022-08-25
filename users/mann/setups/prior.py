@@ -301,3 +301,25 @@ def get_prior_from_transcription_job(
         "xml": prior_job.out_prior_xml_file,
         "png": prior_job.out_prior_png_file
     }
+
+class PriorSystem:
+    def __init__(self, system, total_frames=None, eps=None):
+        self.system = system
+        self.total_frames = total_frames
+        self.prior_files = get_prior_from_transcription_job(system, total_frames)
+        self.eps = eps
+        self.prior_txt_file = self.prior_files["txt"]
+        self.prior_xml_file = self.prior_files["xml"]
+        self.prior_png_file = self.prior_files["png"] 
+    
+    def extract_prior(self):
+        self.prior_files = get_prior_from_transcription_job(self.system, self.total_frames)
+        self.prior_txt_file = self.prior_files["txt"]
+        self.prior_xml_file = self.prior_files["xml"]
+        self.prior_png_file = self.prior_files["png"] 
+    
+    def add_to_config(self, config):
+        from i6_experiments.users.mann.nn import prior
+        prior.prepare_static_prior(config, prob=True)
+        prior.add_static_prior(config, self.prior_txt_file, eps=self.eps)
+

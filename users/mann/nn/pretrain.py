@@ -164,11 +164,13 @@ locals().update(**config)""".format(ams=am_scales, prs=self.rel_prior_scale, k=s
         return pretrain_code
 
 
-    def set_config(self, config, legacy=False, override_scales=False):
+    def set_config(self, config, legacy=False, override_scales=False, static_lr=True):
         assert isinstance(config, returnn.ReturnnConfig)
         if override_scales:
             config.prior_scale = self.prior_scale
             config.am_scale = self.final_am
+        if not static_lr:
+            config.config["use_learning_rate_control_always"] = True
         assert -1e5 < config.prior_scale - self.prior_scale < 1e5, "Jump from final prior scale to default static prior scale"
         assert config.am_scale == self.final_am, "Jump from final am scale to default static am scale"
         schedule = self.generate_exp_am_schedule()
@@ -182,7 +184,7 @@ locals().update(**config)""".format(ams=am_scales, prs=self.rel_prior_scale, k=s
                 config.extra_python_code = code
             config['pretrain_repetitions']['final'] = self.final_epoch
             return
-        config.python_prolog = getattr(config, "python_prolog", ()) + ("from Pretrain import WrapEpochValue",)
+        config.python_prolog = (config.python_prolog or ()) + ("from Pretrain import WrapEpochValue",)
         config.prior_scale = ExponentialScaleWarmup.wev_template(schedule, self.absolute_scale, self.rel_prior_scale)
         config.am_scale = ExponentialScaleWarmup.wev_template(schedule, self.absolute_scale)
         if self.has_absolute_scale():
@@ -214,6 +216,8 @@ class PretrainConfigHolder(UserDict):
         )
         self.config = config
         self.legacy = legacy
+        self.override_scales = False
+        self.build_args = {}
         super().__init__(config.config)
     
     @property
@@ -261,7 +265,7 @@ class PretrainConfigHolder(UserDict):
     
     def build(self):
         config = copy.deepcopy(self.config)
-        self.warmup.set_config(config, self.legacy)
+        self.warmup.set_config(config, self.legacy, self.override_scales, **self.build_args)
         if self.legacy:
             return config.config
         return config

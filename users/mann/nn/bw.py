@@ -21,13 +21,13 @@ def add_bw_layer(csp, crnn_config, am_scale=1.0, ce_smoothing=0.0,
         raise NotImplementedError("Chunking not implemented yet.")
     crnn_config.pop("chunking", None)
 
-    # adjust learning rates
-    crnn_config["learning_rate"] = learning_rate
-    if learning_rate_warmup is None:
-        crnn_config.pop("learning_rates", None)
-    else:
-        assert isinstance(learning_rate_warmup, list)
-        crnn_config["learning_rates"] = learning_rate_warmup
+    # # adjust learning rates
+    # crnn_config["learning_rate"] = learning_rate
+    # if learning_rate_warmup is None:
+    #     crnn_config.pop("learning_rates", None)
+    # else:
+    #     assert isinstance(learning_rate_warmup, list)
+    #     crnn_config["learning_rates"] = learning_rate_warmup
 
     # Prepare output layer to compute sequence loss
     assert crnn_config['use_tensorflow']
@@ -83,8 +83,20 @@ class ScaleConfig(returnn.ReturnnConfig):
         add_bw_layer(csp, config, **bw_args)
         return cls.from_config(config)
     
-    # def make_prior_relative(self):
-    #     self.is_prior_relative = True
+    def maybe_add_dependencies(self, *dependencies):
+        # assert isinstance(dep_code, str)
+        if len(dependencies) > 1:
+            for dep in dependencies:
+                self.maybe_add_dependencies(dep)
+            return
+        # single dependency case
+        dep_code = dependencies[0]
+        if not hasattr(self, "python_prolog"):
+            self.python_prolog = (dep_code,)
+            return
+        if not dep_code in self.python_prolog:
+            self.python_prolog += (dep_code,)
+        # already in prolog
   
     def set_prior_scale(self, prior_scale):
         assert isinstance(prior_scale, (int, float, returnn.CodeWrapper))

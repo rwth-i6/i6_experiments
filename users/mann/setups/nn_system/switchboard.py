@@ -4,6 +4,7 @@ import os
 
 from recipe.i6_experiments.users.mann.setups.nn_system.base_system import BaseSystem, NNSystem, ExpConfig
 from recipe.i6_experiments.users.mann.setups.librispeech.nn_system import LibriNNSystem
+from recipe.i6_experiments.users.mann.setups import prior
 from recipe.i6_experiments.common.datasets import switchboard
 from i6_experiments.users.mann.setups.legacy_corpus import swb1 as legacy
 from recipe.i6_core import features
@@ -31,6 +32,7 @@ default_nn_training_args = {
     'time_rqmt': 120,
     'mem_rqmt' : 12,
     'use_python_control': True,
+    'log_verbosity': 5,
     'feature_flow': 'gt'
 }
 
@@ -94,26 +96,34 @@ default_feature_paths = {
 RETURNN_PYTHON_HOME = Path('/work/tools/asr/python/3.8.0_tf_1.15-generic+cuda10.1')
 RETURNN_PYTHON_EXE = Path('/work/tools/asr/python/3.8.0_tf_1.15-generic+cuda10.1/bin/python3.8')
 
+RETURNN_PYTHON_EXE_NEW = Path("/work/tools/asr/python/3.8.0_tf_2.3.4-generic+cuda10.1+mkl/bin/python3")
+RETURNN_PYTHON_HOME_NEW = Path("/work/tools/asr/python/3.8.0_tf_2.3.4-generic+cuda10.1+mkl")
+
 RETURNN_REPOSITORY_URL = 'https://github.com/rwth-i6/returnn.git'
 
 RASR_BINARY_PATH = Path('/work/tools/asr/rasr/20220603_github_default/arch/linux-x86_64-standard')
 
+SCTK_PATH = Path('/u/beck/programs/sctk-2.4.0/bin/')
+
+TOTAL_FRAMES = 91026136
+
 from collections import namedtuple
 Binaries = namedtuple('Binaries', ['returnn', 'native_lstm', 'rasr'])
-
 
 def init_binaries():
     # clone returnn
     from i6_core.tools import CloneGitRepositoryJob
-    returnn_root = CloneGitRepositoryJob(
+    returnn_root_job = CloneGitRepositoryJob(
         RETURNN_REPOSITORY_URL,
-    ).out_repository
+    )
+    returnn_root_job.add_alias('returnn')
+    returnn_root = returnn_root_job.out_repository
 
     # compile lstm ops
     native_lstm = returnn.CompileNativeOpJob(
         "NativeLstm2",
         returnn_root=returnn_root,
-        returnn_python_exe=RETURNN_PYTHON_EXE,
+        returnn_python_exe=RETURNN_PYTHON_EXE_NEW,
         search_numpy_blas=True
     ).out_op
 
@@ -123,15 +133,32 @@ def init_binaries():
     # rasr_binary_path = None
     return Binaries(returnn_root, native_lstm, rasr_binary_path)
 
+def init_env():
+    # append compile op python libs to default environment
+    lib_subdir = "lib/python3.8/site-packages"
+    libs = ["numpy.libs", "scipy.libs", "tensorflow"]
+    path_buffer = ""
+    for lib in libs:
+        path_buffer += ":" + RETURNN_PYTHON_HOME_NEW.join_right(lib_subdir).join_right(lib) 
+    gs.DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] += path_buffer
 
-def get_legacy_switchboard_system():
+import enum
+class BinarySetup(enum.Enum):
+    Download = 0
+    Legacy = 1
+
+def get_legacy_switchboard_system(binaries: BinarySetup=BinarySetup.Download):
     """Returns the an NNSystem for the legacy switchboard corpus setup."""
+    # setup binaries and environment
+    epochs = [12, 24, 32, 80, 160, 240, 320]
+    if binaries == BinarySetup.Download:
+        binaries = init_binaries()
+        init_env()
+
+    # corpus mappings
     subcorpus_mapping = { 'train': 'full', 'dev': 'dev_zoltan', 'eval': 'hub5-01'}
     train_eval_mapping = { 'train': 'train', 'dev': 'eval', 'eval': 'eval'}
 
-    binaries = init_binaries()
-
-    epochs = [12, 24, 32, 80, 160, 240, 320]
     system = NNSystem(
         num_input=40,
         epochs=epochs,
@@ -166,12 +193,14 @@ def get_legacy_switchboard_system():
     system.alignments['train']['init_align'] = default_alignment_file
     system.mixtures['train']['init_mixture'] = default_mixture_path
     system._init_am()
-    del system.crp['train'].acoustic_model_config.tdp
 
     st = system.crp["base"].acoustic_model_config.state_tying
     st.type = "cart"
     st.file = default_cart_file
     system.set_num_classes("cart", 9001)
+    system.crp["train"].acoustic_model_config = system.crp["base"].acoustic_model_config._copy()
+    system.crp["train"].acoustic_model_config.state_tying = system.crp["base"].acoustic_model_config.state_tying
+    del system.crp['train'].acoustic_model_config.tdp
 
     for args in ["default_nn_training_args", "default_scorer_args", "default_recognition_args"]:
         setattr(system, args, globals()[args])
@@ -181,8 +210,24 @@ def get_legacy_switchboard_system():
         # add glm and stm files
         system.glm_files[c] = legacy.glm_path[subcorpus_mapping[c]]
         system.stm_files[c] = legacy.stm_path[subcorpus_mapping[c]]
-        system.set_hub5_scorer(corpus=c)
+        system.set_hub5_scorer(corpus=c, sctk_binary_path=SCTK_PATH)
     return system
+
+def get_bw_switchboard_system():
+    from .librispeech import default_tf_native_ops
+    binaries = Binaries(
+        returnn=tk.Path(gs.RETURNN_ROOT),
+        native_lstm=default_tf_native_ops,
+        rasr=tk.Path(gs.RASR_ROOT).join_right('arch/linux-x86_64-standard'),
+    )
+    system = get_legacy_switchboard_system(binaries)
+    # setup monophones
+    system.set_state_tying("monophone")
+    # setup prior from transcription
+    system.prior_system = prior.PriorSystem(system, TOTAL_FRAMES)
+    system.default_nn_training_args["num_epochs"] = 300
+    return system
+
 
 from collections import UserDict
 class CustomDict(UserDict):
@@ -201,16 +246,19 @@ class CustomDict(UserDict):
         return d
 
 # make cart questions and estimate cart on alignment
-def get_cart(
+def make_cart(
     system: BaseSystem,
     hmm_partition: int=3,
 ):
     # create cart questions
     from i6_core.cart import PythonCartQuestions
     from i6_core.meta import CartAndLDA
+    steps = legacy.cart_steps
+    if hmm_partition == 1:
+        steps = list(filter(lambda x: x["name"] != "hmm-state", steps))
     cart_questions = PythonCartQuestions(
         phonemes=legacy.cart_phonemes,
-        steps=legacy.cart_steps,
+        steps=steps,
         hmm_states=hmm_partition,
     )
     
@@ -232,14 +280,16 @@ def get_cart(
         alignment=select_alignment,
     )
     
+    # system.crp[corpus].acoustic_model_config.hmm.states_per_phone = hmm_partition
     cart_and_lda = CartAndLDA(
         original_crp=system.crp[corpus],
         questions=cart_questions,
         **args
     )
 
-    system.crp["base"].acoustic_model_config.state_tying.type = 'cart'
-    system.crp["base"].acoustic_model_config.state_tying.file = cart_and_lda.last_cart_tree
+    for corpus in ["base", "train", "dev"]:
+        system.crp[corpus].acoustic_model_config.state_tying.type = 'cart'
+        system.crp[corpus].acoustic_model_config.state_tying.file = cart_and_lda.last_cart_tree
     system.set_num_classes("cart", cart_and_lda.last_num_cart_labels)
 
     return None

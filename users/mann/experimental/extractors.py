@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from collections import defaultdict
 from itertools import chain
+from typing import Dict
 
 from sisyphus import *
 packagePath = setup_path(__package__)
@@ -109,6 +110,36 @@ class GenericFilterCorpusJob(Job):
     with open(tk.uncached_path(self.segments), 'w') as segment_file:
       segment_file.write('\n'.join(filtered_segments))
 
+
+class ExtractRecognitionRtfJob(Job):
+    """Compute the real-time factor for a given recognition job."""
+    def __init__(
+        self,
+        log_files: Dict[int, tk.Path],
+        num_frames: int,
+        frame_rate: int=10
+    ):
+        self.log_files = log_files
+        self.num_frames = num_frames
+        self.frame_rate = frame_rate
+
+        self.out_rtf = self.output_var('rtf')
+    
+    def tasks(self):
+        yield Task('run', resume='run', mini_task=True)
+    
+    def run(self):
+        regex = re.compile("<elapsed>(.*)</elapsed>")
+        elapsed_time = 0
+        for log_file in self.log_files.values():
+            with gzip.open(log_file, 'rt') as f:
+                for line in reversed(list(f)):
+                    m = regex.search(line)
+                    if m is not None:
+                        elapsed_time += float(m.group(1))
+                        break
+        rtf = elapsed_time / self.num_frames / self.frame_rate * 1000
+        self.out_rtf.set(rtf)
 
 
 class SegmentStatistics(Job):

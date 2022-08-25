@@ -16,12 +16,12 @@ def new_rasr():
         gs.TF_NATIVE_OPS = temp_tf_native_ops
 
 @contextlib.contextmanager
-def safe_csp(system, corpus='base'):
+def safe_crp(system, corpus='base'):
     # save initial configuration
-    pristine_ur_csp = system.csp
+    pristine_ur_crp = system.crp
     # temp_csp = copy.deepcopy(system.csp)
-    system.csp = copy.deepcopy(system.csp)
-    yield system.csp[corpus]
+    system.crp = copy.deepcopy(system.crp)
+    yield system.crp[corpus]
     # reset csp
-    system.csp = pristine_ur_csp
+    system.crp = pristine_ur_crp
     # system.csp = temp_csp

@@ -9,9 +9,6 @@ def feed_forward_config(num_features, network, learning_rate=1e-3, momentum=0.1,
              'start_batch' : 'auto',
              'start_epoch' : 'auto',
 
-             'pretrain'   : 'default',
-             'momentum'   : momentum,
-
              'learning_rate'         : learning_rate,
              'learning_rate_control' : 'newbob_relative',
 

@@ -12,8 +12,9 @@ def mlp_network(layers=None, activation='sigmoid', dropout=0.1, l2=0.0, feature_
 
   input_layer = 'data'
   if feature_window > 1:
-    result['feature_window'] = { 'class': 'window', 'window': feature_window, 'from': ['data'] }
-    input_layer = 'feature_window'
+    result['features'] = { 'class': 'window', 'window_size': feature_window, 'from': ['data'] }
+    result['merge_features'] = { 'class': 'merge_dims', 'from': 'features', 'axes': 'except_time'}
+    input_layer = 'merge_features'
 
   for l, size in enumerate(layers):
     l += 1  # start counting from 1

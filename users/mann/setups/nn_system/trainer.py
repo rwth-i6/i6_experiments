@@ -1,39 +1,42 @@
-from recipe.crnn.helpers.mann.write import WriteSprintConfigJob
-from recipe.crnn import CRNNTrainingJob
-from recipe.meta.system import select_element
+from i6_core.rasr import WriteRasrConfigJob
+from i6_core.returnn import ReturnnTrainingJob, ReturnnRasrDumpHDFJob, ReturnnRasrTrainingJob
+from i6_core.meta.system import select_element
+from i6_experiments.users.mann.experimental.write import WriteRasrConfigJob
 from collections import ChainMap
 
 class SemiSupervisedTrainer:
 
-    def __init__(self):
-        pass
+    def __init__(self, system=None):
+        if system:
+            self.set_system(system)
 
     def set_system(self, system, **kwargs):
         self.system = system
 
     @staticmethod
-    def write_helper(csp, feature_flow, alignment,
+    def write_helper(crp, feature_flow, alignment,
             num_classes=None,
             disregarded_classes=None, class_label_file=None,
             buffer_size=200 * 1024,
-            extra_sprint_config=None,
+            extra_rasr_config=None,
             use_python_control=True,
             **kwargs
         ):
             kwargs = locals()
             del kwargs["kwargs"]
-            return WriteSprintConfigJob(**kwargs)
+            return WriteRasrConfigJob(**kwargs)
 
     def write(self, corpus, feature_corpus, feature_flow, alignment, num_classes, **kwargs):
+        print(corpus)
+        print(self.system.crp[corpus].segment_path)
         j = SemiSupervisedTrainer.write_helper(
-            csp          = self.system.csp[corpus],
+            crp          = self.system.csp[corpus],
             feature_flow = self.system.feature_flows[feature_corpus][feature_flow],
             alignment    = select_element(self.system.alignments, feature_corpus, alignment),
             num_classes  = self.system.functor_value(num_classes),
             **kwargs)
         return j
 
-    # @staticmethod
     def train_helper(
             self,
             train_data, dev_data, crnn_config,
@@ -60,7 +63,7 @@ class SemiSupervisedTrainer:
             kwargs = locals()
             kwargs.update(kwargs.pop("kwargs", {}))
             del kwargs["self"]
-            return self.write(**kwargs).create_dataset_config(csp=self.system.csp[corpus], **kwargs)
+            return self.write(**kwargs).create_dataset_config(crp=self.system.crp[corpus], **kwargs)
 
     def make_combined_ds(self, arg_mapping):
         keys = ["alignment", "teacher"]

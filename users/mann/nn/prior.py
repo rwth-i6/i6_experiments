@@ -24,12 +24,15 @@ class SimpleEqualityArray(np.ndarray):
     def __eq__(self, other):
         return super().__eq__(other).all()
 
-def make_loader_code(path):
-    return returnn.CodeWrapper('np.loadtxt("{}").view({})'.format(
+def make_loader_code(path, eps=None):
+    code = 'np.loadtxt("{}").view({})'
+    if eps is not None:
+        code += " + {}".format(eps)
+    return returnn.CodeWrapper(code.format(
         path, SimpleEqualityArray.__name__
     ))
 
-def add_static_prior(config, prior_txt):
+def add_static_prior(config, prior_txt, eps=None):
     assert isinstance(config, returnn.ReturnnConfig)
     code = prior_txt.function(make_loader_code) \
         if isinstance(prior_txt, Path) \

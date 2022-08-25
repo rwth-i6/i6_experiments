@@ -2,11 +2,13 @@ from sisyphus import *
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.tools import try_get
 
-from recipe import sprint
+from i6_core import rasr
 from . import helpers
 from .helpers import TuningSystem
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple, UserList
+from typing import Callable, Union, Tuple, List
+from inspect import signature, Parameter, _empty
 
 import asyncio
 
@@ -17,6 +19,9 @@ def get_default_dict(kwarg):
     if kwarg is None:
         return {}
     return kwarg
+
+def determine_signature(func: Callable) -> List[str]:
+    return [k for k, p in signature(func).parameters.items() if p.default == _empty][:-1]
 
 class DelayedMin(DelayedBase):
     def __init__(self, args: list):
@@ -33,14 +38,138 @@ class DelayedArgmin(DelayedBase):
         m = self.mapping
         return min(m, key=lambda k: try_get(m.get(k)))
 
+
+class Setter:
+    def __init__(self, transformation, signature):
+        self.transformation = transformation
+        self.signature = signature
+    
+    @classmethod
+    def from_func(cls, func):
+        return cls(func, determine_signature(func))
+    
+    def map_args(self, **arg_map):
+        def wrapper(f):
+            pass
+        pass
+    
+    def to_binary_setter(self):
+        def func(*args):
+            if args[-1] is True:
+                return self.transformation(*args[:-1])
+        return type(self)(func, self.signature) 
+    
+    def __call__(self, *args, **kwargs):
+        self.transformation(*args, **kwargs)
+
+
+class NamedValue(
+    namedtuple("BaseNamedValue", ["name", "value", "param"])
+):
+    @property
+    def children(self):
+        try:
+            return self.param.children[self.value].params
+        except TypeError:
+            return None
+        # try:
+        #     return self.param.children[self.value].values()
+        # except AttributeError:
+        #     return None
+        # except KeyError:
+        #     return None
+    
+    def to_str(self):
+        if self.value is False:
+            return ""
+        if self.value is True:
+            return self.name
+        return "{}={}".format(self.name, self.value)
+
+class ScheduleParameter:
+    def __init__(
+        self,
+        name,
+        setter,
+        params=None,
+        parent=None,
+        children=None,
+    ):
+        self.name = name
+        self.setter = setter
+        self.params = [NamedValue(name, value, self) for value in params]
+        self.parent = parent
+        self.children = children
+
+class ParameterPath(UserList):
+    def __str__(self):
+        return ".".join(v.to_str() for v in self)
+    
+
 class Schedule:
     def __init__(self):
-        self.setters = OrderedDict()
         self.params = OrderedDict()
 
     def register(self, name, setter, params):
-        self.setters[name] = setter
         self.params[name] = params
+    
+    def add_root(self, name, setter, params):
+        self.root = ScheduleParameter(name, setter, params) 
+        self.params[name] = self.root
+        return self
+
+    def add_child(self, parent, name, setter, params=None, yesno=False):
+        if yesno:
+            setter = setter.to_binary_setter()
+            params = [False, True]
+        value = None
+        if isinstance(parent, tuple):
+            parent, value = parent
+        parent = self.params[parent]
+        param = ScheduleParameter(name, setter, params, parent=parent)
+        self.params[name] = param
+        if value is None:
+            parent.children = {value.value: param for value in parent.params}
+        else:
+            parent.children = {value: param}
+        return self
+    
+    def add_node(self, name, setter, parent=None, params=None, yesno=False):
+        if parent is None:
+            if yesno:
+                setter = setter.to_binary_setter()
+                params = [False, True]
+            return self.add_root(name, setter, params)
+        return self.add_child(parent, name, setter, params=params, yesno=yesno)
+
+    def get_transformation(self):
+        def setter(param_path: ParameterPath, **config_pointers):
+            for named_value in param_path:
+                named_value.param.setter(named_value.value, **config_pointers)
+        return setter
+    
+    def get_parameters(self):
+        """Collect all parameter paths from root to leaves via depth-first search."""
+        value_paths = []
+        stack = [iter(self.root.params)]
+        stacktrace = []
+        discovered = set()
+        while stack:
+            print(stack)
+            try:
+                value: NamedValue = next(stack[-1])
+                print(value)
+            except StopIteration:
+                stack.pop()
+                stacktrace.pop()
+                continue
+            stacktrace.append(value)
+            if value.children is None:
+                value_paths.append(ParameterPath(stacktrace))
+            else:
+                stack.append(iter(value.children))
+        return value_paths
+
 
 class Tuner:
     SAMPLE_SIZE = 7

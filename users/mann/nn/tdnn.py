@@ -313,10 +313,10 @@ layer_funcs = {
 
 def make_baseline(num_input):
     from .configs import blstm_config
-    from .lstm import BASE_VITERBI_LRS, BASE_CRNN_CONFIG
+    from .constants import BASE_CRNN_CONFIG, BASE_VITERBI_LRS, BASE_NETWORK_CONFIG
     from i6_core import returnn
     crnn_kwargs = BASE_CRNN_CONFIG.copy()
-    del crnn_kwargs["l2"], crnn_kwargs["dropout"]
+    # del crnn_kwargs["l2"], crnn_kwargs["dropout"]
     config = blstm_config(
         num_input,
         network={"output": {"class": "softmax"}},

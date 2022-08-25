@@ -146,7 +146,9 @@ def add_fastbw_configs(csp,
     extra_config=None,
     extra_post_config=None,
     acoustic_model_extra_config=None,
-    fix_tdps_applicator = False,
+    fix_tdps_applicator=False,
+    fix_tdp_leaving_eps_arc=False,
+    normalize_lemma_sequence_scores=True,
   ):
   # Create additional Sprint config file to compute losses
   mapping = {
@@ -165,17 +167,19 @@ def add_fastbw_configs(csp,
 
   # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
   config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions                          = False
-  config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores                        = True
+  config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores                        = normalize_lemma_sequence_scores
 
   if fix_tdps_applicator:
     config["*"].fix_tdp_leaving_epsilon_arc = True
+  if fix_tdp_leaving_eps_arc:
+    config[
+      "neural-network-trainer.alignment-fsa-exporter"
+      ".alignment-fsa-exporter.model-combination.acoustic-model"
+      ".fix-tdp-leaving-epsilon-arc"] = True
   # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
   config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries         = True
   config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
 
-  # additional config
-  print(type(acoustic_model_extra_config))
-  assert isinstance(acoustic_model_extra_config, rasr.RasrConfig)
   config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model._update(acoustic_model_extra_config)
   config._update(extra_config)
   post_config._update(extra_post_config)

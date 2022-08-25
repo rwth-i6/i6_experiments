@@ -390,12 +390,16 @@ class AllophoneCounts(Job):
         counts = Counter()
             
         def get_allophone(subsegment):
+            center_idx = 2
+            center = subsegment[center_idx]
+            is_speech = lambda p: ("[{}]".format(p[1:-1]) != p) # is not of the form [ABC]
             is_initial = (subsegment[1] == "#")
             is_final = (subsegment[3] == "#")
-            prev_idx = 0 if is_initial else 1
-            next_idx = 4 if is_final else 3
-            center_idx = 2
-            return Allophone(subsegment[center_idx], subsegment[prev_idx], subsegment[next_idx], is_initial, is_final)
+            prev_idx = 0 if is_initial and is_speech(center) and is_speech(subsegment[0]) else 1
+            next_idx = 4 if is_final and is_speech(center) and is_speech(subsegment[4]) else 3
+            prev = subsegment[prev_idx]
+            next = subsegment[next_idx]
+            return Allophone(center, prev, next, is_initial, is_final)
 
         for segment in c.segments():
             phons = ["#"] * 2 + segment.orth.split(" ") + ["#"] * 2

@@ -85,6 +85,16 @@ class Transition:
     
     def __str__(self):
         return "Transitions(fwd={}, loop={})".format(self.fwd, self.loop)
+    
+    def to_weights(self):
+        return type(self)(-np.log(self.values))
+    
+    def to_rasr_config(self):
+        transition = self.to_weights()
+        config = rasr.RasrConfig()
+        config.forward = transition.fwd
+        config.loop = transition.loop
+        return config
 
 transition = Transition
 

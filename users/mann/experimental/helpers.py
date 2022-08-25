@@ -13,6 +13,7 @@ from functools import reduce
 # import recipe.summary as summary
 import i6_core.meta as meta
 import i6_core.am as am
+from . import extractors
 # from recipe.mm.tpd import TdpFromAlignment
 # from recipe.experimental.mann.alignment_evaluation import MultipleEpochAlignmentStatisticsJob
 # from recipe.experimental.mann.sequence_training import add_fastbw_configs
@@ -200,7 +201,6 @@ class TuningSystem:
                     **kwargs
                 )
                 # get parameter string or switch roles of mapping
-                # ps = self._get_parameter_string(parameter, parameter_mapping=parameters)
                 ps = TuningSystem.get_parameter_string(parameter, parameters, parameter_representation)
                 if isinstance(parameters, dict):
                     ps, parameter = parameter, ps
@@ -218,24 +218,6 @@ class TuningSystem:
                 self.optlm_summary_data[name][ps] = {}
                 self.wers[name][ps] = {}
 
-                # duplicated nn training
-                # self.duplicate_nn(
-                #     crnn_config=crnn_config_branch,
-                #     prefix=prefix,
-                #     rg=rng,
-                #     tuning_param=parameter,
-                #     summary_data={
-                #         "default": self.summary_data[name][ps],
-                #         "optlm"  : self.optlm_summary_data[name][ps],
-                #         "wers"   : self.wers[name][ps]
-                #     },
-                #     epochs=epochs, 
-                #     legacy_keep_epoch_handling=legacy_keep_epoch_handling,
-                #     id_suppression=id_suppression,
-                #     training_args=training_args_branch,
-                #     **kwargs
-                # )
-
                 self.call_procedure(
                     procedure,
                     name=prefix,
@@ -245,13 +227,6 @@ class TuningSystem:
                     **kwargs
                 )
 
-                # self.system.nn_and_recog(
-                #     name=prefix,
-                #     crnn_config=crnn_config_branch,
-                #     epochs=epochs, 
-                #     training_args=training_args_branch,
-                #     **kwargs
-                # )
                 summary_data = {
                     "default": self.summary_data[name][ps],
                     "optlm"  : self.optlm_summary_data[name][ps],
@@ -264,7 +239,7 @@ class TuningSystem:
                         try:
                             wer = self._get_scorer(
                                 prefix, epoch, optlm=(key in ["optlm", "wers"]),
-                                reestimate_prior='reestimate_prior' in kwargs
+                                reestimate_prior=kwargs.get("reestimate_prior", True)
                             ).out_wer
                         except KeyError:
                             assert key in ["optlm", "wers"], "Something went wrong"
@@ -356,6 +331,32 @@ class TuningSystem:
         if optlm:            jname += '-optlm'
         scorer = self.system.jobs['dev'][jname]
         return scorer
+    
+    def _get_recognition_job(self, name, epoch, parameter=None, optlm=True, reestimate_prior=False):
+        jname = f'recog_crnn-{name}-{parameter}-{epoch}'
+        if reestimate_prior: jname += '-prior'
+        if optlm:            jname += '-optlm'
+        return self.system.jobs['dev'][jname]
+    
+    def get_wer(self, name: str, epoch: int, parameter: Union[str,int], precise: bool=False, **kwargs):
+        scorer_job = self._get_scorer(name, epoch, parameter, **kwargs)
+        if precise is False:
+            return scorer_job.out_wer
+        assert precise is True
+        return scorer_job.out_num_errors / scorer_job.out_ref_words * 100
+    
+    def get_rtf(self, name: str, epoch: int, parameter: Union[str,int], num_frames=None, **kwargs):
+        if num_frames is None:
+            try:
+                num_frames = self.system.prior_system.num_frames
+            except AttributeError:
+                raise TypeError("Could not infer number of frames from prior system.")
+        recog_job = self._get_recognition_job(name, epoch, parameter, **kwargs)
+        rtf_job = extractors.ExtractRecognitionRtfJob(
+            log_files=recog_job.out_log_file,
+            num_frames=num_frames,
+        )
+        return rtf_job.out_rtf
 
     def _pass_signature(self, signature, config, alargs, targs, **kwargs):
         """ Utility funtion for handling custom signatures. """
