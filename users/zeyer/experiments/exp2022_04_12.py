@@ -63,7 +63,7 @@ def run():
 
   decoded, decoded_spatial_dim = nn.ctc_greedy_decode(logits, in_spatial_dim=out_spatial_dim)
   error = nn.edit_distance(a=decoded, a_spatial_dim=decoded_spatial_dim, b=targets, b_spatial_dim=targets_time_dim)
-  error.mark_as_loss(as_error=True, custom_inv_norm_factor=nn.length(targets, axis=targets_time_dim))
+  error.mark_as_loss(as_error=True, custom_inv_norm_factor=nn.length(targets_time_dim))
   model_py_code_str = nn.get_returnn_config().get_complete_py_code_str(model)
 
   returnn_train_config_dict = dict(
