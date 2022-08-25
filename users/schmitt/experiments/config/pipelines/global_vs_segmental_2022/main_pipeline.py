@@ -15,6 +15,7 @@ from recipe.i6_core.tools.git import CloneGitRepositoryJob
 from recipe.i6_core.corpus.convert import CorpusToTxtJob
 from recipe.i6_core.returnn.training import Checkpoint
 from recipe.i6_experiments.users.schmitt.experiments.config.general.concat_seqs import run_concat_seqs
+from recipe.i6_experiments.users.schmitt.experiments.config.concat_seqs.concat_seqs import MergeSeqTagFiles
 
 # from sisyphus import *
 from sisyphus.delayed_ops import DelayedFormat, DelayedReplace
@@ -67,9 +68,13 @@ def run_pipeline():
   concat_jobs = run_concat_seqs(
     ref_stm_paths={
       "hub5e_00": eval_ref_files["dev"], "hub5e_01": eval_ref_files["hub5e_01"],
-      "rt03s": eval_ref_files["rt03s"], "cv": stm_jobs["cv"].out_stm_path},
+      "rt03s": eval_ref_files["rt03s"], "train": stm_jobs["train"].out_stm_path, "cv": stm_jobs["cv"].out_stm_path},
     glm_path=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
     concat_nums=[1, 2, 4, 10, 20])
+
+  merge_train_concat_1_2_job = MergeSeqTagFiles([
+    concat_jobs[1]["train"].out_concat_seq_tags, concat_jobs[2]["train"].out_concat_seq_tags])
+  tk.register_output("merge_train_seqs_concat_1_2", merge_train_concat_1_2_job.out_seq_tags)
 
   allophone_path = Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/tuske-phoneme-align/allophones")
 
@@ -130,6 +135,24 @@ def run_pipeline():
     "file": Path("/work/asr4/zhou/asr-exps/swb1/dependencies/zoltan_4gram.gz")
   }
 
+  concat_seq_tags_examples = {
+    1: [
+      "switchboard-1/sw02022A/sw2022A-ms98-a-0002"
+    ],
+    2: [
+      "switchboard-1/sw02022A/sw2022A-ms98-a-0002;switchboard-1/sw02022A/sw2022A-ms98-a-0003"
+    ],
+    4: [
+      "switchboard-1/sw02022A/sw2022A-ms98-a-0002;switchboard-1/sw02022A/sw2022A-ms98-a-0003;switchboard-1/sw02022A/sw2022A-ms98-a-0004;switchboard-1/sw02022A/sw2022A-ms98-a-0005"
+    ],
+    10: [
+      "switchboard-1/sw02022A/sw2022A-ms98-a-0002;switchboard-1/sw02022A/sw2022A-ms98-a-0003;switchboard-1/sw02022A/sw2022A-ms98-a-0004;switchboard-1/sw02022A/sw2022A-ms98-a-0005;switchboard-1/sw02022A/sw2022A-ms98-a-0006;switchboard-1/sw02022A/sw2022A-ms98-a-0007;switchboard-1/sw02022A/sw2022A-ms98-a-0009;switchboard-1/sw02022A/sw2022A-ms98-a-0011;switchboard-1/sw02022A/sw2022A-ms98-a-0013;switchboard-1/sw02022A/sw2022A-ms98-a-0015"
+    ],
+    20: [
+      "switchboard-1/sw02022A/sw2022A-ms98-a-0002;switchboard-1/sw02022A/sw2022A-ms98-a-0003;switchboard-1/sw02022A/sw2022A-ms98-a-0004;switchboard-1/sw02022A/sw2022A-ms98-a-0005;switchboard-1/sw02022A/sw2022A-ms98-a-0006;switchboard-1/sw02022A/sw2022A-ms98-a-0007;switchboard-1/sw02022A/sw2022A-ms98-a-0009;switchboard-1/sw02022A/sw2022A-ms98-a-0011;switchboard-1/sw02022A/sw2022A-ms98-a-0013;switchboard-1/sw02022A/sw2022A-ms98-a-0015;switchboard-1/sw02022A/sw2022A-ms98-a-0017;switchboard-1/sw02022A/sw2022A-ms98-a-0019;switchboard-1/sw02022A/sw2022A-ms98-a-0021;switchboard-1/sw02022A/sw2022A-ms98-a-0023;switchboard-1/sw02022A/sw2022A-ms98-a-0024;switchboard-1/sw02022A/sw2022A-ms98-a-0025;switchboard-1/sw02022A/sw2022A-ms98-a-0027;switchboard-1/sw02022A/sw2022A-ms98-a-0028;switchboard-1/sw02022A/sw2022A-ms98-a-0030;switchboard-1/sw02022A/sw2022A-ms98-a-0032"
+    ]
+  }
+
   build_returnn_train_feature_flow(feature_cache_path=feature_cache_files["train"])
 
   phon_extraction_rasr_configs = {
@@ -169,8 +192,15 @@ def run_pipeline():
 
       num_epochs = [40, 80, 120, 150]
 
-      if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
+      if name in [
+        "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
+        "seg.bpe.full-ctx.time-red6.conf.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
+        "seg.bpe.full-ctx.time-red6.conf-tim.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
+        "seg.bpe.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs"]:
         num_epochs.append(300)
+
+      if name == "seg.bpe.concat.ep-split-12.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
+        num_epochs.append(59)
 
       # Currently different segments, depending on the label type
       segment_selection = params["config"].pop("segment_selection")
@@ -204,7 +234,9 @@ def run_pipeline():
       # General data opts, which apply for all models
       train_data_opts = {
         "data": "train", "rasr_config_path": returnn_train_rasr_configs["train"],
-        "rasr_nn_trainer_exe": rasr_nn_trainer}
+        "rasr_nn_trainer_exe": rasr_nn_trainer, "epoch_split": params["config"]["epoch_split"]}
+      if params["config"]["model_type"] == "seg":
+        train_data_opts["correct_concat_ep_split"] = params["config"].pop("correct_concat_ep_split")
       cv_data_opts = {
         "data": "cv", "rasr_config_path": returnn_train_rasr_configs["cv"],
         "rasr_nn_trainer_exe": rasr_nn_trainer}
@@ -237,7 +269,8 @@ def run_pipeline():
           rt03s_data_opts["vocab"] = bpe_vocab
           train_data_opts.update({
             "label_hdf": total_data[params["config"]["label_type"]]["train"]["label_seqs"],
-            "label_name": "bpe", "segment_file": train_segments})
+            "label_name": "bpe", "segment_file": train_segments, "concat_seqs": params["config"].pop("concat_seqs"),
+            "concat_seq_tags": merge_train_concat_1_2_job.out_seq_tags})
           cv_data_opts.update({
             "label_hdf": total_data[params["config"]["label_type"]]["cv"]["label_seqs"],
             "label_name": "bpe", "segment_file": cv_segments})
@@ -286,8 +319,11 @@ def run_pipeline():
           rt03s_data_opts["vocab"] = vocab
           train_align = total_data[params["config"]["label_type"]]["train"]["time-red-%d" % time_red]["align"] if params["config"]["label_type"] != "bpe-with-sil-split-silv2" else Path("/work/asr3/zeyer/schmitt/old_models_and_analysis/old_bpe_sil_split_sil_aligns/train/AlignmentSplitSilenceJob.4dfiua41gqWb/output/out_align")
           cv_align = total_data[params["config"]["label_type"]]["cv"]["time-red-%d" % time_red]["align"] if params["config"]["label_type"] != "bpe-with-sil-split-silv2" else Path("/work/asr3/zeyer/schmitt/old_models_and_analysis/old_bpe_sil_split_sil_aligns/cv/AlignmentSplitSilenceJob.p0VY0atlAdkq/output/out_align")
+
           train_data_opts.update({
-            "segment_file": train_segments, "alignment": train_align})
+            "segment_file": train_segments, "alignment": train_align,
+            "concat_seqs": params["config"].pop("concat_seqs"),
+            "concat_seq_tags": merge_train_concat_1_2_job.out_seq_tags})
           cv_data_opts.update({
             "segment_file": cv_segments, "alignment": cv_align})
           devtrain_data_opts.update({
@@ -361,16 +397,8 @@ def run_pipeline():
       #   num_epochs = [150]
       #   checkpoints = {150: Checkpoint(index_path=Path("/u/schmitt/experiments/transducer/alias/glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-weight-feedback.no-l2.ctx-use-bias.all-segs/train/output/models/epoch.150.index"))}
       for epoch in num_epochs:
-        if epoch in checkpoints and (epoch == 150 or (name in [
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.seg-neural-length-model-in_label+mean-pool.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.no-sil-in-ctx.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.no-sil-in-ctx.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs",
-          "seg.bpe-sil-wo-sil-in-middle.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs",
-          "seg.bpe-sil-wo-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs",
-          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs"] and epoch == 40)):
+        if epoch in checkpoints and (epoch in [150, 300] or (
+          name == "seg.bpe.concat.ep-split-12.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs" and epoch == 59)):
           checkpoint = checkpoints[epoch]
           if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.all-segs":
             checkpoint = Checkpoint(
@@ -388,6 +416,7 @@ def run_pipeline():
               if name in [
                 "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
                 "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs",
+                "seg.bpe.concat.ep-split-12.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
                 "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs",
                 "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.bpe-sil-segs"]:
                 for concat_num in concat_jobs:
@@ -459,29 +488,82 @@ def run_pipeline():
                       label_name="alignment", model_type="seg", blank_idx=targetb_blank_idx, rasr_nn_trainer_exe=rasr_nn_trainer,
                       rasr_config=returnn_train_rasr_configs["cv"], alias_addon=alias_addon, epoch=epoch, dataset_key="cv", length_norm=False)
 
-              if epoch in [150]:
+                    if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs" and length_scale == 1. and epoch == 150 and use_recomb:
+                      for concat_num in concat_seq_tags_examples:
+                        search_error_data_opts.update({
+                          "concat_seqs": True, "concat_seq_tags": concat_jobs[concat_num]["cv"].out_concat_seq_tags,
+                          "concat_seq_lens": concat_jobs[concat_num]["cv"].out_orig_seq_lens_py})
+                        dump_search_concat_config = config_class(
+                          search_use_recomb=True if use_recomb else False, task="search",
+                          search_data_opts=search_error_data_opts, target="bpe", beam_size=beam_size,
+                          length_scale=length_scale, dump_output=True, import_model=checkpoint, **config_params)
+                        search_targets_concat_hdf, ctm_results = calculate_search_errors(
+                          checkpoint=checkpoint, search_config=dump_search_concat_config, train_config=feed_config_load,
+                          name=name, segment_path=segment_file, ref_targets=alignment_hdf, label_name="alignment",
+                          model_type="seg", blank_idx=targetb_blank_idx,  rasr_nn_trainer_exe=rasr_nn_trainer,
+                          rasr_config=returnn_train_rasr_configs["cv"], alias_addon="_cv_concat_%d" % concat_num,
+                          epoch=epoch, dataset_key="cv", stm_job=stm_jobs["cv"], length_norm=False)
+                        run_eval(
+                          ctm_file=ctm_results, reference=stm_jobs["cv"].out_stm_path, name=name,
+                          dataset_key="cv_concat_%d" % concat_num,
+                          num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
+                        vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else \
+                          total_data["bpe-with-sil"]["json_vocab"]
+                        hdf_aliases = ["ground-truth-concat", "search-concat"]
+                        hdf_targetss = [alignment_hdf, search_targets_concat_hdf]
+                        for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                          for seq_tag in concat_seq_tags_examples[concat_num]:
+                            dump_att_weights_job = DumpAttentionWeightsJob(
+                              returnn_config=feed_config_load,  model_type="seg",
+                              rasr_config=returnn_train_rasr_configs["cv"], blank_idx=targetb_blank_idx,
+                              label_name="alignment", rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=hdf_targets,
+                              concat_seqs=True, seq_tag=seq_tag,
+                              concat_seq_tags_file=concat_jobs[concat_num]["cv"].out_concat_seq_tags,
+                              concat_hdf=False if hdf_alias == "search-concat" else True)
+                            seq_tags = seq_tag.split(";")
+                            seq_tag_alias = seq_tags[0].replace("/", "_") + "-" + seq_tags[-1].replace("/", "_")
+                            dump_att_weights_job.add_alias(
+                              name + "/" + seq_tag_alias + "/att_weights_%s-labels" % (hdf_alias,))
+                            tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+
+                            plot_weights_job = PlotAttentionWeightsJob(
+                              data_path=dump_att_weights_job.out_data, blank_idx=targetb_blank_idx,
+                              json_vocab_path=vocab_file, time_red=6, seq_tag=seq_tag, mem_rqmt=12)
+                            plot_weights_job.add_alias(
+                              name + "/" + seq_tag_alias + "/plot_att_weights_%s-labels" % (hdf_alias,))
+                            tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+
+              if epoch in [150, 300]:
                 length_scales = [1.]
                 if name in [
                   "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.all-segs",
                   "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs",
-                  "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs"]:
+                  "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs"] and epoch == 150:
                   length_scales += [.01, .1, .3, .5, .7, .9, 1.1, 1.3, 1.5, 1.7, 1.9, 2.]
+                if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
+                  length_scales += [.7]
                 for length_scale in length_scales:
                   max_seg_lens = [20]
                   if name in [
                     "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs",
-                    "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs"] and length_scale == 1.:
+                    "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs"] and length_scale == 1. and epoch == 150:
                     max_seg_lens += [10, 15, 25, 30]
                   for max_seg_len in max_seg_lens:
                     vit_recombs = [True, False]
+                    if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
+                      vit_recombs = [True]
                     if max_seg_len != 20 or length_scale != 1.:
                       vit_recombs = [True]
                     for vit_recomb in vit_recombs:
                       length_norms = [False]
                       if length_scale in [1., 0.7] and \
-                        name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs" and \
+                        name in [
+                          "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs",
+                          "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs"] and \
                         vit_recomb and max_seg_len == 20:
                         length_norms += [True]
+                      if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
+                        length_norms = [False]
 
                       for length_norm in length_norms:
                         if name == "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs":
@@ -666,6 +748,8 @@ def run_pipeline():
                       for vit_recomb in vit_recombs:
                         if length_scale == 0.0:
                           length_norms = [True]
+                          if name == "seg.bpe-with-sil-split-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.ctx-w-bias.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs":
+                            length_norms += [False]
                           beam_searches = [True]
                         elif max_seg_len in [10, 30, 40]:
                           length_norms = [False]
@@ -1100,51 +1184,93 @@ def run_pipeline():
             run_eval(ctm_file=ctm_results, reference=stm_jobs["cv"].out_stm_path, name=name,
               dataset_key="cv", num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
 
-            # if epoch == 150:
-              # feed_config_load = copy.deepcopy(train_config_obj)
-              # feed_config_load.config["load"] = checkpoint
-              # vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else total_data["bpe-with-sil"]["json_vocab"]
-              # if name.startswith("glob.best-model.bpe."):
-              #   hdf_aliases = ["ground-truth", "search"]
-              #   hdf_targetss = [label_hdf, search_targets_hdf]
-              #   if name == "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs":
-              #     hdf_aliases += ["global_import_segmental"]
-              #     hdf_targetss += [search_labels["global_import_segmental"]]
-              # else:
-              #   assert name.startswith("glob.best-model.bpe-with-sil")
-              #   hdf_aliases = ["ground-truth", "search", "global_import_segmental_w_split_sil"]
-              #   hdf_targetss = [label_hdf, search_targets_hdf, search_labels["global_import_segmental_w_split_sil"]]
-              # for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
-              #   for seq_tag in [
-              #     "switchboard-1/sw02102A/sw2102A-ms98-a-0092",
-              #     "switchboard-1/sw02022A/sw2022A-ms98-a-0002",
-              #     "switchboard-1/sw02102A/sw2102A-ms98-a-0090",
-              #     "switchboard-1/sw02025A/sw2025A-ms98-a-0035",
-              #     "switchboard-1/sw02102A/sw2102A-ms98-a-0002",
-              #     "switchboard-1/sw02023A/sw2023A-ms98-a-0001"
-              #   ]:
-              #     dump_att_weights_job = DumpAttentionWeightsJob(returnn_config=feed_config_load, model_type="glob",
-              #       rasr_config=returnn_train_rasr_configs["cv"], blank_idx=0, label_name=label_name,
-              #       rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=hdf_targets,
-              #       seq_tag=seq_tag, )
-              #     dump_att_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/att_weights_%s-labels" % (hdf_alias,))
-              #     tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
-              #
-              #     plot_weights_job = PlotAttentionWeightsJob(
-              #       data_path=dump_att_weights_job.out_data,
-              #       blank_idx=None, json_vocab_path=vocab_file,
-              #       time_red=6, seq_tag=seq_tag)
-              #     plot_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/plot_att_weights_%s-labels" % (hdf_alias,))
-              #     tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
-              #
-              # for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
-              #   calc_search_err_job = CalcSearchErrorJob(returnn_config=train_config, rasr_config=returnn_train_rasr_configs["cv"],
-              #     rasr_nn_trainer_exe=rasr_nn_trainer, segment_file=segment_file, blank_idx=0,
-              #     model_type="glob", label_name=label_name, search_targets=hdf_targets, ref_targets=label_hdf,
-              #     max_seg_len=-1, length_norm=True)
-              #   calc_search_err_job.add_alias(name + ("/search_errors_%d_%s" % (epoch, hdf_alias)))
-              #   alias = calc_search_err_job.get_one_alias()
-              #   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
+            if name == "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs":
+              for concat_num in concat_seq_tags_examples:
+                search_error_data_opts.update({
+                  "concat_seqs": True, "concat_seq_tags": concat_jobs[concat_num]["cv"].out_concat_seq_tags,
+                  "concat_seq_lens": concat_jobs[concat_num]["cv"].out_orig_seq_lens_py})
+                dump_search_concat_config = config_class(task="search", search_data_opts=search_error_data_opts, dump_output=True,
+                  import_model=checkpoint, **config_params)
+                search_targets_concat_hdf, ctm_results = calculate_search_errors(checkpoint=checkpoint,
+                  search_config=dump_search_concat_config, train_config=train_config_load, name=name, segment_path=segment_file,
+                  ref_targets=label_hdf, label_name=label_name, model_type="glob", blank_idx=0,
+                  rasr_nn_trainer_exe=rasr_nn_trainer, rasr_config=returnn_train_rasr_configs["cv"], alias_addon="_cv_concat%d" % concat_num,
+                  epoch=epoch, dataset_key="cv", stm_job=stm_jobs["cv"], length_norm=True,
+                  concat_seq_tags_file=concat_jobs[concat_num]["cv"].out_concat_seq_tags)
+                run_eval(ctm_file=ctm_results, reference=stm_jobs["cv"].out_stm_path, name=name, dataset_key="cv_concat%d" % concat_num,
+                         num_epochs=epoch, alias_addon="_beam-%s" % beam_size)
+
+                feed_config_load = copy.deepcopy(train_config_obj)
+                feed_config_load.config["load"] = checkpoint
+                vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else total_data["bpe-with-sil"]["json_vocab"]
+                hdf_aliases = ["ground-truth-concat", "search-concat"]
+                hdf_targetss = [label_hdf, search_targets_concat_hdf]
+                for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                  for seq_tag in concat_seq_tags_examples[concat_num]:
+                    dump_att_weights_job = DumpAttentionWeightsJob(
+                      returnn_config=feed_config_load, model_type="glob",
+                      rasr_config=returnn_train_rasr_configs["cv"], blank_idx=0, label_name=label_name,
+                      rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=hdf_targets, concat_seqs=True,
+                      seq_tag=seq_tag, concat_hdf=False if hdf_alias == "search-concat" else True,
+                      concat_seq_tags_file=concat_jobs[concat_num]["cv"].out_concat_seq_tags)
+                    seq_tags = seq_tag.split(";")
+                    seq_tag_alias = seq_tags[0].replace("/", "_") + "-" + seq_tags[-1].replace("/", "_")
+                    dump_att_weights_job.add_alias(name + "/" + seq_tag_alias + "/att_weights_%s-labels" % (hdf_alias,))
+                    tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+
+                    plot_weights_job = PlotAttentionWeightsJob(
+                      data_path=dump_att_weights_job.out_data,
+                      blank_idx=None, json_vocab_path=vocab_file,
+                      time_red=6, seq_tag=seq_tag, mem_rqmt=12)
+                    plot_weights_job.add_alias(name + "/" + seq_tag_alias + "/plot_att_weights_%s-labels" % (hdf_alias,))
+                    tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+
+
+            if epoch == 150 and name == "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs":
+              feed_config_load = copy.deepcopy(train_config_obj)
+              feed_config_load.config["load"] = checkpoint
+              vocab_file = bpe_vocab["vocab_file"] if params["config"]["label_type"] == "bpe" else total_data["bpe-with-sil"]["json_vocab"]
+              if name.startswith("glob.best-model.bpe."):
+                hdf_aliases = ["ground-truth", "search"]
+                hdf_targetss = [label_hdf, search_targets_hdf]
+                # if name == "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs":
+                #   hdf_aliases += ["global_import_segmental"]
+                #   hdf_targetss += [search_labels["global_import_segmental"]]
+              else:
+                assert name.startswith("glob.best-model.bpe-with-sil")
+                hdf_aliases = ["ground-truth", "search", "global_import_segmental_w_split_sil"]
+                hdf_targetss = [label_hdf, search_targets_hdf, search_labels["global_import_segmental_w_split_sil"]]
+              for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                for seq_tag in [
+                  "switchboard-1/sw02102A/sw2102A-ms98-a-0092",
+                  "switchboard-1/sw02022A/sw2022A-ms98-a-0002",
+                  "switchboard-1/sw02102A/sw2102A-ms98-a-0090",
+                  "switchboard-1/sw02025A/sw2025A-ms98-a-0035",
+                  "switchboard-1/sw02102A/sw2102A-ms98-a-0002",
+                  "switchboard-1/sw02023A/sw2023A-ms98-a-0001"
+                ]:
+                  dump_att_weights_job = DumpAttentionWeightsJob(returnn_config=feed_config_load, model_type="glob",
+                    rasr_config=returnn_train_rasr_configs["cv"], blank_idx=0, label_name=label_name,
+                    rasr_nn_trainer_exe=rasr_nn_trainer, hdf_targets=hdf_targets,
+                    seq_tag=seq_tag, )
+                  dump_att_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/att_weights_%s-labels" % (hdf_alias,))
+                  tk.register_output(dump_att_weights_job.get_one_alias(), dump_att_weights_job.out_data)
+
+                  plot_weights_job = PlotAttentionWeightsJob(
+                    data_path=dump_att_weights_job.out_data,
+                    blank_idx=None, json_vocab_path=vocab_file,
+                    time_red=6, seq_tag=seq_tag)
+                  plot_weights_job.add_alias(name + "/" + seq_tag.replace("/", "_") + "/plot_att_weights_%s-labels" % (hdf_alias,))
+                  tk.register_output(plot_weights_job.get_one_alias(), plot_weights_job.out_plot)
+
+              for hdf_alias, hdf_targets in zip(hdf_aliases, hdf_targetss):
+                calc_search_err_job = CalcSearchErrorJob(returnn_config=train_config, rasr_config=returnn_train_rasr_configs["cv"],
+                  rasr_nn_trainer_exe=rasr_nn_trainer, segment_file=segment_file, blank_idx=0,
+                  model_type="glob", label_name=label_name, search_targets=hdf_targets, ref_targets=label_hdf,
+                  max_seg_len=-1, length_norm=True)
+                calc_search_err_job.add_alias(name + ("/search_errors_%d_%s" % (epoch, hdf_alias)))
+                alias = calc_search_err_job.get_one_alias()
+                tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)
 
             if name == "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs":
               compile_config = config_class(
@@ -1170,6 +1296,9 @@ def run_pipeline():
                   if corpus_name == "hub5e_00":
                     data_opts = copy.deepcopy(dev_data_opts)
                     stm_job = stm_jobs["hub5_00"]
+                  # elif corpus_name == "cv":
+                  #   data_opts = copy.deepcopy(cv_data_opts)
+                  #   stm_job = stm_jobs["cv"]
                   elif corpus_name == "hub5e_01":
                     continue
                     data_opts = copy.deepcopy(hub5e_01_data_opts)
