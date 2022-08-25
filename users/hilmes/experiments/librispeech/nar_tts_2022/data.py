@@ -6,7 +6,7 @@ from copy import deepcopy
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.returnn.hdf import ReturnnDumpHDFJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
-from i6_experiments.common.helpers.dataset import get_returnn_length_hdfs
+from i6_experiments.common.setups.returnn.data import get_returnn_length_hdfs
 from i6_core.tools.git import CloneGitRepositoryJob
 
 from i6_experiments.common.datasets.librispeech import (
@@ -35,6 +35,7 @@ from i6_experiments.users.hilmes.data.datastream import (
     SpeakerEmbeddingDatastream,
     ReturnnAudioFeatureOptions,
     DBMelFilterbankOptions,
+    F0Options,
 )
 from i6_experiments.users.hilmes.tools.tts.extract_alignment import (
     ExtractDurationsFromRASRAlignmentJob,
@@ -43,7 +44,7 @@ from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import (
     ViterbiToDurationsJob,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import (
-    DistributeSpeakerEmbeddings, RandomSpeakerAssignmentJob, SingularizeHDFPerSpeakerJob, DistributeHDFByMappingJob
+    DistributeSpeakerEmbeddings, RandomSpeakerAssignmentJob, SingularizeHDFPerSpeakerJob, DistributeHDFByMappingJob, AverageF0OverDurationJob
 )
 from i6_experiments.users.hilmes.data.tts_preprocessing import (
     extend_lexicon,
@@ -85,7 +86,7 @@ class TTSTrainingDatasets:
     """
 
     train: MetaDataset
-    cv: GenericDataset
+    cv: MetaDataset
     datastreams: Dict[str, Datastream]
 
 
@@ -836,3 +837,69 @@ def get_inference_dataset(
     return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
 
 
+def get_ls_100_f0_hdf(durations: tk.Path, returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center: bool = False, phoneme_level: bool = True):
+    """
+    Returns the pitch hdf for given duration mapping for the ls 100 corpus
+    :param durations:
+    :param returnn_root:
+    :param returnn_exe:
+    :param prefix:
+    :param center:
+    :param phoneme_level:
+    :return:
+    """
+    sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    librispeech_g2p_lexicon = extend_lexicon(
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+    )
+
+    sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+        lexicon=librispeech_g2p_lexicon,
+    )
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=sil_pp_train_clean_100_tts,
+        no_conversion=True,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+    ).out_ogg_zip
+    options = ReturnnAudioFeatureOptions(
+        sample_rate=16000,
+        features="f0",
+        feature_options=F0Options(fmin=80, fmax=400),
+        window_len=0.05,
+        step_len=0.0125,
+        num_feature_filters=1
+    )
+    audio_datastream = AudioFeatureDatastream(available_for_inference=True, options=options)
+    vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, prefix)
+    full_ogg = OggZipDataset(
+        path=zip_dataset,
+        audio_opts=audio_datastream.as_returnn_audio_opts(),
+        target_opts=vocab_datastream.as_returnn_targets_opts(),
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+    )
+    dataset_dump = ReturnnDumpHDFJob(
+        data=full_ogg.as_returnn_opts(), returnn_root=returnn_root, returnn_python_exe=returnn_exe, time=24)
+    job = AverageF0OverDurationJob(dataset_dump.out_hdf, duration_hdf=durations, center=True, phoneme_level=phoneme_level)
+    job.add_alias(prefix + "/average")
+    avrg = job.out_hdf
+    tk.register_output(prefix + "/f0_durations", avrg)
+    return avrg
+
+
+def extend_meta_datasets_with_f0(datasets: TTSTrainingDatasets, f0_dataset: tk.Path):
+
+    train_meta = deepcopy(datasets.train)
+    train_meta.datasets["pitch"] = HDFDataset(files=[f0_dataset]).as_returnn_opts()
+    train_meta.data_map["pitch_data"] = ("pitch", "data")
+
+    cv_meta = deepcopy(datasets.cv)
+    cv_meta.datasets["pitch"] = HDFDataset(files=[f0_dataset]).as_returnn_opts()
+    cv_meta.data_map["pitch_data"] = ("pitch", "data")
+
+    datastreams = deepcopy(datasets.datastreams)
+    datastreams["pitch_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=False)
+
+    return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)

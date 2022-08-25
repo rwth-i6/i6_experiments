@@ -25,7 +25,9 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.d
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
     TTSForwardData,
     get_inference_dataset_old,
-    get_inference_dataset
+    get_inference_dataset,
+    get_ls_100_f0_hdf,
+    extend_meta_datasets_with_f0
 )
 from i6_experiments.common.datasets.librispeech import (
     get_corpus_object_dict
@@ -42,6 +44,10 @@ def ctc_baseline():
     """
     returnn_exe = tk.Path(
         "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
+        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+    )
+    returnn_exe = tk.Path(
+        "/u/hilmes/bin/returnn_tf2.3_launcher.sh",
         hash_overwrite="GENERIC_RETURNN_LAUNCHER",
     )
     returnn_root_job = CloneGitRepositoryJob(
@@ -158,10 +164,23 @@ def ctc_baseline():
             )
             synthetic_data_dict[f"ctc_{upsampling}_{duration}"] = synth_corpus
 
+
+    returnn_common_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn_common",
+        commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
+        checkout_folder_name="returnn_common",
+    ).out_repository
+    returnn_root_job = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="ce4366ff0caafc2e4b349fd2a189870f3c76f630",  # fixes shape error in normal
+    )
+    returnn_root = returnn_root_job.out_repository
     exp_name = name + "/vae"
+    vae_dataset = deepcopy(training_datasets)
+    vae_dataset.datastreams["audio_features"].available_for_inference = True
     train_config = get_training_config(
         returnn_common_root=returnn_common_root,
-        training_datasets=training_datasets,
+        training_datasets=vae_dataset,
         embedding_size=256,
         speaker_embedding_size=256,
         gauss_up=False,
@@ -249,6 +268,81 @@ def ctc_baseline():
             batch_size=3000 if (duration == "pred") else 4000,
         )
         synthetic_data_dict[f"ctc_vae_{duration}"] = synth_corpus
+
+    exp_name = name + "/f0_pred"
+
+    f0_hdf = get_ls_100_f0_hdf(durations=durations, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=exp_name)
+    f0_training_datasets = extend_meta_datasets_with_f0(datasets=training_datasets, f0_dataset=f0_hdf)
+
+    train_config = get_training_config(
+        returnn_common_root=returnn_common_root,
+        training_datasets=f0_training_datasets,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        use_pitch_pred=True,
+    )
+    train_job = tts_training(
+        config=train_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=exp_name,
+        num_epochs=200,
+    )
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=f0_training_datasets.cv, datastreams=f0_training_datasets.datastreams
+        ),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        calc_speaker_embedding=True,
+        use_pitch_prediction=True
+    )
+    gl_swer(
+        name=exp_name,
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+    )
+    speaker_embedding_hdf = build_speaker_embedding_dataset(
+        returnn_common_root=returnn_common_root,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        datasets=training_datasets,
+        prefix=exp_name,
+        train_job=train_job
+    )
+    synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        speaker_prior_hdf=speaker_prior_hdf,
+        durations=durations,
+        process_corpus=False,
+    )
+    for duration in ["pred", "cheat"]:
+        synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{duration}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            use_true_durations=(duration == "cheat"),
+            use_pitch_prediction=True,
+        )
+        synthetic_data_dict[f"ctc_f0_{duration}"] = synth_corpus
+
     return synthetic_data_dict
 
 

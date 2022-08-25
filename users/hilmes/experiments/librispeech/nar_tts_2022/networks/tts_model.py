@@ -131,7 +131,6 @@ class LConvBlock(nn.Module):
   def __init__(
     self,
     linear_size: Union[int, nn.Dim] = 512,
-    num_heads: int = 8,
     filter_size: int = 17,
   ):
     super(LConvBlock, self).__init__()
@@ -335,8 +334,14 @@ class PitchPredictor(nn.Module):
     """
 
   def __init__(
-    self, conv_dim: Union[int, nn.Dim] = 256, filter_size: int = 3, dropout: float = 0.5
+    self, conv_dim: Union[int, nn.Dim] = 256, filter_size: int = 3, dropout: float = 0.1
   ):
+    """
+
+    :param conv_dim:
+    :param filter_size:
+    :param dropout: default from NVIDIA implementation, differs from other defaults in this network
+    """
     super(PitchPredictor, self).__init__()
     self.dropout = dropout
 
@@ -360,14 +365,14 @@ class PitchPredictor(nn.Module):
     self.norm_2 = nn.LayerNorm()
     self.linear = nn.Linear(nn.FeatureDim("pitch_pred", 1))
 
-  def __call__(self, inp: nn.Tensor) -> nn.Tensor:
-    x, _ = self.conv_1(inp)
+  def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim) -> nn.Tensor:
+    x, _ = self.conv_1(inp, in_spatial_dim=time_dim)
     x = nn.relu(x)
     x = self.norm_1(x, in_dim=x.feature_dim)
     x = nn.dropout(
       x, dropout=self.dropout, axis=[x.feature_dim]
-    )  # TODO richtige Achse?
-    x, _ = self.conv_2(x)
+    )
+    x, _ = self.conv_2(x, in_spatial_dim=time_dim)
     x = nn.relu(x)
     x = self.norm_2(x, in_dim=x.feature_dim)
     x = nn.dropout(x, dropout=self.dropout, axis=[x.feature_dim])
@@ -385,7 +390,6 @@ class VariationalAutoEncoder(nn.Module):
     num_lconv_blocks: int = 3,
     num_mixed_blocks: int = 6,
     linear_size: Union[int, nn.Dim] = 512,
-    num_heads: int = 8,
     lconv_filter_size: int = 17,
     dropout: float = 0.5,
     conv_filter_size: int = 5,
@@ -396,7 +400,7 @@ class VariationalAutoEncoder(nn.Module):
     self.lconv_stack = nn.Sequential(
       [
         LConvBlock(
-          linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size
+          linear_size=linear_size, filter_size=lconv_filter_size
         )
         for _ in range(num_lconv_blocks)
       ]
@@ -405,7 +409,7 @@ class VariationalAutoEncoder(nn.Module):
     for _ in range(num_mixed_blocks):
       self.mixed_stack.append(
         LConvBlock(
-          linear_size=linear_size, num_heads=num_heads, filter_size=lconv_filter_size
+          linear_size=linear_size, filter_size=lconv_filter_size
         )
       )
       self.mixed_stack.append(
@@ -419,9 +423,9 @@ class VariationalAutoEncoder(nn.Module):
   def __call__(
     self, spectrogramm: nn.Tensor, spectrogramm_time: nn.SpatialDim
   ) -> [nn.Tensor, nn.Tensor, nn.Tensor]:
-    #x = self.lconv_stack(spectrogramm, time_dim=spectrogramm_time)
-    #x = self.mixed_stack(x, time_dim=spectrogramm_time)
-    x = nn.reduce(spectrogramm, mode="mean", axis=spectrogramm_time, use_time_mask=True)  # [B, F]
+    x = self.lconv_stack(spectrogramm, time_dim=spectrogramm_time)
+    x = self.mixed_stack(x, time_dim=spectrogramm_time)
+    x = nn.reduce(x, mode="mean", axis=spectrogramm_time, use_time_mask=True)  # [B, F]
 
     # draw latent
     mu = self.lin_mu(x)  # [B, F]
@@ -430,6 +434,7 @@ class VariationalAutoEncoder(nn.Module):
     eps = nn.random_normal(std.shape_ordered)
     eps = eps * std
     eps = eps + mu
+
     out = self.lin_out(eps)
     return out, mu, log_var
 
@@ -508,7 +513,10 @@ class NARTTSModel(nn.Module):
       self.vae = None
     if self.use_pitch_pred:
       self.pitch_pred = PitchPredictor()
-      self.pitch_emb = nn.Linear(2 * self.enc_lstm_dim)
+      self.pitch_emb = nn.Conv1d(out_dim=2 * self.enc_lstm_dim,
+                                 filter_size=3,
+                                 padding="same",
+                                 with_bias=False)
     else:
       self.pitch_pred = None
       self.pitch_emb = None
@@ -594,7 +602,6 @@ class NARTTSModel(nn.Module):
       (enc_lstm_bw, enc_lstm_bw.feature_dim),
     )
     encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
-
     # duration predictor
     duration_in = nn.concat(
       (enc_lstm_fw, enc_lstm_fw.feature_dim),
@@ -605,6 +612,16 @@ class NARTTSModel(nn.Module):
     duration_in = nn.dropout(
       duration_in, dropout=self.dropout, axis=duration_in.feature_dim
     )
+    if self.use_pitch_pred:
+      pitch_pred = self.pitch_pred(duration_in, time_dim)
+      if self.training:
+        #pitch_loss = nn.squeeze(pitch_pred, axis=pitch_pred.feature_dim)
+        #pitch = nn.squeeze(pitch, axis=pitch.feature_dim)
+        pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch_time, out_dim=time_dim)
+        pitch_loss = nn.mean_squared_difference(pitch_pred, pitch)
+        pitch_loss.mark_as_loss()
+      pitch_embedding, _ = self.pitch_emb(pitch_pred, in_spatial_dim=time_dim)
+      encoder = encoder + pitch_embedding
 
     if self.use_true_durations:
       duration_prediction = duration_float
@@ -638,15 +655,6 @@ class NARTTSModel(nn.Module):
         encoder, axis=time_dim, repetitions=duration_int, out_dim=speech_time
       )
 
-    if self.use_pitch_pred:
-      pitch_pred = self.pitch_pred(rep)
-      pitch_loss = nn.squeeze(pitch_pred, axis=pitch_pred.feature_dim)
-      pitch = nn.squeeze(pitch, axis=pitch.feature_dim)
-      pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch_time, out_dim=speech_time)
-      pitch_loss = nn.mean_squared_difference(pitch_loss, pitch)
-      pitch_loss.mark_as_loss()
-      pitch_embedding = self.pitch_emb(pitch_pred)
-      rep = rep + pitch_embedding
     # decoder
     dec_lin = self.decoder(
       rep=rep, speaker_embedding=speaker_embedding, time_dim=rep_dim

@@ -337,6 +337,16 @@ class MFCCOptions(AdditionalFeatureOptions):
   n_mels: int = 128
 
 
+@dataclasses.dataclass(frozen=True)
+class F0Options(AdditionalFeatureOptions):
+  """
+  additional options for the mfcc features
+  """
+
+  fmin: int = 0
+  fmax: int = None
+
+
 # list of known audio feature type with their respective options type
 KNOWN_FEATURES = {
   "mfcc": [type(None), MFCCOptions],
@@ -344,6 +354,7 @@ KNOWN_FEATURES = {
   "log_log_mel_filterbank": [type(None)],
   "db_mel_filterbank": [type(None), DBMelFilterbankOptions],
   "linear_spectrogram": [type(None)],
+  "f0": [type(None), F0Options],
 }
 
 
@@ -357,6 +368,7 @@ class FeatureType(Enum):
   LOG_LOG_MEL_FILTERBANK = "log_log_mel_filterbank"
   DB_MEL_FILTERBANK = "db_mel_filterbank"
   LINEAR_SPECTROGRAM = "linear_spectrogram"
+  F0_FEATURES = "f0"
 
 
 @dataclasses.dataclass(frozen=True)

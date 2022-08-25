@@ -8,7 +8,7 @@ from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
 
 from i6_experiments.common.baselines.librispeech.ls100.gmm import baseline_args
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.data import (
-    get_synth_corpus_data_inputs,
+    get_synth_corpus_data_inputs, get_corpus_data_inputs
 )
 
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.default_tools import (
@@ -47,6 +47,9 @@ def run_librispeech_100_with_synthetic_data(
     steps.add_step("tri", tri_args)
     steps.add_step("vtln", vtln_args)
     steps.add_step("sat", sat_args)
+    steps.add_step("forced_align_sat",
+      {"name": "tts_align_sat", "target_corpus_key": "tts_align", "flow": sat_args.training_args["feature_flow_key"],
+       "feature_scorer": ("train-clean-100", "train_sat"), "corpus_keys": ["tts_align"]})
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
@@ -61,3 +64,10 @@ def run_librispeech_100_with_synthetic_data(
     )
     system.run(steps)
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
+    alignments = {}
+    for align in ["tts_align_sat"]:
+        alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
+    return (
+        alignments,
+        system.allophone_files["train-clean-100"],
+    )

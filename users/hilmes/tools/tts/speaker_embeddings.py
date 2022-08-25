@@ -448,10 +448,11 @@ class DistributeHDFByMappingJob(Job):
 
 class AverageF0OverDurationJob(Job):
 
-  def __init__(self, f0_hdf: tk.Path, duration_hdf: tk.Path, center: bool = True):
+  def __init__(self, f0_hdf: tk.Path, duration_hdf: tk.Path, center: bool = True, phoneme_level: bool = True):
     self.f0 = f0_hdf
     self.duration = duration_hdf
     self.center = center
+    self.phoneme_level = phoneme_level
 
     self.out_hdf = self.output_path("out.hdf")
 
@@ -488,19 +489,34 @@ class AverageF0OverDurationJob(Job):
       offset += length[0]
 
     avrg_dur_tag_to_value = {}
-
-    for tag, durations in dur_tag_to_value.items():
-      offset = 0 if self.center else 2
-      cutoff = offset
-      seq = f0_tag_to_value[tag]
-      for dur in durations:
-        if dur > 0 and numpy.count_nonzero(seq[offset:int(dur)+offset] != 0) > 0:
-          # TODO: count 0 positions and average them out, keep them 0?
-          seq[offset:int(dur)+offset] = numpy.sum(seq[offset:int(dur)+offset]) / numpy.count_nonzero(seq[offset:int(dur)+offset] != 0)
-        offset += int(dur)
-      seq = seq[cutoff:-cutoff if cutoff > 0 else None]
-      assert len(seq) == numpy.sum(durations), ("seq ", len(seq), " sum ", numpy.sum(durations))
-      avrg_dur_tag_to_value[tag] = seq
+    if self.phoneme_level:
+        for tag, durations in dur_tag_to_value.items():
+            offset = 0 if self.center else 2
+            seq = f0_tag_to_value[tag]
+            phon_seq = []
+            for dur in durations:
+                if dur > 0 and numpy.count_nonzero(seq[offset:int(dur) + offset] != 0) > 0:
+                    phon_seq.append([numpy.sum(seq[offset:int(dur) + offset]) / numpy.count_nonzero(
+                        seq[offset:int(dur) + offset] != 0)])
+                else:
+                    phon_seq.append([0])
+                offset += int(dur)
+                assert offset <= len(seq), (offset, len(seq))
+            assert len(phon_seq) == len(durations), ("seq ", len(phon_seq), " len ", len(durations))
+            avrg_dur_tag_to_value[tag] = numpy.array(phon_seq)
+    else:
+        for tag, durations in dur_tag_to_value.items():
+          offset = 0 if self.center else 2
+          cutoff = offset
+          seq = f0_tag_to_value[tag]
+          for dur in durations:
+            if dur > 0 and numpy.count_nonzero(seq[offset:int(dur)+offset] != 0) > 0:
+              seq[offset:int(dur)+offset] = numpy.sum(seq[offset:int(dur)+offset]) / numpy.count_nonzero(seq[offset:int(dur)+offset] != 0)
+            offset += int(dur)
+            assert offset < len(seq)
+          seq = seq[cutoff:-cutoff if cutoff > 0 else None]
+          assert len(seq) == numpy.sum(durations), ("seq ", len(seq), " sum ", numpy.sum(durations))
+          avrg_dur_tag_to_value[tag] = seq
 
     assert len(avrg_dur_tag_to_value) == len(f0_tag_to_value), "Duration HDF does not include all F0 seqs"
 
@@ -511,8 +527,9 @@ class AverageF0OverDurationJob(Job):
 
     for segment_tag, avrg in avrg_dur_tag_to_value.items():
       data = numpy.asarray([avrg])
+      data = (data - data.mean()) / data.std()
       hdf_writer.insert_batch(
-        data,
+        numpy.float32(data),
         [data.shape[1]],
         [segment_tag],
       )

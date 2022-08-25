@@ -58,7 +58,8 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
   def run(self):
     durations = []
     tags = []
-    full_corpus_labels = []
+    full_corpus_labels = {}
+    empty_aligns = []
     if self.target_duration_hdf is not None:
       hdf_file = h5py.File(self.target_duration_hdf, "r")
       returnn_length_dict = get_input_dict_from_returnn_hdf(hdf_file=hdf_file)
@@ -80,6 +81,9 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
           ]
           # Start computing duration sequence from rasr alignment
           last_allophone = None
+          if len(alignment) == 0:
+            empty_aligns.append(key)
+            continue
           for time, allophone in alignment:
             phoneme = allophone.split("{", 1)[0].rstrip()
             # new sequence has boundary instead of silence token
@@ -138,11 +142,12 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
           # Create new labels for corpus
           corpus_labels = gmm_seq
           # Assert that the number of labels fit the number of tokens in the duration sequence
-          assert len(seq) == len(corpus_labels), key
+          assert len(seq) == len(corpus_labels), (key, alignment, len(seq), len(corpus_labels))
           durations.append(seq)
-          full_corpus_labels.append(corpus_labels)
+          full_corpus_labels[key] = corpus_labels
 
     # Write durations to hdf file
+    assert len(empty_aligns) == 0, (len(empty_aligns), empty_aligns)
     new_lengths = []
     for seq in durations:
       new_lengths.append([len(seq), 2, 2])
@@ -160,8 +165,8 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
     # Write new labels into the corpus such that label sequence fits the duration sequence
     bliss_corpus = Corpus()
     bliss_corpus.load(self.bliss_corpus.get_path())
-    for idx, s in enumerate(bliss_corpus.segments()):
+    for s in bliss_corpus.segments():
       delimiter_str = " "
-      new_orth = delimiter_str.join(full_corpus_labels[idx])
+      new_orth = delimiter_str.join(full_corpus_labels[s.fullname()])
       s.orth = new_orth
     bliss_corpus.dump(self.out_bliss.get_path())

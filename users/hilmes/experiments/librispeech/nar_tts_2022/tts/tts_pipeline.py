@@ -88,9 +88,7 @@ def get_training_config(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.construct_network"
     )
 
-    rc_network = Network(
-        net_func_name=rc_construction_code.object_name,
-        net_func_map={
+    net_func_map = {
             "net_module": rc_model.object_name,
             "phoneme_data": "phonemes",
             "duration_data": "duration_data",
@@ -100,7 +98,15 @@ def get_training_config(
             "label_time_dim": "speaker_labels_time",
             "speech_time_dim": "audio_features_time",
             "duration_time_dim": "duration_data_time",
-        },
+        }
+
+    if "use_pitch_pred" in kwargs.keys() and kwargs["use_pitch_pred"]:
+        net_func_map["pitch"] = "pitch_data"
+        net_func_map["pitch_time"] = "pitch_data_time"
+
+    rc_network = Network(
+        net_func_name=rc_construction_code.object_name,
+        net_func_map=net_func_map,
         net_kwargs={"training": True, **kwargs},
     )
 

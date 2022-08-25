@@ -185,6 +185,13 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
     #        lm=lm,
     #    )
 
+    test_data_inputs["tts_align"] = RasrDataInput(
+        corpus_object=synth_co,
+        concurrent=constants.concurrent["train-clean-100"],
+        lexicon=train_lexicon,
+        lm=lm,
+    )
+
     return CorpusData(
         train_data=train_data_inputs,
         dev_data=dev_data_inputs,
