@@ -54,7 +54,11 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         self.length_dist_rqmt = None  # noqa, for backwards compatibility
 
     def tasks(self):
-        yield Task("cut_and_stitch_segments", rqmt=self.cut_and_stitch_segments_rqmt, args=range(1, self.n_workers + 1))
+        yield Task(
+            "cut_and_stitch_segments",
+            rqmt=self.cut_and_stitch_segments_rqmt,
+            args=range(1, self.n_workers + 1),
+        )
         yield Task("plot_length_distribution", mini_task=True)
 
     def cut_and_stitch_segments(self, task_id):
@@ -62,7 +66,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         corpus_object.load(self.bliss_corpus_file.get_path())
         recordings = list(corpus_object.all_recordings())
         print(f"{len(recordings)} recordings detected")
-        recordings = recordings[task_id - 1::self.n_workers]
+        recordings = recordings[task_id - 1 :: self.n_workers]
         print(f"processing {len(recordings)} of them")
 
         file_lengths = []
@@ -70,7 +74,9 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
             self.cut_file(rec, self.out_audio_path.get_path(), self.file_extension)
             for file_name in os.listdir(self.out_audio_path.get_path()):
                 if file_name.startswith(rec.name):
-                    file_length = self.get_length(os.path.join(self.out_audio_path.get_path(), file_name))
+                    file_length = self.get_length(
+                        os.path.join(self.out_audio_path.get_path(), file_name)
+                    )
                     file_lengths.append(str(file_length))
             if rec_idx % 100 == 0:
                 logging.info(f"{rec_idx} of {len(recordings)} files done")
@@ -82,7 +88,9 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         for file_name in os.listdir():
             if file_name.startswith("file_lengths."):
                 with open(file_name, "r") as f:
-                    file_lengths += [float(file_length.strip()) for file_length in f.readlines()]
+                    file_lengths += [
+                        float(file_length.strip()) for file_length in f.readlines()
+                    ]
 
         avg_length = round(sum(file_lengths) / len(file_lengths), 2)
         length = round(sum(file_lengths) / 3600, 2)
