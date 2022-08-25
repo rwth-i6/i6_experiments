@@ -129,7 +129,10 @@ def get_dataset_dict_wo_alignment(
   return d
 
 
-def get_dataset_dict_w_alignment(data, rasr_config_path, rasr_nn_trainer_exe, segment_file, alignment, epoch_split=6):
+def get_dataset_dict_w_alignment(
+  data, rasr_config_path, rasr_nn_trainer_exe, segment_file, alignment, epoch_split=6, concat_seqs=False,
+  concat_seq_tags=None, correct_concat_ep_split=False):
+
   hdf_files = [alignment]
 
   d = {
@@ -155,10 +158,22 @@ def get_dataset_dict_w_alignment(data, rasr_config_path, rasr_nn_trainer_exe, se
     }, "seq_order_control_dataset": "align",
   }
 
+  if concat_seqs and data == "train":
+    d = {
+      "class": "ConcatSeqsDataset", "dataset": d, "repeat_in_between_last_frame_up_to_multiple_of": {"data": 6},
+      "seq_len_file": "/u/schmitt/experiments/transducer/config/dependencies/seq-lens.train.txt",
+      "seq_list_file": concat_seq_tags, "seq_ordering": "laplace:227"
+    }
+
+    if correct_concat_ep_split:
+      d["partition_epoch"] = epoch_split
+
   return d
 
 
-def get_dataset_dict_w_labels(data, rasr_config_path, rasr_nn_trainer_exe, segment_file, label_hdf, label_name, epoch_split=6):
+def get_dataset_dict_w_labels(
+  data, rasr_config_path, rasr_nn_trainer_exe, segment_file, label_hdf, label_name, epoch_split=6, concat_seqs=False,
+  concat_seq_tags=None):
   hdf_files = [label_hdf]
 
   d = {
@@ -183,6 +198,13 @@ def get_dataset_dict_w_labels(data, rasr_config_path, rasr_nn_trainer_exe, segme
       label_name: ("hdf", "data"),
     }, "seq_order_control_dataset": "hdf",
   }
+
+  if concat_seqs and data == "train":
+    d = {
+      "class": "ConcatSeqsDataset", "dataset": d,
+      "seq_len_file": "/u/schmitt/experiments/transducer/config/dependencies/seq-lens.train.txt",
+      "seq_list_file": concat_seq_tags, "seq_ordering": "laplace:227", "partition_epoch": epoch_split
+    }
 
   return d
 
