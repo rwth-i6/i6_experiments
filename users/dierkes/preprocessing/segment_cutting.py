@@ -55,22 +55,21 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         self.length_dist_rqmt = {"time": 2, "mem": 1, "cpu": self.n_workers}
 
     def tasks(self):
-        yield Task("cut_and_stitch_segments", rqmt=self.cut_and_stitch_segments_rqmt)
+        yield Task("cut_and_stitch_segments", rqmt=self.cut_and_stitch_segments_rqmt, args=range(1, self.n_workers + 1))
         yield Task("plot_length_distribution", rqmt=self.length_dist_rqmt)
 
-    def cut_and_stitch_segments(self):
-        self.corpus_object = corpus.Corpus()
-        self.corpus_object.load(self.bliss_corpus_file.get_path())
-        recordings = list(self.corpus_object.all_recordings())
-
+    def cut_and_stitch_segments(self, task_id):
+        corpus_object = corpus.Corpus()
+        corpus_object.load(self.bliss_corpus_file.get_path())
+        recordings = list(corpus_object.all_recordings())
         print(f"{len(recordings)} recordings detected")
-        print(f"launching {self.n_workers} processes")
+        recordings = recordings[task_id - 1::self.n_workers]
+        print(f"processing {len(recordings)} of them")
 
-        tasks = [(r, self.out_audio_path.get_path(), self.file_extension) for r in recordings]
-        with multiprocessing.Pool(processes=self.n_workers) as pool:
-            for i, _ in enumerate(pool.imap_unordered(self.cut_file, tasks)):
-                if i % 100 == 0:
-                    logging.info(f"{i} of {len(tasks)} files done")
+        for rec_idx, rec in enumerate(recordings):
+            self.cut_file(rec, self.out_audio_path.get_path(), self.file_extension)
+            if rec_idx % 100 == 0:
+                logging.info(f"{rec_idx} of {len(recordings)} files done")
 
     def plot_length_distribution(self):
         files = [
@@ -104,8 +103,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         f = sf.SoundFile(file)
         return f.frames / f.samplerate
 
-    def cut_file(self, task):
-        recording, root_out, extension = task
+    def cut_file(self, recording, root_out, extension):
         recording_path = recording.audio
         recording_name = recording.name
 
