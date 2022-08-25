@@ -56,7 +56,7 @@ def plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, n
 
   align2_ticks = np.where(align2 != blank_idx2)[0]
   align2_labels = align2[align2 != blank_idx2]
-  align2_labels = [vocab2[i] for i in align2_labels]
+  align2_labels = [vocab2[i] if i in vocab2 else "EOS" for i in align2_labels]
 
   plt.figure(figsize=(10, 5), constrained_layout=True)
   # plt.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
