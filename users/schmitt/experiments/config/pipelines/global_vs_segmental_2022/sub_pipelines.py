@@ -317,12 +317,12 @@ def run_eval(ctm_file, reference, name, dataset_key, num_epochs, alias_addon="")
 
 def calculate_search_errors(
   checkpoint, search_config, train_config, rasr_config, rasr_nn_trainer_exe, segment_path, model_type, label_name,
-  name, epoch, ref_targets, blank_idx, dataset_key, stm_job, length_norm, alias_addon=""):
+  name, epoch, ref_targets, blank_idx, dataset_key, stm_job, length_norm, concat_seq_tags_file=None, alias_addon=""):
   search_job = ReturnnDumpSearchJob(search_data={}, model_checkpoint=checkpoint,
                                     returnn_config=copy.deepcopy(search_config.get_config()),
                                     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
                                     returnn_root="/u/schmitt/src/returnn", mem_rqmt=6, time_rqmt=1)
-  # search_job.add_alias(name + "/search_%s_%d" % (dataset_key, epoch) + alias_addon)
+  search_job.add_alias(name + "/search_%s_%d" % (dataset_key, epoch) + alias_addon)
   alias = name + "/search_%s_%d" % (dataset_key, epoch) + alias_addon
   # tk.register_output(alias + "/bpe_search_results", search_job.out_search_file)
   # tk.register_output(alias + "/config", search_job.out_returnn_config_file)
@@ -333,7 +333,8 @@ def calculate_search_errors(
   calc_search_err_job = CalcSearchErrorJob(
     returnn_config=train_config, rasr_config=rasr_config, rasr_nn_trainer_exe=rasr_nn_trainer_exe,
     segment_file=segment_path, blank_idx=blank_idx, model_type=model_type, label_name=label_name,
-    search_targets=search_targets, ref_targets=ref_targets, max_seg_len=-1, length_norm=length_norm)
+    search_targets=search_targets, ref_targets=ref_targets, max_seg_len=-1, length_norm=length_norm,
+    concat_seqs=False if concat_seq_tags_file is None else True, concat_seq_tags_file=concat_seq_tags_file)
   calc_search_err_job.add_alias(name + ("/%s/search_errors_%d" % (alias_addon, epoch)))
   alias = calc_search_err_job.get_one_alias()
   tk.register_output(alias + "search_errors", calc_search_err_job.out_search_errors)

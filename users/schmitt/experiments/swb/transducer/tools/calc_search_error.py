@@ -338,7 +338,9 @@ def net_dict_add_losses(net_dict):
 
   return net_dict
 
-def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, ref_targets, search_targets, label_name):
+def init(
+  config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, ref_targets, search_targets, label_name,
+  concat_seqs, concat_seq_tags_file, model_type):
   """
   :param str config_filename:
   :param list[str] command_line_options:
@@ -353,39 +355,72 @@ def init(config_filename, segment_file, rasr_config_path, rasr_nn_trainer_exe, r
   args = ["--config=%s" % rasr_config_path, #"--*.corpus.segment-order-shuffle=true",
           # "--*.segment-order-sort-by-time-length=true"
           ]
-
   d = {
     "class": "ExternSprintDataset", "sprintTrainerExecPath": rasr_nn_trainer_exe, "sprintConfigStr": args,
     "suppress_load_seqs_print": True,  # less verbose
     "input_stddev": 3.}
 
-  ref_align_opts = {
-    "class": "HDFDataset", "files": [ref_targets], "use_cache_manager": True,
-    "seq_list_filter_file": segment_file,
-    # "seq_ordering": "sorted",
-    # "seq_order_seq_lens_file": "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
-  }
+  if not concat_seqs:
+    ref_align_opts = {
+      "class": "HDFDataset", "files": [ref_targets], "use_cache_manager": True,
+      "seq_list_filter_file": segment_file,
+    }
 
-  search_align_opts = {
-    "class": "HDFDataset", "files": [search_targets], "use_cache_manager": True, "seq_list_filter_file": segment_file,
-    # "seq_ordering": "sorted",
-    # "seq_order_seq_lens_file": "/u/zeyer/setups/switchboard/dataset/data/seq-lens.train.txt.gz"
-  }
+    search_align_opts = {
+      "class": "HDFDataset", "files": [search_targets], "use_cache_manager": True, "seq_list_filter_file": segment_file,
+    }
 
-  d_ref = {
-    "class": "MetaDataset", "datasets": {"sprint": d, "align": ref_align_opts, "align2": search_align_opts}, "data_map": {
-      "data": ("sprint", "data"),
-      label_name: ("align", "data"), "seq_order_dataset": ("align2", "data")
-    }, "seq_order_control_dataset": "align2",
-  }
+    d_ref = {
+      "class": "MetaDataset", "datasets": {"sprint": d, "align": ref_align_opts, "align2": search_align_opts},
+      "data_map": {
+        "data": ("sprint", "data"),
+        label_name: ("align", "data"), "seq_order_dataset": ("align2", "data")
+      }, "seq_order_control_dataset": "align2",
+    }
 
-  d_search = {
-    "class": "MetaDataset", "datasets": {"sprint": d, "align": search_align_opts},
-    "data_map": {
-      "data": ("sprint", "data"),
-      label_name: ("align", "data"),
-    }, "seq_order_control_dataset": "align",
-  }
+    d_search = {
+      "class": "MetaDataset", "datasets": {"sprint": d, "align": search_align_opts},
+      "data_map": {
+        "data": ("sprint", "data"),
+        label_name: ("align", "data"),
+      }, "seq_order_control_dataset": "align",
+    }
+  else:
+    search_align_opts = {
+      "class": "HDFDataset", "files": [search_targets],
+      "use_cache_manager": True
+    }
+
+    d_search_concat = {
+      "class": "ConcatSeqsDataset", "dataset": d,  # "repeat_in_between_last_frame_up_to_multiple_of": {"data": 6},
+      "seq_len_file": "/u/schmitt/experiments/transducer/alias/stm_files/cv-concat-20/output/orig_seq_lens.py.txt",
+      "seq_list_file": concat_seq_tags_file,
+      "seq_ordering": "sorted_reverse",  # "seq_list_filter_file": segment_file
+    }
+
+    d_search = {
+      "class": "MetaDataset", "datasets": {"sprint": d_search_concat, "align": search_align_opts}, "data_map": {
+        "data": ("sprint", "data"), label_name: ("align", "data"), }, "seq_order_control_dataset": "align",
+      "seq_list_filter_file": segment_file, }
+
+    ref_align_opts = {
+      "class": "HDFDataset", "files": [ref_targets],
+      "use_cache_manager": True,  # "seq_list_filter_file": segment_file,
+    }
+    d_ref_meta = {
+      "class": "MetaDataset", "datasets": {"sprint": d, "align": ref_align_opts}, "data_map": {
+        "data": ("sprint", "data"), label_name: ("align", "data"), }, "seq_order_control_dataset": "align",
+      "seq_list_filter_file": segment_file, }
+
+    d_ref = {
+      "class": "ConcatSeqsDataset", "dataset": d_ref_meta,
+      "seq_len_file": "/u/schmitt/experiments/transducer/alias/stm_files/cv-concat-20/output/orig_seq_lens.py.txt",
+      "seq_list_file": concat_seq_tags_file,
+      "seq_ordering": "sorted_reverse"
+    }
+
+    if model_type != "glob":
+      d_ref["repeat_in_between_last_frame_up_to_multiple_of"] = {"data": 6}
 
   ref_dataset = rnn.init_dataset(d_ref)
   search_dataset = rnn.init_dataset(d_search)
@@ -413,6 +448,8 @@ def main(argv):
   arg_parser.add_argument('--model_type')
   arg_parser.add_argument('--length_norm', action="store_true")
   arg_parser.add_argument('--blank_idx', type=int)
+  arg_parser.add_argument('--concat_seqs', action="store_true")
+  arg_parser.add_argument('--concat_seq_tags_file')
   arg_parser.add_argument("--returnn_root", help="path to returnn root")
   args = arg_parser.parse_args(argv[1:])
   sys.path.insert(0, args.returnn_root)
@@ -423,7 +460,8 @@ def main(argv):
   ref_dataset, search_dataset = init(
     config_filename=args.returnn_config, segment_file=args.segment_file, rasr_config_path=args.rasr_config_path,
     rasr_nn_trainer_exe=args.rasr_nn_trainer_exe, label_name=args.label_name,
-    ref_targets=args.ref_targets, search_targets=args.search_targets)
+    ref_targets=args.ref_targets, search_targets=args.search_targets, concat_seqs=args.concat_seqs,
+    concat_seq_tags_file=args.concat_seq_tags_file, model_type=args.model_type)
   dump(
     ref_dataset, search_dataset, args.blank_idx, label_name=args.label_name, model_type=args.model_type,
     max_seg_len=args.max_seg_len, length_norm=args.length_norm)
