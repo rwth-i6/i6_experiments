@@ -49,7 +49,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         self.cut_and_stitch_segments_rqmt = {
             "time": 8,
             "mem": 16,
-            "cpu": self.n_workers,
+            "cpu": 1,
         }
         self.length_dist_rqmt = None  # noqa, for backwards compatibility
 
