@@ -12,9 +12,10 @@ from i6_experiments.users.rossenbach.setups.returnn_standalone.data.datasets imp
   MetaDataset,
   HDFDataset,
 )
-from i6_experiments.users.hilmes.data.datastream import (
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import (
   AudioFeatureDatastream,
   ReturnnAudioFeatureOptions,
+  LinearFilterbankOptions,
 )
 from .vocoder_data import get_vocoder_data
 
@@ -72,6 +73,8 @@ class LJSpeechMiniGLVocoder:
     assert (
       audio_datastream.options.sample_rate is not None
     ), "please specify a sample_rate in the AudioFeatureDatastream"
+    #options_type = type(audio_datastream.options.feature_options)
+    #audio_datastream.options.feature_options = options_type(**params)
     self._sample_rate = audio_datastream.options.sample_rate
     self._linear_size = 2 ** int(
       np.ceil(np.log2(self._sample_rate * audio_datastream.options.window_len)) - 1
@@ -169,6 +172,8 @@ class LJSpeechMiniGLVocoder:
       step_len=source_audio_opts.options.step_len,
       peak_normalization=False,
       preemphasis=source_audio_opts.options.preemphasis,
+      sample_rate=source_audio_opts.options.sample_rate,
+      feature_options=LinearFilterbankOptions(center=source_audio_opts.options.feature_options.center),
     )
     target_audio = AudioFeatureDatastream(
       available_for_inference=False, options=options
@@ -376,7 +381,7 @@ def get_default_vocoder(name):
 
   old_root = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn",
-    commit="7cfab7d7f1496a99e02d3b8c0a327bb725d1219f",
+    commit="d780490b24028ebe276cc68ba6086bf5c230d4cf",
   ).out_repository
   corpus_data = get_vocoder_data()
   output_path = name

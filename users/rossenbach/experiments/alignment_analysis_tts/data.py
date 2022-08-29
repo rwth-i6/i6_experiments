@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from functools import lru_cache
 import os
 from sisyphus import tk
@@ -76,13 +77,16 @@ def get_tts_log_mel_datastream(
     This function serves as an example for ASR Systems, and should be copied and modified in the
     specific experiments if changes to the default parameters are needed
 
+    Supports both centered and non-centered windowing, as we need non-centered windowing for RASR-compatible
+    feature extraction, but centered windowing to support linear-features for the vocoder mel-to-linear training.
+
     :param statistics_ogg_zip: ogg zip file(s) of the training corpus for statistics
     :param returnn_python_exe:
     :param returnn_root:
     :param alias_path:
     """
     # default: mfcc-40-dim
-    feature_options = ReturnnAudioFeatureOptions(
+    feature_options_center = ReturnnAudioFeatureOptions(
         window_len=0.050,
         step_len=0.0125,
         num_feature_filters=80,
@@ -94,11 +98,11 @@ def get_tts_log_mel_datastream(
             fmin=60,
             fmax=7600,
             min_amp=1e-10,
-            center=center,
+            center=True,
         )
     )
     audio_datastream = AudioFeatureDatastream(
-        available_for_inference=False, options=feature_options
+        available_for_inference=False, options=feature_options_center
     )
 
     ls100_ogg_zip = get_ls100_silence_preprocess_ogg_zip()
@@ -112,6 +116,30 @@ def get_tts_log_mel_datastream(
         returnn_root=RETURNN_DATA_ROOT,
         alias_path=DATA_PREFIX + "ls100/",
     )
+    if center == False:
+        params = asdict(feature_options_center)
+        params.pop("feature_options")
+        feature_options_no_center = ReturnnAudioFeatureOptions(
+            **params,
+            feature_options=DBMelFilterbankOptions(
+                fmin=60,
+                fmax=7600,
+                min_amp=1e-10,
+                center=False,
+            )
+        )
+        audio_datastream_no_center = AudioFeatureDatastream(
+            available_for_inference=False, options=feature_options_no_center
+        )
+        audio_datastream_no_center.additional_options[
+            "norm_mean"
+        ] = audio_datastream.additional_options["norm_mean"]
+        audio_datastream_no_center.additional_options[
+            "norm_std_dev"
+        ] = audio_datastream.additional_options["norm_std_dev"]
+
+        return audio_datastream_no_center
+
     return audio_datastream
 
 

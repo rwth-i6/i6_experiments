@@ -22,7 +22,7 @@ class VocoderDataclass:
 def get_vocoder_data():
     train_segments, cv_segments = get_librispeech_tts_segments()
     zip_dataset = get_ls100_silence_preprocess_ogg_zip()
-    log_mel_datastream = get_tts_log_mel_datastream()
+    log_mel_datastream = get_tts_log_mel_datastream(center=True)
 
     vocoder_data = VocoderDataclass(
         zip=zip_dataset,

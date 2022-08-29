@@ -1,7 +1,8 @@
 """
 Definition of the pipeline in terms of inputs and steps that are executed
 """
-from sisyphus import gs
+import os
+from sisyphus import gs, tk
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
@@ -28,7 +29,7 @@ def run_librispeech_100_common_tts_baseline(
     vtln_sat_args = baseline_args.get_vtln_sat_args()
 
     final_output_args = OutputArgs("final")
-    final_output_args.define_corpus_type("train-clean-100", "train")
+    final_output_args.define_corpus_type("train-clean-100-tts-train", "train")
     final_output_args.define_corpus_type("tts_align", "test")
     final_output_args.define_corpus_type("dev-other", "dev")
     # enable this if you want to create features for the following training, e.g. Hybrid
@@ -37,9 +38,12 @@ def run_librispeech_100_common_tts_baseline(
     steps = RasrSteps()
     steps.add_step("extract", hybrid_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
-    #steps.add_step("forced_align_mono",
-    #  {"name": "tts_align_mono", "target_corpus_key": "tts_align", "flow": "mfcc+deriv+norm",
-    #   "feature_scorer": ("train-clean-100", "train_mono"), "corpus_keys": ["tts_align"]})
+    steps.add_step("forced_align_mono_train",
+      {"name": "tts_align_mono_train", "target_corpus_key": "train-clean-100-tts-train", "flow": "mfcc+deriv+norm",
+       "feature_scorer": ("train-clean-100-tts-train", "train_mono"), "corpus_keys": ["train-clean-100-tts-train"]})
+    steps.add_step("forced_align_mono_dev",
+                   {"name": "tts_align_mono_dev", "target_corpus_key": "train-clean-100-tts-dev", "flow": "mfcc+deriv+norm",
+                    "feature_scorer": ("train-clean-100-tts-train", "train_mono"), "corpus_keys": ["train-clean-100-tts-dev"]})
     steps.add_step("cart", cart_args)
     steps.add_step("tri", tri_args)
     steps.add_step("vtln", vtln_args)
@@ -69,9 +73,14 @@ def run_librispeech_100_common_tts_baseline(
     #)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
-    #alignments = {}
+    alignments = {}
     #for align in ["tts_align_mono", "tts_align_sat"]:
-    #    alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
+    from i6_core.text.processing import ConcatenateJob
+    for align in ["tts_align_mono"]:
+         align_train = system.alignments["train-clean-100-tts-train"][align +  "_train"].alternatives["bundle"]
+         align_dev = system.alignments["train-clean-100-tts-dev"][align +  "_dev"].alternatives["bundle"]
+         alignments[align] = ConcatenateJob([align_train, align_dev], zip_out=False, out_name="alignment.bundle").out
+         tk.register_output(os.path.join(alias_prefix, align, ".bundle"), alignments[align])
     #return (
     #    alignments,
     #    system.allophone_files["train-clean-100"],
