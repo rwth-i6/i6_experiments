@@ -50,7 +50,7 @@ import shutil
 import string
 import textwrap
 
-from sisyphus import tk
+from sisyphus import tk, gs
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
 
@@ -145,24 +145,22 @@ class Collection(DelayedBase):
         self.packages = packages
         self.make_local_package_copy = make_local_package_copy
 
-        self.root_path = os.path.join(os.getcwd(), "recipe")
+        self.root_path = os.path.join(gs.BASE_DIR, gs.RECIPE_PREFIX)
+
+        assert (not self.make_local_package_copy) or self.packages, (
+            "Please specify which packages to copy if you are using "
+            "`make_local_package_copy=True` in combination with `Import` objects"
+        )
 
     def get(self) -> str:
         """get"""
-        if self.packages is None:
-            # try to collect packages from objects
-            self.packages = set()
-            for obj in self.serializer_objects:
-                if isinstance(obj, Import):
-                    self.packages.add(obj.package)
-
         content = ["import os\nimport sys\n"]
 
         if self.returnn_common_root is None:
             content.append("from returnn_common import nn\n\n")
         else:
             if self.make_local_package_copy:
-                assert "/recipe" not in self.returnn_common_root.get(), (
+                assert f"/{gs.RECIPE_PREFIX}" not in self.returnn_common_root.get(), (
                     "please do not use returnn_common from your recipe folder "
                     "when using `make_local_package_copy=True`, as then the local copy will not be used"
                 )
