@@ -136,8 +136,12 @@ class BaseSystem(RasrSystem):
 			return self._num_classes_dict[self.get_state_tying()]
 		state_tying = DumpStateTyingJob(self.csp["train"]).out_state_tying
 		tk.register_output("state-tying_mono", state_tying)
-		num_states = ExtractStateTyingStats(state_tying).num_states
+		num_states = ExtractStateTyingStats(state_tying).out_num_states
 		return num_states
+	
+	def silence_idx(self):
+		state_tying = DumpStateTyingJob(self.csp["train"]).out_state_tying
+		return ExtractStateTyingStats(state_tying).out_silence_idx
 	
 	def set_num_classes(self, state_tying, num_classes):
 		self._num_classes_dict[state_tying] = num_classes

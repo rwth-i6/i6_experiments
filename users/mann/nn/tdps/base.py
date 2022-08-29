@@ -29,25 +29,30 @@ def make_non_trainable(config):
     config.update(learning_rate_update)
 
 class BaseTdpModel:
-    def __init__(self, tdp_layer, output_layer):
+    def __init__(self, tdp_layer, output_layer, init_tdps=None):
         self.tdp_layer = tdp_layer
         self.output_layer = output_layer
+        self.init_tdps = init_tdps
 
     def set_config(self, config: returnn.ReturnnConfig):
         net = config.config["network"]
-        net["tdps"] = self.tdp_layer
+        net["tdps"] = layer = self.tdp_layer
+        if self.init_tdps is not None:
+            self.init_tdps.apply(layer, config)
         net["fast_bw"]["tdps"] = "tdps"
         net["output_tdps"] = self.output_layer
 
 class TdpModelBuilder:
-    def __init__(self, tdp_layer_func, output_layer_func):
+    def __init__(self, tdp_layer_func, output_layer_func, init_tdps=None):
         self.tdp_layer_func = tdp_layer_func
         self.output_layer_func = output_layer_func
+        self.tdp_initializer = init_tdps
     
-    def build(self, num_classes):
+    def build(self, num_classes, init_tdps=None):
         return BaseTdpModel(
             tdp_layer=self.tdp_layer_func(num_classes),
             output_layer=self.output_layer_func(num_classes),
+            init_tdps=init_tdps
         )
 
 class Arch(enum.Enum):
@@ -143,6 +148,12 @@ def bw_tdps_output():
         'loss': 'via_layer', 'loss_opts': {'error_signal_layer': 'fast_bw/tdps'}
     }
     pass
+
+def get_simple_tdps(num_classes, silence_idx, speech_fwd, silence_fwd):
+    import numpy as np
+    tdp_array = np.full((num_classes,), speech_fwd)
+    tdp_array[silence_idx] = silence_fwd
+    return tdp_array.view(SimpleEqualityArray)
 
 def read_model_from_checkpoint(
         chkpt: returnn.training.Checkpoint

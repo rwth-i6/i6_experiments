@@ -354,16 +354,20 @@ class LearningRates(Job):
 class ExtractStateTyingStats(Job):
     def __init__(self, state_tying_file):
         self.state_tying_file = state_tying_file
-        self.num_states = self.output_var("num_states")
+        self.out_num_states = self.output_var("num_states")
+        self.out_silence_idx = self.output_var("silence_idx")
     
     def tasks(self):
         yield Task("run", mini_task=True)
     
     def run(self):
         with open(tk.uncached_path(self.state_tying_file), "r") as f:
-            lines = f.readlines()
-            self.num_states.set(
+            lines = list(f.readlines())
+            self.out_num_states.set(
                 max(map(lambda l: int(l.rstrip("\n").split(" ")[-1]), lines)) + 1
+            )
+            self.out_silence_idx.set(
+                int(next(filter(lambda l: "[SILENCE]" in l, lines)).rstrip("\n").split(" ")[-1])
             )
 
 class AlignmentWrapper:

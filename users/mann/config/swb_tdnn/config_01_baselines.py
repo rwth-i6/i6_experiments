@@ -193,8 +193,16 @@ def set_1s_lookup_table(extra_config: rasr.RasrConfig, state_tying_file: str):
 def set_1s_lookup_table_comp(recognition_args, state_tying_file):
     set_1s_lookup_table(recognition_args["extra_config"], state_tying_file)
 
-def set_tdps(extra_config: rasr.RasrConfig, drate: int):
+import numpy as np
+def set_tdps(extra_config: rasr.RasrConfig, drate: int, skip=False):
     speech_fwd = 1 / (1 + 7 / drate)
+    if skip:
+        speech_loop = 1 - speech_fwd
+        avg_num_states = 1 + 7 / drate
+        skip = speech_loop**(2 * avg_num_states)
+        fwd_skip = speech_fwd * skip
+        speech_fwd *= 1 - skip
+        extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.*"].skip = -np.log(fwd_skip)
     speech_transition = tdps.Transition.from_fwd_prob(speech_fwd)
     extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.*"]._update(
         speech_transition.to_rasr_config()
@@ -216,7 +224,7 @@ rtfs = {}
 for drate in [1, 2, 3, 4, 6, 8]:
     wers[drate] = {}
     rtfs[drate] = {}
-    for fwds in [True, False]:
+    for fwds in [True, False, "skip"]:
         # add output layer
         compile_args = {}
         extra_recog_args = {}
@@ -242,7 +250,10 @@ for drate in [1, 2, 3, 4, 6, 8]:
         skip_parameters = SKIP_PARAMETERS.copy()
         if fwds:
             suffix += ".fwds"
-            set_tdps(extra_config, drate)
+            set_tdps(extra_config, drate, skip=(fwds == "skip"))
+            if fwds == "skip":
+                suffix += ".normed"
+                skip_parameters = [ts.NoTransformation]
             # skip_parameters.append("infinity")
             
         # run tuning experiment
@@ -269,7 +280,7 @@ for drate in [1, 2, 3, 4, 6, 8]:
 
         wers[drate][fwds] = {
             skip: ts.get_wer(
-                name, BASE_EPOCH, skip,
+                name, BASE_EPOCH, str(skip),
                 optlm=False, reestimate_prior=True,
                 precise=True
             )
@@ -277,7 +288,7 @@ for drate in [1, 2, 3, 4, 6, 8]:
         }
         rtfs[drate][fwds] = {
             skip: ts.get_rtf(
-                name, BASE_EPOCH, skip,
+                name, BASE_EPOCH, str(skip),
                 optlm=False, reestimate_prior=True,
                 num_frames=NUM_FRAMES,
             )
@@ -297,7 +308,7 @@ class SkipReport:
         df_wers = df_wers.applymap(lambda x: min(x.values()))
         return tabulate(df_wers, tablefmt="presto")
 
-tk.register_report("reports/fwds.txt", SkipReport(wers, rtfs))
+# tk.register_report("reports/fwds.txt", SkipReport(wers, rtfs))
 
 def dump_summary(name, data):
     import pickle

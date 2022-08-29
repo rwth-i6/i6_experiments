@@ -296,6 +296,11 @@ class CombinedModel:
         transition_model = SimpleTransitionModel.from_fwd_probs(speech_fwd, silence_fwd)
         return cls(transition_model, silence_exit)
     
+    @classmethod
+    def zeros(cls, silence_exit=0.0):
+        transition_model = SimpleTransitionModel.from_weights([0.0, 0.0], [0.0, 0.0])
+        return cls(transition_model, silence_exit)
+    
     def to_acoustic_model_extra_config(self):
         config = rasr.RasrConfig() 
         self.transition_model.apply_to_am_config(config)

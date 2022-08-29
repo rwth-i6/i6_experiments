@@ -14,10 +14,16 @@ from functools import reduce
 import i6_core.meta as meta
 import i6_core.am as am
 from . import extractors
-# from recipe.mm.tpd import TdpFromAlignment
-# from recipe.experimental.mann.alignment_evaluation import MultipleEpochAlignmentStatisticsJob
-# from recipe.experimental.mann.sequence_training import add_fastbw_configs
-# from recipe.experimental.mann.extractors import LearningRates, AlignmentScore, SummaryJob, TpdSummary
+
+class CustomRepresentationSentinel:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+    
+    def __str__(self):
+        return self.name
 
 Default = object()
 Auto    = object()
@@ -40,7 +46,7 @@ class Recog(Procedure):
 
 class TuningSystem:
 
-    NoTransformation = object()
+    NoTransformation = CustomRepresentationSentinel("none")
 
     def __init__(
             self, system, training_args,

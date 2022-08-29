@@ -1,4 +1,4 @@
-from .base import BaseTdpModel, Arch
+from .base import BaseTdpModel, Arch, TdpModelBuilder
 
 TDP_FFNN_LAYER = lambda num_classes: {
     "class": "subnetwork",
@@ -27,7 +27,7 @@ BLSTM_CONFIG = {
     "L2": 0.0001
 }
 
-TPD_BLSTM_NO_LABEL_LAYER = lambda num_classes: {
+TPD_BLSTM_NO_LABEL_LAYER = lambda num_classes, init_tdps: {
     "class": "subnetwork",
     "from": ["fwd_6", "bwd_6"],
     "subnetwork": {
@@ -171,11 +171,20 @@ TDP_OUTPUT_LAYER = {
     "loss_opts": {'error_signal_layer': 'fast_bw/tdps'}
 }
 
+TDP_OUTPUT_LAYER_AS_FUNC = lambda num_classes: TDP_OUTPUT_LAYER
+
 TDP_OUTPUT_LAYER_W_SOFTMAX = {
     "class": "copy",
     "from": "tdps",
     "loss": "via_layer",
     "loss_opts": {'align_layer': 'fast_bw/tdps', 'loss_wrt_to_act_in': 'log_softmax'}
+}
+
+FEATURE_MODEL_BUILDERS = {
+    # 'blstm_no_label': TdpModelBuilder(TDP_BLSTM_NO_LABEL_LAYER, TDP_OUTPUT_LAYER_AS_FUNC),
+    'ffnn': TdpModelBuilder(TDP_FFNN_LAYER, TDP_OUTPUT_LAYER_AS_FUNC),
+    'blstm_no_label_sigmoid': TdpModelBuilder(TPD_BLSTM_NO_LABEL_SIGMOID_LAYER, TDP_OUTPUT_LAYER_AS_FUNC),
+    'blstm': TdpModelBuilder(TPD_BLSTM_LAYER_SIGMOID, TDP_OUTPUT_LAYER_AS_FUNC),
 }
 
 SOFTMAX_ARCHS = [
