@@ -524,10 +524,12 @@ class AverageF0OverDurationJob(Job):
             self.out_hdf.get_path(),
             dim=1, ndim=2
         )
-
+    values = numpy.concatenate(list(avrg_dur_tag_to_value.values()))
+    mean = numpy.mean(values)
+    std = numpy.std(values)
     for segment_tag, avrg in avrg_dur_tag_to_value.items():
       data = numpy.asarray([avrg])
-      data = (data - data.mean()) / data.std()
+      data = (data - mean) / std
       hdf_writer.insert_batch(
         numpy.float32(data),
         [data.shape[1]],

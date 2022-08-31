@@ -328,7 +328,7 @@ class DurationPredictor(nn.Module):
     return softplus
 
 
-class PitchPredictor(nn.Module):
+class VariancePredictor(nn.Module):
   """
     Pitch predictor from FastSpeech 2
     """
@@ -342,7 +342,7 @@ class PitchPredictor(nn.Module):
     :param filter_size:
     :param dropout: default from NVIDIA implementation, differs from other defaults in this network
     """
-    super(PitchPredictor, self).__init__()
+    super(VariancePredictor, self).__init__()
     self.dropout = dropout
 
     self.conv_1 = nn.Conv1d(
@@ -460,6 +460,8 @@ class NARTTSModel(nn.Module):
     kl_beta: float = 1.0,
     calc_speaker_embedding: bool = False,
     use_pitch_pred: bool = False,
+    use_energy_pred: bool = False,
+    duration_add: float = 0.0,
   ):
     super(NARTTSModel, self).__init__()
 
@@ -470,10 +472,11 @@ class NARTTSModel(nn.Module):
     self.use_true_durations = use_true_durations
     self.dump_speaker_embeddings = dump_speaker_embeddings
     self.calc_speaker_embedding = calc_speaker_embedding
-    if dump_vae:
-      assert use_vae, "Needs to use VAE in order to dump it!"
+    assert not use_vae != dump_vae, "Needs to use VAE in order to dump it!"
     self.dump_vae = dump_vae
     self.use_pitch_pred = use_pitch_pred
+    self.use_energy_pred = use_energy_pred
+    self.duration_add = duration_add
 
     # dims
     self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -512,7 +515,7 @@ class NARTTSModel(nn.Module):
     else:
       self.vae = None
     if self.use_pitch_pred:
-      self.pitch_pred = PitchPredictor()
+      self.pitch_pred = VariancePredictor()
       self.pitch_emb = nn.Conv1d(out_dim=2 * self.enc_lstm_dim,
                                  filter_size=3,
                                  padding="same",
@@ -520,6 +523,12 @@ class NARTTSModel(nn.Module):
     else:
       self.pitch_pred = None
       self.pitch_emb = None
+    if self.use_energy_pred:
+      self.energy_pred = VariancePredictor()
+      self.energy_emb = nn.Linear(2 * self.enc_lstm_dim)
+    else:
+      self.energy_pred = None
+      self.energy_emb = None
 
   def __call__(
     self,
@@ -528,6 +537,7 @@ class NARTTSModel(nn.Module):
     speaker_labels: nn.Tensor,
     target_speech: nn.Tensor,
     pitch: Union[nn.Tensor, None],
+    energy: Union[nn.Tensor, None],
     time_dim: nn.Dim,
     label_time: nn.Dim,
     speech_time: Union[nn.Dim, None],
@@ -535,6 +545,7 @@ class NARTTSModel(nn.Module):
     speaker_prior: Union[nn.Tensor, None],
     prior_time: Union[nn.Dim, None],
     pitch_time: Union[nn.Dim, None],
+    energy_time: Union[nn.Dim, None],
   ) -> nn.Tensor:
     """
 
@@ -570,6 +581,9 @@ class NARTTSModel(nn.Module):
         comb = log_var - (mu ** 2) - nn.exp(log_var)
         kl_loss = -0.5 * (1 + comb)
         kl_loss.mark_as_loss(scale=self.kl_scale)
+        speaker_embedding = nn.concat_features(
+          speaker_embedding, latents,
+        )
       else:
         latents = nn.squeeze(speaker_prior, axis=prior_time)
       speaker_embedding = nn.concat(
@@ -615,10 +629,9 @@ class NARTTSModel(nn.Module):
     if self.use_pitch_pred:
       pitch_pred = self.pitch_pred(duration_in, time_dim)
       if self.training:
-        #pitch_loss = nn.squeeze(pitch_pred, axis=pitch_pred.feature_dim)
-        #pitch = nn.squeeze(pitch, axis=pitch.feature_dim)
         pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch_time, out_dim=time_dim)
-        pitch_loss = nn.mean_squared_difference(pitch_pred, pitch)
+        pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch.feature_dim, out_dim=pitch_pred.feature_dim)
+        pitch_loss = nn.squared_difference(pitch_pred, pitch, name="pitch_loss")
         pitch_loss.mark_as_loss()
       pitch_embedding, _ = self.pitch_emb(pitch_pred, in_spatial_dim=time_dim)
       encoder = encoder + pitch_embedding
@@ -636,6 +649,8 @@ class NARTTSModel(nn.Module):
       )
       duration_prediction_loss.mark_as_loss()
     else:
+      if self.duration_add != 0:
+        duration_prediction = duration_prediction + self.duration_add
       rint = nn.rint(duration_prediction)
       duration_int = nn.cast(rint, dtype="int32")
       duration_int = nn.squeeze(duration_int, axis=duration_int.feature_dim)
@@ -651,9 +666,17 @@ class NARTTSModel(nn.Module):
         out_dim=speech_time,
       )
     else:
-      rep, rep_dim = nn.repeat(
-        encoder, axis=time_dim, repetitions=duration_int, out_dim=speech_time
-      )
+      rep, rep_dim = nn.repeat(encoder, axis=time_dim, repetitions=duration_int)
+
+    if self.use_energy_pred:
+      energy_pred = self.energy_pred(rep, rep_dim)
+      if self.training:
+        energy.feature_dim.declare_same_as(energy_pred.feature_dim)
+        energy_time.declare_same_as(rep_dim)
+        energy_loss = nn.squared_difference(energy_pred, energy)
+        energy_loss.mark_as_loss()
+      energy_embedding = self.energy_emb(energy_pred)
+      rep += energy_embedding
 
     # decoder
     dec_lin = self.decoder(
@@ -662,12 +685,8 @@ class NARTTSModel(nn.Module):
 
     # prepare target speech for loss
     if self.training:
-      target_speech, _ = nn.reinterpret_new_dim(
-        target_speech,
-        in_dim=target_speech.feature_dim,
-        out_dim=dec_lin.feature_dim,
-      )
-
+      target_speech.feature_dim.declare_same_as(dec_lin.feature_dim)
+      rep_dim.declare_same_as(speech_time)
       dec_lin_loss = nn.mean_absolute_difference(dec_lin, target_speech)
       dec_lin_loss.mark_as_loss()
 
@@ -691,6 +710,8 @@ def construct_network(
   prior_time: Optional[nn.Dim] = None,  # VAE speaker prior time
   pitch: Optional[nn.Data] = None,  # Pitch information
   pitch_time: Optional[nn.Dim] = None,  # Pitch information
+  energy: Optional[nn.Data] = None,
+  energy_time: Optional[nn.Dim] = None,  # Energy information
   **kwargs
 ):
   net = net_module(**kwargs)
@@ -703,12 +724,14 @@ def construct_network(
     if speaker_prior is not None
     else None,
     pitch=nn.get_extern_data(pitch) if pitch is not None else None,
+    energy=nn.get_extern_data(energy) if energy is not None else None,
     time_dim=time_dim or None,
     label_time=label_time_dim or None,
     speech_time=speech_time_dim or None,
     duration_time=duration_time_dim or None,
     prior_time=prior_time or None,
     pitch_time=pitch_time or None,
+    energy_time=energy_time or None
   )
   out.mark_as_default_output()
 

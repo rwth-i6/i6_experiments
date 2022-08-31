@@ -43,7 +43,7 @@ def get_training_config(
         "cleanup_old_models": True,
         "use_tensorflow": True,
         "tf_log_memory_usage": True,
-        "stop_on_nonfinite_train_score": False,
+        "stop_on_nonfinite_train_score": True,
         "log_batch_size": True,
         "debug_print_layer_output_template": True,
         "cache_size": "0",
@@ -103,6 +103,10 @@ def get_training_config(
     if "use_pitch_pred" in kwargs.keys() and kwargs["use_pitch_pred"]:
         net_func_map["pitch"] = "pitch_data"
         net_func_map["pitch_time"] = "pitch_data_time"
+
+    if "use_energy_pred" in kwargs.keys() and kwargs["use_energy_pred"]:
+        net_func_map["energy"] = "energy_data"
+        net_func_map["energ_time"] = "energy_data_time"
 
     rc_network = Network(
         net_func_name=rc_construction_code.object_name,

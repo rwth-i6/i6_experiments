@@ -903,3 +903,30 @@ def extend_meta_datasets_with_f0(datasets: TTSTrainingDatasets, f0_dataset: tk.P
     datastreams["pitch_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=False)
 
     return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)
+
+
+def extend_meta_datasets_with_pitch(datasets: TTSTrainingDatasets):
+
+    train_meta = deepcopy(datasets.train)
+    train_meta.datasets["energy"] = train_meta.datasets["audio"]
+    train_meta.datasets["energy"]["audio"]["features"] = "mfcc"
+    train_meta.datasets["energy"]["audio"]["num_feature_filters"] = 1
+    del train_meta.datasets["energy"]["audio"]["feature_options"]["min_amp"]
+    train_meta.datasets["energy"]["audio"]["feature_options"]["n_mels"] = 128
+    del train_meta.datasets["energy"]["segment_file"]
+    train_meta.data_map["energy_data"] = ("energy", "data")
+
+    cv_meta = deepcopy(datasets.cv)
+    cv_meta.datasets["energy"] = cv_meta.datasets["audio"]
+    cv_meta.datasets["energy"]["audio"]["features"] = "mfcc"
+    cv_meta.datasets["energy"]["audio"]["num_feature_filters"] = 1
+    del cv_meta.datasets["energy"]["audio"]["feature_options"]["min_amp"]
+    cv_meta.datasets["energy"]["audio"]["feature_options"]["n_mels"] = 128
+    del cv_meta.datasets["energy"]["segment_file"]
+    cv_meta.data_map["energy_data"] = ("energy", "data")
+
+    datastreams = deepcopy(datasets.datastreams)
+    datastreams["energy_data"] = datastreams["audio_features"]  # type: AudioFeatureDatastream
+    datastreams["energy_data"].options.num_feature_filters = 1
+
+    return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)

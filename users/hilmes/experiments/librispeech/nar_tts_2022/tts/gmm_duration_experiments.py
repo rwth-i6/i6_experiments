@@ -140,5 +140,26 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones):
             )
             synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
 
+            if upsampling == "repeat" and align_name == "tts_align_sat" and dur_pred == "pred":
+                for add in [0.5]:
+                    synth_corpus = synthesize_with_splits(
+                        name=exp_name + f"/{dur_pred}_add_{add}",
+                        reference_corpus=reference_corpus.corpus_file,
+                        corpus_name="train-clean-100",
+                        job_splits=job_splits,
+                        datasets=synth_dataset,
+                        returnn_root=returnn_root,
+                        returnn_exe=returnn_exe,
+                        returnn_common_root=returnn_common_root,
+                        checkpoint=train_job.out_checkpoints[200],
+                        vocoder=default_vocoder,
+                        embedding_size=256,
+                        speaker_embedding_size=256,
+                        gauss_up=(upsampling == "gauss"),
+                        use_true_durations=(dur_pred == "cheat"),
+                        duration_add=add
+                    )
+                    synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
+
     return synthetic_data_dict
 
