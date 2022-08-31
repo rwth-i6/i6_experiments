@@ -1,6 +1,5 @@
 import soundfile as sf
 import numpy as np
-import multiprocessing
 import logging
 import os
 import matplotlib.pyplot as plt
@@ -50,41 +49,50 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         self.cut_and_stitch_segments_rqmt = {
             "time": 8,
             "mem": 16,
-            "cpu": self.n_workers,
+            "cpu": 1,
         }
-        self.length_dist_rqmt = {"time": 2, "mem": 1, "cpu": self.n_workers}
+        self.length_dist_rqmt = None  # noqa, for backwards compatibility
 
     def tasks(self):
-        yield Task("cut_and_stitch_segments", rqmt=self.cut_and_stitch_segments_rqmt)
-        yield Task("plot_length_distribution", rqmt=self.length_dist_rqmt)
+        yield Task(
+            "cut_and_stitch_segments",
+            rqmt=self.cut_and_stitch_segments_rqmt,
+            args=range(1, self.n_workers + 1),
+        )
+        yield Task("plot_length_distribution", mini_task=True)
 
-    def cut_and_stitch_segments(self):
-        self.corpus_object = corpus.Corpus()
-        self.corpus_object.load(self.bliss_corpus_file.get_path())
-        recordings = list(self.corpus_object.all_recordings())
-
+    def cut_and_stitch_segments(self, task_id):
+        corpus_object = corpus.Corpus()
+        corpus_object.load(self.bliss_corpus_file.get_path())
+        recordings = list(corpus_object.all_recordings())
         print(f"{len(recordings)} recordings detected")
-        print(f"launching {self.n_workers} processes")
+        recordings = recordings[task_id - 1 :: self.n_workers]
+        print(f"processing {len(recordings)} of them")
 
-        tasks = [(r, self.out_audio_path.get_path(), self.file_extension) for r in recordings]
-        with multiprocessing.Pool(processes=self.n_workers) as pool:
-            for i, _ in enumerate(pool.imap_unordered(self.cut_file, tasks)):
-                if i % 100 == 0:
-                    logging.info(f"{i} of {len(tasks)} files done")
+        file_lengths = []
+        for rec_idx, rec in enumerate(recordings):
+            self.cut_file(rec, self.out_audio_path.get_path(), self.file_extension)
+            for file_name in os.listdir(self.out_audio_path.get_path()):
+                if file_name.startswith(rec.name):
+                    file_length = self.get_length(
+                        os.path.join(self.out_audio_path.get_path(), file_name)
+                    )
+                    file_lengths.append(str(file_length))
+            if rec_idx % 100 == 0:
+                logging.info(f"{rec_idx} of {len(recordings)} files done")
+        with open(f"file_lengths.{task_id}", "w") as f:
+            f.write("\n".join(file_lengths))
 
     def plot_length_distribution(self):
-        files = [
-            f"{self.out_audio_path.get_path()}/{f}"
-            for f in os.listdir(self.out_audio_path.get_path())
-            if os.path.splitext(f)[1] == f".{self.file_extension}"
-        ]
-        num_files = len(files)
+        file_lengths = []
+        for file_name in os.listdir():
+            if file_name.startswith("file_lengths."):
+                with open(file_name, "r") as f:
+                    file_lengths += [
+                        float(file_length.strip()) for file_length in f.readlines()
+                    ]
 
-
-        with multiprocessing.Pool(processes=self.n_workers) as pool:
-            file_lengths = list(pool.imap_unordered(self.get_length, files, 100))
-
-        avg_length = round(sum(file_lengths) / num_files, 2)
+        avg_length = round(sum(file_lengths) / len(file_lengths), 2)
         length = round(sum(file_lengths) / 3600, 2)
         fig, ax = plt.subplots()
         ax.hist(file_lengths, bins=80)
@@ -104,8 +112,7 @@ class CutAndStitchSpeechSegmentsFromCorpusJob(Job):
         f = sf.SoundFile(file)
         return f.frames / f.samplerate
 
-    def cut_file(self, task):
-        recording, root_out, extension = task
+    def cut_file(self, recording, root_out, extension):
         recording_path = recording.audio
         recording_name = recording.name
 
