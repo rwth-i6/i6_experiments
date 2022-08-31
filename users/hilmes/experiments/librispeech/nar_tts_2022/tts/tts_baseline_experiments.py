@@ -270,171 +270,97 @@ def ctc_baseline():
         )
         synthetic_data_dict[f"ctc_vae_{duration}"] = synth_corpus
 
-
-    exp_name = name + "/f0_pred"
-    returnn_common_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn_common",
-        commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
-        checkout_folder_name="returnn_common",
-    ).out_repository
-    returnn_root_job = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="ce4366ff0caafc2e4b349fd2a189870f3c76f630",  # fixes shape error in normal
-    )
-    returnn_root = returnn_root_job.out_repository
-    f0_hdf = get_ls_100_f0_hdf(durations=durations, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=exp_name)
-    f0_training_datasets = extend_meta_datasets_with_f0(datasets=training_datasets, f0_dataset=f0_hdf)
-
-    train_config = get_training_config(
-        returnn_common_root=returnn_common_root,
-        training_datasets=f0_training_datasets,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        use_pitch_pred=True,
-    )
-    train_job = tts_training(
-        config=train_config,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        prefix=exp_name,
-        num_epochs=200,
-    )
-    forward_config = get_forward_config(
-        returnn_common_root=returnn_common_root,
-        forward_dataset=TTSForwardData(
-            dataset=f0_training_datasets.cv, datastreams=f0_training_datasets.datastreams
-        ),
-        embedding_size=256,
-        speaker_embedding_size=256,
-        calc_speaker_embedding=True,
-        use_pitch_prediction=True
-    )
-    gl_swer(
-        name=exp_name,
-        vocoder=default_vocoder,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        checkpoint=train_job.out_checkpoints[200],
-        config=forward_config,
-    )
-    speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        datasets=training_datasets,
-        prefix=exp_name,
-        train_job=train_job
-    )
-    synth_dataset = get_inference_dataset(
-        corpus,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        datastreams=training_datasets.datastreams,
-        speaker_embedding_hdf=speaker_embedding_hdf,
-        speaker_prior_hdf=speaker_prior_hdf,
-        durations=durations,
-        process_corpus=False,
-    )
-    for duration in ["pred", "cheat"]:
-        synth_corpus = synthesize_with_splits(
-            name=exp_name + f"/{duration}",
-            reference_corpus=reference_corpus.corpus_file,
-            corpus_name="train-clean-100",
-            job_splits=job_splits,
-            datasets=synth_dataset,
-            returnn_root=returnn_root,
-            returnn_exe=returnn_exe,
+    for variance in ["f0", "energy", "f0_energy"]:
+        exp_name = name + f"/{variance}_pred"
+        returnn_common_root = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn_common",
+            commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
+            checkout_folder_name="returnn_common",
+        ).out_repository
+        returnn_root_job = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn",
+            commit="ce4366ff0caafc2e4b349fd2a189870f3c76f630",  # fixes shape error in normal
+        )
+        returnn_root = returnn_root_job.out_repository
+        var_training_datasets = deepcopy(training_datasets)
+        if "f0" in variance:
+            f0_hdf = get_ls_100_f0_hdf(durations=durations, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=exp_name)
+            var_training_datasets = extend_meta_datasets_with_f0(datasets=training_datasets, f0_dataset=f0_hdf)
+        if "energy" in variance:
+            var_training_datasets = extend_meta_datasets_with_pitch(var_training_datasets)
+        kwargs = {}
+        if "f0" in variance:
+            kwargs["use_pitch_pred"] = True
+        if "energy" in variance:
+            kwargs["use_energy_pred"] = True
+        train_config = get_training_config(
             returnn_common_root=returnn_common_root,
-            checkpoint=train_job.out_checkpoints[200],
-            vocoder=default_vocoder,
+            training_datasets=var_training_datasets,
             embedding_size=256,
             speaker_embedding_size=256,
-            use_true_durations=(duration == "cheat"),
-            use_pitch_prediction=True,
+            **kwargs
         )
-        synthetic_data_dict[f"ctc_f0_{duration}"] = synth_corpus
-
-    exp_name = name + "/energy_pred"
-    returnn_common_root = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn_common",
-        commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
-        checkout_folder_name="returnn_common",
-    ).out_repository
-    returnn_root_job = CloneGitRepositoryJob(
-        "https://github.com/rwth-i6/returnn",
-        commit="ce4366ff0caafc2e4b349fd2a189870f3c76f630",  # fixes shape error in normal
-    )
-    returnn_root = returnn_root_job.out_repository
-    pitch_training_datasets = extend_meta_datasets_with_pitch(datasets=training_datasets)
-
-    train_config = get_training_config(
-        returnn_common_root=returnn_common_root,
-        training_datasets=pitch_training_datasets,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        use_energy_prediction=True,
-    )
-    train_job = tts_training(
-        config=train_config,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        prefix=exp_name,
-        num_epochs=200,
-    )
-    forward_config = get_forward_config(
-        returnn_common_root=returnn_common_root,
-        forward_dataset=TTSForwardData(
-            dataset=pitch_training_datasets.cv, datastreams=pitch_training_datasets.datastreams
-        ),
-        embedding_size=256,
-        speaker_embedding_size=256,
-        calc_speaker_embedding=True,
-        use_energy_prediction=True
-    )
-    gl_swer(
-        name=exp_name,
-        vocoder=default_vocoder,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        checkpoint=train_job.out_checkpoints[200],
-        config=forward_config,
-    )
-    speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
-        returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
-        datasets=training_datasets,
-        prefix=exp_name,
-        train_job=train_job
-    )
-    synth_dataset = get_inference_dataset(
-        corpus,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        datastreams=training_datasets.datastreams,
-        speaker_embedding_hdf=speaker_embedding_hdf,
-        speaker_prior_hdf=speaker_prior_hdf,
-        durations=durations,
-        process_corpus=False,
-    )
-    for duration in ["pred", "cheat"]:
-        synth_corpus = synthesize_with_splits(
-            name=exp_name + f"/{duration}",
-            reference_corpus=reference_corpus.corpus_file,
-            corpus_name="train-clean-100",
-            job_splits=job_splits,
-            datasets=synth_dataset,
-            returnn_root=returnn_root,
+        train_job = tts_training(
+            config=train_config,
             returnn_exe=returnn_exe,
+            returnn_root=returnn_root,
+            prefix=exp_name,
+            num_epochs=200,
+        )
+        forward_config = get_forward_config(
             returnn_common_root=returnn_common_root,
-            checkpoint=train_job.out_checkpoints[200],
-            vocoder=default_vocoder,
+            forward_dataset=TTSForwardData(
+                dataset=var_training_datasets.cv, datastreams=var_training_datasets.datastreams
+            ),
             embedding_size=256,
             speaker_embedding_size=256,
-            use_true_durations=(duration == "cheat"),
-            use_energy_prediction=True,
+            calc_speaker_embedding=True,
+            **kwargs
         )
-        synthetic_data_dict[f"ctc_energy_{duration}"] = synth_corpus
+        gl_swer(
+            name=exp_name,
+            vocoder=default_vocoder,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+        )
+        speaker_embedding_hdf = build_speaker_embedding_dataset(
+            returnn_common_root=returnn_common_root,
+            returnn_exe=returnn_exe,
+            returnn_root=returnn_root,
+            datasets=training_datasets,
+            prefix=exp_name,
+            train_job=train_job
+        )
+        synth_dataset = get_inference_dataset(
+            corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            speaker_prior_hdf=speaker_prior_hdf,
+            durations=durations,
+            process_corpus=False,
+        )
+        for duration in ["pred", "cheat"]:
+            synth_corpus = synthesize_with_splits(
+                name=exp_name + f"/{duration}",
+                reference_corpus=reference_corpus.corpus_file,
+                corpus_name="train-clean-100",
+                job_splits=job_splits,
+                datasets=synth_dataset,
+                returnn_root=returnn_root,
+                returnn_exe=returnn_exe,
+                returnn_common_root=returnn_common_root,
+                checkpoint=train_job.out_checkpoints[200],
+                vocoder=default_vocoder,
+                embedding_size=256,
+                speaker_embedding_size=256,
+                use_true_durations=(duration == "cheat"),
+                **kwargs
+            )
+            synthetic_data_dict[f"ctc_{variance}_{duration}"] = synth_corpus
 
     return synthetic_data_dict
 

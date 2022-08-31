@@ -926,7 +926,12 @@ def extend_meta_datasets_with_pitch(datasets: TTSTrainingDatasets):
     cv_meta.data_map["energy_data"] = ("energy", "data")
 
     datastreams = deepcopy(datasets.datastreams)
-    datastreams["energy_data"] = datastreams["audio_features"]  # type: AudioFeatureDatastream
-    datastreams["energy_data"].options.num_feature_filters = 1
+    options = deepcopy(datastreams["audio_features"].options)
+    from dataclasses import replace
+    replace(options, num_feature_filters=1)
+    datastreams["energy_data"] = AudioFeatureDatastream(
+        available_for_inference=datastreams["audio_features"].available_for_inference,
+        options=options
+    )
 
     return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)

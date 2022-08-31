@@ -106,7 +106,7 @@ def get_training_config(
 
     if "use_energy_pred" in kwargs.keys() and kwargs["use_energy_pred"]:
         net_func_map["energy"] = "energy_data"
-        net_func_map["energ_time"] = "energy_data_time"
+        net_func_map["energy_time"] = "energy_data_time"
 
     rc_network = Network(
         net_func_name=rc_construction_code.object_name,
