@@ -2,7 +2,6 @@ __all__ = ["ReturnnRasrDataInput", "OggZipHdfDataInput", "HybridArgs", "NnRecogA
 
 from typing import Any, Dict, List, Optional, Type, Union, TypedDict
 
-from i6_core.rasr import RasrConfig
 from sisyphus import tk
 
 import i6_core.am as am
@@ -260,8 +259,8 @@ class NnTrainingArgs(TypedDict):
     cpu_rqmt: Optional[int]
     device: Optional[str]
     disregarded_classes: Optional[Any]
-    extra_rasr_config: Optional[RasrConfig]
-    extra_rasr_post_config: Optional[RasrConfig]
+    extra_rasr_config: Optional[rasr.RasrConfig]
+    extra_rasr_post_config: Optional[rasr.RasrConfig]
     horovod_num_processes: Optional[int]
     keep_epochs: Optional[bool]
     log_verbosity: Optional[int]
