@@ -278,7 +278,7 @@ class HybridArgs:
         self,
         returnn_training_configs: Dict[str, returnn.ReturnnConfig],
         returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: Dict[str, NnTrainingArgs],
+        training_args: NnTrainingArgs,
         recognition_args: Dict[str, NnRecogArgs],
         test_recognition_args: Optional[Dict[str, NnRecogArgs]] = None,
     ):
