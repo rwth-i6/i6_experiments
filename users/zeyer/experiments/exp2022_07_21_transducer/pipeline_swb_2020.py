@@ -11,7 +11,7 @@ Note: this file is loaded in different contexts:
 """
 
 import dataclasses
-from typing import Any, Optional
+from typing import Optional
 from sisyphus import tk
 from .task import Task, get_switchboard_task
 from .model import ModelWithCheckpoint, AlignmentCollection
@@ -76,4 +76,5 @@ def extended_model_training(*,
                             data: nn.Data, data_spatial_dim: nn.Dim,
                             align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
                             ) -> Model:
+    """Function is run within RETURNN."""
     pass  # TODO

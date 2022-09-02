@@ -16,13 +16,13 @@ def recog(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
-        recog_out = recog_single(dataset=dataset, model=model)
+        recog_out = recog_dataset(dataset=dataset, model=model)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
 
 
-def recog_single(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
+def recog_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
     """
     recog on the specific dataset
     """
