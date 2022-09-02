@@ -5,5 +5,9 @@ from i6_experiments.users.zeyer.experiments.chris_hybrid_2021.librispeech import
 
 # TODO: is shuffling correct?
 
-test_run()
+# test_run()
 # run()
+
+
+def py():  # sisyphus
+    test_run()
