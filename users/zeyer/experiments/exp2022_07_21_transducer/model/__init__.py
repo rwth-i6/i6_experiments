@@ -13,7 +13,7 @@ ModelDefinition = Any
 
 
 @dataclasses.dataclass(frozen=True)
-class Model:
+class ModelWithCheckpoint:
     """
     Model
     """

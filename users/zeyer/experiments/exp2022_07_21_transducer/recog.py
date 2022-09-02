@@ -7,12 +7,12 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
 from returnn_common.datasets.interface import DatasetConfig
 from .task import Task, ScoreResultCollection
-from .model import Model
+from .model import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
 from i6_experiments.users.zeyer import tools_paths
 
 
-def recog(task: Task, model: Model) -> ScoreResultCollection:
+def recog(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
@@ -22,7 +22,7 @@ def recog(task: Task, model: Model) -> ScoreResultCollection:
     return task.collect_score_results_func(outputs)
 
 
-def recog_single(dataset: DatasetConfig, model: Model) -> RecogOutput:
+def recog_single(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
     """
     recog on the specific dataset
     """

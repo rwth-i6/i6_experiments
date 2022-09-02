@@ -7,9 +7,11 @@ import dataclasses
 from typing import Any, Optional
 from sisyphus import tk
 from .task import Task, ScoreResultCollection, get_switchboard_task
-from .model import Model, get_model_definition_from_module
+from .model import ModelWithCheckpoint, get_model_definition_from_module
 from .train import train
 from .recog import recog
+from returnn_common import nn
+from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 # This an alignment for one specific dataset.
 # TODO Type unclear... this is a dataset as well?
@@ -20,9 +22,19 @@ AlignmentCollection = Any
 
 @dataclasses.dataclass(frozen=True)
 class State:
-    task: Task
-    model: Model
+    task: Task  # including dataset etc
+    model: ModelWithCheckpoint
     alignment: Optional[AlignmentCollection] = None
+
+
+class Model(nn.Module):
+    """
+    Model
+    """
+
+    def __init__(self):
+        super(Model, self).__init__()
+        self.encoder = BlstmCnnSpecAugEncoder(num_layers=6)
 
 
 def from_scratch_training(task: Task) -> State:

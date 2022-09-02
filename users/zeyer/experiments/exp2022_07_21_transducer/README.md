@@ -34,3 +34,19 @@ Current thoughts:
 Model def / training (recog?), one file, or one class/object?
 Or maybe even better, each pipeline, one file? Each experiment is one file.
 All common building blocks would be elsewhere, so such file could be quite short.
+These building blocks will probably be changed over time.
+We can add options to them, or just make ..._v2, ..._v3 versions.
+The building blocks should always stay compatible (both hash and behavior).
+
+Following this thought, one file for the whole thing, some open questions:
+
+- The model def, also in there? Or is this supposed to be a building block?
+Actually, to decide what should be directly in the file, and what should be a building block:
+Depends on the type of experiments, what needs to be changed.
+In this case, it would be the multi-step pipeline itself, and the model defs (per step). 
+- What is the model def? Some func which returns an instance of `nn.Module`? Or better our custom class derived from `nn.Module`.
+It gets `train: bool` as an argument. Or maybe not, and we rely on the PyTorch-like train flag of `nn.Module`?
+At this point, no tensors are really created except of the parameters.
+Although, the lazy param init is important to be considered, so once we did not feed any input, it might not have created all params!
+- We need two additional separate functions, defining the training and the recog, based on the model def.
+- How to handle pretraining?
