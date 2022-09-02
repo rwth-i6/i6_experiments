@@ -17,6 +17,7 @@ from .task import Task, get_switchboard_task
 from .model import ModelWithCheckpoint, AlignmentCollection
 from .train import train
 from .recog import recog
+from .align import align
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
@@ -25,14 +26,17 @@ def sis_config_main():
     """sis config function"""
     task = get_switchboard_task()
 
-    step1 = sis_from_scratch_training(task)
-    step2 = sis_get_alignments(step1)
-    step3 = sis_train_extended(step2)  # use step1 model params; different to the paper
-    step4 = sis_train_extended(step3)
+    step1_model = train(task=task, model_def=from_scratch_training)
+    step2_alignment = align(task=task, model=step1_model)
+    # use step1 model params; different to the paper
+    step3_model = train(
+        task=task, model_def=extended_model_training, alignment=step2_alignment, init_params=step1_model.checkpoint)
+    step4_model = train(
+        task=task, model_def=extended_model_training, alignment=step2_alignment, init_params=step3_model.checkpoint)
 
-    tk.register_output('step1', recog(task, step1.model).main_measure_value)
-    tk.register_output('step3', recog(task, step3.model).main_measure_value)
-    tk.register_output('step4', recog(task, step4.model).main_measure_value)
+    tk.register_output('step1', recog(task, step1_model).main_measure_value)
+    tk.register_output('step3', recog(task, step3_model).main_measure_value)
+    tk.register_output('step4', recog(task, step4_model).main_measure_value)
 
 
 py = sis_config_main  # `py` is the default sis config function name
@@ -68,15 +72,8 @@ def from_scratch_training(*,
     return model
 
 
-def sis_from_scratch_training(task: Task) -> State:
-    model = train(task=task, model=from_scratch_training)
-    return State(task=task, model=model)
-
-
-def sis_get_alignments(state: State) -> State:
-    pass
-
-
-def sis_train_extended(state: State) -> State:
-    pass
-
+def extended_model_training(*,
+                            data: nn.Data, data_spatial_dim: nn.Dim,
+                            align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
+                            ) -> Model:
+    pass  # TODO

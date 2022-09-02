@@ -28,7 +28,6 @@ class ModelForFramewiseTrainDef(Protocol):
     """
     def __call__(self, *,
                  data: nn.Data, data_spatial_dim: nn.Dim,
-                 targets: nn.Data, targets_spatial_dim: nn.Dim,
                  align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
                  ) -> nn.Module:
         raise NotImplementedError
