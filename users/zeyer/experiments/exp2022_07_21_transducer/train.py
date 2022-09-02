@@ -2,25 +2,25 @@
 helpers for training
 """
 
+from __future__ import annotations
+from typing import Optional, Union
+import numpy
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
-from .model import ModelWithCheckpoint, ModelDefinition
+from .model import ModelWithCheckpoint, Checkpoint, AlignmentCollection, ModelForTrainDef, ModelForFramewiseTrainDef
 from .task import Task
 
 
-def train(task: Task, model_definition: ModelDefinition) -> ModelWithCheckpoint:
+def train(*,
+          task: Task,
+          alignment: Optional[AlignmentCollection] = None,
+          model_def: Union[ModelForTrainDef, ModelForFramewiseTrainDef],
+          init_params: Optional[Checkpoint] = None,
+          ) -> ModelWithCheckpoint:
     """train"""
     num_epochs = 100
-    returnn_train_job = ReturnnTrainingJob(
-        _build_train_config(task=task, model_definition=model_definition),
-        log_verbosity=5, num_epochs=num_epochs,
-        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
-    return ModelWithCheckpoint(definition=model_definition, checkpoint=returnn_train_job.out_checkpoints[num_epochs])
 
-
-def _build_train_config(task: Task, model_definition: ModelDefinition):
-    import numpy
     returnn_train_config_dict = dict(
         use_tensorflow=True,
         # flat_net_construction=True,
@@ -57,7 +57,7 @@ def _build_train_config(task: Task, model_definition: ModelDefinition):
             [
                 serialization.ExplicitHash("my_model"),  # TODO
                 serialization.PythonEnlargeStackWorkaroundCode,
-                serialization.NonhashedCode(model_py_code_str),
+                serialization.NonhashedCode(model_py_code_str),  # TODO ...
             ]
         )],
         post_config=dict(  # not hashed
@@ -71,4 +71,12 @@ def _build_train_config(task: Task, model_definition: ModelDefinition):
         ),
         sort_config=False,
     )
-    return returnn_train_config
+
+    returnn_train_job = ReturnnTrainingJob(
+        returnn_train_config,
+        log_verbosity=5, num_epochs=num_epochs,
+        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+
+    return ModelWithCheckpoint(
+        definition=model_def,
+        checkpoint=returnn_train_job.out_checkpoints[num_epochs])
