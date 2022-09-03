@@ -24,8 +24,8 @@ import i6_core.rasr as rasr
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
-from i6_experiments.users.luescher.cart.librispeech import FoldedCartQuestions
 
+from i6_experiments.common.datasets.librispeech.cart import CartQuestionsWithoutStress
 
 # -------------------- helpers --------------------
 # -------------------- functions --------------------
@@ -270,14 +270,14 @@ def get_cart_args(
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
 ):
-    cart_questions_class = FoldedCartQuestions(
+    cart_questions_class = CartQuestionsWithoutStress(
         max_leaves=max_leaves,
         min_obs=min_obs,
         add_unknown=add_unknown,
     )
 
     cart_questions = cart.PythonCartQuestions(
-        phonemes=cart_questions_class.phonemes_boundary_extra,
+        phonemes=cart_questions_class.phonemes_boundary_special_str,
         steps=cart_questions_class.steps,
         max_leaves=max_leaves,
         hmm_states=hmm_states,
