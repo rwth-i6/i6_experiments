@@ -6,6 +6,7 @@ recog helpers
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
 from returnn_common.datasets.interface import DatasetConfig
+from returnn_common import nn
 from .task import Task, ScoreResultCollection
 from .model import ModelWithCheckpoint
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
@@ -40,3 +41,16 @@ def recog_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOu
 
 def _search_config(model_def) -> ReturnnConfig:
     pass  # TODO
+
+
+def search(decoder, *, beam_size: int = 12) -> nn.Tensor:
+    """search"""
+    loop = nn.Loop(axis=decoder.align_spatial_dim)
+    loop.max_seq_len = decoder.max_seq_len()
+    loop.state = decoder.initial_state()
+    with loop:
+        log_prob, loop.state.decoder = decoder(loop.state.target, state=loop.state.decoder)
+        loop.state.target = nn.choice(log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size)
+        loop.end(decoder.end(loop.state.target, loop.state.decoder), include_eos=False)
+        found = loop.stack(loop.state.target)
+    return found
