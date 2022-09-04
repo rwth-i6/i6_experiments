@@ -42,14 +42,6 @@ def sis_config_main():
 py = sis_config_main  # `py` is the default sis config function name
 
 
-@dataclasses.dataclass(frozen=True)
-class State:
-    """current state of the pipeline"""
-    task: Task  # including dataset etc
-    model: ModelWithCheckpoint
-    alignment: Optional[AlignmentCollection] = None
-
-
 class Model(nn.Module):
     """Model definition"""
 
