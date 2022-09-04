@@ -10,11 +10,8 @@ Note: this file is loaded in different contexts:
 
 """
 
-import dataclasses
-from typing import Optional
 from sisyphus import tk
-from .task import Task, get_switchboard_task
-from .model import ModelWithCheckpoint, AlignmentCollection
+from .task import get_switchboard_task
 from .train import train
 from .recog import recog
 from .align import align
