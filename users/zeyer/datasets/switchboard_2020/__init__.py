@@ -78,13 +78,27 @@ class SwitchboardExternSprint(DatasetConfig):
     """
     Get extern data
     """
+    from returnn.tf.util.data import FeatureDim, SpatialDim, batch_dim
+    time_dim = SpatialDim("time")
+    feature_dim = FeatureDim("audio", 40)  # Gammatone 40-dim
+    out_spatial_dim = SpatialDim("out-spatial")
+    classes_dim = FeatureDim("vocab", dimension=self.vocab.get_num_classes())
     d = {
-        "data": {"dim": 40},  # Gammatone 40-dim
+        "data": {"dim_tags": [batch_dim, time_dim, feature_dim]},
     }
     if self.vocab:
         target = "orth_classes"
-        d[target] = {"dim": self.vocab.get_num_classes(), "vocab": self.vocab.get_opts(), "sparse": True}
+        d[target] = {
+            "dim_tags": [batch_dim, out_spatial_dim],
+            "sparse_dim": classes_dim,
+            "vocab": self.vocab.get_opts()
+        }
     return d
+
+  def get_default_target(self) -> Optional[str]:
+    if self.vocab:
+      return "orth_classes"
+    return None
 
   def get_train_dataset(self) -> Dict[str, Any]:
     """
