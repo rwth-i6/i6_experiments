@@ -70,7 +70,7 @@ def train(*,
                 serialization.Import(train_def, "_train_def"),
                 serialization.Import(_returnn_get_network, "get_network"),
                 serialization.ExplicitHash(extra_hash),
-                serialization.PythonEnlargeStackWorkaroundCode,
+                serialization.PythonEnlargeStackWorkaroundNonhashedCode,
             ]
         )],
         post_config=dict(  # not hashed

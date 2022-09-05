@@ -98,7 +98,7 @@ def run():
     python_epilog=[serialization.Collection(
       [
         serialization.ExplicitHash("my_model"),
-        serialization.PythonEnlargeStackWorkaroundCode,
+        serialization.PythonEnlargeStackWorkaroundNonhashedCode,
         serialization.NonhashedCode(model_py_code_str),
       ]
     )],
