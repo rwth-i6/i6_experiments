@@ -20,7 +20,14 @@ def train(*,
           init_params: Optional[Checkpoint] = None,
           extra_hash: Any = None,
           ) -> ModelWithCheckpoint:
-    """train"""
+    """
+    train
+
+    Note on hash:
+    - model_def/train_def: just the module name + function name goes into the hash, not the content!
+    - extra_hash: explicitly goes into the hash
+    - others just as one would expect
+    """
     num_epochs = 150
 
     returnn_train_config_dict = dict(
