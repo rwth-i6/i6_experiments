@@ -12,7 +12,11 @@ from typing import Dict
 
 class CartQuestionsWithoutStress:
     def __init__(
-        self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True
+        self,
+        max_leaves: int = 12001,
+        min_obs: int = 1000,
+        add_unknown: bool = True,
+        n_phones: int = 3,
     ):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
@@ -70,6 +74,7 @@ class CartQuestionsWithoutStress:
         )
         self.phonemes_boundary_special_str = " ".join(self.phonemes_boundary_special)
 
+        assert n_phones in [2, 3], "Only diphone and triphone contexts are allowed"
         self.steps = [
             {
                 "name": "silence",
@@ -134,7 +139,9 @@ class CartQuestionsWithoutStress:
                     },
                     {
                         "type": "for-each-key",
-                        "keys": "history[0] central future[0]",
+                        "keys": (" ").join(
+                            "history[0] central future[0]".split(" ")[:n_phones]
+                        ),
                         "questions": [
                             {
                                 "type": "for-each-value",
@@ -367,7 +374,9 @@ class CartQuestionsWithoutStress:
 
 
 class CartQuestionsWithStress:
-    def __init__(self, max_leaves=12001, min_obs=1000, add_unknown: bool = True):
+    def __init__(
+        self, max_leaves=12001, min_obs=1000, add_unknown: bool = True, n_phones=3
+    ):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.boundary = "#"
@@ -454,6 +463,7 @@ class CartQuestionsWithStress:
         )
         self.phonemes_boundary_special_str = " ".join(self.phonemes_boundary_special)
 
+        assert n_phones in [2, 3], "Only diphone and triphone contexts are allowed"
         self.steps = [
             {
                 "name": "silence",
@@ -518,7 +528,9 @@ class CartQuestionsWithStress:
                     },
                     {
                         "type": "for-each-key",
-                        "keys": "history[0] central future[0]",
+                        "keys": (" ").join(
+                            "history[0] central future[0]".split(" ")[:n_phones]
+                        ),
                         "questions": [
                             {
                                 "type": "for-each-value",
