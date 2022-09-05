@@ -293,11 +293,15 @@ class Import(SerializerObject):
         self,
         code_object_path: Union[str, Any],
         import_as: Optional[str] = None,
+        *,
+        use_for_hash: bool = True,
+        ignore_import_as_for_hash: bool = False,
     ):
         """
         :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
             This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
         :param import_as: if given, the code object will be imported as this name
+        :param use_for_hash:
         """
         super().__init__()
         if not isinstance(code_object_path, str):
@@ -315,6 +319,8 @@ class Import(SerializerObject):
         self.module = ".".join(self.code_object.split(".")[:-1])
         self.package = ".".join(self.code_object.split(".")[:-2])
         self.import_as = import_as
+        self.use_for_hash = use_for_hash
+        self.ignore_import_as_for_hash = ignore_import_as_for_hash
 
     def get(self) -> str:
         """get. this code is run in the task"""
@@ -323,7 +329,7 @@ class Import(SerializerObject):
         return f"from {self.module} import {self.object_name}\n"
 
     def _sis_hash(self):
-        if self.import_as:
+        if self.import_as and not self.ignore_import_as_for_hash:
             return sis_hash_helper(
                 {"code_object": self.code_object, "import_as": self.import_as}
             )
@@ -403,9 +409,7 @@ class _NonhashedSerializerObject(SerializerObject):
     use_for_hash = False
 
     def _sis_hash(self):
-        raise Exception(
-            f"({self.__class__.__name__}) must not be hashed"
-        )
+        raise Exception(f"({self.__class__.__name__}) must not be hashed")
 
 
 class NonhashedCode(_NonhashedSerializerObject):
