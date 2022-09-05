@@ -15,19 +15,11 @@ Note on the hash of the model definition:
 This is explicit, via the version object below,
 and via the module name (__name__; this includes the package name),
 and via the model def function name.
-TODO hash might still be incomplete, what about recog, align function? also function name?
 
-TODO
-  - what interface for the functions? how to get extern data?
-    - should be flexible to different tasks (datasets)
-    - should be simple (obviously!)
-    - need to define training and recognition (alignment); separate functions? single function?
-    - maybe separate function just for creating the Model instance, or just kwargs for Model (but epoch dependent...)
-      which is shared between training and recognition
-        -> get_model(epoch) -> Model
-      then search is always the same, given this function
-
-
+Note on the motivation for the interface:
+- should be flexible to different tasks (datasets)
+- should be simple (obviously!)
+- for training and recognition (alignment)
 - need to use dynamic get_network because we don't want to run the net code in the root config
 
 """
