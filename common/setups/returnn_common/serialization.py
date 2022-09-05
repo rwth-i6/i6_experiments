@@ -482,7 +482,7 @@ class ExplicitHash(SerializerObject):
         return sis_hash_helper(self.hash)
 
 
-PythonEnlargeStackWorkaroundCode = NonhashedCode(
+PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(
     textwrap.dedent(
         """\
         # https://github.com/rwth-i6/returnn/issues/957
