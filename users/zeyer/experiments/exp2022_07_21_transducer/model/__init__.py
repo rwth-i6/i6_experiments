@@ -2,34 +2,45 @@
 Model logic
 """
 
-from typing import Protocol, List, Dict
+from typing import Protocol, TypeVar, List, Dict
 import dataclasses
 from sisyphus import tk
 from i6_core.returnn.training import Checkpoint
 from returnn_common import nn
 
 
-class ModelForTrainDef(Protocol):
+ModelT = TypeVar("ModelT", bound=nn.Module)
+
+
+class ModelDef(Protocol[ModelT]):
     """
-    Creates the model for training, and defines the losses (mark_as_loss).
-    Returns the model root module.
+    Creates the model, per epoch
     """
-    def __call__(self, *,
-                 data: nn.Data, data_spatial_dim: nn.Dim,
-                 targets: nn.Data, targets_spatial_dim: nn.Dim
-                 ) -> nn.Module:
+    def __call__(self, *, epoch: int) -> ModelT:
         raise NotImplementedError
 
 
-class ModelForFramewiseTrainDef(Protocol):
+class TrainDef(Protocol[ModelT]):
     """
-    Creates the model for training, and defines the losses (mark_as_loss).
-    Returns the model root module.
+    Defines the losses (mark_as_loss).
     """
     def __call__(self, *,
+                 model: ModelT,
+                 data: nn.Data, data_spatial_dim: nn.Dim,
+                 targets: nn.Data, targets_spatial_dim: nn.Dim
+                 ):
+        raise NotImplementedError
+
+
+class FramewiseTrainDef(Protocol[ModelT]):
+    """
+    Defines the losses (mark_as_loss).
+    """
+    def __call__(self, *,
+                 model: ModelT,
                  data: nn.Data, data_spatial_dim: nn.Dim,
                  align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
-                 ) -> nn.Module:
+                 ):
         raise NotImplementedError
 
 
@@ -38,7 +49,7 @@ class ModelWithCheckpoint:
     """
     Model
     """
-    definition: ModelForTrainDef
+    definition: ModelDef
     checkpoint: Checkpoint
 
 
