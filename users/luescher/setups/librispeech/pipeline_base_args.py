@@ -235,7 +235,7 @@ def get_monophone_args(
         "eval_best_in_lattice": True,
         "search_parameters": {
             "beam-pruning": 15.0,
-            "beam-pruning-limit": 50000,
+            "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
             "word-end-pruning-limit": 10000,
         },
