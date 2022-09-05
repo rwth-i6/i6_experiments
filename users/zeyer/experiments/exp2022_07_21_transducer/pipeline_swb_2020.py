@@ -84,10 +84,7 @@ def from_scratch_training(*,
                           targets: nn.Data, targets_spatial_dim: nn.Dim
                           ):
     """Function is run within RETURNN."""
-    # TODO...
     # TODO feed through model, define full sum loss, mark_as_loss
-    # TODO pretrain epoch dependent...
-    return model
 
 
 def extended_model_def(*, epoch: int) -> Model:
@@ -111,3 +108,4 @@ def model_recog(*,
                 ):
     """Function is run within RETURNN."""
     pass  # TODO
+    # TODO probably this should be moved over to the recog module, as this will probably be the same always

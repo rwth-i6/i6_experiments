@@ -14,10 +14,10 @@ from .task import Task
 
 def train(*,
           task: Task,
-          alignment: Optional[AlignmentCollection] = None,
+          alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
           train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
-          init_params: Optional[Checkpoint] = None,
+          init_params: Optional[Checkpoint] = None,  # TODO...
           extra_hash: Any = None,
           ) -> ModelWithCheckpoint:
     """
@@ -33,22 +33,21 @@ def train(*,
     returnn_train_config_dict = dict(
         use_tensorflow=True,
 
-        # TODO dataset...
+        # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
+        train=task.train_dataset.get_train_dataset(),
+        eval_datasets=task.train_dataset.get_eval_datasets(),
 
-        # TODO or move all these params to the model definition... ?
-        #   although, those are all really train specific
-        #   although the model def itself also contains train specific stuff...
         batching="random",
         batch_size=20000,
         max_seqs=200,
         max_seq_length={"classes": 75},
 
-        gradient_clip=0,
+        # gradient_clip=0,
         # gradient_clip_global_norm = 1.0
         optimizer={"class": "nadam", "epsilon": 1e-8},
-        gradient_noise=0.0,
+        # gradient_noise=0.0,
         learning_rate=0.0008,
         learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
         learning_rate_control="newbob_multi_epoch",
