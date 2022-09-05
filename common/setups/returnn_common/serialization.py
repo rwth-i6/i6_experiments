@@ -64,6 +64,8 @@ class SerializerObject(DelayedBase):
     Base class for objects that can be passed to :class:`Collection`
     """
 
+    use_for_hash = True
+
     def __init__(self):
         # suppress init warning
         super().__init__(None)
@@ -200,7 +202,7 @@ class Collection(DelayedBase):
             "delayed_objects": [
                 obj
                 for obj in self.serializer_objects
-                if not isinstance(obj, _NonhashedCodeBase)
+                if obj.use_for_hash
             ],
         }
         if self.returnn_common_root:
@@ -399,6 +401,8 @@ class _NonhashedCodeBase(SerializerObject):
     """
     Insert code which is not hashed.
     """
+
+    use_for_hash = False
 
     def _sis_hash(self):
         raise Exception(
