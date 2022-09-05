@@ -200,9 +200,7 @@ class Collection(DelayedBase):
     def _sis_hash(self) -> bytes:
         h = {
             "delayed_objects": [
-                obj
-                for obj in self.serializer_objects
-                if obj.use_for_hash
+                obj for obj in self.serializer_objects if obj.use_for_hash
             ],
         }
         if self.returnn_common_root:
