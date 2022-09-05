@@ -44,14 +44,15 @@ def sis_config_main():
     """sis config function"""
     task = get_switchboard_task()
 
-    step1_model = train(task=task, model_def=from_scratch_model_def, train_def=from_scratch_training)
+    step1_model = train(
+        task=task, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
     step2_alignment = align(task=task, model=step1_model)
     # use step1 model params; different to the paper
     step3_model = train(
-        task=task, model_def=extended_model_def, train_def=extended_model_training,
+        task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step1_model.checkpoint)
     step4_model = train(
-        task=task, model_def=extended_model_def, train_def=extended_model_training,
+        task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step3_model.checkpoint)
 
     tk.register_output('step1', recog(task, step1_model).main_measure_value)
