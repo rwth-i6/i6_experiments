@@ -32,7 +32,6 @@ def train(*,
 
     returnn_train_config_dict = dict(
         use_tensorflow=True,
-        # flat_net_construction=True,
 
         # TODO dataset...
         default_input=task.train_dataset.get_default_input(),
@@ -66,10 +65,17 @@ def train(*,
         returnn_train_config_dict,
         python_epilog=[serialization.Collection(
             [
-                serialization.Import(model_def, "_model_def"),
-                serialization.Import(train_def, "_train_def"),
-                serialization.Import(_returnn_get_network, "get_network"),
-                serialization.ExplicitHash(extra_hash),
+                serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
+                serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                serialization.ExplicitHash({
+                    # Increase the version whenever some incompatible change is made in this train() function,
+                    # which influences the outcome, but would otherwise not influence the hash.
+                    "version": 1,
+                    # Whatever the caller provides. This could also include another version,
+                    # but this is up to the caller.
+                    "extra": extra_hash
+                }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
             ]
         )],
@@ -81,6 +87,7 @@ def train(*,
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
+            # flat_net_construction=True,
         ),
         sort_config=False,
     )
