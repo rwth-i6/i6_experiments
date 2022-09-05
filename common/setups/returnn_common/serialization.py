@@ -45,6 +45,7 @@ Usage Example::
 from dataclasses import dataclass, asdict
 from typing import Any, List, Union, Optional, Dict, Set
 import os
+import sys
 import pathlib
 import shutil
 import string
@@ -290,14 +291,24 @@ class Import(SerializerObject):
 
     def __init__(
         self,
-        code_object_path: str,
+        code_object_path: Union[str, Any],
         import_as: Optional[str] = None,
     ):
         """
-        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
+        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
+            This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
         :param import_as: if given, the code object will be imported as this name
         """
         super().__init__()
+        if not isinstance(code_object_path, str):
+            assert getattr(code_object_path, "__qualname__", None) and getattr(
+                code_object_path, "__module__", None
+            )
+            mod_name = code_object_path.__module__.__name__
+            qual_name = code_object_path.__qualname__
+            assert "." not in qual_name
+            assert getattr(sys.modules[mod_name], qual_name) is code_object_path
+            code_object_path = f"{mod_name}.{qual_name}"
         self.code_object = code_object_path
 
         self.object_name = self.code_object.split(".")[-1]
