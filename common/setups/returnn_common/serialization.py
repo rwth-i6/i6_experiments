@@ -291,9 +291,11 @@ class Import(SerializerObject):
     def __init__(
         self,
         code_object_path: str,
+        import_as: Optional[str] = None,
     ):
         """
         :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`
+        :param import_as: if given, the code object will be imported as this name
         """
         super().__init__()
         self.code_object = code_object_path
@@ -301,12 +303,19 @@ class Import(SerializerObject):
         self.object_name = self.code_object.split(".")[-1]
         self.module = ".".join(self.code_object.split(".")[:-1])
         self.package = ".".join(self.code_object.split(".")[:-2])
+        self.import_as = import_as
 
     def get(self) -> str:
         """get. this code is run in the task"""
+        if self.import_as:
+            return f"from {self.module} import {self.object_name} as {self.import_as}\n"
         return f"from {self.module} import {self.object_name}\n"
 
     def _sis_hash(self):
+        if self.import_as:
+            return sis_hash_helper(
+                {"code_object": self.code_object, "import_as": self.import_as}
+            )
         return sis_hash_helper(self.code_object)
 
 
