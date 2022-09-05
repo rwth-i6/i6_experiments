@@ -3,29 +3,33 @@ helpers for training
 """
 
 from __future__ import annotations
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any
 import numpy
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
-from .model import ModelWithCheckpoint, Checkpoint, AlignmentCollection, ModelForTrainDef, ModelForFramewiseTrainDef
+from .model import ModelWithCheckpoint, Checkpoint, AlignmentCollection, ModelT, ModelDef, TrainDef, FramewiseTrainDef
 from .task import Task
 
 
 def train(*,
           task: Task,
           alignment: Optional[AlignmentCollection] = None,
-          model_def: Union[ModelForTrainDef, ModelForFramewiseTrainDef],
+          model_def: ModelDef[ModelT],
+          train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
           init_params: Optional[Checkpoint] = None,
+          extra_hash: Any = None,
           ) -> ModelWithCheckpoint:
     """train"""
-    num_epochs = 100
+    num_epochs = 150
 
     returnn_train_config_dict = dict(
         use_tensorflow=True,
         # flat_net_construction=True,
 
         # TODO dataset...
+        default_input=task.train_dataset.get_default_input(),
+        target=task.train_dataset.get_default_target(),
 
         # TODO or move all these params to the model definition... ?
         #   although, those are all really train specific
@@ -55,9 +59,11 @@ def train(*,
         returnn_train_config_dict,
         python_epilog=[serialization.Collection(
             [
-                serialization.ExplicitHash("my_model"),  # TODO
+                serialization.Import(model_def, "_model_def"),
+                serialization.Import(train_def, "_train_def"),
+                serialization.Import(_returnn_get_network, "get_network"),
+                serialization.ExplicitHash(extra_hash),
                 serialization.PythonEnlargeStackWorkaroundCode,
-                serialization.NonhashedCode(model_py_code_str),  # TODO ...
             ]
         )],
         post_config=dict(  # not hashed
@@ -80,3 +86,28 @@ def train(*,
     return ModelWithCheckpoint(
         definition=model_def,
         checkpoint=returnn_train_job.out_checkpoints[num_epochs])
+
+
+def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
+    """called from the RETURNN config"""
+    from returnn_common import nn
+    from returnn.config import get_global_config
+    from returnn.tf.util.data import Data
+    nn.reset_default_root_name_ctx()
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    extern_data_dict = config.typed_value("extern_data")
+    data = Data(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = Data(name=default_target_key, **extern_data_dict[default_target_key])
+    data_spatial_dim = data.get_time_dim_tag()
+    targets_spatial_dim = targets.get_time_dim_tag()
+    model_def = config.typed_value("_model_def")
+    model = model_def(epoch=epoch)
+    train_def = config.typed_value("_train_def")
+    train_def(
+        model=model,
+        data=data, data_spatial_dim=data_spatial_dim,
+        targets=targets, targets_spatial_dim=targets_spatial_dim)
+    net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
+    return net_dict
