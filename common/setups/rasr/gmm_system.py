@@ -148,7 +148,7 @@ class GmmSystem(RasrSystem):
     ):
         """
         TODO: docstring
-        :param hybrid_init_args:
+        :param rasr_init_args:
         :param train_data:
         :param dev_data:
         :param test_data:
