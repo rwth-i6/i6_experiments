@@ -395,20 +395,20 @@ class Network(SerializerObject):
         return sis_hash_helper(h)
 
 
-class _NonhashedCodeBase(SerializerObject):
+class _NonhashedSerializerObject(SerializerObject):
     """
-    Insert code which is not hashed.
+    Any serializer object which is not used for the hash.
     """
 
     use_for_hash = False
 
     def _sis_hash(self):
         raise Exception(
-            f"Nonhashed code ({self.__class__.__name__}) must not be hashed"
+            f"({self.__class__.__name__}) must not be hashed"
         )
 
 
-class NonhashedCode(_NonhashedCodeBase):
+class NonhashedCode(_NonhashedSerializerObject):
     """
     Insert code from raw string which is not hashed.
     """
@@ -422,7 +422,7 @@ class NonhashedCode(_NonhashedCodeBase):
         return self.code
 
 
-class NonhashedCodeFromFile(_NonhashedCodeBase):
+class NonhashedCodeFromFile(_NonhashedSerializerObject):
     """
     Insert code from file content which is not hashed (neither the file name nor the content).
     """
