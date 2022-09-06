@@ -248,6 +248,9 @@ class NnRecogArgs(TypedDict):
     use_gpu: Optional[bool]
 
 
+KeyedRecogArgs = Dict[str, Union[Dict[str, Any], NnRecogArgs]]
+
+
 class EpochPartitioning(TypedDict):
     dev: int
     train: int
@@ -278,9 +281,9 @@ class HybridArgs:
         self,
         returnn_training_configs: Dict[str, returnn.ReturnnConfig],
         returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: NnTrainingArgs,
-        recognition_args: Dict[str, NnRecogArgs],
-        test_recognition_args: Optional[Dict[str, NnRecogArgs]] = None,
+        training_args: Union[Dict[str, Any], NnTrainingArgs],
+        recognition_args: KeyedRecogArgs,
+        test_recognition_args: Optional[KeyedRecogArgs] = None,
     ):
         """
         ##################################################
