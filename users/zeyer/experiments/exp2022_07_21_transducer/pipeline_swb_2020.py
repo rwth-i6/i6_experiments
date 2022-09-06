@@ -26,6 +26,7 @@ Note on the motivation for the interface:
 
 from __future__ import annotations
 from typing import Optional, Dict, Sequence
+import contextlib
 from sisyphus import tk
 from .task import get_switchboard_task
 from .train import train
@@ -80,18 +81,35 @@ class Decoder(nn.Module):
     """Decoder"""
 
     def __init__(self, *,
+                 nb_target_dim: nn.Dim,
+                 wb_target_dim: nn.Dim,
+                 blank_idx: int,
                  enc_key_total_dim: nn.Dim,
                  enc_key_per_head_dim: nn.Dim,
                  attention_dropout: float,
                  ):
         super(Decoder, self).__init__()
-        # TODO
+
+        self.nb_target_dim = nb_target_dim
+        self.wb_target_dim = wb_target_dim
+        self.blank_idx = blank_idx
+
         self.enc_key_total_dim = enc_key_total_dim
         self.enc_key_per_head_dim = enc_key_per_head_dim
         self.attention_dropout = attention_dropout
 
         self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync()
+        self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
+        self.readout_in_am_dropout = 0.1
+        self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
+        self.readout_in_lm_dropout = 0.1
+        self.readout_in_bias = nn.Parameter([self.readout_in_am.out_dim])
+        self.out_nb_label_logits = nn.Linear(nb_target_dim)
+        self.label_log_prob_dropout = 0.3
+        self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
+
+        # TODO
 
     def encoder_ext(self, enc_out: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
         """Extend the encoder output"""
@@ -105,15 +123,15 @@ class Decoder(nn.Module):
 
     def __call__(self, *,
                  enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-                 axis: nn.Dim,  # single step or time axis,
+                 enc_spatial_dim: nn.Dim,  # single step or time axis,
                  enc_ctx_win: nn.Tensor,  # like enc
                  enc_val_win: nn.Tensor,  # like enc
                  enc_win_axis: nn.Dim,  # for enc_..._win
-                 all_combinations_out: bool,
-                 nb_target: Optional[nn.Tensor] = None,  # non-blank
+                 all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+                 prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
                  nb_target_spatial_dim: Optional[nn.Dim] = None,
-                 wb_target: Optional[nn.Tensor] = None,  # with blank
-                 wb_target_spatial_dim: Optional[nn.Dim] = None,
+                 prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+                 wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                  state: nn.LayerState,
                  ):
         # TODO need Loop on single_dim_axis? https://github.com/rwth-i6/returnn_common/issues/203
@@ -129,97 +147,41 @@ class Decoder(nn.Module):
         prev_out_emit = ...
         prev_out_non_blank = ...
 
-        # TODO MaskedComputation too specific? what about full-sum?
-        #    only makes sense when axis != single_step_dim.
-        #    -> see Conventions.md discussion...
-        with nn.MaskedComputation(mask=prev_out_emit):
-            pass
+        if all_combinations_out:
+            assert prev_nb_target is not None and nb_target_spatial_dim is not None
+            lm_scope = contextlib.nullcontext()
+            lm_input = prev_nb_target
+            lm_axis = nb_target_spatial_dim
+        else:
+            assert prev_wb_target is not None and wb_target_spatial_dim is not None
+            lm_scope = nn.MaskedComputation(mask=prev_out_emit)
+            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_axis = wb_target_spatial_dim
 
-        _ = {
+        with lm_scope:
+            lm = self.lm(lm_input, axis=lm_axis)
 
-    "prev_out_non_blank": {
-        "class": "reinterpret_data", "from": "prev:output", "set_sparse_dim": target_num_labels},
-    # "class": "reinterpret_data", "from": "prev:output_wo_b", "set_sparse_dim": target_num_labels},  # [B,]
-    "lm_masked": {"class": "masked_computation",
-                  "mask": "prev:output_emit",
-                  "from": "prev_out_non_blank",  # in decoding
-                  "masked_from": "base:lm_input" if task == "train" else None,  # enables optimization if used
+        # We could have simpler code by directly concatenating them.
+        # However, for better efficiency, keep am/lm path separate initially.
+        readout_in_am_in = nn.concat_features(enc, att)
+        readout_in_am_in = nn.dropout(readout_in_am_in, self.readout_in_am_dropout, axis=readout_in_am_in.feature_dim)
+        readout_in_am = self.readout_in_am(readout_in_am_in)
+        readout_in_lm_in = nn.dropout(lm, self.readout_in_lm_dropout, axis=lm.feature_dim)
+        readout_in_lm = self.readout_in_lm(readout_in_lm_in)
+        readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
+        readout_in += self.readout_in_bias
+        readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
-                  "unit": {
-                      "class": "subnetwork", "from": "data", "trainable": True,
-                      "subnetwork": {
-                          "input_embed": {"class": "linear", "n_out": 256, "activation": "identity", "trainable": True,
-                                          "L2": l2, "from": "data"},
-                          "lstm0": {"class": "rec", "unit": "nativelstm2", "dropout": 0.2, "n_out": 1024, "L2": l2,
-                                    "from": "input_embed", "trainable": True},
-                          "output": {"class": "copy", "from": "lstm0"}
-                          # "output": {"class": "linear", "from": "lstm1", "activation": "softmax", "dropout": 0.2, "n_out": target_num_labels, "trainable": False}
-                      }}},
-    # "lm_embed_masked": {"class": "linear", "activation": None, "n_out": 256, "from": "lm_masked"},
-    # "lm_unmask": {"class": "unmask", "from": "lm_masked", "mask": "prev:output_emit"},
-    # "lm_embed_unmask": {"class": "unmask", "from": "lm_embed_masked", "mask": "prev:output_emit"},
-    "lm": {"class": "copy", "from": "lm_embed_unmask"},  # [B,L]
+        out_nb_label_embed_in = nn.dropout(readout, self.label_log_prob_dropout, axis=readout.feature_dim)
+        label_logits = self.out_nb_label_logits(out_nb_label_embed_in)
+        label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
 
-    # joint network: (W_enc h_{enc,t} + W_pred * h_{pred,u} + b)
-    # train : (T-enc, B, F|2048) ; (U+1, B, F|256)
-    # search: (B, F|2048) ; (B, F|256)
-    "readout_in": {"class": "linear", "from": ["am", "att", "lm_masked"], "activation": None, "n_out": 1000, "L2": l2,
-                   "dropout": 0.2,
-                   "out_type": {"batch_dim_axis": 2 if task == "train" else 0,
-                                "shape": (None, None, 1000) if task == "train" else (1000,),
-                                "time_dim_axis": 0 if task == "train" else None}},  # (T, U+1, B, 1000)
-
-    "readout": {"class": "reduce_out", "mode": "max", "num_pieces": 2, "from": "readout_in"},
-
-    "label_log_prob": {
-        "class": "linear", "from": "readout", "activation": "log_softmax", "dropout": 0.3,
-        "n_out": target_num_labels},  # (B, T, U+1, 1030)
-    "emit_prob0": {"class": "linear", "from": "readout", "activation": None, "n_out": 1,
-                   "is_output_layer": True},  # (B, T, U+1, 1)
-    "emit_log_prob": {"class": "activation", "from": "emit_prob0", "activation": "log_sigmoid"},  # (B, T, U+1, 1)
-    "blank_log_prob": {"class": "eval", "from": "emit_prob0", "eval": "tf.log_sigmoid(-source(0))"},  # (B, T, U+1, 1)
-    "label_emit_log_prob": {"class": "combine", "kind": "add",
-                            "from": ["label_log_prob", "emit_log_prob"]},  # (B, T, U+1, 1), scaling factor in log-space
-    "output_log_prob": {"class": "copy", "from": ["blank_log_prob", "label_emit_log_prob"]},  # (B, T, U+1, 1031)
-
-    "output_prob": {
-        "class": "eval", "from": ["output_log_prob", "base:data:" + target, "base:encoder"], "eval": rna_loss,
-        "out_type": rna_loss_out, "loss": "as_is",
-    },
-
-    # this only works when the loop has been optimized, i.e. log-probs are (B, T, U, V)
-    "rna_alignment": {"class": "eval", "from": ["output_log_prob", "base:data:" + target, "base:encoder"],
-                      "eval": rna_alignment, "out_type": rna_alignment_out,
-                      "is_output_layer": True} if task == "train"  # (B, T)
-    else {"class": "copy", "from": "output_log_prob"},
-
-    # During training   : targetb = "target"  (RNA-loss)
-    # During recognition: targetb = "targetb"
-    'output': {
-        'class': 'choice', 'target': targetb, 'beam_size': beam_size,
-        'from': "output_log_prob", "input_type": "log_prob",
-        "initial_output": 0,
-        "cheating": "exclusive" if task == "train" else None,
-        # "explicit_search_sources": ["prev:u"] if task == "train" else None,
-        # "custom_score_combine": targetb_recomb_train if task == "train" else None
-        "explicit_search_sources": ["prev:out_str", "prev:output"] if task == "search" else None,
-        "custom_score_combine": targetb_recomb_recog if task == "search" else None
-    },
-
-    "out_str": {
-        "class": "eval", "from": ["prev:out_str", "output_emit", "output"],
-        "initial_output": None, "out_type": {"shape": (), "dtype": "string"},
-        "eval": out_str},
-
-    "output_is_not_blank": {"class": "compare", "from": "output", "value": targetb_blank_idx, "kind": "not_equal",
-                            "initial_output": True},
-
-    # initial state=True so that we are consistent to the training and the initial state is correctly set.
-    "output_emit": {"class": "copy", "from": "output_is_not_blank", "initial_output": True, "is_output_layer": True},
-
-    "const0": {"class": "constant", "value": 0, "collocate_with": ["du", "dt"]},
-    "const1": {"class": "constant", "value": 1, "collocate_with": ["du", "dt"]},
-        }
+        emit_logit = self.out_emit_logit(readout)
+        emit_log_prob = nn.log_sigmoid(emit_logit)
+        blank_log_prob = nn.log_sigmoid(-emit_logit)
+        label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
+        assert self.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
+        output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
 
 
 class DecoderLabelSync(nn.Module):
@@ -227,7 +189,17 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    # TODO...
+    def __init__(self):
+        super(DecoderLabelSync, self).__init__()
+        self.embed = nn.Linear(nn.FeatureDim("embed", 256))
+        self.dropout = 0.2
+        self.lstm = nn.LSTM(nn.FeatureDim("lstm", 1024))
+
+    def __call__(self, source: nn.Tensor, *, axis: nn.Dim) -> nn.Tensor:
+        embed = self.embed(source)
+        embed = nn.dropout(embed, self.dropout)
+        lstm, _ = self.lstm(embed, axis=axis)
+        return lstm
 
 
 def from_scratch_model_def(*, epoch: int) -> Model:
