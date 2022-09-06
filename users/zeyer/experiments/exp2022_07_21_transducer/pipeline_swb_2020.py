@@ -24,6 +24,8 @@ Note on the motivation for the interface:
 
 """
 
+from __future__ import annotations
+from typing import Optional, Dict, Sequence
 from sisyphus import tk
 from .task import get_switchboard_task
 from .train import train
@@ -66,6 +68,8 @@ py = sis_config_main  # `py` is the default sis config function name
 class Model(nn.Module):
     """Model definition"""
 
+    # TODO implement generic interface https://github.com/rwth-i6/returnn_common/issues/49 ?
+
     def __init__(self, *, num_enc_layers=6):
         super(Model, self).__init__()
         self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
@@ -74,6 +78,7 @@ class Model(nn.Module):
 
 class Decoder(nn.Module):
     """Decoder"""
+
     def __init__(self, *,
                  enc_key_total_dim: nn.Dim,
                  enc_key_per_head_dim: nn.Dim,
@@ -85,37 +90,50 @@ class Decoder(nn.Module):
         self.enc_key_per_head_dim = enc_key_per_head_dim
         self.attention_dropout = attention_dropout
 
-        self.att_query = nn.Linear(enc_key_total_dim)
+        self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
+        self.lm = DecoderLabelSync()
 
     def encoder_ext(self, enc_out: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
         """Extend the encoder output"""
         # TODO
         return enc_out
 
-    def __call__(self, ):
-        pass
+    def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
+        """Default initial state"""
+        # TODO
+        return None
 
-        # TODO we should not access the loop
-        #  - for encoder/enc_ctx_win/enc_val_win,
-        #    we need a generalization of UnstackLayer with state (non-batch scalar index)
-        loop = nn.NameCtx.inner_loop()
+    def __call__(self, *,
+                 enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+                 axis: nn.Dim,  # single step or time axis,
+                 enc_ctx_win: nn.Tensor,  # like enc
+                 enc_val_win: nn.Tensor,  # like enc
+                 enc_win_axis: nn.Dim,  # for enc_..._win
+                 all_combinations_out: bool,
+                 target: nn.Tensor,  # TODO state or here? optional?
+                 target_spatial_dim: nn.Dim,
+                 state: nn.LayerState,
+                 ):
+        # TODO need Loop on single_dim_axis? https://github.com/rwth-i6/returnn_common/issues/203
+        # TODO need generic unstack? https://github.com/rwth-i6/returnn_common/issues/202
+
+        att_query = self.att_query(enc)
+        att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
+        att_weights = nn.softmax(att_energy, axis=enc_win_axis)
+        att_weights = nn.dropout(att_weights, dropout=self.attention_dropout, axis=enc_win_axis)
+        att = nn.dot(att_weights, enc_val_win, reduce=enc_win_axis)
+
+        # TODO
+        prev_out_emit = ...
+        prev_out_non_blank = ...
+
+        # TODO MaskedComputation too specific? what about full-sum?
+        #    only makes sense when axis != single_step_dim.
+        #    -> see Conventions.md discussion...
+        with nn.MaskedComputation(mask=prev_out_emit):
+            pass
 
         _ = {
-
-    "am": {"class": "copy", "from": "data:source"},
-
-    "enc_ctx_win": {"class": "gather_nd", "from": "base:enc_ctx_win", "position": ":i"},  # [B,W,D]
-    "enc_val_win": {"class": "gather_nd", "from": "base:enc_val_win", "position": ":i"},  # [B,W,D]
-    "att_query": {"class": "linear", "from": "am", "activation": None, "with_bias": False, "n_out": self.enc_key_total_dim},
-    'att_energy': {"class": "dot", "red1": "f", "red2": "f", "var1": "static:0", "var2": None,
-                   "from": ['enc_ctx_win', 'att_query']},  # (B, W)
-    'att_weights0': {"class": "softmax_over_spatial", "axis": "static:0", "from": 'att_energy',
-                     "energy_factor": self.enc_key_per_head_dim.dimension ** -0.5},  # (B, W)
-    'att_weights1': {"class": "dropout", "dropout_noise_shape": {"*": None},
-                     "from": 'att_weights0', "dropout": self.attention_dropout},
-    "att_weights": {"class": "merge_dims", "from": "att_weights1", "axes": "except_time"},
-    'att': {"class": "dot", "from": ['att_weights', 'enc_val_win'],
-            "red1": "static:0", "red2": "static:0", "var1": None, "var2": "f"},  # (B, V)
 
     "prev_out_non_blank": {
         "class": "reinterpret_data", "from": "prev:output", "set_sparse_dim": target_num_labels},
@@ -200,6 +218,14 @@ class Decoder(nn.Module):
     "const0": {"class": "constant", "value": 0, "collocate_with": ["du", "dt"]},
     "const1": {"class": "constant", "value": 1, "collocate_with": ["du", "dt"]},
         }
+
+
+class DecoderLabelSync(nn.Module):
+    """
+    Often called the (I)LM part.
+    Runs label-sync, i.e. only on non-blank labels.
+    """
+    # TODO...
 
 
 def from_scratch_model_def(*, epoch: int) -> Model:
