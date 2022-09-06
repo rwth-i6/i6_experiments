@@ -42,7 +42,7 @@ def train(*,
         batching="random",
         batch_size=20000,
         max_seqs=200,
-        max_seq_length={"classes": 75},
+        max_seq_length={task.train_dataset.get_default_target(): 75},
 
         # gradient_clip=0,
         # gradient_clip_global_norm = 1.0
@@ -52,12 +52,13 @@ def train(*,
         learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
         learning_rate_control="newbob_multi_epoch",
         # learning_rate_control_error_measure = "dev_score_output"
+        # learning_rate_control_error_measure="dev_error_output/output_prob",  # TODO...
         learning_rate_control_relative_error_relative_lr=True,
         learning_rate_control_min_num_epochs_per_new_lr=3,
         use_learning_rate_control_always=True,
         newbob_multi_num_epochs=task.train_epoch_split,
         newbob_multi_update_interval=1,
-        newbob_learning_rate_decay=0.9,
+        newbob_learning_rate_decay=0.7,
     )
 
     returnn_train_config = ReturnnConfig(
