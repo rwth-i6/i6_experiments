@@ -110,8 +110,10 @@ class Decoder(nn.Module):
                  enc_val_win: nn.Tensor,  # like enc
                  enc_win_axis: nn.Dim,  # for enc_..._win
                  all_combinations_out: bool,
-                 target: nn.Tensor,  # TODO state or here? optional?
-                 target_spatial_dim: nn.Dim,
+                 nb_target: Optional[nn.Tensor] = None,  # non-blank
+                 nb_target_spatial_dim: Optional[nn.Dim] = None,
+                 wb_target: Optional[nn.Tensor] = None,  # with blank
+                 wb_target_spatial_dim: Optional[nn.Dim] = None,
                  state: nn.LayerState,
                  ):
         # TODO need Loop on single_dim_axis? https://github.com/rwth-i6/returnn_common/issues/203
