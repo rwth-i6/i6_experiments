@@ -36,6 +36,7 @@ from i6_experiments.users.hilmes.data.datastream import (
     ReturnnAudioFeatureOptions,
     DBMelFilterbankOptions,
     F0Options,
+    MFCCOptions
 )
 from i6_experiments.users.hilmes.tools.tts.extract_alignment import (
     ExtractDurationsFromRASRAlignmentJob,
@@ -905,33 +906,66 @@ def extend_meta_datasets_with_f0(datasets: TTSTrainingDatasets, f0_dataset: tk.P
     return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)
 
 
-def extend_meta_datasets_with_pitch(datasets: TTSTrainingDatasets):
+def extend_meta_datasets_with_energy(datasets: TTSTrainingDatasets, energy_dataset: tk.Path):
 
     train_meta = deepcopy(datasets.train)
-    train_meta.datasets["energy"] = train_meta.datasets["audio"]
-    train_meta.datasets["energy"]["audio"]["features"] = "mfcc"
-    train_meta.datasets["energy"]["audio"]["num_feature_filters"] = 1
-    del train_meta.datasets["energy"]["audio"]["feature_options"]["min_amp"]
-    train_meta.datasets["energy"]["audio"]["feature_options"]["n_mels"] = 128
-    del train_meta.datasets["energy"]["segment_file"]
+    train_meta.datasets["energy"] = HDFDataset(files=[energy_dataset]).as_returnn_opts()
     train_meta.data_map["energy_data"] = ("energy", "data")
 
     cv_meta = deepcopy(datasets.cv)
-    cv_meta.datasets["energy"] = cv_meta.datasets["audio"]
-    cv_meta.datasets["energy"]["audio"]["features"] = "mfcc"
-    cv_meta.datasets["energy"]["audio"]["num_feature_filters"] = 1
-    del cv_meta.datasets["energy"]["audio"]["feature_options"]["min_amp"]
-    cv_meta.datasets["energy"]["audio"]["feature_options"]["n_mels"] = 128
-    del cv_meta.datasets["energy"]["segment_file"]
+    cv_meta.datasets["energy"] = HDFDataset(files=[energy_dataset]).as_returnn_opts()
     cv_meta.data_map["energy_data"] = ("energy", "data")
 
     datastreams = deepcopy(datasets.datastreams)
-    options = deepcopy(datastreams["audio_features"].options)
-    from dataclasses import replace
-    replace(options, num_feature_filters=1)
-    datastreams["energy_data"] = AudioFeatureDatastream(
-        available_for_inference=datastreams["audio_features"].available_for_inference,
-        options=options
-    )
+    datastreams["energy_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=False)
 
     return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)
+
+
+def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str):
+  """
+  Returns the pitch hdf for given duration mapping for the ls 100 corpus
+  :param durations:
+  :param returnn_root:
+  :param returnn_exe:
+  :param prefix:
+  :param center:
+  :param phoneme_level:
+  :return:
+  """
+  sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+  librispeech_g2p_lexicon = extend_lexicon(
+    get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+  )
+
+  sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
+    bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+    lexicon=librispeech_g2p_lexicon,
+  )
+  zip_dataset = BlissToOggZipJob(
+    bliss_corpus=sil_pp_train_clean_100_tts,
+    no_conversion=True,
+    returnn_python_exe=returnn_exe,
+    returnn_root=returnn_root,
+  ).out_ogg_zip
+  options = ReturnnAudioFeatureOptions(
+    sample_rate=16000,
+    features="mfcc",
+    feature_options=MFCCOptions(),
+    window_len=0.05,
+    step_len=0.0125,
+    num_feature_filters=1
+  )
+  audio_datastream = AudioFeatureDatastream(available_for_inference=True, options=options)
+  vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, prefix)
+  full_ogg = OggZipDataset(
+    path=zip_dataset,
+    audio_opts=audio_datastream.as_returnn_audio_opts(),
+    target_opts=vocab_datastream.as_returnn_targets_opts(),
+    partition_epoch=1,
+    seq_ordering="sorted_reverse",
+  )
+  dataset_dump = ReturnnDumpHDFJob(
+    data=full_ogg.as_returnn_opts(), returnn_root=returnn_root, returnn_python_exe=returnn_exe, time=24)
+  tk.register_output(prefix + "/energy", dataset_dump.out_hdf)
+  return dataset_dump.out_hdf

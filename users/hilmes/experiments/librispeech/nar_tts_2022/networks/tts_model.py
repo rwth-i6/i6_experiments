@@ -462,6 +462,8 @@ class NARTTSModel(nn.Module):
     use_pitch_pred: bool = False,
     use_energy_pred: bool = False,
     duration_add: float = 0.0,
+    skip_speaker_embeddings: bool = False,
+    test_vae: bool = False,
   ):
     super(NARTTSModel, self).__init__()
 
@@ -472,11 +474,13 @@ class NARTTSModel(nn.Module):
     self.use_true_durations = use_true_durations
     self.dump_speaker_embeddings = dump_speaker_embeddings
     self.calc_speaker_embedding = calc_speaker_embedding
-    assert not use_vae != dump_vae, "Needs to use VAE in order to dump it!"
+    assert use_vae or not dump_vae, "Needs to use VAE in order to dump it!"
     self.dump_vae = dump_vae
     self.use_pitch_pred = use_pitch_pred
     self.use_energy_pred = use_energy_pred
     self.duration_add = duration_add
+    self.skip_speaker_embeddings = skip_speaker_embeddings
+    self.test_vae = test_vae
 
     # dims
     self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -511,7 +515,33 @@ class NARTTSModel(nn.Module):
     if self.use_vae:
       vae_lin_dim = nn.FeatureDim("vae_embedding", 512)
       self.vae_embedding = nn.Linear(vae_lin_dim)
-      self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim)
+      if self.test_vae:
+        self.test_lconv_stack = nn.Sequential(
+          [
+            LConvBlock(
+              linear_size=vae_lin_dim, filter_size=17
+            )
+            for _ in range(3)
+          ]
+        )
+        self.test_mixed_stack = nn.Sequential()
+        for _ in range(6):
+          self.test_mixed_stack.append(
+            LConvBlock(
+              linear_size=vae_lin_dim, filter_size=17
+            )
+          )
+          self.test_mixed_stack.append(
+            Conv1DBlock(dim=vae_lin_dim, filter_size=5, dropout=dropout)
+          )
+        self.test_latent_dim = nn.FeatureDim("VAE_lat_dim", 8)
+        self.test_lin_mu = nn.Linear(self.test_latent_dim)
+        self.test_lin_log_var = nn.Linear(self.test_latent_dim)
+        self.test_lin_out = nn.Linear(nn.FeatureDim("VAE_out_dim", 512))
+      elif self.skip_speaker_embeddings:
+        self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim, out_size=speaker_embedding_size)
+      else:
+        self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim)
     else:
       self.vae = None
     if self.use_pitch_pred:
@@ -574,22 +604,28 @@ class NARTTSModel(nn.Module):
       speaker_embedding = self.speaker_embedding(label_notime)
     else:
       speaker_embedding = label_notime
-    if self.use_vae:
+    if self.use_vae and not self.test_vae:
       if speaker_prior is None:
         vae_speaker_embedding = self.vae_embedding(target_speech)
         latents, mu, log_var = self.vae(vae_speaker_embedding, speech_time)
         comb = log_var - (mu ** 2) - nn.exp(log_var)
         kl_loss = -0.5 * (1 + comb)
         kl_loss.mark_as_loss(scale=self.kl_scale)
-        speaker_embedding = nn.concat_features(
-          speaker_embedding, latents,
-        )
+        if self.skip_speaker_embeddings:
+          speaker_embedding = latents
+        else:
+          speaker_embedding = nn.concat_features(
+            speaker_embedding, latents,
+          )
       else:
         latents = nn.squeeze(speaker_prior, axis=prior_time)
-      speaker_embedding = nn.concat(
-        (speaker_embedding, speaker_embedding.feature_dim),
-        (latents, latents.feature_dim),
-      )
+        if self.skip_speaker_embeddings:
+          speaker_embedding = latents
+        else:
+          speaker_embedding = nn.concat(
+            (speaker_embedding, speaker_embedding.feature_dim),
+            (latents, latents.feature_dim),
+          )
 
     if self.dump_vae and self.dump_speaker_embeddings:
       speaker_embedding = nn.concat(
@@ -616,10 +652,10 @@ class NARTTSModel(nn.Module):
       (enc_lstm_bw, enc_lstm_bw.feature_dim),
     )
     encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
+
     # duration predictor
     duration_in = nn.concat(
-      (enc_lstm_fw, enc_lstm_fw.feature_dim),
-      (enc_lstm_bw, enc_lstm_bw.feature_dim),
+      (cat, cat.feature_dim),
       (speaker_embedding, speaker_embedding.feature_dim),
       allow_broadcast=True,
     )
@@ -666,7 +702,26 @@ class NARTTSModel(nn.Module):
         out_dim=speech_time,
       )
     else:
-      rep, rep_dim = nn.repeat(encoder, axis=time_dim, repetitions=duration_int)
+      if self.test_vae:
+        vae_speaker_embedding = self.vae_embedding(encoder)
+        x = self.test_lconv_stack(vae_speaker_embedding, time_dim=time_dim)
+        x = self.test_mixed_stack(x, time_dim=time_dim)
+
+        # draw latent
+        mu = self.test_lin_mu(x)  # [B, F]
+        log_var = self.test_lin_log_var(x)
+        std = nn.exp(0.5 * log_var)
+        eps = nn.random_normal(std.shape_ordered)
+        eps = eps * std
+        eps = eps + mu
+
+        out = self.test_lin_out(eps)
+        comb = log_var - (mu ** 2) - nn.exp(log_var)
+        kl_loss = -0.5 * (1 + comb)
+        kl_loss.mark_as_loss(scale=self.kl_scale)
+        encoder = out
+
+      rep, rep_dim = nn.repeat(encoder, axis=time_dim, repetitions=duration_int, out_dim=speech_time)
 
     if self.use_energy_pred:
       energy_pred = self.energy_pred(rep, rep_dim)

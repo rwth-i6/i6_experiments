@@ -28,7 +28,8 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data impor
     get_inference_dataset,
     get_ls_100_f0_hdf,
     extend_meta_datasets_with_f0,
-    extend_meta_datasets_with_pitch
+    extend_meta_datasets_with_energy,
+    get_ls_100_energy_hdf
 )
 from i6_experiments.common.datasets.librispeech import (
     get_corpus_object_dict
@@ -269,7 +270,93 @@ def ctc_baseline():
             batch_size=3000 if (duration == "pred") else 4000,
         )
         synthetic_data_dict[f"ctc_vae_{duration}"] = synth_corpus
+    exp_name = name + "/vae_no_speaker_emb"
+    vae_dataset = deepcopy(training_datasets)
+    vae_dataset.datastreams["audio_features"].available_for_inference = True
+    train_config = get_training_config(
+        returnn_common_root=returnn_common_root,
+        training_datasets=vae_dataset,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=False,
+        use_vae=True,
+        batch_size=12000,
+        skip_speaker_embeddings=True,
 
+    )
+    train_job = tts_training(
+        config=train_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=exp_name,
+        num_epochs=200,
+    )
+    vae_swer_dataset = deepcopy(training_datasets.cv)
+    vae_swer_datastreams = deepcopy(training_datasets.datastreams)
+    vae_swer_datastreams["audio_features"].available_for_inference = True
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=vae_swer_dataset, datastreams=vae_swer_datastreams
+        ),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        calc_speaker_embedding=True,
+        use_vae=True,
+        use_audio_data=True,
+        skip_speaker_embeddings=True,
+    )
+    gl_swer(
+        name=exp_name,
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+    )
+    exp_name = name + "/vae_test_enc_out"
+    vae_dataset = deepcopy(training_datasets)
+    vae_dataset.datastreams["audio_features"].available_for_inference = True
+    train_config = get_training_config(
+        returnn_common_root=returnn_common_root,
+        training_datasets=vae_dataset,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=False,
+        use_vae=True,
+        batch_size=12000,
+        test_vae=True,
+    )
+    train_job = tts_training(
+        config=train_config,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        prefix=exp_name,
+        num_epochs=200,
+    )
+    vae_swer_dataset = deepcopy(training_datasets.cv)
+    vae_swer_datastreams = deepcopy(training_datasets.datastreams)
+    vae_swer_datastreams["audio_features"].available_for_inference = True
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+            dataset=vae_swer_dataset, datastreams=vae_swer_datastreams
+        ),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        calc_speaker_embedding=True,
+        use_vae=True,
+        use_audio_data=True,
+        test_vae=True,
+    )
+    gl_swer(
+        name=exp_name,
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+    )
     for variance in ["f0", "energy", "f0_energy"]:
         exp_name = name + f"/{variance}_pred"
         returnn_common_root = CloneGitRepositoryJob(
@@ -287,7 +374,8 @@ def ctc_baseline():
             f0_hdf = get_ls_100_f0_hdf(durations=durations, returnn_exe=returnn_exe, returnn_root=returnn_root, prefix=exp_name)
             var_training_datasets = extend_meta_datasets_with_f0(datasets=training_datasets, f0_dataset=f0_hdf)
         if "energy" in variance:
-            var_training_datasets = extend_meta_datasets_with_pitch(var_training_datasets)
+            energy_hdf = get_ls_100_energy_hdf(returnn_root=returnn_root, returnn_exe=returnn_exe, prefix=exp_name)
+            var_training_datasets = extend_meta_datasets_with_energy(var_training_datasets, energy_dataset=energy_hdf)
         kwargs = {}
         if "f0" in variance:
             kwargs["use_pitch_pred"] = True
@@ -325,6 +413,7 @@ def ctc_baseline():
             checkpoint=train_job.out_checkpoints[200],
             config=forward_config,
         )
+        """
         speaker_embedding_hdf = build_speaker_embedding_dataset(
             returnn_common_root=returnn_common_root,
             returnn_exe=returnn_exe,
@@ -360,7 +449,8 @@ def ctc_baseline():
                 use_true_durations=(duration == "cheat"),
                 **kwargs
             )
-            synthetic_data_dict[f"ctc_{variance}_{duration}"] = synth_corpus
+            #synthetic_data_dict[f"ctc_{variance}_{duration}"] = synth_corpus
+        """
 
     return synthetic_data_dict
 
@@ -399,7 +489,7 @@ def ctc_loss_scale():
     for scale, alignment in alignments.items():
         name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/loss_scale" + f"_{scale}"
         training_datasets, corpus, durations = get_tts_data_from_ctc_align(
-            name + "/datasets",
+            "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/datasets/loss_scale" + f"_{scale}",
             returnn_exe=returnn_exe,
             returnn_root=returnn_root,
             alignment=alignment,
