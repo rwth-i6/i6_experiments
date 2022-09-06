@@ -131,7 +131,7 @@ class Decoder(nn.Module):
                  prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                  wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                  state: Optional[nn.LayerState] = None,
-                 ):
+                 ) -> (nn.Tensor, nn.LayerState):
         if state is None:
             batch_dims = enc.batch_dims_ordered(remove=(enc.feature_dim, enc_spatial_dim))
             state = self.default_initial_state(batch_dims=batch_dims)
@@ -170,6 +170,8 @@ class Decoder(nn.Module):
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
         out_nb_label_embed_in = nn.dropout(readout, self.label_log_prob_dropout, axis=readout.feature_dim)
+
+        # TODO maybe make this an interface - the label logits are not needed for framewise loss in the blank frames
         label_logits = self.out_nb_label_logits(out_nb_label_embed_in)
         label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
 
@@ -179,6 +181,8 @@ class Decoder(nn.Module):
         label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
         assert self.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
         output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
+
+        return output_log_prob, state_
 
 
 class DecoderLabelSync(nn.Module):
