@@ -84,9 +84,9 @@ class Decoder(nn.Module):
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
-                 enc_key_total_dim: nn.Dim,
-                 enc_key_per_head_dim: nn.Dim,
-                 attention_dropout: float,
+                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
+                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
+                 att_dropout: float,
                  ):
         super(Decoder, self).__init__()
 
@@ -95,8 +95,9 @@ class Decoder(nn.Module):
         self.blank_idx = blank_idx
 
         self.enc_key_total_dim = enc_key_total_dim
-        self.enc_key_per_head_dim = enc_key_per_head_dim
-        self.attention_dropout = attention_dropout
+        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
+        self.att_num_heads = att_num_heads
+        self.att_dropout = att_dropout
 
         self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync()
@@ -109,8 +110,6 @@ class Decoder(nn.Module):
         self.label_log_prob_dropout = 0.3
         self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
 
-        # TODO
-
     def encoder_ext(self, enc_out: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
         """Extend the encoder output"""
         # TODO
@@ -118,8 +117,7 @@ class Decoder(nn.Module):
 
     def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
         """Default initial state"""
-        # TODO
-        return None
+        return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
     def __call__(self, *,
                  enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
@@ -132,20 +130,18 @@ class Decoder(nn.Module):
                  nb_target_spatial_dim: Optional[nn.Dim] = None,
                  prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                  wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-                 state: nn.LayerState,
+                 state: Optional[nn.LayerState] = None,
                  ):
-        # TODO need Loop on single_dim_axis? https://github.com/rwth-i6/returnn_common/issues/203
-        # TODO need generic unstack? https://github.com/rwth-i6/returnn_common/issues/202
+        if state is None:
+            batch_dims = enc.batch_dims_ordered(remove=(enc.feature_dim, enc_spatial_dim))
+            state = self.default_initial_state(batch_dims=batch_dims)
+        state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
         att_weights = nn.softmax(att_energy, axis=enc_win_axis)
-        att_weights = nn.dropout(att_weights, dropout=self.attention_dropout, axis=enc_win_axis)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=enc_win_axis)
         att = nn.dot(att_weights, enc_val_win, reduce=enc_win_axis)
-
-        # TODO
-        prev_out_emit = ...
-        prev_out_non_blank = ...
 
         if all_combinations_out:
             assert prev_nb_target is not None and nb_target_spatial_dim is not None
@@ -154,12 +150,13 @@ class Decoder(nn.Module):
             lm_axis = nb_target_spatial_dim
         else:
             assert prev_wb_target is not None and wb_target_spatial_dim is not None
+            prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
             lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
-            lm = self.lm(lm_input, axis=lm_axis)
+            lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
 
         # We could have simpler code by directly concatenating them.
         # However, for better efficiency, keep am/lm path separate initially.
@@ -189,20 +186,28 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self):
+    def __init__(self, *,
+                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
+                 dropout: float = 0.2,
+                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+                 ):
         super(DecoderLabelSync, self).__init__()
-        self.embed = nn.Linear(nn.FeatureDim("embed", 256))
-        self.dropout = 0.2
-        self.lstm = nn.LSTM(nn.FeatureDim("lstm", 1024))
+        self.embed = nn.Linear(embed_dim)
+        self.dropout = dropout
+        self.lstm = nn.LSTM(lstm_dim)
 
-    def __call__(self, source: nn.Tensor, *, axis: nn.Dim) -> nn.Tensor:
+    def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
+        """init"""
+        return self.lstm.default_initial_state(batch_dims=batch_dims)
+
+    def __call__(self, source: nn.Tensor, *, axis: nn.Dim, state: nn.LayerState) -> (nn.Tensor, nn.LayerState):
         embed = self.embed(source)
-        embed = nn.dropout(embed, self.dropout)
-        lstm, _ = self.lstm(embed, axis=axis)
-        return lstm
+        embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
+        lstm, state = self.lstm(embed, axis=axis, state=state)
+        return lstm, state
 
 
-def from_scratch_model_def(*, epoch: int) -> Model:
+def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     pass  # TODO
 
@@ -216,7 +221,7 @@ def from_scratch_training(*,
     # TODO feed through model, define full sum loss, mark_as_loss
 
 
-def extended_model_def(*, epoch: int) -> Model:
+def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     pass  # TODO
 
