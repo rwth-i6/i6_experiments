@@ -116,6 +116,8 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     targets = Data(name=default_target_key, **extern_data_dict[default_target_key])
     data_spatial_dim = data.get_time_dim_tag()
     targets_spatial_dim = targets.get_time_dim_tag()
+    data = nn.get_extern_data(data)
+    targets = nn.get_extern_data(targets)
     model_def = config.typed_value("_model_def")
     model = model_def(epoch=epoch)
     train_def = config.typed_value("_train_def")

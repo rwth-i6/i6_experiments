@@ -26,8 +26,8 @@ class TrainDef(Protocol[ModelT]):
     """
     def __call__(self, *,
                  model: ModelT,
-                 data: nn.Data, data_spatial_dim: nn.Dim,
-                 targets: nn.Data, targets_spatial_dim: nn.Dim
+                 data: nn.Tensor, data_spatial_dim: nn.Dim,
+                 targets: nn.Tensor, targets_spatial_dim: nn.Dim
                  ):
         raise NotImplementedError
 
@@ -38,8 +38,8 @@ class FramewiseTrainDef(Protocol[ModelT]):
     """
     def __call__(self, *,
                  model: ModelT,
-                 data: nn.Data, data_spatial_dim: nn.Dim,
-                 align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
+                 data: nn.Tensor, data_spatial_dim: nn.Dim,
+                 align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
                  ):
         raise NotImplementedError
 

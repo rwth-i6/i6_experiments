@@ -74,6 +74,7 @@ class Model(nn.Module):
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
+                 bos_idx: int,
                  enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
                  att_dropout: float,
@@ -84,6 +85,7 @@ class Model(nn.Module):
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
         self.blank_idx = blank_idx
+        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
         self.enc_key_total_dim = enc_key_total_dim
         self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
@@ -104,33 +106,40 @@ class Model(nn.Module):
         self.label_log_prob_dropout = 0.3
         self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
 
-    def encode(self, source: nn.Tensor, *, axis: nn.Dim) -> (nn.Tensor, nn.Dim):
-        """encode"""
-        return self.encoder(source, spatial_dim=axis)
-
-    def encoder_ext(self, *, enc: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
-        """Extend the encoder output"""
+    def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
+        """encode, and extend the encoder output for things we need in the decoder"""
+        enc, enc_spatial_dim = self.encoder(source, spatial_dim=in_spatial_dim)
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
-        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win)
+        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win), enc_spatial_dim
+
+    @staticmethod
+    def encoder_unstack(ext: Dict[str, nn.Tensor]) -> Dict[str, nn.Tensor]:
+        """
+        prepare the encoder output for the loop (full-sum or time-sync)
+        """
+        # We might improve or generalize the interface later...
+        # https://github.com/rwth-i6/returnn_common/issues/202
+        loop = nn.NameCtx.inner_loop()
+        return {k: loop.unstack(v) for k, v in ext.items()}
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def decoder(self, *,
-                enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-                enc_spatial_dim: nn.Dim,  # single step or time axis,
-                enc_ctx_win: nn.Tensor,  # like enc
-                enc_val_win: nn.Tensor,  # like enc
-                all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-                prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-                nb_target_spatial_dim: Optional[nn.Dim] = None,
-                prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-                wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-                state: Optional[nn.LayerState] = None,
-                ) -> (ProbsFromReadout, nn.LayerState):
+    def decode(self, *,
+               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+               enc_spatial_dim: nn.Dim,  # single step or time axis,
+               enc_ctx_win: nn.Tensor,  # like enc
+               enc_val_win: nn.Tensor,  # like enc
+               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+               nb_target_spatial_dim: Optional[nn.Dim] = None,
+               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+               state: Optional[nn.LayerState] = None,
+               ) -> (ProbsFromReadout, nn.LayerState):
         """decoder step, or operating on full seq"""
         if state is None:
             assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
@@ -177,6 +186,19 @@ class Model(nn.Module):
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
         return ProbsFromReadout(model=self, readout=readout), state_
+
+    @staticmethod
+    def prev_targets_from_targets(targets: nn.Tensor, *, spatial_dim: nn.Dim, bos_idx: int) -> nn.Tensor:
+        """
+        shift by one
+        """
+        y, dim_ = nn.slice(targets, axis=spatial_dim, slice_end=-1)
+        pad_dim = nn.SpatialDim("dummy", 1)
+        pad_value = nn.constant(value=bos_idx, shape=[pad_dim], dtype=targets.dtype, sparse_dim=targets.feature_dim)
+        y = nn.concat((pad_value, pad_dim), (y, dim_))
+        dim_ = pad_dim + dim_
+        y, _ = nn.reinterpret_new_dim(y, in_dim=dim_, out_dim=spatial_dim)
+        return y
 
 
 class DecoderLabelSync(nn.Module):
@@ -249,11 +271,21 @@ def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
 
 def from_scratch_training(*,
                           model: Model,
-                          data: nn.Data, data_spatial_dim: nn.Dim,
-                          targets: nn.Data, targets_spatial_dim: nn.Dim
+                          data: nn.Tensor, data_spatial_dim: nn.Dim,
+                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
                           ):
     """Function is run within RETURNN."""
-    # TODO feed through model, define full sum loss, mark_as_loss
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    prev_targets = model.prev_targets_from_targets(targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx)
+    probs, _ = model.decode(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        all_combinations_out=True,
+        prev_nb_target=prev_targets,
+        nb_target_spatial_dim=targets_spatial_dim)
+    out_log_prob = probs.get_wb_label_log_probs()
+
+    # TODO define full sum loss, mark_as_loss
 
 
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
@@ -263,8 +295,8 @@ def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
 
 def extended_model_training(*,
                             model: Model,
-                            data: nn.Data, data_spatial_dim: nn.Dim,
-                            align_targets: nn.Data, align_targets_spatial_dim: nn.Dim
+                            data: nn.Tensor, data_spatial_dim: nn.Dim,
+                            align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
                             ):
     """Function is run within RETURNN."""
     pass  # TODO
@@ -272,7 +304,7 @@ def extended_model_training(*,
 
 def model_recog(*,
                 model: Model,
-                data: nn.Data, data_spatial_dim: nn.Dim,
+                data: nn.Tensor, data_spatial_dim: nn.Dim,
                 target_vocab: nn.Dim,
                 ):
     """Function is run within RETURNN."""
