@@ -69,18 +69,8 @@ py = sis_config_main  # `py` is the default sis config function name
 class Model(nn.Module):
     """Model definition"""
 
-    # TODO implement generic interface https://github.com/rwth-i6/returnn_common/issues/49 ?
-
-    def __init__(self, *, num_enc_layers=6):
-        super(Model, self).__init__()
-        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
-        # TODO decoder...
-
-
-class Decoder(nn.Module):
-    """Decoder"""
-
     def __init__(self, *,
+                 num_enc_layers=6,
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
@@ -88,7 +78,8 @@ class Decoder(nn.Module):
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
                  att_dropout: float,
                  ):
-        super(Decoder, self).__init__()
+        super(Model, self).__init__()
+        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -113,6 +104,10 @@ class Decoder(nn.Module):
         self.label_log_prob_dropout = 0.3
         self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
 
+    def encode(self, source: nn.Tensor, *, axis: nn.Dim) -> (nn.Tensor, nn.Dim):
+        """encode"""
+        return self.encoder(source, spatial_dim=axis)
+
     def encoder_ext(self, *, enc: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
         """Extend the encoder output"""
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
@@ -120,29 +115,30 @@ class Decoder(nn.Module):
         enc_val_win = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win)
 
-    def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def __call__(self, *,
-                 enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-                 enc_spatial_dim: nn.Dim,  # single step or time axis,
-                 enc_ctx_win: nn.Tensor,  # like enc
-                 enc_val_win: nn.Tensor,  # like enc
-                 all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-                 prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-                 nb_target_spatial_dim: Optional[nn.Dim] = None,
-                 prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-                 wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-                 state: Optional[nn.LayerState] = None,
-                 ) -> (ProbsFromReadout, nn.LayerState):
+    def decoder(self, *,
+                enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+                enc_spatial_dim: nn.Dim,  # single step or time axis,
+                enc_ctx_win: nn.Tensor,  # like enc
+                enc_val_win: nn.Tensor,  # like enc
+                all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+                prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+                nb_target_spatial_dim: Optional[nn.Dim] = None,
+                prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+                wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+                state: Optional[nn.LayerState] = None,
+                ) -> (ProbsFromReadout, nn.LayerState):
+        """decoder step, or operating on full seq"""
         if state is None:
             assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
             batch_dims = enc.batch_dims_ordered(
                 remove=(enc.feature_dim, enc_spatial_dim)
                 if enc_spatial_dim != nn.single_step_dim
                 else (enc.feature_dim,))
-            state = self.default_initial_state(batch_dims=batch_dims)
+            state = self.decoder_default_initial_state(batch_dims=batch_dims)
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
@@ -180,7 +176,7 @@ class Decoder(nn.Module):
         readout_in += self.readout_in_bias
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
-        return ProbsFromReadout(decoder=self, readout=readout), state_
+        return ProbsFromReadout(model=self, readout=readout), state_
 
 
 class DecoderLabelSync(nn.Module):
@@ -213,14 +209,14 @@ class ProbsFromReadout:
     """
     functions to calculate the probabilities from the readout
     """
-    def __init__(self, *, decoder: Decoder, readout: nn.Tensor):
-        self.decoder = decoder
+    def __init__(self, *, model: Model, readout: nn.Tensor):
+        self.model = model
         self.readout = readout
 
     def get_label_logits(self) -> nn.Tensor:
         """label log probs"""
-        label_logits_in = nn.dropout(self.readout, self.decoder.label_log_prob_dropout, axis=self.readout.feature_dim)
-        label_logits = self.decoder.out_nb_label_logits(label_logits_in)
+        label_logits_in = nn.dropout(self.readout, self.model.label_log_prob_dropout, axis=self.readout.feature_dim)
+        label_logits = self.model.out_nb_label_logits(label_logits_in)
         return label_logits
 
     def get_label_log_probs(self) -> nn.Tensor:
@@ -231,7 +227,7 @@ class ProbsFromReadout:
 
     def get_emit_logit(self) -> nn.Tensor:
         """emit logit"""
-        emit_logit = self.decoder.out_emit_logit(self.readout)
+        emit_logit = self.model.out_emit_logit(self.readout)
         return emit_logit
 
     def get_wb_label_log_probs(self) -> nn.Tensor:
@@ -241,7 +237,7 @@ class ProbsFromReadout:
         emit_log_prob = nn.log_sigmoid(emit_logit)
         blank_log_prob = nn.log_sigmoid(-emit_logit)
         label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
-        assert self.decoder.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
+        assert self.model.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
         output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
         return output_log_prob
 
@@ -282,3 +278,4 @@ def model_recog(*,
     """Function is run within RETURNN."""
     pass  # TODO
     # TODO probably this should be moved over to the recog module, as this will probably be the same always
+    # TODO implement generic interface https://github.com/rwth-i6/returnn_common/issues/49 ?
