@@ -158,31 +158,19 @@ class Decoder(nn.Module):
         with lm_scope:
             lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
 
-        # We could have simpler code by directly concatenating them.
-        # However, for better efficiency, keep am/lm path separate initially.
+            # We could have simpler code by directly concatenating the readout inputs.
+            # However, for better efficiency, keep am/lm path separate initially.
+            readout_in_lm_in = nn.dropout(lm, self.readout_in_lm_dropout, axis=lm.feature_dim)
+            readout_in_lm = self.readout_in_lm(readout_in_lm_in)
+
         readout_in_am_in = nn.concat_features(enc, att)
         readout_in_am_in = nn.dropout(readout_in_am_in, self.readout_in_am_dropout, axis=readout_in_am_in.feature_dim)
         readout_in_am = self.readout_in_am(readout_in_am_in)
-        readout_in_lm_in = nn.dropout(lm, self.readout_in_lm_dropout, axis=lm.feature_dim)
-        readout_in_lm = self.readout_in_lm(readout_in_lm_in)
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout_in += self.readout_in_bias
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
-        out_nb_label_embed_in = nn.dropout(readout, self.label_log_prob_dropout, axis=readout.feature_dim)
-
-        # TODO maybe make this an interface - the label logits are not needed for framewise loss in the blank frames
-        label_logits = self.out_nb_label_logits(out_nb_label_embed_in)
-        label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
-
-        emit_logit = self.out_emit_logit(readout)
-        emit_log_prob = nn.log_sigmoid(emit_logit)
-        blank_log_prob = nn.log_sigmoid(-emit_logit)
-        label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
-        assert self.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
-        output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
-
-        return output_log_prob, state_
+        return ProbsFromReadout(decoder=self, readout=readout), state_
 
 
 class DecoderLabelSync(nn.Module):
@@ -209,6 +197,43 @@ class DecoderLabelSync(nn.Module):
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, axis=axis, state=state)
         return lstm, state
+
+
+class ProbsFromReadout:
+    """
+    functions to calculate the probabilities from the readout
+    """
+    def __init__(self, *, decoder: Decoder, readout: nn.Tensor):
+        self.decoder = decoder
+        self.readout = readout
+
+    def get_label_logits(self) -> nn.Tensor:
+        """label log probs"""
+        label_logits_in = nn.dropout(self.readout, self.decoder.label_log_prob_dropout, axis=self.readout.feature_dim)
+        label_logits = self.decoder.out_nb_label_logits(label_logits_in)
+        return label_logits
+
+    def get_label_log_probs(self) -> nn.Tensor:
+        """label log probs"""
+        label_logits = self.get_label_logits()
+        label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
+        return label_log_prob
+
+    def get_emit_logit(self) -> nn.Tensor:
+        """emit logit"""
+        emit_logit = self.decoder.out_emit_logit(self.readout)
+        return emit_logit
+
+    def get_wb_label_log_probs(self) -> nn.Tensor:
+        """align label log probs"""
+        label_log_prob = self.get_label_log_probs()
+        emit_logit = self.get_emit_logit()
+        emit_log_prob = nn.log_sigmoid(emit_logit)
+        blank_log_prob = nn.log_sigmoid(-emit_logit)
+        label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
+        assert self.decoder.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
+        output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
+        return output_log_prob
 
 
 def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
