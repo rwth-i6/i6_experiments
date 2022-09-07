@@ -99,6 +99,9 @@ class Decoder(nn.Module):
         self.att_num_heads = att_num_heads
         self.att_dropout = att_dropout
 
+        self.enc_ctx = nn.Linear(enc_key_total_dim)
+        self.enc_ctx_dropout = 0.2
+        self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
         self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync()
         self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
@@ -110,10 +113,12 @@ class Decoder(nn.Module):
         self.label_log_prob_dropout = 0.3
         self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
 
-    def encoder_ext(self, enc_out: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
+    def encoder_ext(self, *, enc: nn.Tensor, enc_spatial_dim: nn.Dim) -> Dict[str, nn.Tensor]:
         """Extend the encoder output"""
-        # TODO
-        return enc_out
+        enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
+        enc_ctx_win = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
+        enc_val_win = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
+        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win)
 
     def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
         """Default initial state"""
@@ -124,32 +129,37 @@ class Decoder(nn.Module):
                  enc_spatial_dim: nn.Dim,  # single step or time axis,
                  enc_ctx_win: nn.Tensor,  # like enc
                  enc_val_win: nn.Tensor,  # like enc
-                 enc_win_axis: nn.Dim,  # for enc_..._win
                  all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
                  prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
                  nb_target_spatial_dim: Optional[nn.Dim] = None,
                  prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                  wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                  state: Optional[nn.LayerState] = None,
-                 ) -> (nn.Tensor, nn.LayerState):
+                 ) -> (ProbsFromReadout, nn.LayerState):
         if state is None:
-            batch_dims = enc.batch_dims_ordered(remove=(enc.feature_dim, enc_spatial_dim))
+            assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
+            batch_dims = enc.batch_dims_ordered(
+                remove=(enc.feature_dim, enc_spatial_dim)
+                if enc_spatial_dim != nn.single_step_dim
+                else (enc.feature_dim,))
             state = self.default_initial_state(batch_dims=batch_dims)
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
-        att_weights = nn.softmax(att_energy, axis=enc_win_axis)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=enc_win_axis)
-        att = nn.dot(att_weights, enc_val_win, reduce=enc_win_axis)
+        att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=self.enc_win_dim)
+        att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
             assert prev_nb_target is not None and nb_target_spatial_dim is not None
+            assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
             lm_axis = nb_target_spatial_dim
         else:
             assert prev_wb_target is not None and wb_target_spatial_dim is not None
+            assert wb_target_spatial_dim == enc_spatial_dim
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
             lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
