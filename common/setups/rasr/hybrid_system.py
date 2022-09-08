@@ -108,52 +108,6 @@ class HybridSystem(NnSystem):
 
     # -------------------- Helpers --------------------
     @staticmethod
-    def adapt_returnn_config_for_recog(returnn_config: returnn.ReturnnConfig):
-        """
-        Adapt a RETURNN config for recognition, e.g., remove loss and use log softmax activation in last layer
-
-        :param ReturnnConfig returnn_config:
-        :rtype ReturnnConfig:
-        """
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-        config = copy.deepcopy(returnn_config)
-        forward_output_layer = config.config.get("forward_output_layer", "output")
-        network = config.config.get("network")
-        for layer_name, layer in network.items():
-            if layer.get("unit", None) in {"lstmp"}:
-                layer["unit"] = "nativelstm2"
-            if layer.get("target", None):
-                layer.pop("target")
-                layer.pop("loss", None)
-                layer.pop("loss_scale", None)
-                layer.pop("loss_opts", None)
-        if network[forward_output_layer]["class"] == "softmax":
-            network[forward_output_layer]["class"] = "linear"
-            network[forward_output_layer]["activation"] = "log_softmax"
-        elif network[forward_output_layer]["class"] == "linear":
-            if network[forward_output_layer]["activation"] == "softmax":
-                network[forward_output_layer]["activation"] = "log_softmax"
-            elif network[forward_output_layer]["activation"] == "sigmoid":
-                network[forward_output_layer]["activation"] = "log_sigmoid"
-            elif network[forward_output_layer]["activation"] == "exp":
-                network[forward_output_layer]["activation"] = None
-            elif network[forward_output_layer]["activation"] is None:
-                network[forward_output_layer]["activation"] = "log"
-        # target = 'classes'
-        if "cropped" in network:
-            if network["output"]["from"] == ["cropped"]:
-                network["output"]["from"] = "upsample"
-            network.pop("cropped")
-            if "lstm_bwd_1" in network:
-                network["lstm_bwd_1"]["from"] = "upsample"
-                network["lstm_fwd_1"]["from"] = "upsample"
-            if "lstm_fwd_1_no_init" in network:
-                network["lstm_bwd_1_no_init"]["from"] = "upsample"
-                network["lstm_fwd_1_no_init"]["from"] = "upsample"
-
-        return config
-
-    @staticmethod
     def get_tf_flow(
         checkpoint_path: Union[Path, returnn.Checkpoint],
         tf_graph_path: Path,
@@ -492,7 +446,7 @@ class HybridSystem(NnSystem):
             native_lstm_job.add_alias("%s/compile_native_op" % name)
 
             graph_compile_job = returnn.CompileTFGraphJob(
-                self.adapt_returnn_config_for_recog(returnn_config),
+                returnn_config,
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
             )
