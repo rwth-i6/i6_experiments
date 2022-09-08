@@ -271,8 +271,13 @@ def from_scratch_training(*,
         prev_nb_target=prev_targets,
         nb_target_spatial_dim=targets_spatial_dim)
     out_log_prob = probs.get_wb_label_log_probs()
-
-    # TODO define full sum loss, mark_as_loss
+    loss = nn.transducer_time_sync_full_sum_neg_log_prob(
+        log_probs=out_log_prob,
+        labels=targets,
+        input_spatial_dim=enc_spatial_dim,
+        labels_spatial_dim=targets_spatial_dim,
+        blank_index=model.blank_idx)
+    loss.mark_as_loss()
 
 
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
