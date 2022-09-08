@@ -187,19 +187,6 @@ class Model(nn.Module):
 
         return ProbsFromReadout(model=self, readout=readout), state_
 
-    @staticmethod
-    def prev_targets_from_targets(targets: nn.Tensor, *, spatial_dim: nn.Dim, bos_idx: int) -> nn.Tensor:
-        """
-        shift by one
-        """
-        y, dim_ = nn.slice(targets, axis=spatial_dim, slice_end=-1)
-        pad_dim = nn.SpatialDim("dummy", 1)
-        pad_value = nn.constant(value=bos_idx, shape=[pad_dim], dtype=targets.dtype, sparse_dim=targets.feature_dim)
-        y = nn.concat((pad_value, pad_dim), (y, dim_))
-        dim_ = pad_dim + dim_
-        y, _ = nn.reinterpret_new_dim(y, in_dim=dim_, out_dim=spatial_dim)
-        return y
-
 
 class DecoderLabelSync(nn.Module):
     """
@@ -276,7 +263,7 @@ def from_scratch_training(*,
                           ):
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    prev_targets = model.prev_targets_from_targets(targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx)
+    prev_targets = nn.prev_target_seq(targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx)
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
