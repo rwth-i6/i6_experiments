@@ -16,11 +16,20 @@ _rasr_configs_dir = _my_dir + "/rasr_configs"
 
 
 class _Bpe(VocabConfig):
-  def __init__(self, dim, codes: str, vocab: str):
+  def __init__(self,
+               dim: int,
+               codes: str,  # filename
+               vocab: str,  # filename
+               *,
+               eos_idx: Optional[int] = None,
+               bos_idx: Optional[int] = None
+               ):
     super(_Bpe, self).__init__()
     self.dim = dim
     self.codes = codes
     self.vocab = vocab
+    self.eos_idx = eos_idx
+    self.bos_idx = bos_idx
 
   def get_num_classes(self) -> int:
     """
@@ -39,9 +48,17 @@ class _Bpe(VocabConfig):
       # 'seq_postfix': [0]  # no EOS needed for RNN-T
     }
 
+  def get_eos_idx(self) -> Optional[int]:
+    """EOS"""
+    return self.eos_idx
+
+  def get_bos_idx(self) -> Optional[int]:
+    """BOS"""
+    return self.bos_idx
+
 
 bpe1k = _Bpe(
-  dim=1030,
+  dim=1030, eos_idx=0, bos_idx=0,
   codes='/work/asr3/irie/data/switchboard/subword_clean/ready/swbd_clean.bpe_code_1k',
   vocab='/work/asr3/irie/data/switchboard/subword_clean/ready/vocab.swbd_clean.bpe_code_1k')
 

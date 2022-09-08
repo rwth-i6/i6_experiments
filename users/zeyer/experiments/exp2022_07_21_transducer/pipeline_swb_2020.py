@@ -77,7 +77,7 @@ class Model(nn.Module):
                  bos_idx: int,
                  enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
-                 att_dropout: float,
+                 att_dropout: float = 0.1,
                  ):
         super(Model, self).__init__()
         self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
@@ -282,7 +282,11 @@ def from_scratch_training(*,
 
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
-    pass  # TODO
+    return Model(
+        nb_target_dim=target_dim,
+        wb_target_dim=target_dim + 1,
+        blank_idx=target_dim.dimension,
+    )
 
 
 def extended_model_training(*,
