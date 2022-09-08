@@ -1,6 +1,9 @@
+"""
+Dataset / task interface
+"""
 
 from __future__ import annotations
-from typing import Dict, Callable, List
+from typing import Dict, Callable
 import dataclasses
 from sisyphus import tk
 from returnn_common.datasets.interface import DatasetConfig
@@ -61,5 +64,6 @@ class ScoreResultCollection:
 
 @dataclasses.dataclass(frozen=True)
 class MeasureType:
+    """measure type, e.g. WER%"""
     short_name: str  # e.g. "WER%"
     lower_is_better: bool = True
