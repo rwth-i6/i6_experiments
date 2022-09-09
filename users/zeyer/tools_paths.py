@@ -50,7 +50,7 @@ def get_returnn_python_exe() -> tk.Path:
     RETURNN Python executable
     """
     assert getattr(gs, "RETURNN_PYTHON_EXE", None), "RETURNN_PYTHON_EXE not set"
-    returnn_python_exe = getattr(gs, "RETURNN_PYTHON_EXE")
+    returnn_python_exe = tk.Path(getattr(gs, "RETURNN_PYTHON_EXE"))
     returnn_python_exe.hash_overwrite = "DEFAULT_RETURNN_PYTHON_EXE"
     return returnn_python_exe
 
@@ -60,6 +60,6 @@ def get_returnn_root() -> tk.Path:
     RETURNN root
     """
     assert getattr(gs, "RETURNN_ROOT", None), "RETURNN_ROOT not set"
-    returnn_root = getattr(gs, "RETURNN_ROOT")
+    returnn_root = tk.Path(getattr(gs, "RETURNN_ROOT"))
     returnn_root.hash_overwrite = "DEFAULT_RETURNN_ROOT"
     return returnn_root
