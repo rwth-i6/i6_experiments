@@ -26,6 +26,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 from i6_experiments.common.helpers.dependency_boundary import dependency_boundary
 from i6_experiments.common.utils.diff import collect_diffs
+from i6_experiments.users.zeyer import tools_paths
 
 
 def run():
@@ -40,7 +41,12 @@ def run():
     nn_steps = rasr_util.RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    lbs_nn_system = hybrid_system.HybridSystem()
+    lbs_nn_system = hybrid_system.HybridSystem(
+        rasr_binary_path=tools_paths.get_rasr_binary_path(),
+        rasr_arch=tools_paths.get_rasr_arch(),
+        returnn_root=tools_paths.get_returnn_root(),
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+    )
     lbs_nn_system.init_system(**get_chris_hybrid_system_init_args())
     lbs_nn_system.run(nn_steps)
 
@@ -261,7 +267,9 @@ def get_chris_hybrid_system_init_args():
 
         crp = rasr.CommonRasrParameters(base=crp_base)
         rasr.crp_set_corpus(crp, inputs[name].corpus_object)
-        crp.set_executables(tk.Path(gs.RASR_ROOT, hash_overwrite="RASR_ROOT"))
+        crp.set_executables(
+            rasr_binary_path=tools_paths.get_rasr_binary_path(),
+            rasr_arch=tools_paths.get_rasr_arch())
         crp.acoustic_model_post_config = rasr.RasrConfig()
         crp.acoustic_model_post_config.allophones.add_from_file = _path(
             "StoreAllophones.34VPSakJyy0U", "allophones")
@@ -430,9 +438,7 @@ def get_orig_chris_hybrid_system_init_args():
 
     # ******************** GMM System ********************
 
-    rasr_binary_path = tk.Path(gs.RASR_ROOT)  # TODO ?
-    rasr_binary_path.hash_overwrite = "RASR_ROOT"  # TODO ?
-    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
+    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=tools_paths.get_rasr_binary_path())
     lbs_gmm_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=train_data_inputs,
