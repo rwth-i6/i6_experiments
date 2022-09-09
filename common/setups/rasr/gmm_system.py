@@ -225,9 +225,9 @@ class GmmSystem(RasrSystem):
         :param align_iter:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
-        :param split_keep_values:
-        :param accum_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -419,9 +419,9 @@ class GmmSystem(RasrSystem):
         :param initial_alignment:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
-        :param split_keep_values:
-        :param accum_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -639,9 +639,9 @@ class GmmSystem(RasrSystem):
         :param feature_flow:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
-        :param split_keep_values:
-        :param accum_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -828,9 +828,9 @@ class GmmSystem(RasrSystem):
         :param mixtures:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
-        :param split_keep_values:
-        :param accum_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
