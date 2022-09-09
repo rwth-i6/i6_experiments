@@ -44,7 +44,9 @@ class _Bpe(VocabConfig):
     return {
       'bpe_file': self.codes,
       'vocab_file': self.vocab,
-      'unknown_label': None  # should not be needed
+      'unknown_label': None,  # should not be needed
+      'bos_label': self.bos_idx,
+      'eos_label': self.eos_idx,
       # 'seq_postfix': [0]  # no EOS needed for RNN-T
     }
 

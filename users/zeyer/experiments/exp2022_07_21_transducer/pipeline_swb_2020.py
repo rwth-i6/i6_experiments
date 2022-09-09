@@ -253,7 +253,15 @@ class ProbsFromReadout:
 
 def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
-    pass  # TODO
+    assert target_dim.vocab
+    assert target_dim.vocab.bos_label_id is not None
+    return Model(
+        num_enc_layers=min((epoch - 1) // 2 + 1, 6) if epoch <= 12 else 6,
+        nb_target_dim=target_dim,
+        wb_target_dim=target_dim + 1,
+        blank_idx=target_dim.dimension,
+        bos_idx=target_dim.vocab.bos_label_id,
+    )
 
 
 def from_scratch_training(*,
@@ -282,10 +290,15 @@ def from_scratch_training(*,
 
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
+    assert target_dim.vocab
+    assert target_dim.vocab.bos_label_id is not None
+    # TODO extended model...
     return Model(
+        num_enc_layers=6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
+        bos_idx=target_dim.vocab.bos_label_id,
     )
 
 
