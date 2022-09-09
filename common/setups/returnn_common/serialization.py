@@ -308,7 +308,7 @@ class Import(SerializerObject):
             assert getattr(code_object_path, "__qualname__", None) and getattr(
                 code_object_path, "__module__", None
             )
-            mod_name = code_object_path.__module__.__name__
+            mod_name = code_object_path.__module__
             qual_name = code_object_path.__qualname__
             assert "." not in qual_name
             assert getattr(sys.modules[mod_name], qual_name) is code_object_path
