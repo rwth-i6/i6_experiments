@@ -36,6 +36,18 @@ def get_rasr_arch() -> str:
     return getattr(gs, "RASR_ARCH", None) or "linux-x86_64-standard"
 
 
+def get_rasr_exe(name: str) -> tk.Path:
+    """
+    Like i6_core.rasr.command.RasrCommand.select_exe, or i6_core.rasr.crp.CommonRasrParameters.set_executables.
+
+    :param name: e.g. "nn-trainer"
+    :return: path to RASR binary executable
+    """
+    rasr_binary_path = get_rasr_binary_path()
+    rasr_arch = get_rasr_arch()
+    return rasr_binary_path.join_right(f"{name}.{rasr_arch}")
+
+
 def get_sctk_binary_path() -> tk.Path:
     """SCTK binary path"""
     # If it is common to have sclite in the PATH env, we could also check for that here...

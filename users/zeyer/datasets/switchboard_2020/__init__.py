@@ -10,6 +10,7 @@ import os
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from i6_experiments.users.zeyer import tools_paths
 
 _my_dir = os.path.dirname(os.path.abspath(__file__))
 _rasr_configs_dir = _my_dir + "/rasr_configs"
@@ -188,8 +189,7 @@ class SwitchboardExternSprint(DatasetConfig):
     ]
     d = {
         "class": "ExternSprintDataset",
-        # TODO how to set sprint exec here?
-        "sprintTrainerExecPath": "sprint-executables/nn-trainer",
+        "sprintTrainerExecPath": tools_paths.get_rasr_exe("nn-trainer"),
         "sprintConfigStr": args,
         "suppress_load_seqs_print": True,  # less verbose
         "input_stddev": 3.,
