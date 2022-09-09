@@ -120,6 +120,14 @@ class GmmSystem(RasrSystem):
             "default": 5,
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
+        self.default_split_keep_values = {
+            "default": 5,
+            "selected": gs.JOB_DEFAULT_KEEP_VALUE,
+        }
+        self.default_accumulate_keep_values = {
+            "default": 5,
+            "selected": gs.JOB_DEFAULT_KEEP_VALUE,
+        }
 
         self.outputs = defaultdict(dict)  # type: Dict[GmmOutput]
 
@@ -202,6 +210,8 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        split_keep_values: Optional[dict] = None,
+        accum_keep_values: Optional[dict] = None,
         dump_alignment_score_report=False,
         **kwargs,
     ):
@@ -215,7 +225,9 @@ class GmmSystem(RasrSystem):
         :param align_iter:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -242,6 +254,14 @@ class GmmSystem(RasrSystem):
         if align_keep_values is not None:
             akv.update(align_keep_values)
 
+        skv = dict(**self.default_split_keep_values)
+        if split_keep_values is not None:
+            skv.update(split_keep_values)
+
+        ackv = dict(**self.default_accumulate_keep_values)
+        if accum_keep_values is not None:
+            ackv.update(accum_keep_values)
+
         self.train(
             name=name,
             corpus=corpus_key,
@@ -251,6 +271,8 @@ class GmmSystem(RasrSystem):
                 self.mixtures, corpus_key, "linear_alignment_{}".format(name)
             ),
             align_keep_values=akv,
+            split_keep_values=skv,
+            accumulate_keep_values=ackv,
             alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
@@ -383,6 +405,8 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        split_keep_values: Optional[dict] = None,
+        accum_keep_values: Optional[dict] = None,
         dump_alignment_score_report=False,
         **kwargs,
     ):
@@ -395,7 +419,9 @@ class GmmSystem(RasrSystem):
         :param initial_alignment:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -415,6 +441,14 @@ class GmmSystem(RasrSystem):
         if align_keep_values is not None:
             akv.update(align_keep_values)
 
+        skv = dict(**self.default_split_keep_values)
+        if split_keep_values is not None:
+            skv.update(split_keep_values)
+
+        ackv = dict(**self.default_accumulate_keep_values)
+        if accum_keep_values is not None:
+            ackv.update(accum_keep_values)
+
         self.train(
             name=name,
             corpus=corpus_key,
@@ -424,6 +458,8 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, initial_alignment
             ),
             align_keep_values=akv,
+            split_keep_values=skv,
+            accumulate_keep_values=ackv,
             alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
@@ -589,6 +625,8 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        split_keep_values: Optional[dict] = None,
+        accum_keep_values: Optional[dict] = None,
         dump_alignment_score_report=False,
         **kwargs,
     ):
@@ -601,7 +639,9 @@ class GmmSystem(RasrSystem):
         :param feature_flow:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -618,6 +658,14 @@ class GmmSystem(RasrSystem):
         if align_keep_values is not None:
             akv.update(align_keep_values)
 
+        skv = dict(**self.default_split_keep_values)
+        if split_keep_values is not None:
+            skv.update(split_keep_values)
+
+        ackv = dict(**self.default_accumulate_keep_values)
+        if accum_keep_values is not None:
+            ackv.update(accum_keep_values)
+
         self.train(
             name=name,
             corpus=corpus_key,
@@ -625,6 +673,8 @@ class GmmSystem(RasrSystem):
             flow=feature_flow,
             initial_alignment=self.alignments[corpus_key][initial_alignment_key][-1],
             align_keep_values=akv,
+            split_keep_values=skv,
+            accumulate_keep_values=ackv,
             alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
@@ -761,6 +811,8 @@ class GmmSystem(RasrSystem):
         splits: int,
         accs_per_split: int,
         align_keep_values: Optional[dict] = None,
+        split_keep_values: Optional[dict] = None,
+        accum_keep_values: Optional[dict] = None,
         dump_alignment_score_report=False,
         **kwargs,
     ):
@@ -776,7 +828,9 @@ class GmmSystem(RasrSystem):
         :param mixtures:
         :param splits:
         :param accs_per_split:
-        :param align_keep_values:
+        :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
+        :param split_keep_values: sisyphus keep values for cleaning of split jobs
+        :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
@@ -807,6 +861,14 @@ class GmmSystem(RasrSystem):
         if align_keep_values is not None:
             akv.update(align_keep_values)
 
+        skv = dict(**self.default_split_keep_values)
+        if split_keep_values is not None:
+            skv.update(split_keep_values)
+
+        ackv = dict(**self.default_accumulate_keep_values)
+        if accum_keep_values is not None:
+            ackv.update(accum_keep_values)
+
         self.train(
             name=name,
             corpus=corpus_key,
@@ -816,6 +878,8 @@ class GmmSystem(RasrSystem):
                 self.alignments, corpus_key, alignment
             ),
             align_keep_values=akv,
+            split_keep_values=skv,
+            accumulate_keep_values=ackv,
             alias_path="train/{}_{}_action_sequence".format(corpus_key, name),
             **kwargs,
         )
