@@ -34,3 +34,10 @@ def get_switchboard_task() -> Task:
         score_recog_output_func=score,
         collect_score_results_func=None,  # TODO
     )
+
+
+def get_librispeech_task() -> Task:
+    """
+    Librispeech
+    """
+    # TODO ...

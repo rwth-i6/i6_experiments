@@ -2,11 +2,14 @@
 Librispeech dataset
 """
 
+from __future__ import annotations
+from typing import Optional, Union, List, Dict, Any, Tuple
 from i6_experiments.common.datasets import librispeech
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
 from i6_core.returnn import ReturnnConfig
+from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
@@ -40,7 +43,7 @@ _Parts = [
 def _get_dataset(key: str, *, subset=None, train_partition_epoch=None, training: bool = False, targets=None, audio):
   files = []
   parts = [part for part in _Parts if part.startswith(key)]
-  assert parts
+  assert parts, f"invalid key {key!r}"
   for part in parts:
     files += [librispeech_ogg_zip_dict[part]]
   d = {
@@ -99,3 +102,20 @@ default_dataset_config = {
     "devtrain": _get_dataset("train", subset=2000, audio=default_audio_opts, targets=default_targets_opts),
   },
 }
+
+
+class LibrispeechOggZip(DatasetConfig):
+  """
+  Librispeech dataset in OggZip format.
+  """
+
+  def __init__(self, *,
+               vocab: Optional[VocabConfig] = None,
+               main_key: Optional[str] = None,
+               train_epoch_split=default_epoch_split):
+    super(LibrispeechOggZip, self).__init__()
+    self.vocab = vocab
+    self.main_key = main_key
+    self.train_epoch_split = train_epoch_split
+
+  # TODO ...

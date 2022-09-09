@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import Optional, Dict, Sequence
 import contextlib
 from sisyphus import tk
-from .task import get_switchboard_task
+from .task import Task, get_switchboard_task
 from .train import train
 from .recog import recog
 from .align import align
@@ -46,7 +46,14 @@ extra_hash = (version,)
 def sis_config_main():
     """sis config function"""
     task = get_switchboard_task()
+    pipeline(task)
 
+
+py = sis_config_main  # `py` is the default sis config function name
+
+
+def pipeline(task: Task):
+    """run the pipeline for the given task, register outputs"""
     step1_model = train(
         task=task, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
     step2_alignment = align(task=task, model=step1_model)
@@ -61,9 +68,6 @@ def sis_config_main():
     tk.register_output('step1', recog(task, step1_model).main_measure_value)
     tk.register_output('step3', recog(task, step3_model).main_measure_value)
     tk.register_output('step4', recog(task, step4_model).main_measure_value)
-
-
-py = sis_config_main  # `py` is the default sis config function name
 
 
 class Model(nn.Module):
