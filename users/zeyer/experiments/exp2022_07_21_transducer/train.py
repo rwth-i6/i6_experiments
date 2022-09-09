@@ -119,7 +119,7 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     data = nn.get_extern_data(data)
     targets = nn.get_extern_data(targets)
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch)
+    model = model_def(epoch=epoch, target_dim=targets.feature_dim)
     train_def = config.typed_value("_train_def")
     train_def(
         model=model,
