@@ -54,7 +54,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> tk.Pat
         python_epilog=[serialization.Collection(
             [
                 serialization.Import(model.definition, "_model_def", ignore_import_as_for_hash=True),
-                serialization.Import(search, "_search", ignore_import_as_for_hash=True),  # TODO...
+                serialization.Import(model_search, "_search", ignore_import_as_for_hash=True),  # TODO...
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
                 serialization.ExplicitHash({
                     # Increase the version whenever some incompatible change is made in this recog() function,
@@ -85,7 +85,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> tk.Pat
     return search_job.out_search_file
 
 
-def search(decoder, *, beam_size: int = 12) -> nn.Tensor:
+def model_search(decoder, *, beam_size: int = 12) -> nn.Tensor:
     """search"""
     loop = nn.Loop(axis=decoder.align_spatial_dim)
     loop.max_seq_len = decoder.max_seq_len()
