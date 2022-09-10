@@ -159,21 +159,7 @@ class Collection(DelayedBase):
         """get"""
         content = ["import os\nimport sys\n"]
 
-        if self.returnn_common_root is None:
-            content.append("from returnn_common import nn\n\n")
-        else:
-            if self.make_local_package_copy:
-                assert f"/{gs.RECIPE_PREFIX}" not in self.returnn_common_root.get(), (
-                    "please do not use returnn_common from your recipe folder "
-                    "when using `make_local_package_copy=True`, as then the local copy will not be used"
-                )
-                # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
-                # order here and always chooses the package from recipe/ first...
-            content.append(
-                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
-                "from returnn_common import nn\n\n"
-            )
-
+        # have sys.path setup first
         if self.make_local_package_copy:
             out_dir = os.path.join(os.getcwd(), "../output")
             for package in self.packages:
@@ -193,6 +179,22 @@ class Collection(DelayedBase):
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
+
+        if self.returnn_common_root is None:
+            # Note that this here depends on a proper sys.path setup.
+            content.append("from returnn_common import nn\n\n")
+        else:
+            if self.make_local_package_copy:
+                assert f"/{gs.RECIPE_PREFIX}" not in self.returnn_common_root.get(), (
+                    "please do not use returnn_common from your recipe folder "
+                    "when using `make_local_package_copy=True`, as then the local copy will not be used"
+                )
+                # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
+                # order here and always chooses the package from recipe/ first...
+            content.append(
+                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
+                "from returnn_common import nn\n\n"
+            )
 
         content += [obj.get() for obj in self.serializer_objects]
         return "".join(content)
