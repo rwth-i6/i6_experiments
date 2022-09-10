@@ -116,6 +116,7 @@ class SwitchboardExternSprint(DatasetConfig):
     return d
 
   def get_default_target(self) -> Optional[str]:
+    """default target"""
     if self.vocab:
       return "orth_classes"
     return None
@@ -135,10 +136,12 @@ class SwitchboardExternSprint(DatasetConfig):
       "devtrain": self.get_dataset("devtrain")}
 
   def get_main_name(self) -> str:
+    """main key"""
     assert self.main_key, "main key not defined"
     return self.main_key
 
   def get_main_dataset(self) -> Dict[str]:
+    """main dataset"""
     assert self.main_key, "main key not defined"
     return self.get_dataset(self.main_key)
 
@@ -204,6 +207,7 @@ class SwitchboardExternSprint(DatasetConfig):
 
 
 def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
+    """Bliss XML"""
     corpus_name = {"hub5e_00": "dev"}.get(corpus_name, corpus_name)
     assert corpus_name in {"dev", "hub5e_01", "rt03s", "train"}
     return tk.Path(
