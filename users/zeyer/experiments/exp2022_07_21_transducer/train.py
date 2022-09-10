@@ -67,7 +67,7 @@ def train(*,
         returnn_train_config_dict["_alignment_train_TODO"] = alignment.alignments["train"].hdf_files
 
     if init_params:
-        returnn_train_config_dict["import_model_train_epoch1"] = init_params.index_path
+        returnn_train_config_dict["import_model_train_epoch1"] = init_params
 
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,
