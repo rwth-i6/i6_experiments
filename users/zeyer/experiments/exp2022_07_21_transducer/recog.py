@@ -5,7 +5,6 @@ recog helpers
 
 from __future__ import annotations
 from typing import Dict, Any
-from sisyphus import tk
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
 from returnn_common.datasets.interface import DatasetConfig
@@ -21,17 +20,15 @@ def recog(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
-        search_out = search_dataset(dataset=dataset, model=model)
-        # TODO this has hardcoded BPE vocab assumption. we might have sentencepiece, or single chars, or whatever...
-        bpe = search_out
-        words = SearchBPEtoWordsJob(bpe).out_word_search_results
-        recog_out = RecogOutput(output=words)
+        recog_out = search_dataset(dataset=dataset, model=model)
+        for f in task.recog_post_proc_funcs:
+            recog_out = f(recog_out)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
 
 
-def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> tk.Path:
+def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
     """
     recog on the specific dataset
     """
@@ -82,7 +79,13 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> tk.Pat
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
     )
-    return search_job.out_search_file
+    return RecogOutput(output=search_job.out_search_file)
+
+
+def bpe_to_words(bpe: RecogOutput) -> RecogOutput:
+    """BPE to words"""
+    words = SearchBPEtoWordsJob(bpe.output).out_word_search_results
+    return RecogOutput(output=words)
 
 
 def model_search(decoder, *, beam_size: int = 12) -> nn.Tensor:

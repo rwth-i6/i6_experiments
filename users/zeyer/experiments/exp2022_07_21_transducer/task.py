@@ -3,6 +3,7 @@ Task definition
 """
 
 from i6_experiments.users.zeyer.datasets.base import Task, ScoreResultCollection, MeasureType
+from .recog import bpe_to_words
 
 
 def get_switchboard_task() -> Task:
@@ -33,6 +34,7 @@ def get_switchboard_task() -> Task:
 
         score_recog_output_func=score,
         collect_score_results_func=None,  # TODO
+        recog_post_proc_funcs=[bpe_to_words],
     )
 
 

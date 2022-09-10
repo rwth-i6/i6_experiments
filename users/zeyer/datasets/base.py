@@ -3,7 +3,7 @@ Dataset / task interface
 """
 
 from __future__ import annotations
-from typing import Dict, Callable
+from typing import Dict, Callable, Sequence
 import dataclasses
 from sisyphus import tk
 from returnn_common.datasets.interface import DatasetConfig
@@ -33,6 +33,9 @@ class Task:
 
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
     collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection]
+
+    # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
