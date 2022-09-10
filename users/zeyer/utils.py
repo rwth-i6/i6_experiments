@@ -1,5 +1,9 @@
+"""generic utils"""
 
-def generic_open(filename, mode="r"):
+from typing import Union, TextIO, BinaryIO
+
+
+def generic_open(filename: str, mode: str = "r") -> Union[TextIO, BinaryIO]:
   """
   Wrapper around :func:`open`.
   Automatically wraps :func:`gzip.open` if filename ends with ``".gz"``.
@@ -14,4 +18,3 @@ def generic_open(filename, mode="r"):
       mode += "t"
     return gzip.open(filename, mode)
   return open(filename, mode)
-
