@@ -17,7 +17,7 @@ def train(*,
           alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
           train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
-          init_params: Optional[Checkpoint] = None,  # TODO...
+          init_params: Optional[Checkpoint] = None,
           extra_hash: Any = None,
           ) -> ModelWithCheckpoint:
     """
@@ -60,6 +60,14 @@ def train(*,
         newbob_multi_update_interval=1,
         newbob_learning_rate_decay=0.7,
     )
+
+    if alignment:
+        # TODO... metadataset etc...
+        # dummy for now, just insert them into the dict, to get the dependency
+        returnn_train_config_dict["_alignment_train_TODO"] = alignment.alignments["train"].hdf_files
+
+    if init_params:
+        returnn_train_config_dict["import_model_train_epoch1"] = init_params.index_path
 
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,
