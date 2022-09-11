@@ -271,7 +271,7 @@ def _get_bos_idx(target_dim: nn.Dim) -> int:
 def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     return Model(
-        num_enc_layers=min((epoch - 1) // 2 + 1, 6) if epoch <= 12 else 6,
+        num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
