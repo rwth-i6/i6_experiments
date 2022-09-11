@@ -35,12 +35,12 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
 
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
+        behavior_version=12,
 
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_eval_datasets(),
-        extern_data=dataset.get_extern_data(),
 
         batching="sorted",
         batch_size=20000,
@@ -51,6 +51,9 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
         returnn_recog_config_dict,
         python_epilog=[serialization.Collection(
             [
+                serialization.NonhashedCode(
+                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
+                        dataset.get_extern_data())),
                 serialization.Import(model.definition, "_model_def", ignore_import_as_for_hash=True),
                 serialization.Import(model_search, "_search", ignore_import_as_for_hash=True),  # TODO...
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
