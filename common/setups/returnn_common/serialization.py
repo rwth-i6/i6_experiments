@@ -51,6 +51,7 @@ import shutil
 import string
 import textwrap
 
+import sisyphus
 from sisyphus import tk, gs
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
@@ -179,6 +180,9 @@ class Collection(DelayedBase):
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
+
+        # Make sure Sisyphus can be imported, as many recipes usually import it.
+        content.append(f"sys.path.insert(1, {sisyphus.__path__[0]!r})\n")
 
         if self.returnn_common_root is None:
             # Note that this here depends on a proper sys.path setup.
