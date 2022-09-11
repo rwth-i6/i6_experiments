@@ -38,6 +38,7 @@ def train(*,
         target=task.train_dataset.get_default_target(),
         train=task.train_dataset.get_train_dataset(),
         eval_datasets=task.train_dataset.get_eval_datasets(),
+        extern_data=task.train_dataset.get_extern_data(),
 
         batching="random",
         batch_size=20000,

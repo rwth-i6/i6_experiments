@@ -40,6 +40,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_eval_datasets(),
+        extern_data=dataset.get_extern_data(),
 
         batching="sorted",
         batch_size=20000,
