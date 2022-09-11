@@ -8,6 +8,7 @@ import numpy
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
+from returnn_common import nn
 from .model import ModelWithCheckpoint, Checkpoint, AlignmentCollection, ModelT, ModelDef, TrainDef, FramewiseTrainDef
 from .task import Task
 
@@ -32,13 +33,13 @@ def train(*,
 
     returnn_train_config_dict = dict(
         use_tensorflow=True,
+        behavior_version=12,
 
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
         train=task.train_dataset.get_train_dataset(),
         eval_datasets=task.train_dataset.get_eval_datasets(),
-        extern_data=task.train_dataset.get_extern_data(),
 
         batching="random",
         batch_size=20000,
@@ -74,6 +75,9 @@ def train(*,
         returnn_train_config_dict,
         python_epilog=[serialization.Collection(
             [
+                serialization.NonhashedCode(
+                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
+                        task.train_dataset.get_extern_data())),
                 serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
                 serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
@@ -114,16 +118,14 @@ def train(*,
 
 def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     """called from the RETURNN config"""
-    from returnn_common import nn
     from returnn.config import get_global_config
-    from returnn.tf.util.data import Data
     nn.reset_default_root_name_ctx()
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
     default_target_key = config.typed_value("target")
     extern_data_dict = config.typed_value("extern_data")
-    data = Data(name=default_input_key, **extern_data_dict[default_input_key])
-    targets = Data(name=default_target_key, **extern_data_dict[default_target_key])
+    data = nn.Data(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = nn.Data(name=default_target_key, **extern_data_dict[default_target_key])
     data_spatial_dim = data.get_time_dim_tag()
     targets_spatial_dim = targets.get_time_dim_tag()
     data = nn.get_extern_data(data)
