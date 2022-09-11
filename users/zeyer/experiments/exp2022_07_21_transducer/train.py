@@ -103,7 +103,6 @@ def train(*,
             # flat_net_construction=True,
         ),
         sort_config=False,
-        black_formatting=False,  # TODO remove this. this is for debugging syntax errors...
     )
 
     returnn_train_job = ReturnnTrainingJob(
