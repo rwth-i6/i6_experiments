@@ -255,16 +255,27 @@ class ProbsFromReadout:
         return output_log_prob
 
 
+def _get_bos_idx(target_dim: nn.Dim) -> int:
+    assert target_dim.vocab
+    if target_dim.vocab.bos_label_id is not None:
+        bos_idx = target_dim.vocab.bos_label_id
+    elif target_dim.vocab.eos_label_id is not None:
+        bos_idx = target_dim.vocab.eos_label_id
+    elif "<sil>" in target_dim.vocab.user_defined_symbol_ids:
+        bos_idx = target_dim.vocab.user_defined_symbol_ids["<sil>"]
+    else:
+        raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
+    return bos_idx
+
+
 def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
-    assert target_dim.vocab
-    assert target_dim.vocab.bos_label_id is not None
     return Model(
         num_enc_layers=min((epoch - 1) // 2 + 1, 6) if epoch <= 12 else 6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
-        bos_idx=target_dim.vocab.bos_label_id,
+        bos_idx=_get_bos_idx(target_dim),
     )
 
 
