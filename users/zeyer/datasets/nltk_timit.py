@@ -36,6 +36,8 @@ class NltkTimit(DatasetConfig):
             "seq_ordering": "laplace:.10" if key == "train" else "sorted",
             "estimated_num_seqs": num_seqs[key],
         }
+        if key.startswith("dev"):
+            d["fixed_random_seed"] = 1
         if self.random_permute_audio and key in {"train", self.main_key}:
             d["random_permute_audio"] = self.random_permute_audio
         return d
@@ -92,6 +94,7 @@ class TimitVocab(VocabConfig):
         Options for RETURNN vocab,
         e.g. as defined in `Data`, `extern_data`, :func:`Vocabulary.create_vocab` (in RETURNN).
         """
+        # TODO...
         raise NotImplementedError
 
     # noinspection PyMethodMayBeStatic
