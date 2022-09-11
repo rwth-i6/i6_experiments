@@ -99,8 +99,9 @@ class TimitVocab(VocabConfig):
         labels = TimitDataset.get_labels(num_phones=61)
         return {
             "class": "Vocabulary",
-            "labels": labels,
-            "user_defined_symbols": {"<sil>": labels.index("pau")}
+            "labels": labels, "vocab_file": None,
+            "unknown_label": None,
+            "user_defined_symbols": {"<sil>": labels.index("pau")},
         }
 
     # noinspection PyMethodMayBeStatic
