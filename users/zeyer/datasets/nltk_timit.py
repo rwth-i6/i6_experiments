@@ -95,8 +95,13 @@ class TimitVocab(VocabConfig):
         Options for RETURNN vocab,
         e.g. as defined in `Data`, `extern_data`, :func:`Vocabulary.create_vocab` (in RETURNN).
         """
-        # TODO...
-        raise NotImplementedError
+        from returnn.datasets.generating import TimitDataset
+        labels = TimitDataset.get_labels(num_phones=61)
+        return {
+            "class": "Vocabulary",
+            "labels": labels,
+            "user_defined_symbols": {"<sil>": labels.index("pau")}
+        }
 
     # noinspection PyMethodMayBeStatic
     def get_eos_idx(self) -> Optional[int]:
