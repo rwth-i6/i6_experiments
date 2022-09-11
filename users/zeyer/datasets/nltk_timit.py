@@ -47,11 +47,12 @@ class NltkTimit(DatasetConfig):
         from returnn.tf.util.data import FeatureDim, SpatialDim, batch_dim
         time_dim = SpatialDim("time")
         feature_dim = FeatureDim("audio", 40 * 2)  # keep consistent with above
+        out_spatial_dim = SpatialDim("out-spatial")
         classes_dim = FeatureDim("phones", dimension=self.vocab.get_num_classes())
         return {
             "data": {"dim_tags": [batch_dim, time_dim, feature_dim]},
             "classes": {
-                "dim_tags": [batch_dim, time_dim],
+                "dim_tags": [batch_dim, out_spatial_dim],
                 "sparse_dim": classes_dim,
                 "vocab": self.vocab.get_opts()},
         }
