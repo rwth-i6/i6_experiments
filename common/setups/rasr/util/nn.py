@@ -156,7 +156,7 @@ class OggZipHdfDataInput:
         partition_epoch: int = 1,
         seq_ordering: str = "laplace:.1000",
         ogg_args: Optional[Dict[str, Any]] = None,
-        acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
+        acoustic_mixtures: Optional[tk.Path] = None,
     ):
         """
         :param oggzip_files:
@@ -192,9 +192,7 @@ class OggZipHdfDataInput:
                     "class": "OggZipDataset",
                     "audio": self.audio,
                     "partition_epoch": self.partition_epoch,
-                    "path": [
-                        oggzip_file.get_path() for oggzip_file in self.oggzip_files
-                    ],
+                    "path": self.oggzip_files,
                     "seq_ordering": self.seq_ordering,
                     "targets": self.targets,
                     "use_cache_manager": True,
