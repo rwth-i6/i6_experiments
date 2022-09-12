@@ -182,7 +182,9 @@ class Collection(DelayedBase):
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
 
         # Make sure Sisyphus can be imported, as many recipes usually import it.
-        content.append(f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n")
+        content.append(
+            f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n"
+        )
 
         if self.returnn_common_root is None:
             # Note that this here depends on a proper sys.path setup.
