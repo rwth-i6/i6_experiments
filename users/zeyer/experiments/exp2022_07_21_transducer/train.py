@@ -42,7 +42,7 @@ def train(*,
         eval_datasets=task.train_dataset.get_eval_datasets(),
 
         batching="random",
-        batch_size=20000,
+        batch_size=10000,
         max_seqs=200,
         max_seq_length={task.train_dataset.get_default_target(): 75},
 
