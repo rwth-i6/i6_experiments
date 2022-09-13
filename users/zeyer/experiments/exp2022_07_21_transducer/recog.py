@@ -63,6 +63,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
                     "version": 1,
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                serialization.PythonCacheManagerFunctionNonhashedCode,
             ]
         )],
         post_config=dict(  # not hashed

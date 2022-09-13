@@ -9,6 +9,7 @@ import os
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
+from i6_core.returnn.config import CodeWrapper
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 from i6_experiments.users.zeyer import tools_paths
 
@@ -177,11 +178,13 @@ class SwitchboardExternSprint(DatasetConfig):
     estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
     args = [
-        DelayedFormat("--config={}", files["config"]),
-        DelayedFormat("--*.corpus.file={}", files["corpus"]),
-        DelayedFormat("--*.corpus.segments.file={}", (files["segments"] if "segments" in files else "")),
-        DelayedFormat("--*.feature-cache-path={}", files["features"]),
-        DelayedFormat("--*.feature-extraction.file={}", files["feature_extraction_config"]),
+        CodeWrapper(DelayedFormat("lambda: '--config=' + cf({!r})", files["config"])),
+        CodeWrapper(DelayedFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"])),
+        CodeWrapper(DelayedFormat(
+            "lambda: '--*.corpus.segments.file=' + cf({!r})", (files["segments"] if "segments" in files else ""))),
+        CodeWrapper(DelayedFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"])),
+        CodeWrapper(
+            DelayedFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"])),
         "--*.log-channel.file=/dev/null",
         "--*.window-size=1",
     ]

@@ -90,6 +90,7 @@ def train(*,
                     "extra": extra_hash
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                serialization.PythonCacheManagerFunctionNonhashedCode,
             ]
         )],
         post_config=dict(  # not hashed
