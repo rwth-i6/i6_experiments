@@ -221,5 +221,6 @@ def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
 class _DelayedCodeFormat(DelayedFormat):
     """Delayed code"""
 
-    def __repr__(self):
-        return self.get()
+    def get(self) -> CodeWrapper:
+        """get"""
+        return CodeWrapper(super(_DelayedCodeFormat, self).get())
