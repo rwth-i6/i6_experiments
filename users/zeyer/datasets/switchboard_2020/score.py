@@ -31,6 +31,8 @@ stms = {
 
 
 def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
+    if corpus_name == "dev":  # name of corpus file
+        corpus_name = "hub5e_00"
     assert corpus_name in stms
     ctm = SearchWordsToCTMJob(
         recog_words_file=hyp_words,
