@@ -58,7 +58,6 @@ For further details on the exact location please look into the export function d
 
 # Setup
 
-First you follow 
 
 ## Directory setup
 
@@ -92,7 +91,7 @@ git add .gitignore
 git commit .gitignore -m gitignore
 ```
 
-2. Create a new work folder under a "work" file system such as `asr3` and link this as `work` into the Sisyphus setup root (`~/experiments/<setup_name>`).
+2. Create a new work folder under a "work" file system such as `asr4` and link this as `work` into the Sisyphus setup root (`~/experiments/<setup_name>`).
 ```
 mkdir /work/asr3/<username>/sisyphus_work_dirs/<setup_name>
 ln -s /work/asr3/<username>/sisyphus_work_dirs/<setup_name> work
@@ -133,7 +132,17 @@ You can also check out the [Sisyphus structure page](https://sisyphus-workflow-m
 ```python
 VERBOSE_TRACEBACK_TYPE = 'better_exchook'
 USE_SIGNAL_HANDLERS = True
+
+def file_caching(path: str) -> str:
+  """file caching"""
+  return f'`cf {path}`'
+
+def engine():
+  ...
+
+...
 ```
+You might want to copy and adapt this file from someone working in the same environment. 
 
 This file is loaded via sisyphus.global_settings.py,
 update_global_settings_from_file specifically.
