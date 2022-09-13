@@ -178,13 +178,12 @@ class SwitchboardExternSprint(DatasetConfig):
     estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
     args = [
-        CodeWrapper(DelayedFormat("lambda: '--config=' + cf({!r})", files["config"])),
-        CodeWrapper(DelayedFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"])),
-        CodeWrapper(DelayedFormat(
-            "lambda: '--*.corpus.segments.file=' + cf({!r})", (files["segments"] if "segments" in files else ""))),
-        CodeWrapper(DelayedFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"])),
-        CodeWrapper(
-            DelayedFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"])),
+        _DelayedCodeFormat("lambda: '--config=' + cf({!r})", files["config"]),
+        _DelayedCodeFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"]),
+        _DelayedCodeFormat(
+            "lambda: '--*.corpus.segments.file=' + cf({!r})", (files["segments"] if "segments" in files else "")),
+        _DelayedCodeFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"]),
+        _DelayedCodeFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"]),
         "--*.log-channel.file=/dev/null",
         "--*.window-size=1",
     ]
@@ -217,3 +216,10 @@ def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
         "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name,
         hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
         cached=True)
+
+
+class _DelayedCodeFormat(DelayedFormat):
+    """Delayed code"""
+
+    def __repr__(self):
+        return self.get()
