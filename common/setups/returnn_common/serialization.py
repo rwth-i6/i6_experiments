@@ -509,3 +509,29 @@ PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(
         """
     )
 )
+
+
+PythonCacheManagerFunctionNonhashedCode = NonhashedCode(
+    textwrap.dedent(
+        """\
+        _cf_cache = {}
+        
+        def cf(filename):
+            "Cache manager"
+            from subprocess import check_output, CalledProcessError
+            if filename in _cf_cache:
+                return _cf_cache[filename]
+            if int(os.environ.get("RETURNN_DEBUG", "0")):
+                print("use local file: %s" % filename)
+                return filename  # for debugging
+            try:
+                cached_fn = check_output(["cf", filename]).strip().decode("utf8")
+            except CalledProcessError:
+                print("Cache manager: Error occured, using local file")
+                return filename
+            assert os.path.exists(cached_fn)
+            _cf_cache[filename] = cached_fn
+            return cached_fn
+        """
+    )
+)
