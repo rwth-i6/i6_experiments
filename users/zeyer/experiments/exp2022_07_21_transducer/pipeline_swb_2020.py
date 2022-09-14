@@ -139,7 +139,7 @@ class Model(nn.Module):
                enc_val_win: nn.Tensor,  # like enc
                all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
                prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-               nb_target_spatial_dim: Optional[nn.Dim] = None,
+               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
                prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                state: Optional[nn.LayerState] = None,
@@ -161,11 +161,11 @@ class Model(nn.Module):
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
-            assert prev_nb_target is not None and nb_target_spatial_dim is not None
+            assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
             assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
-            lm_axis = nb_target_spatial_dim
+            lm_axis = prev_nb_target_spatial_dim
         else:
             assert prev_wb_target is not None and wb_target_spatial_dim is not None
             assert wb_target_spatial_dim == enc_spatial_dim
@@ -286,13 +286,14 @@ def from_scratch_training(*,
                           ):
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    prev_targets = nn.prev_target_seq(targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx)
+    prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, same_length=False)
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
         all_combinations_out=True,
         prev_nb_target=prev_targets,
-        nb_target_spatial_dim=targets_spatial_dim)
+        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
     out_log_prob = probs.get_wb_label_log_probs()
     loss = nn.transducer_time_sync_full_sum_neg_log_prob(
         log_probs=out_log_prob,
