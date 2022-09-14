@@ -301,7 +301,7 @@ def from_scratch_training(*,
         input_spatial_dim=enc_spatial_dim,
         labels_spatial_dim=targets_spatial_dim,
         blank_index=model.blank_idx)
-    loss.mark_as_loss()
+    loss.mark_as_loss("full_sum")
 
 
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
