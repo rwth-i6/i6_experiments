@@ -287,7 +287,7 @@ def from_scratch_training(*,
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, same_length=False)
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
