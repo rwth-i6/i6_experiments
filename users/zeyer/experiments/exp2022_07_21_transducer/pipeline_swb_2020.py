@@ -332,7 +332,7 @@ def model_recog(*,
                 model: Model,
                 data: nn.Tensor, data_spatial_dim: nn.Dim,
                 target_vocab: nn.Dim,
-                ):
+                ) -> nn.Tensor:
     """Function is run within RETURNN."""
     pass  # TODO
     # TODO probably this should be moved over to the recog module, as this will probably be the same always

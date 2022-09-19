@@ -55,6 +55,9 @@ def train(*,
         learning_rate_control="newbob_multi_epoch",
         # learning_rate_control_error_measure = "dev_score_output"
         # learning_rate_control_error_measure="dev_error_output/output_prob",  # TODO...
+        # TODO on LR control key:
+        #  we could make the train_def actually return the main key for this? but this is maybe not intuitive.
+        #  we could also extend returnn_common mark_as_loss with an option, "main_lr_key" or so.
         learning_rate_control_relative_error_relative_lr=True,
         learning_rate_control_min_num_epochs_per_new_lr=3,
         use_learning_rate_control_always=True,

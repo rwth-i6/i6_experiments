@@ -56,6 +56,8 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
                         dataset.get_extern_data())),
                 serialization.Import(model.definition, "_model_def", ignore_import_as_for_hash=True),
                 serialization.Import(model_search, "_search", ignore_import_as_for_hash=True),  # TODO...
+                # TODO model_search is wrong? what is the actual interface? such a decoder for model_search?
+                #   or analogue to train_def, a function search_def or so, returning the beam search result?
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
                 serialization.ExplicitHash({
                     # Increase the version whenever some incompatible change is made in this recog() function,
@@ -93,6 +95,7 @@ def bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
+# TODO define decoder interface...
 def model_search(decoder, *, beam_size: int = 12) -> nn.Tensor:
     """search"""
     loop = nn.Loop(axis=decoder.align_spatial_dim)
@@ -122,7 +125,7 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     data = nn.get_extern_data(data)
     targets = nn.get_extern_data(targets)
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch)
+    model = model_def(epoch=epoch, target_dim=targets.feature_dim)
     search_def = config.typed_value("_search_def")
     search_def(
         model=model,
