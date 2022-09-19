@@ -163,34 +163,31 @@ network['combine_prior']['eval_locals']['prior_scale'] = WrapEpochValue(lambda e
 locals().update(**config)""".format(ams=am_scales, prs=self.rel_prior_scale, k=self.k_scale) 
         return pretrain_code
 
-
-    def set_config(self, config, legacy=False, override_scales=False, static_lr=True):
+    def set_config(self, config, override_scales=False, static_lr=True):
         assert isinstance(config, returnn.ReturnnConfig)
         if override_scales:
             config.prior_scale = self.prior_scale
             config.am_scale = self.final_am
-        if not static_lr:
-            config.config["use_learning_rate_control_always"] = True
         assert -1e5 < config.prior_scale - self.prior_scale < 1e5, "Jump from final prior scale to default static prior scale"
         assert config.am_scale == self.final_am, "Jump from final am scale to default static am scale"
+        if not static_lr:
+            config.config["use_learning_rate_control_always"] = True
+        elif static_lr is True:
+            config.config["learning_rate"] = config.config["learning_rates"][0]
+        elif isinstance(static_lr, (int, float)) and not isinstance(static_lr, bool):
+            config.config["learning_rate"] = static_lr
+        else:
+            raise ValueError("Invalid value for static_lr: {}".format(static_lr))
         schedule = self.generate_exp_am_schedule()
-        if legacy:
-            assert config.extra_python_code == ""
-            # code = self.scaled_am_pretrain_code(schedule, prior_scale=self.prior_scale, k_scale=self.absolute_scale)
-            code = self.get_legacy_pretrain_code(schedule)
-            if config.get("extra_python", False):
-                config["extra_python"] = code
-            else:
-                config.extra_python_code = code
-            config['pretrain_repetitions']['final'] = self.final_epoch
-            return
         config.python_prolog = (config.python_prolog or ()) + ("from Pretrain import WrapEpochValue",)
         config.prior_scale = ExponentialScaleWarmup.wev_template(schedule, self.absolute_scale, self.rel_prior_scale)
         config.am_scale = ExponentialScaleWarmup.wev_template(schedule, self.absolute_scale)
         if self.has_absolute_scale():
             config.tdp_scale *= self.absolute_scale
-        config.config['pretrain'] = {'repetitions': {'default': 0, 'final': self.final_epoch}, "construction_algo": "no_network_modifications"}
-        # config['pretrain_repetitions']['final'] = self.final_epoch
+        config.config['pretrain'] = {
+            'repetitions': {'default': 0, 'final': self.final_epoch},
+            "construction_algo": "no_network_modifications"
+        }
         
 
 from collections import UserDict
@@ -265,7 +262,5 @@ class PretrainConfigHolder(UserDict):
     
     def build(self):
         config = copy.deepcopy(self.config)
-        self.warmup.set_config(config, self.legacy, self.override_scales, **self.build_args)
-        if self.legacy:
-            return config.config
+        self.warmup.set_config(config, self.override_scales, **self.build_args)
         return config

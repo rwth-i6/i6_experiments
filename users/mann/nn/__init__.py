@@ -1,3 +1,2 @@
-from .configs  import *
-from .networks import *
+from .config  import *
 from .learning_rates import *

@@ -333,10 +333,10 @@ class FilterCorpusByAlignmentFailures(Job):
             bad_segment_file.write('\n'.join(segments))
     
 
-class LearningRates(Job):
+class LearningRateExtractorJob(Job):
     def __init__(self, learning_rate_file):
         self.learning_rate_file = learning_rate_file
-        self.learning_rates = self.output_var('learning_rates')
+        self.out_learning_rates = self.output_var('learning_rates')
     
     def tasks(self):
         yield Task('run', mini_task=True)
@@ -349,7 +349,7 @@ class LearningRates(Job):
             data = eval(lr_file.read())
 
         epochs = list(sorted(data.keys()))
-        self.learning_rates.set([data[epoch]['learning_rate'] for epoch in epochs])
+        self.out_learning_rates.set([data[epoch]['learning_rate'] for epoch in epochs])
 
 class ExtractStateTyingStats(Job):
     def __init__(self, state_tying_file):

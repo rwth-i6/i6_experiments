@@ -27,7 +27,7 @@ BLSTM_CONFIG = {
     "L2": 0.0001
 }
 
-TPD_BLSTM_NO_LABEL_LAYER = lambda num_classes, init_tdps: {
+TDP_BLSTM_NO_LABEL_LAYER = lambda num_classes: {
     "class": "subnetwork",
     "from": ["fwd_6", "bwd_6"],
     "subnetwork": {
@@ -45,21 +45,22 @@ TPD_BLSTM_NO_LABEL_LAYER = lambda num_classes, init_tdps: {
             'n_out'     : 1,
             **BLSTM_CONFIG,
         },
-        "pre_transition_probs": { # stack outputs of lstm layers
-            "class": "stack",
-            "from": ["lstm_fwd", "lstm_bwd"],
-            "axis": -1,
-        },
-        "fwd_loop": { # normalize stacked lstm outputs
+        "fwd_prob": {
+            "activation": "log_sigmoid",
             "class": "linear",
-            "activation": "log_softmax",
-            "from": ["pre_transition_probs"],
-            "n_out": 2,
+            "from": ["lstm_fwd", "lstm_bwd"],
+            "n_out": 1,
+        },
+        "loop_prob": {
+            "class": "eval",
+            "eval": "safe_log(1 - tf.exp(source(0)))",
+            "from": ["fwd_prob"],
         },
         "output": {
-            "class": "tile",
-            "multiples": {"F": num_classes},
-            "from": ["fwd_loop"],
+            "class": "expand_dims",
+            "from": ["fwd_prob", "loop_prob"],
+            "axis": "spatial",
+            "dim": num_classes,
         },
     }
 }
@@ -153,7 +154,7 @@ TPD_BLSTM_LAYER_SIGMOID = lambda num_classes: {
 }
 
 FEATURE_ARCHS = {
-    'blstm_no_label': TPD_BLSTM_NO_LABEL_LAYER,
+    'blstm_no_label': TDP_BLSTM_NO_LABEL_LAYER,
     "ffnn": TDP_FFNN_LAYER,
     "blstm_no_label_sigmoid": TPD_BLSTM_NO_LABEL_SIGMOID_LAYER,
     "blstm": TPD_BLSTM_LAYER_SIGMOID,
@@ -185,6 +186,7 @@ FEATURE_MODEL_BUILDERS = {
     'ffnn': TdpModelBuilder(TDP_FFNN_LAYER, TDP_OUTPUT_LAYER_AS_FUNC),
     'blstm_no_label_sigmoid': TdpModelBuilder(TPD_BLSTM_NO_LABEL_SIGMOID_LAYER, TDP_OUTPUT_LAYER_AS_FUNC),
     'blstm': TdpModelBuilder(TPD_BLSTM_LAYER_SIGMOID, TDP_OUTPUT_LAYER_AS_FUNC),
+    'blstm_no_label': TdpModelBuilder(TDP_BLSTM_NO_LABEL_LAYER, TDP_OUTPUT_LAYER_AS_FUNC)
 }
 
 SOFTMAX_ARCHS = [

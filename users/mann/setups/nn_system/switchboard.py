@@ -2,7 +2,7 @@ from sisyphus import *
 
 import os
 
-from recipe.i6_experiments.users.mann.setups.nn_system.base_system import BaseSystem, NNSystem, ExpConfig
+from recipe.i6_experiments.users.mann.setups.nn_system import BaseSystem, NNSystem, ExpConfig, FilterAlignmentPlugin
 from recipe.i6_experiments.users.mann.setups.librispeech.nn_system import LibriNNSystem
 from recipe.i6_experiments.users.mann.setups import prior
 from recipe.i6_experiments.common.datasets import switchboard
@@ -190,6 +190,7 @@ def get_legacy_switchboard_system(binaries: BinarySetup=BinarySetup.Download):
         system.feature_flows[c]['gt'] = features.basic_cache_flow(
             Path(default_feature_paths[c], cached=True),
         )
+        system.feature_bundles[c]['gt'] = tk.Path(default_feature_paths[c], cached=True)
     system.alignments['train']['init_align'] = default_alignment_file
     system.mixtures['train']['init_mixture'] = default_mixture_path
     system._init_am()
@@ -211,7 +212,13 @@ def get_legacy_switchboard_system(binaries: BinarySetup=BinarySetup.Download):
         system.glm_files[c] = legacy.glm_path[subcorpus_mapping[c]]
         system.stm_files[c] = legacy.stm_path[subcorpus_mapping[c]]
         system.set_hub5_scorer(corpus=c, sctk_binary_path=SCTK_PATH)
+
+    # plugins
+    system.plugins["filter_alignment"] = FilterAlignmentPlugin(system, **init_nn_args)
     return system
+
+def init_prior_system(system):
+    system.prior_system = prior.PriorSystem(system, TOTAL_FRAMES)
 
 def get_bw_switchboard_system():
     from .librispeech import default_tf_native_ops
@@ -249,6 +256,7 @@ class CustomDict(UserDict):
 def make_cart(
     system: BaseSystem,
     hmm_partition: int=3,
+    as_lut=False
 ):
     # create cart questions
     from i6_core.cart import PythonCartQuestions
@@ -287,9 +295,17 @@ def make_cart(
         **args
     )
 
-    for corpus in ["base", "train", "dev"]:
-        system.crp[corpus].acoustic_model_config.state_tying.type = 'cart'
-        system.crp[corpus].acoustic_model_config.state_tying.file = cart_and_lda.last_cart_tree
+    system.set_state_tying("cart", cart_file=cart_and_lda.last_cart_tree)
     system.set_num_classes("cart", cart_and_lda.last_num_cart_labels)
+
+    if as_lut:
+        lut_cart = system.get_state_tying_file() # direct state-tying from cart with still has 3 states per phone
+        print(lut_cart)
+        for crp in system.crp.values():
+            crp.acoustic_model_config.hmm.states_per_phone = 1
+        system.set_state_tying("lookup", cart_file=lut_cart)
+        lut = system.get_state_tying_file()
+        system.set_state_tying("lut", file=lut)
+        system.set_num_classes("lut", cart_and_lda.last_num_cart_labels)
 
     return None

@@ -130,6 +130,8 @@ class AllophoneSequencer:
         return allo_seq
 
 class PlotSoftAlignmentJob(Job):
+    __sis_hash_exclude__ = { "hmm_partition": 3 }
+
     def __init__(self,
         dumps: tk.Path,
         alignment: tk.Path,
@@ -139,6 +141,7 @@ class PlotSoftAlignmentJob(Job):
         state_tying: tk.Path,
         occurrence_thresholds: float,
         segments: List[str],
+        hmm_partition: int=3,
     ):
         self.dumps = dumps
         self.alignment = alignment
@@ -148,6 +151,7 @@ class PlotSoftAlignmentJob(Job):
         # self.bliss_lexicon = bliss_lexicon
         # self.bliss_corpus = bliss_corpus
         self.state_tying = state_tying
+        self.hmm_partition = hmm_partition
 
         self.out_plots = {
             segment: self.output_path('plot.{}.png'.format(segment.replace("/", "_")))
@@ -172,13 +176,7 @@ class PlotSoftAlignmentJob(Job):
             for line in f:
                 allo_str, idx_str = line.split(" ")
                 state_tying_dict[allo_str] = int(idx_str)
-        # allo_seq = AllophoneSequencer(
-        #     self.bliss_corpus,
-        #     self.bliss_lexicon,
-        #     self.state_tying,
-        #     hmm_partition=3
-        # )
-
+            
         # init dumps
         import h5py
         with h5py.File(self.dumps.get_path(), 'r') as f:
@@ -191,20 +189,20 @@ class PlotSoftAlignmentJob(Job):
                     continue
                 begin = end - seq_length
                 bw_scores = f["inputs"][begin:end]
-                # allophone_sequence = allo_seq.get_allophone_sequence(seq_tag)
-                # label_sequence = allo_seq.get_label_sequence(allophone_sequence)
-                allophone_sequence = self.get_allophones(alignments, seq_tag)
+                allophone_sequence, aligned_labels = self.get_allophones(alignments, seq_tag)
                 label_sequence = self.get_label_sequence(allophone_sequence, state_tying_dict)
-                print(allophone_sequence)
-                print(label_sequence)
                 bw_image = self.make_bw_image(
                     bw_scores,
-                    self.occurrence_thresholds,
-                    allophone_sequence, label_sequence
+                    allophone_sequence,
+                    label_sequence,
+                )
+                viterbi_image = self.make_viterbi_image(
+                    aligned_labels,
                 )
 
                 self.plot(
                     bw_image,
+                    viterbi_image,
                     allophone_sequence,
                     seq_tag,
                 )
@@ -227,9 +225,10 @@ class PlotSoftAlignmentJob(Job):
                 # filename = alignments._short_seg_names[seq_tag]
                 allophone = alignments.files[seq_tag].allophones[alignment[start][1]]
             state = alignment[start][2]
-            # if state == 0:
+            # if state > self.hmm_partition - 1:
+            #     continue
             allophone_sequence.append(".".join((allophone, str(state))))
-            end = self.get_next_segment(alignment, start)
+            end = self.get_next_segment(alignment, start, collapse_3state=(self.hmm_partition == 1))
             length = end - start
             if "[SILENCE]" in allophone:
                 label_idx_sequence += [0] * length
@@ -237,31 +236,23 @@ class PlotSoftAlignmentJob(Job):
                 label_idx_sequence += [max_idx] * length
                 max_idx += 1
             start = end
-        return allophone_sequence
+        return allophone_sequence, label_idx_sequence
     
     def get_label_sequence(self, allophone_sequence, state_tying_dict):
-        # extended_allophone_sequence = []
-        # for allo in allophone_sequence:
-        #     if "[SILENCE]" in allo:
-        #         extended_allophone_sequence.append(allo + ".0")
-        #     else:
-        #         extended_allophone_sequence += [allo + "." + str(i) for i in range(3)]
-        # allophone_sequence = extended_allophone_sequence
         return [ state_tying_dict[allo] for allo in allophone_sequence ]
-
+    
     def make_bw_image(self,
         bw_scores,
-        occurrence_thresholds,
         allophone_sequence,
         label_idx_sequence,
         sum_consecutive=[0]
     ):
         """Implementation due to Simon Berger."""
+        T, C = np.shape(bw_scores)
         occurrence_counters = {
-            label_idx: OccurrenceCounter(occurrence_thresholds, duration_threshold=2)
+            label_idx: OccurrenceCounter(self.occurrence_thresholds, duration_threshold=2)
             for label_idx in set(label_idx_sequence)
         }
-        T, C = np.shape(bw_scores)
 
         sil_idx = 0
         for allo, label in zip(allophone_sequence, label_idx_sequence):
@@ -275,13 +266,10 @@ class PlotSoftAlignmentJob(Job):
         non_sil_label_indices = [sil_idx] + non_sil_label_indices
         non_sil_allophones = ["[SILENCE]{#+#}@i@f.0"] + non_sil_allophones
 
-        print(bw_scores[:,63])
         image = np.empty((len(non_sil_label_indices), T), dtype=np.float64)
         for t in range(T):
             label_idx_counters = Counter()
-
             for i, (allophone, label_idx) in enumerate(zip(non_sil_allophones, non_sil_label_indices)):
-                # print(allophone, label_idx)
                 if "[SILENCE]" in allophone:
                     # Silence/blank is not occurrence-counted and does not need to sum up states
                     value = bw_scores[t, label_idx]
@@ -296,21 +284,37 @@ class PlotSoftAlignmentJob(Job):
                 image[i, t] = value
         return image
     
-    def plot(self, bw_image, allophone_sequence, seq_tag, show_labels=True):
+    def make_viterbi_image(self, label_idx_seq):
+        T = len(label_idx_seq)
+        C = max(label_idx_seq) + 1
+        image = np.zeros((C, T), dtype=np.float32)
+        for t, idx in enumerate(label_idx_seq):
+            image[idx, t] = 1.0
+        return image
+    
+    def plot(self, bw_image, viterbi_image, allophone_sequence, seq_tag, show_labels=True):
         C, T = np.shape(bw_image)
 
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.set_xlabel("Frame")
-        ax.xaxis.set_label_coords(0.98, -0.03)
-        ax.set_xbound(0, T - 1)
-        ax.set_ybound(-0.5, C - 0.5)
+        fig, axes = plt.subplots(nrows=2, figsize=(10, 10))
+        for ax, image in zip(axes, [bw_image, viterbi_image]):
+            ax.set_xlabel("Frame")
+            ax.xaxis.set_label_coords(0.98, -0.03)
+            ax.set_xbound(0, T - 1)
+            ax.set_ybound(-0.5, C - 0.5)
 
-        if show_labels:
-            silence_first_allo_seq = ["[SILENCE]"] + [allo.split("{")[0] if allo.split(".")[-1] == "1" else "" for allo in allophone_sequence if "[SILENCE]" not in allo]
-            ax.set_yticks(np.arange(C))
-            ax.set_yticklabels(silence_first_allo_seq)
+            if show_labels:
+                if self.hmm_partition == 3:
+                    silence_first_allo_seq = ["[SILENCE]"] + [
+                        allo.split("{")[0] if allo.split(".")[-1] == "1" else "" for allo in allophone_sequence if "[SILENCE]" not in allo
+                    ]
+                else:
+                    silence_first_allo_seq = ["[SILENCE]"] + [
+                        allo.split("{")[0] for allo in allophone_sequence if "[SILENCE]" not in allo
+                    ]
+                ax.set_yticks(np.arange(C))
+                ax.set_yticklabels(silence_first_allo_seq)
 
-        ax.imshow(bw_image, cmap="Blues", interpolation="nearest", aspect="auto", origin="lower")
+            ax.imshow(image, cmap="Blues", interpolation="nearest", aspect="auto", origin="lower")
         fig.savefig(self.out_plots[seq_tag].get_path())
 
 

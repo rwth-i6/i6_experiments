@@ -45,13 +45,35 @@ class HdfDumpster:
         self.system.crp[overlay_name].concurrent = 1
         self.system.crp[overlay_name].segment_path = segments.out_single_segment_files[1]
 
-    def _dump_hdf_helper(self,):
-        pass
-    
-    def init_hdf_dataset(self, training_args):
+    def _dump_hdf_helper(self,
+        corpus,
+        feature_flow,
+        alignment,
+        num_classes,
+        buffer_size=200 * 1024,
+        cpu=2, mem=8, file_size=100,
+        time=4,
+        returnn_python_exe=None,
+        returnn_root=None,
+        **_ignored
+    ):
+        kwargs = locals().copy()
+        kwargs.pop("_ignored"), kwargs.pop("self"), kwargs.pop("corpus"), kwargs.pop("feature_flow"), kwargs.pop("alignment")
         from i6_core.returnn import ReturnnRasrDumpHDFJob
-        dumps = self._dump_hdf_helper()
-        return 
+        j = ReturnnRasrDumpHDFJob(
+            crp=self.system.crp[corpus],
+            feature_flow=meta.select_element(self.system.feature_flows, corpus, feature_flow),
+            alignment=meta.select_element(self.system.alignments, corpus, alignment),
+            **kwargs
+        )
+        return j.out_hdf
+    
+    def init_hdf_dataset(self, name, dump_args):
+        from i6_core.returnn import ReturnnRasrDumpHDFJob
+        dump_args = ChainMap(dump_args, self.system.default_nn_training_args)
+        dumps = self._dump_hdf_helper(**dump_args)
+        tk.register_output("hdf_dumps/{}.hdf".format(name), dumps)
+        return dumps
     
     def init_rasr_configs(
         self,
@@ -86,8 +108,11 @@ class HdfDumpster:
 
     def forward(self, name, returnn_config, epoch, hdf_outputs=["fast_bw"], training_args={}, fast_bw_args={}, **kwargs):
         args = ChainMap(kwargs, training_args, self.system.default_nn_training_args)        
-        args = args.new_child({"partition_epochs": args["partition_epochs"]["dev"]})
-        dataset = SemiSupervisedTrainer(self.system).make_sprint_dataset("forward", corpus="returnn_dump", **args)
+        args = args.new_child({
+            "partition_epochs": args["partition_epochs"]["dev"],
+            "corpus": "returnn_dump"
+        })
+        dataset = SemiSupervisedTrainer(self.system).make_sprint_dataset("forward", **args)
         returnn_config = self.instantiate_fast_bw_layer(returnn_config, fast_bw_args)
         returnn_root = training_args.get("returnn_root", self.system.returnn_root) or tk.Path(gs.RETURNN_ROOT)
         returnn_python_exe = training_args.get("returnn_python_exe", self.system.returnn_python_exe) or tk.Path(gs.RETURNN_PYTHON_EXE)
@@ -110,19 +135,14 @@ class HdfDumpster:
         segments,
         occurrence_thresholds=(5.0, 0.05)
     ):
-        allophones = StoreAllophonesJob(
-            self.system.crp[corpus],
-        ).out_allophone_file
-        state_tying = DumpStateTyingJob(
-            self.system.crp[corpus]
-        ).out_state_tying
         plot_job = PlotSoftAlignmentJob(
             bw_dumps,
             alignment=meta.select_element(self.system.alignments, corpus, alignment),
-            allophones=allophones,
-            state_tying=state_tying,
+            allophones=self.system.get_allophone_file(),
+            state_tying=self.system.get_state_tying_file(),
             segments=segments,
             occurrence_thresholds=occurrence_thresholds,
+            hmm_partition=self.system.crp[corpus].acoustic_model_config.hmm.states_per_phone
         )
 
         if name is None:

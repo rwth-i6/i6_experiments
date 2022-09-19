@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from itertools import filterfalse
 from tabulate import tabulate
 from collections import defaultdict
+from typing import List, Dict, Any, Tuple, Union
 
 # import recipe.lib.sprint_cache as sc
 from i6_core.lib import rasr_cache as sc
@@ -117,7 +118,6 @@ class ContextualSilenceCounter:
                 self.sil_count -= 1
             if self.word_end_count > 0:
                 self.word_end_count -= 1
-
 
 def resolve_bundle(alignment):
     if not isinstance(alignment, (str, tk.Path)):
@@ -311,6 +311,99 @@ class SilenceBetweenWords(AlignmentStatisticsJob):
                 counter[key] += value
         # normalize
         self.counts.set(counter["silence_insertions"] / counter["word_transitions"])
+
+class AllophoneSequencer:
+    def __init__(self, corpus, lexicon, state_tying, hmm_partition):
+        self.corpus = corpus
+        self.lexicon = lexicon
+        self.state_tying = state_tying
+        self.states_per_phone = hmm_partition
+
+        self.lexicon_dict = {}
+        self.corpus_dict = {}
+        self.state_tying_dict = {}
+    
+    def init_lexicon_dict(self):
+        lex = lexicon.Lexicon()
+        lex.load(self.lexicon.get_path())
+        # build lookup dict
+        for lemma in lex.lemmata:
+            for orth in lemma.orth:
+                if orth:
+                    self.lexicon_dict[orth] = [phon.split(" ") for phon in lemma.phon]
+        return
+
+    def init_state_tying_dict(self):
+        state_tying = self.state_tying.get_path()
+        with open(state_tying, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                allo = Allophone.parse_line(line)
+                self.state_tying_dict[allo.write(omit_idx=True)] = allo.idx
+        return
+
+    def init_corpus_dict(self):
+        c = corpus.Corpus()
+        c.load(self.corpus.get_path())
+        for segment in c.segments():
+            words = segment.orth.split(" ")
+            self.corpus_dict[segment.fullname()] = words
+        return
+
+    def get_allophone_sequence(self, seq_tag: str) -> List[str]:
+        word_seq = self.corpus_dict[seq_tag]
+        allo_seq = []
+        for word in word_seq:
+            allo_seq.append(
+                Allophone("[SILENCE]", "#", "#", initial=True, final=True, state=0)
+            )
+            allo_seq.append(
+                [self.get_lemma(phon_seq) for phon_seq in self.lexicon_dict[word][:1]]
+            )
+        allo_seq.append(
+            Allophone("[SILENCE]", "#", "#", initial=True, final=True, state=0)
+        )
+
+class SkipCounter:
+    def __init__(self):
+        self.counter = 0
+    
+    def set_allophone_sequence(self, allophone_sequence):
+        self.allophone_sequence = allophone_sequence
+    
+    def feed(self, allophone):
+        if allophone == self.allophone_sequence[self.counter]:
+            self.counter += 1
+        if self.counter == len(self.allophone_sequence):
+            self.counter = 0
+
+
+class SkipCountsJob(AlignmentStatisticsJob):
+
+    def __init__(self,
+        alignment,
+        allophones,
+        segments,
+        corpus,
+        lexicon,
+        concurrent,
+        archiver_exe=None
+    ):
+        super().__init__(alignment, allophones, segments, concurrent, archiver_exe)
+        self.lexicon = lexicon
+        self.corpus = corpus
+    
+    def run(self, task_id):
+        alignment_path = tk.uncached_path(resolve_bundle(self.alignment)[task_id])
+        segment_path = tk.uncached_path(self.segments[task_id])
+
+        allophone_seqs = AllophoneSequencer(self.corpus, self.lexicon, None, hmm_partition=None)
+        allophone_seqs.init_lexicon_dict()
+        allophone_seqs.init_corpus_dict()
+
+
 
 
 class PhonemeCounts(Job):

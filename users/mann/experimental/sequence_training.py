@@ -147,7 +147,7 @@ def add_fastbw_configs(csp,
     extra_post_config=None,
     acoustic_model_extra_config=None,
     fix_tdps_applicator=False,
-    fix_tdp_leaving_eps_arc=False,
+    fix_tdp_leaving_eps_arc=True,
     normalize_lemma_sequence_scores=True,
   ):
   # Create additional Sprint config file to compute losses

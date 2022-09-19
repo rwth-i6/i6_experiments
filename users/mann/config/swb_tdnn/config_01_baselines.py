@@ -8,10 +8,12 @@ from i6_experiments.users.mann.experimental import helpers
 from i6_experiments.users.mann.setups import tdps
 
 from i6_experiments.users.mann.setups.nn_system.switchboard import get_legacy_switchboard_system, make_cart
-from i6_experiments.users.mann.nn.tdnn import make_baseline
+from i6_experiments.users.mann.nn.config.tdnn import make_baseline
 
 from i6_core import rasr
 from i6_core.lexicon.allophones import DumpStateTyingJob
+
+FNAME = gs.set_alias_and_output_dir()
 
 epochs = [12, 24, 32, 80, 160, 240, 320]
 dbg_epochs = [12]
@@ -33,7 +35,7 @@ swb_system.nn_and_recog(
     reestimate_prior=False,
 )
 
-baseline_tdnn = make_baseline(num_input=40)
+baseline_tdnn = make_baseline(num_input=40, adam=True)
 
 swb_system.nn_and_recog(
     name="baseline_viterbi_tdnn",
@@ -151,12 +153,12 @@ recog_args = {
 
 from i6_core.returnn import CodeWrapper
 # pooling by taking fixed position
-def output(position, window_size):
+def output(position, window_size, padding="valid"):
     return {
         'output_': {
             'class': 'subnetwork', 'from': 'output', 'is_output_layer': True,
             'subnetwork': {
-                'strided_window': {'class': 'window', 'from': 'data', 'window_size': window_size, 'stride': window_size, 'padding': 'valid', 'window_dim': CodeWrapper("a_dim")},
+                'strided_window': {'class': 'window', 'from': 'data', 'window_size': window_size, 'stride': window_size, 'padding': padding, 'window_dim': CodeWrapper("a_dim")},
                 'output': {'class': 'gather', 'from': 'strided_window', 'axis': CodeWrapper("a_dim"), 'position': position}
             } 
         }
@@ -194,7 +196,7 @@ def set_1s_lookup_table_comp(recognition_args, state_tying_file):
     set_1s_lookup_table(recognition_args["extra_config"], state_tying_file)
 
 import numpy as np
-def set_tdps(extra_config: rasr.RasrConfig, drate: int, skip=False):
+def set_tdps(am: rasr.RasrConfig, drate: int, skip=False, adjust_silence_exit=False, speech_exit=None):
     speech_fwd = 1 / (1 + 7 / drate)
     if skip:
         speech_loop = 1 - speech_fwd
@@ -202,12 +204,16 @@ def set_tdps(extra_config: rasr.RasrConfig, drate: int, skip=False):
         skip = speech_loop**(2 * avg_num_states)
         fwd_skip = speech_fwd * skip
         speech_fwd *= 1 - skip
-        extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.*"].skip = -np.log(fwd_skip)
+        am["tdp.*"].skip = -np.log(fwd_skip)
+    if adjust_silence_exit:
+        adjust_silence_exit_penalty(20.0, drate)
+    if speech_exit is not None:
+        am["tdp.*"].exit = speech_exit
     speech_transition = tdps.Transition.from_fwd_prob(speech_fwd)
-    extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.*"]._update(
+    am["tdp.*"]._update(
         speech_transition.to_rasr_config()
     )
-    extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.silence"]._update(
+    am["tdp.silence"]._update(
         tdps.Transition.from_fwd_prob(1 / (1 + 60 / drate)).to_rasr_config()
     )
 
@@ -218,6 +224,7 @@ BASE_LMS = 12.0
 BASE_SILENCE_EXIT = 20.0
 SKIP_PARAMETERS = [-5.0, -1.0, 0.0, 1.0, 5.0, 10.0, 15.0, 30.0, "infinity"]
 # SKIP_PARAMETERS = [0.0]
+DRATES = [1, 2, 3, 4, 6, 8]
 ts = helpers.TuningSystem(swb_system, training_args={})
 wers = {}
 rtfs = {}
@@ -250,7 +257,11 @@ for drate in [1, 2, 3, 4, 6, 8]:
         skip_parameters = SKIP_PARAMETERS.copy()
         if fwds:
             suffix += ".fwds"
-            set_tdps(extra_config, drate, skip=(fwds == "skip"))
+            set_tdps(
+                extra_config["flf-lattice-tool.network.recognizer.acoustic-model"],
+                drate, skip=(fwds == "skip"),
+                speech_exit=0.0 if fwds == "skip" else None
+            )
             if fwds == "skip":
                 suffix += ".normed"
                 skip_parameters = [ts.NoTransformation]
@@ -313,11 +324,172 @@ class SkipReport:
 def dump_summary(name, data):
     import pickle
     print("Dumping {}".format(name))
-    with open("output/reports/{}.pkl".format(name), "wb+") as f:
-        pickle.dump(util.instanciate_delayed(data), f)
+    fname = "output/{}/reports/{}.pkl".format(FNAME, name)
+    tk.dump(util.instanciate_delayed(data), fname)
 
 tk.register_callback(dump_summary, "wer", wers)
 tk.register_callback(dump_summary, "rtf", rtfs)
+
+#------------------------------------- make downsampled alignments --------------------------------
+
+# set up returnn repository
+from i6_core import tools
+clone_returnn_job = tools.git.CloneGitRepositoryJob(
+    url="https://github.com/DanEnergetics/returnn.git",
+    branch="mann-sprint-cache-dataset",
+)
+
+clone_returnn_job.add_alias("returnn_tdp_training")
+RETURNN_SPRINT_CACHE = clone_returnn_job.out_repository
+
+swb_system.set_num_classes("lut", swb_system.num_classes())
+for crp in swb_system.crp.values():
+    crp.acoustic_model_config.hmm.states_per_phone = 1
+swb_system.set_state_tying("lut", LUT_1S)
+
+def make_alignment(drate):
+    align_returnn_config = baseline_tdnn
+    align_compile_args = {}
+    if drate > 1:
+        align_returnn_config = copy.deepcopy(baseline_tdnn)
+        align_returnn_config.python_prolog = ("from returnn.tf.util.data import Dim",)
+        align_returnn_config.config["a_dim"] = CodeWrapper('Dim(Dim.Types.Spatial, "Window dimension")')
+        align_returnn_config.config["network"].update(output(0, drate, padding="same"))
+        align_compile_args = {
+            'output_tensor_name': 'output_/output_batch_major',
+        }
+    
+    align_config = rasr.RasrConfig()
+    set_tdps(
+        align_config[
+            "acoustic-model-trainer"
+            ".aligning-feature-extractor"
+            ".feature-extraction"
+            ".alignment"
+            ".model-combination"
+            ".acoustic-model"
+        ],
+        drate,
+        skip=True, adjust_silence_exit=True, speech_exit=0.0
+    )
+
+    align_am = align_config[
+        "acoustic-model-trainer"
+        ".aligning-feature-extractor"
+        ".feature-extraction"
+        ".alignment"
+        ".model-combination"
+        ".acoustic-model"
+    ]
+    align_am.tdp.silence.exit = 0.0
+    align_am.tdp.silence.skip = "infinity"
+
+    swb_system.nn_align(
+        nn_name=BASE_TRAINING,
+        epoch=BASE_EPOCH,
+        extra_config=align_config,
+        name="baseline_drate-{}".format(drate),
+        compile_args=align_compile_args,
+        compile_crnn_config=align_returnn_config,
+        evaluate=True,
+        scorer_suffix="-prior"
+    )
+
+def set_chunking(config, pooled_size):
+    chunk_data = 48
+    step_data = chunk_data // 2
+    chunk_classes = chunk_data // pooled_size
+    step_classes = chunk_classes // 2
+    config["chunking"] = (
+        {"data": chunk_data, "classes": chunk_classes},
+        {"data": step_data, "classes": step_classes},
+    )
+
+
+LAYER_SEQ = ["input_conv"] \
+    + [x for i in range(6) if (x := f"gated_{i}") in baseline_tdnn.config["network"]] \
+    + ["output"]
+
+print(LAYER_SEQ)
+
+def pooling_layer(mode, pool_size, sources, padding="same"):
+    if isinstance(pool_size, int):
+        pool_size=(pool_size,)
+    return {
+        "class": "pool", "mode": mode, "pool_size": pool_size, "from": sources,
+        "padding": padding,
+    }
+
+def insert_pooling_layer(network, index=-1, mode="avg", pool_size=3, **_ignored):
+    if index < 0:
+        index += len(LAYER_SEQ)
+    assert index > 0
+    assert index < len(LAYER_SEQ)
+    if isinstance(pool_size, int):
+        pool_size=(pool_size,)
+    i = index
+    assert LAYER_SEQ[i-1] in network
+    assert LAYER_SEQ[i] in network
+    network["pooling"] = pooling_layer(mode, pool_size, [LAYER_SEQ[i-1]])
+    network[LAYER_SEQ[i]]["from"] = ["pooling"]
+
+from i6_experiments.users.mann.setups.nn_system.trainer import SprintCacheTrainer
+swb_system.set_trainer(SprintCacheTrainer(swb_system))
+
+def set_downsampled_alignment_training(
+    config,
+    training_args,
+    recognition_args,
+    scorer_args,
+    plugin_args,
+    drate
+):
+    extra_config = rasr.RasrConfig()
+    extra_config["flf-lattice-tool.network.recognizer.acoustic-model"].tdp.silence.exit \
+        = adjust_silence_exit_penalty(BASE_SILENCE_EXIT, drate)
+    set_tdps(
+        extra_config["flf-lattice-tool.network.recognizer.acoustic-model"],
+        drate, skip=True,
+        speech_exit=0.0
+    )
+    # adjust recognition args
+    recognition_args["lm_scale"] = adjust_lm_scale(BASE_LMS, drate)
+    recognition_args["extra_config"] = extra_config
+
+    make_alignment(drate)
+    alignment_name = "baseline_drate-{}".format(drate)
+    training_args["alignment"] = ("train", alignment_name, -1)
+    training_args["seq_ordering"] = "laplace:.1000"
+    if drate == 1:
+        return 
+    
+    scorer_args["use_alignment"] = False
+    set_chunking(config.config, drate)
+    insert_pooling_layer(config.config["network"], pool_size=drate)
+    plugin_args["filter_alignment"] = {}
+
+for drate in DRATES[:-1]:
+    make_alignment(drate)
+
+ts.tune_parameter(
+    name="baseline_downsampled_alignment",
+    crnn_config=baseline_tdnn,
+    parameters=DRATES[:-1],
+    transformation=set_downsampled_alignment_training,
+    # compile_args=compile_args,
+    # compile_crnn_config=base_compile_config,
+    training_args={
+        "returnn_root": RETURNN_SPRINT_CACHE,
+    },
+    recognition_args={
+        **recog_args,
+        # **extra_recog_args,
+    },
+    plugin_args={},
+    scorer_args={},
+    reestimate_prior="CRNN" ,
+    alt_training=True
+)
 
 #------------------------------------- try interface ----------------------------------------------
 

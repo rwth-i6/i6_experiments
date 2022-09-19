@@ -272,6 +272,7 @@ class PriorFromTranscriptionCounts(Job):
 def get_prior_from_transcription_job(
     system,
     total_frames=None,
+    hmm_partition=None,
 ):
     transcribe_job = ApplyLexiconToCorpusJob(
         system.csp["train"].corpus_config.file,
@@ -290,7 +291,8 @@ def get_prior_from_transcription_job(
         count_phonemes.counts,
         count_phonemes.total,
         dst.out_state_tying,
-        num_frames=total_frames
+        num_frames=total_frames,
+        hmm_partition=hmm_partition,
     )
 
     tk.register_output("prior_from_transcription", prior_job.out_prior_txt_file)
@@ -303,17 +305,23 @@ def get_prior_from_transcription_job(
     }
 
 class PriorSystem:
-    def __init__(self, system, total_frames=None, eps=None):
+    def __init__(self, system, total_frames=None, eps=None, extra_hmm_partition=None):
         self.system = system
         self.total_frames = total_frames
         self.prior_files = get_prior_from_transcription_job(system, total_frames)
         self.eps = eps
+        self.hmm_partition = extra_hmm_partition
         self.prior_txt_file = self.prior_files["txt"]
         self.prior_xml_file = self.prior_files["xml"]
         self.prior_png_file = self.prior_files["png"] 
     
     def extract_prior(self):
-        self.prior_files = get_prior_from_transcription_job(self.system, self.total_frames)
+        assert self.total_frames is not None
+        self.prior_files = get_prior_from_transcription_job(
+            self.system,
+            total_frames=self.total_frames,
+            hmm_partition=self.hmm_partition
+        )
         self.prior_txt_file = self.prior_files["txt"]
         self.prior_xml_file = self.prior_files["xml"]
         self.prior_png_file = self.prior_files["png"] 
@@ -322,4 +330,3 @@ class PriorSystem:
         from i6_experiments.users.mann.nn import prior
         prior.prepare_static_prior(config, prob=True)
         prior.add_static_prior(config, self.prior_txt_file, eps=self.eps)
-
