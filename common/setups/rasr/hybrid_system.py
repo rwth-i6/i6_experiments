@@ -265,10 +265,13 @@ class HybridSystem(NnSystem):
             trn_c = pairing[0]
             cv_c = pairing[1]
 
-            self.jobs[f"{trn_c}_{cv_c}"] = {}
-            self.nn_models[f"{trn_c}_{cv_c}"] = {}
-            self.nn_checkpoints[f"{trn_c}_{cv_c}"] = {}
-            self.nn_configs[f"{trn_c}_{cv_c}"] = {}
+            corpus_pair_name = f"{trn_c}_{cv_c}"
+
+            self.jobs[corpus_pair_name] = {}
+            self.nn_models[corpus_pair_name] = {}
+            self.nn_checkpoints[corpus_pair_name] = {}
+            self.nn_configs[corpus_pair_name] = {}
+            self.feature_scorers[corpus_pair_name] = {}
 
     def _set_eval_data(self, data_dict):
         for c_key, c_data in data_dict.items():
