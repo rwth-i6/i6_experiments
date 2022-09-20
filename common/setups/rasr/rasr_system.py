@@ -279,16 +279,20 @@ class RasrSystem(meta.System):
                 self.generic_features(corpus, k, **v)
 
     @tk.block()
-    def extract_features(self, feat_args: dict, **kwargs):
+    def extract_features(
+        self, feat_args: dict, corpus_list: Optional[List[str]] = None, **kwargs
+    ):
         """
         TODO: docstring
         TODO: add more generic flow dependencies
 
         :param feat_args: see RasrInitArgs.feature_extraction_args
+        :param corpus_list:
         :param kwargs:
         :return:
         """
-        corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
+        if corpus_list is None:
+            corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
 
         for c in corpus_list:
             self.extract_features_for_corpus(c, feat_args)

@@ -663,18 +663,25 @@ class HybridSystem(NnSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 if step_args is None:
+                    corpus_list = (
+                        self.train_corpora
+                        + self.cv_corpora
+                        + self.devtrain_corpora
+                        + self.dev_corpora
+                        + self.test_corpora
+                    )
                     step_args = self.rasr_init_args.feature_extraction_args
-                for all_c in (
-                    self.train_corpora
-                    + self.cv_corpora
-                    + self.devtrain_corpora
-                    + self.dev_corpora
-                    + self.test_corpora
-                ):
-                    self.feature_caches[all_c] = {}
-                    self.feature_bundles[all_c] = {}
-                    self.feature_flows[all_c] = {}
-                self.extract_features(step_args)
+                else:
+                    corpus_list = step_args.pop("corpus_list")
+
+                for all_c in corpus_list:
+                    if all_c not in self.feature_caches.keys():
+                        self.feature_caches[all_c] = {}
+                    if all_c not in self.feature_bundles.keys():
+                        self.feature_bundles[all_c] = {}
+                    if all_c not in self.feature_flows.keys():
+                        self.feature_flows[all_c] = {}
+                self.extract_features(step_args, corpus_list=corpus_list)
 
             # ---------- Prepare data ----------
             if step_name.startswith("data"):
