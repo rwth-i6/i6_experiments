@@ -342,6 +342,7 @@ class HybridSystem(NnSystem):
         nn_train_args,
         train_corpus_key,
         cv_corpus_key,
+        feature_flow_key: str = "gt",
     ):
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[cv_corpus_key]
@@ -353,7 +354,9 @@ class HybridSystem(NnSystem):
         assert train_data.features == dev_data.features
         assert train_data.alignments == dev_data.alignments
 
-        if train_data.feature_flow is not None:
+        if isinstance(train_data.feature_flow, Dict):
+            feature_flow = train_data.feature_flow[feature_flow_key]
+        elif isinstance(train_data.feature_flow, rasr.FlowNetwork):
             feature_flow = train_data.feature_flow
         else:
             if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):

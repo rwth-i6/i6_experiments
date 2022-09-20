@@ -10,6 +10,10 @@ import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath
 
+from .rasr import RasrDataInput
+
+RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+
 
 class ReturnnRasrDataInput:
     """
@@ -20,13 +24,9 @@ class ReturnnRasrDataInput:
         self,
         name: str,
         crp: Optional[rasr.CommonRasrParameters] = None,
-        alignments: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None,
-        feature_flow: Optional[rasr.FlowNetwork] = None,
-        features: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None,
+        alignments: Optional[RasrCacheTypes] = None,
+        feature_flow: Optional[Union[rasr.FlowNetwork, Dict[str, rasr.FlowNetwork]]] = None,
+        features: Optional[Union[RasrCacheTypes, Dict[str, RasrCacheTypes]]] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
         shuffle_data: bool = True,
