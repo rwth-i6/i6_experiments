@@ -20,6 +20,7 @@ import i6_core.cart as cart
 import i6_core.corpus as corpus_recipes
 import i6_core.features as features
 import i6_core.lda as lda
+import i6_core.lm as lm
 import i6_core.meta as meta
 import i6_core.mm as mm
 import i6_core.sat as sat
@@ -129,7 +130,7 @@ class GmmSystem(RasrSystem):
             "selected": gs.JOB_DEFAULT_KEEP_VALUE,
         }
 
-        self.outputs = defaultdict(dict)  # type: Dict[GmmOutput]
+        self.outputs = defaultdict(dict)  # type: Dict[str, Dict[str, GmmOutput]]
 
     # -------------------- Setup --------------------
     def init_system(
@@ -1470,6 +1471,12 @@ class GmmSystem(RasrSystem):
             )
             self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
+
+            ppl_job = lm.ComputePerplexityJob(
+                self.crp[eval_c],
+                corpus_recipes.CorpusToTxtJob(self.crp[eval_c].corpus_config.file).out_txt,
+            )
+            tk.register_output(f"lms/{eval_c}.ppl", ppl_job.perplexity)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------
