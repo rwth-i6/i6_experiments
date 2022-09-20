@@ -83,7 +83,7 @@ def get_corpus_data_inputs(
         corpus_object=corpus_object_dict[corpus_key],
         concurrent=constants.concurrent[corpus_key],
         lexicon=train_lexicon,
-        lm=lm,
+        lm=None,
     )
 
     for dev_key in ["dev-clean", "dev-other"]:
@@ -96,7 +96,7 @@ def get_corpus_data_inputs(
 
     for test_key in ["test-clean", "test-other"]:
         test_data_inputs[test_key] = RasrDataInput(
-            corpus_object=corpus_object_dict["test-clean"],
+            corpus_object=corpus_object_dict[test_key],
             concurrent=constants.concurrent[test_key],
             lexicon=lexicon,
             lm=lm,
