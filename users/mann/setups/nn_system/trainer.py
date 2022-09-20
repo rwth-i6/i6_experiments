@@ -27,8 +27,6 @@ class SemiSupervisedTrainer:
             return WriteRasrConfigJob(**kwargs)
 
     def write(self, corpus, feature_corpus, feature_flow, alignment, num_classes, **kwargs):
-        print(corpus)
-        print(self.system.crp[corpus].segment_path)
         j = SemiSupervisedTrainer.write_helper(
             crp          = self.system.csp[corpus],
             feature_flow = self.system.feature_flows[feature_corpus][feature_flow],
@@ -150,6 +148,78 @@ class SoftAlignTrainer(SemiSupervisedTrainer):
         # training_args.maps.insert(0, data)
         j = self.train_helper(**data, **training_args)
         # feature_corpus = "train"
+        self.system.jobs[feature_corpus]['train_nn_%s' % name] = j
+        self.system.nn_models[feature_corpus][name] = j.models
+        self.system.nn_checkpoints[feature_corpus][name] = j.checkpoints
+        self.system.nn_configs[feature_corpus][name] = j.crnn_config_file
+
+
+def cf(path):
+    return "cf('{}')".format(path)
+
+class SprintCacheTrainer(SemiSupervisedTrainer):
+    def make_ds(self, feature_corpus, alignment_path, feature_path, partition_epoch=1, seq_ordering=None, cached=False, **kwargs):
+        assert feature_corpus.startswith("crnn"), "Maybe something about the format went wrong"
+        from recipe import crnn
+        maybe_cache = lambda path: path if not cached else crnn.CodeWrapper("cf({})".format(path))
+        def maybe_cache(path):
+            if not cached:
+                return path
+            if isinstance(path, tk.Path):
+                return path.function(cf)
+            return crnn.CodeWrapper(cf(path)) 
+            
+        dataset = {
+            "class": "SprintCacheDataset",
+            "data": {
+                "data": {"filename": maybe_cache(feature_path)},
+                "classes": {
+                    "filename": maybe_cache(alignment_path),
+                    "allophone_labeling": {
+                        "silence_phone": "[SILENCE]",
+                        "allophone_file": maybe_cache(self.get_allophone_file(feature_corpus)),
+                        "state_tying_file": maybe_cache(self.get_state_tying(feature_corpus)),
+                    }
+                }
+            },
+            "partition_epoch": partition_epoch,
+            "seq_list_filter_file": self.system.csp[feature_corpus].segment_path,
+        }
+        # print(dataset)
+        if seq_ordering:
+            dataset["seq_ordering"] = seq_ordering
+        return dataset
+    
+    def get_state_tying(self, feature_corpus):
+        from recipe.allophones import DumpStateTying
+        return DumpStateTying(self.system.csp[feature_corpus]).state_tying
+    
+    def get_allophone_file(self, feature_corpus):
+        from recipe.allophones import StoreAllophones
+        return StoreAllophones(self.system.csp[feature_corpus]).allophone_file
+
+    def train(self, name, crnn_config, alignment, partition_epochs, feature_corpus, feature_flow, num_classes, seq_ordering=None, cached=False, **kwargs):
+        crnn_config = copy.deepcopy(crnn_config)
+        crnn_config["num_outputs"]["classes_soft_align"] = [ self.system.functor_value(num_classes), 2 ]
+        training_args = ChainMap(locals().copy(), kwargs)
+        del training_args["self"], training_args["kwargs"]
+
+        feature_path = self.system.feature_bundles[feature_corpus][feature_flow]
+        alignment_path = select_element(self.system.alignments, feature_corpus, alignment).alternatives["bundle"]
+        data = {
+            key + "_data": self.make_ds(
+                "crnn_" + key,
+                alignment_path,
+                feature_path,
+                partition_epochs.get(key, 1),
+                cached=cached,
+                seq_ordering=None if key != "train" else seq_ordering
+            )
+            for key in ["train", "dev"]
+        }
+        j = self.train_helper(
+            **data, **training_args,
+        )
         self.system.jobs[feature_corpus]['train_nn_%s' % name] = j
         self.system.nn_models[feature_corpus][name] = j.models
         self.system.nn_checkpoints[feature_corpus][name] = j.checkpoints
