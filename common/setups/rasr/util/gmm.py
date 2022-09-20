@@ -419,8 +419,6 @@ class GmmOutput:
     def as_returnn_rasr_data_input(
         self,
         name: str = "init",
-        *,
-        feature_flow_key: str = "gt",
         shuffle_data: bool = True,
     ):
         """
@@ -436,8 +434,8 @@ class GmmOutput:
             name=name,
             crp=copy.deepcopy(self.crp),
             alignments=self.alignments,
-            feature_flow=self.feature_flows[feature_flow_key],
-            features=self.features[feature_flow_key],
+            feature_flow=self.feature_flows,
+            features=self.features,
             acoustic_mixtures=self.acoustic_mixtures,
             feature_scorers=self.feature_scorers,
             shuffle_data=shuffle_data,
