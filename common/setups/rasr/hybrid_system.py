@@ -271,7 +271,6 @@ class HybridSystem(NnSystem):
             self.nn_models[corpus_pair_name] = {}
             self.nn_checkpoints[corpus_pair_name] = {}
             self.nn_configs[corpus_pair_name] = {}
-            self.feature_scorers[corpus_pair_name] = {}
 
     def _set_eval_data(self, data_dict):
         for c_key, c_data in data_dict.items():
@@ -279,6 +278,7 @@ class HybridSystem(NnSystem):
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
+            self.feature_scorers[c_key] = {}
 
     def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):
         for name in self.train_corpora + self.devtrain_corpora + self.cv_corpora:
