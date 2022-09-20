@@ -339,10 +339,12 @@ class RasrSystem(meta.System):
     def forced_align(
         self,
         name: str,
+        *,
         target_corpus_key: str,
         flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
-        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
         feature_scorer_corpus_key: str = None,
+        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
+        scorer_index: int = -1,
         dump_alignment: bool = False,
         **kwargs,
     ):
@@ -359,7 +361,10 @@ class RasrSystem(meta.System):
         :return:
         """
         selected_feature_scorer = meta.select_element(
-            self.feature_scorers, feature_scorer_corpus_key, feature_scorer
+            self.feature_scorers,
+            feature_scorer_corpus_key,
+            feature_scorer,
+            scorer_index,
         )
         self.align(
             name=name,

@@ -8,10 +8,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
-import sisyphus.toolkit as tk
-import sisyphus.global_settings as gs
-
-from sisyphus.delayed_ops import DelayedFormat
+from sisyphus import tk
 
 # -------------------- Recipes --------------------
 
@@ -30,6 +27,7 @@ from .util import (
     HybridArgs,
     NnRecogArgs,
     RasrSteps,
+    NnForcedAlignArgs,
 )
 
 # -------------------- Init --------------------
@@ -488,8 +486,19 @@ class HybridSystem(NnSystem):
                 flow = self.add_tf_flow_to_base_flow(feature_flow, tf_flow)
                 flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
 
+                self.feature_scorers[recognition_corpus_key][
+                    f"pre-nn-{name}-{prior:02.2f}"
+                ] = scorer
+                self.feature_flows[recognition_corpus_key][
+                    f"{feature_flow_key}-tf-{epoch:03d}"
+                ] = flow
+
+                recog_name = (
+                    f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
+                )
+
                 recog_func(
-                    name=f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}",
+                    name=f"{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
                     corpus=recognition_corpus_key,
                     flow=flow,
@@ -618,6 +627,17 @@ class HybridSystem(NnSystem):
             for cv_c in self.cv_corpora[trn_c]:
                 raise NotImplementedError
 
+    def run_forced_align_step(self, step_args: NnForcedAlignArgs):
+        for tc_key in step_args["target_corpus_keys"]:
+            self.forced_align(
+                name=step_args["name"],
+                target_corpus_key=tc_key,
+                flow=step_args["flow_key"],
+                feature_scorer_corpus_key=step_args["feature_scorer_corpus_key"],
+                feature_scorer=step_args["scorer_model_key"],
+                dump_alignment=step_args["dump_alignment"],
+            )
+
     # -------------------- run setup  --------------------
 
     def run(self, steps: RasrSteps):
@@ -671,3 +691,7 @@ class HybridSystem(NnSystem):
             # ---------- Realign ----------
             if step_name.startswith("realign"):
                 self.run_realign_step(step_args)
+
+            # ---------- Forced Alignment ----------
+            if step_name.startswith("forced") or step_name.startswith("align"):
+                self.run_forced_align_step(step_args)
