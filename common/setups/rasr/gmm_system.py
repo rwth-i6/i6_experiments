@@ -1474,7 +1474,9 @@ class GmmSystem(RasrSystem):
 
             ppl_job = lm.ComputePerplexityJob(
                 self.crp[eval_c],
-                corpus_recipes.CorpusToTxtJob(self.crp[eval_c].corpus_config.file).out_txt,
+                corpus_recipes.CorpusToTxtJob(
+                    self.crp[eval_c].corpus_config.file
+                ).out_txt,
             )
             tk.register_output(f"lms/{eval_c}.ppl", ppl_job.perplexity)
 
