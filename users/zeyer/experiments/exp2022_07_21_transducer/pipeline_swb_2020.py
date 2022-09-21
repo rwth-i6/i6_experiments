@@ -363,10 +363,10 @@ def model_recog(*,
             enc = model.encoder_unstack(enc_args)
             probs, state = model.decode(
                 **enc,
-                enc_spatial_dim=enc_spatial_dim,
+                enc_spatial_dim=nn.single_step_dim,
                 wb_target_spatial_dim=nn.single_step_dim,
                 prev_wb_target=prev_target,
-            )
+                state=state)
             return probs.get_wb_label_log_probs(), state
 
     return beam_search(_Decoder())
