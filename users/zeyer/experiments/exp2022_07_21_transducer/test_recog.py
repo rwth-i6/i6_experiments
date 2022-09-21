@@ -7,24 +7,22 @@ from __future__ import annotations
 from sisyphus import tk
 from .task import get_nltk_timit_task
 from .pipeline_swb_2020 import recog, model_recog, from_scratch_model_def
-from .recog import ModelWithCheckpoint
-from .model import Checkpoint
-
-
-def _dummy_path_available(_) -> bool:
-    return True
+from .recog import ModelWithCheckpoint, search_config
+from i6_experiments.users.zeyer.returnn.training import ReturnnInitModelJob
 
 
 def sis_config_main():
     """sis config function"""
     task = get_nltk_timit_task()
+    model_def = from_scratch_model_def
+    recog_def = model_recog
 
-    model = ModelWithCheckpoint(
-        definition=from_scratch_model_def,
-        checkpoint=Checkpoint(
-            index_path=tk.Path("dummy-non-existing-model.ckpt-100000.index", available=_dummy_path_available)))
+    config = search_config(task.dev_dataset, model_def, recog_def)
+    config.config.pop("dev")
+    checkpoint = ReturnnInitModelJob(config).out_checkpoint
+    model = ModelWithCheckpoint(definition=model_def, checkpoint=checkpoint)
 
-    tk.register_output('test_recog', recog(task, model, recog_def=model_recog).main_measure_value)
+    tk.register_output('test_recog', recog(task, model, recog_def=recog_def).main_measure_value)
 
 
 py = sis_config_main  # `py` is the default sis config function name

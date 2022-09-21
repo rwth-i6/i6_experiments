@@ -17,7 +17,7 @@ from i6_experiments.common.setups.returnn_common import serialization
 
 # i6_experiments.users imports
 from .task import Task, ScoreResultCollection
-from .model import ModelWithCheckpoint, RecogDef
+from .model import ModelWithCheckpoint, ModelDef, RecogDef
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
 from i6_experiments.users.zeyer import tools_paths
 
@@ -38,6 +38,20 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     """
     recog on the specific dataset
     """
+    search_job = ReturnnSearchJobV2(
+        search_data=dataset.get_main_dataset(),
+        model_checkpoint=model.checkpoint,
+        returnn_config=search_config(dataset, model.definition, recog_def),
+        returnn_python_exe=tools_paths.get_returnn_python_exe(),
+        returnn_root=tools_paths.get_returnn_root(),
+    )
+    return RecogOutput(output=search_job.out_search_file)
+
+
+def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef) -> ReturnnConfig:
+    """
+    config for search
+    """
 
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
@@ -46,7 +60,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        dev=dataset.get_eval_datasets(),
+        dev=dataset.get_main_dataset(),
 
         batching="sorted",
         batch_size=20000,
@@ -60,7 +74,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
                 serialization.NonhashedCode(
                     nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
                         dataset.get_extern_data())),
-                serialization.Import(model.definition, "_model_def", ignore_import_as_for_hash=True),
+                serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
                 serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
                 serialization.ExplicitHash({
@@ -83,14 +97,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
         sort_config=False,
     )
 
-    search_job = ReturnnSearchJobV2(
-        search_data=dataset.get_main_dataset(),
-        model_checkpoint=model.checkpoint,
-        returnn_config=returnn_recog_config,
-        returnn_python_exe=tools_paths.get_returnn_python_exe(),
-        returnn_root=tools_paths.get_returnn_root(),
-    )
-    return RecogOutput(output=search_job.out_search_file)
+    return returnn_recog_config
 
 
 def bpe_to_words(bpe: RecogOutput) -> RecogOutput:
