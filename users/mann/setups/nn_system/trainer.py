@@ -12,6 +12,7 @@ class SemiSupervisedTrainer:
     def __init__(self, system=None):
         if system:
             self.set_system(system)
+        self.configs = {}
 
     def set_system(self, system, **kwargs):
         self.system = system
@@ -23,6 +24,7 @@ class SemiSupervisedTrainer:
         self.system.nn_configs[feature_corpus][name] = job.out_returnn_config_file
 
     def extract_prior(self, name, crnn_config, training_args, epoch):
+        crnn_config = self.configs[name]
         score_features = ReturnnComputePriorJob(
             model_checkpoint=self.system.nn_checkpoints[training_args["feature_corpus"]][name][epoch],
             returnn_config=crnn_config,
@@ -226,4 +228,5 @@ class SprintCacheTrainer(SemiSupervisedTrainer):
         j = self.train_helper(
             **training_args,
         )
+        self.configs[name] = returnn_config
         self.save_job(feature_corpus, name, j)

@@ -474,8 +474,7 @@ for drate in DRATES[:-1]:
 ts.tune_parameter(
     name="baseline_downsampled_alignment",
     crnn_config=baseline_tdnn,
-    # parameters=DRATES[:-1],
-    parameters=[3],
+    parameters=DRATES[:-1],
     transformation=set_downsampled_alignment_training,
     # compile_args=compile_args,
     # compile_crnn_config=base_compile_config,
