@@ -5,8 +5,7 @@ https://github.com/rwth-i6/returnn/issues/1127
 """
 
 from __future__ import annotations
-from typing import Tuple, Optional, Sequence, Dict
-import contextlib
+from typing import Tuple, Optional, Sequence, Dict, Any
 import os
 import sys
 
@@ -207,9 +206,27 @@ def _recog_def(*,
     return beam_search(_Decoder())
 
 
-from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.recog import (
-    _returnn_get_network as get_network,
-)
+def get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
+    nn.reset_default_root_name_ctx()
+    default_input_key = default_input
+    default_target_key = target
+    extern_data_dict = extern_data
+    data = nn.Data(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = nn.Data(name=default_target_key, **extern_data_dict[default_target_key])
+    data_spatial_dim = data.get_time_dim_tag()
+    data = nn.get_extern_data(data)
+    targets = nn.get_extern_data(targets)
+    model = _model_def(epoch=epoch, target_dim=targets.feature_dim)
+    recog_out = _recog_def(
+        model=model,
+        data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
+    assert isinstance(recog_out, nn.Tensor)
+    recog_out.mark_as_default_output()
+    net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
+    with open("gen_config.py", "w") as f:
+        f.write(nn.get_returnn_config().get_complete_py_code_str(root_module=model))
+    return net_dict
+
 
 # https://github.com/rwth-i6/returnn/issues/957
 # https://stackoverflow.com/a/16248113/133374
