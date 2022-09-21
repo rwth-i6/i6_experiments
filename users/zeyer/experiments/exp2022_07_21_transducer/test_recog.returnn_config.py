@@ -1,5 +1,9 @@
 #!rnn.py
 
+"""
+https://github.com/rwth-i6/returnn/issues/1127
+"""
+
 from __future__ import annotations
 from typing import Tuple, Optional, Sequence, Dict
 import contextlib
@@ -28,15 +32,7 @@ sys.path.insert(1, "/Users/az/i6/setups/2022-03-19--sis-i6-exp/ext/sisyphus")
 
 from returnn_common import nn
 
-from returnn.tf.util.data import (
-    Dim,
-    batch_dim,
-    single_step_dim,
-    SpatialDim,
-    FeatureDim,
-    ImplicitDynSizeDim,
-    ImplicitSparseDim,
-)
+from returnn.tf.util.data import batch_dim, SpatialDim, FeatureDim
 
 time_dim = SpatialDim("time")
 audio_dim = FeatureDim("audio", 80)
@@ -64,14 +60,12 @@ extern_data = {
 
 
 from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.recog import IDecoder, beam_search
-from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 
 class Model(nn.Module):
     """Model definition"""
 
     def __init__(self, *,
-                 num_enc_layers=6,
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
@@ -81,7 +75,7 @@ class Model(nn.Module):
                  att_dropout: float = 0.1,
                  ):
         super(Model, self).__init__()
-        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
+        self.encoder = nn.Linear(nn.FeatureDim("enc", 100))
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -109,11 +103,11 @@ class Model(nn.Module):
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
-        enc, enc_spatial_dim = self.encoder(source, spatial_dim=in_spatial_dim)
+        enc = self.encoder(source)
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
-        enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
-        enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
-        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win), enc_spatial_dim
+        enc_ctx_win, _ = nn.window(enc_ctx, axis=in_spatial_dim, window_dim=self.enc_win_dim)
+        enc_val_win, _ = nn.window(enc, axis=in_spatial_dim, window_dim=self.enc_win_dim)
+        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win), in_spatial_dim
 
     @staticmethod
     def encoder_unstack(ext: Dict[str, nn.Tensor]) -> Dict[str, nn.Tensor]:
@@ -256,7 +250,6 @@ class ProbsFromReadout:
 def _model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     return Model(
-        num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
