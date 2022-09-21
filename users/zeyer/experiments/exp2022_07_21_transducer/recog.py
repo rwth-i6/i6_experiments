@@ -3,24 +3,30 @@ recog helpers
 """
 
 
+# Python stdlib imports
 from __future__ import annotations
-from typing import Dict, Any
+from typing import Dict, Any, Protocol, Tuple, Optional
+# i6_core imports
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
+# returnn_common imports
 from returnn_common.datasets.interface import DatasetConfig
 from returnn_common import nn
+# i6_experiments.common imports
 from i6_experiments.common.setups.returnn_common import serialization
+
+# i6_experiments.users imports
 from .task import Task, ScoreResultCollection
-from .model import ModelWithCheckpoint
+from .model import ModelWithCheckpoint, RecogDef
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
 from i6_experiments.users.zeyer import tools_paths
 
 
-def recog(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
+def recog(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
-        recog_out = search_dataset(dataset=dataset, model=model)
+        recog_out = search_dataset(dataset=dataset, model=model, recog_def=recog_def)
         for f in task.recog_post_proc_funcs:
             recog_out = f(recog_out)
         score_out = task.score_recog_output_func(dataset, recog_out)
@@ -28,7 +34,7 @@ def recog(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
     return task.collect_score_results_func(outputs)
 
 
-def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
+def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef) -> RecogOutput:
     """
     recog on the specific dataset
     """
@@ -55,9 +61,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogO
                     nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
                         dataset.get_extern_data())),
                 serialization.Import(model.definition, "_model_def", ignore_import_as_for_hash=True),
-                serialization.Import(model_search, "_search", ignore_import_as_for_hash=True),  # TODO...
-                # TODO model_search is wrong? what is the actual interface? such a decoder for model_search?
-                #   or analogue to train_def, a function search_def or so, returning the beam search result?
+                serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
                 serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
                 serialization.ExplicitHash({
                     # Increase the version whenever some incompatible change is made in this recog() function,
@@ -95,16 +99,52 @@ def bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-# TODO define decoder interface...
-def model_search(decoder, *, beam_size: int = 12) -> nn.Tensor:
+class IDecoder(Protocol):
+    """
+    Decoder interface.
+    If there is any encoder output, this would already be computed and stored in here,
+    as well as other necessary information, such as batch dims.
+    """
+    target_spatial_dim: Optional[nn.Dim] = None  # must be given when loop.unstack is used
+    include_eos: bool  # eg true for transducer, false for AED
+
+    def max_seq_len(self) -> nn.Tensor:
+        """max seq len"""
+        raise NotImplementedError
+
+    def initial_state(self) -> nn.LayerState:
+        """initial state"""
+        raise NotImplementedError
+
+    def bos_label(self) -> nn.Tensor:
+        """begin-of-sequence (BOS) label"""
+        raise NotImplementedError
+
+    def __call__(self, prev_target: nn.Tensor, *, state: nn.LayerState) -> Tuple[nn.Tensor, nn.LayerState]:
+        """return log_prob, new_state"""
+        raise NotImplementedError
+
+    def end(self, target: nn.Tensor, *, state: nn.LayerState) -> nn.Tensor:
+        """
+        Checks whether the (new) target, or (new) state reached the end-of-sequence (EOS).
+        Only called when target_spatial_dim is not defined, i.e. when the length is dynamic.
+
+        :return: bool tensor, True if EOS reached
+        """
+        raise nn.OptionalNotImplementedError
+
+
+def beam_search(decoder: IDecoder, *, beam_size: int = 12) -> nn.Tensor:
     """search"""
-    loop = nn.Loop(axis=decoder.align_spatial_dim)
+    loop = nn.Loop(axis=decoder.target_spatial_dim)
     loop.max_seq_len = decoder.max_seq_len()
-    loop.state = decoder.initial_state()
+    loop.state.decoder = decoder.initial_state()
+    loop.state.target = decoder.bos_label()
     with loop:
         log_prob, loop.state.decoder = decoder(loop.state.target, state=loop.state.decoder)
         loop.state.target = nn.choice(log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size)
-        loop.end(decoder.end(loop.state.target, loop.state.decoder), include_eos=False)
+        if not decoder.target_spatial_dim:
+            loop.end(decoder.end(loop.state.target, state=loop.state.decoder), include_eos=decoder.include_eos)
         found = loop.stack(loop.state.target)
     return found
 
@@ -126,9 +166,11 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     targets = nn.get_extern_data(targets)
     model_def = config.typed_value("_model_def")
     model = model_def(epoch=epoch, target_dim=targets.feature_dim)
-    search_def = config.typed_value("_search_def")
-    search_def(
+    recog_def = config.typed_value("_recog_def")
+    recog_out = recog_def(
         model=model,
         data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
+    assert isinstance(recog_out, nn.Tensor)
+    recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
     return net_dict

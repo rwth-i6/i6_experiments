@@ -63,3 +63,17 @@ class Alignment:
 class AlignmentCollection:
     """Alignment for multiple datasets"""
     alignments: Dict[str, Alignment]
+
+
+class RecogDef(Protocol[ModelT]):
+    """
+    Defines the recog.
+    """
+    def __call__(self, *,
+                 model: ModelT,
+                 data: nn.Tensor, data_spatial_dim: nn.Dim,
+                 ) -> nn.Tensor:
+        """
+        :return: recog output, including beam
+        """
+        raise NotImplementedError

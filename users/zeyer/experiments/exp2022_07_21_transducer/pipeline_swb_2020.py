@@ -25,15 +25,16 @@ Note on the motivation for the interface:
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Sequence
+from typing import Optional, Dict, Sequence, Tuple
 import contextlib
 from sisyphus import tk
-from .task import Task, get_switchboard_task
-from .train import train
-from .recog import recog
-from .align import align
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
+
+from .task import Task, get_switchboard_task
+from .train import train
+from .recog import recog, beam_search, IDecoder
+from .align import align
 
 
 # version is used for the hash of the model definition,
@@ -65,9 +66,9 @@ def pipeline(task: Task):
         task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step3_model.checkpoint)
 
-    tk.register_output('step1', recog(task, step1_model).main_measure_value)
-    tk.register_output('step3', recog(task, step3_model).main_measure_value)
-    tk.register_output('step4', recog(task, step4_model).main_measure_value)
+    tk.register_output('step1', recog(task, step1_model, recog_def=model_recog).main_measure_value)
+    tk.register_output('step3', recog(task, step3_model, recog_def=model_recog).main_measure_value)
+    tk.register_output('step4', recog(task, step4_model, recog_def=model_recog).main_measure_value)
 
 
 class Model(nn.Module):
@@ -169,7 +170,7 @@ class Model(nn.Module):
             lm_axis = prev_nb_target_spatial_dim
         else:
             assert prev_wb_target is not None and wb_target_spatial_dim is not None
-            assert wb_target_spatial_dim == enc_spatial_dim
+            assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
             lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
@@ -257,6 +258,7 @@ class ProbsFromReadout:
 
 
 def _get_bos_idx(target_dim: nn.Dim) -> int:
+    """for non-blank labels"""
     assert target_dim.vocab
     if target_dim.vocab.bos_label_id is not None:
         bos_idx = target_dim.vocab.bos_label_id
@@ -331,9 +333,40 @@ def extended_model_training(*,
 def model_recog(*,
                 model: Model,
                 data: nn.Tensor, data_spatial_dim: nn.Dim,
-                target_vocab: nn.Dim,
+                targets_dim: nn.Dim,  # noqa
                 ) -> nn.Tensor:
-    """Function is run within RETURNN."""
-    pass  # TODO
-    # TODO probably this should be moved over to the recog module, as this will probably be the same always
-    # TODO implement generic interface https://github.com/rwth-i6/returnn_common/issues/49 ?
+    """
+    Function is run within RETURNN.
+
+    :return: recog results including beam
+    """
+    batch_dims = data.batch_dims_ordered(data_spatial_dim)
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+
+    class _Decoder(IDecoder):
+        target_spatial_dim = enc_spatial_dim  # time-sync transducer
+        include_eos = True
+
+        def max_seq_len(self) -> nn.Tensor:
+            """max seq len"""
+            return nn.dim_value(enc_spatial_dim) * 2
+
+        def initial_state(self) -> nn.LayerState:
+            """initial state"""
+            return model.decoder_default_initial_state(batch_dims=batch_dims)
+
+        def bos_label(self) -> nn.Tensor:
+            """BOS"""
+            return nn.constant(model.blank_idx)
+
+        def __call__(self, prev_target: nn.Tensor, *, state: nn.LayerState) -> Tuple[nn.Tensor, nn.LayerState]:
+            enc = model.encoder_unstack(enc_args)
+            probs, state = model.decode(
+                **enc,
+                enc_spatial_dim=enc_spatial_dim,
+                wb_target_spatial_dim=nn.single_step_dim,
+                prev_wb_target=prev_target,
+            )
+            return probs.get_wb_label_log_probs(), state
+
+    return beam_search(_Decoder())
