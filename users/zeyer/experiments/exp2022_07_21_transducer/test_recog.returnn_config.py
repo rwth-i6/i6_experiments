@@ -93,13 +93,8 @@ class Model(nn.Module):
         self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync()
         self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
-        self.readout_in_am_dropout = 0.1
         self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
-        self.readout_in_lm_dropout = 0.1
-        self.readout_in_bias = nn.Parameter([self.readout_in_am.out_dim])
-        self.out_nb_label_logits = nn.Linear(nb_target_dim)
-        self.label_log_prob_dropout = 0.3
-        self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
+        self.out_wb_label_logits = nn.Linear(wb_target_dim)
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
@@ -128,21 +123,12 @@ class Model(nn.Module):
                enc_spatial_dim: nn.Dim,  # single step or time axis,
                enc_ctx_win: nn.Tensor,  # like enc
                enc_val_win: nn.Tensor,  # like enc
-               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
                prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                state: Optional[nn.LayerState] = None,
-               ) -> (ProbsFromReadout, nn.LayerState):
+               ) -> (nn.Tensor, nn.LayerState):
         """decoder step, or operating on full seq"""
-        if state is None:
-            assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
-            batch_dims = enc.batch_dims_ordered(
-                remove=(enc.feature_dim, enc_spatial_dim)
-                if enc_spatial_dim != nn.single_step_dim
-                else (enc.feature_dim,))
-            state = self.decoder_default_initial_state(batch_dims=batch_dims)
+        assert state is not None
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
@@ -151,37 +137,23 @@ class Model(nn.Module):
         att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=self.enc_win_dim)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
-        if all_combinations_out:
-            assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
-            assert prev_nb_target_spatial_dim in prev_nb_target.shape
-            assert enc_spatial_dim != nn.single_step_dim
-            lm_scope = contextlib.nullcontext()
-            lm_input = prev_nb_target
-            lm_axis = prev_nb_target_spatial_dim
-        else:
-            assert prev_wb_target is not None and wb_target_spatial_dim is not None
-            assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
-            prev_out_emit = prev_wb_target != self.blank_idx
-            lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
-            lm_axis = wb_target_spatial_dim
+        assert prev_wb_target is not None and wb_target_spatial_dim is not None
+        assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
+        prev_out_emit = prev_wb_target != self.blank_idx
+        lm_scope = nn.MaskedComputation(mask=prev_out_emit)
+        lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+        lm_axis = wb_target_spatial_dim
 
         with lm_scope:
             lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
-
-            # We could have simpler code by directly concatenating the readout inputs.
-            # However, for better efficiency, keep am/lm path separate initially.
-            readout_in_lm_in = nn.dropout(lm, self.readout_in_lm_dropout, axis=lm.feature_dim)
-            readout_in_lm = self.readout_in_lm(readout_in_lm_in)
+            readout_in_lm = self.readout_in_lm(lm)
 
         readout_in_am_in = nn.concat_features(enc, att)
-        readout_in_am_in = nn.dropout(readout_in_am_in, self.readout_in_am_dropout, axis=readout_in_am_in.feature_dim)
         readout_in_am = self.readout_in_am(readout_in_am_in)
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
-        readout_in += self.readout_in_bias
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
-        return ProbsFromReadout(model=self, readout=readout), state_
+        return self.out_wb_label_logits(readout), state_
 
 
 class DecoderLabelSync(nn.Module):
@@ -208,43 +180,6 @@ class DecoderLabelSync(nn.Module):
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, axis=axis, state=state)
         return lstm, state
-
-
-class ProbsFromReadout:
-    """
-    functions to calculate the probabilities from the readout
-    """
-    def __init__(self, *, model: Model, readout: nn.Tensor):
-        self.model = model
-        self.readout = readout
-
-    def get_label_logits(self) -> nn.Tensor:
-        """label log probs"""
-        label_logits_in = nn.dropout(self.readout, self.model.label_log_prob_dropout, axis=self.readout.feature_dim)
-        label_logits = self.model.out_nb_label_logits(label_logits_in)
-        return label_logits
-
-    def get_label_log_probs(self) -> nn.Tensor:
-        """label log probs"""
-        label_logits = self.get_label_logits()
-        label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
-        return label_log_prob
-
-    def get_emit_logit(self) -> nn.Tensor:
-        """emit logit"""
-        emit_logit = self.model.out_emit_logit(self.readout)
-        return emit_logit
-
-    def get_wb_label_log_probs(self) -> nn.Tensor:
-        """align label log probs"""
-        label_log_prob = self.get_label_log_probs()
-        emit_logit = self.get_emit_logit()
-        emit_log_prob = nn.log_sigmoid(emit_logit)
-        blank_log_prob = nn.log_sigmoid(-emit_logit)
-        label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
-        assert self.model.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
-        output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
-        return output_log_prob
 
 
 def _model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
@@ -288,13 +223,13 @@ def _recog_def(*,
 
         def __call__(self, prev_target: nn.Tensor, *, state: nn.LayerState) -> Tuple[nn.Tensor, nn.LayerState]:
             enc = model.encoder_unstack(enc_args)
-            probs, state = model.decode(
+            logits, state = model.decode(
                 **enc,
                 enc_spatial_dim=nn.single_step_dim,
                 wb_target_spatial_dim=nn.single_step_dim,
                 prev_wb_target=prev_target,
                 state=state)
-            return probs.get_wb_label_log_probs(), state
+            return nn.log_softmax(logits, axis=logits.feature_dim), state
 
     return beam_search(_Decoder())
 
