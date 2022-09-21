@@ -349,5 +349,7 @@ class NnForcedAlignArgs(TypedDict):
     target_corpus_keys: List[str]
     feature_scorer_corpus_key: str
     scorer_model_key: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
-    flow_key: str
+    epoch: int
+    base_flow_key: str
+    tf_flow_key: str
     dump_alignment: bool

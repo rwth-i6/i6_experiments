@@ -103,6 +103,7 @@ class HybridSystem(NnSystem):
         self.nn_configs = {}
         self.nn_models = {}  # TODO remove?
         self.nn_checkpoints = {}
+        self.tf_flows = {}
 
     # -------------------- Helpers --------------------
     @staticmethod
@@ -486,6 +487,9 @@ class HybridSystem(NnSystem):
                     native_lstm_job.out_op,
                     forward_output_layer,
                 )
+                tf_flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
+                self.tf_flows[f"{name}-{epoch}"] = tf_flow
+
                 flow = self.add_tf_flow_to_base_flow(feature_flow, tf_flow)
                 flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
 
@@ -632,12 +636,19 @@ class HybridSystem(NnSystem):
 
     def run_forced_align_step(self, step_args: NnForcedAlignArgs):
         for tc_key in step_args["target_corpus_keys"]:
+            featurer_scorer_corpus_key = step_args["feature_scorer_corpus_key"]
+            scorer_model_key = step_args["scorer_model_key"]
+            epoch = step_args["epoch"]
+            base_flow = self.feature_flows[tc_key][step_args["base_flow_key"]]
+            tf_flow = self.tf_flows[step_args["tf_flow_key"]]
+            feature_flow = self.add_tf_flow_to_base_flow(base_flow, tf_flow)
+
             self.forced_align(
                 name=step_args["name"],
                 target_corpus_key=tc_key,
-                flow=step_args["flow_key"],
-                feature_scorer_corpus_key=step_args["feature_scorer_corpus_key"],
-                feature_scorer=step_args["scorer_model_key"],
+                flow=feature_flow,
+                feature_scorer_corpus_key=featurer_scorer_corpus_key,
+                feature_scorer=scorer_model_key,
                 dump_alignment=step_args["dump_alignment"],
             )
 
