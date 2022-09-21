@@ -1,8 +1,11 @@
+import copy
+from collections import ChainMap
+
 from i6_core.rasr import WriteRasrConfigJob
-from i6_core.returnn import ReturnnTrainingJob, ReturnnRasrDumpHDFJob, ReturnnRasrTrainingJob
+from i6_core.returnn import ReturnnTrainingJob, ReturnnRasrDumpHDFJob, ReturnnRasrTrainingJob, ReturnnComputePriorJob
 from i6_core.meta.system import select_element
 from i6_experiments.users.mann.experimental.write import WriteRasrConfigJob
-from collections import ChainMap
+from i6_experiments.users.mann.nn.util import DelayedCodeWrapper, maybe_add_dependencies
 
 class SemiSupervisedTrainer:
 
@@ -12,6 +15,22 @@ class SemiSupervisedTrainer:
 
     def set_system(self, system, **kwargs):
         self.system = system
+    
+    def save_job(self, feature_corpus, name, job):
+        self.system.jobs[feature_corpus]['train_nn_%s' % name] = job
+        self.system.nn_models[feature_corpus][name] = job.out_models
+        self.system.nn_checkpoints[feature_corpus][name] = job.out_checkpoints
+        self.system.nn_configs[feature_corpus][name] = job.out_returnn_config_file
+
+    def extract_prior(self, name, crnn_config, training_args, epoch):
+        score_features = ReturnnComputePriorJob(
+            model_checkpoint=self.system.nn_checkpoints[training_args["feature_corpus"]][name][epoch],
+            returnn_config=crnn_config,
+            # model_checkpoint = self.jobs[training_args['feature_corpus']]['train_nn_%s' % name].out_checkpoints[epoch],
+            returnn_python_exe = training_args.get("returnn_python_exe", None),
+            returnn_root = training_args.get("returnn_root", None)
+        )
+        return score_features
 
     @staticmethod
     def write_helper(crp, feature_flow, alignment,
@@ -37,19 +56,17 @@ class SemiSupervisedTrainer:
 
     def train_helper(
             self,
-            train_data, dev_data, crnn_config,
-            crnn_post_config=None, num_classes=None,
+            returnn_config,
             log_verbosity=3, device='gpu',
             num_epochs=1, save_interval=1, keep_epochs=None,
             time_rqmt=4, mem_rqmt=4, cpu_rqmt=2,
-            extra_python='', extra_python_hash=None,
-            crnn_python_exe=None, crnn_root=None,
+            returnn_python_exe=None, returnn_root=None,
             **_ignored
         ):
-            num_classes = self.system.functor_value(num_classes)
+            # num_classes = self.system.functor_value(num_classes)
             kwargs = locals()
             del kwargs["_ignored"], kwargs["self"]
-            return CRNNTrainingJob(**kwargs)
+            return ReturnnTrainingJob(**kwargs)
 
     def make_sprint_dataset(
             self,
@@ -89,9 +106,9 @@ class SemiSupervisedTrainer:
         j = self.train_helper(**training_args)
         # feature_corpus = "train"
         self.system.jobs[feature_corpus]['train_nn_%s' % name] = j
-        self.system.nn_models[feature_corpus][name] = j.models
-        self.system.nn_checkpoints[feature_corpus][name] = j.checkpoints
-        self.system.nn_configs[feature_corpus][name] = j.crnn_config_file
+        self.system.nn_models[feature_corpus][name] = j.out_models
+        self.system.nn_checkpoints[feature_corpus][name] = j.out_checkpoints
+        self.system.nn_configs[feature_corpus][name] = j.out_returnn_config_file
 
 
 class SoftAlignTrainer(SemiSupervisedTrainer):
@@ -149,26 +166,19 @@ class SoftAlignTrainer(SemiSupervisedTrainer):
         j = self.train_helper(**data, **training_args)
         # feature_corpus = "train"
         self.system.jobs[feature_corpus]['train_nn_%s' % name] = j
-        self.system.nn_models[feature_corpus][name] = j.models
-        self.system.nn_checkpoints[feature_corpus][name] = j.checkpoints
-        self.system.nn_configs[feature_corpus][name] = j.crnn_config_file
+        self.system.nn_models[feature_corpus][name] = j.out_models
+        self.system.nn_checkpoints[feature_corpus][name] = j.out_checkpoints
+        self.system.nn_configs[feature_corpus][name] = j.out_returnn_config_file
 
 
 def cf(path):
     return "cf('{}')".format(path)
 
+
 class SprintCacheTrainer(SemiSupervisedTrainer):
-    def make_ds(self, feature_corpus, alignment_path, feature_path, partition_epoch=1, seq_ordering=None, cached=False, **kwargs):
+    def make_ds(self, feature_corpus, alignment_path, feature_path, partition_epoch=1, seq_ordering=None, cached=True, **kwargs):
         assert feature_corpus.startswith("crnn"), "Maybe something about the format went wrong"
-        from recipe import crnn
-        maybe_cache = lambda path: path if not cached else crnn.CodeWrapper("cf({})".format(path))
-        def maybe_cache(path):
-            if not cached:
-                return path
-            if isinstance(path, tk.Path):
-                return path.function(cf)
-            return crnn.CodeWrapper(cf(path)) 
-            
+        maybe_cache = lambda path: path if not cached else DelayedCodeWrapper("cf('{}')", path)
         dataset = {
             "class": "SprintCacheDataset",
             "data": {
@@ -177,37 +187,33 @@ class SprintCacheTrainer(SemiSupervisedTrainer):
                     "filename": maybe_cache(alignment_path),
                     "allophone_labeling": {
                         "silence_phone": "[SILENCE]",
-                        "allophone_file": maybe_cache(self.get_allophone_file(feature_corpus)),
-                        "state_tying_file": maybe_cache(self.get_state_tying(feature_corpus)),
+                        "allophone_file": maybe_cache(self.system.get_allophone_file()),
+                        "state_tying_file": maybe_cache(self.system.get_state_tying_file()),
                     }
                 }
             },
             "partition_epoch": partition_epoch,
             "seq_list_filter_file": self.system.csp[feature_corpus].segment_path,
         }
-        # print(dataset)
         if seq_ordering:
             dataset["seq_ordering"] = seq_ordering
         return dataset
     
-    def get_state_tying(self, feature_corpus):
-        from recipe.allophones import DumpStateTying
-        return DumpStateTying(self.system.csp[feature_corpus]).state_tying
-    
-    def get_allophone_file(self, feature_corpus):
-        from recipe.allophones import StoreAllophones
-        return StoreAllophones(self.system.csp[feature_corpus]).allophone_file
-
-    def train(self, name, crnn_config, alignment, partition_epochs, feature_corpus, feature_flow, num_classes, seq_ordering=None, cached=False, **kwargs):
-        crnn_config = copy.deepcopy(crnn_config)
-        crnn_config["num_outputs"]["classes_soft_align"] = [ self.system.functor_value(num_classes), 2 ]
+    def train(self, name, returnn_config, alignment, partition_epochs, feature_corpus, feature_flow, num_classes, seq_ordering=None, cached=True, **kwargs):
+        returnn_config = copy.deepcopy(returnn_config)
+        if cached:
+            maybe_add_dependencies(returnn_config, "from returnn.util.basic import cf")
+        returnn_config.config["extern_data"] = {
+            "classes": {"dim": self.system.num_classes(), "dtype": "int16", "shape": (None,), "sparse": True},
+            "data": {"dim": self.system.num_input, "shape": (None, self.system.num_input)},
+        }
         training_args = ChainMap(locals().copy(), kwargs)
         del training_args["self"], training_args["kwargs"]
 
         feature_path = self.system.feature_bundles[feature_corpus][feature_flow]
         alignment_path = select_element(self.system.alignments, feature_corpus, alignment).alternatives["bundle"]
-        data = {
-            key + "_data": self.make_ds(
+        returnn_config.config.update({
+            key: self.make_ds(
                 "crnn_" + key,
                 alignment_path,
                 feature_path,
@@ -216,11 +222,8 @@ class SprintCacheTrainer(SemiSupervisedTrainer):
                 seq_ordering=None if key != "train" else seq_ordering
             )
             for key in ["train", "dev"]
-        }
+        })
         j = self.train_helper(
-            **data, **training_args,
+            **training_args,
         )
-        self.system.jobs[feature_corpus]['train_nn_%s' % name] = j
-        self.system.nn_models[feature_corpus][name] = j.models
-        self.system.nn_checkpoints[feature_corpus][name] = j.checkpoints
-        self.system.nn_configs[feature_corpus][name] = j.crnn_config_file
+        self.save_job(feature_corpus, name, j)
