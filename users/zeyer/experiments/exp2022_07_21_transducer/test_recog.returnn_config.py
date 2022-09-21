@@ -71,7 +71,6 @@ class Model(nn.Module):
                  bos_idx: int,
                  ):
         super(Model, self).__init__()
-        self.encoder = nn.Linear(nn.FeatureDim("enc", 20))
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -85,8 +84,7 @@ class Model(nn.Module):
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
-        enc = self.encoder(source)
-        return dict(enc=enc), in_spatial_dim
+        return dict(enc=source), in_spatial_dim
 
     @staticmethod
     def encoder_unstack(ext: Dict[str, nn.Tensor]) -> Dict[str, nn.Tensor]:
