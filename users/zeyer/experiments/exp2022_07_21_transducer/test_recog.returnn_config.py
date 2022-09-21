@@ -70,39 +70,24 @@ class Model(nn.Module):
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
                  bos_idx: int,
-                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
-                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
-                 att_dropout: float = 0.1,
                  ):
         super(Model, self).__init__()
-        self.encoder = nn.Linear(nn.FeatureDim("enc", 100))
+        self.encoder = nn.Linear(nn.FeatureDim("enc", 20))
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
         self.blank_idx = blank_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
-        self.enc_key_total_dim = enc_key_total_dim
-        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
-        self.att_num_heads = att_num_heads
-        self.att_dropout = att_dropout
-
-        self.enc_ctx = nn.Linear(enc_key_total_dim)
-        self.enc_ctx_dropout = 0.2
-        self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
-        self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync()
-        self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
+        self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 20), with_bias=False)
         self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
         self.out_wb_label_logits = nn.Linear(wb_target_dim)
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
         enc = self.encoder(source)
-        enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
-        enc_ctx_win, _ = nn.window(enc_ctx, axis=in_spatial_dim, window_dim=self.enc_win_dim)
-        enc_val_win, _ = nn.window(enc, axis=in_spatial_dim, window_dim=self.enc_win_dim)
-        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win), in_spatial_dim
+        return dict(enc=enc), in_spatial_dim
 
     @staticmethod
     def encoder_unstack(ext: Dict[str, nn.Tensor]) -> Dict[str, nn.Tensor]:
@@ -121,8 +106,6 @@ class Model(nn.Module):
     def decode(self, *,
                enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
                enc_spatial_dim: nn.Dim,  # single step or time axis,
-               enc_ctx_win: nn.Tensor,  # like enc
-               enc_val_win: nn.Tensor,  # like enc
                prev_wb_target: Optional[nn.Tensor] = None,  # with blank
                wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
                state: Optional[nn.LayerState] = None,
@@ -130,12 +113,6 @@ class Model(nn.Module):
         """decoder step, or operating on full seq"""
         assert state is not None
         state_ = nn.LayerState()
-
-        att_query = self.att_query(enc)
-        att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
-        att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=self.enc_win_dim)
-        att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         assert prev_wb_target is not None and wb_target_spatial_dim is not None
         assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
@@ -148,8 +125,7 @@ class Model(nn.Module):
             lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
             readout_in_lm = self.readout_in_lm(lm)
 
-        readout_in_am_in = nn.concat_features(enc, att)
-        readout_in_am = self.readout_in_am(readout_in_am_in)
+        readout_in_am = self.readout_in_am(enc)
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
 
@@ -162,13 +138,11 @@ class DecoderLabelSync(nn.Module):
     Runs label-sync, i.e. only on non-blank labels.
     """
     def __init__(self, *,
-                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
-                 dropout: float = 0.2,
-                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+                 embed_dim: nn.Dim = nn.FeatureDim("embed", 20),
+                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 20),
                  ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(embed_dim)
-        self.dropout = dropout
         self.lstm = nn.LSTM(lstm_dim)
 
     def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
@@ -177,7 +151,6 @@ class DecoderLabelSync(nn.Module):
 
     def __call__(self, source: nn.Tensor, *, axis: nn.Dim, state: nn.LayerState) -> (nn.Tensor, nn.LayerState):
         embed = self.embed(source)
-        embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, axis=axis, state=state)
         return lstm, state
 
