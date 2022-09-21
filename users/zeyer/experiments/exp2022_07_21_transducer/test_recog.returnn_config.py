@@ -1,6 +1,11 @@
 #!rnn.py
 
-from typing import Tuple
+from __future__ import annotations
+from typing import Tuple, Optional, Sequence, Dict
+import contextlib
+import os
+import sys
+
 
 task = "initialize_model"
 target = "classes"
@@ -16,15 +21,11 @@ log_batch_size = True
 tf_log_memory_usage = True
 tf_session_opts = {"gpu_options": {"allow_growth": True}}
 model = "dummy-model-init"
-config = {}
 
-locals().update(**config)
-
-import os
-import sys
 
 sys.path.insert(0, "/Users/az/i6/setups/2022-03-19--sis-i6-exp/recipe")
 sys.path.insert(1, "/Users/az/i6/setups/2022-03-19--sis-i6-exp/ext/sisyphus")
+
 from returnn_common import nn
 
 from returnn.tf.util.data import (
@@ -62,8 +63,194 @@ extern_data = {
 }
 
 
-from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.pipeline_swb_2020 import Model, _get_bos_idx
 from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.recog import IDecoder, beam_search
+from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
+
+
+class Model(nn.Module):
+    """Model definition"""
+
+    def __init__(self, *,
+                 num_enc_layers=6,
+                 nb_target_dim: nn.Dim,
+                 wb_target_dim: nn.Dim,
+                 blank_idx: int,
+                 bos_idx: int,
+                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
+                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
+                 att_dropout: float = 0.1,
+                 ):
+        super(Model, self).__init__()
+        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
+
+        self.nb_target_dim = nb_target_dim
+        self.wb_target_dim = wb_target_dim
+        self.blank_idx = blank_idx
+        self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
+
+        self.enc_key_total_dim = enc_key_total_dim
+        self.enc_key_per_head_dim = enc_key_total_dim.div_left(att_num_heads)
+        self.att_num_heads = att_num_heads
+        self.att_dropout = att_dropout
+
+        self.enc_ctx = nn.Linear(enc_key_total_dim)
+        self.enc_ctx_dropout = 0.2
+        self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
+        self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
+        self.lm = DecoderLabelSync()
+        self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
+        self.readout_in_am_dropout = 0.1
+        self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
+        self.readout_in_lm_dropout = 0.1
+        self.readout_in_bias = nn.Parameter([self.readout_in_am.out_dim])
+        self.out_nb_label_logits = nn.Linear(nb_target_dim)
+        self.label_log_prob_dropout = 0.3
+        self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
+
+    def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
+        """encode, and extend the encoder output for things we need in the decoder"""
+        enc, enc_spatial_dim = self.encoder(source, spatial_dim=in_spatial_dim)
+        enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
+        enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
+        enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
+        return dict(enc=enc, enc_ctx_win=enc_ctx_win, enc_val_win=enc_val_win), enc_spatial_dim
+
+    @staticmethod
+    def encoder_unstack(ext: Dict[str, nn.Tensor]) -> Dict[str, nn.Tensor]:
+        """
+        prepare the encoder output for the loop (full-sum or time-sync)
+        """
+        # We might improve or generalize the interface later...
+        # https://github.com/rwth-i6/returnn_common/issues/202
+        loop = nn.NameCtx.inner_loop()
+        return {k: loop.unstack(v) for k, v in ext.items()}
+
+    def decoder_default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
+        """Default initial state"""
+        return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
+
+    def decode(self, *,
+               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+               enc_spatial_dim: nn.Dim,  # single step or time axis,
+               enc_ctx_win: nn.Tensor,  # like enc
+               enc_val_win: nn.Tensor,  # like enc
+               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
+               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+               state: Optional[nn.LayerState] = None,
+               ) -> (ProbsFromReadout, nn.LayerState):
+        """decoder step, or operating on full seq"""
+        if state is None:
+            assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
+            batch_dims = enc.batch_dims_ordered(
+                remove=(enc.feature_dim, enc_spatial_dim)
+                if enc_spatial_dim != nn.single_step_dim
+                else (enc.feature_dim,))
+            state = self.decoder_default_initial_state(batch_dims=batch_dims)
+        state_ = nn.LayerState()
+
+        att_query = self.att_query(enc)
+        att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
+        att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=self.enc_win_dim)
+        att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
+
+        if all_combinations_out:
+            assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
+            assert prev_nb_target_spatial_dim in prev_nb_target.shape
+            assert enc_spatial_dim != nn.single_step_dim
+            lm_scope = contextlib.nullcontext()
+            lm_input = prev_nb_target
+            lm_axis = prev_nb_target_spatial_dim
+        else:
+            assert prev_wb_target is not None and wb_target_spatial_dim is not None
+            assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
+            prev_out_emit = prev_wb_target != self.blank_idx
+            lm_scope = nn.MaskedComputation(mask=prev_out_emit)
+            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_axis = wb_target_spatial_dim
+
+        with lm_scope:
+            lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
+
+            # We could have simpler code by directly concatenating the readout inputs.
+            # However, for better efficiency, keep am/lm path separate initially.
+            readout_in_lm_in = nn.dropout(lm, self.readout_in_lm_dropout, axis=lm.feature_dim)
+            readout_in_lm = self.readout_in_lm(readout_in_lm_in)
+
+        readout_in_am_in = nn.concat_features(enc, att)
+        readout_in_am_in = nn.dropout(readout_in_am_in, self.readout_in_am_dropout, axis=readout_in_am_in.feature_dim)
+        readout_in_am = self.readout_in_am(readout_in_am_in)
+        readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
+        readout_in += self.readout_in_bias
+        readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
+
+        return ProbsFromReadout(model=self, readout=readout), state_
+
+
+class DecoderLabelSync(nn.Module):
+    """
+    Often called the (I)LM part.
+    Runs label-sync, i.e. only on non-blank labels.
+    """
+    def __init__(self, *,
+                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
+                 dropout: float = 0.2,
+                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+                 ):
+        super(DecoderLabelSync, self).__init__()
+        self.embed = nn.Linear(embed_dim)
+        self.dropout = dropout
+        self.lstm = nn.LSTM(lstm_dim)
+
+    def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
+        """init"""
+        return self.lstm.default_initial_state(batch_dims=batch_dims)
+
+    def __call__(self, source: nn.Tensor, *, axis: nn.Dim, state: nn.LayerState) -> (nn.Tensor, nn.LayerState):
+        embed = self.embed(source)
+        embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
+        lstm, state = self.lstm(embed, axis=axis, state=state)
+        return lstm, state
+
+
+class ProbsFromReadout:
+    """
+    functions to calculate the probabilities from the readout
+    """
+    def __init__(self, *, model: Model, readout: nn.Tensor):
+        self.model = model
+        self.readout = readout
+
+    def get_label_logits(self) -> nn.Tensor:
+        """label log probs"""
+        label_logits_in = nn.dropout(self.readout, self.model.label_log_prob_dropout, axis=self.readout.feature_dim)
+        label_logits = self.model.out_nb_label_logits(label_logits_in)
+        return label_logits
+
+    def get_label_log_probs(self) -> nn.Tensor:
+        """label log probs"""
+        label_logits = self.get_label_logits()
+        label_log_prob = nn.log_softmax(label_logits, axis=label_logits.feature_dim)
+        return label_log_prob
+
+    def get_emit_logit(self) -> nn.Tensor:
+        """emit logit"""
+        emit_logit = self.model.out_emit_logit(self.readout)
+        return emit_logit
+
+    def get_wb_label_log_probs(self) -> nn.Tensor:
+        """align label log probs"""
+        label_log_prob = self.get_label_log_probs()
+        emit_logit = self.get_emit_logit()
+        emit_log_prob = nn.log_sigmoid(emit_logit)
+        blank_log_prob = nn.log_sigmoid(-emit_logit)
+        label_emit_log_prob = label_log_prob + nn.squeeze(emit_log_prob, axis=emit_log_prob.feature_dim)
+        assert self.model.blank_idx == label_log_prob.feature_dim.dimension  # not implemented otherwise
+        output_log_prob = nn.concat_features(label_emit_log_prob, blank_log_prob)
+        return output_log_prob
 
 
 def _model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
@@ -73,7 +260,7 @@ def _model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
-        bos_idx=_get_bos_idx(target_dim),
+        bos_idx=0,
     )
 
 

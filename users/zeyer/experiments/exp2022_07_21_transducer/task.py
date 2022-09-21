@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Dict
 from i6_experiments.users.zeyer.datasets.base import Task, DatasetConfig, ScoreResultCollection, MeasureType, \
     ScoreResult, RecogOutput
-from .recog import bpe_to_words
 
 
 def get_switchboard_task() -> Task:
@@ -15,6 +14,7 @@ def get_switchboard_task() -> Task:
     """
     from i6_experiments.users.zeyer.datasets.switchboard_2020 import bpe1k, SwitchboardExternSprint
     from i6_experiments.users.zeyer.datasets.switchboard_2020.score import score
+    from .recog import bpe_to_words
 
     vocab = bpe1k
     train_epoch_split = 6
