@@ -357,7 +357,7 @@ def model_recog(*,
 
         def bos_label(self) -> nn.Tensor:
             """BOS"""
-            return nn.constant(model.blank_idx, sparse_dim=model.wb_target_dim)
+            return nn.constant(model.blank_idx, shape=batch_dims, sparse_dim=model.wb_target_dim)
 
         def __call__(self, prev_target: nn.Tensor, *, state: nn.LayerState) -> Tuple[nn.Tensor, nn.LayerState]:
             enc = model.encoder_unstack(enc_args)
