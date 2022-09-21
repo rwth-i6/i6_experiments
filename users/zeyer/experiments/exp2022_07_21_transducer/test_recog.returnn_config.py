@@ -113,14 +113,9 @@ class Model(nn.Module):
 
         assert prev_wb_target is not None and wb_target_spatial_dim is not None
         assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
-        prev_out_emit = prev_wb_target != self.blank_idx
-        lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-        lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
-        lm_axis = wb_target_spatial_dim
 
-        with lm_scope:
-            lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
-            readout_in_lm = self.readout_in_lm(lm)
+        lm, state_.lm = self.lm(prev_wb_target, axis=wb_target_spatial_dim, state=state.lm)
+        readout_in_lm = self.readout_in_lm(lm)
 
         readout_in_am = self.readout_in_am(enc)
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
