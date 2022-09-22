@@ -340,7 +340,7 @@ def model_recog(*,
 
     :return: recog results including beam
     """
-    batch_dims = data.batch_dims_ordered(data_spatial_dim)
+    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
     class _Decoder(IDecoder):
