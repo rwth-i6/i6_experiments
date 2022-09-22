@@ -1,0 +1,25 @@
+from sisyphus import *
+import h5py
+import numpy as np
+from typing import Union, List
+
+from i6_private.users.rossenbach.lib.hdf import SimpleHDFWriter
+
+class ApplyTransformationJob(Job):
+
+  def __init__(self, hdf: tk.Path, transformations: Union[List[str], str], normalize: bool = True):
+
+    if isinstance(transformations, str):
+      transformations = [transformations]
+    self.tranformations = []
+    for transformation in transformations:
+      self.tranformations.append(getattr(np, transformation))
+
+    self.normalize = normalize
+
+  def tasks(self):
+    yield Task("run", mini_task=True)
+
+  def run(self):
+
+

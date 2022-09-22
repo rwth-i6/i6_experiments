@@ -14,7 +14,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
     Network,
-    PythonEnlargeStackWorkaroundCode,
+    PythonEnlargeStackWorkaroundNonhashedCode,
 )
 from i6_experiments.common.datasets.librispeech import get_corpus_object_dict
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
@@ -79,7 +79,7 @@ def get_training_config(
     config["train"] = training_datasets.train.as_returnn_opts()
     config["dev"] = training_datasets.cv.as_returnn_opts()
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
@@ -143,6 +143,8 @@ def get_forward_config(
     use_true_durations: bool = False,
     use_calculated_prior: bool = False,
     use_audio_data: bool = False,
+    energy_cheat: bool = False,
+    pitch_cheat: bool = False,
     batch_size: int = 4000,
     **kwargs,
 ):
@@ -168,7 +170,7 @@ def get_forward_config(
     ]
     config["eval"] = forward_dataset.dataset.as_returnn_opts()
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
@@ -176,6 +178,7 @@ def get_forward_config(
     rc_construction_code = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.construct_network"
     )
+
     net_func_map = {
             "net_module": rc_model.object_name,
             "phoneme_data": "phonemes",
@@ -191,6 +194,16 @@ def get_forward_config(
         assert kwargs["use_vae"], "Need to also set use_vae in network kwargs"
         net_func_map["speaker_prior"] = "speaker_prior"
         net_func_map["prior_time"] = "speaker_prior_time"
+
+    if pitch_cheat:
+        assert kwargs["use_pitch_pred"], "Need to use pitch pred to use the true pitch"
+        net_func_map["pitch"] = "pitch_data"
+        net_func_map["pitch_time"] = "pitch_data_time"
+
+    if energy_cheat:
+        assert kwargs["use_energy_pred"], "Need to use energy pred to use the true energy"
+        net_func_map["energy"] = "energy_data"
+        net_func_map["energy_time"] = "energy_data_time"
 
     rc_network = Network(
         net_func_name=rc_construction_code.object_name,
@@ -246,7 +259,7 @@ def get_speaker_extraction_config(
     ]
     config["eval"] = forward_dataset.dataset.as_returnn_opts()
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
@@ -315,7 +328,7 @@ def get_vae_prior_config(
     ]
     config["eval"] = forward_dataset.dataset.as_returnn_opts()
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.tts_model.NARTTSModel"
@@ -361,7 +374,7 @@ def get_vae_prior_config(
     return returnn_config
 
 
-def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=200):
+def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=200, mem=32):
     """
 
     :param config:
@@ -376,7 +389,7 @@ def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=200):
         log_verbosity=5,
         num_epochs=num_epochs,
         time_rqmt=120,
-        mem_rqmt=32,
+        mem_rqmt=mem,
         cpu_rqmt=4,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,

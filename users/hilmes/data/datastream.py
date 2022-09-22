@@ -335,6 +335,7 @@ class MFCCOptions(AdditionalFeatureOptions):
   fmin: int = 0
   fmax: int = None
   n_mels: int = 128
+  center: bool = True
 
 
 @dataclasses.dataclass(frozen=True)

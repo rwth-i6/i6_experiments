@@ -179,7 +179,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
 
     # for test_key in ["test-clean", "test-other"]:
     #    test_data_inputs[test_key] = RasrDataInput(
-    #        corpus_object=corpus_object_dict["test-clean"],
+    #        corpus_object=corpus_object_dict[test_key],
     #        concurrent=constants.concurrent[test_key],
     #        lexicon=lexicon,
     #        lm=lm,

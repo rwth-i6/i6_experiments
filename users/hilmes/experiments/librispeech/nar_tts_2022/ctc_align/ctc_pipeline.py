@@ -6,7 +6,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
     Network,
-    PythonEnlargeStackWorkaroundCode,
+    PythonEnlargeStackWorkaroundNonhashedCode,
 )
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
     GenericDataset,
@@ -65,7 +65,7 @@ def get_training_config(returnn_common_root, training_datasets, **kwargs):
     config["train"] = training_datasets.train.as_returnn_opts()
     config["dev"] = training_datasets.cv.as_returnn_opts()
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner"
@@ -134,7 +134,7 @@ def get_forward_config(
         for key, datastream in datastreams.items()
     ]
 
-    rc_recursionlimit = PythonEnlargeStackWorkaroundCode
+    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     rc_extern_data = ExternData(extern_data=extern_data)
     rc_model = Import(
         "i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.ctc_aligner.CTCAligner"

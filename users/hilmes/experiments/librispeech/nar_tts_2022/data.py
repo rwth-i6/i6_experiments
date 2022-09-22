@@ -51,7 +51,7 @@ from i6_experiments.users.hilmes.data.tts_preprocessing import (
     extend_lexicon,
     process_corpus_text_with_extended_lexicon,
 )
-
+from i6_experiments.users.hilmes.tools.data_manipulation import ApplyLogOnHDFJob
 
 def dump_dataset(dataset, returnn_root, returnn_gpu_exe, name):
     """
@@ -139,7 +139,8 @@ def _make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset):
 
 
 def _make_inference_meta_dataset(
-    audio_dataset, speaker_dataset, duration_dataset: Optional[HDFDataset], prior_dataset: Optional[HDFDataset] = None
+    audio_dataset, speaker_dataset, duration_dataset: Optional[HDFDataset], prior_dataset: Optional[HDFDataset] = None,
+    pitch_dataset: Optional[HDFDataset] = None, energy_dataset: Optional = None
 ):
     """
     :param OggZipDataset audio_dataset:
@@ -164,6 +165,14 @@ def _make_inference_meta_dataset(
     if prior_dataset is not None:
         data_map["speaker_prior"] = ("prior", "data")
         datasets["prior"] = prior_dataset.as_returnn_opts()
+
+    if pitch_dataset is not None:
+        data_map["pitch_data"] = ("pitch", "data")
+        datasets["pitch"] = pitch_dataset.as_returnn_opts()
+
+    if energy_dataset is not None:
+        data_map["energy_data"] = ("energy", "data")
+        datasets["energy"] = energy_dataset.as_returnn_opts()
 
     meta_dataset = MetaDataset(
         data_map=data_map,
@@ -760,6 +769,8 @@ def get_inference_dataset(
     speaker_prior_hdf: Optional = None,
     speaker_embedding_size=256,
     speaker_prior_size=32,
+    pitch_hdf: Optional = None,
+    energy_hdf: Optional = None,
     process_corpus: bool = True,
 ):
     """
@@ -773,10 +784,12 @@ def get_inference_dataset(
     :param speaker_prior_hdf:
     :param speaker_embedding_size:
     :param speaker_prior_size:
+    :param pitch_hdf
     :param process_corpus:
     :return:
     """
-
+    if energy_hdf is not None:
+        assert durations is not None, "For now durations and energy have to be fed together for energy cheat"
     if process_corpus:
         librispeech_g2p_lexicon = extend_lexicon(
             get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[
@@ -817,11 +830,12 @@ def get_inference_dataset(
     else:
         prior_hdf_dataset = None
 
-    duration_hdf_dataset = None
-    if durations is not None:
-        duration_hdf_dataset = HDFDataset(files=[durations])
+    duration_hdf_dataset = HDFDataset(files=[durations]) if durations is not None else None
+    pitch_hdf_dataset = HDFDataset(files=[pitch_hdf]) if pitch_hdf is not None else None
+    energy_hdf_dataset = HDFDataset(files=[energy_hdf]) if energy_hdf is not None else None
     inference_dataset = _make_inference_meta_dataset(
-        inference_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset, prior_dataset=prior_hdf_dataset
+        inference_ogg_zip, speaker_hdf_dataset, duration_hdf_dataset, prior_dataset=prior_hdf_dataset,
+        pitch_dataset=pitch_hdf_dataset, energy_dataset=energy_hdf_dataset
     )
 
     datastreams = deepcopy(datastreams)
@@ -834,6 +848,10 @@ def get_inference_dataset(
         datastreams["speaker_prior"] = SpeakerEmbeddingDatastream(
             available_for_inference=True, embedding_size=speaker_prior_size
         )
+    if pitch_hdf is not None:
+        datastreams["pitch_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=True)
+    if energy_hdf is not None:
+        datastreams["energy_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=True)
 
     return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
 
@@ -922,7 +940,7 @@ def extend_meta_datasets_with_energy(datasets: TTSTrainingDatasets, energy_datas
     return TTSTrainingDatasets(train=train_meta, cv=cv_meta, datastreams=datastreams)
 
 
-def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str):
+def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center=True, log_norm=False):
   """
   Returns the pitch hdf for given duration mapping for the ls 100 corpus
   :param durations:
@@ -951,10 +969,10 @@ def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: s
   options = ReturnnAudioFeatureOptions(
     sample_rate=16000,
     features="mfcc",
-    feature_options=MFCCOptions(),
+    feature_options=MFCCOptions(center=center),
     window_len=0.05,
     step_len=0.0125,
-    num_feature_filters=1
+    num_feature_filters=1,
   )
   audio_datastream = AudioFeatureDatastream(available_for_inference=True, options=options)
   vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, prefix)
@@ -968,4 +986,7 @@ def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: s
   dataset_dump = ReturnnDumpHDFJob(
     data=full_ogg.as_returnn_opts(), returnn_root=returnn_root, returnn_python_exe=returnn_exe, time=24)
   tk.register_output(prefix + "/energy", dataset_dump.out_hdf)
-  return dataset_dump.out_hdf
+  hdf = dataset_dump.out_hdf
+  if log_norm:
+    hdf = ApplyLogOnHDFJob(hdf_file=hdf, normalize=True).out_hdf
+  return hdf

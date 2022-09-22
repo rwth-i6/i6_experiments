@@ -455,6 +455,8 @@ class AverageF0OverDurationJob(Job):
     self.phoneme_level = phoneme_level
 
     self.out_hdf = self.output_path("out.hdf")
+    self.out_std = self.output_var("out_std")
+    self.out_mean = self.output_var("out_mean")
 
   def tasks(self) -> Iterator[Task]:
     yield Task("run", mini_task=True)
@@ -536,3 +538,5 @@ class AverageF0OverDurationJob(Job):
         [segment_tag],
       )
     hdf_writer.close()
+    self.out_mean.set(mean)
+    self.out_std.set(std)

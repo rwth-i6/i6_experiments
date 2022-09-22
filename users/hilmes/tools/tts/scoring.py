@@ -110,6 +110,10 @@ class CompareF0ValuesJob(Job):
           pitch_ls_1.append(f0_1[t_1])
           pitch_ls_2.append(f0_2[t_2])
           sum += abs(numpy.log2((f0_2[t_2] / f0_1[t_1])))
+        # TODO count voiced und unvoiced wrong mappings
+        # TODO mapping ausgeben
+        # Vergleiche ein kaputtes und ein gutes Mapping
+        #
 
       mae = scale * sum
       print("MAE     Real Data        Synth Data ")
@@ -156,6 +160,7 @@ class CompareEnergyValuesJob(Job):
     self.n_mels = 80
 
     self.out_maes = self.output_path("maes")
+    self.out_corrs = self.output_path("corrs")
 
   def tasks(self):
     # TODO: Caching and then with rqmt
@@ -163,7 +168,7 @@ class CompareEnergyValuesJob(Job):
 
   def run(self):
     maes = []
-
+    corrs = []
     with open(self.segment_list.get_path(), "r") as f:
       segment_list = f.read().splitlines()
 
@@ -211,21 +216,23 @@ class CompareEnergyValuesJob(Job):
       energy_1 = librosa.feature.rms(
         y=signal_1,
         hop_length=int(self.step_len * sample_rate), frame_length=int(self.window_len * sample_rate))
+      energy_1 = numpy.squeeze(energy_1, axis=0)
       energy_2 = librosa.feature.rms(
         y=signal_2,
         hop_length=int(self.step_len * sample_rate), frame_length=int(self.window_len * sample_rate))
+      energy_2 = numpy.squeeze(energy_2, axis=0)
 
-      scale = 1 / len(wp)
-      sum = 0
       energy_ls_1 = []
       energy_ls_2 = []
       for t_1, t_2 in wp:
         energy_ls_1.append(energy_1[t_1])
         energy_ls_2.append(energy_2[t_2])
-        sum += abs(energy_1[t_1] - energy_2[t_2])
-      sum = sum * scale
-      maes.append(sum)
+      corrs.append(numpy.corrcoef(energy_ls_1, energy_ls_2))
+      maes.append(numpy.mean(numpy.abs(numpy.array(energy_ls_1) - numpy.array(energy_ls_2))))
 
     with open(self.out_maes.get_path(), "w") as f:
       for mae in maes:
         f.write("%s\n" % mae)
+    with open(self.out_corrs.get_path(), "w") as f:
+      for corr in corrs:
+        f.write("%s\n" % corr)
