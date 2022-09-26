@@ -108,7 +108,15 @@ def get_finetune_config(model_checkpoint, network_options, train_dataset, cv_dat
         "train": train_dataset.as_returnn_opts(),
         "dev": cv_dataset.as_returnn_opts(),
         "extern_data": extern_data,
-        "import_model_train_epoch1": model_checkpoint.index_path,
+        "preload_from_files": {
+            "existing-model": {
+                "filename": model_checkpoint.index_path,
+                "init_for_train": True,  # only load the checkpoint at the start of training epoch 1, default is False
+                "ignore_missing": True,  # if the checkpoint only partly covers your model, default is False
+                "ignore_params_prefixes": ["decoder/rec/output","output"],
+                # list of parameter prefixes that should not be loaded
+            }
+        }
     }
 
     if do_eval is True:

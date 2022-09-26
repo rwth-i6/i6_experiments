@@ -11,9 +11,14 @@ from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_l
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import AudioFeatureDatastream, DBMelFilterbankOptions, ReturnnAudioFeatureOptions, FeatureType
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
+from i6_experiments.users.rossenbach.common_setups.returnn import datasets
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments, get_ls_train_clean_100_tts_silencepreprocessed
-from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon, extend_lexicon
+from i6_experiments.users.rossenbach.setups.tts.preprocessing import (
+    process_corpus_text_with_extended_lexicon,
+    extend_lexicon_with_tts_lemmas,
+    extend_lexicon_with_blank
+)
 
 from .default_tools import RETURNN_EXE, RETURNN_DATA_ROOT
 
@@ -26,7 +31,7 @@ def get_librispeech_lexicon() -> tk.Path:
 
     :return:
     """
-    return extend_lexicon(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True)["train-clean-100"])
+    return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"])
 
 
 @lru_cache
@@ -67,6 +72,29 @@ def get_ls100_silence_preprocess_ogg_zip() -> tk.Path:
     return zip_dataset
 
 
+def make_meta_dataset(audio_dataset, speaker_dataset):
+    """
+    Shared function to create a metadatset with joined audio and speaker information
+
+    :param datasets.OggZipDataset audio_dataset:
+    :param datasets.HDFDataset speaker_dataset:
+    :return:
+    :rtype: MetaDataset
+    """
+    meta_dataset = datasets.MetaDataset(
+        data_map={'audio_features': ('audio', 'data'),
+                  'phon_labels': ('audio', 'classes'),
+                  'speaker_labels': ('speaker', 'data'),
+                  },
+        datasets={
+            'audio': audio_dataset.as_returnn_opts(),
+            'speaker': speaker_dataset.as_returnn_opts()
+        },
+        seq_order_control_dataset="audio",
+    )
+    return meta_dataset
+
+
 def get_tts_log_mel_datastream(
         center: bool = False,
 ) -> AudioFeatureDatastream:
@@ -80,10 +108,7 @@ def get_tts_log_mel_datastream(
     Supports both centered and non-centered windowing, as we need non-centered windowing for RASR-compatible
     feature extraction, but centered windowing to support linear-features for the vocoder mel-to-linear training.
 
-    :param statistics_ogg_zip: ogg zip file(s) of the training corpus for statistics
-    :param returnn_python_exe:
-    :param returnn_root:
-    :param alias_path:
+    :param center: use center for CTC and Attention alignment, but not for GMM for RASR compatibility
     """
     # default: mfcc-40-dim
     feature_options_center = ReturnnAudioFeatureOptions(
@@ -117,6 +142,7 @@ def get_tts_log_mel_datastream(
         alias_path=DATA_PREFIX + "ls100/",
     )
     if center == False:
+        # take the normalization from center=True so that everything is compatible
         params = asdict(feature_options_center)
         params.pop("feature_options")
         feature_options_no_center = ReturnnAudioFeatureOptions(
@@ -143,15 +169,16 @@ def get_tts_log_mel_datastream(
     return audio_datastream
 
 
-def get_vocab_datastream() -> LabelDatastream:
+def get_vocab_datastream(with_blank: bool = False) -> LabelDatastream:
     """
     Default VocabularyDatastream for LibriSpeech (uppercase ARPA phoneme symbols)
 
-    :param alias_path:
-    :return:
-    :rtype: VocabularyDatastream
+    :param with_blank: datastream for CTC training
     """
     lexicon = get_librispeech_lexicon()
+    if with_blank:
+        lexicon = extend_lexicon_with_blank(lexicon)
+
     returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon)
     returnn_vocab_job.add_alias(os.path.join(DATA_PREFIX, "returnn_vocab_from_lexicon"))
 

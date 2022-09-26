@@ -13,38 +13,16 @@ from i6_experiments.users.rossenbach.common_setups.returnn import datasets
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 
 from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments, get_ls_train_clean_100_tts_silencepreprocessed
-from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon, extend_lexicon
+from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon, extend_lexicon_with_tts_lemmas
 from i6_experiments.users.rossenbach.tts.speaker_embedding import SpeakerLabelHDFFromBliss
 
 from ..data import (
     get_tts_log_mel_datastream,
     get_ls100_silence_preprocess_ogg_zip,
     get_ls100_silence_preprocessed_bliss,
-    get_vocab_datastream
+    get_vocab_datastream,
+    make_meta_dataset
 )
-
-
-def _make_meta_dataset(audio_dataset, speaker_dataset):
-    """
-
-    :param datasets.OggZipDataset audio_dataset:
-    :param datasets.HDFDataset speaker_dataset:
-    :return:
-    :rtype: MetaDataset
-    """
-    meta_dataset = datasets.MetaDataset(
-        data_map={'audio_features': ('audio', 'data'),
-                  'phon_labels': ('audio', 'classes'),
-                  'speaker_labels': ('speaker', 'data'),
-                  },
-        datasets={
-            'audio': audio_dataset.as_returnn_opts(),
-            'speaker': speaker_dataset.as_returnn_opts()
-        },
-        seq_order_control_dataset="audio",
-    )
-    return meta_dataset
-
 
 def build_training_dataset():
     """
@@ -81,7 +59,7 @@ def build_training_dataset():
         partition_epoch=2,
         seq_ordering="laplace:.1000"
     )
-    train_dataset = _make_meta_dataset(train_ogg_dataset, train_cv_hdf_dataset)
+    train_dataset = make_meta_dataset(train_ogg_dataset, train_cv_hdf_dataset)
 
     cv_ogg_dataset = datasets.OggZipDataset(
         path=zip_dataset,
@@ -91,7 +69,7 @@ def build_training_dataset():
         partition_epoch=1,
         seq_ordering="sorted",
     )
-    cv_dataset = _make_meta_dataset(cv_ogg_dataset, train_cv_hdf_dataset)
+    cv_dataset = make_meta_dataset(cv_ogg_dataset, train_cv_hdf_dataset)
 
     extern_data = {
         "phon_labels": vocab_datastream.as_returnn_extern_data_opts(),

@@ -80,7 +80,7 @@ def run_librispeech_100_common_tts_baseline(
          align_train = system.alignments["train-clean-100-tts-train"][align +  "_train"].alternatives["bundle"]
          align_dev = system.alignments["train-clean-100-tts-dev"][align +  "_dev"].alternatives["bundle"]
          alignments[align] = ConcatenateJob([align_train, align_dev], zip_out=False, out_name="alignment.bundle").out
-         tk.register_output(os.path.join(alias_prefix, align, ".bundle"), alignments[align])
+         tk.register_output(os.path.join(alias_prefix, align + ".bundle"), alignments[align])
     #return (
     #    alignments,
     #    system.allophone_files["train-clean-100"],
