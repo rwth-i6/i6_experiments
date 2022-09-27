@@ -84,6 +84,7 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                 serialization.PythonCacheManagerFunctionNonhashedCode,
+                serialization.PythonModelineNonhashedCode,
             ]
         )],
         post_config=dict(  # not hashed

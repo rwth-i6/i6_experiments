@@ -94,6 +94,7 @@ def train(*,
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                 serialization.PythonCacheManagerFunctionNonhashedCode,
+                serialization.PythonModelineNonhashedCode,
             ]
         )],
         post_config=dict(  # not hashed
