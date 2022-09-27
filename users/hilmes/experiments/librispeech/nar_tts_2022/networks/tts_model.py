@@ -646,7 +646,7 @@ class NARTTSModel(nn.Module):
         latents = nn.squeeze(speaker_prior, axis=prior_time)
         if self.skip_speaker_embeddings:
           speaker_embedding = latents
-        else:
+        elif self.vae_usage == "speak_emb_cat":
           speaker_embedding = nn.concat(
             (speaker_embedding, speaker_embedding.feature_dim),
             (latents, latents.feature_dim),
@@ -782,6 +782,7 @@ class NARTTSModel(nn.Module):
           energy_pred = energy
       energy_embedding = self.energy_emb(energy_pred)
       rep += energy_embedding
+
 
     # decoder
     dec_lin = self.decoder(

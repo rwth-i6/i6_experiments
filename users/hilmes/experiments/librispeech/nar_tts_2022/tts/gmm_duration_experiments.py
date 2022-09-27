@@ -221,7 +221,6 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
       "f0_energy_test",
       "log_energy_test",
       "no_dropout_small",
-      "no_dropout_300_small",
     ]:
       if "energy" in variance:
         returnn_root_job = CloneGitRepositoryJob(
@@ -276,7 +275,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
         if "test" in variance:
           kwargs["test"] = True
         if "no_dropout" in variance:
-          kwargs["no_dropout"] = True
+          kwargs["dropout"] = 0.0
         train_config = get_training_config(
           returnn_common_root=returnn_common_root,
           training_datasets=var_training_datasets,
@@ -300,8 +299,11 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
         )
         forward_dataset = deepcopy(training_datasets.cv)
         forward_datastreams = deepcopy(training_datasets.datastreams)
+        gl_swer_kwargs = deepcopy(kwargs)
         if "vae" in variance:
           forward_datastreams["audio_features"].available_for_inference = True
+          gl_swer_kwargs["use_audio_data"] = True
+
         forward_config = get_forward_config(
           returnn_common_root=returnn_common_root,
           forward_dataset=TTSForwardData(
@@ -313,7 +315,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
           calc_speaker_embedding=True,
           use_pitch_pred=("f0" in variance),
           use_energy_pred=("energy" in variance),
-          **kwargs,
+          **gl_swer_kwargs,
         )
         gl_swer(
           name=exp_name + "/gl_swer",
@@ -359,6 +361,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
             if "energy" not in variance:
               continue
             synth_kwargs["use_true_energy"] = True
+          if "vae" in variance:
+            synth_kwargs["use_calculated_prior"] = True
 
           synth_dataset = get_inference_dataset(
             new_corpus,
@@ -372,7 +376,6 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False):
             pitch_hdf=f0_hdf if "cheat_f0" in synth_method else None,
             energy_hdf=energy_hdf if "cheat_energy" in synth_method else None,
           )
-
 
           synth_corpus = synthesize_with_splits(
             name=exp_name + f"/{synth_method}",

@@ -11,11 +11,12 @@ class CompareF0ValuesJob(Job):
   Extracts F0 for two given Corpora and calculates MAE over both
   """
 
-  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path):
+  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path, dtw: bool = True):
 
     self.ref_corpus = ref_corpus
     self.test_corpus = test_corpus
     self.segment_list = segment_list
+    self.dtw = dtw
 
     self.rqmt = {
       "mem": 1,
@@ -37,9 +38,11 @@ class CompareF0ValuesJob(Job):
     self.out_ref_stds = self.output_path("ref_stds")
     self.out_test_means = self.output_path("test_means")
     self.out_test_stds = self.output_path("test_stds")
+    self.out_mappings = self.output_path("mappings")
+    self.out_wrong_mappings = self.output_path("wrong_mappings")
 
   def tasks(self):
-    # TODO: Caching and then with rqmt
+
     yield Task("run", mini_task=True)
 
   def run(self):
@@ -49,6 +52,8 @@ class CompareF0ValuesJob(Job):
     std_1_ls = []
     mean_2_ls = []
     std_2_ls = []
+    wrong_mappings_ls = []
+    mappings_ls = []
 
     with open(self.segment_list.get_path(), "r") as f:
       segment_list = f.read().splitlines()
@@ -92,7 +97,11 @@ class CompareF0ValuesJob(Job):
         fmin=self.fmin_ex, fmax=self.fmax_ex, center=self.center
       )
 
-      D, wp = librosa.sequence.dtw(mel_filterbank_1, mel_filterbank_2)
+      if self.dtw:
+        D, wp = librosa.sequence.dtw(mel_filterbank_1, mel_filterbank_2)
+      else:
+        assert len(mel_filterbank_1) == len(mel_filterbank_2), "If no DTW sequences need same length"
+        wp = (list(range(len(mel_filterbank_1)))), list(range(len(mel_filterbank_2)))
 
       f0_1, voiced_1, _ = librosa.pyin(y=signal_1, sr=sample_rate, hop_length=int(self.step_len * sample_rate),
         frame_length=int(self.window_len * sample_rate), win_length=int(self.window_len * sample_rate) // 2,
@@ -105,25 +114,26 @@ class CompareF0ValuesJob(Job):
       sum = 0
       pitch_ls_1 = []
       pitch_ls_2 = []
+      wrong_mappings = 0
       for t_1, t_2 in wp:
         if voiced_1[t_1] and voiced_2[t_2]:
           pitch_ls_1.append(f0_1[t_1])
           pitch_ls_2.append(f0_2[t_2])
           sum += abs(numpy.log2((f0_2[t_2] / f0_1[t_1])))
-        # TODO count voiced und unvoiced wrong mappings
-        # TODO mapping ausgeben
-        # Vergleiche ein kaputtes und ein gutes Mapping
-        #
+        if (voiced_1[t_1] and not voiced_2[t_2]) or (not voiced_1[t_1] and voiced_2[t_2]):
+          wrong_mappings += 1
 
       mae = scale * sum
-      print("MAE     Real Data        Synth Data ")
+      print("MAE     Real Data        Synth Data        Wrong Mappings")
       print("%.2f " % mae, "%.2f+-%.2f" % (float(numpy.mean(pitch_ls_1)), float(numpy.std(pitch_ls_1))),
-        "   %.2f+-%.2f " % (float(numpy.mean(pitch_ls_2)), float(numpy.std(pitch_ls_2))))
+        "   %.2f+-%.2f " % (float(numpy.mean(pitch_ls_2)), float(numpy.std(pitch_ls_2))), wrong_mappings)
       mae_ls.append(mae)
       mean_1_ls.append(numpy.mean(pitch_ls_1))
       mean_2_ls.append(numpy.mean(pitch_ls_2))
       std_1_ls.append(numpy.std(pitch_ls_1))
       std_2_ls.append(numpy.std(pitch_ls_2))
+      wrong_mappings_ls.append(wrong_mappings)
+      mappings_ls.append(wp)
 
     with open(self.out_maes.get_path(), "w") as f:
       for mae in mae_ls:
@@ -140,14 +150,22 @@ class CompareF0ValuesJob(Job):
     with open(self.out_test_stds.get_path(), "w") as f:
       for std in std_2_ls:
         f.write("%s\n" % std)
+    with open(self.out_wrong_mappings.get_path(), "w") as f:
+      for wrong in wrong_mappings_ls:
+          f.write("%s\n" % wrong)
+    with open(self.out_mappings.get_path(), "w") as f:
+      for mapping in mappings_ls:
+          f.write("%s\n" % mapping)
+    print("Average MAE: ", numpy.average(mae_ls), "Total wrong mappings", numpy.sum(wrong_mappings_ls))
 
 
 class CompareEnergyValuesJob(Job):
 
-  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path):
+  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path, dtw: bool = True):
     self.ref_corpus = ref_corpus
     self.test_corpus = test_corpus
     self.segment_list = segment_list
+    self.dtw = dtw
 
     # default parameter for Extraction
     self.step_len = 0.0125

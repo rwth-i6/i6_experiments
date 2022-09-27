@@ -1,7 +1,11 @@
 """
 Definition of the pipeline in terms of inputs and steps that are executed
 """
-from sisyphus import gs
+from sisyphus import gs, tk
+import sys
+
+from i6_core.report.report import MailJob, GenerateReportStringJob
+from i6_experiments.common.baselines.librispeech.report import gmm_example_report_format
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
@@ -65,6 +69,24 @@ def run_librispeech_100_with_synthetic_data(
     system.run(steps)
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
     alignments = {}
+
+    scores = {}
+    for set in ["dev-clean", "dev-other"]:
+        for job in system.jobs[set]:
+            if job.startswith("scorer") and "optlm" in job:
+                scores[job] = system.jobs[set][job].out_wer
+    from datetime import datetime
+    scores["date"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    import getpass
+    user = getpass.getuser()
+    scores["user"] = user
+    scores["name"] = alias_prefix
+    scores["config_path"] = tk.config_manager.current_config
+    scores["sis_command_line"] = sys.argv
+    content = GenerateReportStringJob(report_values=scores, report_template=gmm_example_report_format).out_report
+    report = MailJob(subject=alias_prefix + "Test", result=content, send_contents=True)
+    tk.register_output(f"reports/{alias_prefix}", report.out_status)
+
     for align in ["tts_align_sat"]:
         alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
     return (
