@@ -48,9 +48,6 @@ def gmm_example_report_format(report: _Report_Type) -> str:
   out = []
   out.append(
     f"""Name: {report["name"]}
-        Path: {report["config_path"]}
-        Date: {report["date"]}
-        Sis Command: {report["sis_command_line"]}
 
         Results:"""
   )
