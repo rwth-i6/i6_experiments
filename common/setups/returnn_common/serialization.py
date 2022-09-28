@@ -539,6 +539,4 @@ PythonCacheManagerFunctionNonhashedCode = NonhashedCode(
 
 # Modelines should be at the beginning or end of a file.
 # Many editors (e.g. VSCode) read those information.
-PythonModelineNonhashedCode = NonhashedCode(
-    "# -*- mode: python; tab-width: 4 -*-\n"
-)
+PythonModelineNonhashedCode = NonhashedCode("# -*- mode: python; tab-width: 4 -*-\n")
