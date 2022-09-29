@@ -4,7 +4,7 @@ __all__ = [
 ]
 
 
-def get_search_parameters(bp=16.0, bpl=100000, wep=0.5, wepl=15000, lsp=None):
+def get_search_parameters(bp=15.0, bpl=50000, wep=0.5, wepl=10000, lsp=None):
     search_params = {
         "beam-pruning": bp,
         "beam-pruning-limit": bpl,
