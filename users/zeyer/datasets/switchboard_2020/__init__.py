@@ -24,7 +24,8 @@ class _Bpe(VocabConfig):
                vocab: str,  # filename
                *,
                eos_idx: Optional[int] = None,
-               bos_idx: Optional[int] = None
+               bos_idx: Optional[int] = None,
+               unknown_label: Optional[str] = None,
                ):
     super(_Bpe, self).__init__()
     self.dim = dim
@@ -32,6 +33,7 @@ class _Bpe(VocabConfig):
     self.vocab = vocab
     self.eos_idx = eos_idx
     self.bos_idx = bos_idx
+    self.unknown_label = unknown_label
 
   def get_num_classes(self) -> int:
     """
@@ -46,7 +48,7 @@ class _Bpe(VocabConfig):
     return {
       'bpe_file': self.codes,
       'vocab_file': self.vocab,
-      'unknown_label': None,  # should not be needed
+      'unknown_label': self.unknown_label,
       'bos_label': self.bos_idx,
       'eos_label': self.eos_idx,
       # 'seq_postfix': [0]  # no EOS needed for RNN-T
@@ -60,11 +62,19 @@ class _Bpe(VocabConfig):
     """BOS"""
     return self.bos_idx
 
+  def copy(self, **kwargs):
+    """Copy"""
+    opts = {k: getattr(self, k) for k in ["dim", "codes", "vocab", "eos_idx", "bos_idx", "unknown_label"]}
+    opts.update(kwargs)
+    return _Bpe(**opts)
+
 
 bpe1k = _Bpe(
   dim=1030, eos_idx=0, bos_idx=0,
   codes='/work/asr3/irie/data/switchboard/subword_clean/ready/swbd_clean.bpe_code_1k',
   vocab='/work/asr3/irie/data/switchboard/subword_clean/ready/vocab.swbd_clean.bpe_code_1k')
+
+bpe1k_with_unk = bpe1k.copy(unknown_label="UNK")
 
 
 class SwitchboardExternSprint(DatasetConfig):

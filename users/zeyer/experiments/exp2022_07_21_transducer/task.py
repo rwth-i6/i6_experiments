@@ -12,18 +12,18 @@ def get_switchboard_task() -> Task:
     """
     Switchboard
     """
-    from i6_experiments.users.zeyer.datasets.switchboard_2020 import bpe1k, SwitchboardExternSprint
+    from i6_experiments.users.zeyer.datasets.switchboard_2020 import bpe1k, bpe1k_with_unk, SwitchboardExternSprint
     from i6_experiments.users.zeyer.datasets.switchboard_2020.score import score
     from .recog import bpe_to_words
 
     vocab = bpe1k
     train_epoch_split = 6
     train_dataset = SwitchboardExternSprint(vocab=vocab, train_epoch_split=train_epoch_split)
-    dev_dataset = SwitchboardExternSprint(vocab=vocab, main_key="dev")
+    dev_dataset = SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="dev")
     eval_datasets = {
         "hub5e_00": dev_dataset,
-        "hub5e_01": SwitchboardExternSprint(vocab=vocab, main_key="hub5e_01"),
-        "rt03s": SwitchboardExternSprint(vocab=vocab, main_key="rt03s"),
+        "hub5e_01": SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="hub5e_01"),
+        "rt03s": SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="rt03s"),
     }
 
     return Task(
