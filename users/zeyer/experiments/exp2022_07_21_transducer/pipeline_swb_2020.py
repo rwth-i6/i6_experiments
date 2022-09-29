@@ -369,4 +369,8 @@ def model_recog(*,
                 state=state)
             return probs.get_wb_label_log_probs(), state
 
-    return beam_search(_Decoder())
+    res = beam_search(_Decoder())
+    assert model.blank_idx == targets_dim.dimension  # added at the end
+    res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
+        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})
+    return res
