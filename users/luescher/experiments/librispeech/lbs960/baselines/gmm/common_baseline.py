@@ -1,7 +1,5 @@
 import os
 
-from typing import Optional
-
 # -------------------- Sisyphus --------------------
 
 from sisyphus import gs, tk
@@ -14,28 +12,20 @@ import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.util as rasr_util
 import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
 
-from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
+from i6_experiments.common.baselines.librispeech.data import get_corpus_data_inputs
+from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
 
 
 def run_librispeech_960_common_baseline():
     # ******************** Settings ********************
 
-    alias_and_output_dir_tmp = gs.ALIAS_AND_OUTPUT_SUBDIR
+    stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     filename_handle = os.path.splitext(os.path.basename(__file__))[0]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    rasr_binary_path = compile_rasr_binaries_i6mode()
-
     # ******************** GMM Init ********************
 
-    (
-        train_data_inputs,
-        dev_data_inputs,
-        test_data_inputs,
-    ) = lbs_gmm_setups.get_data_inputs(
-        use_eval_data_subset=True,
-    )
     rasr_init_args = lbs_gmm_setups.get_init_args()
     mono_args = lbs_gmm_setups.get_monophone_args()
     cart_args = lbs_gmm_setups.get_cart_args(max_leaves=12001)
@@ -55,15 +45,21 @@ def run_librispeech_960_common_baseline():
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
+    # ******************** Data ********************
+
+    corpus_data = get_corpus_data_inputs(
+        corpus_key="train-other-960", use_g2p_training=True, use_stress_marker=False
+    )
+
     # ******************** GMM System ********************
 
-    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
+    lbs_gmm_system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     lbs_gmm_system.init_system(
         rasr_init_args=rasr_init_args,
-        train_data=train_data_inputs,
-        dev_data=dev_data_inputs,
-        test_data=test_data_inputs,
+        train_data=corpus_data.train_data,
+        dev_data=corpus_data.dev_data,
+        test_data=corpus_data.test_data,
     )
     lbs_gmm_system.run(steps)
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = alias_and_output_dir_tmp
+    gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir

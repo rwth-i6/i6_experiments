@@ -10,7 +10,7 @@ __all__ = [
     "get_data_inputs",
 ]
 
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -28,6 +28,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
     CartQuestionsWithoutStress,
     CartQuestionsWithStress,
 )
+from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 # -------------------- helpers --------------------
 # -------------------- functions --------------------
@@ -37,6 +38,7 @@ def get_init_args(
     *,
     dc_detection: bool = False,
     scorer: Optional[str] = None,
+    scorer_args: Optional[Dict[str, Any]] = None,
     am_extra_args: Optional[Dict] = None,
     mfcc_filter_width: Optional[Union[float, Dict]] = None,
     mfcc_cepstrum_options: Optional[Dict] = None,
@@ -63,6 +65,7 @@ def get_init_args(
     """
     :param dc_detection:
     :param scorer:
+    :param scorer_args:
     :param am_extra_args:
     :param mfcc_filter_width: dict(channels=20, warping_function="mel", f_max=8000, f_min=0) or 268.258
     :param mfcc_cepstrum_options:
@@ -173,11 +176,17 @@ def get_init_args(
     if gt_options_extra_args is not None:
         feature_extraction_args["gt"]["gt_options"].update(gt_options_extra_args)
 
+    if scorer_args is None:
+        scorer_args = {"sctk_binary_path": SCTK_BINARY_PATH}
+    elif "sctk_binary_path" not in scorer_args.keys():
+        scorer_args.update({"sctk_binary_path": SCTK_BINARY_PATH})
+
     return rasr_util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
         scorer=scorer,
+        scorer_args=scorer_args,
     )
 
 
