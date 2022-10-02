@@ -5,6 +5,8 @@ __all__ = [
     "HybridArgs",
     "NnRecogArgs",
     "NnForcedAlignArgs",
+    "GenerateLatticeOptions",
+    "SeqDiscTrainArgs",
 ]
 
 import copy
@@ -21,6 +23,14 @@ import i6_core.returnn as returnn
 from i6_core.util import MultiPath
 
 from .rasr import RasrDataInput
+
+from .rasr.config.lex_config import LexiconRasrConfig
+from .rasr.config.lm_config import (
+    ArpaLmRasrConfig,
+    TfRnnLmRasrConfig,
+    SimpleTfNeuralLmRasrConfig,
+    CombineLmRasrConfig,
+)
 
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
 
@@ -436,3 +446,29 @@ class NnForcedAlignArgs(TypedDict):
     base_flow_key: str
     tf_flow_key: str
     dump_alignment: bool
+
+
+LmTypes: Union[
+    ArpaLmRasrConfig, TfRnnLmRasrConfig, SimpleTfNeuralLmRasrConfig, CombineLmRasrConfig
+]
+
+
+class GenerateLatticeOptions(TypedDict):
+    concurrent: int
+    lm_config: LmTypes
+    lex_config: LexiconRasrConfig
+    short_pauses_lemmata: List[str]
+    numerator_options: Dict
+    raw_denominator_options: Dict
+    denominator_options: Dict
+    state_accuracy_options: Dict
+    phon_accuracy_options: Dict
+
+
+class SeqDiscTrainArgs(TypedDict):
+    name: str
+    train_corpus_keys: List[str]
+    feature_scorer: rasr.FeatureScorer
+    feature_flow: Union[str, tk.Path, rasr.FlowNetwork, rasr.FlagDependentFlowAttribute]
+    lattice_options: GenerateLatticeOptions
+    hybrid_args: HybridArgs

@@ -8,13 +8,16 @@ from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
-from sisyphus import tk
+import sisyphus.toolkit as tk
 
 # -------------------- Recipes --------------------
 
+import i6_core.corpus as corpus_recipes
+import i6_core.discriminative_training as sdt
 import i6_core.features as features
+import i6_core.meta as meta
 import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+import i6_core.returnn as returnn_recipes
 
 from i6_core.returnn.flow import (
     make_precomputed_hybrid_tf_feature_flow,
@@ -32,6 +35,8 @@ from .util import (
     NnRecogArgs,
     RasrSteps,
     NnForcedAlignArgs,
+    GenerateLatticeOptions,
+    SeqDiscTrainArgs,
 )
 
 # -------------------- Init --------------------
@@ -110,7 +115,9 @@ class HybridSystem(NnSystem):
 
     def _add_output_alias_for_train_job(
         self,
-        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
+        train_job: Union[
+            returnn_recipes.ReturnnTrainingJob, returnn_recipes.ReturnnRasrTrainingJob
+        ],
         train_corpus_key: str,
         cv_corpus_key: str,
         name: str,
@@ -192,7 +199,7 @@ class HybridSystem(NnSystem):
 
     def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):
         for name in self.train_corpora + self.devtrain_corpora + self.cv_corpora:
-            self.jobs[name]["ogg_zip"] = j = returnn.BlissToOggZipJob(
+            self.jobs[name]["ogg_zip"] = j = returnn_recipes.BlissToOggZipJob(
                 bliss_corpus=self.crp[name].corpus_config.corpus_file,
                 segments=self.crp[name].segment_path,
                 rasr_cache=self.feature_flows[name]["init"],
@@ -204,8 +211,128 @@ class HybridSystem(NnSystem):
 
             # TODO self.jobs[name]["hdf_full"] = j = returnn.ReturnnDumpHDFJob()
 
-    def generate_lattices(self):
-        pass
+    # -------------------- Generate Lattices --------------------
+
+    def generate_lattices(
+        self,
+        name: str,
+        corpus_key: str,
+        feature_scorer: rasr.FeatureScorer,
+        feature_flow: Union[
+            str, tk.Path, rasr.FlowNetwork, rasr.FlagDependentFlowAttribute
+        ],
+        lattice_options: GenerateLatticeOptions,
+    ):
+        """
+        generate lattices
+
+        example: sequence discriminative training (sMBR)
+
+        :param name:
+        :param corpus_key:
+        :param feature_scorer:
+        :param feature_flow:
+        :param lattice_options:
+        :return:
+        """
+        lattice_corpus_key = f"{corpus_key}_lattice"
+
+        self.add_overlay(corpus_key, lattice_corpus_key)
+
+        if lattice_options.get("concurrent") != self.crp[corpus_key].concurrent:
+            lattice_segment_job = corpus_recipes.SegmentCorpusJob(
+                self.crp[corpus_key].corpus_config.file,
+                lattice_options["concurrent"],
+            )
+            self.jobs[corpus_key][f"segment_{corpus_key}_lattice"] = lattice_segment_job
+            self.crp[lattice_corpus_key].concurrent = lattice_options["concurrent"]
+            self.crp[
+                lattice_corpus_key
+            ].segment_path = lattice_segment_job.out_segment_path
+            flow = copy.deepcopy(feature_flow)
+            flow.flags["cache_mode"] = "bundle"
+        else:
+            flow = feature_flow
+
+        self.crp[lattice_corpus_key].language_model_config = lattice_options[
+            "lm_config"
+        ].get()
+        self.crp[lattice_corpus_key].lexicon_config = lattice_options[
+            "lex_config"
+        ].get()
+
+        # Numerator
+        num_name = f"numerator_{name}"
+        num_job = sdt.NumeratorLatticeJob(
+            crp=self.crp[lattice_corpus_key],
+            feature_flow=flow,
+            feature_scorer=meta.select_element(
+                self.feature_scorers, corpus_key, feature_scorer
+            ),
+            **lattice_options["numerator_options"],
+        )
+        self.jobs[corpus_key][num_name] = num_job
+        self.lattice_bundles[corpus_key][num_name] = num_job.lattice_bundle
+        self.lattice_caches[corpus_key][num_name] = num_job.single_lattice_caches
+
+        # Raw Denominator
+        rawden_name = f"raw_denominator_{name}"
+        rawden_job = sdt.RawDenominatorLatticeJob(
+            crp=self.crp[lattice_corpus_key],
+            feature_flow=flow,
+            feature_scorer=meta.select_element(
+                self.feature_scorers, corpus_key, feature_scorer
+            ),
+            **lattice_options["raw_denominator_options"],
+        )
+        self.jobs[corpus_key][rawden_name] = rawden_job
+        self.lattice_bundles[corpus_key][rawden_name] = rawden_job.lattice_bundle
+        self.lattice_caches[corpus_key][rawden_name] = rawden_job.single_lattice_caches
+
+        # Denominator
+        den_name = f"denominator_{name}"
+        den_job = sdt.DenominatorLatticeJob(
+            crp=self.crp[lattice_corpus_key],
+            raw_denominator_path=rawden_job.lattice_path,
+            numerator_path=num_job.lattice_path,
+            **lattice_options["denominator_options"],
+        )
+        self.jobs[corpus_key][den_name] = den_job
+        self.lattice_bundles[corpus_key][den_name] = den_job.lattice_bundle
+        self.lattice_caches[corpus_key][den_name] = den_job.single_lattice_caches
+
+        # State Accuracy
+        stat_name = f"state_accuracy_{name}"
+        stat_job = sdt.StateAccuracyJob(
+            crp=self.crp[lattice_corpus_key],
+            feature_flow=flow,
+            feature_scorer=meta.select_element(
+                self.feature_scorers, corpus_key, feature_scorer
+            ),
+            denominator_path=den_job.lattice_path,
+            **lattice_options["state_accuracy_options"],
+        )
+        self.jobs[corpus_key][stat_name] = stat_job
+        self.alignments[corpus_key][stat_name] = stat_job.segmentwise_alignment_bundle
+        self.lattice_bundles[corpus_key][stat_name] = stat_job.lattice_bundle
+        self.lattice_caches[corpus_key][stat_name] = stat_job.single_lattice_caches
+
+        # Phone Accuracy
+        phon_name = f"phone_accuracy_{name}"
+        phon_job = sdt.PhoneAccuracyJob(
+            crp=self.crp[lattice_corpus_key],
+            feature_flow=flow,
+            feature_scorer=meta.select_element(
+                self.feature_scorers, corpus_key, feature_scorer
+            ),
+            denominator_path=den_job.lattice_path,
+            short_pauses=lattice_options["short_pauses_lemmata"],
+            **lattice_options["phon_accuracy_options"],
+        )
+        self.jobs[corpus_key][phon_name] = phon_job
+        self.alignments[corpus_key][phon_name] = phon_job.segmentwise_alignment_bundle
+        self.lattice_bundles[corpus_key][phon_name] = phon_job.lattice_bundle
+        self.lattice_caches[corpus_key][phon_name] = phon_job.single_lattice_caches
 
     # -------------------- Training --------------------
 
@@ -218,7 +345,7 @@ class HybridSystem(NnSystem):
         cv_corpus_key,
         devtrain_corpus_key=None,
     ):
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
+        assert isinstance(returnn_config, returnn_recipes.ReturnnConfig)
 
         returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
         returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
@@ -227,7 +354,7 @@ class HybridSystem(NnSystem):
                 "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
             }
 
-        train_job = returnn.ReturnnTrainingJob(
+        train_job = returnn_recipes.ReturnnTrainingJob(
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
@@ -318,9 +445,9 @@ class HybridSystem(NnSystem):
         else:
             raise NotImplementedError
 
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
+        assert isinstance(returnn_config, returnn_recipes.ReturnnConfig)
 
-        train_job = returnn.ReturnnRasrTrainingJob(
+        train_job = returnn_recipes.ReturnnRasrTrainingJob(
             train_crp=train_crp,
             dev_crp=dev_crp,
             feature_flow=feature_flow,
@@ -344,8 +471,8 @@ class HybridSystem(NnSystem):
     def nn_recognition(
         self,
         name: str,
-        returnn_config: returnn.ReturnnConfig,
-        checkpoints: Dict[int, returnn.Checkpoint],
+        returnn_config: returnn_recipes.ReturnnConfig,
+        checkpoints: Dict[int, returnn_recipes.Checkpoint],
         acoustic_mixture_path: tk.Path,  # TODO maybe Optional if prior file provided -> automatically construct dummy file
         prior_scales: List[float],
         pronunciation_scales: List[float],
@@ -427,7 +554,7 @@ class HybridSystem(NnSystem):
         train_name: str,
         train_corpus_key: str,
         returnn_config: Path,
-        checkpoints: Dict[int, returnn.Checkpoint],
+        checkpoints: Dict[int, returnn_recipes.Checkpoint],
         step_args: HybridArgs,
     ):
         for recog_name, recog_args in step_args.recognition_args.items():
@@ -459,7 +586,7 @@ class HybridSystem(NnSystem):
     def nn_compile_graph(
         self,
         name: str,
-        returnn_config: returnn.ReturnnConfig,
+        returnn_config: returnn_recipes.ReturnnConfig,
         epoch: Optional[int] = None,
     ):
         """
@@ -471,7 +598,7 @@ class HybridSystem(NnSystem):
             e.g. `def get_network(epoch=...)` in the config
         :return: the TF graph
         """
-        graph_compile_job = returnn.CompileTFGraphJob(
+        graph_compile_job = returnn_recipes.CompileTFGraphJob(
             returnn_config,
             epoch=epoch,
             returnn_root=self.returnn_root,
@@ -565,6 +692,19 @@ class HybridSystem(NnSystem):
                 feature_scorer_corpus_key=featurer_scorer_corpus_key,
                 feature_scorer=scorer_model_key,
                 dump_alignment=step_args["dump_alignment"],
+            )
+
+    def run_seq_disc_step(self, step_args: SeqDiscTrainArgs):
+        train_corpus_keys = step_args.get(
+            "train_corpus_keys", self.train_corpora + self.cv_corpora
+        )
+        for c in train_corpus_keys:
+            self.generate_lattices(
+                name=step_args["name"],
+                corpus_key=c,
+                feature_scorer=step_args["feature_scorer"],
+                feature_flow=step_args["feature_flow"],
+                lattice_options=step_args["lattice_options"],
             )
 
     # -------------------- run setup  --------------------
