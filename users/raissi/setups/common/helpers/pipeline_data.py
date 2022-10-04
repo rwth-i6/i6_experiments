@@ -111,7 +111,6 @@ class SprintFeatureToHdf(Job):
 
   def __init__(self, feature_caches):
     self.feature_caches = feature_caches
-
     self.hdf_files = [self.output_path('data.hdf.%d' % d, cached=False) for d in range(len(feature_caches))]
     self.rqmt = {'cpu': 1, 'mem': 8, 'time': 1.0}
 

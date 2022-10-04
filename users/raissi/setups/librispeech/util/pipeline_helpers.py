@@ -15,7 +15,7 @@ def get_label_info(
         'n_contexts': 42 if is_folded else 72,
         'ph_emb_size': ph_emb_size,
         'st_emb_size': st_emb_size,
-        'sil_id': None, #toDo: a job that gives the sielnce label within a specific state tying
+        'sil_id': 40, #toDo: a job that gives the sielnce label within a specific state tying
         'state_tying': 'monophone-no-tying-dense', #no-tying-dense for decoding
         'use_word_end_classes': use_word_end_classes,
         'use_boundary_classes': use_boundary_classes,
@@ -39,7 +39,7 @@ def get_tdp_values():
     from math import log
     speech_fwd_three = 0.350 #3/9 for 3partite
     speech_fwd_mono  = 0.125 #1/8 for phoneme
-    silence_fwd      = 0.04 #1/25 following the
+    silence_fwd      = 0.04 #1/25 following the start/end segment silence
     return {
         'pattern' : ["loop", "forward", "skip", "exit"],
         'default': {'*': (3.0, 0.0, "infinity", 0.0), 'silence': (0.0, 3.0, "infinity", 20.0)},

@@ -15,6 +15,8 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
 
 context_mapper = ContextMapper()
 
+def get_embedding_layer(source, dim, l2=0.01):
+    return {"with_bias": False, "L2": l2, "class": "linear", "activation": None, "from": [f"data:{source}"], "n_out": dim}
 
 def blstm_config(network, partition_epochs, lr=5e-4, batch_size=10000, max_seqs=100, chunking="64:32", **kwargs):
     key_interval = "learning_rate_control_min_num_epochs_per_new_lr"
@@ -93,17 +95,17 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
     
     if use_boundary_classes:
         labelingInput = "popBoundry"
-        acousticNet["boundryClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.floormod(source(0),%d)" % 4,
+        acousticNet["boundryClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.math.floormod(source(0),%d)" % 4,
                                        "out_type": {'dim': 4, 'dtype': 'int32', 'sparse': True}}
-        acousticNet["popBoundry"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.floordiv(source(0),%d)" % 4,
+        acousticNet["popBoundry"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.math.floordiv(source(0),%d)" % 4,
                                      "out_type": {'dim': (n_contexts ** 3) * n_states_per_phone, 'dtype': 'int32',
                                                   'sparse': True}}
     
     elif use_word_end_classes:
         labelingInput = "popWordEnd"
-        acousticNet["wordEndClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.floormod(source(0),%d)" % 2,
+        acousticNet["wordEndClass"] = {"class": "eval", "from": "data:classes", "eval": "tf.math.floormod(source(0),%d)" % 2,
                                        "out_type": {'dim': 2, 'dtype': 'int32', 'sparse': True}}
-        acousticNet["popWordEnd"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.floordiv(source(0),%d)" % 2,
+        acousticNet["popWordEnd"] = {"class": "eval", "from": ["data:classes"], "eval": "tf.math.floordiv(source(0),%d)" % 2,
                                      "out_type": {'dim': (n_contexts ** 3) * n_states_per_phone,
                                                   'dtype': 'int32',
                                                   'sparse': True}}
@@ -112,27 +114,27 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
         labelingInput = "data:classes"
 
     acousticNet["futureLabel"] = {"class": "eval", "from": labelingInput,
-                                  "eval": "tf.floormod(source(0),%d)" % n_contexts,
+                                  "eval": "tf.math.floormod(source(0),%d)" % n_contexts,
                                   "register_as_extern_data": "futureLabel",
                                   "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
     acousticNet["popFutureLabel"] = {"class": "eval", "from": labelingInput,
-                                     "eval": "tf.floordiv(source(0),%d)" % n_contexts,
-                                     "out_type": {'dim': (n_contexts ** 2), 'dtype': 'int32', 'sparse': True}}
+                                     "eval": "tf.math.floordiv(source(0),%d)" % n_contexts,
+                                     "out_type": {'dim': (n_contexts ** 2 * n_states_per_phone), 'dtype': 'int32', 'sparse': True}}
 
     acousticNet["pastLabel"] = {"class": "eval", "from": "popFutureLabel",
-                                "eval": "tf.floormod(source(0),%d)" % n_contexts,
+                                "eval": "tf.math.floormod(source(0),%d)" % n_contexts,
                                 "register_as_extern_data": "pastLabel",
                                 "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
     acousticNet["popPastLabel"] = {"class": "eval", "from": "popFutureLabel",
-                                   "eval": "tf.floordiv(source(0),%d)" % n_contexts,
-                                   "out_type": {'dim': (n_contexts ** 2), 'dtype': 'int32', 'sparse': True}}
+                                   "eval": "tf.math.floordiv(source(0),%d)" % n_contexts,
+                                   "out_type": {'dim': n_contexts * n_states_per_phone, 'dtype': 'int32', 'sparse': True}}
 
     acousticNet["stateId"] = {"class": "eval", "from": "popPastLabel",
-                              "eval": "tf.floormod(source(0),%d)" % n_states_per_phone,
+                              "eval": "tf.math.floormod(source(0),%d)" % n_states_per_phone,
                               "out_type": {'dim': n_states_per_phone, 'dtype': 'int32', 'sparse': True}}
 
     acousticNet["centerPhoneme"] = {"class": "eval", "from": "popPastLabel",
-                                    "eval": "tf.floordiv(source(0),%d)" % n_states_per_phone,
+                                    "eval": "tf.math.floordiv(source(0),%d)" % n_states_per_phone,
                                     "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
     
     if is_min_duration:
@@ -164,7 +166,7 @@ def make_config(context_type, partition_epochs,
                 use_boundary_classes=False, is_min_duration=False, use_word_end_classes=False,
                 layers=6 * [500], l2=0.01, mlp_l2=0.01, dropout=0.1,
                 ph_emb_size=64, st_emb_size=256, focal_loss_factor=2.0, label_smoothing=0.0,
-                add_mlps=False, final_context_type=None, eval_dense_label=False,
+                add_mlps=False, use_multi_task=True, final_context_type=None, eval_dense_label=False,
                 unit_type="nativelstm2", specaugment=False, shared_delta_encoder=False, **kwargs):
     if eval_dense_label:
         shared_network = get_common_subnetwork_for_targets_with_blstm(layers,
@@ -180,12 +182,12 @@ def make_config(context_type, partition_epochs,
     else:
         shared_network = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
     
-    config = get_config_for_context_type(context_type, partition_epochs,
-                                         shared_network,
+    config = get_config_for_context_type(context_type, partition_epochs,shared_network,
+                                         use_multi_task=use_multi_task, add_mlps=add_mlps,
+                                         final_context_type=final_context_type, shared_delta_encoder=shared_delta_encoder,
                                          st_emb_size=st_emb_size, ph_emb_size=ph_emb_size,
                                          focal_loss_factor=focal_loss_factor, label_smoothing=label_smoothing,
-                                         add_mlps=add_mlps, final_context_type=final_context_type, l2=mlp_l2,
-                                         shared_delta_encoder=shared_delta_encoder, **kwargs)
+                                         l2=mlp_l2, **kwargs)
     
     returnnConfig = returnn.ReturnnConfig(config, python_prolog=python_prolog, python_epilog=python_epilog)
     
@@ -217,14 +219,18 @@ def get_graph_from_returnn_config(returnnConfig, python_prolog=None, python_epil
     return compiledGraphJob.out_graph
 
 
-def get_config_for_context_type(context_type, partition_epochs,
-                                shared_network, ph_emb_size=64, st_emb_size=256,
-                                focal_loss_factor=2.0, label_smoothing=0.2,
-                                add_mlps=False, final_context_type=None, l2=0.01, shared_delta_encoder=False, **kwargs):
+def get_config_for_context_type(context_type, partition_epochs, shared_network,
+                                add_mlps=False, use_multi_task=True, final_context_type=None, shared_delta_encoder=False,
+                                ph_emb_size=64, st_emb_size=256,
+                                focal_loss_factor=2.0, label_smoothing=0.2, l2=0.01, **kwargs):
+    ###
+    # This function is the entry point for strating the training, which means for context-dependent models
+    # separate functions for the multi-stage training
+    ###
 
-    if context_type.value == context_mapper.get_enum(1):
-        network = get_monophone_net(shared_network,
+    mono_network = get_monophone_net(shared_network,
                                     add_mlps=add_mlps,
+                                    use_multi_task=use_multi_task,
                                     final_ctx_type=final_context_type,
                                     ph_emb_size=ph_emb_size,
                                     st_emb_size=st_emb_size,
@@ -232,26 +238,37 @@ def get_config_for_context_type(context_type, partition_epochs,
                                     label_smoothing=label_smoothing,
                                     l2=l2,
                                     shared_delta_encoder=shared_delta_encoder)
+
+    if context_type.value == context_mapper.get_enum(1):
+        config = blstm_config(mono_network, partition_epochs, **kwargs)
+        return config
     
     elif context_type.value == context_mapper.get_enum(2):
-        network = get_diphone_net(shared_network)
-    
-    elif context_type.value == context_mapper.get_enum(3):
-        network = get_symmetric_net(shared_network)
-    
+        network = get_diphone_net(mono_network, use_multi_task=use_multi_task, label_smoothing=label_smoothing, l2=l2, ph_emb_size=ph_emb_size, st_emb_size=st_emb_size)
     elif context_type.value == context_mapper.get_enum(4):
-        network = get_forward_net(shared_network)
-    
-    elif context_type.value == context_mapper.get_enum(5):
-        network = get_backward_net(shared_network)
-    
-    else:
-        return None
+        network = get_forward_net(mono_network, l2=l2, ph_emb_size=ph_emb_size, st_emb_size=st_emb_size)
 
-    # ToDo: once you hvae your optimal setting add it here using bin_ce_weight
-    
+    else:
+        assert(False, "Network type not implemented")
+        sys.exit()
+
+    #ToDo: implement others
+    """
+    elif context_type.value == context_mapper.get_enum(3):
+        network = get_symmetric_net(mono_network)
+
+
+
+    elif context_type.value == context_mapper.get_enum(5):
+        network = get_backward_net(mono_network)
+    """
+    #for ctx-dep networks you always need MLPs and will use dense label
+    if context_type != context_mapper.get_enum(1):
+        assert (add_mlps, "for context-dependent models you need MLP layers")
+        network['center-output']['target'] = 'centerState'
+
+    #ToDo: once you have your optimal setting add it here using bin_ce_weight
     config = blstm_config(network, partition_epochs, **kwargs)
-    
     return config
 
 
@@ -276,13 +293,14 @@ def set_Mlp_component(network, layerName, outputSize, sourceLayer="encoder-outpu
     return network
 
 
-def get_monophone_net(shared_network, add_mlps=False,
-                      final_ctx_type=None, ph_emb_size=10, st_emb_size=30,
+def get_monophone_net(shared_network, add_mlps=False, use_multi_task=True,
+                      final_ctx_type=None, ph_emb_size=64, st_emb_size=512,
                       focal_loss_factor=2.0, label_smoothing=0.0, l2=None, shared_delta_encoder=False):
     network = copy.copy(shared_network)
     network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
     
     encoder_out_len = shared_network['fwd_1']['n_out'] * 2
+    assert final_ctx_type is not None
     
     lossOpts = {}
     if focal_loss_factor > 0.0:
@@ -291,160 +309,177 @@ def get_monophone_net(shared_network, add_mlps=False,
         lossOpts["label_smoothing"] = label_smoothing
     
     if add_mlps:
-
-        assert final_ctx_type is not None
         if final_ctx_type.value == context_mapper.get_enum(3):
-            set_Mlp_component(network, "contexts", encoder_out_len, l2=l2)
-            set_Mlp_component(network, "triphone", 1020, l2=l2)
-            
-            network["left-output"] = {"class": "softmax",
-                                      "from": "linear2-contexts",
-                                      "target": "lastLabel",
-                                      "loss": "ce",
-                                      "loss_opts": copy.copy(lossOpts)}
-            
-            network["right-output"] = {"class": "softmax",
-                                       "from": "linear2-contexts",
-                                       "target": "futureLabel",
-                                       "loss": "ce",
-                                       "loss_opts": copy.copy(lossOpts)}
-            
+            triOut = encoder_out_len + ph_emb_size + ph_emb_size
+            set_Mlp_component(network, "triphone", triOut, l2=l2)
+
             network["center-output"] = {"class": "softmax",
                                         "from": "linear2-triphone",
-                                        "target": "alignment",
+                                        "target": "classes",
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
+
+            if use_multi_task:
+                set_Mlp_component(network, "contexts", encoder_out_len, l2=l2)
+                network["right-output"] = {"class": "softmax",
+                                           "from": "linear2-contexts",
+                                           "target": "futureLabel",
+                                           "loss": "ce",
+                                           "loss_opts": copy.copy(lossOpts)}
+                network["left-output"] = {"class": "softmax",
+                                          "from": "linear2-contexts",
+                                          "target": "pastLabel",
+                                          "loss": "ce",
+                                          "loss_opts": copy.copy(lossOpts)}
+                network["center-output"]["target"] = "centerState"
+
+
         
         elif final_ctx_type.value == context_mapper.get_enum(4):
             diOut = encoder_out_len + ph_emb_size
-            triOut = encoder_out_len + ph_emb_size + st_emb_size
-            set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
             set_Mlp_component(network, "diphone", diOut, l2=l2)
-            set_Mlp_component(network, "triphone", triOut, l2=l2)
-            network["left-output"] = {"class": "softmax",
-                                      "from": "linear2-leftContext",
-                                      "target": "lastLabel",
-                                      "loss": "ce",
-                                      "loss_opts": copy.copy(lossOpts)}
-            
-            network["right-output"] = {"class": "softmax",
-                                       "from": "linear2-triphone",
-                                       "target": "futureLabel",
-                                       "loss": "ce",
-                                       "loss_opts": copy.copy(lossOpts)}
-            
             network["center-output"] = {"class": "softmax",
                                         "from": "linear2-diphone",
-                                        "target": "alignment",
+                                        "target": "classes",
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
+
+            if use_multi_task:
+                triOut = encoder_out_len + ph_emb_size + st_emb_size
+                set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
+                set_Mlp_component(network, "triphone", triOut, l2=l2)
+                network["left-output"] = {"class": "softmax",
+                                          "from": "linear2-leftContext",
+                                          "target": "pastLabel",
+                                          "loss": "ce",
+                                          "loss_opts": copy.copy(lossOpts)}
+
+                network["right-output"] = {"class": "softmax",
+                                           "from": "linear2-triphone",
+                                           "target": "futureLabel",
+                                           "loss": "ce",
+                                           "loss_opts": copy.copy(lossOpts)}
+                network["center-output"]["target"] = "centerState"
+            
+
         
         elif final_ctx_type.value == context_mapper.get_enum(5):
+            assert (use_multi_task, "it is not possible to have a monophone backward without multitask")
             set_Mlp_component(network, "centerState", encoder_out_len, l2=l2)
             set_Mlp_component(network, "diphone", 1030, l2=l2)
             set_Mlp_component(network, "triphone", 1040, l2=l2)
+            network["center-output"] = {"class": "softmax",
+                                        "from": "linear2-centerState",
+                                        "target": "centerState",
+                                        "loss": "ce",
+                                        "loss_opts": copy.copy(lossOpts)}
             network["left-output"] = {"class": "softmax",
                                       "from": "linear2-triphone",
-                                      "target": "lastLabel",
+                                      "target": "pastLabel",
                                       "loss": "ce",
                                       "loss_opts": copy.copy(lossOpts)}
-            
+
             network["right-output"] = {"class": "softmax",
                                        "from": "linear2-diphone",
                                        "target": "futureLabel",
                                        "loss": "ce",
                                        "loss_opts": copy.copy(lossOpts)}
-            
-            network["center-output"] = {"class": "softmax",
-                                        "from": "linear2-centerState",
-                                        "target": "alignment",
-                                        "loss": "ce",
-                                        "loss_opts": copy.copy(lossOpts)}
-        
-        
+
         elif final_ctx_type.value == context_mapper.get_enum(6):
-            diOut = encoder_out_len + ph_emb_size
-            triOut = encoder_out_len + ph_emb_size + st_emb_size
             delta_blstm_n = "deltaEncoder-output"
-            
-            set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
+            diOut = encoder_out_len + ph_emb_size
             if shared_delta_encoder:
                 add_delta_blstm_(network, name=delta_blstm_n, l2=l2, source_layer=['fwd_6', 'bwd_6'])
                 set_Mlp_component(network, "diphone", diOut, sourceLayer=delta_blstm_n, l2=l2)
-                set_Mlp_component(network, "triphone", triOut, sourceLayer=delta_blstm_n, l2=l2)
             else:
                 add_delta_blstm_(network, name=delta_blstm_n, l2=l2)
                 set_Mlp_component(network, "diphone", diOut, l2=l2)
-                set_Mlp_component(network, "triphone", triOut, sourceLayer=delta_blstm_n, l2=l2)
-            
-            network["left-output"] = {"class": "softmax",
-                                      "from": "linear2-leftContext",
-                                      "target": "lastLabel",
-                                      "loss": "ce",
-                                      "loss_opts": copy.copy(lossOpts)}
-            
-            network["right-output"] = {"class": "softmax",
-                                       "from": "linear2-triphone",
-                                       "target": "futureLabel",
-                                       "loss": "ce",
-                                       "loss_opts": copy.copy(lossOpts)}
-            
             network["center-output"] = {"class": "softmax",
                                         "from": "linear2-diphone",
-                                        "target": "alignment",
+                                        "target": "classes",
                                         "loss": "ce",
                                         "loss_opts": copy.copy(lossOpts)}
-    else:
-        network["left-output"] = {"class": "softmax",
-                                     "from": "encoder-output",
-                                     "target": "lastLabel",
-                                     "loss": "ce",
-                                     "loss_opts": copy.copy(lossOpts)}
 
-        network["right-output"] = {"class": "softmax",
+
+            if use_multi_task:
+                triOut = encoder_out_len + ph_emb_size + st_emb_size
+                set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
+                if shared_delta_encoder:
+                    set_Mlp_component(network, "triphone", triOut, sourceLayer=delta_blstm_n, l2=l2)
+                else:
+                    set_Mlp_component(network, "triphone", triOut, sourceLayer=delta_blstm_n, l2=l2)
+
+                network["left-output"] = {"class": "softmax",
+                                          "from": "linear2-leftContext",
+                                          "target": "pastLabel",
+                                          "loss": "ce",
+                                          "loss_opts": copy.copy(lossOpts)}
+
+                network["right-output"] = {"class": "softmax",
+                                           "from": "linear2-triphone",
+                                           "target": "futureLabel",
+                                           "loss": "ce",
+                                           "loss_opts": copy.copy(lossOpts)}
+                network["center-output"]["target"] = "centerState"
+    else:
+        network["center-output"] = {"class": "softmax",
                                     "from": "encoder-output",
-                                    "target": "futureLabel",
+                                    "target": "classes",
                                     "loss": "ce",
                                     "loss_opts": copy.copy(lossOpts)}
+        if use_multi_task:
+            network["left-output"] = {"class": "softmax",
+                                         "from": "encoder-output",
+                                         "target": "pastLabel",
+                                         "loss": "ce",
+                                         "loss_opts": copy.copy(lossOpts)}
 
-        network["center-output"] = {"class": "softmax",
-                                      "from": "encoder-output",
-                                      "target": "alignment",
-                                      "loss": "ce",
-                                      "loss_opts": copy.copy(lossOpts)}
+            network["right-output"] = {"class": "softmax",
+                                        "from": "encoder-output",
+                                        "target": "futureLabel",
+                                        "loss": "ce",
+                                        "loss_opts": copy.copy(lossOpts)}
+            network["center-output"]["target"] = "centerState"
+
+
     
     return network
 
 
-def get_diphone_net(shared_network):
+def get_diphone_net(shared_network, use_multi_task, l2, label_smoothing, ph_emb_size=64, st_emb_size=256):
     network = copy.copy(shared_network)
-    
-    network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
-    network["pastEmbed"] = {"class": "linear", "activation": None, "from": ["data:lastLabel"], "n_out": 10}
-    
-    network["linear1"] = {"class": "linear",
-                          "activation": "relu",
-                          "from": ["encoder-output", "pastEmbed"],
-                          "n_out": 1010}
-    
-    network["linear2"] = {"class": "linear",
-                          "activation": "relu",
-                          "from": "linear1",
-                          "n_out": 1010}
-    
-    network["center-output"] = {"class": "softmax",
-                                "from": "linear2",
-                                "target": "alignment",
-                                "loss": "ce",
-                                "loss_opts": {"focal_loss_factor": 2.0}}
-    
-    network["left-output"] = {"class": "softmax",
-                              "from": "encoder-output",
-                              "target": "lastLabel",
-                              "loss": "ce",
-                              "loss_opts": {"focal_loss_factor": 2.0}}
-    
+    network["pastEmbed"] = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
+    network["linear1-diphone"]["from"] = ["encoder-output", "pastEmbed"]
+    if use_multi_task:
+        network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
+        network["linear1-triphone"]["from"] = ["encoder-output", "currentState"]
+    else:
+        encoder_out_len = shared_network['fwd_1']['n_out'] * 2
+        loss_opts = network["center-output"]["loss_opts"]
+        loss_opts["label_smoothing"] = label_smoothing
+        set_Mlp_component(network, "leftContext", encoder_out_len, l2=l2)
+        network["left-output"] = {"class": "softmax",
+                                  "from": "linear2-leftContext",
+                                  "target": "pastLabel",
+                                  "loss": "ce",
+                                  "loss_opts": copy.copy(loss_opts)}
+
     return network
+
+
+def get_forward_net(shared_network, l2, ph_emb_size=64, st_emb_size=256):
+    network = copy.copy(shared_network)
+
+    # Embeddings
+    network["pastEmbed"]    = get_embedding_layer(source="pastLabel", dim=ph_emb_size, l2=l2)
+    network["currentState"] = get_embedding_layer(source="centerState", dim=st_emb_size, l2=l2)
+
+    network["linear1-diphone"]["from"] = ["encoder-output", "pastEmbed"]
+    network["linear1-triphone"]["from"] = ["encoder-output", "currentState"]
+
+    return network
+
+
 
 
 def get_symmetric_net(shared_network):
@@ -487,57 +522,6 @@ def get_symmetric_net(shared_network):
     
     return network
 
-
-def get_forward_net(shared_network):
-    network = copy.copy(shared_network)
-    
-    network["encoder-output"] = {"class": "copy", "from": ["fwd_6", "bwd_6"]}
-    
-    # Embeddings
-    network["pastEmbed"] = {"class": "linear", "activation": None, "from": ["data:lastLabel"], "n_out": 10}
-    network["currentState"] = {"class": "linear", "activation": None, "from": ["data:alignment"], "n_out": 30}
-    
-    # triphone output
-    network["linear1-triphone"] = {"class": "linear",
-                                   "activation": "relu",
-                                   "from": ["encoder-output", "currentState", "pastEmbed"],
-                                   "n_out": 1040}
-    
-    network["linear2-triphone"] = {"class": "linear",
-                                   "activation": "relu",
-                                   "from": "linear1-triphone",
-                                   "n_out": 1040}
-    
-    network["triphone-output"] = {"class": "softmax",
-                                  "from": "linear2-triphone",
-                                  "target": "futureLabel",
-                                  "loss": "ce",
-                                  "loss_opts": {"focal_loss_factor": 2.0}}
-    
-    # diphone output
-    network["linear1"] = {"class": "linear",
-                          "activation": "relu",
-                          "from": ["encoder-output", "pastEmbed"],
-                          "n_out": 1010}
-    
-    network["linear2"] = {"class": "linear",
-                          "activation": "relu",
-                          "from": "linear1",
-                          "n_out": 1010}
-    
-    network["diphone-output"] = {"class": "softmax",
-                                 "from": "linear2",
-                                 "target": "alignment",
-                                 "loss": "ce",
-                                 "loss_opts": {"focal_loss_factor": 2.0}}
-    
-    network["context-output"] = {"class": "softmax",
-                                 "from": "encoder-output",
-                                 "target": "lastLabel",
-                                 "loss": "ce",
-                                 "loss_opts": {"focal_loss_factor": 2.0}}
-    
-    return network
 
 
 def get_backward_net(shared_network):

@@ -2,10 +2,11 @@ __all__ = [
     "get_final_output",
     "get_init_args",
     "get_data_inputs",
+    "get_diphone_cart_args"
 ]
 
 from typing import Dict, Optional, Union
-
+from IPython import embed
 # -------------------- Sisyphus --------------------
 
 from sisyphus import tk
@@ -14,9 +15,15 @@ from sisyphus import tk
 
 import i6_core.features as features
 import i6_core.rasr as rasr
+import i6_core.cart as cart
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
+
+from i6_experiments.common.datasets.librispeech.cart import (
+    CartQuestionsWithStress,
+    CartQuestionsWithoutStress,
+)
 
 # -------------------- helpers --------------------
 # -------------------- functions --------------------
@@ -227,3 +234,61 @@ def get_final_output(train_corpus, name="final"):
     return output_args
 
 
+
+
+def get_diphone_cart_args(
+    use_stress_marker: bool = False,
+    max_leaves: int = 12001,
+    min_obs: int = 1000,
+    hmm_states: int = 3,
+    feature_flow: str = "mfcc+deriv+norm",
+    add_unknown: bool = False,
+    n_phones = 3,
+):
+    """
+
+    :param use_stress_marker: use ARPAbet stress marker, please also check for correct lexicon then
+    :param max_leaves:
+    :param min_obs:
+    :param hmm_states:
+    :param feature_flow:
+    :param add_unknown:
+    :return:
+    """
+
+    CartQuestions = (
+        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
+    )
+
+
+    cart_questions_class = CartQuestions(
+        max_leaves=max_leaves,
+        min_obs=min_obs,
+        add_unknown=add_unknown,
+        n_phones=n_phones
+    )
+
+
+    cart_questions = cart.PythonCartQuestions(
+        phonemes=cart_questions_class.phonemes_boundary_special,
+        steps=cart_questions_class.steps,
+        max_leaves=max_leaves,
+        hmm_states=hmm_states,
+    )
+
+    cart_lda_args = {
+        "name": "cart_mono",
+        "alignment": "train_mono",
+        "initial_flow_key": feature_flow,
+        "context_flow_key": feature_flow.split("+")[0],
+        "context_size": 9,
+        "num_dim": 48,
+        "num_iter": 2,
+        "eigenvalue_args": {},
+        "generalized_eigenvalue_args": {"all": {"verification_tolerance": 1e16}},
+    }
+
+    return rasr_util.GmmCartArgs(
+        cart_questions=cart_questions,
+        cart_lda_args=cart_lda_args,
+    )

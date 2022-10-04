@@ -24,7 +24,9 @@ def get_train_params_bw():
                       }
     return additional_args
 
-def get_train_params_ce(num_layers=6, num_nodes=512, n_epochs=20, train_partition=8):
+def get_train_params_ce(num_layers=6, num_nodes=512, n_epochs=20, train_partition=8, **kwargs):
+    chunking = kwargs.pop("chunking") if "chunking" in kwargs else "64:32"
+
     additional_args = {"num_epochs": n_epochs*train_partition,
                        "layers": num_layers * [num_nodes],
                        "l2": 0.01,
@@ -37,8 +39,8 @@ def get_train_params_ce(num_layers=6, num_nodes=512, n_epochs=20, train_partitio
                        "learning_rate_control_relative_error_relative_lr": True,
                        "learning_rate_control_min_num_epochs_per_new_lr": 4,
                        "batch_size": 5000,
-                       "chunking": "64:32",
-                       "max_seqs": 128,
+                       "chunking": chunking,
+                       "max_seqs": int(chunking.split(":")[0])*2,
                        "nadam": True,
                        "truncation": -1,
                        "gradient_clip": 0,
@@ -47,6 +49,6 @@ def get_train_params_ce(num_layers=6, num_nodes=512, n_epochs=20, train_partitio
                        "unit_type": "nativelstm2",
                        "start_batch": "auto",
                        "specaugment": True,
-
                       }
+    additional_args.update(kwargs)
     return additional_args

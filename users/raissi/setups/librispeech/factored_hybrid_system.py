@@ -57,7 +57,7 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextMapper,
     LabelInfo,
     PipelineStages,
-    #SprintFeatureToHdf
+    SprintFeatureToHdf
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
@@ -66,6 +66,14 @@ from i6_experiments.users.raissi.setups.common.helpers.network_architectures imp
 
 from i6_experiments.users.raissi.setups.common.helpers.train_helpers import (
     get_extra_config_segment_order,
+)
+
+from i6_experiments.users.raissi.setups.common.helpers.specaugment_returnn_epilog import (
+    get_specaugment_epilog,
+)
+
+from i6_experiments.users.raissi.setups.common.helpers.returnn_epilog import (
+    get_epilog_code_dense_label,
 )
 
 from i6_experiments.users.raissi.setups.common.util.rasr import (
@@ -141,6 +149,7 @@ class FactoredHybridSystem(NnSystem):
                                       'features_postpath_cv': ('/').join(['FeatureExtraction.Gammatone.yly3ZlDOfaUm', 'output', 'gt.cache.bundle']),
                                       'features_tkpath_train': Path('/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle'),
                                       }
+        self.base_allophones = "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.boJyUrd9Bd89/output/allophones"
 
         #dataset infomration
         self.cv_corpora = []
@@ -158,15 +167,19 @@ class FactoredHybridSystem(NnSystem):
         self.basic_feature_flows = {}
 
         # train information
-        self.initial_nn_args =   {'num_input': 50,}
+        self.initial_nn_args =   {'num_input': 50}
 
         self.initial_train_args = {'time_rqmt': 168,
-                                   'mem_rqmt': 40}
+                                   'mem_rqmt': 40,
+                                   'log_verbosity': 5,
+                                   }
 
         #pipeline info
         self.context_mapper = ContextMapper()
         self.stage = PipelineStages(get_alignment_keys())
-        self.contexts = {'mono': ContextEnum(self.context_mapper.get_enum(1))}
+        self.contexts = {'mono': ContextEnum(self.context_mapper.get_enum(1)),
+                         'di': ContextEnum(self.context_mapper.get_enum(2)),
+                         }
         
         self.trainers    = None #ToDo external trainer class
         self.recognizers = {}
@@ -178,9 +191,10 @@ class FactoredHybridSystem(NnSystem):
 
         #inference related
         self.tf_map = {"triphone": "right", "diphone": "center", "context": "left"}        #Triphone forward model
+        self.tf_library = "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies/binaries/recognition/NativeLstm2.so"
 
         self.inputs = {}
-        self.train_key = "train-other-960"
+        self.train_key = None#"train-other-960"
 
     #----------- pipeline construction -----------------
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
@@ -205,6 +219,12 @@ class FactoredHybridSystem(NnSystem):
             if 'train' in k:
                 self.crp_names[k] = f'{train_key}.{k}'
             else:  self.crp_names[k] = k
+
+    def set_returnn_config_for_experiment(self, key, returnn_config):
+        assert key in self.experiments.keys()
+        self.experiments[key]["returnn_config"] = returnn_config
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------- Helpers --------------------
     def _get_prior_info_dict(self):
@@ -357,6 +377,12 @@ class FactoredHybridSystem(NnSystem):
                 not in self.train_corpora + self.dev_corpora + self.test_corpora
             ):
                 continue
+            if 'train' in corpus_key:
+                if self.train_key is None:
+                    self.train_key = corpus_key
+                else:
+                    if self.train_key != corpus_key:
+                        assert(False, "You already set the train key to be {self.train_key}, you cannot have more than one train key")
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self.get_system_input(
@@ -377,7 +403,7 @@ class FactoredHybridSystem(NnSystem):
             self.feature_flows[c_key] = c_data.feature_flow
             self.set_sclite_scorer(c_key)
 
-    def _update_crp_am_setting(self, crp_key, tdp_type=None):
+    def _update_crp_am_setting(self, crp_key, tdp_type=None, add_base_allophones=False):
         # ToDo handle different tdp values: default, based on transcription, based on an alignment
         tdp_pattern = self.tdp_values['pattern']
         if tdp_type in ['default']: #additional later, maybe enum or so
@@ -399,7 +425,7 @@ class FactoredHybridSystem(NnSystem):
         if 'train' in crp_key:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
         else:
-            crp.acoustic_model_config.state_tying.type = 'no-tying-dense' #for correct statis tree of dependency
+            crp.acoustic_model_config.state_tying.type = 'no-tying-dense' #for correct tree of dependency
 
         if self.label_info.use_word_end_classes:
             crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
@@ -408,9 +434,12 @@ class FactoredHybridSystem(NnSystem):
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
+        if add_base_allophones:
+            crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
+
         crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
 
-    def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type):
+    def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {'train': train_tdp_type, 'eval': eval_tdp_type}
         for t in types.keys():
             if types[t] == 'heuristic':
@@ -421,12 +450,22 @@ class FactoredHybridSystem(NnSystem):
 
         for crp_k in self.crp_names.keys():
             if 'train' in crp_k:
-                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['train'])
+                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['train'], add_base_allophones=add_base_allophones)
             else:
-                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'])
+                self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'], add_base_allophones=add_base_allophones)
 
 
     #----- data preparation for train-----------------------------------------------------
+    def get_epilog_for_train(self, specaug_args=None):
+        if specaug_args is not None:
+            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
+        else:
+            spec_augment_epilog = None
+        return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
+                                            n_contexts=self.label_info.n_contexts,
+                                            n_states=self.label_info.n_states_per_phone,
+                                            specaugment=spec_augment_epilog)
+
 
     def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
         train_corpus_path = self.corpora[self.train_key].corpus_file
@@ -538,6 +577,10 @@ class FactoredHybridSystem(NnSystem):
             devtrain_data=nn_devtrain_data_inputs,
             dev_data=nn_dev_data_inputs,
             test_data=nn_test_data_inputs)
+        label_info_args = {
+            'n_states_per_phone': self.label_info.n_states_per_phone,
+            'n_contexts'        : self.label_info.n_contexts}
+        self.initial_nn_args.update(label_info_args)
 
     # -------------------- Training --------------------
 
@@ -696,25 +739,34 @@ class FactoredHybridSystem(NnSystem):
 
 
     #---------------------Prior Estimation--------------
+    def get_hdf_path(self, hdf_key):
+        if hdf_key is not None:
+            assert hdf_key in self.hdfs.keys()
+            return self.hdfs[hdf_key]
+
+        if self.train_key not in self.hdfs.keys():
+            self.create_hdf()
+
+        return self.hdfs[self.train_key]
+
     def create_hdf(self):
-        pass
-        #path = '/work/asr4/raissi/setups/librispeech/960-ls/work--upto-09-2021/i6_private/users/raissi/helpers/sprint_align_to_hdf_for_context/SprintFeatureToHdf.twVD2EEjzYj3/output/data.hdf'
-        #self.hdfs['960'] =  [('.').join([path, f'{i}']) for i in range(100)]
-        #path = '/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache'
-        #feature_caches = [('.').join([path, f'{i}']) for i in range(1, 101)]
-        #hdfJob = SprintFeatureToHdf(feature_caches)
-        #self.hdfs['960'] = hdfJob.hdf_files
+        gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
+        feature_caches = [gammaton_features_paths[i].get_path() for i in range(1, len(gammaton_features_paths.keys())+1)]
+        hdfJob = SprintFeatureToHdf(feature_caches)
+        self.hdfs[self.train_key] = hdfJob.hdf_files
 
-        #hdfJob.add_alias(f"960_hdf_dump")
-        #tk.register_output(f"960_hdf.0", hdfJob.hdf_files[0])
+        hdfJob.add_alias(f"hdf/{self.train_key}")
+        tk.register_output(f"hdf/{self.train_key}.hdf.1",  self.hdfs[self.train_key][0])
 
-    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None):
-
+    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
         if nStateClasses is None:
             nStateClasses = self.label_info.get_n_state_classes()
 
         if tm is None:
             tm = self.tf_map
+
+        if tf_library is None:
+            tf_library = self.tf_library
 
         name = f"{self.experiments[key]['name']}-epoch-{epoch}"
         model_checkpoint = self._get_model_checkpoint(
@@ -722,10 +774,12 @@ class FactoredHybridSystem(NnSystem):
         )
         graph = self.experiments[key]["graph"]["inference"]
 
-        estimateJob = EstimateMonophonePriors_(model=model_checkpoint,
-                                               graph=graph,
-                                               dataPaths=self.hdfs['960'],
-                                               datasetIndices=list(range(50)),
+        hdf_paths = self.get_hdf_path(hdf_key)
+
+        estimateJob = EstimateMonophonePriors_(graph=graph,
+                                               model=model_checkpoint,
+                                               dataPaths=hdf_paths,
+                                               datasetIndices=list(range(len(hdf_paths)//3)),
                                                libraryPath=tf_library,
                                                nStates=nStateClasses,
                                                tensorMap=tm,
@@ -742,6 +796,56 @@ class FactoredHybridSystem(NnSystem):
             xmlName = "mono-prior"
         tk.register_output(xmlName, priorFiles[0])
         self.experiments[key]["priors"] = priorFiles
+
+    def set_diphone_priors(self, key, epoch, tf_library=None, nStateClasses=None, nContexts=None,
+                           gpu=1, time=20, isSilMapped=True, hdf_key=None):
+        assert (self.label_info.sil_id is not None)
+        if nStateClasses is None:
+            nStateClasses = self.label_info.get_n_state_classes()
+        if nContexts is None:
+            nContexts = self.label_info.n_contexts
+
+        if tf_library is None:
+            tf_library = self.tf_library
+
+        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
+        model_checkpoint = self._get_model_checkpoint(
+            self.experiments[key]["train_job"], epoch
+        )
+        graph = self.experiments[key]["graph"]["inference"]
+
+        hdf_paths = self.get_hdf_path(hdf_key)
+
+        estimateJob = EstimateRasrDiphoneAndContextPriors(graphPath=graph,
+                                                          model=model_checkpoint,
+                                                          dataPaths=hdf_paths,
+                                                          datasetIndices=list(range(len(hdf_paths)//3)),
+                                                          libraryPath=tf_library,
+                                                          nStates=nStateClasses,
+                                                          tensorMap=self.tf_map,
+                                                          nContexts=nContexts,
+                                                          nStateClasses=nStateClasses,
+                                                          gpu=gpu,
+                                                          time=time)
+
+        estimateJob.add_alias(f"priors-{name}")
+        xmlJob = DumpXmlRasrForDiphone(estimateJob.diphoneFiles,
+                                         estimateJob.contextFiles,
+                                         estimateJob.numSegments,
+                                         nContexts=nContexts,
+                                         nStateClasses=nStateClasses,
+                                         adjustSilence=isSilMapped,
+                                         silBoundaryIndices=[0, self.label_info.sil_id])
+
+        priorFiles = [xmlJob.diphoneXml, xmlJob.contextXml]
+        if name is not None:
+            xmlName = f"priors/{name}-xmlpriors"
+        else:
+            xmlName = "diphone-priors"
+        tk.register_output(xmlName, priorFiles[0])
+        self.experiments[key]["priors"] = priorFiles
+
+
 
     # -------------------- Decoding --------------------
     def set_graph_for_experiment(self, key):
@@ -783,6 +887,8 @@ class FactoredHybridSystem(NnSystem):
                 self.experiments[key]["returnn_config"].config["network"]["fwd_1"]["n_out"]
                 * 2
         )
+        p_info = self._get_prior_info_dict()
+        assert self.experiments[key]['priors'] is not None
 
         isSpecAug = (
             True
@@ -798,6 +904,24 @@ class FactoredHybridSystem(NnSystem):
                 recog_args = get_recog_mono_specAug_args()
             else:
                 recog_args = get_recog_mono_args()
+            scales = recog_args["priorScales"]
+            del recog_args["priorScales"]
+            p_info['center-state-prior']['scale'] = scales['center-state']
+            p_info['center-state-prior']['file'] = self.experiments[key]['priors'][0]
+            recog_args["priorInfo"] = p_info
+
+        elif context_type.value in [
+            self.context_mapper.get_enum(2),
+            self.context_mapper.get_enum(8)
+        ]:
+            recog_args = get_recog_diphone_fromGmm_specAug_args()
+            scales = recog_args["shared_args"]["priorScales"]
+            del recog_args["shared_args"]["priorScales"]
+            p_info['center-state-prior']['scale'] = scales['center-state']
+            p_info['left-context-prior']['scale'] = scales['left-context']
+            p_info['center-state-prior']['file'] = self.experiments[key]['priors'][0]
+            p_info['left-context-prior']['file'] = self.experiments[key]['priors'][1]
+            recog_args["shared_args"]["priorInfo"] = p_info
         else:
             print("implement other contexts")
             assert (False)
@@ -812,13 +936,16 @@ class FactoredHybridSystem(NnSystem):
             self.context_mapper.get_enum(1),
             self.context_mapper.get_enum(7),
         ]:
-            recog_args["recogArgsCount"].update(recog_args["sharedRecogArgs"])
-            recog_args["recogArgsLstm"].update(recog_args["sharedRecogArgs"])
+            recog_args["4gram_args"].update(recog_args["shared_args"])
+            recog_args["lstm_args"].update(recog_args["shared_args"])
 
 
         if dummy_mixtures is None:
             dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
                                                    self.initial_nn_args["num_input"]).out_mixtures  # gammatones
+
+        assert (self.label_info.sil_id is not None)
+
         recognizer = FHDecoder(
             name=name,
             search_crp=self.crp[crp_corpus],
@@ -831,6 +958,7 @@ class FactoredHybridSystem(NnSystem):
             eval_files=self.scorer_args[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
+            silence_id=self.label_info.sil_id,
             gpu=gpu,
         )
 

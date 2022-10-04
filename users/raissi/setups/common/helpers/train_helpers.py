@@ -8,8 +8,6 @@ from i6_experiments.users.raissi.setups.common.helpers.network_architectures imp
     make_config
 )
 
-
-
 def get_extra_config_segment_order(size, extra_config=None):
     if extra_config is None:
         extra_config = rasr.RasrConfig()
@@ -77,6 +75,7 @@ def get_monophone_returnn_config(num_classes, ph_emb_size, st_emb_size,
 
     mono_returnn_config = make_config(context_type=contextType,
                                       add_mlps=add_mlps,
+                                      use_multi_task=use_multi_task,
                                       final_context_type=final_context_type,
                                       ph_emb_size=ph_emb_size,
                                       st_emb_size=st_emb_size,
@@ -86,17 +85,46 @@ def get_monophone_returnn_config(num_classes, ph_emb_size, st_emb_size,
                                       mlp_l2=mlp_l2,
                                       shared_delta_encoder=shared_delta_encoder,
                                       **returnn_args)
-
+    """ 
     if use_multi_task:
         mono_returnn_config.config["network"]["left-output"]["target"] = "pastLabel"
         mono_returnn_config.config["network"]["right-output"]["target"] = "futureLabel"
         mono_returnn_config.config["network"]["center-output"]["target"] = "centerState"
     else:
-        mono_returnn_config.config["network"]["center-output"]["target"] = "classes"
+        mono_returnn_config.config["network"]["center-output"]["target"] = "classes"""
     mono_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
                                                  "classes": [num_classes, 1]}
 
     return mono_returnn_config
+
+def get_diphone_returnn_config(num_classes, ph_emb_size, st_emb_size, mlp_l2=0.01, use_multi_task=True,
+                                 focal_loss_factor=2.0, label_smoothing=0.2,
+                                 final_context_type=None, shared_delta_encoder=False, **returnn_args):
+    ctxMapper = ContextMapper()
+    contextType = ContextEnum(ctxMapper.get_enum(2))
+    final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
+
+    diphone_returnn_config = make_config(context_type=contextType,
+                                         add_mlps=True,
+                                         use_multi_task=use_multi_task,
+                                         final_context_type=final_context_type,
+                                         ph_emb_size=ph_emb_size,
+                                         st_emb_size=st_emb_size,
+                                         focal_loss_factor=focal_loss_factor,
+                                         label_smoothing=label_smoothing,
+                                         eval_dense_label=True,
+                                         mlp_l2=mlp_l2,
+                                         shared_delta_encoder=shared_delta_encoder,
+                                         **returnn_args)
+
+    del diphone_returnn_config.config["network"]["center-output"]["loss_opts"]["label_smoothing"]
+
+    diphone_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
+                                                 "classes": [num_classes, 1]}
+
+    return diphone_returnn_config
+
+
 
 
 
