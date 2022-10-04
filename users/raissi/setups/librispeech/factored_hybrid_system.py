@@ -770,6 +770,7 @@ class FactoredHybridSystem(NnSystem):
             is_min_duration=False,
             is_multi_encoder_output=False,
             tf_library=None,
+            dummy_mixtures=None,
     ):
 
 
@@ -814,7 +815,8 @@ class FactoredHybridSystem(NnSystem):
             recog_args["recogArgsCount"].update(recog_args["sharedRecogArgs"])
             recog_args["recogArgsLstm"].update(recog_args["sharedRecogArgs"])
 
-        dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
+        if dummy_mixtures is None:
+            dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
                                                    self.initial_nn_args["num_input"]).out_mixtures  # gammatones
         recognizer = FHDecoder(
             name=name,
@@ -828,6 +830,106 @@ class FactoredHybridSystem(NnSystem):
             eval_files=self.scorer_args[crp_corpus],
             tf_library=tf_library,
             is_multi_encoder_output=is_multi_encoder_output,
+            gpu=gpu,
+        )
+
+        return recognizer, recog_args
+
+    def get_recognizer_and_args_v2(
+            self,
+            key,
+            context_type,
+            epoch,
+            crp_corpus=None,
+            gpu=True,
+            is_min_duration=False,
+            is_multi_encoder_output=False,
+            tf_library=None,
+            dummy_mixtures=None,
+    ):
+
+
+        name = ('-').join([self.experiments[key]["name"], crp_corpus, f'e{epoch}-'])
+        if context_type.value in [self.context_mapper.get_enum(i) for i in range(6, 9)]:
+            name = f'{self.experiments[key]["name"]}-delta-e{epoch}-'
+
+        model_path = self._get_model_path(self.experiments[key]["train_job"], epoch)
+        num_encoder_output = (
+                self.experiments[key]["returnn_config"].config["network"]["fwd_1"]["n_out"]
+                * 2
+        )
+        p_info = self._get_prior_info_dict()
+        assert self.experiments[key]['priors'] is not None
+
+        isSpecAug = (
+            True
+            if "source"
+               in self.experiments[key]["returnn_config"].config["network"].keys()
+            else False
+        )
+        if context_type.value in [
+            self.context_mapper.get_enum(1),
+            self.context_mapper.get_enum(7),
+        ]:
+            if isSpecAug:
+                recog_args = get_recog_mono_specAug_args()
+            else:
+                recog_args = get_recog_mono_args()
+            scales = recog_args["priorScales"]
+            del recog_args["priorScales"]
+            p_info['center-state-prior']['scale'] = scales['center-state']
+            p_info['center-state-prior']['file'] = self.experiments[key]['priors'][0]
+            recog_args["priorInfo"] = p_info
+
+        elif context_type.value in [
+            self.context_mapper.get_enum(2),
+            self.context_mapper.get_enum(8)
+        ]:
+            recog_args = get_recog_diphone_fromGmm_specAug_args()
+            scales = recog_args["shared_args"]["priorScales"]
+            del recog_args["shared_args"]["priorScales"]
+            p_info['center-state-prior']['scale'] = scales['center-state']
+            p_info['left-context-prior']['scale'] = scales['left-context']
+            p_info['center-state-prior']['file'] = self.experiments[key]['priors'][0]
+            p_info['left-context-prior']['file'] = self.experiments[key]['priors'][1]
+            recog_args["shared_args"]["priorInfo"] = p_info
+        else:
+            print("implement other contexts")
+            assert (False)
+
+        recog_args["use_word_end_classes"] = self.label_info.use_word_end_classes
+        recog_args["n_states_per_phone"]   = self.label_info.n_states_per_phone
+        recog_args["n_contexts"]           = self.label_info.n_contexts
+        recog_args["is_min_duration"]      = is_min_duration
+        recog_args["num_encoder_output"]   = num_encoder_output
+
+        if context_type.value not in [
+            self.context_mapper.get_enum(1),
+            self.context_mapper.get_enum(7),
+        ]:
+            recog_args["4gram_args"].update(recog_args["shared_args"])
+            recog_args["lstm_args"].update(recog_args["shared_args"])
+
+
+        if dummy_mixtures is None:
+            dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
+                                                   self.initial_nn_args["num_input"]).out_mixtures  # gammatones
+
+        assert (self.label_info.sil_id is not None)
+
+        recognizer = FHDecoder(
+            name=name,
+            search_crp=self.crp[crp_corpus],
+            context_type=context_type,
+            context_mapper=self.context_mapper,
+            feature_path=self.feature_flows[crp_corpus],
+            model_path=model_path,
+            graph=self.experiments[key]["graph"]["inference"],
+            mixtures=dummy_mixtures,
+            eval_files=self.scorer_args[crp_corpus],
+            tf_library=tf_library,
+            is_multi_encoder_output=is_multi_encoder_output,
+            silence_id=self.label_info.sil_id,
             gpu=gpu,
         )
 

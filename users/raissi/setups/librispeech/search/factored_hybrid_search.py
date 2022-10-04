@@ -530,7 +530,7 @@ class FHDecoder:
                            addAllAllos=True,
                            tdpScale=1.0, tdpExit=0.0, tdpNonword=20.0, silExit=20.0, tdpSkip=30.0, spLoop=3.0, spFwd=0.0, silLoop=0.0, silFwd=3.0,
                            beam=20.0, beamLimit=400000, wePruning=0.5, wePruningLimit=10000, pronScale=3.0, altas=None,
-                           runOptJob=False, onlyLmOpt=True, calculateStat=False, keep_value=12,
+                           runOptJob=False, onlyLmOpt=True, calculateStat=False, keep_value=12, lookup_state_tying=None,
     ):
 
         if posteriorScales is None:
@@ -572,6 +572,7 @@ class FHDecoder:
         searchCrp = copy.deepcopy(self.search_crp)
         state_tying = searchCrp.acoustic_model_config.state_tying.type
 
+
         searchCrp.acoustic_model_config = am.acoustic_model_config(
             state_tying=state_tying,
             states_per_phone=n_states_per_phone,
@@ -579,13 +580,19 @@ class FHDecoder:
             across_word_model=True,
             early_recombination=False,
             tdp_scale=tdpScale,
+            tying_type="global-and-nonword",
+            nonword_phones="[UNKNOWN]",
             tdp_transition=(spLoop, spFwd, 'infinity', tdpExit),
             tdp_silence=(silLoop, silFwd, 'infinity', silExit),
         )
 
+        if state_tying == 'lookup':
+            searchCrp.acoustic_model_config.state_tying.file = lookup_state_tying
+
         searchCrp.acoustic_model_config.allophones["add-all"] = addAllAllos
         searchCrp.acoustic_model_config.allophones["add-from-lexicon"] = not addAllAllos
 
+        use_boundary_classes = None
         if 'tying-dense' in state_tying:
             use_boundary_classes = self.search_crp.acoustic_model_config["state-tying"][
                 "use-boundary-classes"
