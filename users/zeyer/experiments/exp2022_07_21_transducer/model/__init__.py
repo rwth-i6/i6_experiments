@@ -77,3 +77,7 @@ class RecogDef(Protocol[ModelT]):
         :return: recog output, including beam
         """
         raise NotImplementedError
+
+    # TODO need to extend:
+    #   - job to remove blank
+    #   - job to take first best
