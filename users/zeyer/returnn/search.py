@@ -129,7 +129,7 @@ class SearchBeamJoinScores(Job):
                     else:
                         hyps[text] = logsumexp(hyps[text], score)
                 out.write("%r: [\n" % (seq_tag,))
-                for score, text in sorted([score, text] for text, score in hyps.items()):
+                for score, text in sorted([(score, text) for text, score in hyps.items()], reverse=True):
                     out.write("(%f, %r),\n" % (score, text))
                 out.write("],\n")
             out.write("}\n")
