@@ -70,6 +70,8 @@ def train(*,
         # TODO... metadataset etc...
         # dummy for now, just insert them into the dict, to get the dependency
         returnn_train_config_dict["_alignment_train_TODO"] = alignment.alignments["train"].hdf_files
+        from sisyphus import tk
+        returnn_train_config_dict["_alignment_train_TODO2"] = tk.Path("<non-existing-file>")
 
     if init_params:
         returnn_train_config_dict["import_model_train_epoch1"] = init_params
