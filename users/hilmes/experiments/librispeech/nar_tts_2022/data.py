@@ -8,6 +8,7 @@ from i6_core.returnn.hdf import ReturnnDumpHDFJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from i6_experiments.common.setups.returnn.data import get_returnn_length_hdfs
 from i6_core.tools.git import CloneGitRepositoryJob
+from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
 
 from i6_experiments.common.datasets.librispeech import (
     get_g2p_augmented_bliss_lexicon_dict,
@@ -16,7 +17,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import (
     get_librispeech_tts_segments,
 )
 from i6_experiments.users.hilmes.data.librispeech import (
-    get_ls_train_clean_100_tts_silencepreprocessed,
+    get_ls_train_clean_100_tts_silencepreprocessed, get_ls_train_clean_360_tts_silencepreprocessed
 )
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
     HDFDataset,
@@ -772,6 +773,8 @@ def get_inference_dataset(
     pitch_hdf: Optional = None,
     energy_hdf: Optional = None,
     process_corpus: bool = True,
+    original_corpus: Optional[tk.Path] = None,
+    segments: Optional[tk.Path] = None,
 ):
     """
     Builds the inference dataset, gives option for different additional datasets to be passed depending on experiment
@@ -816,12 +819,12 @@ def get_inference_dataset(
         path=zip_dataset,
         audio_opts=None,
         target_opts=datastreams["phonemes"].as_returnn_targets_opts(),
-        segment_file=None,
+        segment_file=segments,
         partition_epoch=1,
         seq_ordering="sorted_reverse",
     )
     mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file).out_mapping
-    speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file).out_hdf
+    speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus).out_hdf
     speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
     speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
     if speaker_prior_hdf is not None:
@@ -990,3 +993,20 @@ def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: s
   if log_norm:
     hdf = ApplyLogOnHDFJob(hdf_file=hdf, normalize=True).out_hdf
   return hdf
+
+
+def get_ls360_100h_data():
+
+    sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed()
+    librispeech_g2p_lexicon = extend_lexicon(
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+    )
+
+    sil_pp_train_clean_360_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=sil_pp_train_clean_360_co.corpus_file,
+        lexicon=librispeech_g2p_lexicon,
+    )
+    ls_360_segments = SegmentCorpusJob(sil_pp_train_clean_360_tts, 1).out_single_segment_files[1]
+    ls_360_100h_segments = ShuffleAndSplitSegmentsJob(ls_360_segments, split={'train': 0.28, 'dev': 0.72}).out_segments["train"]
+
+    return sil_pp_train_clean_360_tts, ls_360_100h_segments

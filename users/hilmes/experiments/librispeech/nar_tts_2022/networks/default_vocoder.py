@@ -307,7 +307,7 @@ class LJSpeechMiniGLVocoder:
       self.train_job.out_returnn_config_file,
     )
 
-  def vocode(self, hdf_input, iterations=1, checkpoint=None, name=None, cleanup=False):
+  def vocode(self, hdf_input, iterations=1, checkpoint=None, name=None, cleanup=False, recon_norm=True):
     if name is None:
       name = self._alias_path
     forward_config = self.build_forward_config(hdf_input)

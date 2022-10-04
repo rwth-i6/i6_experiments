@@ -10,7 +10,7 @@ from i6_experiments.common.baselines.librispeech.report import gmm_example_repor
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
 
-from i6_experiments.common.baselines.librispeech.ls100.gmm import baseline_args
+from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align import synth_args as baseline_args
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.data import (
     get_synth_corpus_data_inputs, get_corpus_data_inputs
 )
@@ -75,16 +75,12 @@ def run_librispeech_100_with_synthetic_data(
         for job in system.jobs[set]:
             if job.startswith("scorer") and "optlm" in job:
                 scores[job] = system.jobs[set][job].out_wer
-    from datetime import datetime
-    scores["date"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     import getpass
     user = getpass.getuser()
     scores["user"] = user
     scores["name"] = alias_prefix
-    scores["config_path"] = tk.config_manager.current_config
-    scores["sis_command_line"] = sys.argv
     content = GenerateReportStringJob(report_values=scores, report_template=gmm_example_report_format).out_report
-    report = MailJob(subject=alias_prefix + "Test", result=content, send_contents=True)
+    report = MailJob(subject=alias_prefix, result=content, send_contents=True)
     tk.register_output(f"reports/{alias_prefix}", report.out_status)
 
     for align in ["tts_align_sat"]:

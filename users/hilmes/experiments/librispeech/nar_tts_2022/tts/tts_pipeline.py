@@ -484,6 +484,7 @@ def synthesize_with_splits(
     checkpoint,
     vocoder,
     batch_size: int = 4000,
+    reconstruction_norm: bool = True,
     **tts_model_kwargs,
 ):
     """
@@ -529,7 +530,7 @@ def synthesize_with_splits(
         tk.register_output(split_name + "/foward.hdf", forward_hdf)
 
         forward_vocoded, vocoder_forward_job = vocoder.vocode(
-            forward_hdf, iterations=30, cleanup=True, name=split_name
+            forward_hdf, iterations=30, cleanup=True, name=split_name, recon_norm=reconstruction_norm
         )
         tk.register_output(split_name + "/synthesized_corpus.xml.gz", forward_vocoded)
         output_corpora.append(forward_vocoded)

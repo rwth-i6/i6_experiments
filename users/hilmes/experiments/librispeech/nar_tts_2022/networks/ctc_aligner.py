@@ -251,7 +251,7 @@ class CTCAligner(nn.Module):
         spectogram_encoder = self.spectogram_lin(spectogram_encoder)
         softmax = nn.softmax(spectogram_encoder, axis=spectogram_encoder.feature_dim)
         ctc = nn.ctc_loss(logits=spectogram_encoder, targets=phonemes)
-        ctc.mark_as_loss(custom_inv_norm_factor=nn.length(phonemes, axis=phoneme_time))
+        ctc.mark_as_loss(custom_inv_norm_factor=nn.length(dim=phoneme_time))
 
         if self.training:
             # TTS decoder

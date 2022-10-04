@@ -11,12 +11,13 @@ class CompareF0ValuesJob(Job):
   Extracts F0 for two given Corpora and calculates MAE over both
   """
 
-  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path, dtw: bool = True):
+  def __init__(self, ref_corpus: tk.Path, test_corpus: tk.Path, segment_list: tk.Path, dtw: bool = True, check_voiced = True):
 
     self.ref_corpus = ref_corpus
     self.test_corpus = test_corpus
     self.segment_list = segment_list
     self.dtw = dtw
+    self.check_voiced = check_voiced
 
     self.rqmt = {
       "mem": 1,
@@ -40,6 +41,8 @@ class CompareF0ValuesJob(Job):
     self.out_test_stds = self.output_path("test_stds")
     self.out_mappings = self.output_path("mappings")
     self.out_wrong_mappings = self.output_path("wrong_mappings")
+    self.out_avg_mae = self.output_var("avrg_mae")
+    self.out_total_wrong_mappings = self.output_var("total_wrong_mappings")
 
   def tasks(self):
 
@@ -75,6 +78,8 @@ class CompareF0ValuesJob(Job):
         if segment.fullname() in segment_list:
           recordings_2[segment.fullname()] = recording.audio
 
+    assert len(recordings_1) == len(segment_list)
+    assert len(segment_list) == len(recordings_2)
     for segment in segment_list:
       signal_1, sr_1 = soundfile.read(recordings_1[segment])
       signal_2, sr_2 = soundfile.read(recordings_2[segment])
@@ -101,7 +106,7 @@ class CompareF0ValuesJob(Job):
         D, wp = librosa.sequence.dtw(mel_filterbank_1, mel_filterbank_2)
       else:
         assert len(mel_filterbank_1) == len(mel_filterbank_2), "If no DTW sequences need same length"
-        wp = (list(range(len(mel_filterbank_1)))), list(range(len(mel_filterbank_2)))
+        wp = list(zip(range(len(mel_filterbank_1)), range(len(mel_filterbank_2))))
 
       f0_1, voiced_1, _ = librosa.pyin(y=signal_1, sr=sample_rate, hop_length=int(self.step_len * sample_rate),
         frame_length=int(self.window_len * sample_rate), win_length=int(self.window_len * sample_rate) // 2,
@@ -116,7 +121,7 @@ class CompareF0ValuesJob(Job):
       pitch_ls_2 = []
       wrong_mappings = 0
       for t_1, t_2 in wp:
-        if voiced_1[t_1] and voiced_2[t_2]:
+        if (voiced_1[t_1] and voiced_2[t_2]) or not self.check_voiced:
           pitch_ls_1.append(f0_1[t_1])
           pitch_ls_2.append(f0_2[t_2])
           sum += abs(numpy.log2((f0_2[t_2] / f0_1[t_1])))
@@ -124,9 +129,9 @@ class CompareF0ValuesJob(Job):
           wrong_mappings += 1
 
       mae = scale * sum
-      print("MAE     Real Data        Synth Data        Wrong Mappings")
+      print("MAE     Real Data        Synth Data        Wrong Mappings", "Total Lengths (real/synth)")
       print("%.2f " % mae, "%.2f+-%.2f" % (float(numpy.mean(pitch_ls_1)), float(numpy.std(pitch_ls_1))),
-        "   %.2f+-%.2f " % (float(numpy.mean(pitch_ls_2)), float(numpy.std(pitch_ls_2))), wrong_mappings)
+        "   %.2f+-%.2f " % (float(numpy.mean(pitch_ls_2)), float(numpy.std(pitch_ls_2))), wrong_mappings, len(mel_filterbank_1), len(mel_filterbank_2))
       mae_ls.append(mae)
       mean_1_ls.append(numpy.mean(pitch_ls_1))
       mean_2_ls.append(numpy.mean(pitch_ls_2))
@@ -156,7 +161,12 @@ class CompareF0ValuesJob(Job):
     with open(self.out_mappings.get_path(), "w") as f:
       for mapping in mappings_ls:
           f.write("%s\n" % mapping)
-    print("Average MAE: ", numpy.average(mae_ls), "Total wrong mappings", numpy.sum(wrong_mappings_ls))
+    average_mae = numpy.average(mae_ls)
+    self.out_avg_mae.set(average_mae)
+    total_wrong_mappings = numpy.sum(wrong_mappings_ls)
+    self.out_total_wrong_mappings.set(total_wrong_mappings)
+
+    print("Average MAE: ", average_mae, "Total wrong mappings", total_wrong_mappings)
 
 
 class CompareEnergyValuesJob(Job):

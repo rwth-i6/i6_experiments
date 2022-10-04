@@ -470,6 +470,8 @@ class NARTTSModel(nn.Module):
     use_true_pitch: bool = False,
     use_true_energy: bool = False,
     test: bool = False,
+    pitch_scale: float = 1.0,
+    energy_scale: float = 1.0,
   ):
     super(NARTTSModel, self).__init__()
 
@@ -497,8 +499,10 @@ class NARTTSModel(nn.Module):
     self.vae_usage = vae_usage
     assert use_pitch_pred or not use_true_pitch
     self.use_true_pitch = use_true_pitch
+    self.pitch_scale = pitch_scale
     assert use_energy_pred or not use_true_energy
     self.use_true_energy = use_true_energy
+    self.energy_scale = energy_scale
     self.test = test
 
     # dims
@@ -700,6 +704,8 @@ class NARTTSModel(nn.Module):
         pitch_loss.mark_as_loss()
         if self.test:
           pitch_pred = pitch  # this is new, maybe we got a problem here
+      if not self.training and self.pitch_scale != 1.0:
+        pitch_pred = pitch_pred * self.pitch_scale
       pitch_embedding, _ = self.pitch_emb(pitch_pred, in_spatial_dim=time_dim)
       encoder = encoder + pitch_embedding
 
@@ -780,6 +786,8 @@ class NARTTSModel(nn.Module):
         energy_loss.mark_as_loss()
         if self.test:
           energy_pred = energy
+      if self.energy_scale != 1.0:
+        energy_pred = energy_pred * self.energy_scale
       energy_embedding = self.energy_emb(energy_pred)
       rep += energy_embedding
 
