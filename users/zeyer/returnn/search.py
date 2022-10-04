@@ -63,7 +63,7 @@ class SearchRemoveLabel(Job):
         assert not os.path.exists(self.out_search_results.get_path())
         with util.uopen(self.out_search_results, "w") as out:
             out.write("{\n")
-            for seq_tag, entry in sorted(d.items()):
+            for seq_tag, entry in d.items():
                 if isinstance(entry, list):
                     # n-best list as [(score, text), ...]
                     out.write("%r: [\n" % (seq_tag,))
@@ -119,7 +119,7 @@ class SearchBeamJoinScores(Job):
         assert not os.path.exists(self.out_search_results.get_path())
         with util.uopen(self.out_search_results, "w") as out:
             out.write("{\n")
-            for seq_tag, entry in sorted(d.items()):
+            for seq_tag, entry in d.items():
                 # n-best list as [(score, text), ...]
                 assert isinstance(entry, list)
                 hyps = {}  # text -> score
