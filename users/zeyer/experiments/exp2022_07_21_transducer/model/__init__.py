@@ -2,7 +2,7 @@
 Model logic
 """
 
-from typing import Protocol, TypeVar, List, Dict
+from typing import Protocol, TypeVar, Optional, List, Dict
 import dataclasses
 from sisyphus import tk
 from i6_core.returnn.training import Checkpoint
@@ -78,6 +78,5 @@ class RecogDef(Protocol[ModelT]):
         """
         raise NotImplementedError
 
-    # TODO need to extend:
-    #   - job to remove blank
-    #   - job to take first best
+    output_with_beam: bool = True
+    output_blank_label: Optional[str] = None

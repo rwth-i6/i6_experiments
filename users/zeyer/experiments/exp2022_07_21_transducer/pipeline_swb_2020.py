@@ -374,3 +374,8 @@ def model_recog(*,
     res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
         targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})
     return res
+
+
+# RecogDef API
+model_recog.output_with_beam = True
+model_recog.output_blank_label = "<blank>"

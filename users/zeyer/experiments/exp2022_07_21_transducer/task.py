@@ -37,7 +37,6 @@ def get_switchboard_task() -> Task:
 
         score_recog_output_func=score,
         collect_score_results_func=_dummy_collect_score_results_func,  # TODO
-        # TODO fix this: ...
         recog_post_proc_funcs=[bpe_to_words],
     )
 
