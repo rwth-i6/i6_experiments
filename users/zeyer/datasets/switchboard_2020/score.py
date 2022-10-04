@@ -7,7 +7,7 @@ from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.recognition.scoring import Hub5ScoreJob
 from . import get_bliss_xml_corpus
 from ..base import DatasetConfig, RecogOutput, ScoreResult
-
+from ... import tools_paths
 
 glm = tk.Path(
     "/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm",
@@ -37,7 +37,9 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
     ctm = SearchWordsToCTMJob(
         recog_words_file=hyp_words,
         bliss_corpus=get_bliss_xml_corpus(corpus_name))
-    score_job = Hub5ScoreJob(glm=glm, hyp=ctm.out_ctm_file, ref=stms[corpus_name])
+    score_job = Hub5ScoreJob(
+        glm=glm, hyp=ctm.out_ctm_file, ref=stms[corpus_name],
+        sctk_binary_path=tools_paths.get_sctk_binary_path())
     return ScoreResult(
         dataset_name=corpus_name,
         main_measure_value=score_job.out_wer,
