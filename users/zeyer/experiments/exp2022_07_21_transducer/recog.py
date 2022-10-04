@@ -161,7 +161,10 @@ def beam_search(decoder: IDecoder, *, beam_size: int = 12) -> nn.Tensor:
     loop.state.target = decoder.bos_label()
     with loop:
         log_prob, loop.state.decoder = decoder(loop.state.target, state=loop.state.decoder)
-        loop.state.target = nn.choice(log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size)
+        loop.state.target = nn.choice(
+            log_prob, input_type="log_prob",
+            target=None, search=True, beam_size=beam_size,
+            length_normalization=False)
         if not decoder.target_spatial_dim:
             loop.end(decoder.end(loop.state.target, state=loop.state.decoder), include_eos=decoder.include_eos)
         found = loop.stack(loop.state.target)
