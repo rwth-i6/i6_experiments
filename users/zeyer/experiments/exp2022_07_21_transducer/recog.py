@@ -61,10 +61,6 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
         dev=dataset.get_main_dataset(),
-
-        batching="sorted",
-        batch_size=20000,
-        max_seqs=200,
     )
 
     returnn_recog_config = ReturnnConfig(
@@ -94,6 +90,14 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
+
+            # With num seqs > 1 in a batch, the search result might depend on the batch for RNN-T or AED,
+            # when the output seq length (amount of align labels) is variable.
+            # For RNA, this is always fixed (same as encoder seq len), so there it should not have an effect.
+            # In any case, the effect should be low.
+            batching="sorted",
+            batch_size=20000,
+            max_seqs=200,
         ),
         sort_config=False,
     )
