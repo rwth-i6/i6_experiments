@@ -75,7 +75,6 @@ class SearchRemoveLabel(Job):
             out.write("}\n")
 
     def _filter(self, txt: str) -> str:
-        txt = txt.replace(self.remove_label, "")
-        # "a <blank> b" -> "a  b", so now collapse multiple spaces
-        txt = txt.replace("  ", " ")
-        return txt
+        tokens = txt.split(" ")
+        tokens = [t for t in tokens if t != self.remove_label]
+        return " ".join(tokens)
