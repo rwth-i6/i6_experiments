@@ -1,6 +1,7 @@
 from enum import Enum
 from recipe.i6_core.returnn.config import CodeWrapper
 import copy
+import math
 # from returnn.tf.util.data import Dim
 
 # global use_attention
@@ -88,24 +89,31 @@ def add_attention(
     })
 
     if segment_center_window_size is not None:
-      assert type(segment_center_window_size) == int
+      assert type(segment_center_window_size) == int or segment_center_window_size == 0.5
       net_dict["output"]["unit"]["segment_starts1"] = net_dict["output"]["unit"]["segment_starts"].copy()
       net_dict["output"]["unit"]["segment_lens1"] = net_dict["output"]["unit"]["segment_lens"].copy()
       net_dict["output"]["unit"]["segment_starts1"]["false_from"] = "prev:segment_starts1"
       net_dict["output"]["unit"]["segment_lens0"]["from"][1] = "segment_starts1"
       net_dict["output"]["unit"].update({
-        "segment_starts": {
+        "segment_starts2": {
           "class": "eval", "from": ["segment_starts1", "segment_lens1"], "is_output_layer": True,
           "eval": "source(0) + source(1) - %d" % segment_center_window_size
         },
-        "segment_ends": {
+        "segment_ends1": {
           "class": "eval", "from": ["segment_starts1", "segment_lens1"],
-          "eval": "source(0) + source(1) + %d" % segment_center_window_size
+          "eval": "source(0) + source(1) + %d" % math.ceil(segment_center_window_size)
         },
         "segment_lens": {
           "class": "eval", "from": ["segment_ends", "segment_starts"], "is_output_layer": True,
           "eval": "source(0) - source(1)"
-        }
+        },
+        "seq_lens": {"class": "length", "from": "base:encoder"},
+        "seq_end_too_far": {"class": "compare", "from": ["segment_ends1", "seq_lens"], "kind": "greater"},
+        "seq_start_too_far": {"class": "compare", "from": ["segment_starts2"], "value": 0, "kind": "less"},
+        "segment_ends": {"class": "switch", "condition": "seq_end_too_far", "true_from": "seq_lens",
+                         "false_from": "segment_ends1"},
+        "segment_starts": {"class": "switch", "condition": "seq_start_too_far", "true_from": 0,
+                           "false_from": "segment_starts2"},
       })
 
   def add_segmental_embedding_vector():
