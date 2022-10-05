@@ -104,3 +104,36 @@ def transform(data, network, time_factor=1):
 
   x = network.cond_on_train(get_masked, lambda: x)
   return x
+
+
+def transform_wei(data, network):
+  # to be adjusted (20-50%)
+  max_time_num = 1
+  max_time = 15
+
+  max_feature_num = 5
+  max_feature = 5
+
+  # halved before this step
+  conservatvie_step = 2000
+
+  x = data.placeholder
+  import tensorflow as tf
+  # summary("features", x)
+  step = network.global_train_step
+  increase_flag = tf.where(tf.greater_equal(step, conservatvie_step), 0, 1)
+
+  def get_masked():
+    x_masked = x
+    x_masked = random_mask( x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
+                            min_num=0, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis]//int(1/0.70*max_time), max_time_num) // (1+increase_flag),
+                            max_dims=max_time
+                          )
+    x_masked = random_mask( x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
+                            min_num=0, max_num=max_feature_num // (1+increase_flag),
+                            max_dims=max_feature
+                          )
+    #summary("features_mask", x_masked)
+    return x_masked
+  x = network.cond_on_train(get_masked, lambda: x)
+  return x
