@@ -83,9 +83,10 @@ class Model(nn.Module):
                  enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
                  att_dropout: float = 0.1,
+                 l2: float = 0.0001,
                  ):
         super(Model, self).__init__()
-        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers)
+        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers, l2=l2)
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -101,7 +102,7 @@ class Model(nn.Module):
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
         self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
-        self.lm = DecoderLabelSync()
+        self.lm = DecoderLabelSync(l2=l2)
         self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
         self.readout_in_am_dropout = 0.1
         self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
@@ -110,6 +111,9 @@ class Model(nn.Module):
         self.out_nb_label_logits = nn.Linear(nb_target_dim)
         self.label_log_prob_dropout = 0.3
         self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
+
+        for p in self.enc_ctx.parameters():
+            p.weight_decay = l2
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
@@ -201,13 +205,16 @@ class DecoderLabelSync(nn.Module):
     """
     def __init__(self, *,
                  embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
-                 dropout: float = 0.2,
                  lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+                 dropout: float = 0.2,
+                 l2: float = 0.0001,
                  ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(embed_dim)
         self.dropout = dropout
         self.lstm = nn.LSTM(lstm_dim)
+        for p in self.parameters():
+            p.weight_decay = l2
 
     def default_initial_state(self, *, batch_dims: Sequence[nn.Dim]) -> Optional[nn.LayerState]:
         """init"""

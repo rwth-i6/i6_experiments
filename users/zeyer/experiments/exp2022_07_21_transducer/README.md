@@ -29,6 +29,8 @@ RNA full-sum config for alignment model: rna-tf2.blank0.enc6l-grow2l.scratch-lm.
 - [ ] check SpecAugment, really correct? optimize out of loop correct?
 - [x] initial conv layers?
 - [x] L2 in LSTM?
+- [x] L2 in pred net
+- [x] L2 in enc ctx
 - [x] att weighs energy_factor
 - [x] att weights dropout bc/noise
 
