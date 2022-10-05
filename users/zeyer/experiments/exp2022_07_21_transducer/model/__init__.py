@@ -31,6 +31,8 @@ class TrainDef(Protocol[ModelT]):
                  ):
         raise NotImplementedError
 
+    learning_rate_control_error_measure: Optional[str] = None
+
 
 class FramewiseTrainDef(Protocol[ModelT]):
     """
@@ -42,6 +44,8 @@ class FramewiseTrainDef(Protocol[ModelT]):
                  align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
                  ):
         raise NotImplementedError
+
+    learning_rate_control_error_measure: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)

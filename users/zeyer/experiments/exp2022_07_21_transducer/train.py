@@ -30,6 +30,7 @@ def train(*,
     - others just as one would expect
     """
     num_epochs = 150
+    default_lr = 0.001
 
     returnn_train_config_dict = dict(
         use_tensorflow=True,
@@ -42,7 +43,7 @@ def train(*,
         eval_datasets=task.train_dataset.get_eval_datasets(),
 
         batching="random",
-        batch_size=10000,
+        batch_size=12000,
         max_seqs=200,
         max_seq_length={task.train_dataset.get_default_target(): 75},
 
@@ -50,14 +51,11 @@ def train(*,
         # gradient_clip_global_norm = 1.0
         optimizer={"class": "nadam", "epsilon": 1e-8},
         # gradient_noise=0.0,
-        learning_rate=0.0008,
-        learning_rates=[0.0003] * 10 + list(numpy.linspace(0.0003, 0.0008, num=10)),
+        learning_rate=default_lr,
+        learning_rates=list(numpy.linspace(default_lr * 0.1, default_lr, num=10)),
+        min_learning_rate=default_lr / 50,
         learning_rate_control="newbob_multi_epoch",
-        # learning_rate_control_error_measure = "dev_score_output"
-        # learning_rate_control_error_measure="dev_error_output/output_prob",  # TODO...
-        # TODO on LR control key:
-        #  we could make the train_def actually return the main key for this? but this is maybe not intuitive.
-        #  we could also extend returnn_common mark_as_loss with an option, "main_lr_key" or so.
+        learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         learning_rate_control_relative_error_relative_lr=True,
         learning_rate_control_min_num_epochs_per_new_lr=3,
         use_learning_rate_control_always=True,

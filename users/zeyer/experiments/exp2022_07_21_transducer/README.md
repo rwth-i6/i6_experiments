@@ -33,8 +33,8 @@ RNA full-sum config for alignment model: rna-tf2.blank0.enc6l-grow2l.scratch-lm.
 - [x] L2 in enc ctx
 - [x] att weighs energy_factor
 - [x] att weights dropout bc/noise
-- [ ] batch size
-- [ ] learning rate scheduling
+- [x] batch size
+- [x] learning rate scheduling
 
 
 # Design of setup

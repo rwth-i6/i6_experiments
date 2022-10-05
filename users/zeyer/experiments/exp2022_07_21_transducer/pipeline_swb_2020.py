@@ -315,6 +315,9 @@ def from_scratch_training(*,
     loss.mark_as_loss("full_sum")
 
 
+from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
 def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     assert target_dim.vocab
@@ -336,6 +339,9 @@ def extended_model_training(*,
                             ):
     """Function is run within RETURNN."""
     pass  # TODO
+
+
+extended_model_training.learning_rate_control_error_measure = "dev_score_ce"
 
 
 def model_recog(*,
