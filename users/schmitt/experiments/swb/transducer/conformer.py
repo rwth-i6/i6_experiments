@@ -1,5 +1,106 @@
 def get_conformer_encoder_tim():
   network = {
+    "aux_12_ff1": {
+      "activation": "relu",
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_12_length_masked"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_12_ff2": {
+      "activation": None,
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_12_ff1"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_12_length_masked": {
+      "class": "reinterpret_data",
+      "from": ["enc_012"],
+    },
+    "aux_12_output_prob": {
+      "class": "softmax",
+      "dropout": 0.0,
+      "from": ["aux_12_ff2"],
+      "loss": "ce",
+      "loss_opts": {
+        "focal_loss_factor": 0.0,
+        "label_smoothing": 0.0,
+        "use_normalized_loss": False,
+      },
+      "loss_scale": 0.5,
+      "target": "targetb",
+    },
+    "aux_4_ff1": {
+      "activation": "relu",
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_4_length_masked"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_4_ff2": {
+      "activation": None,
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_4_ff1"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_4_length_masked": {
+      "class": "reinterpret_data",
+      "from": ["enc_004"],
+      "size_base": "data:targetb",
+    },
+    "aux_4_output_prob": {
+      "class": "softmax",
+      "dropout": 0.0,
+      "from": ["aux_4_ff2"],
+      "loss": "ce",
+      "loss_opts": {
+        "focal_loss_factor": 0.0,
+        "label_smoothing": 0.0,
+        "use_normalized_loss": False,
+      },
+      "loss_scale": 0.5,
+      "target": "targetb",
+    },
+    "aux_8_ff1": {
+      "activation": "relu",
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_8_length_masked"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_8_ff2": {
+      "activation": None,
+      "class": "linear",
+      "forward_weights_init": "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)",
+      "from": ["aux_8_ff1"],
+      "n_out": 256,
+      "with_bias": True,
+    },
+    "aux_8_length_masked": {
+      "class": "reinterpret_data",
+      "from": ["enc_008"],
+      "size_base": "data:targetb",
+    },
+    "aux_8_output_prob": {
+      "class": "softmax",
+      "dropout": 0.0,
+      "from": ["aux_8_ff2"],
+      "loss": "ce",
+      "loss_opts": {
+        "focal_loss_factor": 0.0,
+        "label_smoothing": 0.0,
+        "use_normalized_loss": False,
+      },
+      "loss_scale": 0.5,
+      "target": "targetb",
+    },
     "conv0_0": {
       "activation": None,
       "class": "conv",
@@ -72,27 +173,6 @@ def get_conformer_encoder_tim():
       "with_bias": True,
     },
     "embedding_dropout": {"class": "dropout", "dropout": 0.0, "from": ["embedding"]},
-    "feature_stacking_merged": {
-      "axes": ["dim:6", "F"],
-      "class": "merge_dims",
-      "from": ["feature_stacking_window"],
-    },
-    # "feature_stacking_window": {
-    #     "class": "window",
-    #     "from": ["conv_merged"],
-    #     "stride": 3,
-    #     "window_left": 2,
-    #     "window_right": 0,
-    #     "window_size": 3,
-    # },
-    "feature_stacking_window": {
-      "class": "window",
-      "from": ["conv_merged"],
-      "stride": 6,
-      "window_left": 5,
-      "window_right": 0,
-      "window_size": 6,
-    },
     "enc_001": {"class": "copy", "from": "enc_001_ff2_out"},
     "enc_001_conv_GLU": {
       "activation": "identity",
@@ -4110,6 +4190,25 @@ def get_conformer_encoder_tim():
       "n_out": 512,
     },
     "encoder": {"class": "layer_norm", "from": ["enc_016"]},
+    "feature_stacking_merged": {
+      "axes": ["dim:6", "F"],
+      "class": "merge_dims",
+      "from": ["feature_stacking_window"],
+    },
+    "feature_stacking_window": {
+      "class": "window",
+      "from": ["conv_merged"],
+      "stride": 6,
+      "window_left": 5,
+      "window_right": 0,
+      "window_size": 6,
+    },
+    "source0": {
+      "axis": "F",
+      "class": "split_dims",
+      "dims": (-1, 1),
+      "from": ["source"],
+    },
   }
 
   return network
@@ -5048,6 +5147,11 @@ def get_conformer_encoder_wei():
                                             'total_key_dim': 512},
     'conformer_9_output': {'class': 'layer_norm', 'from': 'conformer_9_ffmod_2_half_res_add'},
     'encoder': {'class': 'reinterpret_data', 'from': 'conformer_12_output'},
+    'enc_output': {
+      'class': 'softmax', 'from': 'encoder', 'loss': 'ce', 'loss_opts': {'focal_loss_factor': 1.0}, 'target': 'targetb'},
+    'enc_output_loss': {
+      'class': 'softmax', 'from': 'conformer_6_output', 'loss': 'ce', 'loss_opts': {'focal_loss_factor': 1.0},
+      'loss_scale': 0.3, 'target': 'targetb'},
   }
 
   return network
