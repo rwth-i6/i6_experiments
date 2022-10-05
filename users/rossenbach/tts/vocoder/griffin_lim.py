@@ -26,6 +26,7 @@ class PhaseReconstructor():
                  n_fft,
                  iterations,
                  preemphasis,
+                 peak_normalization,
                  file_format,
                  corpus_format):
         """
@@ -38,6 +39,7 @@ class PhaseReconstructor():
         :param int n_fft:
         :param int iterations:
         :param float preemphasis:
+        :param bool peak_normalization:
         :param str file_format:
         :param str|None corpus_format:
         """
@@ -49,6 +51,7 @@ class PhaseReconstructor():
         self.n_fft = n_fft
         self.iterations = iterations
         self.preemphasis = preemphasis
+        self.peak_normalization = peak_normalization
         self.file_format = file_format
         self.corpus_format = corpus_format
 
@@ -142,11 +145,11 @@ class PhaseReconstructor():
 
         if self.file_format == "wav":
             path = os.path.join(self.out_folder, "%s.wav" % tag)
-            save_wav(waveform, path, self.sample_rate)
+            save_wav(waveform, path, self.sample_rate, self.peak_normalization)
         elif self.file_format == "ogg":
             path = os.path.join(self.out_folder, '%s.ogg' % tag)
 
-            save_ogg(waveform, path, self.sample_rate)
+            save_ogg(waveform, path, self.sample_rate, self.peak_normalization)
             data, sr = soundfile.read(path)
 
             target_len = self.window_shift * (lin_spec.shape[1] - 2)
@@ -193,13 +196,16 @@ def mkdir_p(path):
 
 
 
-def save_wav(wav, path, sr):
+def save_wav(wav, path, sr, peak_normalization=True):
     from scipy.io import wavfile
-    wav *= 32767 / max(0.01, np.max(np.abs(wav)))
+    if peak_normalization:
+        wav *= 32767 / max(0.01, np.max(np.abs(wav)))
+    else:
+        wav *= 32767
     wavfile.write(path, sr, wav.astype(np.int16))
 
 
-def save_ogg(wav, path, sr):
+def save_ogg(wav, path, sr, peak_normalization=True):
     """
 
     :param wav:
@@ -207,7 +213,10 @@ def save_ogg(wav, path, sr):
     :param sr:
     :return:
     """
-    wav *= 32767 / max(0.01, np.max(np.abs(wav)))
+    if peak_normalization:
+        wav *= 32767 / max(0.01, np.max(np.abs(wav)))
+    else:
+        wav *= 32767
     p1 = subprocess.Popen(["ffmpeg", "-y", "-f", "s16le", "-ar", "%i" % sr, "-i", "pipe:0", path],
                           stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE)
@@ -217,7 +226,9 @@ def save_ogg(wav, path, sr):
 
 class HDFPhaseReconstruction(Job):
 
-    def __init__(self, hdf_file, backend, iterations, sample_rate, window_shift, window_size, preemphasis, file_format,
+    __sis_hash_exclude__ = {"peak_normalization": True}
+
+    def __init__(self, hdf_file, backend, iterations, sample_rate, window_shift, window_size, preemphasis, file_format, peak_normalization=True,
                  time_rqmt=8, mem_rqmt=8, cpu_rqmt=4):
         """
 
@@ -237,6 +248,7 @@ class HDFPhaseReconstruction(Job):
         self.window_size = window_size
         self.preemphasis = preemphasis
         self.file_format = file_format
+        self.peak_normalization = peak_normalization
 
         self.out_folder = self.output_path("corpus", directory=True)
         self.out_corpus = self.output_path("corpus/corpus.xml.gz")
@@ -267,6 +279,7 @@ class HDFPhaseReconstruction(Job):
                                        n_fft=n_fft,
                                        iterations=self.iterations,
                                        preemphasis=self.preemphasis,
+                                       peak_normalization=self.peak_normalization,
                                        file_format=self.file_format,
                                        corpus_format="bliss")
 
