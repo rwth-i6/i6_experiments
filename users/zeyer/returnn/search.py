@@ -90,7 +90,6 @@ class SearchBeamJoinScores(Job):
     def __init__(self, search_py_output: tk.Path):
         """
         :param search_py_output: a search output file from RETURNN in python format (single or n-best)
-        :param remove_label: label to remove from the output, e.g. "<blank>"
         """
         self.search_py_output = search_py_output
         self.out_search_results = self.output_path("search_results.py")
