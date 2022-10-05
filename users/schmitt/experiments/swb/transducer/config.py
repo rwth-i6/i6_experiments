@@ -8,17 +8,19 @@ from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.vocab import *
 from i6_experiments.users.schmitt.switchout import *
 from i6_experiments.users.schmitt.targetb import *
+from i6_experiments.users.schmitt.dynamic_lr import *
 
 from recipe.i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
 import numpy as np
 
-class TransducerSWBBaseConfig:
+class SegmentalSWBBaseConfig:
   def __init__(self, vocab,
                target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40, beam_size=12,
                epoch_split=6, rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
-               _attention_type=0, post_config={}, task="train", num_epochs=150,
-               search_output_layer="decision", max_seqs=200):
+               _attention_type=0, post_config={}, task="train", num_epochs=150, min_learning_rate=0.001/50.,
+               search_output_layer="decision", max_seqs=200, gradient_clip=0, gradient_noise=0.0, nadam=False,
+               newbob_learning_rate_decay=.7, newbob_multi_num_epochs=6):
 
     self.post_config = post_config
 
@@ -55,7 +57,7 @@ class TransducerSWBBaseConfig:
         self.num_epochs = num_epochs
         self.beam_size = beam_size
     self.learning_rate = 0.001
-    self.min_learning_rate = self.learning_rate / 50.
+    self.min_learning_rate = min_learning_rate
     self.search_output_layer = search_output_layer
     self.debug_print_layer_output_template = True
     self.batching = "random"
@@ -64,21 +66,24 @@ class TransducerSWBBaseConfig:
     self.max_seqs = max_seqs
     self.max_seq_length = {target: 75}
     self.truncation = -1
-    self.gradient_clip = 0
-    self.adam = True
+    self.gradient_clip = gradient_clip
+    if nadam:
+      self.nadam = True
+    else:
+      self.adam = True
     self.optimizer_epsilon = 1e-8
     self.accum_grad_multiple_step = 3
     self.stop_on_nonfinite_train_score = False
     self.tf_log_memory_usage = True
-    self.gradient_noise = 0.0
+    self.gradient_noise = gradient_noise
     self.learning_rate_control = "newbob_multi_epoch"
     self.learning_rate_control_error_measure = "dev_error_output/label_prob"
     self.learning_rate_control_relative_error_relative_lr = True
     self.learning_rate_control_min_num_epochs_per_new_lr = 3
     self.use_learning_rate_control_always = True
-    self.newbob_multi_num_epochs = 6
+    self.newbob_multi_num_epochs = newbob_multi_num_epochs
     self.newbob_multi_update_interval = 1
-    self.newbob_learning_rate_decay = 0.7
+    self.newbob_learning_rate_decay = newbob_learning_rate_decay
 
     # prolog
     self.import_prolog = ["from returnn.tf.util.data import Dim", "import os", "import numpy as np",
@@ -123,7 +128,7 @@ class TransducerSWBBaseConfig:
       self.EncValuePerHeadDim = self.EncValueTotalDim // self.AttNumHeads
 
 
-class TransducerSWBAlignmentConfig(TransducerSWBBaseConfig):
+class SegmentalSWBAlignmentConfig(SegmentalSWBBaseConfig):
   def __init__(self, *args, **kwargs):
 
     super().__init__(*args, **kwargs)
@@ -149,7 +154,7 @@ class TransducerSWBAlignmentConfig(TransducerSWBBaseConfig):
       "pretrain = {'copy_param_mode': 'subset', 'construction_algo': custom_construction_algo}"]
 
 
-class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
+class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
   def __init__(
     self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax, enc_type,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
@@ -162,18 +167,24 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
     train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
     search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
     label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
-    label_model_focal_loss=2.0, import_model=None, learning_rates=None, length_scale=1., **kwargs):
+    label_model_focal_loss=2.0, import_model=None, learning_rates=None, length_scale=1., batch_size=10000,
+    specaugment="albert", dynamic_lr=False, ctc_aux_loss=True, length_model_loss_scale=1.,
+    **kwargs):
 
     super().__init__(*args, **kwargs)
 
-    self.batch_size = 10000 if self.task == "train" else 4000
+    self.batch_size = batch_size if self.task == "train" else 4000
     # chunk_size = 60
-    self.chunking = ({
-      "data": chunk_size * int(np.prod(time_red)), "alignment": chunk_size}, {
-      "data": chunk_size * int(np.prod(time_red)) // 2, "alignment": chunk_size // 2})
+    if chunk_size is not None:
+      self.chunking = ({
+        "data": chunk_size * int(np.prod(time_red)), "alignment": chunk_size}, {
+        "data": chunk_size * int(np.prod(time_red)) // 2, "alignment": chunk_size // 2})
+
     self.accum_grad_multiple_step = 2
 
-    self.function_prolog = [_mask, random_mask, transform]
+    self.function_prolog = [_mask, random_mask, transform if specaugment == "albert" else transform_wei]
+    if dynamic_lr:
+      self.function_prolog += [dynamic_learning_rate]
 
     if import_model is not None:
       self.load = import_model
@@ -224,7 +235,8 @@ class TransducerSWBExtendedConfig(TransducerSWBBaseConfig):
         feature_stddev=feature_stddev, search_use_recomb=search_use_recomb, dump_output=dump_output,
         label_dep_length_model=label_dep_length_model, label_dep_means=label_dep_means, direct_softmax=direct_softmax,
         max_seg_len=max_seg_len, hybrid_hmm_like_label_model=hybrid_hmm_like_label_model, length_scale=length_scale,
-        length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss)
+        length_model_focal_loss=length_model_focal_loss, label_model_focal_loss=label_model_focal_loss,
+        specaugment=specaugment, ctc_aux_loss=ctc_aux_loss, length_model_loss_scale=length_model_loss_scale)
       if use_attention:
         self.network = add_attention(
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,

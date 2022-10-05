@@ -264,7 +264,7 @@ def get_extended_net_dict(
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
   length_scale=1., global_length_var=None,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
-  label_model_focal_loss=2.0):
+  label_model_focal_loss=2.0, specaugment="albert", ctc_aux_loss=True, length_model_loss_scale=1.):
 
   assert ctx_size == "inf" or type(ctx_size) == int
   assert not sep_sil_model or sil_idx == 0  # assume in order to construct output_prob vector (concat sil_prob, label_prob, blank_prob)
@@ -278,7 +278,7 @@ def get_extended_net_dict(
   net_dict.update({
     "source": {
       "class": "eval",
-      "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)"},
+      "eval": "self.network.get_config().typed_value('%s')(source(0, as_data=True), network=self.network)" % ("transform" if specaugment == "albert" else "transform_wei")},
     "source0": {"class": "split_dims", "axis": "F", "dims": (-1, 1), "from": "source"},  # (T,40,1)
   })
 
@@ -329,17 +329,19 @@ def get_extended_net_dict(
       "labels_with_blank_ground_truth": {
         "class": "copy", "from": "existing_alignment",
         "register_as_extern_data": "targetb" if task == "train" else None},
-
-      "ctc_out": {"class": "softmax", "from": "encoder", "with_bias": False, "n_out": targetb_num_labels},
-      "ctc_out_scores": {
-        "class": "eval", "from": ["ctc_out"], "eval": "safe_log(source(0))", },
-
-      "ctc": {
-        "class": "copy", "from": "ctc_out_scores", "loss": "ctc" if task == "train" else None,
-        "target": "label_ground_truth" if task == "train" else None, "loss_opts": {
-          "beam_width": 1, "use_native": True, "output_in_log_space": True,
-          "ctc_opts": {"logits_normalize": False}} if task == "train" else None},
     })
+    if ctc_aux_loss:
+      net_dict.update({
+        "ctc_out": {"class": "softmax", "from": "encoder", "with_bias": False, "n_out": targetb_num_labels},
+        "ctc_out_scores": {
+          "class": "eval", "from": ["ctc_out"], "eval": "safe_log(source(0))", },
+
+        "ctc": {
+          "class": "copy", "from": "ctc_out_scores", "loss": "ctc" if task == "train" else None,
+          "target": "label_ground_truth" if task == "train" else None, "loss_opts": {
+            "beam_width": 1, "use_native": True, "output_in_log_space": True,
+            "ctc_opts": {"logits_normalize": False}} if task == "train" else None},
+      })
   elif task == "search":
     net_dict.update({
       "output_non_sil": {
@@ -869,6 +871,9 @@ def get_extended_net_dict(
           "activation": "exp", "target": "emit_ground_truth",
           "loss": "ce", "loss_opts": {"focal_loss_factor": length_model_focal_loss}}
       })
+
+      if length_model_loss_scale != 1.:
+        net_dict["output"]["unit"]["emit_blank_prob"]["loss_opts"]["scale"] = length_model_loss_scale
 
     if length_scale != 1.:
       net_dict["output"]["unit"].update({
