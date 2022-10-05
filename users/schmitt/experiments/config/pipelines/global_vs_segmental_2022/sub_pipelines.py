@@ -15,7 +15,7 @@ from recipe.i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_
   build_phon_align_extraction_config, build_iterate_corpus_config
 
 
-def run_training(returnn_config: ReturnnConfig, name, num_epochs, alias_suffix, mem_rqmt, time_rqmt, add_input=None):
+def run_training(returnn_config: ReturnnConfig, name, num_epochs, alias_suffix, mem_rqmt, time_rqmt, add_input=None, qsub_args=None):
   train_job = ReturnnTrainingJob(
     copy.deepcopy(returnn_config),
     num_epochs=num_epochs[-1],
@@ -24,6 +24,7 @@ def run_training(returnn_config: ReturnnConfig, name, num_epochs, alias_suffix, 
     returnn_root="/u/schmitt/src/returnn",
     mem_rqmt=mem_rqmt,
     time_rqmt=time_rqmt,
+    qsub_args=qsub_args
     # keep_epochs=num_epochs
   )
   if add_input:
