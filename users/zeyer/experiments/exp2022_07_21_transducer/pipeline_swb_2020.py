@@ -40,7 +40,7 @@ from .align import align
 # version is used for the hash of the model definition,
 # together with the model def function name together with the module name (__name__).
 assert __name__.startswith("i6_experiments.")  # just a sanity check
-version = 1
+version = 2
 extra_hash = (version,)
 
 
