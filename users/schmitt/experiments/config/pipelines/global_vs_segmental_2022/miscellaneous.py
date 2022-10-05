@@ -2,7 +2,7 @@ from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGrap
   CombineAttentionPlotsJob, DumpPhonemeAlignJob, AugmentBPEAlignmentJob, FindSegmentsToSkipJob, ModifySeqFileJob, \
   AlignmentStatisticsJob, AlignmentSplitSilenceJob, ReduceAlignmentJob, PhonJSONVocabToRasrVocabJob, \
   PhonJSONVocabToAllophones, PhonJSONVocabToStateTyingJob, PhonJSONVocabToRasrFormatsJob, \
-  BPEJSONVocabToRasrFormatsJob
+  BPEJSONVocabToRasrFormatsJob, AlignmentCenterSegBoundaryJob
 
 from sisyphus import *
 
@@ -27,10 +27,10 @@ def update_seq_list_file(seq_list_file, seqs_to_skip, alias):
   return mod_seq_file_job.out_seqs_file
 
 
-def dump_phoneme_align(rasr_exe, rasr_config, time_red, alias, time_rqmt=4, mem_rqmt=4):
+def dump_phoneme_align(rasr_exe, rasr_config, time_red, state_tying_file, alias, time_rqmt=4, mem_rqmt=4):
   dump_phon_align_job = DumpPhonemeAlignJob(
     rasr_config=rasr_config,
-    time_red=time_red, time_rqtm=time_rqmt, rasr_exe=rasr_exe, mem_rqmt=mem_rqmt)
+    time_red=time_red, time_rqtm=time_rqmt, rasr_exe=rasr_exe, mem_rqmt=mem_rqmt, state_tying_file=state_tying_file)
   dump_phon_align_job.add_alias(alias)
   alias = dump_phon_align_job.get_one_alias()
   tk.register_output(alias, dump_phon_align_job.out_align)
@@ -51,6 +51,16 @@ def calc_align_stats(alignment, seq_filter_file, alias, blank_idx=89):
 def alignment_split_silence(alignment, seq_filter_file, alias, blank_idx, sil_idx, max_len):
   split_align_job = AlignmentSplitSilenceJob(hdf_align_path=alignment, segment_file=seq_filter_file,
     blank_idx=blank_idx, sil_idx=sil_idx, max_len=max_len)
+  split_align_job.add_alias(alias)
+  alias = split_align_job.get_one_alias()
+  tk.register_output(alias, split_align_job.out_align)
+
+  return split_align_job.out_align
+
+
+def alignment_center_seg_boundaries(alignment, seq_filter_file, alias, blank_idx):
+  split_align_job = AlignmentCenterSegBoundaryJob(hdf_align_path=alignment, segment_file=seq_filter_file,
+    blank_idx=blank_idx)
   split_align_job.add_alias(alias)
   alias = split_align_job.get_one_alias()
   tk.register_output(alias, split_align_job.out_align)

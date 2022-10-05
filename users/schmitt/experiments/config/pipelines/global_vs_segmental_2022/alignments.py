@@ -1,7 +1,7 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.miscellaneous import find_seqs_to_skip, update_seq_list_file, dump_phoneme_align, calc_align_stats, \
   augment_bpe_align_with_sil, alignment_split_silence, reduce_alignment, convert_phon_json_vocab_to_rasr_vocab, \
   convert_phon_json_vocab_to_allophones, convert_phon_json_vocab_to_state_tying, \
-  convert_phon_json_vocab_to_rasr_formats, convert_bpe_json_vocab_to_rasr_formats
+  convert_phon_json_vocab_to_rasr_formats, convert_bpe_json_vocab_to_rasr_formats, alignment_center_seg_boundaries
 
 from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGraphJob, RASRDecodingJob, \
   CombineAttentionPlotsJob, DumpPhonemeAlignJob, AugmentBPEAlignmentJob, FindSegmentsToSkipJob, ModifySeqFileJob, \
@@ -58,11 +58,42 @@ def create_alignments(
         "time-red-6": {
           "seq_filter_file": seq_filter_files_standard["devtrain"]}}
 
+    # ----------------------- BPE Center Position ALIGNMENTS -----------------------------------------
+    bpe_center_pos_align = alignment_center_seg_boundaries(
+      blank_idx=1030,
+      alias="bpe_center_pos_align/align_%s" % corpus_key, alignment=bpe_standard_aligns[corpus_key],
+      seq_filter_file=bpe_seq_filter_file)
+    bpe_center_pos_label_dep_mean_lens, bpe_center_pos_mean_non_sil_len, bpe_center_pos_95_percentile = calc_align_stats(
+      alignment=bpe_center_pos_align, blank_idx=1030,
+      seq_filter_file=bpe_seq_filter_file,
+      alias="bpe_center_pos_align_stats/time-red-6/stats_" + corpus_key)
+
+    bpe_center_pos_labels_job = DumpNonBlanksFromAlignmentJob(alignment=bpe_center_pos_align, blank_idx=1030,
+                                                                 time_rqmt=time_rqmt)
+    bpe_center_pos_labels_job.add_alias("bpe_center_pos_labels/%s" % corpus_key)
+    tk.register_output(bpe_center_pos_labels_job.get_one_alias(), bpe_center_pos_labels_job.out_labels)
+
+    data_dict["bpe-center-positions"].update({
+      "json_vocab": bpe_vocab["vocab_file"],
+      "state_tying": bpe_state_tying, "allophones": bpe_allophones, "rasr_label_file": bpe_rasr_label_file})
+    data_dict["bpe-center-positions"][corpus_key] = {
+      "label_seqs": bpe_center_pos_labels_job.out_labels,
+      "time-red-6": {
+        "align": bpe_center_pos_align, "seq_filter_file": bpe_seq_filter_file,
+        "label_dep_mean_lens": bpe_center_pos_label_dep_mean_lens,
+        "mean_non_sil_len": bpe_center_pos_mean_non_sil_len,
+        "95_percentile": bpe_center_pos_95_percentile}}
+    if corpus_key == "train":
+      data_dict["bpe-center-positions"]["devtrain"] = {
+        "time-red-6": {
+          "seq_filter_file": seq_filter_files_standard["devtrain"]}}
+
     # ----------------------- PHONEME ALIGNMENTS -----------------------------------------
     # extract phoneme alignments
     phoneme_align, phoneme_vocab_path = dump_phoneme_align(
       time_rqmt=time_rqmt, rasr_exe=rasr_nn_trainer, rasr_config=phon_extraction_rasr_configs[corpus_key],
-      mem_rqmt=mem_rqmt, time_red=1, alias="phon_align/%s/%s" % ("time-red-1", corpus_key))
+      mem_rqmt=mem_rqmt, time_red=1, state_tying_file=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/swb1/dependencies/tuske-phoneme-align/state-tying_mono-eow_3-states"),
+      alias="phon_align/%s/%s" % ("time-red-1", corpus_key))
 
     phon_state_tying, phon_allophones, phon_rasr_label_file = convert_phon_json_vocab_to_rasr_formats(
       phoneme_vocab_path, blank_idx=89)
@@ -283,17 +314,91 @@ def create_alignments(
             "time-red-%s" % time_red: {
               "seq_filter_file": seq_filter_file_devtrain}})
 
-  for remove_only_middle in [True, False]:
+  for remove_only_middle in [False]:
+    for corpus_key in ["train", "cv"]:
+      # ----------------------- BPE + SILENCE WITH CENTERED SEGMENT BOUNDARIES -----------------------------------------
+      bpe_center_pos_align = alignment_center_seg_boundaries(
+        blank_idx=1031,
+        alias="bpe_sil_center_pos_align/align_%s" % corpus_key,
+        alignment=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["align"],
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"])
+      bpe_center_pos_label_dep_mean_lens, bpe_center_pos_mean_non_sil_len, bpe_center_pos_95_percentile = calc_align_stats(
+        alignment=bpe_center_pos_align, blank_idx=1031,
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+        alias="bpe_sil_center_pos_align_stats/time-red-6/stats_" + corpus_key)
+
+      bpe_center_pos_labels_job = DumpNonBlanksFromAlignmentJob(alignment=bpe_center_pos_align, blank_idx=1031,
+                                                                time_rqmt=time_rqmt)
+      bpe_center_pos_labels_job.add_alias("bpe_sil_center_pos_labels/%s" % corpus_key)
+      tk.register_output(bpe_center_pos_labels_job.get_one_alias(), bpe_center_pos_labels_job.out_labels)
+
+      data_dict["bpe-sil-center-positions"].update({
+        "json_vocab": bpe_sil_vocab_path, "state_tying": bpe_sil_state_tying, "allophones": bpe_sil_allophones,
+        "rasr_label_file": bpe_sil_rasr_label_file})
+      data_dict["bpe-sil-center-positions"][corpus_key] = {
+        "label_seqs": None,
+        "time-red-6": {
+          "align": bpe_center_pos_align,
+          "seq_filter_file": data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+          "label_dep_mean_lens": bpe_center_pos_label_dep_mean_lens,
+          "mean_non_sil_len": bpe_center_pos_mean_non_sil_len,
+          "95_percentile": bpe_center_pos_95_percentile}}
+      if corpus_key == "train":
+        seq_filter_files_bpe_sil_devtrain = update_seq_list_file(
+          seq_list_file=seq_filter_files_standard["devtrain"],
+          seqs_to_skip=bpe_sil_skipped_seqs,
+          alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (6, "devtrain"))
+        data_dict["bpe-sil-center-positions"]["devtrain"] = {
+          "time-red-6": {
+            "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
+
+      # ----------------------- BPE + SILENCE WITH CENTERED SEGMENT BOUNDARIES AND SILENCE REMOVED AFTERWARD -----------
+
+      bpe_sil_wo_sil_align_job = RemoveLabelFromAlignmentJob(
+        alignment=bpe_center_pos_align, blank_idx=1031,
+        remove_idx=0, remove_only_middle=remove_only_middle)
+      bpe_sil_wo_sil_align_job.add_alias(
+        "bpe-sil-center-pos-wo-sil%s/time-red-6/%s" % ("-in-middle" if remove_only_middle else "", corpus_key))
+      tk.register_output(bpe_sil_wo_sil_align_job.get_one_alias(), bpe_sil_wo_sil_align_job.out_alignment)
+
+      bpe_sil_wo_sil_label_dep_mean_lens, bpe_sil_wo_sil_mean_non_sil_len, bpe_sil_wo_sil_95_percentile = calc_align_stats(
+        alignment=bpe_sil_wo_sil_align_job.out_alignment, blank_idx=1031,
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+        alias="bpe-sil-center-pos-wo-sil%s_align_stats/time-red-6/stats_%s" % (
+        "-in-middle" if remove_only_middle else "", corpus_key))
+
+      data_dict["bpe-sil-center-pos-wo-sil%s" % ("-in-middle" if remove_only_middle else "")].update({
+        "json_vocab": bpe_sil_vocab_path, "state_tying": bpe_sil_state_tying, "allophones": bpe_sil_allophones,
+        "rasr_label_file": bpe_sil_rasr_label_file})
+      data_dict["bpe-sil-center-pos-wo-sil%s" % ("-in-middle" if remove_only_middle else "")][corpus_key] = {
+        "label_seqs": None,
+        "time-red-6": {
+          "align": bpe_sil_wo_sil_align_job.out_alignment,
+          "seq_filter_file": data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+          "label_dep_mean_lens": bpe_sil_wo_sil_label_dep_mean_lens,
+          "mean_non_sil_len": bpe_sil_wo_sil_mean_non_sil_len, "95_percentile": bpe_sil_wo_sil_95_percentile}}
+      if corpus_key == "train":
+        seq_filter_files_bpe_sil_devtrain = update_seq_list_file(seq_list_file=seq_filter_files_standard["devtrain"],
+                                                                 seqs_to_skip=bpe_sil_skipped_seqs,
+                                                                 alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (
+                                                                 6, "devtrain"))
+        data_dict["bpe-sil-center-pos-wo-sil%s" % ("-in-middle" if remove_only_middle else "")]["devtrain"] = {
+          "time-red-6": {
+            "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
+
+  # ----------------------- BPE COMBINED RNA/HMM WITH SILENCE REMOVED -----------------------------------------
+
+  for remove_only_middle in [False]:
     for corpus_key in ["train", "cv"]:
       bpe_sil_wo_sil_align_job = RemoveLabelFromAlignmentJob(
-        alignment=data_dict["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["align"], blank_idx=1031,
+        alignment=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["align"], blank_idx=1031,
         remove_idx=0, remove_only_middle=remove_only_middle)
       bpe_sil_wo_sil_align_job.add_alias("bpe-sil-wo-sil%s/time-red-6/%s" % ("-in-middle" if remove_only_middle else "", corpus_key))
       tk.register_output(bpe_sil_wo_sil_align_job.get_one_alias(), bpe_sil_wo_sil_align_job.out_alignment)
 
       bpe_sil_wo_sil_label_dep_mean_lens, bpe_sil_wo_sil_mean_non_sil_len, bpe_sil_wo_sil_95_percentile = calc_align_stats(
         alignment=bpe_sil_wo_sil_align_job.out_alignment, blank_idx=1031,
-        seq_filter_file=data_dict["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
         alias="bpe-sil-wo-sil%s_align_stats/time-red-6/stats_%s" % ("-in-middle" if remove_only_middle else "", corpus_key))
 
       data_dict["bpe-sil-wo-sil%s" % ("-in-middle" if remove_only_middle else "")].update({
@@ -303,12 +408,49 @@ def create_alignments(
         "label_seqs": None,
         "time-red-6": {
           "align": bpe_sil_wo_sil_align_job.out_alignment,
-          "seq_filter_file": data_dict["bpe-with-sil-split-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+          "seq_filter_file": data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
           "label_dep_mean_lens": bpe_sil_wo_sil_label_dep_mean_lens,
           "mean_non_sil_len": bpe_sil_wo_sil_mean_non_sil_len, "95_percentile": bpe_sil_wo_sil_95_percentile}}
       if corpus_key == "train":
         seq_filter_files_bpe_sil_devtrain = update_seq_list_file(seq_list_file=seq_filter_files_standard["devtrain"],
-          seqs_to_skip=bpe_sil_skipped_seqs, alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (1, "devtrain"))
+          seqs_to_skip=bpe_sil_skipped_seqs, alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (6, "devtrain"))
         data_dict["bpe-sil-wo-sil%s" % ("-in-middle" if remove_only_middle else "")]["devtrain"] = {
           "time-red-6": {
             "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
+
+      # ----------------------- BPE Sil w/o Sil Center Position ALIGNMENTS -----------------------------------------
+      bpe_center_pos_align = alignment_center_seg_boundaries(
+        blank_idx=1031,
+        alias="bpe_sil_wo_sil_center_pos_align/align_%s" % corpus_key, alignment=bpe_sil_wo_sil_align_job.out_alignment,
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"])
+      bpe_center_pos_label_dep_mean_lens, bpe_center_pos_mean_non_sil_len, bpe_center_pos_95_percentile = calc_align_stats(
+        alignment=bpe_center_pos_align, blank_idx=1031,
+        seq_filter_file=data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+        alias="bpe_sil_wo_sil_center_pos_align_stats/time-red-6/stats_" + corpus_key)
+
+      bpe_center_pos_labels_job = DumpNonBlanksFromAlignmentJob(alignment=bpe_center_pos_align, blank_idx=1031,
+                                                                time_rqmt=time_rqmt)
+      bpe_center_pos_labels_job.add_alias("bpe_sil_wo_sil_center_pos_labels/%s" % corpus_key)
+      tk.register_output(bpe_center_pos_labels_job.get_one_alias(), bpe_center_pos_labels_job.out_labels)
+
+      data_dict["bpe-sil-wo-sil-center-positions"].update({
+        "json_vocab": bpe_sil_vocab_path, "state_tying": bpe_sil_state_tying, "allophones": bpe_sil_allophones,
+        "rasr_label_file": bpe_sil_rasr_label_file})
+      data_dict["bpe-sil-wo-sil-center-positions"][corpus_key] = {
+        "label_seqs": None,
+        "time-red-6": {
+          "align": bpe_center_pos_align,
+          "seq_filter_file": data_dict["bpe-with-sil"][corpus_key]["time-red-6"]["seq_filter_file"],
+          "label_dep_mean_lens": bpe_center_pos_label_dep_mean_lens,
+          "mean_non_sil_len": bpe_center_pos_mean_non_sil_len,
+          "95_percentile": bpe_center_pos_95_percentile}}
+      if corpus_key == "train":
+        seq_filter_files_bpe_sil_devtrain = update_seq_list_file(
+          seq_list_file=seq_filter_files_standard["devtrain"],
+          seqs_to_skip=bpe_sil_skipped_seqs,
+          alias="seq_filter_files_bpe_sil/time-red-%s/%s" % (6, "devtrain"))
+        data_dict["bpe-sil-wo-sil-center-positions"]["devtrain"] = {
+          "time-red-6": {
+            "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
+
+  
