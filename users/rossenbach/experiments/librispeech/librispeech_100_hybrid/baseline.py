@@ -136,7 +136,6 @@ def run_hybrid_baseline_rc():
     gmm_system = run_librispeech_100_common_baseline()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
-
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
@@ -144,7 +143,6 @@ def run_hybrid_baseline_rc():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(gmm_system)
-
     nn_args = get_rc_nn_args()
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
@@ -153,7 +151,6 @@ def run_hybrid_baseline_rc():
 
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so", hash_overwrite="TF23_MKL_BLAS")
-
 
     lbs_nn_system = HybridSystem(returnn_root=RETURNN_RC_ROOT, returnn_python_exe=returnn_exe, blas_lib=blas_lib,
                                  rasr_arch="linux-x86_64-standard", rasr_binary_path=RASR_BINARY_PATH)
