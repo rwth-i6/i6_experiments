@@ -10,7 +10,7 @@ Paper Latex (with config filenames): /u/zeyer/Documents-archive/2020-rnnt-paper/
 
 RETURNN-experiments configs and readmes: https://github.com/rwth-i6/returnn-experiments/tree/master/2020-rnn-transducer
 
-### Pipeline to best result
+## Pipeline to best result
 
 Final config: rna3c-lm4a.convtrain.switchout6.l2a_1e_4.nohdf.encbottle256.attwb5_am.dec1la-n128.decdrop03.decwdrop03.pretrain_less2_rep6.mlr50.emit2.fl2.fixmask.rna-align-blank0-scratch-swap.encctc.devtrain.retrain1
 
@@ -23,6 +23,14 @@ Alignment comes from RNA full-sum where blank idx was 0, thus there was a conver
 Alignment code: https://github.com/rwth-i6/returnn-experiments/tree/master/2020-rnn-transducer/dump-align
 
 RNA full-sum config for alignment model: rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50
+
+## TODO missing
+
+- [ ] check SpecAugment, really correct? optimize out of loop correct?
+- [x] initial conv layers?
+- [x] L2 in LSTM?
+- [x] att weighs energy_factor
+- [x] att weights dropout bc/noise
 
 
 # Design of setup
