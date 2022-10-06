@@ -33,9 +33,9 @@ class SpeakerLabelHDFFromBliss(Job):
         index_by_speaker = {}
         num_speakers = len(bliss.speakers)
         self.out_num_speakers.set(num_speakers)
-        for i, speaker in enumerate(bliss.speakers):
-            speaker_by_index[i] = speaker
-            index_by_speaker[speaker] = i
+        for i, speaker in enumerate(bliss.all_speakers()):
+            speaker_by_index[i] = speaker.name
+            index_by_speaker[speaker.name] = i
 
         pickle.dump(speaker_by_index, uopen(self.out_speaker_dict, "wb"))
 
