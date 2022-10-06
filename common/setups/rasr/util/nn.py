@@ -283,7 +283,7 @@ class HybridArgs:
         returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
         training_args: Union[Dict[str, Any], NnTrainingArgs],
         recognition_args: KeyedRecogArgsType,
-        test_recognition_args: Optional[KeyedRecogArgs] = None,
+        test_recognition_args: Optional[KeyedRecogArgsType] = None,
     ):
         """
         ##################################################
