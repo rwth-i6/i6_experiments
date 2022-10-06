@@ -8,13 +8,9 @@ from i6_core.lexicon.modification import MergeLexiconJob, WriteLexiconJob
 from i6_core.text.processing import PipelineJob
 
 
-def get_tts_extension_lexicon():
+def get_tts_extension_lexicon() -> lexicon.Lexicon:
     """
-    Add the phoneme and lemma entries for special TTS symbols
-
-    :param bool include_punctuation:
-    :return: the lexicon with special lemmas and phonemes
-    :rtype: lexicon.Lexicon
+    Generate a lexicon containing TTS specific lemmas
     """
     lex = lexicon.Lexicon()
 
@@ -36,16 +32,38 @@ def get_tts_extension_lexicon():
     return lex
 
 
-def extend_lexicon(lexicon: tk.Path) -> tk.Path:
+def get_blank_lexicon() -> lexicon.Lexicon:
     """
-    Extends a bliss lexicon with TTS specific makers
+    Generate a lexicon with a "blank" phoneme entry and no lemmas that can be used for (Returnn-) CTC training
+    """
+    lex = lexicon.Lexicon()
+    lex.add_phoneme("[blank]", variation="none")
+    return lex
 
-    :return: bliss lexicon
-    :rtype: Path
+
+def extend_lexicon_with_tts_lemmas(lexicon: tk.Path) -> tk.Path:
+    """
+    Will sort the phonemes!
+
+    :param lexicon: a bliss lexicon xml file
     """
     static_bliss_lexcion = WriteLexiconJob(get_tts_extension_lexicon()).out_bliss_lexicon
     lexicon = MergeLexiconJob(bliss_lexica=[static_bliss_lexcion, lexicon],
                               sort_phonemes=True,
+                              sort_lemmata=False).out_bliss_lexicon
+    return lexicon
+
+
+def extend_lexicon_with_blank(lexicon: tk.Path) -> tk.Path:
+    """
+    The blank will be at the last index (Returnn default)
+
+    :param lexicon: a bliss lexicon xml file
+    :returns: a bliss lexicon xml file
+    """
+    static_bliss_lexicon = WriteLexiconJob(get_blank_lexicon()).out_bliss_lexicon
+    lexicon = MergeLexiconJob(bliss_lexica=[lexicon, static_bliss_lexicon],
+                              sort_phonemes=False,
                               sort_lemmata=False).out_bliss_lexicon
     return lexicon
 
