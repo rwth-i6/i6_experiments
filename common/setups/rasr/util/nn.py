@@ -134,7 +134,7 @@ class ReturnnRasrDataInput:
             self.crp.corpus_config.segment_order_sort_by_time_length = True
             self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = 384
 
-    def get_crp(self, **kwargs):
+    def get_crp(self, **kwargs) -> rasr.CommonRasrParameters:
         """
         constructs and returns a CommonRasrParameters from the given settings and files
         :rtype CommonRasrParameters:

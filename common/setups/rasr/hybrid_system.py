@@ -106,7 +106,6 @@ class HybridSystem(NnSystem):
         self.tf_flows = {}
 
     # -------------------- Helpers --------------------
-    @staticmethod
     def get_tf_flow(
         checkpoint_path: Union[Path, returnn.Checkpoint],
         tf_graph_path: Path,
@@ -130,6 +129,7 @@ class HybridSystem(NnSystem):
         tf_flow.add_input(input_name)
         tf_flow.add_output("features")
         tf_flow.add_param("id")
+
         tf_fwd = tf_flow.add_node("tensorflow-forward", "tf-fwd", {"id": "$(id)"})
         tf_flow.link(f"network:{input_name}", tf_fwd + ":input")
         tf_flow.link(tf_fwd + ":log-posteriors", "network:features")
@@ -337,6 +337,37 @@ class HybridSystem(NnSystem):
 
         return train_job
 
+    def _get_feature_flow(self, feature_flow_key: str, data_input: ReturnnRasrDataInput):
+        if isinstance(data_input.feature_flow, Dict):
+            feature_flow = data_input.feature_flow[feature_flow_key]
+        elif isinstance(data_input.feature_flow, rasr.FlowNetwork):
+            feature_flow = data_input.feature_flow
+        else:
+            if isinstance(data_input.features, rasr.FlagDependentFlowAttribute):
+                feature_path = data_input.features
+            elif isinstance(data_input.features, (MultiPath, MultiOutputPath)):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "task_dependent": data_input.features,
+                    },
+                )
+            elif isinstance(data_input.features, tk.Path):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "bundle": data_input.features,
+                    },
+                )
+            else:
+                raise NotImplementedError
+
+            feature_flow = features.basic_cache_flow(feature_path)
+            if isinstance(data_input.features, tk.Path):
+                feature_flow.flags = {"cache_mode": "bundle"}
+
+        return feature_flow
+
     def returnn_rasr_training(
         self,
         name,
@@ -352,37 +383,21 @@ class HybridSystem(NnSystem):
         train_crp = train_data.get_crp()
         dev_crp = dev_data.get_crp()
 
+        test_prefix = nn_train_args.pop("test_prefix", False)
+        if test_prefix:
+            corpus = train_crp.corpus_config.file
+            from i6_core.corpus.transform import MergeCorporaJob
+
+            merged_corpus = MergeCorporaJob([corpus], "new_corpus").out_merged_corpus
+            train_crp.corpus_config = copy.deepcopy(train_crp.corpus_config)
+            train_crp.corpus_config.file = merged_corpus
+            train_crp.corpus_config.remove_corpus_name_prefix = "new_corpus/"
+
         assert train_data.feature_flow == dev_data.feature_flow
         assert train_data.features == dev_data.features
         assert train_data.alignments == dev_data.alignments
 
-        if isinstance(train_data.feature_flow, Dict):
-            feature_flow = train_data.feature_flow[feature_flow_key]
-        elif isinstance(train_data.feature_flow, rasr.FlowNetwork):
-            feature_flow = train_data.feature_flow
-        else:
-            if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
-                feature_path = train_data.features
-            elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "task_dependent": train_data.features,
-                    },
-                )
-            elif isinstance(train_data.features, tk.Path):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "bundle": train_data.features,
-                    },
-                )
-            else:
-                raise NotImplementedError
-
-            feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(train_data.features, tk.Path):
-                feature_flow.flags = {"cache_mode": "bundle"}
+        feature_flow = self._get_feature_flow(feature_flow_key, train_data)
 
         if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
             alignments = copy.deepcopy(train_data.alignments)
@@ -437,6 +452,8 @@ class HybridSystem(NnSystem):
         rtf: int,
         mem: int,
         epochs: Optional[List[int]] = None,
+        use_epoch_for_compile=False,
+        forward_output_layer="output",
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -450,16 +467,9 @@ class HybridSystem(NnSystem):
             )
             native_lstm_job.add_alias("%s/compile_native_op" % name)
 
-            graph_compile_job = returnn.CompileTFGraphJob(
-                returnn_config,
-                returnn_root=self.returnn_root,
-                returnn_python_exe=self.returnn_python_exe,
-            )
-            graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
-
-            forward_output_layer = returnn_config.get(
-                "forward_output_layer", "log_output"
-            )
+            tf_graph = None
+            if not use_epoch_for_compile:
+                tf_graph = self.nn_compile_graph(name, returnn_config)
 
             feature_flow = self.feature_flows[recognition_corpus_key]
             if isinstance(feature_flow, Dict):
@@ -476,22 +486,22 @@ class HybridSystem(NnSystem):
                 assert epoch in checkpoints.keys()
                 assert acoustic_mixture_path is not None
 
+                if use_epoch_for_compile:
+                    tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
+
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
                 )
 
-                tf_flow = self.get_tf_flow(
-                    checkpoints[epoch],
-                    graph_compile_job.out_graph,
-                    native_lstm_job.out_op,
-                    forward_output_layer,
+                from i6_core.returnn.flow import make_precomputed_hybrid_tf_feature_flow, add_tf_flow_to_base_flow
+                tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                    tf_checkpoint=checkpoints[epoch],
+                    tf_graph=tf_graph,
+                    native_ops=[native_lstm_job.out_op],
+                    output_tensor_name=forward_output_layer,
                 )
-                tf_flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
-                self.tf_flows[f"{name}-{epoch}"] = tf_flow
-
-                flow = self.add_tf_flow_to_base_flow(feature_flow, tf_flow)
-                flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
+                flow = add_tf_flow_to_base_flow(feature_flow, tf_flow)
 
                 self.feature_scorers[recognition_corpus_key][
                     f"pre-nn-{name}-{prior:02.2f}"
@@ -561,6 +571,26 @@ class HybridSystem(NnSystem):
                     **r_args,
                 )
 
+
+    def nn_compile_graph(self, name:str, returnn_config: returnn.ReturnnConfig, epoch=None):
+        """
+        graph compile helper including alias
+
+        :param name:
+        :param returnn_config:
+        :param epoch:
+        :return: the TF graph
+        """
+        graph_compile_job = returnn.CompileTFGraphJob(
+            returnn_config,
+            epoch=epoch,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+        )
+        graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
+        return graph_compile_job.out_graph
+
+
     # -------------------- Rescoring  --------------------
 
     def nn_rescoring(self):
@@ -573,7 +603,7 @@ class HybridSystem(NnSystem):
         # TODO here be ogg zip generation for training or lattice generation for SDT
         raise NotImplementedError
 
-    def run_nn_step(self, step_args: HybridArgs):
+    def run_nn_step(self, step_name:str, step_args: HybridArgs):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
@@ -700,7 +730,7 @@ class HybridSystem(NnSystem):
 
             # ---------- NN Training ----------
             if step_name.startswith("nn"):
-                self.run_nn_step(step_args)
+                self.run_nn_step(step_name, step_args)
 
             if step_name.startswith("recog"):
                 self.run_nn_recog_step(step_args)
