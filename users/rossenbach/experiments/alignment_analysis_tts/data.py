@@ -169,18 +169,32 @@ def get_tts_log_mel_datastream(
     return audio_datastream
 
 
+def get_lexicon(with_blank: bool = False) -> tk.Path:
+    """
+    Get the TTS/CTC lexicon
+
+    :param with_blank: add blank (e.g. for CTC training or extraction)
+    :return: path to bliss lexicon file
+    """
+    lexicon = get_librispeech_lexicon()
+    lexicon = extend_lexicon_with_tts_lemmas(lexicon)
+    if with_blank:
+        lexicon = extend_lexicon_with_blank(lexicon)
+    return lexicon
+
+
+
 def get_vocab_datastream(with_blank: bool = False) -> LabelDatastream:
     """
     Default VocabularyDatastream for LibriSpeech (uppercase ARPA phoneme symbols)
 
     :param with_blank: datastream for CTC training
     """
-    lexicon = get_librispeech_lexicon()
-    if with_blank:
-        lexicon = extend_lexicon_with_blank(lexicon)
-
-    returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon)
-    returnn_vocab_job.add_alias(os.path.join(DATA_PREFIX, "returnn_vocab_from_lexicon"))
+    lexicon = get_lexicon(with_blank)
+    blacklist =  {"[SILENCE]"}
+    returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon, blacklist=blacklist)
+    name = "returnn_vocab_from_lexicon_with_blank" if with_blank else "returnn_vocab_from_lexicon"
+    returnn_vocab_job.add_alias(os.path.join(DATA_PREFIX, name))
 
     vocab_datastream = LabelDatastream(
         available_for_inference=True,

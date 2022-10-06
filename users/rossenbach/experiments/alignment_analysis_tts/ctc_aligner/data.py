@@ -45,7 +45,7 @@ def build_training_dataset(center : bool = False) -> AlignmentTrainingDatasets:
     # (1004 segments for dev, 4 segments for each of the 251 speakers)
     train_segments, cv_segments = get_librispeech_tts_segments()
 
-    vocab_datastream = get_vocab_datastream()
+    vocab_datastream = get_vocab_datastream(with_blank=True)
     log_mel_datastream = get_tts_log_mel_datastream(center=center)
 
     # we currently assume that train and cv share the same corpus file

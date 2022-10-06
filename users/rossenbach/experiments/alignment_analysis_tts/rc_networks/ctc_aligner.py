@@ -169,6 +169,9 @@ class CTCAligner(nn.Module):
 
     def __init__(
         self,
+        in_feature_dim: nn.Dim,
+        in_speaker_dim: nn.Dim,
+        out_label_dim: nn.Dim,
         audio_emb_size: int = 256,
         speaker_emb_size: int = 256,
         hidden_size: int = 256,
@@ -176,7 +179,6 @@ class CTCAligner(nn.Module):
         spectrogram_drop: float = 0.35,
         reconstruction_scale: int = 0.5,
         training=True,
-        phoneme_vocab_size: int = 44,
     ):
         """
         :param audio_emb_size: Embedding size for audio features
@@ -193,13 +195,16 @@ class CTCAligner(nn.Module):
         self.hidden_dim = nn.FeatureDim("hidden_size", hidden_size)
         self.enc_lstm_dim = nn.FeatureDim("enc_lstm_dim", enc_lstm_size)
 
-        self.audio_embedding = nn.Linear(out_dim=self.audio_hidden_dim)
-        self.speaker_embedding = nn.Linear(out_dim=self.speaker_hidden_dim)
+        self.audio_embedding = nn.Linear(in_dim=in_feature_dim, out_dim=self.audio_hidden_dim)
+        self.speaker_embedding = nn.Linear(in_dim=in_speaker_dim, out_dim=self.speaker_hidden_dim)
         self.enc_conv_stack = ConvStack()
         self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim)
         self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim)
+
+        self._softmax_dim = out_label_dim.dimension
+
         self.spectogram_lin = nn.Linear(
-            out_dim=nn.FeatureDim("spectogram_lin", phoneme_vocab_size)
+            out_dim=nn.FeatureDim("spectogram_lin", self._softmax_dim)
         )
         self.tts_decoder = TTSDecoder()
         self.reconstruction_lin = nn.Linear(
@@ -273,7 +278,7 @@ class CTCAligner(nn.Module):
             return reconstruction_lin
         else:
             slice_out, slice_dim = nn.slice(
-                softmax, axis=softmax.feature_dim, slice_start=0, slice_end=43
+                softmax, axis=softmax.feature_dim, slice_start=0, slice_end=self._softmax_dim - 1,
             )
             padding = nn.pad(
                 slice_out,
@@ -312,7 +317,12 @@ def construct_network(
     :param kwargs:
     :return:
     """
-    net = net_module(**kwargs)
+    net = net_module(
+        in_feature_dim=audio_data.feature_dim_or_sparse_dim,
+        in_speaker_dim=label_data.feature_dim_or_sparse_dim,
+        out_label_dim=phoneme_data.feature_dim_or_sparse_dim,
+        **kwargs
+    )
     out = net(
         audio_features=nn.get_extern_data(audio_data),
         speaker_labels=nn.get_extern_data(label_data),

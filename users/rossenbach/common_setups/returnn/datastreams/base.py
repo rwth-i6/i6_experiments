@@ -74,7 +74,7 @@ class Datastream:
     def as_nnet_constructor_data(
             self, name: str, available_for_inference: Optional[bool] = None, **kwargs
     ):
-        from i6_experiments.users.rossenbach.returnn.nnet_constructor import DataInitArgs, DimInitArgs
+        from i6_experiments.common.setups.returnn_common.serialization import DataInitArgs, DimInitArgs
 
         d = self.as_returnn_extern_data_opts(
             available_for_inference=available_for_inference

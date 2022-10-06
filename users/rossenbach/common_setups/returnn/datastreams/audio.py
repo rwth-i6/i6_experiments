@@ -26,6 +26,13 @@ class DBMelFilterbankOptions(AdditionalFeatureOptions):
     min_amp: float = 1e-10
     center: bool = True
 
+@dataclasses.dataclass(frozen=True)
+class LinearFilterbankOptions(AdditionalFeatureOptions):
+    """
+    additional options for linear_spectrogram features
+    """
+    center: bool = True
+
 
 @dataclasses.dataclass(frozen=True)
 class MFCCOptions(AdditionalFeatureOptions):
@@ -43,7 +50,7 @@ KNOWN_FEATURES = {
     "log_mel_filterbank": [type(None)],
     "log_log_mel_filterbank": [type(None)],
     "db_mel_filterbank": [type(None), DBMelFilterbankOptions],
-    "linear_spectrogram": [type(None)],
+    "linear_spectrogram": [type(None), LinearFilterbankOptions],
 }
 
 
