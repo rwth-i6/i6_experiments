@@ -313,3 +313,30 @@ class SimpleHDFWriter:
       shutil.move(tmp_dest_filename, self.filename)
       os.remove(self.tmp_filename)
       self.tmp_filename = None
+
+
+def load_default_data(hdf_filename):
+    """
+    opens a hdf file an reads the default "data" as numpy array plus the list of sequence tags
+
+    :param hdf_filename:
+    :return: tuple of numpy.array data and data tags
+    """
+    input_data = h5py.File(hdf_filename, "r")
+    inputs = input_data["inputs"]
+    seq_tags = input_data["seqTags"]
+    lengths = input_data["seqLengths"]
+
+    # Load data
+    data_seqs = []
+    data_tags = []
+    offset = 0
+
+    for tag, length in zip(seq_tags, lengths):
+      tag = tag if isinstance(tag, str) else tag.decode()
+      in_data = inputs[offset : offset + length[0]]
+      data_seqs.append(in_data)
+      offset += length[0]
+      data_tags.append(tag)
+
+    return numpy.array(data_seqs), data_tags
