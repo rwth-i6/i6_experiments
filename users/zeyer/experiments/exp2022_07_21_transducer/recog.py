@@ -9,6 +9,7 @@ from typing import Dict, Any, Protocol, Tuple, Optional
 # i6_core imports
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
+from i6_core.returnn.search import SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
 # returnn_common imports
 from returnn_common.datasets.interface import DatasetConfig
 from returnn_common import nn
@@ -20,7 +21,6 @@ from .task import Task, ScoreResultCollection
 from .model import ModelWithCheckpoint, ModelDef, RecogDef
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.returnn.search import SearchRemoveLabel, SearchBeamJoinScores, SearchTakeBest
 
 
 def recog(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
@@ -48,10 +48,10 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     )
     res = search_job.out_search_file
     if recog_def.output_blank_label:
-        res = SearchRemoveLabel(res, remove_label=recog_def.output_blank_label).out_search_results
-        res = SearchBeamJoinScores(res).out_search_results
+        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label).out_search_results
+        res = SearchBeamJoinScoresJob(res).out_search_results
     if recog_def.output_with_beam:
-        res = SearchTakeBest(res).out_best_search_results
+        res = SearchTakeBestJob(res).out_best_search_results
     return RecogOutput(output=res)
 
 
