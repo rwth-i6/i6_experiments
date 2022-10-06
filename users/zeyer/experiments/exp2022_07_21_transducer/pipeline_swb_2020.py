@@ -399,3 +399,25 @@ def model_recog(*,
 # RecogDef API
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
+
+
+def test_training():
+    nn.reset_default_root_name_ctx()
+
+    time_dim = nn.SpatialDim("time")
+    in_dim = nn.FeatureDim("input", 10)
+    label_spatial_dim = nn.SpatialDim("label_time")
+    target_dim = nn.FeatureDim("targets", 5)
+    target_dim.vocab = nn.Vocabulary.create_vocab_from_labels(["<eos>", "a", "b", "c", "d"], eos_label="<eos>")
+
+    data = nn.get_extern_data(nn.Data("data", dim_tags=[nn.batch_dim, time_dim, in_dim]))
+    targets = nn.get_extern_data(nn.Data("classes", dim_tags=[nn.batch_dim, label_spatial_dim], sparse_dim=target_dim))
+
+    model = from_scratch_model_def(epoch=1, in_dim=in_dim, target_dim=target_dim)
+    from_scratch_training(
+        model=model, data=data, data_spatial_dim=time_dim, targets=targets, targets_spatial_dim=label_spatial_dim)
+
+    net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
+    extern_data_dict = nn.get_returnn_config().get_extern_data_raw_dict()
+    from returnn_common.tests.returnn_helpers import dummy_run_net
+    dummy_run_net({"network": net_dict, "extern_data": extern_data_dict}, train=True, net=model)
