@@ -74,7 +74,7 @@ def pipeline(task: Task):
 class Model(nn.Module):
     """Model definition"""
 
-    def __init__(self, *,
+    def __init__(self, in_dim: nn.Dim, *,
                  num_enc_layers=6,
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
@@ -86,7 +86,7 @@ class Model(nn.Module):
                  l2: float = 0.0001,
                  ):
         super(Model, self).__init__()
-        self.encoder = BlstmCnnSpecAugEncoder(num_layers=num_enc_layers, l2=l2)
+        self.encoder = BlstmCnnSpecAugEncoder(in_dim, num_layers=num_enc_layers, l2=l2)
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -98,19 +98,21 @@ class Model(nn.Module):
         self.att_num_heads = att_num_heads
         self.att_dropout = att_dropout
 
-        self.enc_ctx = nn.Linear(enc_key_total_dim)
+        self.enc_ctx = nn.Linear(self.encoder.out_dim, enc_key_total_dim)
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
-        self.att_query = nn.Linear(enc_key_total_dim, with_bias=False)
-        self.lm = DecoderLabelSync(l2=l2)
-        self.readout_in_am = nn.Linear(nn.FeatureDim("readout", 1000), with_bias=False)
+        self.att_query = nn.Linear(self.encoder.out_dim, enc_key_total_dim, with_bias=False)
+        self.lm = DecoderLabelSync(nb_target_dim, l2=l2)
+        self.readout_in_am = nn.Linear(self.encoder.out_dim * 2, nn.FeatureDim("readout", 1000), with_bias=False)
         self.readout_in_am_dropout = 0.1
-        self.readout_in_lm = nn.Linear(self.readout_in_am.out_dim, with_bias=False)
+        self.readout_in_lm = nn.Linear(self.lm.out_dim, self.readout_in_am.out_dim, with_bias=False)
         self.readout_in_lm_dropout = 0.1
         self.readout_in_bias = nn.Parameter([self.readout_in_am.out_dim])
-        self.out_nb_label_logits = nn.Linear(nb_target_dim)
+        self.readout_reduce_num_pieces = 2
+        self.readout_dim = self.readout_in_am.out_dim // self.readout_reduce_num_pieces
+        self.out_nb_label_logits = nn.Linear(self.readout_dim, nb_target_dim)
         self.label_log_prob_dropout = 0.3
-        self.out_emit_logit = nn.Linear(nn.FeatureDim("emit", 1))
+        self.out_emit_logit = nn.Linear(self.readout_dim, nn.FeatureDim("emit", 1))
 
         for p in self.enc_ctx.parameters():
             p.weight_decay = l2
@@ -194,7 +196,8 @@ class Model(nn.Module):
         readout_in_am = self.readout_in_am(readout_in_am_in)
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout_in += self.readout_in_bias
-        readout = nn.reduce_out(readout_in, mode="max", num_pieces=2)
+        readout = nn.reduce_out(
+            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim)
 
         return ProbsFromReadout(model=self, readout=readout), state_
 
@@ -204,16 +207,17 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self, *,
+    def __init__(self, in_dim: nn.Dim, *,
                  embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
                  lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
                  dropout: float = 0.2,
                  l2: float = 0.0001,
                  ):
         super(DecoderLabelSync, self).__init__()
-        self.embed = nn.Linear(embed_dim)
+        self.embed = nn.Linear(in_dim, embed_dim)
         self.dropout = dropout
-        self.lstm = nn.LSTM(lstm_dim)
+        self.lstm = nn.LSTM(self.embed.out_dim, lstm_dim)
+        self.out_dim = self.lstm.out_dim
         for p in self.parameters():
             p.weight_decay = l2
 
@@ -279,9 +283,10 @@ def _get_bos_idx(target_dim: nn.Dim) -> int:
     return bos_idx
 
 
-def from_scratch_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
+def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     return Model(
+        in_dim,
         num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
@@ -318,12 +323,13 @@ def from_scratch_training(*,
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def extended_model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
+def extended_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
     assert target_dim.vocab
     assert target_dim.vocab.bos_label_id is not None
     # TODO extended model...
     return Model(
+        in_dim,
         num_enc_layers=6,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,

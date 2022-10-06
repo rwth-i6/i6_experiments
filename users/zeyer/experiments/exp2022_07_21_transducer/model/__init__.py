@@ -16,7 +16,7 @@ class ModelDef(Protocol[ModelT]):
     """
     Creates the model, per epoch
     """
-    def __call__(self, *, epoch: int, target_dim: nn.Dim) -> ModelT:
+    def __call__(self, *, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> ModelT:
         raise NotImplementedError
 
 
