@@ -56,7 +56,6 @@ rasr_args = RasrInitArgs(
             }
         }
     },
-    default_mixture_scorer_args={"scale": 0.3}  # TODO is this needed for ctc?
 )
 
 
@@ -482,7 +481,7 @@ def ctc_test_dimtag():
 def ctc_test_legacy_network():
     ctc_lexicon = create_regular_lexicon()
     tk.register_output("experiments/librispeech_100_ctc/ctc_lexicon.xml", ctc_lexicon)
-
+    recog_args = get_default_recog_args()
 
     system = CtcSystem(
         returnn_config=get_returnn_config(use_legacy_network=True),
@@ -500,7 +499,6 @@ def ctc_test_legacy_network():
         dev_data=dev_data,
         test_data=test_data
     )
-    #system.run(("extract", "train", "recog"))
-    system.run(("extract", "train"))
+    system.run(("extract", "train", "recog"))
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 

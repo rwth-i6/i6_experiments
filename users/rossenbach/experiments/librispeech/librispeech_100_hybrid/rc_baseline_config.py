@@ -12,7 +12,8 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     Collection,
     Network,
     ExternData,
-    Import
+    Import,
+    ExplicitHash
 )
 
 
@@ -175,7 +176,7 @@ def get_rc_returnn_configs(
     net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
     net_kwargs_focal_loss["focal_loss_scale"] = 2.0
 
-    def construct_from_net_kwargs(net_kwargs):
+    def construct_from_net_kwargs(net_kwargs, explicit_hash=None):
         rc_network = Network(
             net_func_name=rc_construction_code.object_name,
             net_func_map={
@@ -185,14 +186,16 @@ def get_rc_returnn_configs(
             },  # this is hashed
             net_kwargs=net_kwargs,
         )
-
+        serializer_objects = [
+            rc_extern_data,
+            rc_encoder,
+            rc_construction_code,
+            rc_network,
+        ]
+        if explicit_hash:
+            serializer_objects.append(ExplicitHash(explicit_hash))
         serializer = Collection(
-            serializer_objects=[
-                rc_extern_data,
-                rc_encoder,
-                rc_construction_code,
-                rc_network,
-            ],
+            serializer_objects=serializer_objects,
             returnn_common_root=RETURNN_COMMON,
             make_local_package_copy=True,
             packages={
@@ -210,5 +213,5 @@ def get_rc_returnn_configs(
 
     return {
         "blstm_base": construct_from_net_kwargs(net_kwargs),
-        "blstm_focal_loss": construct_from_net_kwargs(net_kwargs_focal_loss),
+        "blstm_focal_loss": construct_from_net_kwargs(net_kwargs_focal_loss, explicit_hash="focal_loss_v2"),
     }

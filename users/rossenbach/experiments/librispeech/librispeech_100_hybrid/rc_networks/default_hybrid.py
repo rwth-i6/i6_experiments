@@ -122,7 +122,7 @@ class HybridHMM(IHybridHMM):
             ce_loss = nn.sparse_softmax_cross_entropy_with_logits(logits=out_embed, targets=targets, axis=self.out_dim)
             # focal loss (= more emphasis on "low" scores), might not be correct yet
             if self.focal_loss_scale != 1.0:
-                ce_loss *= (1.0 - nn.exp(ce_loss)) ** self.focal_loss_scale
+                ce_loss *= (1.0 - nn.exp(-ce_loss)) ** self.focal_loss_scale
             ce_loss.mark_as_loss()
         return nn.log_softmax(out_embed, axis=self.out_dim), None
 
