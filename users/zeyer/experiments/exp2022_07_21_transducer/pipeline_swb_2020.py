@@ -57,18 +57,21 @@ def pipeline(task: Task):
     """run the pipeline for the given task, register outputs"""
     step1_model = train(
         task=task, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
-    step2_alignment = align(task=task, model=step1_model)
+    step2_alignment = align(task=task, model=step1_model.get_last_fixed_epoch())
     # use step1 model params; different to the paper
     step3_model = train(
         task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
-        alignment=step2_alignment, init_params=step1_model.checkpoint)
+        alignment=step2_alignment, init_params=step1_model.get_last_fixed_epoch().checkpoint)
     step4_model = train(
         task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
-        alignment=step2_alignment, init_params=step3_model.checkpoint)
+        alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
-    tk.register_output('step1', recog(task, step1_model, recog_def=model_recog).main_measure_value)
-    tk.register_output('step3', recog(task, step3_model, recog_def=model_recog).main_measure_value)
-    tk.register_output('step4', recog(task, step4_model, recog_def=model_recog).main_measure_value)
+    tk.register_output(
+        'step1', recog(task, step1_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+    tk.register_output(
+        'step3', recog(task, step3_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+    tk.register_output(
+        'step4', recog(task, step4_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
 
 
 class Model(nn.Module):

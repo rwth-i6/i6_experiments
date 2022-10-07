@@ -228,8 +228,8 @@ class GetRelevantEpochsFromTrainingJob(Job):
         """
         assert tk.running_in_worker()
         possible_fns = [
-            "%s/%s.%03d.meta" % (self.model_dir.get_path(), self.model_name, epoch),
-            "%s/%s.pretrain.%03d.meta" % (self.model_dir.get_path(), self.model_name, epoch)]
+            "%s/%s.%03d.index" % (self.model_dir.get_path(), self.model_name, epoch),
+            "%s/%s.pretrain.%03d.index" % (self.model_dir.get_path(), self.model_name, epoch)]
         for fn in possible_fns:
             if os.path.exists(fn):
                 return True

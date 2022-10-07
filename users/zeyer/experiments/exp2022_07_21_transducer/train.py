@@ -9,7 +9,7 @@ from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
-from .model import ModelWithCheckpoint, Checkpoint, AlignmentCollection, ModelT, ModelDef, TrainDef, FramewiseTrainDef
+from .model import ModelWithCheckpoints, Checkpoint, AlignmentCollection, ModelT, ModelDef, TrainDef, FramewiseTrainDef
 from .task import Task
 
 
@@ -20,7 +20,7 @@ def train(*,
           train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
           init_params: Optional[Checkpoint] = None,
           extra_hash: Any = None,
-          ) -> ModelWithCheckpoint:
+          ) -> ModelWithCheckpoints:
     """
     train
 
@@ -115,9 +115,9 @@ def train(*,
         log_verbosity=5, num_epochs=num_epochs,
         time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
 
-    return ModelWithCheckpoint(
+    return ModelWithCheckpoints.from_training_job(
         definition=model_def,
-        checkpoint=returnn_train_job.out_checkpoints[num_epochs])
+        training_job=returnn_train_job)
 
 
 def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
