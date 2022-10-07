@@ -33,7 +33,7 @@ from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 from .task import Task, get_switchboard_task
 from .train import train
-from .recog import recog, beam_search, IDecoder
+from .recog import recog_model, beam_search, IDecoder
 from .align import align
 
 
@@ -67,11 +67,11 @@ def pipeline(task: Task):
         alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
     tk.register_output(
-        'step1', recog(task, step1_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+        'step1', recog_model(task, step1_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
     tk.register_output(
-        'step3', recog(task, step3_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+        'step3', recog_model(task, step3_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
     tk.register_output(
-        'step4', recog(task, step4_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+        'step4', recog_model(task, step4_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
 
 
 class Model(nn.Module):

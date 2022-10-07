@@ -6,6 +6,8 @@ recog helpers
 # Python stdlib imports
 from __future__ import annotations
 from typing import Dict, Any, Protocol, Tuple, Optional
+# sisyphus imports
+from sisyphus import Job, Task
 # i6_core imports
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
@@ -18,12 +20,21 @@ from i6_experiments.common.setups.returnn_common import serialization
 
 # i6_experiments.users imports
 from .task import Task, ScoreResultCollection
-from .model import ModelWithCheckpoint, ModelDef, RecogDef
+from .model import ModelWithCheckpoint, ModelWithCheckpoints, ModelDef, RecogDef
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
+from i6_experiments.users.zeyer.returnn.training import GetRelevantEpochsFromTrainingJob
 from i6_experiments.users.zeyer import tools_paths
 
 
-def recog(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
+def recog_training_exp(task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+    """recog on all relevant epochs"""
+    # TODO ...
+    GetRelevantEpochsFromTrainingJob(
+
+    )
+
+
+def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
@@ -196,3 +207,12 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
     return net_dict
+
+
+class SummarizeRecogTrainExp(Job):
+    """collect all info from recogs"""
+
+    def __init__(self):
+        super(SummarizeRecogTrainExp, self).__init__()
+        # TODO ...
+        pass
