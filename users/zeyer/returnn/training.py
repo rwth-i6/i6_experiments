@@ -133,3 +133,108 @@ class ReturnnInitModelJob(Job):
             "returnn_root": kwargs["returnn_root"],
         }
         return super().hash(d)
+
+
+class GetRelevantEpochsFromTrainingJob(Job):
+    """
+    Collects the most relevant kept epochs from the training job
+    based on the training cross validation ("dev_...") scores.
+
+    This is intended to then use to perform recognition on
+    (maybe in addition to the anyway fixed kept epochs).
+
+    You can parse the output in another Job.update() function
+    to dynamically add corresponding recognition jobs.
+    """
+
+    def __init__(self, *,
+                 model_dir: tk.Path,
+                 model_name: str = "epoch",
+                 scores_and_learning_rates: tk.Path,
+                 n_best: int = 2):
+        """
+        :param model_dir: ReturnnTrainingJob.out_model_dir
+        :param model_name: RETURNN config `model` option. this is hardcoded to "epoch" in ReturnnTrainingJob
+        :param scores_and_learning_rates: ReturnnTrainingJob.out_learning_rates
+        :param n_best: number of best epochs to return
+        """
+        self.model_dir = model_dir
+        self.model_name = model_name
+        self.scores_and_learning_rates = scores_and_learning_rates
+        self.n_best = n_best
+        self.output = self.output_path("info.txt")  # epochs. Py format: {"epochs": list[int], ...}
+
+    def run(self):
+        """run"""
+        score_keys = set()
+
+        # simple wrapper, to eval newbob.data
+        # noinspection PyPep8Naming
+        def EpochData(learningRate, error):
+            """
+            :param float learningRate:
+            :param dict[str,float] error: keys are e.g. "dev_score_output" etc
+            :rtype: dict[str,float]
+            """
+            assert isinstance(error, dict)
+            score_keys.update(error.keys())
+            d = {"learning_rate": learningRate}
+            d.update(error)
+            return d
+
+        # nan/inf, for some broken newbob.data
+        nan = float("nan")
+        inf = float("inf")
+
+        scores_str = open(self.scores_and_learning_rates.get_path()).read()
+        scores = eval(scores_str, {"EpochData": EpochData, "nan": nan, "inf": inf})
+        assert isinstance(scores, dict)
+        all_epochs = sorted(scores.keys())
+
+        suggested_epochs = set()
+        for score_key in score_keys:
+            if not score_key.startswith("dev_"):
+                continue
+            dev_scores = sorted([
+                (float(scores[ep][score_key]), int(ep))
+                for ep in all_epochs if score_key in scores[ep]])
+            assert dev_scores
+            if dev_scores[0][0] == dev_scores[-1][0]:
+                # All values are the same (e.g. 0.0), so no information. Just ignore this score_key.
+                continue
+            if dev_scores[0] == (0.0, 1):
+                # Heuristic. Ignore the key if it looks invalid.
+                continue
+            for value, ep in sorted(dev_scores)[:self.n_best]:
+                suggested_epochs.add(ep)
+                print("Suggest: epoch %i because %s %f" % (ep, score_key, value))
+
+        print("Suggested epochs:", suggested_epochs)
+        assert suggested_epochs
+
+        for ep in sorted(suggested_epochs):
+            if not self._chkpt_exists(ep):
+                print("Model does not exist (anymore):", suggested_epochs)
+                suggested_epochs.remove(ep)
+        assert suggested_epochs  # after filter
+
+        with open(self.output.get_path(), "w") as f:
+            f.write("%r\n" % ({"epochs": sorted(suggested_epochs)},))
+
+    def _chkpt_exists(self, epoch: int) -> True:
+        """
+        :param int epoch:
+        :rtype: bool
+        """
+        assert tk.running_in_worker()
+        possible_fns = [
+            "%s/%s.%03d.meta" % (self.model_dir.get_path(), self.model_name, epoch),
+            "%s/%s.pretrain.%03d.meta" % (self.model_dir.get_path(), self.model_name, epoch)]
+        for fn in possible_fns:
+            if os.path.exists(fn):
+                return True
+        return False
+
+    def tasks(self):
+        """tasks"""
+        yield Task('run', rqmt={'cpu': 1, 'mem': 1, 'time': 0.1}, mini_task=True)
