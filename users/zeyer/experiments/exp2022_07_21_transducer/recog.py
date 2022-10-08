@@ -5,7 +5,7 @@ recog helpers
 
 # Python stdlib imports
 from __future__ import annotations
-from typing import Dict, Any, Protocol, Tuple, Optional
+from typing import Dict, Any, Protocol, Tuple, Optional, Iterator
 # sisyphus imports
 from sisyphus import Job, Task
 # i6_core imports
@@ -22,16 +22,13 @@ from i6_experiments.common.setups.returnn_common import serialization
 from .task import Task, ScoreResultCollection
 from .model import ModelWithCheckpoint, ModelWithCheckpoints, ModelDef, RecogDef
 from i6_experiments.users.zeyer.datasets.base import RecogOutput
-from i6_experiments.users.zeyer.returnn.training import GetRelevantEpochsFromTrainingJob
+from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer import tools_paths
 
 
 def recog_training_exp(task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
     """recog on all relevant epochs"""
     # TODO ...
-    GetRelevantEpochsFromTrainingJob(
-
-    )
 
 
 def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
@@ -212,7 +209,56 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
 class SummarizeRecogTrainExp(Job):
     """collect all info from recogs"""
 
-    def __init__(self):
+    def __init__(self, exp: ModelWithCheckpoints, *,
+                 recog_def: RecogDef,
+                 score_def,
+                 check_train_scores_n_best: int = 2):
+        """
+        :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
+        :param recog_def: recog def (includes beam search hyper param details etc)
+        :param score_def: from recog output to some score
+        :param check_train_scores_n_best: check train scores for N best checkpoints (per each measure)
+        """
         super(SummarizeRecogTrainExp, self).__init__()
-        # TODO ...
-        pass
+        self.exp = exp
+        self.recog_def = recog_def
+        self.score_def = score_def
+        self.check_train_scores_n_best = check_train_scores_n_best
+        self._update_checked_relevant_epochs = False
+        self._scores_outputs = {}  # epoch -> scores out
+        for epoch in exp.fixed_checkpoints.keys():
+            self._add_recog(epoch)
+
+    def update(self):
+        """
+        This is run when all inputs have become available,
+        and we can potentially add further inputs.
+        The exp (ModelWithCheckpoints) includes a ref to scores_and_learning_rates
+        which is only available when the training job finished,
+        thus this is only run at the very end.
+
+        Note that this is thus called multiple times,
+        once scores_and_learning_rates becomes available,
+        and then once the further recogs become available.
+        However, only want to check for relevant checkpoints once.
+        """
+        if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
+            self._update_checked_relevant_epochs = True
+            for epoch in get_relevant_epochs_from_training_learning_rate_scores(
+                    model_dir=self.exp.model_dir, model_name=self.exp.model_name,
+                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                    n_best=self.check_train_scores_n_best):
+                self._add_recog(epoch)
+
+    def _add_recog(self, epoch: int):
+        if epoch in self._scores_outputs:
+            return
+        # TODO ... add scoring ...
+
+    def tasks(self) -> Iterator[Task]:
+        """tasks"""
+        yield Task('run', mini_task=True)
+
+    def run(self):
+        """run"""
+        # TODO ... summarize ...
