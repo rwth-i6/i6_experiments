@@ -26,6 +26,7 @@ def get_switchboard_task_bpe1k() -> Task:
     }
 
     return Task(
+        name="swb_bpe1k",
         train_dataset=train_dataset,
         train_epoch_split=train_epoch_split,
         dev_dataset=dev_dataset,

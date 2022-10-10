@@ -123,6 +123,7 @@ def get_nltk_timit_task() -> Task:
     NLTK TIMIT (small subset of TIMIT, but freely available via NLTK)
     """
     return Task(
+        name="nltk_timit",
         train_dataset=NltkTimit(),
         train_epoch_split=1,
         dev_dataset=NltkTimit(main_key="dev"),

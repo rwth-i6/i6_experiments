@@ -19,6 +19,7 @@ class Task:
 
     Note that the dataset would also already include things like feature extraction details, output labels (BPE etc).
     """
+    name: str  # to differentiate between different tasks. might be used for the output dir name
 
     # for training
     train_dataset: DatasetConfig  # also includes cross-validation dataset for learning rate scheduling etc
