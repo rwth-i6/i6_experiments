@@ -20,10 +20,6 @@ class ModelDef(Protocol[ModelT]):
     def __call__(self, *, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> ModelT:
         raise NotImplementedError
 
-    # The recog def implementation is supposed to be independent of the model.
-    # However, it is useful to have this together with the model def to simplify the API.
-    recog_def: RecogDef[ModelT]
-
 
 class TrainDef(Protocol[ModelT]):
     """

@@ -67,11 +67,11 @@ def pipeline(task: Task):
         alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
     tk.register_output(
-        'step1', recog_model(task, step1_model.get_last_fixed_epoch()).main_measure_value)
+        'step1', recog_model(task, step1_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
     tk.register_output(
-        'step3', recog_model(task, step3_model.get_last_fixed_epoch()).main_measure_value)
+        'step3', recog_model(task, step3_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
     tk.register_output(
-        'step4', recog_model(task, step4_model.get_last_fixed_epoch()).main_measure_value)
+        'step4', recog_model(task, step4_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
 
 
 class Model(nn.Module):
@@ -286,7 +286,73 @@ def _get_bos_idx(target_dim: nn.Dim) -> int:
     return bos_idx
 
 
-# RecogDef API
+def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
+    """Function is run within RETURNN."""
+    return Model(
+        in_dim,
+        num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
+        nb_target_dim=target_dim,
+        wb_target_dim=target_dim + 1,
+        blank_idx=target_dim.dimension,
+        bos_idx=_get_bos_idx(target_dim),
+    )
+
+
+def from_scratch_training(*,
+                          model: Model,
+                          data: nn.Tensor, data_spatial_dim: nn.Dim,
+                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
+                          ):
+    """Function is run within RETURNN."""
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
+    probs, _ = model.decode(
+        **enc_args,
+        enc_spatial_dim=enc_spatial_dim,
+        all_combinations_out=True,
+        prev_nb_target=prev_targets,
+        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
+    out_log_prob = probs.get_wb_label_log_probs()
+    loss = nn.transducer_time_sync_full_sum_neg_log_prob(
+        log_probs=out_log_prob,
+        labels=targets,
+        input_spatial_dim=enc_spatial_dim,
+        labels_spatial_dim=targets_spatial_dim,
+        blank_index=model.blank_idx)
+    loss.mark_as_loss("full_sum")
+
+
+from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
+
+
+def extended_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
+    """Function is run within RETURNN."""
+    assert target_dim.vocab
+    assert target_dim.vocab.bos_label_id is not None
+    # TODO extended model...
+    return Model(
+        in_dim,
+        num_enc_layers=6,
+        nb_target_dim=target_dim,
+        wb_target_dim=target_dim + 1,
+        blank_idx=target_dim.dimension,
+        bos_idx=target_dim.vocab.bos_label_id,
+    )
+
+
+def extended_model_training(*,
+                            model: Model,
+                            data: nn.Tensor, data_spatial_dim: nn.Dim,
+                            align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
+                            ):
+    """Function is run within RETURNN."""
+    pass  # TODO
+
+
+extended_model_training.learning_rate_control_error_measure = "dev_score_ce"
+
+
 def model_recog(*,
                 model: Model,
                 data: nn.Tensor, data_spatial_dim: nn.Dim,
@@ -336,81 +402,6 @@ def model_recog(*,
 # RecogDef API
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
-
-
-# ModelDef API
-def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
-    """Function is run within RETURNN."""
-    return Model(
-        in_dim,
-        num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
-        nb_target_dim=target_dim,
-        wb_target_dim=target_dim + 1,
-        blank_idx=target_dim.dimension,
-        bos_idx=_get_bos_idx(target_dim),
-    )
-
-
-from_scratch_model_def.recog_def = model_recog
-
-
-def from_scratch_training(*,
-                          model: Model,
-                          data: nn.Tensor, data_spatial_dim: nn.Dim,
-                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
-                          ):
-    """Function is run within RETURNN."""
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
-    probs, _ = model.decode(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        all_combinations_out=True,
-        prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
-    out_log_prob = probs.get_wb_label_log_probs()
-    loss = nn.transducer_time_sync_full_sum_neg_log_prob(
-        log_probs=out_log_prob,
-        labels=targets,
-        input_spatial_dim=enc_spatial_dim,
-        labels_spatial_dim=targets_spatial_dim,
-        blank_index=model.blank_idx)
-    loss.mark_as_loss("full_sum")
-
-
-from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
-
-
-# ModelDef API
-def extended_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
-    """Function is run within RETURNN."""
-    assert target_dim.vocab
-    assert target_dim.vocab.bos_label_id is not None
-    # TODO extended model...
-    return Model(
-        in_dim,
-        num_enc_layers=6,
-        nb_target_dim=target_dim,
-        wb_target_dim=target_dim + 1,
-        blank_idx=target_dim.dimension,
-        bos_idx=target_dim.vocab.bos_label_id,
-    )
-
-
-extended_model_def.recog_def = model_recog
-
-
-def extended_model_training(*,
-                            model: Model,
-                            data: nn.Tensor, data_spatial_dim: nn.Dim,
-                            align_targets: nn.Tensor, align_targets_spatial_dim: nn.Dim
-                            ):
-    """Function is run within RETURNN."""
-    pass  # TODO
-
-
-extended_model_training.learning_rate_control_error_measure = "dev_score_ce"
 
 
 def test_training():
