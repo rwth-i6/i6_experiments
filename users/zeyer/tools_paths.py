@@ -1,4 +1,8 @@
 """
+A generic interface to get the paths to the tools.
+
+The default fallback behavior:
+
 These are intended to be used for setups where you do not want the hash to change
 when you update the corresponding tool (e.g. RASR, RETURNN, etc).
 The assumption is that you would use the latest version of the tool,
@@ -9,6 +13,11 @@ and reflect such global versions.
 
 Currently, we get the binaries via the Sisyphus global settings,
 but we might extend that mechanism.
+
+However, if needed, we can extend this interface that it is possible
+to overwrite the tools.
+This could be done via a context scope,
+or just overwrite it globally.
 
 Also see i6_experiments/common/baselines/librispeech/default_tools.py.
 """
