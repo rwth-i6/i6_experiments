@@ -57,7 +57,6 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     return RecogOutput(output=res)
 
 
-
 def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef) -> ReturnnConfig:
     """
     config for search
@@ -74,7 +73,7 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
     )
 
     returnn_recog_config = ReturnnConfig(
-        returnn_recog_config_dict,
+        config=returnn_recog_config_dict,
         python_epilog=[serialization.Collection(
             [
                 serialization.NonhashedCode(
@@ -100,17 +99,15 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # flat_net_construction=True,
-
-            # With num seqs > 1 in a batch, the search result might depend on the batch for RNN-T or AED,
-            # when the output seq length (amount of align labels) is variable.
-            # For RNA, this is always fixed (same as encoder seq len), so there it should not have an effect.
-            # In any case, the effect should be low.
-            batching="sorted",
-            batch_size=20000,
-            max_seqs=200,
         ),
         sort_config=False,
     )
+
+    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(dict(
+        batching="sorted",
+        batch_size=20000,
+        max_seqs=200,
+    ))
 
     return returnn_recog_config
 

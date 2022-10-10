@@ -131,6 +131,16 @@ class RecogDef(Protocol[ModelT]):
     output_with_beam: bool = True
     output_blank_label: Optional[str] = None
 
+    # A batched beam search can be dependent on the batch size,
+    # when the max out seq len depends on the max input seq len in a batch,
+    # as we commonly use it for our AED models or RNN-T models.
+    # For RNA, the out seq len is always fixed (same as encoder seq len),
+    # so there it should not have an effect.
+    # In any case, the effect should be low.
+    # Anyway, if you set this here to True,
+    # it makes the hash dependent on the batch size.
+    batch_size_dependent: bool = False
+
 
 @dataclasses.dataclass(frozen=True)
 class ModelWithCheckpointAndRecog(ModelWithCheckpoint):
