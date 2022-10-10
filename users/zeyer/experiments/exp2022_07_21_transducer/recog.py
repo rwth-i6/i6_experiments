@@ -26,16 +26,16 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 from i6_experiments.users.zeyer import tools_paths
 
 
-def recog_training_exp(task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+def recog_training_exp(task: Task, model: ModelWithCheckpoints):
     """recog on all relevant epochs"""
     # TODO ...
 
 
-def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
+def recog_model(task: Task, model: ModelWithCheckpoint) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
-        recog_out = search_dataset(dataset=dataset, model=model, recog_def=recog_def)
+        recog_out = search_dataset(dataset=dataset, model=model)
         for f in task.recog_post_proc_funcs:
             recog_out = f(recog_out)
         score_out = task.score_recog_output_func(dataset, recog_out)
@@ -43,10 +43,11 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
     return task.collect_score_results_func(outputs)
 
 
-def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef) -> RecogOutput:
+def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint) -> RecogOutput:
     """
     recog on the specific dataset
     """
+    recog_def = model.definition.recog_def
     search_job = ReturnnSearchJobV2(
         search_data=dataset.get_main_dataset(),
         model_checkpoint=model.checkpoint,
