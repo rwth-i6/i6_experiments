@@ -4,12 +4,14 @@ Librispeech dataset
 
 from __future__ import annotations
 from typing import Optional, Union, List, Dict, Any, Tuple
-from i6_experiments.common.datasets import librispeech
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
 from i6_core.returnn import ReturnnConfig
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from i6_experiments.common.datasets import librispeech
+from .base import Task
+
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
 
@@ -119,3 +121,10 @@ class LibrispeechOggZip(DatasetConfig):
     self.train_epoch_split = train_epoch_split
 
   # TODO ...
+
+
+def get_librispeech_task_spm2k() -> Task:
+    """
+    Librispeech
+    """
+    # TODO ...
