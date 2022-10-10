@@ -3,7 +3,7 @@ Model logic
 """
 
 from __future__ import annotations
-from typing import Protocol, TypeVar, Optional, List, Dict
+from typing import Protocol, TypeVar, Optional, List, Dict, Set
 import dataclasses
 from sisyphus import tk
 from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint
@@ -69,7 +69,7 @@ class ModelWithCheckpoints:
     """
     definition: ModelDef
     # they will always be available and kept once the training reaches the epoch
-    fixed_checkpoints: Dict[int, Checkpoint]  # epoch -> checkpoint
+    fixed_kept_epochs: Set[int]
     # when this becomes available, you can check potential other checkpoints
     scores_and_learning_rates: tk.Path  # ReturnnTrainingJob.out_learning_rates
     model_dir: tk.Path  # ReturnnTrainingJob.out_model_dir
@@ -80,7 +80,7 @@ class ModelWithCheckpoints:
         """model from training job"""
         return ModelWithCheckpoints(
             definition=definition,
-            fixed_checkpoints=training_job.out_checkpoints,
+            fixed_kept_epochs=set(training_job.out_checkpoints.keys()),
             scores_and_learning_rates=training_job.out_learning_rates,
             model_dir=training_job.out_model_dir,
         )
@@ -88,7 +88,7 @@ class ModelWithCheckpoints:
     @property
     def last_fixed_epoch_idx(self) -> int:
         """last epoch"""
-        return max(self.fixed_checkpoints.keys())
+        return max(self.fixed_kept_epochs)
 
     def get_epoch(self, epoch: int) -> ModelWithCheckpoint:
         """for one specific epoch"""

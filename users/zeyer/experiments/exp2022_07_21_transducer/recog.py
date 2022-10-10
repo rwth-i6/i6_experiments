@@ -226,7 +226,7 @@ class SummarizeRecogTrainExp(Job):
         self.check_train_scores_n_best = check_train_scores_n_best
         self._update_checked_relevant_epochs = False
         self._scores_outputs = {}  # epoch -> scores out
-        for epoch in exp.fixed_checkpoints.keys():
+        for epoch in exp.fixed_kept_epochs:
             self._add_recog(epoch)
 
     def update(self):
