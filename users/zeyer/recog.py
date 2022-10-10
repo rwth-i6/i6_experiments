@@ -24,7 +24,7 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
     """recog on all relevant epochs"""
     # TODO ...
-    recog_model(prefix_name, task, model.get_last_fixed_epoch(), recog_def)
+    recog_model(prefix_name + "/last", task, model.get_last_fixed_epoch(), recog_def)
 
 
 def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
@@ -37,8 +37,8 @@ def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     res = task.collect_score_results_func(outputs)
-    tk.register_output(prefix_name + "/score_results", res.output)
-    tk.register_output(prefix_name + "/score_results_main", res.main_measure_value)
+    tk.register_output(prefix_name + "/recog_results", res.output)
+    tk.register_output(prefix_name + "/recog_results_main", res.main_measure_value)
     return res
 
 
