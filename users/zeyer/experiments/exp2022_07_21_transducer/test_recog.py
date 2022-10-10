@@ -5,7 +5,7 @@ Demo/test for recog
 
 from __future__ import annotations
 from sisyphus import tk
-from .task import get_nltk_timit_task
+from i6_experiments.users.zeyer.datasets.nltk_timit import get_nltk_timit_task
 from .pipeline_swb_2020 import recog_model, model_recog, from_scratch_model_def
 from .recog import ModelWithCheckpoint, search_config
 from i6_experiments.users.zeyer.returnn.training import ReturnnInitModelJob

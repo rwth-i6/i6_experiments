@@ -3,14 +3,18 @@ helpers for training
 """
 
 from __future__ import annotations
+
 from typing import Optional, Union, Dict, Any
 import numpy
+
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
-from .model import ModelWithCheckpoints, Checkpoint, AlignmentCollection, ModelT, ModelDef, TrainDef, FramewiseTrainDef
-from .task import Task
+
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint, AlignmentCollection, \
+    ModelT, ModelDef, TrainDef, FramewiseTrainDef
+from i6_experiments.users.zeyer.datasets.base import Task
 
 
 def train(*,

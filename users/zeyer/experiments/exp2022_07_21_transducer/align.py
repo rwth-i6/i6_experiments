@@ -2,8 +2,8 @@
 alignment utils
 """
 
-from .model import ModelWithCheckpoint, AlignmentCollection, Alignment
-from .task import Task
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, AlignmentCollection, Alignment
+from i6_experiments.users.zeyer.datasets.base import Task
 
 
 def align(*, task: Task, model: ModelWithCheckpoint) -> AlignmentCollection:

@@ -19,7 +19,7 @@ from returnn_common import nn
 from i6_experiments.common.setups.returnn_common import serialization
 
 # i6_experiments.users imports
-from .model import ModelWithCheckpoint, ModelWithCheckpoints, ModelDef, RecogDef
+from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelWithCheckpoints, ModelDef, RecogDef
 from i6_experiments.users.zeyer.datasets.base import Task, RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer import tools_paths
