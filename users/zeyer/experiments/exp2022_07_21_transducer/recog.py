@@ -10,7 +10,7 @@ from typing import Dict, Any, Protocol, Tuple, Optional, Iterator
 from sisyphus import Job, Task
 # i6_core imports
 from i6_core.returnn.config import ReturnnConfig
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob
+from i6_core.returnn.search import ReturnnSearchJobV2
 from i6_core.returnn.search import SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
 # returnn_common imports
 from returnn_common.datasets.interface import DatasetConfig
@@ -118,12 +118,6 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
     )
 
     return returnn_recog_config
-
-
-def bpe_to_words(bpe: RecogOutput) -> RecogOutput:
-    """BPE to words"""
-    words = SearchBPEtoWordsJob(bpe.output).out_word_search_results
-    return RecogOutput(output=words)
 
 
 class IDecoder(Protocol):

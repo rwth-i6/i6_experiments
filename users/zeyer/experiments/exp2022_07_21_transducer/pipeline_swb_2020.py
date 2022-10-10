@@ -31,7 +31,8 @@ from sisyphus import tk
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
-from .task import Task, get_switchboard_task
+from i6_experiments.users.zeyer.datasets.base import Task
+from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from .train import train
 from .recog import recog_model, beam_search, IDecoder
 from .align import align
@@ -46,7 +47,7 @@ extra_hash = (version,)
 
 def sis_config_main():
     """sis config function"""
-    task = get_switchboard_task()
+    task = get_switchboard_task_bpe1k()
     pipeline(task)
 
 
