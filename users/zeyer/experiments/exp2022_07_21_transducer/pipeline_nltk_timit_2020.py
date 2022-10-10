@@ -4,7 +4,7 @@
 
 
 from __future__ import annotations
-from .task import get_nltk_timit_task
+from i6_experiments.users.zeyer.datasets.nltk_timit import get_nltk_timit_task
 from .pipeline_swb_2020 import pipeline
 
 
