@@ -33,7 +33,7 @@ from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 from i6_experiments.users.zeyer.datasets.base import Task
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.recog import recog_model
+from i6_experiments.users.zeyer.recog import recog_model, RecogDef
 from .train import train
 from .beam_search import beam_search, IDecoder
 from .align import align
@@ -402,6 +402,7 @@ def model_recog(*,
 
 
 # RecogDef API
+model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
 
