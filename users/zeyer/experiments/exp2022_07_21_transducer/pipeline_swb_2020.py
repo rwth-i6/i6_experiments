@@ -27,13 +27,12 @@ Note on the motivation for the interface:
 from __future__ import annotations
 from typing import Optional, Dict, Sequence, Tuple
 import contextlib
-from sisyphus import tk
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 from i6_experiments.users.zeyer.datasets.base import Task
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.recog import recog_model, RecogDef
+from i6_experiments.users.zeyer.recog import recog_training_exp, RecogDef
 from .train import train, ModelDef, TrainDef
 from .beam_search import beam_search, IDecoder
 from .align import align
@@ -68,12 +67,9 @@ def pipeline(task: Task):
         task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
-    tk.register_output(
-        'step1', recog_model(task, step1_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
-    tk.register_output(
-        'step3', recog_model(task, step3_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
-    tk.register_output(
-        'step4', recog_model(task, step4_model.get_last_fixed_epoch(), recog_def=model_recog).main_measure_value)
+    recog_training_exp("transducer/step1", task, step1_model, recog_def=model_recog)
+    recog_training_exp("transducer/step3", task, step3_model, recog_def=model_recog)
+    recog_training_exp("transducer/step4", task, step4_model, recog_def=model_recog)
 
 
 class Model(nn.Module):

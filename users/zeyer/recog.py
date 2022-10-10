@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Dict, Any, Iterator
 
 import sisyphus
+from sisyphus import tk
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
@@ -20,12 +21,13 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Mode
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 
-def recog_training_exp(task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
     """recog on all relevant epochs"""
     # TODO ...
+    recog_model(prefix_name, task, model.get_last_fixed_epoch(), recog_def)
 
 
-def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
+def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
@@ -34,7 +36,10 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
             recog_out = f(recog_out)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
-    return task.collect_score_results_func(outputs)
+    res = task.collect_score_results_func(outputs)
+    tk.register_output(prefix_name + "/score_results", res.output)
+    tk.register_output(prefix_name + "/score_results_main", res.main_measure_value)
+    return res
 
 
 def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef) -> RecogOutput:
