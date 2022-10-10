@@ -34,7 +34,7 @@ from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 from i6_experiments.users.zeyer.datasets.base import Task
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from i6_experiments.users.zeyer.recog import recog_model, RecogDef
-from .train import train
+from .train import train, ModelDef, TrainDef
 from .beam_search import beam_search, IDecoder
 from .align import align
 
@@ -300,6 +300,9 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     )
 
 
+from_scratch_model_def: ModelDef[Model]
+
+
 def from_scratch_training(*,
                           model: Model,
                           data: nn.Tensor, data_spatial_dim: nn.Dim,
@@ -325,6 +328,7 @@ def from_scratch_training(*,
     loss.mark_as_loss("full_sum")
 
 
+from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
@@ -343,6 +347,9 @@ def extended_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Mod
     )
 
 
+extended_model_def: ModelDef[Model]
+
+
 def extended_model_training(*,
                             model: Model,
                             data: nn.Tensor, data_spatial_dim: nn.Dim,
@@ -352,6 +359,7 @@ def extended_model_training(*,
     pass  # TODO
 
 
+extended_model_training: TrainDef[Model]
 extended_model_training.learning_rate_control_error_measure = "dev_score_ce"
 
 
