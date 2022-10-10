@@ -1,28 +1,23 @@
 """
-recog helpers
+Generic recog, for the model interfaces defined in model_interfaces.py
 """
 
-
-# Python stdlib imports
 from __future__ import annotations
+
 from typing import Dict, Any, Iterator
-# sisyphus imports
-from sisyphus import Job, Task
-# i6_core imports
-from i6_core.returnn.config import ReturnnConfig
-from i6_core.returnn.search import ReturnnSearchJobV2
-from i6_core.returnn.search import SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
-# returnn_common imports
-from returnn_common.datasets.interface import DatasetConfig
+
+import sisyphus
+
+from i6_core.returnn import ReturnnConfig
+from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
 from returnn_common import nn
-# i6_experiments.common imports
+from returnn_common.datasets.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
 
-# i6_experiments.users imports
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint, ModelWithCheckpoints, ModelDef, RecogDef
-from i6_experiments.users.zeyer.datasets.base import Task, RecogOutput, ScoreResultCollection
-from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.datasets.base import RecogOutput, Task, ScoreResultCollection
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
+from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 
 def recog_training_exp(task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
@@ -60,6 +55,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     if recog_def.output_with_beam:
         res = SearchTakeBestJob(res).out_best_search_results
     return RecogOutput(output=res)
+
 
 
 def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef) -> ReturnnConfig:
@@ -146,7 +142,7 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     return net_dict
 
 
-class SummarizeRecogTrainExp(Job):
+class SummarizeRecogTrainExp(sisyphus.Job):
     """collect all info from recogs"""
 
     def __init__(self, exp: ModelWithCheckpoints, *,
@@ -195,9 +191,9 @@ class SummarizeRecogTrainExp(Job):
             return
         # TODO ... add scoring ...
 
-    def tasks(self) -> Iterator[Task]:
+    def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield Task('run', mini_task=True)
+        yield sisyphus.Task('run', mini_task=True)
 
     def run(self):
         """run"""

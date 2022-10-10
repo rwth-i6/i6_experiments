@@ -33,8 +33,8 @@ from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
 from i6_experiments.users.zeyer.datasets.base import Task
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
+from i6_experiments.users.zeyer.recog import recog_model
 from .train import train
-from .recog import recog_model
 from .beam_search import beam_search, IDecoder
 from .align import align
 

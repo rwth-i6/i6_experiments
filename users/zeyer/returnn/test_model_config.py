@@ -127,9 +127,7 @@ from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.pipeline_sw
 from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.pipeline_swb_2020 import (
     model_recog as _recog_def,
 )
-from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.recog import (
-    _returnn_get_network as get_network,
-)
+from i6_experiments.users.zeyer.recog import _returnn_get_network as get_network
 
 # https://github.com/rwth-i6/returnn/issues/957
 # https://stackoverflow.com/a/16248113/133374
