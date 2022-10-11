@@ -3,9 +3,8 @@ Score results, used by the task interface.
 """
 
 from __future__ import annotations
-
+from typing import Optional, Dict
 import dataclasses
-from typing import Optional
 from sisyphus import tk
 
 
@@ -41,3 +40,14 @@ class MeasureType:
     """measure type, e.g. WER%"""
     short_name: str  # e.g. "WER%"
     lower_is_better: bool = True
+
+
+class JoinScoreResultsJob(tk.Job):
+    """
+    Joins the score results of multiple jobs into one ScoreResultCollection.
+    """
+    def __init__(self, score_results: Dict[str, ScoreResult]):
+        self.score_results = score_results
+        self.out_score_results = self.output_path("score_results.json")
+
+    # TODO
