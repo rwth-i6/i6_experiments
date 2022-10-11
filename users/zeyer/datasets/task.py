@@ -34,7 +34,14 @@ class Task:
     main_measure_name: str  # e.g. dataset name but arbitrary, just to describe the main measure value
 
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
-    collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection]  # TODO?
 
     # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = dataclasses.field(default_factory=list)
+
+    def default_collect_score_results(self, score_results: Dict[str, ScoreResult]) -> ScoreResultCollection:
+        """using main_measure_name as the main key in score_results"""
+        from .score_results import join_score_results
+        return join_score_results(score_results, main_measure_key=self.main_measure_name)
+
+    collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = \
+        default_collect_score_results

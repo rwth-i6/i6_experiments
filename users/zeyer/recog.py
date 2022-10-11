@@ -29,7 +29,10 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
         model_with_checkpoint = model.get_epoch(epoch)
         return recog_model(prefix_name + f"/ep{epoch:03}", task, model_with_checkpoint, recog_def)
 
-    summarize_job = SummarizeRecogTrainExp(exp=model, recog_and_score_func=_recog_and_score_func)
+    summarize_job = GetBestRecogTrainExp(
+        exp=model,
+        recog_and_score_func=_recog_and_score_func,
+        main_measure_lower_is_better=task.main_measure_type.lower_is_better)
     tk.register_output(prefix_name + "/best_recog_results", summarize_job.out_summary_json)
 
 
@@ -150,20 +153,31 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     return net_dict
 
 
-class SummarizeRecogTrainExp(sisyphus.Job):
-    """collect all info from recogs"""
+class GetBestRecogTrainExp(sisyphus.Job):
+    """
+    Collect all info from recogs.
+    The output is a JSON dict with the format::
+
+        {
+            'best_scores': {...}  (ScoreResultCollection)
+            'best_epoch': int,  (sub-epoch by RETURNN)
+            ...  (other meta info)
+        }
+    """
 
     def __init__(self, exp: ModelWithCheckpoints, *,
                  recog_and_score_func: Callable[[int], ScoreResultCollection],
+                 main_measure_lower_is_better: bool = True,
                  check_train_scores_n_best: int = 2):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
         :param recog_and_score_func: epoch -> scores. called in graph proc
         :param check_train_scores_n_best: check train scores for N best checkpoints (per each measure)
         """
-        super(SummarizeRecogTrainExp, self).__init__()
+        super(GetBestRecogTrainExp, self).__init__()
         self.exp = exp
         self.recog_and_score_func = recog_and_score_func
+        self.main_measure_lower_is_better = main_measure_lower_is_better
         self.check_train_scores_n_best = check_train_scores_n_best
         self._update_checked_relevant_epochs = False
         self.out_summary_json = self.output_path("summary.json")
@@ -203,4 +217,18 @@ class SummarizeRecogTrainExp(sisyphus.Job):
 
     def run(self):
         """run"""
-        # TODO ... summarize ...
+        import ast
+        import json
+        scores = []  # (value,epoch) tuples
+        for epoch, score in sorted(self._scores_outputs.items()):
+            assert isinstance(score, ScoreResultCollection)
+            value = ast.literal_eval(open(score.main_measure_value.get_path(), "r").read())
+            if not self.main_measure_lower_is_better:
+                value = -value
+            scores.append((value, epoch))
+        _, best_epoch = min(scores)
+        best_scores = json.load(open(self._scores_outputs[best_epoch].output.get_path()))
+        res = {"best_scores": best_scores, "best_epoch": best_epoch}
+        with open(self.out_summary_json.get_path(), "w") as f:
+            f.write(json.dumps(res))
+            f.write("\n")
