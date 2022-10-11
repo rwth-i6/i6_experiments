@@ -81,7 +81,6 @@ class ReturnnAudioFeatureOptions:
     :param peak_normalization:
     :param preemphasis:
     """
-
     window_len: float = 0.025
     step_len: float = 0.010
     num_feature_filters: int = None
@@ -185,15 +184,15 @@ class AudioFeatureDatastream(Datastream):
             This is usually done for TTS.
         :param returnn_python_exe:
         :param returnn_root:
-        :param output_prefix: sets alias folder for ExtractDatasetStatisticsJob
+        :param alias_path: sets alias folder for ExtractDatasetStatisticsJob
         :return: audio datastream with added global feature statistics
         :rtype: AudioFeatureDatastream
         """
         extraction_dataset = OggZipDataset(
             path=zip_datasets,
             segment_file=segment_file,
-            audio_opts=self.as_returnn_audio_opts(),
-            target_opts=None,
+            audio_options=self.as_returnn_audio_opts(),
+            target_options=None,
         )
 
         extraction_config = ReturnnConfig(
@@ -234,7 +233,7 @@ def get_default_asr_audio_datastream(
     This function serves as an example for ASR Systems, and should be copied and modified in the
     specific experiments if changes to the default parameters are needed
 
-    :param statistics_ogg_zip: ogg zip file(s) of the training corpus for statistics
+    :param statistics_ogg_zips: ogg zip file(s) of the training corpus for statistics
     :param returnn_python_exe:
     :param returnn_root:
     :param alias_path:

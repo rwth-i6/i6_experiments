@@ -13,17 +13,17 @@ class GenericDataset(abc.ABC):
     Basic interface to create parameter dictionaries for all datasets inheriting from `returnn.datasets.basic.Dataset`
     """
 
-    def __init__(self, *, other_opts: Optional[Dict]):
+    def __init__(self, *, additional_options: Optional[Dict]):
         """
-        :param other_opts: any options not explicitely covered by the helper classes or for debugging purposes
+        :param additional_options: any options not explicitely covered by the helper classes or for debugging purposes
         """
-        self.other_opts = other_opts
+        self.additional_options = additional_options
 
     def as_returnn_opts(self) -> Dict[str, Any]:
         """
         :return: data dict for SprintDataset, OggZipDataset, etc
         """
-        return self.other_opts or {}
+        return self.additional_options or {}
 
 
 class ControlDataset(GenericDataset, abc.ABC):
@@ -38,15 +38,15 @@ class ControlDataset(GenericDataset, abc.ABC):
         seq_list_filter_file: Optional[tk.Path] = None,
         seq_ordering: Optional[str] = None,
         # super parameters
-        other_opts: Optional[Dict] = None,
+        additional_options: Optional[Dict] = None,
     ):
         """
         :param partition_epoch: partition the data into N parts
         :param seq_list_filter_file: text file (gzip/plain) or pkl containg list of sequence tags to use
         :param seq_ordering: see `https://returnn.readthedocs.io/en/latest/dataset_reference/index.html`_.
-        :param other_opts: custom options directly passed to the dataset
+        :param additional_options: custom options directly passed to the dataset
         """
-        super().__init__(other_opts=other_opts)
+        super().__init__(additional_options=additional_options)
         self.partition_epoch = partition_epoch or 1
         self.seq_list_filter_file = seq_list_filter_file
         self.seq_ordering = seq_ordering
@@ -75,6 +75,21 @@ class MetaDataset(GenericDataset):
     Represents :class:`MetaDataset` in RETURNN
 
     Only allows the MetaDataset to be used with an explicit control dataset.
+
+
+    Example code for the MetaDataset:
+
+        meta_dataset = datasets.MetaDataset(
+            data_map={'audio_features': ('audio', 'data'),
+                      'phon_labels': ('audio', 'classes'),
+                      'speaker_labels': ('speaker', 'data'),
+                      },
+            datasets={
+                'audio': audio_dataset.as_returnn_opts(),  # OggZipDataset
+                'speaker': speaker_dataset.as_returnn_opts()  # HDFDataset
+            },
+            seq_order_control_dataset="audio",
+        )
     """
 
     def __init__(
@@ -83,15 +98,16 @@ class MetaDataset(GenericDataset):
         data_map: Dict[str, Tuple[str, str]],
         datasets: Dict[str, Union[Dict, GenericDataset]],
         seq_order_control_dataset: str,
-        other_opts: Optional[Dict[str, Any]] = None,
+        additional_options: Optional[Dict[str, Any]] = None,
     ):
         """
-        :param data_map:
-        :param datasets:
-        :param seq_order_control_dataset:
-        :param dict other_opts:
+        :param data_map: datastream mapping with "<extern_data_name>": ("<dataset_name>", "<dataset_output>")
+            Example "audio_data": ("audio_hdf_dataset", "data")
+        :param datasets: dictionary with "<dataset_name>": <dataset_option_dict>
+        :param seq_order_control_dataset: which dataset identified by name to use for sequence ordering
+        :param dict additional_options: additional options to be passed to the meta dataset
         """
-        super().__init__(other_opts=other_opts)
+        super().__init__(additional_options=additional_options)
         self.data_map = data_map
         self.datasets = {
             k: v if isinstance(v, dict) else v.as_returnn_opts()
@@ -100,7 +116,7 @@ class MetaDataset(GenericDataset):
         assert seq_order_control_dataset in datasets
         self.seq_order_control_dataset = seq_order_control_dataset
 
-    def as_returnn_opts(self):
+    def as_returnn_opts(self) -> Dict[str, Any]:
         d = {
             "class": "MetaDataset",
             "data_map": self.data_map,
