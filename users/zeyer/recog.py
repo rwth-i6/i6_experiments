@@ -16,7 +16,7 @@ from returnn_common.datasets.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
 
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.datasets.base import RecogOutput, Task, ScoreResultCollection
+from i6_experiments.users.zeyer.datasets.task import RecogOutput, Task, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 

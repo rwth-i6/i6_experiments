@@ -14,7 +14,7 @@ from returnn_common import nn
 
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint, AlignmentCollection, \
     ModelT, ModelDef, TrainDef, FramewiseTrainDef
-from i6_experiments.users.zeyer.datasets.base import Task
+from i6_experiments.users.zeyer.datasets.task import Task
 
 
 def train(*,

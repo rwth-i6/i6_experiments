@@ -10,7 +10,7 @@ from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
 from i6_core.returnn import ReturnnConfig
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
-from .base import Task
+from .task import Task
 
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()

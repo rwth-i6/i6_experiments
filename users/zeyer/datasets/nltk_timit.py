@@ -5,7 +5,7 @@ NLTK TIMIT (small subset of TIMIT, but freely available via NLTK)
 from __future__ import annotations
 from typing import Optional, Union, Dict, Any
 from returnn_common.datasets.interface import DatasetConfig, VocabConfig
-from .base import Task, RecogOutput, MeasureType, ScoreResult, ScoreResultCollection
+from .task import Task, RecogOutput, MeasureType, ScoreResult, ScoreResultCollection
 
 
 class NltkTimit(DatasetConfig):
