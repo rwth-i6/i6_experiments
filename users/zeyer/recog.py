@@ -216,7 +216,11 @@ class GetBestRecogTrainExp(sisyphus.Job):
     def _add_recog(self, epoch: int):
         if epoch in self._scores_outputs:
             return
-        self._scores_outputs[epoch] = self.recog_and_score_func(epoch)
+        res = self.recog_and_score_func(epoch)
+        assert isinstance(res, ScoreResultCollection)
+        self.add_input(res.main_measure_value)
+        self.add_input(res.output)
+        self._scores_outputs[epoch] = res
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
