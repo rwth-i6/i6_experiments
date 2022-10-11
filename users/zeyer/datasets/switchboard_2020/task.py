@@ -37,7 +37,6 @@ def get_switchboard_task_bpe1k() -> Task:
         main_measure_name="hub5e_01",
 
         score_recog_output_func=score,
-        collect_score_results_func=_dummy_collect_score_results_func,  # TODO
         recog_post_proc_funcs=[_bpe_to_words],
     )
 
@@ -46,9 +45,3 @@ def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
     words = SearchBPEtoWordsJob(bpe.output).out_word_search_results
     return RecogOutput(output=words)
-
-
-def _dummy_collect_score_results_func(results: Dict[str, ScoreResult]) -> ScoreResultCollection:
-    from i6_experiments.users.zeyer.utils import GroupJob
-    group = GroupJob(inputs=results)
-    return ScoreResultCollection(main_measure_value=group.output, output=group.output)

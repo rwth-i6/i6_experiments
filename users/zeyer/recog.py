@@ -24,17 +24,23 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
     """recog on all relevant epochs"""
-
-    def _recog_and_score_func(epoch: int) -> ScoreResultCollection:
-        model_with_checkpoint = model.get_epoch(epoch)
-        return recog_model(task, model_with_checkpoint, recog_def)
-
     summarize_job = GetBestRecogTrainExp(
         exp=model,
-        recog_and_score_func=_recog_and_score_func,
+        recog_and_score_func=_RecogAndScoreFunc(task, model, recog_def),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better)
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
+
+
+class _RecogAndScoreFunc:
+    def __init__(self, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+        self.task = task
+        self.model = model
+        self.recog_def = recog_def
+
+    def __call__(self, epoch: int) -> ScoreResultCollection:
+        model_with_checkpoint = self.model.get_epoch(epoch)
+        return recog_model(self.task, model_with_checkpoint, self.recog_def)
 
 
 def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:

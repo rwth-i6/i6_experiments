@@ -43,5 +43,8 @@ class Task:
         from .score_results import join_score_results
         return join_score_results(score_results, main_measure_key=self.main_measure_name)
 
-    collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = \
-        default_collect_score_results
+    collect_score_results_func: Callable[[Dict[str, ScoreResult]], ScoreResultCollection] = None
+
+    def __post_init__(self):
+        if self.collect_score_results_func is None:
+            self.collect_score_results_func = self.default_collect_score_results
