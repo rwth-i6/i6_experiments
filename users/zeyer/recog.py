@@ -27,16 +27,17 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
 
     def _recog_and_score_func(epoch: int) -> ScoreResultCollection:
         model_with_checkpoint = model.get_epoch(epoch)
-        return recog_model(prefix_name + f"/ep{epoch:03}", task, model_with_checkpoint, recog_def)
+        return recog_model(task, model_with_checkpoint, recog_def)
 
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=_recog_and_score_func,
         main_measure_lower_is_better=task.main_measure_type.lower_is_better)
-    tk.register_output(prefix_name + "/best_recog_results", summarize_job.out_summary_json)
+    tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
+    tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
 
 
-def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
+def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
@@ -45,10 +46,8 @@ def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_
             recog_out = f(recog_out)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
-    res = task.collect_score_results_func(outputs)
-    tk.register_output(prefix_name + "/recog_results", res.output)
-    tk.register_output(prefix_name + "/recog_results_main", res.main_measure_value)
-    return res
+    return task.collect_score_results_func(outputs)
+    # Don't register any output here because we will just collect the best final result via GetBestRecogTrainExp.
 
 
 def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef) -> RecogOutput:
@@ -181,6 +180,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self.check_train_scores_n_best = check_train_scores_n_best
         self._update_checked_relevant_epochs = False
         self.out_summary_json = self.output_path("summary.json")
+        self.out_results_all_epochs_json = self.output_path("results_all_epoch.json")
         self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
         for epoch in exp.fixed_kept_epochs:
             self._add_recog(epoch)
@@ -219,6 +219,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         """run"""
         import ast
         import json
+
         scores = []  # (value,epoch) tuples
         for epoch, score in sorted(self._scores_outputs.items()):
             assert isinstance(score, ScoreResultCollection)
@@ -232,3 +233,11 @@ class GetBestRecogTrainExp(sisyphus.Job):
         with open(self.out_summary_json.get_path(), "w") as f:
             f.write(json.dumps(res))
             f.write("\n")
+
+        with open(self.out_results_all_epochs_json.get_path(), "w") as f:
+            f.write("{\n")
+            for epoch, score in sorted(self._scores_outputs.items()):
+                assert isinstance(score, ScoreResultCollection)
+                res = json.load(open(score.output.get_path()))
+                f.write(f"  {epoch}: {res}")
+            f.write("}\n")
