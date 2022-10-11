@@ -35,9 +35,7 @@ def get_rasr_binary_path() -> tk.Path:
     assert getattr(gs, "RASR_ROOT", None), "RASR_ROOT not set"
     rasr_root = getattr(gs, "RASR_ROOT")
     rasr_arch = get_rasr_arch()
-    rasr_binary_path = tk.Path(f"{rasr_root}/arch/{rasr_arch}")
-    rasr_binary_path.hash_overwrite = "DEFAULT_RASR_BINARY_PATH"
-    return rasr_binary_path
+    return tk.Path(f"{rasr_root}/arch/{rasr_arch}", hash_overwrite="DEFAULT_RASR_BINARY_PATH")
 
 
 def get_rasr_arch() -> str:
@@ -61,9 +59,7 @@ def get_sctk_binary_path() -> tk.Path:
     """SCTK binary path"""
     # If it is common to have sclite in the PATH env, we could also check for that here...
     assert getattr(gs, "SCTK_PATH", None), "SCTK_PATH not set"
-    sctk_binary_path = tk.Path(getattr(gs, "SCTK_PATH"))
-    sctk_binary_path.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"
-    return sctk_binary_path
+    return tk.Path(getattr(gs, "SCTK_PATH"), hash_overwrite="DEFAULT_SCTK_BINARY_PATH")
 
 
 def get_returnn_python_exe() -> tk.Path:
@@ -71,9 +67,7 @@ def get_returnn_python_exe() -> tk.Path:
     RETURNN Python executable
     """
     assert getattr(gs, "RETURNN_PYTHON_EXE", None), "RETURNN_PYTHON_EXE not set"
-    returnn_python_exe = tk.Path(getattr(gs, "RETURNN_PYTHON_EXE"))
-    returnn_python_exe.hash_overwrite = "DEFAULT_RETURNN_PYTHON_EXE"
-    return returnn_python_exe
+    return tk.Path(getattr(gs, "RETURNN_PYTHON_EXE"), hash_overwrite="DEFAULT_RETURNN_PYTHON_EXE")
 
 
 def get_returnn_root() -> tk.Path:
@@ -81,6 +75,4 @@ def get_returnn_root() -> tk.Path:
     RETURNN root
     """
     assert getattr(gs, "RETURNN_ROOT", None), "RETURNN_ROOT not set"
-    returnn_root = tk.Path(getattr(gs, "RETURNN_ROOT"))
-    returnn_root.hash_overwrite = "DEFAULT_RETURNN_ROOT"
-    return returnn_root
+    return tk.Path(getattr(gs, "RETURNN_ROOT"), hash_overwrite="DEFAULT_RETURNN_ROOT")
