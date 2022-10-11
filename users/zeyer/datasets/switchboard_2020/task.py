@@ -34,7 +34,7 @@ def get_switchboard_task_bpe1k() -> Task:
         eval_datasets=eval_datasets,
 
         main_measure_type=MeasureType(short_name="WER%"),
-        main_measure_name="hub5e_01",
+        main_measure_name="hub5e_00",
 
         score_recog_output_func=score,
         recog_post_proc_funcs=[_bpe_to_words],
