@@ -247,8 +247,12 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
         with open(self.out_results_all_epochs_json.get_path(), "w") as f:
             f.write("{\n")
+            count = 0
             for epoch, score in sorted(self._scores_outputs.items()):
                 assert isinstance(score, ScoreResultCollection)
+                if count > 0:
+                    f.write(',\n')
                 res = json.load(open(score.output.get_path()))
-                f.write(f"  {epoch}: {res}")
-            f.write("}\n")
+                f.write(f'  "{epoch}": {json.dumps(res)}')
+                count += 1
+            f.write("\n}\n")
