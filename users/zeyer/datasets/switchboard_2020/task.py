@@ -5,7 +5,8 @@ Defines the task
 from __future__ import annotations
 from typing import Dict
 from i6_core.returnn.search import SearchBPEtoWordsJob
-from ..task import Task, MeasureType, RecogOutput, ScoreResult, ScoreResultCollection
+from ..task import Task
+from ..score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
 def get_switchboard_task_bpe1k() -> Task:

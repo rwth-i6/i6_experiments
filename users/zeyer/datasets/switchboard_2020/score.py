@@ -6,7 +6,8 @@ from sisyphus import tk
 from i6_core.returnn.search import SearchWordsToCTMJob
 from i6_core.recognition.scoring import Hub5ScoreJob
 from . import get_bliss_xml_corpus
-from ..task import DatasetConfig, RecogOutput, ScoreResult
+from ..task import DatasetConfig
+from ..score_results import RecogOutput, ScoreResult
 from ... import tools_paths
 
 glm = tk.Path(

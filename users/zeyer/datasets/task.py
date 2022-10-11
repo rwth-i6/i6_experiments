@@ -3,10 +3,11 @@ Dataset / task interface
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Callable, Sequence
+from typing import Dict, Callable, Sequence
 import dataclasses
-from sisyphus import tk
+
 from returnn_common.datasets.interface import DatasetConfig
+from .score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
 @dataclasses.dataclass
@@ -37,37 +38,3 @@ class Task:
 
     # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class RecogOutput:
-    """
-    Corresponds to the target values of datasets defined by :class:`Task`
-    """
-    output: tk.Path
-
-
-@dataclasses.dataclass
-class ScoreResult:
-    """
-    Corresponds to one dataset. E.g. via sclite, or sth else...
-    """
-    dataset_name: str
-    main_measure_value: tk.Path
-    report: Optional[tk.Path] = None
-
-
-@dataclasses.dataclass
-class ScoreResultCollection:
-    """
-    Intended to cover all relevant results over all eval datasets.
-    """
-    main_measure_value: tk.Path  # e.g. the final best WER% on test-other
-    output: tk.Path  # JSON dict with all score outputs
-
-
-@dataclasses.dataclass(frozen=True)
-class MeasureType:
-    """measure type, e.g. WER%"""
-    short_name: str  # e.g. "WER%"
-    lower_is_better: bool = True
