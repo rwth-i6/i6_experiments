@@ -22,7 +22,7 @@ datastream_to_nn_data_mapping = {
 }
 
 
-def get_training_config(returnn_common_root, training_datasets, **kwargs):
+def get_training_config(returnn_common_root, training_datasets, use_v2=False, **kwargs):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
     :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
@@ -77,7 +77,10 @@ def get_training_config(returnn_common_root, training_datasets, **kwargs):
     rc_extern_data = ExternData(extern_data=extern_data)
 
     rc_package = "i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.rc_networks"
-    rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
+    if use_v2:
+        rc_model = Import(rc_package + ".ctc_aligner_v2.CTCAligner")
+    else:
+        rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
     rc_construction_code = Import(rc_package + ".ctc_aligner.construct_network")
 
     rc_network = Network(
@@ -112,7 +115,7 @@ def get_training_config(returnn_common_root, training_datasets, **kwargs):
 
 
 def get_forward_config(
-        returnn_common_root, forward_dataset: GenericDataset, datastreams, **kwargs
+        returnn_common_root, forward_dataset: GenericDataset, datastreams, use_v2=False, **kwargs
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -139,7 +142,10 @@ def get_forward_config(
     rc_extern_data = ExternData(extern_data=extern_data)
 
     rc_package = "i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.rc_networks"
-    rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
+    if use_v2:
+        rc_model = Import(rc_package + ".ctc_aligner_v2.CTCAligner")
+    else:
+        rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
     rc_construction_code = Import(rc_package + ".ctc_aligner.construct_network")
 
     rc_network = Network(

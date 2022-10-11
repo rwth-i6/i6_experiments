@@ -53,8 +53,8 @@ def build_training_dataset():
 
     train_ogg_dataset = datasets.OggZipDataset(
         path=zip_dataset,
-        audio_opts=log_mel_datastream.as_returnn_audio_opts(),
-        target_opts=vocab_datastream.as_returnn_targets_opts(),
+        audio_options=log_mel_datastream.as_returnn_audio_opts(),
+        target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=train_segments,
         partition_epoch=2,
         seq_ordering="laplace:.1000"
@@ -63,8 +63,8 @@ def build_training_dataset():
 
     cv_ogg_dataset = datasets.OggZipDataset(
         path=zip_dataset,
-        audio_opts=log_mel_datastream.as_returnn_audio_opts(),
-        target_opts=vocab_datastream.as_returnn_targets_opts(),
+        audio_options=log_mel_datastream.as_returnn_audio_opts(),
+        target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=cv_segments,
         partition_epoch=1,
         seq_ordering="sorted",

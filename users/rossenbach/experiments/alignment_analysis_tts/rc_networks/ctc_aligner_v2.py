@@ -1,7 +1,5 @@
 """
-Implementation of the CTC Aligner
-
-Needs RC version 1c10befdf53a6fe1db12281f12de3d083008473c
+Implementation of the CTC Aligner, updated for the new non-lazy init
 """
 from typing import Tuple, Union
 from returnn_common import nn
@@ -36,12 +34,14 @@ class Conv1DBlock(nn.Module):
         else:
             raise Exception("Wrong Dim given!")
         self.conv = nn.Conv1d(
+            in_dim=in_dim,
             out_dim=self.conv_dim,
             filter_size=filter_size,
             padding="same",
             with_bias=False,
         )
         self.bn = nn.BatchNorm(
+            in_dim=self.conv_dim,
             epsilon=bn_epsilon, use_mask=False
         )
         self.dropout = dropout
@@ -69,6 +69,7 @@ class ConvStack(nn.Module):
 
     def __init__(
         self,
+        in_dim: nn.Dim,
         num_layers: int = 5,
         dim_sizes: Tuple[int] = (256,),
         filter_sizes: Tuple[int] = (5, 5, 5, 5, 5),
@@ -101,18 +102,23 @@ class ConvStack(nn.Module):
                 for x in range(num_layers)
             ]
 
-        self.stack = nn.Sequential(
-            [
+        sequential_list = []
+        temp_in_dim = in_dim
+        for x in range(num_layers):
+            sequential_list.append(
                 Conv1DBlock(
+                    in_dim=temp_in_dim,
                     dim=out_dims[x],
                     filter_size=filter_sizes[x],
                     bn_epsilon=bn_epsilon,
                     dropout=dropout[x],
                     l2=l2,
                 )
-                for x in range(num_layers)
-            ]
-        )
+            )
+            temp_in_dim = out_dims[x]
+
+        self.stack = nn.Sequential(sequential_list)
+        self.out_dim = out_dims[-1]
 
     def __call__(self, inp: nn.Tensor, time_dim: nn.Dim):
         """
@@ -130,16 +136,16 @@ class TTSDecoder(nn.Module):
     Decoder for audio reconstruction
     """
 
-    def __init__(self, lstm_dim: int = 512):
+    def __init__(self, in_dim: nn.Dim, lstm_dim: int = 512):
         """
         :param lstm_dim: LSTM dimension size
         """
         super(TTSDecoder, self).__init__()
         self.lstm_dim = nn.FeatureDim("dec_lstm_dim", lstm_dim)
-        self.lstm_1_fw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_1_bw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_2_fw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_2_bw = nn.LSTM(out_dim=self.lstm_dim)
+        self.lstm_1_fw = nn.LSTM(in_dim=in_dim, out_dim=self.lstm_dim)
+        self.lstm_1_bw = nn.LSTM(in_dim=in_dim, out_dim=self.lstm_dim)
+        self.lstm_2_fw = nn.LSTM(in_dim=2*self.lstm_dim, out_dim=self.lstm_dim)
+        self.lstm_2_bw = nn.LSTM(in_dim=2*self.lstm_dim, out_dim=self.lstm_dim)
 
     def __call__(
         self, phoneme_probs: nn.Tensor, speaker_embedding: nn.Tensor, audio_time: nn.Dim
@@ -150,7 +156,7 @@ class TTSDecoder(nn.Module):
         :param audio_time:
         :return:
         """
-        cat = nn.concat(
+        cat, _ = nn.concat(
             (phoneme_probs, phoneme_probs.feature_dim),
             (speaker_embedding, speaker_embedding.feature_dim),
             allow_broadcast=True,
@@ -158,10 +164,10 @@ class TTSDecoder(nn.Module):
         lstm_fw, _ = self.lstm_1_fw(cat, axis=audio_time, direction=1)
         lstm_bw, _ = self.lstm_1_bw(cat, axis=audio_time, direction=-1)
         # TODO maybe dropout?
-        cat = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
+        cat, _  = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
         lstm_fw, _ = self.lstm_2_fw(cat, axis=audio_time, direction=1)
         lstm_bw, _ = self.lstm_2_bw(cat, axis=audio_time, direction=-1)
-        cat = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
+        cat, _ = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
         return cat
 
 
@@ -200,17 +206,19 @@ class CTCAligner(nn.Module):
 
         self.audio_embedding = nn.Linear(in_dim=in_feature_dim, out_dim=self.audio_hidden_dim)
         self.speaker_embedding = nn.Linear(in_dim=in_speaker_dim, out_dim=self.speaker_hidden_dim)
-        self.enc_conv_stack = ConvStack()
-        self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim)
-        self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim)
+        self.enc_conv_stack = ConvStack(in_dim=self.speaker_hidden_dim + self.audio_hidden_dim)
+        self.enc_lstm_fw = nn.LSTM(in_dim=self.enc_conv_stack.out_dim, out_dim=self.enc_lstm_dim)
+        self.enc_lstm_bw = nn.LSTM(in_dim=self.enc_conv_stack.out_dim, out_dim=self.enc_lstm_dim)
 
-        self._softmax_dim = out_label_dim.dimension
+        self.softmax_dim = nn.FeatureDim("softmax_linear", out_label_dim.dimension)
 
-        self.spectogram_lin = nn.Linear(
-            out_dim=nn.FeatureDim("spectogram_lin", self._softmax_dim)
+        self.softmax_lin = nn.Linear(
+            in_dim=2*self.enc_lstm_dim,
+            out_dim=self.softmax_dim,
         )
-        self.tts_decoder = TTSDecoder()
+        self.tts_decoder = TTSDecoder(in_dim=self.softmax_dim + self.speaker_hidden_dim)
         self.reconstruction_lin = nn.Linear(
+            in_dim=2*self.tts_decoder.lstm_dim,
             out_dim=nn.FeatureDim("reconstruction_dim", 80)
         )
 
@@ -242,7 +250,7 @@ class CTCAligner(nn.Module):
         audio_embedding = self.audio_embedding(audio_features)
 
         # encoder
-        cat = nn.concat(
+        cat, _ = nn.concat(
             (speaker_embedding, speaker_embedding.feature_dim),
             (audio_embedding, audio_embedding.feature_dim),
             allow_broadcast=True,
@@ -250,16 +258,16 @@ class CTCAligner(nn.Module):
         enc_conv = self.enc_conv_stack(cat, time_dim=audio_time)
         enc_fw, _ = self.enc_lstm_fw(enc_conv, axis=audio_time, direction=1)
         enc_bw, _ = self.enc_lstm_bw(enc_conv, axis=audio_time, direction=-1)
-        cat = nn.concat((enc_fw, enc_fw.feature_dim), (enc_bw, enc_bw.feature_dim))
+        cat, _ = nn.concat((enc_fw, enc_fw.feature_dim), (enc_bw, enc_bw.feature_dim))
 
         # spectogram loss
         spectogram_encoder = nn.dropout(
             cat, dropout=self.spectrogram_drop, axis=cat.feature_dim
         )
-        spectogram_encoder = self.spectogram_lin(spectogram_encoder)
+        spectogram_encoder = self.softmax_lin(spectogram_encoder)
         softmax = nn.softmax(spectogram_encoder, axis=spectogram_encoder.feature_dim)
         ctc = nn.ctc_loss(logits=spectogram_encoder, targets=phonemes)
-        ctc.mark_as_loss(custom_inv_norm_factor=nn.length(dim=phoneme_time))
+        ctc.mark_as_loss(name="ctc", custom_inv_norm_factor=nn.length(dim=phoneme_time))
 
         if self.training:
             # TTS decoder
@@ -277,7 +285,7 @@ class CTCAligner(nn.Module):
             reconstruction_loss = nn.mean_squared_difference(
                 reconstruction_lin, audio_features
             )
-            reconstruction_loss.mark_as_loss(scale=self.reconstruction_scale)
+            reconstruction_loss.mark_as_loss(name="mse", scale=self.reconstruction_scale)
             return reconstruction_lin
         else:
             slice_out, slice_dim = nn.slice(

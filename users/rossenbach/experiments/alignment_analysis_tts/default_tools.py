@@ -15,5 +15,5 @@ RETURNN_DATA_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
 RETURNN_RC_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="d37b7cd509ec842c1e206b07218adbba11b533fc").out_repository
 RETURNN_RC_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_RC_ROOT"
 
-RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="cd9599ea2dc655a4199517dc6ca681afd74b33ac", checkout_folder_name="returnn_common").out_repository
+RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="773b7175f61e5727bd1fdd30fd8f7b51db9d542c", checkout_folder_name="returnn_common").out_repository
 RETURNN_COMMON.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_COMMON"

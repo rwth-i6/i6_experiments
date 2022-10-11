@@ -43,6 +43,45 @@ def get_baseline_ctc_alignment():
     )
 
 
+def get_baseline_ctc_alignment_v2():
+    """
+    Baseline for the ctc aligner in returnn_common with serialization
+
+    Uses updated RETURNN_COMMON
+
+    :return: durations_hdf
+    """
+
+
+    name = "experiments/alignment_analysis_tts/ctc_aligner_v2/baseline"
+
+    training_datasets = build_training_dataset()
+
+
+    aligner_config = get_training_config(
+        returnn_common_root=RETURNN_COMMON, training_datasets=training_datasets, use_v2=True,
+    )  # implicit reconstruction loss
+    forward_config = get_forward_config(
+        returnn_common_root=RETURNN_COMMON,
+        forward_dataset=training_datasets.joint,
+        datastreams=training_datasets.datastreams,
+        use_v2=True,
+    )
+    train_job = ctc_training(
+        config=aligner_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name,
+    )
+    forward = ctc_forward(
+        checkpoint=train_job.out_checkpoints[100],
+        config=forward_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name
+    )
+
+
 def get_loss_scale_ctc_alignment():
     """
     Baseline for the ctc aligner in returnn_common with serialization
