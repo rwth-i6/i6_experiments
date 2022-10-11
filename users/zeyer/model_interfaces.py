@@ -78,9 +78,21 @@ class ModelWithCheckpoints:
     @classmethod
     def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob) -> ModelWithCheckpoints:
         """model from training job"""
+        num_epochs = training_job.returnn_config.post_config["num_epochs"]
+        fixed_kept_epochs = {num_epochs}
+        cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
+        if isinstance(cleanup_old_models, dict):
+            # Get the user defined keep_epochs.
+            # We could also add the RETURNN specific default keep_epochs logic here
+            # but not sure if this is really needed.
+            keep_epochs = cleanup_old_models.get("keep", None)
+            if keep_epochs is not None:
+                save_interval = training_job.returnn_config.post_config["save_interval"]
+                stored_epochs = set(list(range(save_interval, num_epochs, save_interval)) + [num_epochs])
+                fixed_kept_epochs.update(stored_epochs.intersection(keep_epochs))
         return ModelWithCheckpoints(
             definition=definition,
-            fixed_kept_epochs=set(training_job.out_checkpoints.keys()),
+            fixed_kept_epochs=fixed_kept_epochs,
             scores_and_learning_rates=training_job.out_learning_rates,
             model_dir=training_job.out_model_dir,
         )
