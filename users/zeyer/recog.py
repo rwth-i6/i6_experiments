@@ -203,7 +203,8 @@ class GetBestRecogTrainExp(sisyphus.Job):
             for epoch in get_relevant_epochs_from_training_learning_rate_scores(
                     model_dir=self.exp.model_dir, model_name=self.exp.model_name,
                     scores_and_learning_rates=self.exp.scores_and_learning_rates,
-                    n_best=self.check_train_scores_n_best):
+                    n_best=self.check_train_scores_n_best,
+            ):
                 self._add_recog(epoch)
 
     def _add_recog(self, epoch: int):
