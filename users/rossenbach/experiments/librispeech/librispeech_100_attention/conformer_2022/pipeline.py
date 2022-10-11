@@ -6,7 +6,7 @@ from typing import Any, Dict
 from i6_experiments.users.rossenbach.setups.returnn_standalone.data.audio import get_default_asr_audio_datastream
 from sisyphus import tk
 
-from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 from i6_core.returnn.training import ReturnnTrainingJob
 
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
@@ -58,13 +58,14 @@ class TrainingDatasets:
     extern_data: Dict[str, Dict[str, Any]]
 
 
-@lru_cache()
 def build_training_datasets(
         returnn_python_exe, returnn_root, output_path,
         bpe_size=2000,
         partition_epoch=3,
         use_curicculum=True,
-        seq_ordering="laplace:.1000"):
+        seq_ordering="laplace:.1000",
+        link_speed_perturbation=False,
+    ):
     """
 
     :param returnn_python_exe:
@@ -96,9 +97,14 @@ def build_training_datasets(
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}
 
+
+    training_audio_opts = audio_datastream.as_returnn_audio_opts()
+    if link_speed_perturbation:
+        training_audio_opts["pre_process"] = CodeWrapper("speed_pert")
+
     train_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
         path=train_clean_100_ogg,
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
+        audio_opts=training_audio_opts,
         target_opts=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=partition_epoch,
         seq_ordering=seq_ordering,

@@ -375,6 +375,10 @@ class ConformerEncoder:
       subsampled_input = self.network.add_conv_block(
         'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), self.enc_key_dim), ((3, 3), (2, 2), self.enc_key_dim)],
         l2=self.l2, activation='relu', init=self.start_conv_init)
+    elif self.input_layer == "conv-new":
+      subsampled_input = self.network.add_conv_block(
+        'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 16), ((3, 3), (2, 2), 32)],
+        l2=self.l2, activation='relu', init=self.start_conv_init)
     elif self.input_layer == 'vgg':
       subsampled_input = self.network.add_conv_block(
         'vgg_conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 32), ((3, 3), (2, 2), 64)], l2=self.l2, activation='relu',
