@@ -499,7 +499,7 @@ class HybridSystem(NnSystem):
                     tf_checkpoint=checkpoints[epoch],
                     tf_graph=tf_graph,
                     native_ops=[native_lstm_job.out_op],
-                    output_tensor_name=forward_output_layer,
+                    output_layer_name=forward_output_layer,
                 )
                 flow = add_tf_flow_to_base_flow(feature_flow, tf_flow)
 
