@@ -409,6 +409,7 @@ def model_recog(*,
 model_recog: RecogDef[Model]
 model_recog.output_with_beam = True
 model_recog.output_blank_label = "<blank>"
+model_recog.batch_size_dependent = False
 
 
 def test_training():
