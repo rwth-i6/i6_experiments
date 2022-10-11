@@ -4,7 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
-from typing import Dict, Any, Iterator
+from typing import Dict, Any, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
@@ -23,8 +23,13 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
     """recog on all relevant epochs"""
-    # TODO ...
-    recog_model(prefix_name + "/last", task, model.get_last_fixed_epoch(), recog_def)
+
+    def _recog_and_score_func(epoch: int) -> ScoreResultCollection:
+        model_with_checkpoint = model.get_epoch(epoch)
+        return recog_model(prefix_name + f"/ep{epoch:03}", task, model_with_checkpoint, recog_def)
+
+    summarize_job = SummarizeRecogTrainExp(exp=model, recog_and_score_func=_recog_and_score_func)
+    tk.register_output(prefix_name + "/best_recog_results", summarize_job.out_summary_json)
 
 
 def recog_model(prefix_name: str, task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
@@ -148,22 +153,20 @@ class SummarizeRecogTrainExp(sisyphus.Job):
     """collect all info from recogs"""
 
     def __init__(self, exp: ModelWithCheckpoints, *,
-                 recog_def: RecogDef,
-                 score_def,
+                 recog_and_score_func: Callable[[int], ScoreResultCollection],
                  check_train_scores_n_best: int = 2):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
-        :param recog_def: recog def (includes beam search hyper param details etc)
-        :param score_def: from recog output to some score
+        :param recog_and_score_func: epoch -> scores. called in graph proc
         :param check_train_scores_n_best: check train scores for N best checkpoints (per each measure)
         """
         super(SummarizeRecogTrainExp, self).__init__()
         self.exp = exp
-        self.recog_def = recog_def
-        self.score_def = score_def
+        self.recog_and_score_func = recog_and_score_func
         self.check_train_scores_n_best = check_train_scores_n_best
         self._update_checked_relevant_epochs = False
-        self._scores_outputs = {}  # epoch -> scores out
+        self.out_summary_json = self.output_path("summary.json")
+        self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
         for epoch in exp.fixed_kept_epochs:
             self._add_recog(epoch)
 
@@ -191,7 +194,7 @@ class SummarizeRecogTrainExp(sisyphus.Job):
     def _add_recog(self, epoch: int):
         if epoch in self._scores_outputs:
             return
-        # TODO ... add scoring ...
+        self._scores_outputs[epoch] = self.recog_and_score_func(epoch)
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
