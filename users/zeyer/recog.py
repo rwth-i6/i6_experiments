@@ -72,8 +72,8 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     res = search_job.out_search_file
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label).out_search_results
-        res = SearchBeamJoinScoresJob(res).out_search_results
     if recog_def.output_with_beam:
+        res = SearchBeamJoinScoresJob(res).out_search_results
         res = SearchTakeBestJob(res).out_best_search_results
     return RecogOutput(output=res)
 
