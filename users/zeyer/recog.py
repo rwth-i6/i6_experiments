@@ -188,7 +188,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self.out_summary_json = self.output_path("summary.json")
         self.out_results_all_epochs_json = self.output_path("results_all_epoch.json")
         self._scores_outputs = {}  # type: Dict[int, ScoreResultCollection]  # epoch -> scores out
-        for epoch in exp.fixed_kept_epochs:
+        for epoch in exp.fixed_epochs:
             self._add_recog(epoch)
 
     def update(self):

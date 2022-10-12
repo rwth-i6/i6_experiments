@@ -68,8 +68,10 @@ class ModelWithCheckpoints:
     What comes out of training
     """
     definition: ModelDef
-    # they will always be available and kept once the training reaches the epoch
-    fixed_kept_epochs: Set[int]
+    # They will always be available and kept once the training reaches the epoch,
+    # and are recommended to perform recognition on.
+    # This is a subset of all kept epochs.
+    fixed_epochs: Set[int]
     # when this becomes available, you can check potential other checkpoints
     scores_and_learning_rates: tk.Path  # ReturnnTrainingJob.out_learning_rates
     model_dir: tk.Path  # ReturnnTrainingJob.out_model_dir
@@ -79,28 +81,71 @@ class ModelWithCheckpoints:
     def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob) -> ModelWithCheckpoints:
         """model from training job"""
         num_epochs = training_job.returnn_config.post_config["num_epochs"]
+        save_interval = training_job.returnn_config.post_config["save_interval"]
+        stored_epochs = set(list(range(save_interval, num_epochs, save_interval)) + [num_epochs])
+
+        # Get the kept epochs, but maybe restrict it when all are kept.
+        # The last epoch is always kept.
         fixed_kept_epochs = {num_epochs}
+        # Get the user defined keep_epochs.
         cleanup_old_models = training_job.returnn_config.post_config.get("cleanup_old_models", None)
-        if isinstance(cleanup_old_models, dict):
-            # Get the user defined keep_epochs.
-            # We could also add the RETURNN specific default keep_epochs logic here
-            # but not sure if this is really needed.
-            keep_epochs = cleanup_old_models.get("keep", None)
-            if keep_epochs is not None:
-                save_interval = training_job.returnn_config.post_config["save_interval"]
-                stored_epochs = set(list(range(save_interval, num_epochs, save_interval)) + [num_epochs])
-                fixed_kept_epochs.update(stored_epochs.intersection(keep_epochs))
+        keep_epochs = cleanup_old_models.get("keep", None) if isinstance(cleanup_old_models, dict) else None
+        if keep_epochs is None:
+            # cleanup_old_models is either not enabled.
+            # In that case, all epochs are kept.
+            # However, we don't want to perform recognition on all, so we fall back to the default kept epochs.
+            # In the case it is enabled, but "keep" is not specified, the default is used,
+            # so this is correct as well.
+            keep_epochs = cls.default_returnn_keep_epochs(num_epochs=num_epochs)
+        fixed_kept_epochs.update(keep_epochs)
+        # Only the epochs which are also stored are kept.
+        fixed_kept_epochs.intersection_update(stored_epochs)
+
         return ModelWithCheckpoints(
             definition=definition,
-            fixed_kept_epochs=fixed_kept_epochs,
+            fixed_epochs=fixed_kept_epochs,
             scores_and_learning_rates=training_job.out_learning_rates,
             model_dir=training_job.out_model_dir,
         )
 
+    @classmethod
+    def default_returnn_keep_epochs(cls, num_epochs: int) -> Set[int]:
+        """
+        Default keep_epochs in RETURNN when cleanup_old_models is enabled
+        but "keep" is not specified.
+        Excluding the keep_last_n logic.
+        See RETURNN cleanup_old_models code.
+        """
+        from itertools import count
+        default_keep_pattern = set()
+        if num_epochs <= 10:
+            keep_every = 4
+            keep_doubles_of = 5
+        elif num_epochs <= 50:
+            keep_every = 20
+            keep_doubles_of = 5
+        elif num_epochs <= 100:
+            keep_every = 40
+            keep_doubles_of = 10
+        else:
+            keep_every = 80
+            keep_doubles_of = 20
+        for i in count(1):
+            n = keep_every * i
+            if n > num_epochs:
+                break
+            default_keep_pattern.add(n)
+        for i in count():
+            n = keep_doubles_of * (2 ** i)
+            if n > num_epochs:
+                break
+            default_keep_pattern.add(n)
+        return default_keep_pattern
+
     @property
     def last_fixed_epoch_idx(self) -> int:
         """last epoch"""
-        return max(self.fixed_kept_epochs)
+        return max(self.fixed_epochs)
 
     def get_epoch(self, epoch: int) -> ModelWithCheckpoint:
         """for one specific epoch"""
