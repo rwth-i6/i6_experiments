@@ -366,6 +366,10 @@ def model_recog(*,
     """
     Function is run within RETURNN.
 
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
     :return: recog results including beam
     """
     batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
