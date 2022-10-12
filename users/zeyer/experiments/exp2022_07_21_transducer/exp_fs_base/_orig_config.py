@@ -390,7 +390,7 @@ def rna_loss(source, **kwargs):
 
     from rna_tf_impl import tf_forward_shifted_rna
     costs = -tf_forward_shifted_rna(log_probs.get_placeholder_as_batch_major(), targets.get_placeholder_as_batch_major(), enc_lens, dec_lens, blank_index=targetb_blank_idx, debug=False)
-    costs = tf.where(tf.is_finite(costs), costs, tf.zeros_like(costs))
+    costs = tf.where(tf.math.is_finite(costs), costs, tf.zeros_like(costs))
     return costs
 
 def rna_alignment(source, **kwargs):

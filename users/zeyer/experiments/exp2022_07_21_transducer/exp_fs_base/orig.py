@@ -6,6 +6,7 @@ rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.ml
 
 from __future__ import annotations
 from typing import Optional, Dict, Sequence
+import os
 import contextlib
 import textwrap
 from sisyphus import tk
@@ -27,9 +28,9 @@ from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switch
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint
 from ..model import config_code
 
-__my_dir__ = os.path.dirname(os.path.absname(__file__))
+__my_dir__ = os.path.dirname(os.path.abspath(__file__))
 raw_config_filename = f"{__my_dir__}/_orig_config.py"
-config_code_dir = os.path.dirname(os.path.absname(config_code.__file__))
+config_code_dir = os.path.dirname(os.path.abspath(config_code.__file__))
 
 
 def sis_run_with_prefix(prefix_name: str):
@@ -215,9 +216,9 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
     return returnn_recog_config
 
 
-PythonLoadOrigConfigNonhashedCode = NonhashedCode(
+PythonLoadOrigConfigNonhashedCode = serialization.NonhashedCode(
     textwrap.dedent(
-        """\
+        f"""\
         from returnn.config import get_global_config
         config = get_global_config()
         config.load_file({raw_config_filename!r})
