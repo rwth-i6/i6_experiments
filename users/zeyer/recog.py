@@ -26,21 +26,24 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
     """recog on all relevant epochs"""
     summarize_job = GetBestRecogTrainExp(
         exp=model,
-        recog_and_score_func=_RecogAndScoreFunc(task, model, recog_def),
+        recog_and_score_func=_RecogAndScoreFunc(prefix_name, task, model, recog_def),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better)
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
 
 
 class _RecogAndScoreFunc:
-    def __init__(self, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+    def __init__(self, prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+        self.prefix_name = prefix_name
         self.task = task
         self.model = model
         self.recog_def = recog_def
 
     def __call__(self, epoch: int) -> ScoreResultCollection:
         model_with_checkpoint = self.model.get_epoch(epoch)
-        return recog_model(self.task, model_with_checkpoint, self.recog_def)
+        res = recog_model(self.task, model_with_checkpoint, self.recog_def)
+        tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+        return res
 
 
 def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
@@ -53,7 +56,6 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
-    # Don't register any output here because we will just collect the best final result via GetBestRecogTrainExp.
 
 
 def search_dataset(
