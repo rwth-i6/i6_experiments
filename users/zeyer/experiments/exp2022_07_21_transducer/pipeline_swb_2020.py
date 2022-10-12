@@ -27,6 +27,7 @@ Note on the motivation for the interface:
 from __future__ import annotations
 from typing import Optional, Dict, Sequence
 import contextlib
+import numpy
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
@@ -56,19 +57,42 @@ py = sis_config_main  # `py` is the default sis config function name
 def pipeline(task: Task):
     """run the pipeline for the given task, register outputs"""
     step1_model = train(
-        task=task, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
+        task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
     step2_alignment = align(task=task, model=step1_model.get_last_fixed_epoch())
     # use step1 model params; different to the paper
     step3_model = train(
-        task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
+        task=task, config=config, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step1_model.get_last_fixed_epoch().checkpoint)
     step4_model = train(
-        task=task, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
+        task=task, config=config, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
         alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
     recog_training_exp("transducer/step1", task, step1_model, recog_def=model_recog)
     recog_training_exp("transducer/step3", task, step3_model, recog_def=model_recog)
     recog_training_exp("transducer/step4", task, step4_model, recog_def=model_recog)
+
+
+default_lr = 0.001
+config = dict(
+    batching="random",
+    batch_size=12000,
+    max_seqs=200,
+    max_seq_length_default_target=75,
+
+    # gradient_clip=0,
+    # gradient_clip_global_norm = 1.0
+    optimizer={"class": "nadam", "epsilon": 1e-8},
+    # gradient_noise=0.0,
+    learning_rate=default_lr,
+    learning_rates=list(numpy.linspace(default_lr * 0.1, default_lr, num=10)),
+    min_learning_rate=default_lr / 50,
+    learning_rate_control="newbob_multi_epoch",
+    learning_rate_control_relative_error_relative_lr=True,
+    learning_rate_control_min_num_epochs_per_new_lr=3,
+    use_learning_rate_control_always=True,
+    newbob_multi_update_interval=1,
+    newbob_learning_rate_decay=0.7,
+)
 
 
 class Model(nn.Module):

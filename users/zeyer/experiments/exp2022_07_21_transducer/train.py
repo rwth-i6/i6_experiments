@@ -19,6 +19,8 @@ from i6_experiments.users.zeyer.datasets.task import Task
 
 def train(*,
           task: Task,
+          config: Dict[str, Any],
+          num_epochs: int = 150,
           alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
           train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
@@ -33,9 +35,6 @@ def train(*,
     - extra_hash: explicitly goes into the hash
     - others just as one would expect
     """
-    num_epochs = 150
-    default_lr = 0.001
-
     returnn_train_config_dict = dict(
         use_tensorflow=True,
         behavior_version=12,
@@ -46,27 +45,17 @@ def train(*,
         train=task.train_dataset.get_train_dataset(),
         eval_datasets=task.train_dataset.get_eval_datasets(),
 
-        batching="random",
-        batch_size=12000,
-        max_seqs=200,
-        max_seq_length={task.train_dataset.get_default_target(): 75},
-
-        # gradient_clip=0,
-        # gradient_clip_global_norm = 1.0
-        optimizer={"class": "nadam", "epsilon": 1e-8},
-        # gradient_noise=0.0,
-        learning_rate=default_lr,
-        learning_rates=list(numpy.linspace(default_lr * 0.1, default_lr, num=10)),
-        min_learning_rate=default_lr / 50,
-        learning_rate_control="newbob_multi_epoch",
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
-        learning_rate_control_relative_error_relative_lr=True,
-        learning_rate_control_min_num_epochs_per_new_lr=3,
-        use_learning_rate_control_always=True,
         newbob_multi_num_epochs=task.train_epoch_split,
-        newbob_multi_update_interval=1,
-        newbob_learning_rate_decay=0.7,
+
+        **config
     )
+
+    max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
+    if max_seq_length_default_target is not None:
+        max_seq_length = returnn_train_config_dict.setdefault("max_seq_length", {})
+        assert isinstance(max_seq_length, dict)
+        max_seq_length[task.train_dataset.get_default_target()] = max_seq_length_default_target
 
     if alignment:
         # TODO... metadataset etc...

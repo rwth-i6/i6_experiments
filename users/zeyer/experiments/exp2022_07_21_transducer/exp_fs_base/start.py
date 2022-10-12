@@ -5,6 +5,7 @@ Starting point, 2022-10-12
 from __future__ import annotations
 from typing import Optional, Dict, Sequence
 import contextlib
+import numpy
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 
@@ -17,8 +18,31 @@ from ..train import train
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()
-    model = train(task=task, model_def=from_scratch_model_def, train_def=from_scratch_training)
+    model = train(task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
+
+
+default_lr = 0.001
+config = dict(
+    batching="random",
+    batch_size=12000,
+    max_seqs=200,
+    max_seq_length_default_target=75,
+
+    # gradient_clip=0,
+    # gradient_clip_global_norm = 1.0
+    optimizer={"class": "nadam", "epsilon": 1e-8},
+    # gradient_noise=0.0,
+    learning_rate=default_lr,
+    learning_rates=list(numpy.linspace(default_lr * 0.1, default_lr, num=10)),
+    min_learning_rate=default_lr / 50,
+    learning_rate_control="newbob_multi_epoch",
+    learning_rate_control_relative_error_relative_lr=True,
+    learning_rate_control_min_num_epochs_per_new_lr=3,
+    use_learning_rate_control_always=True,
+    newbob_multi_update_interval=1,
+    newbob_learning_rate_decay=0.7,
+)
 
 
 class Model(nn.Module):
