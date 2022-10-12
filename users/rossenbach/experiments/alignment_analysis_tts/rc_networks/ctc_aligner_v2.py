@@ -289,7 +289,7 @@ class CTCAligner(nn.Module):
             return reconstruction_lin
         else:
             slice_out, slice_dim = nn.slice(
-                softmax, axis=softmax.feature_dim, slice_start=0, slice_end=self._softmax_dim - 1,
+                softmax, axis=softmax.feature_dim, slice_start=0, slice_end=self.softmax_dim.dimension - 1,
             )
             padding = nn.pad(
                 slice_out,
