@@ -66,6 +66,7 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
         returnn_config=search_config(dataset, model.definition, recog_def),
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
+        log_verbosity=5,
     )
     res = search_job.out_search_file
     if recog_def.output_blank_label:
