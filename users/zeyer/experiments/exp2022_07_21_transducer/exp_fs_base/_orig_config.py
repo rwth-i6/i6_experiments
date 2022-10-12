@@ -12,6 +12,18 @@ from returnn.config import get_global_config
 
 config = get_global_config()
 
+target = config.typed_dict["target"]  # default target key
+extern_data = config.typed_dict["extern_data"]
+vocab_opts = extern_data[target]["vocab"]
+# ...
+# anyway just hardcode for now
+target_num_labels = 1030
+targetb_num_labels = target_num_labels + 1  # with blank
+# targetb_blank_idx = 0
+targetb_blank_idx = target_num_labels  # changed?
+beam_size = 12
+EpochSplit = 6
+
 
 # Note: We control the warmup in the pretrain construction.
 learning_rate = 0.001
@@ -23,7 +35,7 @@ def summary(name, x):
     :param str name:
     :param tf.Tensor x: (batch,time,feature)
     """
-    import tensorflow as tf
+    from returnn.tf.compat import v1 as tf
     # tf.summary.image wants [batch_size, height,  width, channels],
     # we have (batch, time, feature).
     img = tf.expand_dims(x, axis=3)  # (batch,time,feature,1)
@@ -45,7 +57,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     :param tf.Tensor pos: (batch,)
     :param int|tf.Tensor max_amount: inclusive
     """
-    import tensorflow as tf
+    from returnn.tf.compat import v1 as tf
     ndim = x.get_shape().ndims
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
@@ -72,7 +84,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     :param int|tf.Tensor max_num: inclusive
     :param int|tf.Tensor max_dims: inclusive
     """
-    import tensorflow as tf
+    from returnn.tf.compat import v1 as tf
     n_batch = tf.shape(x)[batch_axis]
     if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
         num = min_num
@@ -177,7 +189,7 @@ def get_vocab_tf():
     from GeneratingDataset import Vocabulary
     import TFUtil
     import tensorflow as tf
-    vocab = Vocabulary.create_vocab(**sprint_interface_dataset_opts["bpe"])
+    vocab = Vocabulary.create_vocab(**vocab_opts)
     labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
     labels = [(l + " ").replace("@@ ", "") for l in labels] + [""]
     labels_t = TFUtil.get_shared_vocab(labels)
@@ -335,7 +347,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     from GeneratingDataset import Vocabulary
     import TFUtil
     import tensorflow as tf
-    vocab = Vocabulary.create_vocab(**sprint_interface_dataset_opts["bpe"])
+    vocab = Vocabulary.create_vocab(**vocab_opts)
     labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
     labels = [(l + " ").replace("@@ ", "").encode("utf8") for l in labels] + [b""]
 
@@ -613,7 +625,7 @@ def get_net_dict(pretrain_idx):
                 "class": "linear", "from": "readout", "activation": "log_softmax", "dropout": 0.3, "n_out": target_num_labels},  # (B, T, U+1, 1030)
             "emit_prob0": {"class": "linear", "from": "readout", "activation": None, "n_out": 1, "is_output_layer": True},  # (B, T, U+1, 1)
             "emit_log_prob": {"class": "activation", "from": "emit_prob0", "activation": "log_sigmoid"},  # (B, T, U+1, 1)
-            "blank_log_prob": {"class": "eval", "from": "emit_prob0", "eval": "tf.log_sigmoid(-source(0))"},  # (B, T, U+1, 1)
+            "blank_log_prob": {"class": "eval", "from": "emit_prob0", "eval": "tf.math.log_sigmoid(-source(0))"},  # (B, T, U+1, 1)
             "label_emit_log_prob": {"class": "combine", "kind": "add", "from": ["label_log_prob", "emit_log_prob"]},  # (B, T, U+1, 1), scaling factor in log-space
             "output_log_prob": {"class": "copy", "from": ["blank_log_prob", "label_emit_log_prob"]},  # (B, T, U+1, 1031)
 
@@ -706,7 +718,7 @@ batching = "random"
 log_batch_size = True
 batch_size = 4000
 max_seqs = 200
-max_seq_length = {"bpe": 75}
+max_seq_length = {target: 75}
 #chunking = ""  # no chunking
 truncation = -1
 

@@ -7,6 +7,7 @@ rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.ml
 from __future__ import annotations
 from typing import Optional, Dict, Sequence
 import contextlib
+import textwrap
 from sisyphus import tk
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
@@ -24,6 +25,11 @@ from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
 
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint
+from ..model import config_code
+
+__my_dir__ = os.path.dirname(os.path.absname(__file__))
+raw_config_filename = f"{__my_dir__}/_orig_config.py"
+config_code_dir = os.path.dirname(os.path.absname(config_code.__file__))
 
 
 def sis_run_with_prefix(prefix_name: str):
@@ -62,6 +68,7 @@ def train(*,
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                 serialization.PythonCacheManagerFunctionNonhashedCode,
+                PythonLoadOrigConfigNonhashedCode,
                 serialization.PythonModelineNonhashedCode,
             ]
         )],
@@ -184,6 +191,7 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
                 }),
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                 serialization.PythonCacheManagerFunctionNonhashedCode,
+                PythonLoadOrigConfigNonhashedCode,
                 serialization.PythonModelineNonhashedCode,
             ]
         )],
@@ -206,3 +214,16 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
 
     return returnn_recog_config
 
+
+PythonLoadOrigConfigNonhashedCode = NonhashedCode(
+    textwrap.dedent(
+        """\
+        from returnn.config import get_global_config
+        config = get_global_config()
+        config.load_file({raw_config_filename!r})
+
+        import sys
+        sys.path.append({config_code_dir!r})
+        """
+    )
+)
