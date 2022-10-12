@@ -4,7 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
-from typing import Dict, Any, Iterator, Callable
+from typing import Dict, Any, Sequence, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
@@ -47,16 +47,19 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
-        recog_out = search_dataset(dataset=dataset, model=model, recog_def=recog_def)
-        for f in task.recog_post_proc_funcs:
-            recog_out = f(recog_out)
+        recog_out = search_dataset(
+            dataset=dataset, model=model, recog_def=recog_def,
+            recog_post_proc_funcs=task.recog_post_proc_funcs)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
     # Don't register any output here because we will just collect the best final result via GetBestRecogTrainExp.
 
 
-def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef) -> RecogOutput:
+def search_dataset(
+    dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef,
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
+) -> RecogOutput:
     """
     recog on the specific dataset
     """
@@ -72,6 +75,8 @@ def search_dataset(dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def
     res = search_job.out_search_file
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label).out_search_results
+    for f in recog_post_proc_funcs:  # for example BPE to words
+        res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
         res = SearchBeamJoinScoresJob(res).out_search_results
         res = SearchTakeBestJob(res).out_best_search_results
