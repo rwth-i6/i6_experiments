@@ -373,7 +373,7 @@ class ConformerEncoder:
     elif self.input_layer == 'conv':
       # subsample by 4
       subsampled_input = self.network.add_conv_block(
-        'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), self.enc_key_dim), ((3, 3), (2, 2), self.enc_key_dim)],
+        'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 128), ((3, 3), (2, 2), 128)],
         l2=self.l2, activation='relu', init=self.start_conv_init)
     elif self.input_layer == "conv-new":
       subsampled_input = self.network.add_conv_block(

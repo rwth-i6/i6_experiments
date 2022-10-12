@@ -1,3 +1,4 @@
+import copy
 import os.path
 from functools import lru_cache
 from sisyphus import tk
@@ -49,7 +50,7 @@ class AudioFeatureDatastream(Datastream):
         }
 
     def as_returnn_audio_opts(self) -> Dict[str, Any]:
-        return self.options
+        return copy.deepcopy(self.options)
 
 
 def add_global_statistics_to_audio_features(

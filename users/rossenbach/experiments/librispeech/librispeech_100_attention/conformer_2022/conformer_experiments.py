@@ -254,14 +254,14 @@ def conformer_baseline():
     local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
     local_conformer_enc_args.input_layer = "conv-new"
     local_conformer_enc_args.ctc_loss_scale = 1.0
-    training_args = copy.deepcopy(training_args)
+    local_training_args = copy.deepcopy(training_args)
 
     # pretraining
-    training_args['pretrain_opts'] = {'variant': 3}
-    training_args['pretrain_reps'] = 5
+    local_training_args['pretrain_opts'] = {'variant': 3}
+    local_training_args['pretrain_reps'] = 5
 
     exp_prefix = prefix_name + "/" + name
-    args = copy.deepcopy({**training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
+    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
     args['name'] = name
     args['with_staged_network'] = True
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
@@ -270,7 +270,7 @@ def conformer_baseline():
 
     returnn_config = create_config(training_datasets=training_datasets, **args)
     train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
-    search(exp_prefix + "/default_80", returnn_config, train_job.out_checkpoints[40], test_dataset_tuples, returnn_exe, returnn_root)
+    # search(exp_prefix + "/default_80", returnn_config, train_job.out_checkpoints[40], test_dataset_tuples, returnn_exe, returnn_root)
     search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
 
     ext_lm_search_args = copy.deepcopy(args)
