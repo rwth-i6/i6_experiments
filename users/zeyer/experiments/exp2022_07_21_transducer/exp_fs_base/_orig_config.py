@@ -7,6 +7,10 @@ import os
 import numpy
 from subprocess import check_output, CalledProcessError
 from returnn.tf.util.data import DimensionTag
+from returnn.config import get_global_config
+
+
+config = get_global_config()
 
 
 # Note: We control the warmup in the pretrain construction.
