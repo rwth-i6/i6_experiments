@@ -25,7 +25,7 @@ Note on the motivation for the interface:
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Sequence, Tuple
+from typing import Optional, Dict, Sequence
 import contextlib
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
@@ -34,7 +34,6 @@ from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from i6_experiments.users.zeyer.recog import recog_training_exp, RecogDef
 from .train import train, ModelDef, TrainDef
-from .beam_search import beam_search, IDecoder
 from .align import align
 
 
@@ -371,34 +370,27 @@ def model_recog(*,
     """
     batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    beam_size = 12
 
-    class _Decoder(IDecoder):
-        target_spatial_dim = enc_spatial_dim  # time-sync transducer
-        include_eos = True
+    loop = nn.Loop(axis=enc_spatial_dim)  # time-sync transducer
+    loop.max_seq_len = nn.dim_value(enc_spatial_dim) * 2
+    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims)
+    loop.state.target = nn.constant(model.blank_idx, shape=batch_dims, sparse_dim=model.wb_target_dim)
+    with loop:
+        enc = model.encoder_unstack(enc_args)
+        probs, loop.state.decoder = model.decode(
+            **enc,
+            enc_spatial_dim=nn.single_step_dim,
+            wb_target_spatial_dim=nn.single_step_dim,
+            prev_wb_target=loop.state.target,
+            state=loop.state.decoder)
+        log_prob = probs.get_wb_label_log_probs()
+        loop.state.target = nn.choice(
+            log_prob, input_type="log_prob",
+            target=None, search=True, beam_size=beam_size,
+            length_normalization=False)
+        res = loop.stack(loop.state.target)
 
-        def max_seq_len(self) -> nn.Tensor:
-            """max seq len"""
-            return nn.dim_value(enc_spatial_dim) * 2
-
-        def initial_state(self) -> nn.LayerState:
-            """initial state"""
-            return model.decoder_default_initial_state(batch_dims=batch_dims)
-
-        def bos_label(self) -> nn.Tensor:
-            """BOS"""
-            return nn.constant(model.blank_idx, shape=batch_dims, sparse_dim=model.wb_target_dim)
-
-        def __call__(self, prev_target: nn.Tensor, *, state: nn.LayerState) -> Tuple[nn.Tensor, nn.LayerState]:
-            enc = model.encoder_unstack(enc_args)
-            probs, state = model.decode(
-                **enc,
-                enc_spatial_dim=nn.single_step_dim,
-                wb_target_spatial_dim=nn.single_step_dim,
-                prev_wb_target=prev_target,
-                state=state)
-            return probs.get_wb_label_log_probs(), state
-
-    res = beam_search(_Decoder())
     assert model.blank_idx == targets_dim.dimension  # added at the end
     res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
         targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})

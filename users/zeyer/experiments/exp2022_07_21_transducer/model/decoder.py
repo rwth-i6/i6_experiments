@@ -1,4 +1,0 @@
-"""
-Decoder building blocks
-"""
-

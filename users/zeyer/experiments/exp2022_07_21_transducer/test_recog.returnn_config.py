@@ -57,7 +57,7 @@ extern_data = {
     },
 }
 
-from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.beam_search import beam_search, IDecoder
+from i6_experiments.users.zeyer.beam_search import beam_search, IDecoder
 
 
 class Model(nn.Module):
