@@ -36,7 +36,7 @@ class Task:
     score_recog_output_func: Callable[[DatasetConfig, RecogOutput], ScoreResult]
 
     # e.g. for bpe_to_words or so. This is here because it depends on the type of vocab.
-    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = dataclasses.field(default_factory=list)
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
 
     def default_collect_score_results(self, score_results: Dict[str, ScoreResult]) -> ScoreResultCollection:
         """using main_measure_name as the main key in score_results"""
