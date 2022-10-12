@@ -19,6 +19,6 @@ from ..train import train
 def TODO_sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()
-    model = train(task=task, model_def=from_scratch_model_def, train_def=from_scratch_training)
+    model = train(task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 

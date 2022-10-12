@@ -6,123 +6,7 @@ rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.ml
 import os
 import numpy
 from subprocess import check_output, CalledProcessError
-from TFUtil import DimensionTag
-
-# task
-use_tensorflow = True
-task = config.value("task", "train")
-device = "gpu"
-multiprocessing = True
-update_on_device = True
-
-debug_mode = False
-if int(os.environ.get("DEBUG", "0")):
-    # print("** DEBUG MODE")
-    debug_mode = True
-
-if config.has("beam_size"):
-    beam_size = config.int("beam_size", 0)
-    print("** beam_size %i" % beam_size)
-else:
-    if task == "train":
-        beam_size = 4
-    else:
-        beam_size = 12
-
-_cf_cache = {}
-
-def cf(filename):
-    """Cache manager"""
-    if filename in _cf_cache:
-        return _cf_cache[filename]
-    if debug_mode or check_output(["hostname"]).strip().decode("utf8") in ["cluster-cn-211", "sulfid"]:
-        print("use local file: %s" % filename)
-        return filename  # for debugging
-    try:
-        cached_fn = check_output(["cf", filename]).strip().decode("utf8")
-    except CalledProcessError:
-        print("Cache manager: Error occured, using local file")
-        return filename
-    assert os.path.exists(cached_fn)
-    _cf_cache[filename] = cached_fn
-    return cached_fn
-
-# data
-target = "bpe"
-target_num_labels = 1030
-targetb_num_labels = target_num_labels + 1  # with blank
-targetb_blank_idx = 0
-time_tag = DimensionTag(kind=DimensionTag.Types.Spatial, description="time")
-output_len_tag = DimensionTag(kind=DimensionTag.Types.Spatial, description="output-len")  # it's downsampled time
-# use "same_dim_tags_as": {"t": time_tag} if same time tag ("data" and "alignment"). e.g. for RNA. not for RNN-T.
-extern_data = {
-    "data": {"dim": 40, "same_dim_tags_as": {"t": time_tag}},  # Gammatone 40-dim
-    target: {"dim": target_num_labels, "sparse": True},  # see vocab
-    "alignment": {"dim": targetb_num_labels, "sparse": True, "same_dim_tags_as": {"t": output_len_tag}},
-    "align_score": {"shape": (1,), "dtype": "float32"},
-}
-if task != "train":
-    # During train, we add this via the network (from prev alignment, or linear seg). Otherwise it's not available.
-    extern_data["targetb"] = {"dim": targetb_num_labels, "sparse": True, "available_for_inference": False}
-EpochSplit = 6
-
-def get_sprint_dataset(data, hdf_files=None):
-    assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
-    epoch_split = {"train": EpochSplit}.get(data, 1)
-    corpus_name = {"cv": "train", "devtrain": "train"}.get(data, data)  # train, dev, hub5e_01, rt03s
-
-    # see /u/tuske/work/ASR/switchboard/corpus/readme
-    # and zoltans mail https://mail.google.com/mail/u/0/#inbox/152891802cbb2b40
-    files = {}
-    files["config"] = "config/training.config"
-    files["corpus"] = "/work/asr3/irie/data/switchboard/corpora/%s.corpus.gz" % corpus_name
-    if data in {"train", "cv", "devtrain"}:
-        files["segments"] = "dependencies/seg_%s" % {"train":"train", "cv":"cv_head3000", "devtrain": "train_head3000"}[data]
-    files["features"] = "/u/tuske/work/ASR/switchboard/feature.extraction/gt40_40/data/gt.%s.bundle" % corpus_name
-    for k, v in sorted(files.items()):
-        assert os.path.exists(v), "%s %r does not exist" % (k, v)
-    estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
-
-    args = [
-        "--config=" + files["config"],
-        lambda: "--*.corpus.file=" + cf(files["corpus"]),
-        lambda: "--*.corpus.segments.file=" + (cf(files["segments"]) if "segments" in files else ""),
-        lambda: "--*.feature-cache-path=" + cf(files["features"]),
-        "--*.log-channel.file=/dev/null",
-        "--*.window-size=1",
-    ]
-    if not hdf_files:
-        args += [
-            "--*.corpus.segment-order-shuffle=true",
-            "--*.segment-order-sort-by-time-length=true",
-            "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1),
-        ]
-    d = {
-        "class": "ExternSprintDataset", "sprintTrainerExecPath": "sprint-executables/nn-trainer",
-        "sprintConfigStr": args,
-        "suppress_load_seqs_print": True,  # less verbose
-    }
-    d.update(sprint_interface_dataset_opts)
-    partition_epochs_opts = {
-        "partition_epoch": epoch_split,
-        "estimated_num_seqs": (estimated_num_seqs[data] // epoch_split) if data in estimated_num_seqs else None,
-    }
-    d.update(partition_epochs_opts)
-    return d
-
-sprint_interface_dataset_opts = {
-    "input_stddev": 3.,
-    "bpe": {
-        'bpe_file': '/work/asr3/irie/data/switchboard/subword_clean/ready/swbd_clean.bpe_code_1k',
-        'vocab_file': '/work/asr3/irie/data/switchboard/subword_clean/ready/vocab.swbd_clean.bpe_code_1k',
-        # 'seq_postfix': [0]  # no EOS needed for RNN-T
-    }}
-
-train = get_sprint_dataset("train")
-dev = get_sprint_dataset("cv")
-eval_datasets = {"devtrain": get_sprint_dataset("devtrain")}
-cache_size = "0"
-window = 1
+from returnn.tf.util.data import DimensionTag
 
 
 # Note: We control the warmup in the pretrain construction.
@@ -542,29 +426,6 @@ def rna_loss_out(sources, **kwargs):
     from TFUtil import Data
     return Data(name="rna_loss", shape=())
 
-#import_model_train_epoch1 = "base/data-train/base2.conv2l.specaug4a/net-model/network.160"
-#_train_setup_dir = "data-train/base2.conv2l.specaug4a"
-#model = _train_setup_dir + "/net-model/network"
-preload_from_files = {
-  #"base": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2018-10-02--e2e-bpe1k/data-train/base2.conv2l.specaug4a/net-model/network.160",
-  #},
-  #"encoder": {
-  #  "init_for_train": True,
-  #  "ignore_missing": True,
-  #  "filename": "/u/zeyer/setups/switchboard/2017-12-11--returnn/data-train/#dropout01.l2_1e_2.6l.n500.inpstddev3.fl2.max_seqs100.grad_noise03.nadam.lr05e_3.nbm6.nbrl.grad_clip_inf.nbm3.run1/net-model/network.077",
-  #},
-  # "encoder": {
-    # "init_for_train": True,
-    # "ignore_missing": True,
-    # "ignore_params_prefixes": {"output/"},
-    # "filename": "/u/zeyer/setups/switchboard/2019-10-22--e2e-bpe1k/data-train/base2.conv2l.specaug4a.ctc.devtrain/net-model/network.150",
-  # }
-}
-# lm_model_filename = "/work/asr3/irie/experiments/lm/switchboard/2018-01-23--lmbpe-zeyer/data-train/bpe1k_clean_i256_m2048_m2048.sgd_b16_lr0_cl2.newbobabs.d0.2/net-model/network.023"
-
 
 def get_net_dict(pretrain_idx):
     """
@@ -853,8 +714,7 @@ def custom_construction_algo(idx, net_dict):
 pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
 
 
-num_epochs = 250
-model = "net-model/network"
+num_epochs = 150
 cleanup_old_models = True
 gradient_clip = 0
 #gradient_clip_global_norm = 1.0
@@ -875,12 +735,4 @@ use_learning_rate_control_always = True
 newbob_multi_num_epochs = 6
 newbob_multi_update_interval = 1
 newbob_learning_rate_decay = 0.7
-learning_rate_file = "newbob.data"
-
-# log
-#log = "| /u/zeyer/dotfiles/system-tools/bin/mt-cat.py >> log/crnn.seq-train.%s.log" % task
-log = "log/crnn.%s.log" % task
-log_verbosity = 5
-
-
 
