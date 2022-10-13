@@ -228,7 +228,7 @@ class Model(nn.Module):
 
 class DecoderLabelSync(nn.Module):
     """
-    Often called the (I)LM part.
+    Often called the (I)LM part, or prediction network.
     Runs label-sync, i.e. only on non-blank labels.
     """
     def __init__(self, in_dim: nn.Dim, *,
