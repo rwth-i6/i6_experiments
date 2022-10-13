@@ -24,7 +24,7 @@ from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switch
 from ..model import config_code
 
 __my_dir__ = os.path.dirname(os.path.abspath(__file__))
-name = "orig"
+name = "orig_native"
 raw_config_filename = f"{__my_dir__}/_{name}_config.py"
 config_code_dir = os.path.dirname(os.path.abspath(config_code.__file__))
 
