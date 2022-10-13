@@ -15,9 +15,8 @@ import sys
 import numpy as np
 import tensorflow as tf
 from termcolor import colored
-from ref_transduce import transduce as transduce_ref
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "returnn"))
-from ref_rna import forward_pass, analytical_gradient, backward_pass, numerical_gradient
+from .ref_transduce import transduce as transduce_ref
+from .ref_rna import forward_pass, analytical_gradient, backward_pass, numerical_gradient
 
 NEG_INF = -float("inf")
 
