@@ -222,9 +222,6 @@ PythonLoadOrigConfigNonhashedCode = serialization.NonhashedCode(
         from returnn.config import get_global_config
         config = get_global_config()
         config.load_file({raw_config_filename!r})
-
-        import sys
-        sys.path.append({config_code_dir!r})
         """
     )
 )

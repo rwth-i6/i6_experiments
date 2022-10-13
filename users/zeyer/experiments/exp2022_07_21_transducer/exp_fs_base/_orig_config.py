@@ -3,15 +3,14 @@ Based on the original config which we want to reproduce here, namely:
 rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50.config.py.
 """
 
-import os
 import numpy
-from subprocess import check_output, CalledProcessError
-from returnn.tf.util.data import DimensionTag
+from returnn.tf.util.data import Data
 from returnn.config import get_global_config
 
 
 config = get_global_config()
 
+task = config.typed_dict["task"]
 target = config.typed_dict["target"]  # default target key
 extern_data = config.typed_dict["extern_data"]
 vocab_opts = extern_data[target]["vocab"]
@@ -70,7 +69,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
-    from TFUtil import where_bc
+    from returnn.tf.util.basic import where_bc
     x = where_bc(cond, 0.0, x)
     return x
 
@@ -147,7 +146,7 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
     :return: (batch,base_beam_in,dim), combined scores
     """
     import tensorflow as tf
-    from TFUtil import where_bc, nd_indices, tile_transposed
+    from returnn.tf.util.basic import where_bc, nd_indices, tile_transposed
     scores = scores_in + scores_base  # (batch,beam,dim)
     dim = layer.output.dim
 
@@ -186,13 +185,13 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
 
 
 def get_vocab_tf():
-    from GeneratingDataset import Vocabulary
-    import TFUtil
+    from returnn.datasets.util.vocabulary import Vocabulary
+    import returnn.tf.util.basic as tf_util
     import tensorflow as tf
     vocab = Vocabulary.create_vocab(**vocab_opts)
     labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
     labels = [(l + " ").replace("@@ ", "") for l in labels] + [""]
-    labels_t = TFUtil.get_shared_vocab(labels)
+    labels_t = tf_util.get_shared_vocab(labels)
     return labels_t
 
 
@@ -209,7 +208,7 @@ def get_vocab_sym(i):
 def out_str(source, **kwargs):
     # ["prev:out_str", "output_emit", "output"]
     import tensorflow as tf
-    from TFUtil import where_bc
+    from returnn.tf.util.basic import where_bc
     return source(0) + where_bc(source(1), get_vocab_sym(source(2)), tf.constant(""))
 
 
@@ -300,7 +299,7 @@ def get_filtered_score_op(verbose=False):
     };
     REGISTER_KERNEL_BUILDER(Name("GetFilteredScore").Device(DEVICE_CPU), GetFilteredScoreOp);
     """
-    from TFUtil import OpCodeCompiler
+    from returnn.tf.util.basic import OpCodeCompiler
     compiler = OpCodeCompiler(
         base_name="GetFilteredScore", code_version=1, code=cpp_code,
         is_cpp=True, use_cuda_if_available=False, verbose=verbose)
@@ -316,9 +315,9 @@ def get_filtered_score_cpp(prev_str, scores, labels):
     :return: scores with logsumexp at best, others -inf, (batch,beam)
     :rtype: tf.Tensor
     """
-    import TFUtil
+    import returnn.tf.util.basic as tf_util
     import tensorflow as tf
-    labels_t = TFUtil.get_shared_vocab(labels)
+    labels_t = tf_util.get_shared_vocab(labels)
     with tf.device("cpu:0"):
         return get_filtered_score_op()(prev_str, scores, labels_t)
 
@@ -335,7 +334,6 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     :return: (batch,base_beam_in,dim), combined scores
     """
     import tensorflow as tf
-    from TFUtil import where_bc, nd_indices, tile_transposed
 
     dim = layer.output.dim
 
@@ -344,9 +342,7 @@ def targetb_recomb_recog(layer, batch_dim, scores_in, scores_base, base_beam_in,
     prev_out = layer.explicit_search_sources[1].output  # [B*beam], int32
     prev_out_t = tf.reshape(prev_out.placeholder, (batch_dim, -1))[:,:base_beam_in]
 
-    from GeneratingDataset import Vocabulary
-    import TFUtil
-    import tensorflow as tf
+    from returnn.datasets.util.vocabulary import Vocabulary
     vocab = Vocabulary.create_vocab(**vocab_opts)
     labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
     labels = [(l + " ").replace("@@ ", "").encode("utf8") for l in labels] + [b""]
@@ -378,8 +374,6 @@ def rna_loss(source, **kwargs):
     # targets: (B, U-1)
     # input_lengths (B,)
     # label_lengths (B,)
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "code"))
     import tensorflow as tf
     log_probs = source(0, as_data=True, auto_convert=False)
     targets = source(1, as_data=True, auto_convert=False)
@@ -388,10 +382,14 @@ def rna_loss(source, **kwargs):
     enc_lens = encoder.get_sequence_lengths()
     dec_lens = targets.get_sequence_lengths()
 
-    from rna_tf_impl import tf_forward_shifted_rna
-    costs = -tf_forward_shifted_rna(log_probs.get_placeholder_as_batch_major(), targets.get_placeholder_as_batch_major(), enc_lens, dec_lens, blank_index=targetb_blank_idx, debug=False)
+    from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.model.config_code.rna_tf_impl import \
+        tf_forward_shifted_rna
+    costs = -tf_forward_shifted_rna(
+        log_probs.get_placeholder_as_batch_major(), targets.get_placeholder_as_batch_major(),
+        enc_lens, dec_lens, blank_index=targetb_blank_idx, debug=False)
     costs = tf.where(tf.math.is_finite(costs), costs, tf.zeros_like(costs))
     return costs
+
 
 def rna_alignment(source, **kwargs):
     """
@@ -405,9 +403,6 @@ def rna_alignment(source, **kwargs):
     # input_lengths (B,)
     # label_lengths (B,)
     import sys
-    import TFUtil
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "code"))
-    import tensorflow as tf
     log_probs = source(0, as_data=True, auto_convert=False).get_placeholder_as_batch_major()
     targets = source(1, as_data=True, auto_convert=False)
     encoder = source(2, as_data=True, auto_convert=False)
@@ -421,15 +416,14 @@ def rna_alignment(source, **kwargs):
         # "dec_lens:", dec_lens,
         # "targets:", tf.shape(targets.get_placeholder_as_batch_major()), "log-probs:", tf.shape(log_probs.get_placeholder_as_batch_major())], summarize=-1)
 
-    from rna_tf_impl import tf_forward_shifted_rna
+    from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.model.config_code.rna_tf_impl import \
+        tf_forward_shifted_rna
     costs, alignment = tf_forward_shifted_rna(log_probs, targets.get_placeholder_as_batch_major(), enc_lens, dec_lens,
         blank_index=targetb_blank_idx, debug=False, with_alignment=True)
     return alignment # (B, T)
 
 
 def rna_alignment_out(sources, **kwargs):
-    from TFUtil import Data
-
     log_probs = sources[0].output
     targets = sources[1].output
     encoder = sources[2].output
@@ -439,7 +433,6 @@ def rna_alignment_out(sources, **kwargs):
 
 
 def rna_loss_out(sources, **kwargs):
-    from TFUtil import Data
     return Data(name="rna_loss", shape=())
 
 
