@@ -5,27 +5,22 @@ rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.ml
 
 
 from __future__ import annotations
-from typing import Optional, Dict, Sequence
+from typing import Any, Callable, Sequence
 import os
-import contextlib
 import textwrap
 from sisyphus import tk
 from returnn_common import nn
-from returnn_common.nn.encoder.blstm_cnn_specaug import BlstmCnnSpecAugEncoder
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
 from i6_experiments.common.setups.returnn_common import serialization
 
 from i6_experiments.users.zeyer import tools_paths
-from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.datasets.task import Task, DatasetConfig
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
-from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 from i6_experiments.users.zeyer.recog import GetBestRecogTrainExp
-
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint
 from ..model import config_code
 
 __my_dir__ = os.path.dirname(os.path.abspath(__file__))
@@ -101,7 +96,7 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
     class _RecogDef:
         pass
     recog_def = _RecogDef()
-    recog_def: RecogDef[Model]
+    recog_def: RecogDef
     recog_def.output_with_beam = True
     recog_def.output_blank_label = "<blank>"
     recog_def.batch_size_dependent = False
