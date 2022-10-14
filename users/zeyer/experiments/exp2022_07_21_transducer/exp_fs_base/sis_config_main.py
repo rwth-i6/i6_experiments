@@ -17,11 +17,12 @@ def sis_config_main():
             continue
         if filename.startswith("_"):
             continue
-        name = f"{__package__}.{filename[:-len('.py')]}"
+        basename = filename[:-len('.py')]
+        name = f"{__package__}.{basename}"
         mod = importlib.import_module(name)
         if not hasattr(mod, "sis_run_with_prefix"):
             continue
-        mod.sis_run_with_prefix(prefix + name)
+        mod.sis_run_with_prefix(prefix + basename)
 
 
 py = sis_config_main  # `py` is the default sis config function name
