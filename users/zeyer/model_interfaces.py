@@ -80,7 +80,9 @@ class ModelWithCheckpoints:
     num_pretrain_epochs: int = 0
 
     @classmethod
-    def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob) -> ModelWithCheckpoints:
+    def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob, *,
+                          num_pretrain_epochs: int = 0,
+                          ) -> ModelWithCheckpoints:
         """model from training job"""
         num_epochs = training_job.returnn_config.post_config["num_epochs"]
         save_interval = training_job.returnn_config.post_config["save_interval"]
@@ -108,6 +110,7 @@ class ModelWithCheckpoints:
             fixed_epochs=fixed_kept_epochs,
             scores_and_learning_rates=training_job.out_learning_rates,
             model_dir=training_job.out_model_dir,
+            num_pretrain_epochs=num_pretrain_epochs,
         )
 
     @property
@@ -117,9 +120,11 @@ class ModelWithCheckpoints:
 
     def get_epoch(self, epoch: int) -> ModelWithCheckpoint:
         """for one specific epoch"""
+        is_pretrain = epoch <= self.num_pretrain_epochs
         return ModelWithCheckpoint(
             self.definition,
-            Checkpoint(index_path=self.model_dir.join_right("%s.%03d.index" % (self.model_name, epoch))))
+            Checkpoint(index_path=self.model_dir.join_right(
+                self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.index" % epoch)))
 
     def get_last_fixed_epoch(self) -> ModelWithCheckpoint:
         """for the last fixed epoch"""
