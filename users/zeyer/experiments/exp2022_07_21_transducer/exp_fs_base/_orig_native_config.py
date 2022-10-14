@@ -11,6 +11,8 @@ from returnn.config import get_global_config
 config = get_global_config()
 
 task = config.typed_dict["task"]
+num_epochs = config.typed_dict["num_epochs"]
+
 target = config.typed_dict["target"]  # default target key
 extern_data = config.typed_dict["extern_data"]
 vocab_opts = extern_data[target]["vocab"]
@@ -723,7 +725,6 @@ def custom_construction_algo(idx, net_dict):
 pretrain = {"copy_param_mode": "subset", "construction_algo": custom_construction_algo}
 
 
-num_epochs = 150
 cleanup_old_models = True
 gradient_clip = 0
 #gradient_clip_global_norm = 1.0
