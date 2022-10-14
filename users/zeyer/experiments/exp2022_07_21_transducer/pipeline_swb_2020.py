@@ -57,19 +57,22 @@ py = sis_config_main  # `py` is the default sis config function name
 def pipeline(task: Task):
     """run the pipeline for the given task, register outputs"""
     step1_model = train(
-        task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training, extra_hash=extra_hash)
+        f"transducer/step1/{task.name}", task=task, config=config, extra_hash=extra_hash,
+        model_def=from_scratch_model_def, train_def=from_scratch_training)
     step2_alignment = align(task=task, model=step1_model.get_last_fixed_epoch())
     # use step1 model params; different to the paper
     step3_model = train(
-        task=task, config=config, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
+        f"transducer/step3/{task.name}", task=task, config=config, extra_hash=extra_hash,
+        model_def=extended_model_def, train_def=extended_model_training,
         alignment=step2_alignment, init_params=step1_model.get_last_fixed_epoch().checkpoint)
     step4_model = train(
-        task=task, config=config, model_def=extended_model_def, train_def=extended_model_training, extra_hash=extra_hash,
+        f"transducer/step4/{task.name}", task=task, config=config, extra_hash=extra_hash,
+        model_def=extended_model_def, train_def=extended_model_training,
         alignment=step2_alignment, init_params=step3_model.get_last_fixed_epoch().checkpoint)
 
-    recog_training_exp("transducer/step1", task, step1_model, recog_def=model_recog)
-    recog_training_exp("transducer/step3", task, step3_model, recog_def=model_recog)
-    recog_training_exp("transducer/step4", task, step4_model, recog_def=model_recog)
+    recog_training_exp(f"transducer/step1/{task.name}", task, step1_model, recog_def=model_recog)
+    recog_training_exp(f"transducer/step3/{task.name}", task, step3_model, recog_def=model_recog)
+    recog_training_exp(f"transducer/step4/{task.name}", task, step4_model, recog_def=model_recog)
 
 
 default_lr = 0.001

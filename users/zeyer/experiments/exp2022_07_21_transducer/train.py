@@ -17,7 +17,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Ch
 from i6_experiments.users.zeyer.datasets.task import Task
 
 
-def train(*,
+def train(prefix_name: str,
+          *,
           task: Task,
           config: Dict[str, Any],
           num_epochs: int = 150,
@@ -107,6 +108,7 @@ def train(*,
         returnn_train_config,
         log_verbosity=5, num_epochs=num_epochs,
         time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+    returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(
         definition=model_def,

@@ -32,11 +32,12 @@ config_code_dir = os.path.dirname(os.path.abspath(config_code.__file__))
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()
-    model = train(task=task, extra_hash=name)
+    model = train(prefix_name, task=task, extra_hash=name)
     recog_training_exp(prefix_name, task, model)
 
 
-def train(*,
+def train(prefix_name: str,
+          *,
           task: Task,
           num_epochs: int = 150,
           extra_hash: Any,
@@ -86,6 +87,7 @@ def train(*,
         returnn_train_config,
         log_verbosity=5, num_epochs=num_epochs,
         time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+    returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(
         definition=None,
