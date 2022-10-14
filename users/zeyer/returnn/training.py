@@ -9,10 +9,12 @@ from typing import Optional, Set, TextIO
 import os
 import subprocess
 import copy
+
 from sisyphus import gs, tk, Job, Task
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 import i6_core.util as util
+import returnn.config
 
 
 class ReturnnInitModelJob(Job):
@@ -273,3 +275,19 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
             break
         default_keep_pattern.add(n)
     return default_keep_pattern
+
+
+def load_returnn_config_safe(config_file: tk.Path) -> returnn.config.Config:
+    """
+    Load and return a RETURNN config.
+    """
+    # Some configs mess around with sys.path. Recover it later.
+    orig_sys_path = sys.path
+    sys.path = sys.path.copy()
+    try:
+        from returnn.config import Config
+        config = Config()
+        config.load_file(config_file.get_path())
+    finally:
+        sys.path = orig_sys_path
+    return config
