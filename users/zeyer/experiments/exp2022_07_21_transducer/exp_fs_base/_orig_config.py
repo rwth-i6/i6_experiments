@@ -4,6 +4,7 @@ rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.ml
 """
 
 import numpy
+import sys
 from returnn.tf.util.data import Data
 from returnn.config import get_global_config
 
@@ -11,7 +12,7 @@ from returnn.config import get_global_config
 config = get_global_config()
 
 task = config.typed_dict["task"]
-num_epochs = config.typed_dict["num_epochs"]
+num_epochs = config.typed_dict.get("num_epochs", sys.maxsize)
 
 target = config.typed_dict["target"]  # default target key
 extern_data = config.typed_dict["extern_data"]
