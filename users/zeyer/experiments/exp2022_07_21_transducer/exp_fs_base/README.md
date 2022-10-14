@@ -8,6 +8,11 @@ Every config is just a separate Python file where `sis_run_with_prefix` is defin
 
 ---
 
-Observations:
+Differences/Observations:
+
+- native
+- pretrain
+- adam vs nadam
+- accum grad vs larger batch size
 
 ...

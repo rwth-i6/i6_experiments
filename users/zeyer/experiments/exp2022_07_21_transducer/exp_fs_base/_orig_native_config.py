@@ -367,7 +367,7 @@ def get_net_dict(pretrain_idx):
         net_dict["#config"]["learning_rate"] = learning_rate
 
     net_dict["#info"] = {
-        "epoch0": epoch0,  # Set this here such that a new construction for every pretrain idx is enforced in all cases.
+        # "epoch0": epoch0,  # Set this here such that a new construction for every pretrain idx is enforced in all cases.
         "num_lstm_layers": num_lstm_layers,
         "dim_frac": dim_frac,
     }
