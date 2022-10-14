@@ -77,13 +77,31 @@ class ModelWithCheckpoints:
     scores_and_learning_rates: tk.Path  # ReturnnTrainingJob.out_learning_rates
     model_dir: tk.Path  # ReturnnTrainingJob.out_model_dir
     model_name: str = "epoch"  # RETURNN config `model` option; ReturnnTrainingJob has hardcoded "epoch"
+    # Note on num_pretrain_epochs: This is used to get the right model filename.
+    # When ModelDef is given and used, this should always be 0,
+    # as ModelDef covers pretrain logic internally, as it has `epoch` as an argument,
+    # and this is via the RETURNN `get_network` logic, where no epochs are specifically marked as pretrain.
+    # However, this structure here is also used when wrapping old configs,
+    # where we might have pretrain epochs.
     num_pretrain_epochs: int = 0
 
     @classmethod
     def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob, *,
                           num_pretrain_epochs: int = 0,
                           ) -> ModelWithCheckpoints:
-        """model from training job"""
+        """
+        Model from training job
+
+        It sets fixed_epochs via the cleanup_old_models["keep"] option
+        or via the default_returnn_keep_epochs() function.
+
+        Note on num_pretrain_epochs:
+        Also see the comment above.
+        We could automatically figure that out by parsing the RETURNN config (load_returnn_config_safe).
+        However, we want to keep it very simple here, and just have this explicit argument,
+        which you need to provide explicitly.
+        Usually with a correct ModelDef, it anyway should always be 0.
+        """
         num_epochs = training_job.returnn_config.post_config["num_epochs"]
         save_interval = training_job.returnn_config.post_config["save_interval"]
         stored_epochs = set(list(range(save_interval, num_epochs, save_interval)) + [num_epochs])
