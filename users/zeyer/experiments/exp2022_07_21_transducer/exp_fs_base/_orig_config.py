@@ -12,7 +12,7 @@ from returnn.config import get_global_config
 config = get_global_config()
 
 task = config.typed_dict["task"]
-num_epochs = config.typed_dict.get("num_epochs", sys.maxsize)
+num_epochs = config.typed_dict.get("num_epochs", 1000)
 
 target = config.typed_dict["target"]  # default target key
 extern_data = config.typed_dict["extern_data"]
