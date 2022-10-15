@@ -20,6 +20,8 @@ Differences/Observations:
 - model really the same?
 - L2, dropout, etc?
 
+- batch_size was 5000 (and grad accum 3) in the first 20 subepochs in the original config before it was edited...
+
 - joint CTC? -> both no.
 - correct dataset? normalized? kazuki version?
   -> both use `/work/asr3/irie/data/switchboard/corpora`, same BPE
