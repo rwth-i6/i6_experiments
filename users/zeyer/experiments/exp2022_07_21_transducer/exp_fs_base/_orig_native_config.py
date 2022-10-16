@@ -207,7 +207,6 @@ def targetb_recomb_train(layer, batch_dim, scores_in, scores_base, base_beam_in,
 def get_vocab_tf():
     from returnn.datasets.util.vocabulary import Vocabulary
     import returnn.tf.util.basic as tf_util
-    import tensorflow as tf
     vocab = Vocabulary.create_vocab(**vocab_opts)
     labels = vocab.labels  # bpe labels ("@@" at end, or not), excluding blank
     labels = [(l + " ").replace("@@ ", "") for l in labels] + [""]
@@ -247,7 +246,6 @@ def rna_loss(source, **kwargs):
     # targets: (B, U-1)
     # input_lengths (B,)
     # label_lengths (B,)
-    import tensorflow as tf
     log_probs = source(0, as_data=True, auto_convert=False)
     targets = source(1, as_data=True, auto_convert=False)
     encoder = source(2, as_data=True, auto_convert=False)
