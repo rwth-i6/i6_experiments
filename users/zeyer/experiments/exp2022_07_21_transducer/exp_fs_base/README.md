@@ -10,20 +10,20 @@ Every config is just a separate Python file where `sis_run_with_prefix` is defin
 
 Differences/Observations:
 
-- native vs pure TF
 - pretrain: growing, repeat, etc.
+
 - adam vs nadam
 - accum grad vs larger batch size
-- lr schedule?
-- lr schedule error key?
 - batching "random"?
 - model really the same?
 - L2, dropout, etc?
-
 - batch_size was 5000 (and grad accum 3) in the first 20 subepochs in the original config before it was edited...
 
 - joint CTC? -> both no.
 - correct dataset? normalized? kazuki version?
   -> both use `/work/asr3/irie/data/switchboard/corpora`, same BPE
+- native vs pure TF -> no diff
+- lr schedule? no
+- lr schedule error key? error but no actual diff
 
 ...
