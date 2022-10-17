@@ -29,7 +29,7 @@ raw_config_filename = f"{__my_dir__}/_{name}_config.py"
 config_code_dir = os.path.dirname(os.path.abspath(config_code.__file__))
 
 
-def sis_run_with_prefix(prefix_name: str):
+def broken_sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()
     model = train(prefix_name, task=task, extra_hash=name)
