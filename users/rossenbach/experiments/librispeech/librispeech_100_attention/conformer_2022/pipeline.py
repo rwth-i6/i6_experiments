@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any, Dict
 
 from i6_experiments.users.rossenbach.setups.returnn_standalone.data.audio import get_default_asr_audio_datastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import ReturnnAudioRawOptions, AudioRawDatastream
 from sisyphus import tk
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
@@ -50,6 +51,14 @@ def get_audio_datastream(returnn_python_exe, returnn_root, output_path):
 
     return audio_datastream
 
+@lru_cache()
+def get_audio_raw_datastream():
+    audio_datastream = AudioRawDatastream(
+        available_for_inference=True,
+        options=ReturnnAudioRawOptions(peak_normalization=True)
+    )
+    return audio_datastream
+
 @dataclass(frozen=True)
 class TrainingDatasets:
     train: returnn_standalone.data.datasets.GenericDataset
@@ -65,6 +74,7 @@ def build_training_datasets(
         use_curicculum=True,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=False,
+        use_raw_features=False
     ):
     """
 
@@ -83,11 +93,14 @@ def build_training_datasets(
 
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
 
-    audio_datastream = get_audio_datastream(
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_path=output_path,
-    )
+    if use_raw_features:
+        audio_datastream = get_audio_raw_datastream()
+    else:
+        audio_datastream = get_audio_datastream(
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+            output_path=output_path,
+        )
 
     extern_data = {
         'audio_features': audio_datastream.as_returnn_data_opts(),
@@ -152,7 +165,8 @@ def build_training_datasets(
 
 
 @lru_cache()
-def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=2000):
+def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=2000,
+    use_raw_features=False):
 
     ogg_zip_dict = get_ogg_zip_dict("corpora")
     bliss_dict = get_bliss_corpus_dict()
@@ -162,7 +176,14 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
 
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
 
-    audio_datastream = get_audio_datastream(returnn_python_exe, returnn_root, output_path)
+    if use_raw_features:
+        audio_datastream = get_audio_raw_datastream()
+    else:
+        audio_datastream = get_audio_datastream(
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+            output_path=output_path,
+        )
 
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}

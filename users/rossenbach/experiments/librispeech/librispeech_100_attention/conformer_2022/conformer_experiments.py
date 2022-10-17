@@ -233,6 +233,44 @@ def conformer_baseline():
                       returnn_root)
 
 
+    # conformer round 2 with data pipeline
+    name = 'base_conformer_12l_lstm_1l_v2_data_pipeline'
+    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
+    local_conformer_enc_args.ctc_loss_scale = 1.0
+    local_training_args = copy.deepcopy(training_args)
+
+    # pretraining
+    local_training_args['pretrain_opts'] = {'variant': 3}
+    local_training_args['pretrain_reps'] = 5
+
+    exp_prefix = prefix_name + "/" + name
+    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
+    args['name'] = name
+    args['with_staged_network'] = True
+    args['use_data_pipeline'] = True
+    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
+                                         commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
+
+
+    returnn_config = create_config(training_datasets=training_datasets_speed_pert, **args)
+    train_job = training(exp_prefix, returnn_config, returnn_exe, returnn_root)
+    search(exp_prefix + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
+
+    ext_lm_search_args = copy.deepcopy(args)
+    ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
+
+    for lm_scale in [0.36, 0.38, 0.4, 0.42, 0.44]:
+        search_args = copy.deepcopy(ext_lm_search_args)
+        search_args['ext_lm_opts']['lm_scale'] = lm_scale
+        returnn_config = create_config(training_datasets=training_datasets, **search_args)
+        search_single(exp_prefix + "/default_last_ext_lm_%.2f" % lm_scale,
+                      returnn_config,
+                      train_job.out_checkpoints[250],
+                      test_dataset_tuples["dev-other"][0],
+                      test_dataset_tuples["dev-other"][1],
+                      returnn_exe,
+                      returnn_root)
+
 
     #for lm_scale in [0.12, 0.14, 0.16, 0.18, 0.20, 0.22, 0.24, 0.26, 0.28, 0.30, 0.32]:
     #    search_args = copy.deepcopy(ext_lm_search_args)

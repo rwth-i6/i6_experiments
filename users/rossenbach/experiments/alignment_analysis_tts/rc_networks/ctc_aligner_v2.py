@@ -248,7 +248,6 @@ class CTCAligner(nn.Module):
         # embedding
         speaker_embedding = self.speaker_embedding(speaker_label_notime)
         audio_embedding = self.audio_embedding(audio_features)
-
         # encoder
         cat, _ = nn.concat(
             (speaker_embedding, speaker_embedding.feature_dim),

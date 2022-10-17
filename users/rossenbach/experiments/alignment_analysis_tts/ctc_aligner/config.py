@@ -1,3 +1,4 @@
+import copy
 from sisyphus import tk
 from i6_core.returnn import ReturnnConfig
 from i6_experiments.common.setups.returnn_common.serialization import (
@@ -10,6 +11,9 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
     GenericDataset,
 )
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.base import Datastream
+
+from typing import Dict
 
 
 datastream_to_nn_data_mapping = {
@@ -64,53 +68,20 @@ def get_training_config(returnn_common_root, training_datasets, use_v2=False, **
         "batch_size": 28000,
         "max_seq_length": {"audio_features": 1600},
         "max_seqs": 200,
+        #############
+        "train": training_datasets.train.as_returnn_opts(),
+        "dev": training_datasets.cv.as_returnn_opts()
     }
-
-    extern_data = [
-        datastream.as_nnet_constructor_data(key)
-        for key, datastream in training_datasets.datastreams.items()
-    ]
-    config["train"] = training_datasets.train.as_returnn_opts()
-    config["dev"] = training_datasets.cv.as_returnn_opts()
-
-    rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
-    rc_extern_data = ExternData(extern_data=extern_data)
-
-    rc_package = "i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.rc_networks"
-    if use_v2:
-        rc_model = Import(rc_package + ".ctc_aligner_v2.CTCAligner")
-    else:
-        rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
-    rc_construction_code = Import(rc_package + ".ctc_aligner.construct_network")
-
-    rc_network = Network(
-        net_func_name=rc_construction_code.object_name,
-        net_func_map={
-            "net_module": rc_model.object_name,
-            **datastream_to_nn_data_mapping
-        },
-        net_kwargs={**kwargs},
-    )
-
-    serializer = Collection(
-        serializer_objects=[
-            rc_recursionlimit,
-            rc_extern_data,
-            rc_model,
-            rc_construction_code,
-            rc_network,
-        ],
+    serializer = get_network_serializer(
+        training=True,
         returnn_common_root=returnn_common_root,
-        make_local_package_copy=True,
-        packages={
-            rc_package,
-        },
+        datastreams=training_datasets.datastreams,
+        use_v2=use_v2,
+        **kwargs
     )
-
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_epilog=[serializer]
     )
-
     return returnn_config
 
 
@@ -131,8 +102,30 @@ def get_forward_config(
         "max_seqs": 200,
         "forward_use_search": True,
         "target": "extract_alignment",
+        #############
+        "eval": forward_dataset.as_returnn_opts()
     }
-    config["eval"] = forward_dataset.as_returnn_opts()
+    serializer = get_network_serializer(
+        training=False,
+        returnn_common_root=returnn_common_root,
+        datastreams=datastreams,
+        use_v2=use_v2,
+        **kwargs
+    )
+    returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
+    return returnn_config
+
+
+def get_network_serializer(training: bool, returnn_common_root: tk.Path, datastreams: Dict[str, Datastream], use_v2: bool = False, **kwargs) -> Collection:
+    """
+
+    :param training
+    :param returnn_common_root
+    :param datastreams:
+    :param use_v2:
+    :param kwargs:
+    :return:
+    """
     extern_data = [
         datastream.as_nnet_constructor_data(key)
         for key, datastream in datastreams.items()
@@ -148,13 +141,17 @@ def get_forward_config(
         rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
     rc_construction_code = Import(rc_package + ".ctc_aligner.construct_network")
 
+    d = copy.deepcopy(kwargs)
+    if training is False:
+        d["training"] = False
+
     rc_network = Network(
         net_func_name=rc_construction_code.object_name,
         net_func_map={
             "net_module": rc_model.object_name,
             **datastream_to_nn_data_mapping,
         },
-        net_kwargs={"training": False, **kwargs},
+        net_kwargs={**d},
     )
 
     serializer = Collection(
@@ -172,6 +169,4 @@ def get_forward_config(
         },
     )
 
-    returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
-
-    return returnn_config
+    return serializer

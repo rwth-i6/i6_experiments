@@ -77,6 +77,22 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
   return x
 """
 
+
+# ------------------------- Data Pipeline ------------------------- #
+
+data_pipeline_code = """
+def dataset_pipeline(context):
+    from returnn.tf.compat import v1 as tf
+    dataset = context.get_returnn_dataset()
+    dataset = dataset.padded_batch(
+      batch_size=12,
+      padded_shapes=tf.data.get_output_shapes(dataset),
+      drop_remainder=False)
+    dataset = context.map_producer_to_consumer(dataset)
+    dataset = context.prefetch_to_consumer_device(dataset)
+    return dataset
+"""
+
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -339,7 +355,7 @@ def create_config(
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         gradient_clip=0.0, specaug_str_func_opts=None,
-        recursion_limit=3000):
+        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None):
 
     exp_config = copy.deepcopy(config)  # type: dict
 
@@ -422,7 +438,10 @@ def create_config(
         assert False, "invalid decoder_args type"
 
     encoder_args = asdict(encoder_args)
-    encoder_args.update({"target": target, "input": "data:" + input_key})
+    if feature_extraction_net:
+        encoder_args.update({"target": target, "input": "log_mel_features"})
+    else:
+        encoder_args.update({"target": target, "input": "data:" + input_key})
 
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
@@ -444,6 +463,9 @@ def create_config(
     # add full network
     exp_config['network'] = conformer_encoder.network.get_net()  # type: dict
     exp_config['network'].update(transformer_decoder.network.get_net())
+
+    if feature_extraction_net:
+        exp_config['network'].update(feature_extraction_net)
 
     # -------------------------- end network -------------------------- #
 
@@ -483,6 +505,8 @@ def create_config(
                 if not net:
                     break
                 net["#copy_param_mode"] =  "subset"
+                if feature_extraction_net:
+                    net.update(feature_extraction_net)
                 staged_network_dict[(idx*pretrain_reps) + 1] = net
                 idx += 1
             staged_network_dict[(idx*pretrain_reps) + 1] = exp_config["network"]
@@ -513,6 +537,9 @@ def create_config(
 
     if extra_str:
         extra_python_code += '\n' + extra_str
+
+    if use_data_pipeline:
+        extra_python_code += '\n' + data_pipeline_code
 
     returnn_config = ReturnnConfig(
         exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog, python_epilog=extra_python_code, hash_full_python_code=True,

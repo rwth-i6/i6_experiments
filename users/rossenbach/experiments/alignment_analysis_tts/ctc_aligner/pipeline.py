@@ -28,7 +28,7 @@ def ctc_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
     )
-    durations_hdf = last_forward_job.out_hdf_files["output.hdf"]
-    tk.register_output(prefix + "/training.durations", durations_hdf)
+    alignment_hdf = last_forward_job.out_hdf_files["output.hdf"]
+    tk.register_output(prefix + "/training.alignment", alignment_hdf)
 
-    return durations_hdf
+    return alignment_hdf

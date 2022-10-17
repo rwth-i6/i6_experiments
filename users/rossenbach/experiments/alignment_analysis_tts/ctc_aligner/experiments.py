@@ -73,13 +73,14 @@ def get_baseline_ctc_alignment_v2():
         returnn_root=RETURNN_RC_ROOT,
         prefix=name,
     )
-    forward = ctc_forward(
+    duration_hdf = ctc_forward(
         checkpoint=train_job.out_checkpoints[100],
         config=forward_config,
         returnn_exe=RETURNN_EXE,
         returnn_root=RETURNN_RC_ROOT,
         prefix=name
     )
+    return duration_hdf
 
 
 def get_loss_scale_ctc_alignment():

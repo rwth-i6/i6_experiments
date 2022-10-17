@@ -33,10 +33,10 @@ class TTSTrainingDatasets:
     datastreams: Dict[str, Datastream]
 
 
-def get_tts_data_from_ctc_align(alignment):
+def get_tts_data_from_ctc_align(alignment_hdf):
     """
     Build the datastreams for TTS training
-    :param tk.Path alignment: alignment hdf
+    :param tk.Path alignment_hdf: alignment hdf
     :return:
     """
     bliss_dataset = get_ls100_silence_preprocessed_bliss()
@@ -47,7 +47,7 @@ def get_tts_data_from_ctc_align(alignment):
     train_segments, cv_segments = get_librispeech_tts_segments()
 
     vocab_datastream = get_vocab_datastream()
-    log_mel_datastream = get_tts_log_mel_datastream(center=True)  # CTC setup is with window/frame centering
+    log_mel_datastream = get_tts_log_mel_datastream(center=False)  # CTC setup is with window/frame centering
 
     speaker_label_job = SpeakerLabelHDFFromBlissJob(
         bliss_corpus=bliss_dataset,
@@ -61,7 +61,7 @@ def get_tts_data_from_ctc_align(alignment):
     )
 
     viterbi_job = ViterbiAlignmentToDurationsJob(
-        alignment, bliss_lexicon=get_lexicon(with_blank=True), returnn_root=RETURNN_DATA_ROOT, time_rqmt=4, mem_rqmt=16
+        alignment_hdf, bliss_lexicon=get_lexicon(with_blank=True), returnn_root=RETURNN_DATA_ROOT, time_rqmt=4, mem_rqmt=16
     )
     durations = viterbi_job.out_durations_hdf
     duration_datastream = DurationDatastream(available_for_inference=True)

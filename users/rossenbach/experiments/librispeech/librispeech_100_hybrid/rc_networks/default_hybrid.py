@@ -125,6 +125,7 @@ class HybridHMM(IHybridHMM):
                 ce_loss *= (1.0 - nn.exp(-ce_loss)) ** self.focal_loss_scale
             ce_loss.mark_as_loss()
         return nn.log_softmax(out_embed, axis=self.out_dim), None
+        nn.SelfAttention
 
 
 def construct_hybrid_network(
