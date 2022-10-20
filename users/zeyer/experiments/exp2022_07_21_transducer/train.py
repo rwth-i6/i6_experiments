@@ -5,7 +5,6 @@ helpers for training
 from __future__ import annotations
 
 from typing import Optional, Union, Dict, Any
-import numpy
 
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
@@ -38,7 +37,7 @@ def train(prefix_name: str,
     """
     returnn_train_config_dict = dict(
         use_tensorflow=True,
-        behavior_version=12,
+        behavior_version=model_def.behavior_version,
 
         # dataset
         default_input=task.train_dataset.get_default_input(),

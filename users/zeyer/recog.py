@@ -92,7 +92,7 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
 
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
-        behavior_version=12,
+        behavior_version=model_def.behavior_version,
 
         # dataset
         default_input=dataset.get_default_input(),

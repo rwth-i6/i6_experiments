@@ -323,6 +323,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
 
 
 from_scratch_model_def: ModelDef[Model]
+from_scratch_model_def.behavior_version = 12  # TODO increase
 
 
 def from_scratch_training(*,
@@ -370,6 +371,7 @@ def extended_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Mod
 
 
 extended_model_def: ModelDef[Model]
+extended_model_def.behavior_version = 14
 
 
 def extended_model_training(*,

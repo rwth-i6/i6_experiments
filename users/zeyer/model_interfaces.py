@@ -21,6 +21,8 @@ class ModelDef(Protocol[ModelT]):
     def __call__(self, *, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> ModelT:
         raise NotImplementedError
 
+    behavior_version: int
+
 
 class TrainDef(Protocol[ModelT]):
     """

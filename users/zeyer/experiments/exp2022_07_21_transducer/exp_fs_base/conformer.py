@@ -283,6 +283,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
 
 
 from_scratch_model_def: ModelDef[Model]
+from_scratch_model_def.behavior_version = 14
 
 
 def from_scratch_training(*,
