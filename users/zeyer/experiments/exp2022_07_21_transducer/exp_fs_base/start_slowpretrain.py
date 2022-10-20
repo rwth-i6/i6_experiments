@@ -78,7 +78,7 @@ class Model(nn.Module):
         self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
         self.att_query = nn.Linear(self.encoder.out_dim, enc_key_total_dim, with_bias=False)
         self.lm = DecoderLabelSync(nb_target_dim, l2=l2)
-        self.readout_in_am = nn.Linear(self.encoder.out_dim * 2, nn.FeatureDim("readout", 1000), with_bias=False)
+        self.readout_in_am = nn.Linear(2 * self.encoder.out_dim, nn.FeatureDim("readout", 1000), with_bias=False)
         self.readout_in_am_dropout = 0.1
         self.readout_in_lm = nn.Linear(self.lm.out_dim, self.readout_in_am.out_dim, with_bias=False)
         self.readout_in_lm_dropout = 0.1
