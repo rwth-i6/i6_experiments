@@ -246,6 +246,7 @@ def rna_loss(source, **kwargs):
     # targets: (B, U-1)
     # input_lengths (B,)
     # label_lengths (B,)
+    import tensorflow as tf
     log_probs = source(0, as_data=True, auto_convert=False)
     targets = source(1, as_data=True, auto_convert=False)
     encoder = source(2, as_data=True, auto_convert=False)
@@ -253,13 +254,13 @@ def rna_loss(source, **kwargs):
     enc_lens = encoder.get_sequence_lengths()
     dec_lens = targets.get_sequence_lengths()
 
-    from returnn.extern.WarpRna import rna_loss
-    return rna_loss(
-        log_probs=log_probs.get_placeholder_as_batch_major(),
-        labels=targets.get_placeholder_as_batch_major(),
-        input_lengths=enc_lens,
-        label_lengths=dec_lens,
-        blank_label=targetb_blank_idx)
+    from i6_experiments.users.zeyer.experiments.exp2022_07_21_transducer.model.config_code.rna_tf_impl import \
+        tf_forward_shifted_rna
+    costs = -tf_forward_shifted_rna(
+        log_probs.get_placeholder_as_batch_major(), targets.get_placeholder_as_batch_major(),
+        enc_lens, dec_lens, blank_index=targetb_blank_idx, debug=False)
+    costs = tf.where(tf.math.is_finite(costs), costs, tf.zeros_like(costs))
+    return costs
 
 
 def rna_alignment(source, **kwargs):
