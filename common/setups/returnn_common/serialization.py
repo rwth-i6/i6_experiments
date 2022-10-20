@@ -527,7 +527,7 @@ PythonCacheManagerFunctionNonhashedCode = NonhashedCode(
             try:
                 cached_fn = check_output(["cf", filename]).strip().decode("utf8")
             except CalledProcessError:
-                print("Cache manager: Error occured, using local file")
+                print("Cache manager: Error occurred, using local file")
                 return filename
             assert os.path.exists(cached_fn)
             _cf_cache[filename] = cached_fn
