@@ -92,7 +92,7 @@ def train(prefix_name: str,
     return ModelWithCheckpoints.from_training_job(
         definition=None,
         training_job=returnn_train_job,
-        num_pretrain_epochs=40)
+        num_pretrain_epochs=num_epochs)
 
 
 def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints):
