@@ -116,7 +116,7 @@ def get_corpus_data_inputs():
     )
 
 
-def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
+def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False):
     """
         :return: a 3-sized tuple containing lists of RasrDataInput for train, dev and test
     """
@@ -137,7 +137,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path):
     )
     lm = None
     train_lexicon = {
-        "filename": g2p_lexica["train-clean-100"],
+        "filename": g2p_lexica["train-clean-100"] if not ls360 else g2p_lexica["train-clean-360"],
         "normalize_pronunciation": False,
     }
 

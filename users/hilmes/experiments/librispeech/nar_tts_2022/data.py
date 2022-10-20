@@ -140,7 +140,7 @@ def _make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset):
 
 
 def _make_inference_meta_dataset(
-    audio_dataset, speaker_dataset, duration_dataset: Optional[HDFDataset], prior_dataset: Optional[HDFDataset] = None,
+    audio_dataset, speaker_dataset: Optional[HDFDataset], duration_dataset: Optional[HDFDataset], prior_dataset: Optional[HDFDataset] = None,
     pitch_dataset: Optional[HDFDataset] = None, energy_dataset: Optional = None
 ):
     """
@@ -152,12 +152,15 @@ def _make_inference_meta_dataset(
     """
     data_map = {
         "phonemes": ("audio", "classes"),
-        "speaker_labels": ("speaker", "data"),
     }
+
     datasets = {
         "audio": audio_dataset.as_returnn_opts(),
-        "speaker": speaker_dataset.as_returnn_opts(),
     }
+
+    if speaker_dataset is not None:
+        data_map["speaker_labels"] = ("speaker", "data")
+        datasets["speaker"] = speaker_dataset.as_returnn_opts()
 
     if duration_dataset is not None:
         data_map["duration_data"] = ("duration", "data")
@@ -765,7 +768,7 @@ def get_inference_dataset(
     returnn_root,
     returnn_exe,
     datastreams: Dict[str, Any],
-    speaker_embedding_hdf,
+    speaker_embedding_hdf: Optional = None,
     durations: Optional = None,
     speaker_prior_hdf: Optional = None,
     speaker_embedding_size=256,
@@ -775,6 +778,7 @@ def get_inference_dataset(
     process_corpus: bool = True,
     original_corpus: Optional[tk.Path] = None,
     segments: Optional[tk.Path] = None,
+    shuffle_info: bool = True,
 ):
     """
     Builds the inference dataset, gives option for different additional datasets to be passed depending on experiment
@@ -789,6 +793,7 @@ def get_inference_dataset(
     :param speaker_prior_size:
     :param pitch_hdf
     :param process_corpus:
+    :param shuffle_info: Whether to shuffle the speaker specific info or not. Usually True but for certain cheating false
     :return:
     """
     if energy_hdf is not None:
@@ -823,10 +828,16 @@ def get_inference_dataset(
         partition_epoch=1,
         seq_ordering="sorted_reverse",
     )
-    mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file).out_mapping
-    speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus).out_hdf
-    speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
-    speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
+    if original_corpus:
+        mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, speaker_bliss_corpus=original_corpus, shuffle=shuffle_info).out_mapping
+    else:
+        mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, shuffle=shuffle_info).out_mapping
+    if speaker_embedding_hdf:
+        speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus).out_hdf
+        speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
+        speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
+    else:
+        speaker_hdf_dataset = None
     if speaker_prior_hdf is not None:
         prior_hdf = DistributeHDFByMappingJob(hdf_file=speaker_prior_hdf, mapping=mapping_pkl).out_hdf
         prior_hdf_dataset = HDFDataset(files=[prior_hdf])
@@ -999,7 +1010,7 @@ def get_ls360_100h_data():
 
     sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed()
     librispeech_g2p_lexicon = extend_lexicon(
-        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-360"]
     )
 
     sil_pp_train_clean_360_tts = process_corpus_text_with_extended_lexicon(

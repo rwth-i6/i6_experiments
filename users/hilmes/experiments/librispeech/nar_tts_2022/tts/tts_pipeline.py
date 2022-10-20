@@ -525,6 +525,7 @@ def synthesize_with_splits(
             returnn_python_exe=returnn_exe,
             returnn_root=returnn_root,
         )
+        last_forward_job.set_keep_value(20)
         last_forward_job.add_alias(split_name + "/forward")
         forward_hdf = last_forward_job.out_hdf_files["output.hdf"]
         tk.register_output(split_name + "/foward.hdf", forward_hdf)
@@ -593,7 +594,7 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
 
 
 def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_root, dataset, datastreams, prefix, train_job, corpus,
-    epoch=200):
+    epoch=200, **forward_kwargs):
     """
 
     :param returnn_common_root:
@@ -612,6 +613,7 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
         forward_dataset=TTSForwardData(
             dataset=dataset, datastreams=datastreams
         ),
+        **forward_kwargs,
     )
     vae_extraction_job = tts_forward(
         checkpoint=train_job.out_checkpoints[epoch],

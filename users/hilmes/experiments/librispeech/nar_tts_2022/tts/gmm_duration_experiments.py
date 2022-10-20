@@ -60,8 +60,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
   )
   trainings = {}
   for align_name, alignment in alignments.items():
-    if not full_graph and not return_trainings:
-      continue
+    #if not full_graph and not return_trainings:
+    #  continue
     name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_duration_cheat/{align_name}"
     (
       training_datasets,
@@ -94,8 +94,11 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
         prefix=exp_name,
         num_epochs=200,
       )
-      if upsampling == "repeat" and align_name == "tts_align_sat":
+      if upsampling == "repeat" and align_name == "tts_align_sat" and return_trainings:
         trainings["tts_align_sat/repeat/baseline"] = train_job
+        return trainings # TODO remove when really doing experiments with trainings
+      if return_trainings:
+        continue
       forward_config = get_forward_config(
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
@@ -154,7 +157,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
         synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
 
         synth_corpus = synthesize_with_splits(
-          name=exp_name + f"/{dur_pred}",
+          name=exp_name + f"/{dur_pred}_norm_fix",
           reference_corpus=reference_corpus.corpus_file,
           corpus_name="train-clean-100",
           job_splits=job_splits,
@@ -198,6 +201,39 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             synthetic_data_dict[
               f"{align_name}_{upsampling}_{dur_pred}_add_{add}"
             ] = synth_corpus
+        if (
+          upsampling == "repeat"
+          and align_name == "tts_align_sat"
+          and dur_pred == "cheat"
+        ):
+          synth_dataset = get_inference_dataset(
+            new_corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            durations=durations_hdf if dur_pred == "cheat" else None,
+            process_corpus=False,
+            shuffle_info=False,
+          )
+
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+          )
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_no_shuff"] = synth_corpus
   if return_trainings:
     return trainings
   for align_name in ["tts_align_sat"]:
@@ -232,17 +268,17 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
     for variance in [
       "f0",
       "energy",
-      "f0_energy",
-      "f0_log_energy",
-      "f0_energy_vae",
-      "log_energy",
+      # "f0_energy", REMOVED because of space
+      # "f0_log_energy", REMOVED because of space
+      # "f0_energy_vae", REMOVED because of space
+      # "log_energy", REMOVED because of space
       "energy_add_vae",
       "energy_mul_vae",
       "f0_test",
       "energy_test",
-      "f0_energy_test",
-      "log_energy_test",
-      "no_dropout_small",
+      # "f0_energy_test", REMOVED because of space
+      # "log_energy_test", REMOVED because of space
+      # "no_dropout_small", REMOVED because of space
     ]:
       if "energy" in variance:
         returnn_root_job = CloneGitRepositoryJob(
@@ -441,9 +477,9 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             f"{align_name}_{variance}_{upsampling}_{synth_method}"
           ] = synth_corpus
 
-          if synth_method == "energy_test":
+          if variance == "energy_test" and False:
             synth_corpus = synthesize_with_splits(
-              name=exp_name + f"/{synth_method}",
+              name=exp_name + f"/{synth_method}_norm_fix",
               reference_corpus=reference_corpus.corpus_file,
               corpus_name="train-clean-100",
               job_splits=job_splits,
@@ -472,6 +508,12 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
 
 
 def gmm_side_experiments(alignments: Dict, rasr_allophones):
+  """
+  Done
+  :param alignments:
+  :param rasr_allophones:
+  :return:
+  """
   returnn_exe = tk.Path(
     "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",

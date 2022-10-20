@@ -338,6 +338,7 @@ class LJSpeechMiniGLVocoder:
       file_format="ogg",
       mem_rqmt=16,
       time_rqmt=16,
+      peak_normalization=recon_norm
     )
     hdf_reconstruct.add_alias(os.path.join(name, "hdf_reconstruction"))
     if cleanup == True:

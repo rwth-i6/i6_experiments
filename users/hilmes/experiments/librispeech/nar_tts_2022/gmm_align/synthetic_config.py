@@ -22,7 +22,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.
 
 def run_librispeech_100_with_synthetic_data(
     synth_corpus,
-    alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/synthetic",
+    alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/synthetic", ls360=False
 ):
 
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
@@ -57,7 +57,7 @@ def run_librispeech_100_with_synthetic_data(
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
-    corpus_data = get_synth_corpus_data_inputs(synth_corpus)
+    corpus_data = get_synth_corpus_data_inputs(synth_corpus, ls360=ls360)
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(
