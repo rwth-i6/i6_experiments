@@ -25,7 +25,7 @@ Note on the motivation for the interface:
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Sequence
+from typing import Optional, Tuple, Dict, Sequence
 import contextlib
 import numpy
 from returnn_common import nn
@@ -146,7 +146,7 @@ class Model(nn.Module):
 
     def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
         """encode, and extend the encoder output for things we need in the decoder"""
-        enc, enc_spatial_dim = self.encoder(source, spatial_dim=in_spatial_dim)
+        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim)
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
@@ -211,7 +211,7 @@ class Model(nn.Module):
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
-            lm, state_.lm = self.lm(lm_input, axis=lm_axis, state=state.lm)
+            lm, state_.lm = self.lm(lm_input, spatial_dim=lm_axis, state=state.lm)
 
             # We could have simpler code by directly concatenating the readout inputs.
             # However, for better efficiency, keep am/lm path separate initially.
@@ -252,10 +252,11 @@ class DecoderLabelSync(nn.Module):
         """init"""
         return self.lstm.default_initial_state(batch_dims=batch_dims)
 
-    def __call__(self, source: nn.Tensor, *, axis: nn.Dim, state: nn.LayerState) -> (nn.Tensor, nn.LayerState):
+    def __call__(self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
+                 ) -> Tuple[nn.Tensor, nn.LayerState]:
         embed = self.embed(source)
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
-        lstm, state = self.lstm(embed, axis=axis, state=state)
+        lstm, state = self.lstm(embed, spatial_dim=spatial_dim, state=state)
         return lstm, state
 
 
