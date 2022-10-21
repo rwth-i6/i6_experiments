@@ -95,10 +95,12 @@ def train(prefix_name: str,
         num_pretrain_epochs=num_epochs)
 
 
+class _RecogDef:
+    pass
+
+
 def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints):
     """recog on all relevant epochs"""
-    class _RecogDef:
-        pass
     recog_def = _RecogDef()
     recog_def: RecogDef
     recog_def.output_with_beam = True
