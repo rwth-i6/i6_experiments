@@ -215,7 +215,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         """
         if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
             from datetime import datetime
-            with open(tk.Path("update.log", self), "a") as log_stream:
+            with open(tk.Path("update.log", self).get_path(), "a") as log_stream:
                 log_stream.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
                 for epoch in get_relevant_epochs_from_training_learning_rate_scores(
