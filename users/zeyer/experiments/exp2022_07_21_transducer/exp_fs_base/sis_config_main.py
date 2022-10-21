@@ -17,13 +17,14 @@ def sis_config_main():
             continue
         if filename.startswith("_"):
             continue
+        basename = filename[:-len('.py')]
         # Read the file and search for expected content.
         # This is much faster than importing the file,
         # so good to exclude files which are not relevant.
-        file_content = open(filename).read().splitlines()
+        file_content = open(f"{__my_dir__}/{filename}").read().splitlines()
         found_entry_function = False
         found_exclude = False
-        for line in file_content[:30]:
+        for line in file_content[:40]:
             if not found_entry_function and line.startswith("def sis_run_with_prefix("):
                 found_entry_function = True
                 continue
@@ -31,11 +32,12 @@ def sis_config_main():
                 found_exclude = True
                 break
         if found_exclude:
+            print("Exclude:", basename)
             continue
         if not found_entry_function:
+            print("Exclude, no sis_run_with_prefix:", basename)
             continue
         # Ok import it.
-        basename = filename[:-len('.py')]
         name = f"{__package__}.{basename}"
         mod = importlib.import_module(name)
         assert hasattr(mod, "sis_run_with_prefix")
