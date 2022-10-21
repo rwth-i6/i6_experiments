@@ -14,8 +14,13 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
+_exclude_me = True
+
+
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
+    if _exclude_me:
+        return
     task = get_switchboard_task_bpe1k()
     model = train(
         prefix_name, task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training)
