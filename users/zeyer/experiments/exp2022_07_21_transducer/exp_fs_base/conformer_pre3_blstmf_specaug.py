@@ -25,14 +25,14 @@ def sis_run_with_prefix(prefix_name: str):
         return
     task = get_switchboard_task_bpe1k()
     model = train(
-        prefix_name, task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training)
+        prefix_name, task=task, config=config, post_config=post_config,
+        model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
 
 default_lr = 0.001
 config = dict(
     batching="random",
-    accum_grad_multiple_step=None,
     batch_size=12000,
     max_seqs=200,
     max_seq_length_default_target=75,
@@ -50,6 +50,9 @@ config = dict(
     use_learning_rate_control_always=True,
     newbob_multi_update_interval=1,
     newbob_learning_rate_decay=0.7,
+)
+post_config = dict(
+    accum_grad_multiple_step=None,
 )
 
 

@@ -20,6 +20,7 @@ def train(prefix_name: str,
           *,
           task: Task,
           config: Dict[str, Any],
+          post_config: Optional[Dict[str, Any]] = None,
           num_epochs: int = 150,
           alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
@@ -102,6 +103,8 @@ def train(prefix_name: str,
         ),
         sort_config=False,
     )
+    if post_config:
+        returnn_train_config.post_config.update(post_config)
 
     returnn_train_job = ReturnnTrainingJob(
         returnn_train_config,
