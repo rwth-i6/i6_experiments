@@ -73,6 +73,7 @@ def search_dataset(
         returnn_root=tools_paths.get_returnn_root(),
         output_gzip=True,
         log_verbosity=5,
+        mem_rqmt=6,
     )
     res = search_job.out_search_file
     if recog_def.output_blank_label:
