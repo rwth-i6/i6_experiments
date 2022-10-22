@@ -32,6 +32,7 @@ def sis_run_with_prefix(prefix_name: str):
 default_lr = 0.001
 config = dict(
     batching="random",
+    accum_grad_multiple_step=None,
     batch_size=12000,
     max_seqs=200,
     max_seq_length_default_target=75,
