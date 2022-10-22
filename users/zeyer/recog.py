@@ -86,6 +86,14 @@ def search_dataset(
     return RecogOutput(output=res)
 
 
+# Those are applied for both training, recog and potential others.
+# The values are only used if they are neither set in config nor post_config already.
+# They should also not infer with other things from the epilog.
+SharedPostConfig = {
+    "accum_grad_multiple_step": None,  # in case pretraining overwrites this, it needs a default
+}
+
+
 def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef) -> ReturnnConfig:
     """
     config for search
@@ -137,6 +145,11 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
         batch_size=20000,
         max_seqs=200,
     ))
+
+    for k, v in SharedPostConfig.items():
+        if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
+            continue
+        returnn_recog_config.post_config[k] = v
 
     return returnn_recog_config
 

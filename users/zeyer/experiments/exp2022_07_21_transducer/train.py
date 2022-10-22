@@ -14,6 +14,7 @@ from returnn_common import nn
 from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint, AlignmentCollection, \
     ModelT, ModelDef, TrainDef, FramewiseTrainDef
 from i6_experiments.users.zeyer.datasets.task import Task
+from i6_experiments.users.zeyer.recog import SharedPostConfig
 
 
 def train(prefix_name: str,
@@ -105,6 +106,11 @@ def train(prefix_name: str,
     )
     if post_config:
         returnn_train_config.post_config.update(post_config)
+
+    for k, v in SharedPostConfig.items():
+        if k in returnn_train_config.config or k in returnn_train_config.post_config:
+            continue
+        returnn_train_config.post_config[k] = v
 
     returnn_train_job = ReturnnTrainingJob(
         returnn_train_config,
