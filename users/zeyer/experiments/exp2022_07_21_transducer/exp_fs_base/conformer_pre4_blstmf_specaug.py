@@ -16,7 +16,7 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-_exclude_me = False
+_exclude_me = True  # does not converge
 
 
 def sis_run_with_prefix(prefix_name: str):
