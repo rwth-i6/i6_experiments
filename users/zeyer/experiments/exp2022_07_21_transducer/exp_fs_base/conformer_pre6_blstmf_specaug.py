@@ -16,7 +16,8 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-_exclude_me = False
+# Becomes bad at subepoch 46, LR warmup, LR 0.000565
+_exclude_me = True
 
 
 def sis_run_with_prefix(prefix_name: str):
