@@ -4,7 +4,7 @@ NLTK TIMIT (small subset of TIMIT, but freely available via NLTK)
 
 from __future__ import annotations
 from typing import Optional, Union, Dict, Any
-from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from .task import Task
 from .score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 

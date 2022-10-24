@@ -8,7 +8,7 @@ from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
 from i6_core.returnn import ReturnnConfig
-from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
 from .task import Task
 

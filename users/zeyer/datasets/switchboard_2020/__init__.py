@@ -10,7 +10,7 @@ import os
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat
 from i6_core.returnn.config import CodeWrapper
-from returnn_common.datasets.interface import DatasetConfig, VocabConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.users.zeyer import tools_paths
 
 _my_dir = os.path.dirname(os.path.abspath(__file__))

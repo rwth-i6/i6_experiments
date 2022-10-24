@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Dict, Callable, Sequence
 import dataclasses
 
-from returnn_common.datasets.interface import DatasetConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from .score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
