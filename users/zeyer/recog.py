@@ -12,7 +12,7 @@ from sisyphus import tk
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
 from returnn_common import nn
-from returnn_common.datasets.interface import DatasetConfig
+from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
 
 from i6_experiments.users.zeyer import tools_paths
