@@ -97,6 +97,7 @@ def train(prefix_name: str,
             tf_log_memory_usage=True,
             tf_session_opts={"gpu_options": {"allow_growth": True}},
             cleanup_old_models=True,
+            restart_after_num_net_reinit=1,  # gets OOM after a few reinits due to pretraining...
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
