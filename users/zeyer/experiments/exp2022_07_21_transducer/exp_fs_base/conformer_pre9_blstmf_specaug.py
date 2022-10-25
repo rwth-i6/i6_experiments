@@ -57,9 +57,7 @@ config = dict(
     newbob_multi_update_interval=1,
     learning_rate_control_min_num_epochs_per_new_lr=1,
     learning_rate_decay=0.9,
-    learning_rate_growth=1 / 0.9,
     newbob_relative_error_threshold=-0.01,
-    newbob_relative_error_grow_threshold=-0.1,
     use_last_best_model=dict(
         only_last_n=3,  # make sure in cleanup_old_models that keep_last_n covers those
         filter_score=50., min_score_dist=1.5, first_epoch=35),
