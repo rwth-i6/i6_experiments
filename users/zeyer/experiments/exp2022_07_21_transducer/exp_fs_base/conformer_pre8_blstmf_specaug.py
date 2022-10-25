@@ -25,7 +25,7 @@ def sis_run_with_prefix(prefix_name: str):
         return
     task = get_switchboard_task_bpe1k()
     model = train(
-        prefix_name, task=task, config=config,
+        prefix_name, task=task, config=config, post_config=post_config,
         model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
@@ -60,7 +60,11 @@ config = dict(
     newbob_relative_error_threshold=-0.01,
     newbob_relative_error_grow_threshold=-0.1,
     use_last_best_model=dict(
-        only_last_n=10, filter_score=50., min_score_dist=1.5, first_epoch=35),
+        only_last_n=3,  # make sure in cleanup_old_models that keep_last_n covers those
+        filter_score=50., min_score_dist=1.5, first_epoch=35),
+)
+post_config = dict(
+    cleanup_old_models=dict(keep_last_n=5),
 )
 
 
