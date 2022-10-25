@@ -16,7 +16,9 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-_exclude_me = False
+# Does not diverge, but LR scheduling is bad.
+# Also: error due to use_last_best_model only_last_n, model not available anymore...
+_exclude_me = True
 
 
 def sis_run_with_prefix(prefix_name: str):
