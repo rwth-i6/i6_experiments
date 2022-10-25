@@ -90,7 +90,9 @@ def search_dataset(
 # The values are only used if they are neither set in config nor post_config already.
 # They should also not infer with other things from the epilog.
 SharedPostConfig = {
-    "accum_grad_multiple_step": None,  # in case pretraining overwrites this, it needs a default
+    # In case pretraining overwrites some of these, they need a default.
+    "accum_grad_multiple_step": None,
+    "use_last_best_model": None,
 }
 
 
