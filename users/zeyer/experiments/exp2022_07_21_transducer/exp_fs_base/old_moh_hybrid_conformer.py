@@ -130,19 +130,13 @@ class Model(nn.Module):
     """Model definition"""
 
     def __init__(self, in_dim: nn.Dim, *,
-                 num_enc_layers: int = 12,
                  nb_target_dim: nn.Dim,
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
                  bos_idx: int,
-                 enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
-                 enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
-                 enc_att_num_heads: int = 4,
                  enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
                  att_dropout: float = 0.1,
-                 enc_dropout: float = 0.1,
-                 enc_att_dropout: float = 0.1,
                  l2: float = 0.0001,
                  ):
         super(Model, self).__init__()
@@ -184,7 +178,7 @@ class Model(nn.Module):
             name=nn.NameCtx.top().root.get_child("encoder"))
         enc_spatial_dim = enc.data.get_time_dim_tag()
         enc = nn.make_layer(
-            {"class": "reinterpret_data", "set_dim_tags": {"F": encoder_out_dim}, "from": enc})
+            {"class": "reinterpret_data", "set_dim_tags": {"F": encoder_out_dim}, "from": enc}, name="enc_set_out_dim")
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
@@ -355,26 +349,12 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     extra_net_dict = nn.NameCtx.top().root.extra_net_dict
     extra_net_dict["#config"] = {}
     extra_net_dict["#copy_param_mode"] = "subset"
-    num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 8, 12]), [])
-    num_enc_layers = num_enc_layers_[epoch - 1] if epoch <= len(num_enc_layers_) else num_enc_layers_[-1]
-    if num_enc_layers <= 2:
-        extra_net_dict["#config"]["batch_size"] = 20000
-    initial_dim_factor = 0.5
-    grow_frac_enc = 1.0 - float(num_enc_layers_[-1] - num_enc_layers) / (num_enc_layers_[-1] - num_enc_layers_[0])
-    dim_frac_enc = initial_dim_factor + (1.0 - initial_dim_factor) * grow_frac_enc
-    enc_att_num_heads = 4
     return Model(
         in_dim,
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=nn.FeatureDim("enc", int(512 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
-        enc_ff_dim=nn.FeatureDim("enc-ff", int(2048 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
-        enc_att_num_heads=enc_att_num_heads,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
         bos_idx=_get_bos_idx(target_dim),
-        enc_dropout=0.1 * dim_frac_enc,
-        enc_att_dropout=0.05 * dim_frac_enc,
     )
 
 
