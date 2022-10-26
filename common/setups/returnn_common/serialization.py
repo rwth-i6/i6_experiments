@@ -44,6 +44,7 @@ Usage Example::
 
 from dataclasses import dataclass, asdict
 from typing import Any, List, Union, Optional, Dict, Set
+from types import FunctionType
 import os
 import sys
 import pathlib
@@ -299,7 +300,7 @@ class Import(SerializerObject):
 
     def __init__(
         self,
-        code_object_path: Union[str, Any],
+        code_object_path: Union[str, FunctionType, Any],
         import_as: Optional[str] = None,
         *,
         use_for_hash: bool = True,
