@@ -487,6 +487,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
   x = where_bc(cond, 0.0, x)
   return x
 
+
 def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
   """
   :param tf.Tensor x: (batch,time,feature)
@@ -525,13 +526,16 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
 
 
 def transform(data, network, time_factor=1):
+  """specaugment"""
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
   # summary("features", x)
   step = network.global_train_step
   step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
   step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
+
   def get_masked():
+      """masked"""
       x_masked = x
       x_masked = random_mask(
         x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
