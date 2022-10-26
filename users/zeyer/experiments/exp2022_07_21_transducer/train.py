@@ -4,7 +4,7 @@ helpers for training
 
 from __future__ import annotations
 
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, Sequence
 
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
@@ -22,6 +22,7 @@ def train(prefix_name: str,
           task: Task,
           config: Dict[str, Any],
           post_config: Optional[Dict[str, Any]] = None,
+          epilog: Sequence[serialization.SerializerObject] = (),
           num_epochs: int = 150,
           alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
@@ -90,7 +91,7 @@ def train(prefix_name: str,
                 serialization.PythonEnlargeStackWorkaroundNonhashedCode,
                 serialization.PythonCacheManagerFunctionNonhashedCode,
                 serialization.PythonModelineNonhashedCode,
-            ]
+            ] + list(epilog)
         )],
         post_config=dict(  # not hashed
             log_batch_size=True,
