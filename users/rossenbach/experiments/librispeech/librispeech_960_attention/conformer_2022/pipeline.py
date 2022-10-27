@@ -28,7 +28,7 @@ def get_bpe_datastream(bpe_size, is_recog):
     :return:
     """
     # build dataset
-    bpe_settings = get_subword_nmt_bpe(corpus_key="train-clean-100", bpe_size=bpe_size, unk_label='<unk>')
+    bpe_settings = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=bpe_size, unk_label='<unk>')
     bpe_targets = returnn_standalone.data.vocabulary.BpeDatastream(
         available_for_inference=False,
         bpe_settings=bpe_settings,
@@ -36,20 +36,6 @@ def get_bpe_datastream(bpe_size, is_recog):
     )
     return bpe_targets
 
-
-@lru_cache()
-def get_audio_datastream(returnn_python_exe, returnn_root, output_path):
-    ogg_zip_dict = get_ogg_zip_dict("corpora")
-    train_clean_100_ogg = ogg_zip_dict['train-clean-100']
-
-    audio_datastream = get_default_asr_audio_datastream(
-        statistics_ogg_zip=train_clean_100_ogg,
-        returnn_python_exe=returnn_python_exe,
-        returnn_root=returnn_root,
-        output_path=output_path,
-    )
-
-    return audio_datastream
 
 @lru_cache()
 def get_audio_raw_datastream():
@@ -69,8 +55,8 @@ class TrainingDatasets:
 
 def build_training_datasets(
         returnn_python_exe, returnn_root, output_path,
-        bpe_size=2000,
-        partition_epoch=3,
+        bpe_size=10000,
+        partition_epoch=20,
         use_curicculum=True,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=False,
@@ -87,7 +73,7 @@ def build_training_datasets(
     :return:
     """
     ogg_zip_dict = get_ogg_zip_dict("corpora")
-    train_clean_100_ogg = ogg_zip_dict['train-clean-100']
+    train_clean_960_ogg = ogg_zip_dict['train-other-960']
     dev_clean_ogg = ogg_zip_dict['dev-clean']
     dev_other_ogg = ogg_zip_dict['dev-other']
 
@@ -96,11 +82,7 @@ def build_training_datasets(
     if use_raw_features:
         audio_datastream = get_audio_raw_datastream()
     else:
-        audio_datastream = get_audio_datastream(
-            returnn_python_exe=returnn_python_exe,
-            returnn_root=returnn_root,
-            output_path=output_path,
-        )
+        raise NotImplementedError
 
     extern_data = {
         'audio_features': audio_datastream.as_returnn_data_opts(),
@@ -116,7 +98,7 @@ def build_training_datasets(
         training_audio_opts["pre_process"] = CodeWrapper("speed_pert")
 
     train_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=train_clean_100_ogg,
+        path=train_clean_960_ogg,
         audio_opts=training_audio_opts,
         target_opts=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=partition_epoch,
@@ -144,7 +126,7 @@ def build_training_datasets(
     )
 
     devtrain_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=train_clean_100_ogg,
+        path=train_clean_960_ogg,
         audio_opts=audio_datastream.as_returnn_audio_opts(),
         target_opts=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
@@ -165,7 +147,7 @@ def build_training_datasets(
 
 
 @lru_cache()
-def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=2000,
+def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=10000,
     use_raw_features=False):
 
     ogg_zip_dict = get_ogg_zip_dict("corpora")
@@ -179,45 +161,7 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
     if use_raw_features:
         audio_datastream = get_audio_raw_datastream()
     else:
-        audio_datastream = get_audio_datastream(
-            returnn_python_exe=returnn_python_exe,
-            returnn_root=returnn_root,
-            output_path=output_path,
-        )
-
-    data_map = {"audio_features": ("zip_dataset", "data"),
-                "bpe_labels": ("zip_dataset", "classes")}
-
-    test_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=[test_ogg],
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
-        seq_ordering="sorted_reverse"
-    )
-    test_dataset = returnn_standalone.data.datasets.MetaDataset(
-        data_map=data_map,
-        datasets={"zip_dataset": test_zip_dataset},
-        seq_order_control_dataset="zip_dataset"
-    )
-
-    return test_dataset, test_reference_dict_file
-
-
-@lru_cache()
-def build_profile_dataset(dataset_key, returnn_python_exe, returnn_root, output_path, bpe_size=2000):
-
-    ogg_zip_dict = get_ogg_zip_dict("corpora")
-    bliss_dict = get_bliss_corpus_dict()
-    test_ogg = ogg_zip_dict[dataset_key]
-    from i6_core.corpus.convert import CorpusToTextDictJob
-    from i6_core.corpus.segments import SegmentCorpusJob
-    segments = SegmentCorpusJob(bliss_corpus=bliss_dict, num_segments=1).out_single_segment_files[0]
-
-    test_reference_dict_file = CorpusToTextDictJob(bliss_dict[dataset_key]).out_dictionary
-
-    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
-
-    audio_datastream = get_audio_datastream(returnn_python_exe, returnn_root, output_path)
+        raise NotImplementedError
 
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}
@@ -279,25 +223,6 @@ def get_best_checkpoint(training_job, output_path):
     best_checkpoint_job.add_alias(os.path.join(output_path, "get_best_checkpoint"))
     return best_checkpoint_job.out_checkpoint
 
-def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:int = 4):
-    """
-    get an averaged checkpoint using n models
-
-    :param training_job:
-    :param num_average:
-    :return:
-    """
-    from i6_experiments.users.rossenbach.returnn.training import GetBestCheckpointJob, AverageCheckpointsJobV2
-    epochs = []
-    for i in range(num_average):
-        best_checkpoint_job = GetBestCheckpointJob(
-            training_job.out_model_dir,
-            training_job.out_learning_rates,
-            key="dev_score_output/output_prob",
-            index=i)
-        epochs.append(best_checkpoint_job.out_epoch)
-    average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
-    return average_checkpoint_job.out_checkpoint
 
 def search_single(
         prefix_name,
