@@ -168,3 +168,35 @@ class AverageCheckpointsJob(Job):
         ]
         sp.check_call(args)
         self.avg_epoch.set(avg_epoch)
+
+
+class AverageCheckpointsJobV2(Job):
+
+    def __init__(self, model_dir, epochs, returnn_python_exe, returnn_root):
+        """
+
+        :param tk.Path model_dir:
+        :param list[int|tk.Path] epochs:
+        :param tk.Path returnn_python_exe:
+        :param tk.Path returnn_root:
+        """
+        self.model_dir = model_dir
+        self.epochs = epochs
+        self.returnn_python_exe   = returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE
+        self.returnn_root         = returnn_root       if returnn_root is not None else gs.RETURNN_ROOT
+
+        self.out_checkpoint = Checkpoint(self.output_path("epoch.001.index"))
+
+    def tasks(self):
+        yield Task('run', mini_task=True)
+
+    def run(self):
+        args = [
+            self.returnn_python_exe.get_path(),
+            os.path.join(
+                self.returnn_root.get_path(), "tools/tf_avg_checkpoints.py"),
+            "--checkpoints", ','.join([str(epoch) for epoch in self.epochs]),
+            "--prefix", self.model_dir.get_path() + "/epoch.",
+            "--output_path", self.out_checkpoint.index_path.get_path()[:-len(".index")]
+        ]
+        sp.check_call(args)
