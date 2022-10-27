@@ -27,7 +27,6 @@ def sis_run_with_prefix(prefix_name: str):
     task = get_switchboard_task_bpe1k()
     model = train(
         prefix_name, task=task, config=config, post_config=post_config,
-        epilog=[serialization.Import(transform, use_for_hash=False)],
         model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
@@ -525,8 +524,10 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
   return x
 
 
-def transform(data, network, time_factor=1):
+def transform(source, network, **_kwargs):
   """specaugment"""
+  data = source(0, as_data=True)
+  time_factor = 1
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
   # summary("features", x)
@@ -554,9 +555,7 @@ def transform(data, network, time_factor=1):
 conformer_net_dict = {
     'output': {"class": "copy", "from": "encoder"},
 
-    'source': {'class': 'eval',
-               'eval': "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)",
-               'from': 'data'},
+    'source': {'class': 'eval', 'eval': transform, 'from': 'data'},
     'source0': {'axis': 'F', 'class': 'split_dims', 'dims': (-1, 1), 'from': 'source'},
 
     'c1': {'class': 'conv', 'filter_size': (3, 3), 'from': 'source0',
