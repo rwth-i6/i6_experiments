@@ -74,9 +74,6 @@ config['learning_rates'] = learning_rates
 config['min_learning_rate'] = lr / min_lr_factor
 
 
-encoder_out_dim = nn.FeatureDim("encoder", 512)
-
-
 class Model(nn.Module):
     """Model definition"""
 
@@ -105,6 +102,9 @@ class Model(nn.Module):
         self.att_num_heads = att_num_heads
         self.att_dropout = att_dropout
 
+        encoder_out_dim = nn.FeatureDim("encoder", get_encoder_dim(epoch=epoch))
+        self.encoder_out_dim = encoder_out_dim
+
         self.enc_ctx = nn.Linear(encoder_out_dim, enc_key_total_dim)
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = nn.SpatialDim("enc_win_dim", 5)
@@ -129,9 +129,14 @@ class Model(nn.Module):
         enc = nn.make_layer(
             {"class": "subnetwork", "subnetwork": get_conformer_net_dict(epoch=self.epoch), "from": source},
             name=nn.NameCtx.top().root.get_child("encoder"))
-        enc_spatial_dim = enc.data.get_time_dim_tag()
-        enc = nn.make_layer(
-            {"class": "reinterpret_data", "set_dim_tags": {"F": encoder_out_dim}, "from": enc}, name="enc_set_out_dim")
+        self.encoder_out_dim.dimension = enc.feature_dim.dimension  # HACKY!!! maybe adapt for pretraining
+        enc_spatial_dim = nn.SpatialDim("enc-spatial")
+        enc = nn.make_layer({
+            "class": "reinterpret_data", "from": enc,
+            "set_dim_tags": {
+                "F": self.encoder_out_dim,
+                "T": enc_spatial_dim,
+            }}, name="enc_set_out_dim")
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
@@ -398,53 +403,6 @@ model_recog.batch_size_dependent = False
 # ----------
 
 
-def get_conformer_net_dict(*, epoch: int) -> Dict[str, Any]:
-
-    conformer_enc_args = ConformerEncoderArgs(
-        num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=encoder_out_dim.dimension,
-        conv_kernel_size=32,
-        pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
-
-    # fairseq init
-    fairseq_ff_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=1.0)"  # limit = sqrt(6 / (fan_in + fan_out))
-    fairseq_mhsa_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=0.5)"  # limit = sqrt(6 * 0.5 / (fan_in + fan_out)) = sqrt(3 / (fan_in + fan_out))
-    conformer_enc_args.ff_init = fairseq_ff_init
-    conformer_enc_args.mhsa_init = fairseq_mhsa_init
-    conformer_enc_args.mhsa_out_init = fairseq_ff_init
-    conformer_enc_args.conv_module_init = fairseq_ff_init
-
-    # overwrite BN params
-    conformer_enc_args.batch_norm_opts = {
-        'momentum': 0.1,
-        'epsilon': 1e-3,
-        'update_sample_only_in_training': False,
-        'delay_sample_update': False
-    }
-
-    # conformer round 2
-    encoder_args = asdict(conformer_enc_args)
-    encoder_args.update({"input": "data"})
-
-    # see Nick create_config
-
-    # pretraining
-    pretrain_opts = {'variant': 3}
-    pretrain_reps = 5
-    idx = 0
-    while True:
-        net = pretrain_layers_and_dims(idx, encoder_args, **pretrain_opts)
-        if not net:
-            break
-        if epoch <= (idx * pretrain_reps) + 1:
-            return net
-        idx += 1
-
-    # not in pretraining anymore
-    conformer_encoder = ConformerEncoder(**encoder_args)
-    conformer_encoder.create_network()
-    return conformer_encoder.network.get_net()
-
-
 @dataclass
 class ConformerEncoderArgs:
     num_blocks: int = 12
@@ -480,6 +438,147 @@ class ConformerEncoderArgs:
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
     stoc_layers_prob: float = 0.0
+
+
+pretrain_opts = {'variant': 3}
+pretrain_reps = 5
+
+conformer_enc_args = ConformerEncoderArgs(
+    num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512,
+    conv_kernel_size=32,
+    pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
+
+# fairseq init
+fairseq_ff_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=1.0)"  # limit = sqrt(6 / (fan_in + fan_out))
+fairseq_mhsa_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=0.5)"  # limit = sqrt(6 * 0.5 / (fan_in + fan_out)) = sqrt(3 / (fan_in + fan_out))
+conformer_enc_args.ff_init = fairseq_ff_init
+conformer_enc_args.mhsa_init = fairseq_mhsa_init
+conformer_enc_args.mhsa_out_init = fairseq_ff_init
+conformer_enc_args.conv_module_init = fairseq_ff_init
+
+# overwrite BN params
+conformer_enc_args.batch_norm_opts = {
+    'momentum': 0.1,
+    'epsilon': 1e-3,
+    'update_sample_only_in_training': False,
+    'delay_sample_update': False,
+    'masked_time': True,
+}
+
+# conformer round 2
+encoder_args = asdict(conformer_enc_args)
+encoder_args.update({"input": "data"})
+
+
+def get_conformer_net_dict(*, epoch: int) -> Dict[str, Any]:
+    return get_conformer_encoder(epoch=epoch).network.get_net()
+
+
+def get_encoder_dim(*, epoch: int) -> int:
+    return get_conformer_encoder(epoch=epoch).enc_key_dim
+
+
+def get_conformer_encoder(*, epoch: int) -> ConformerEncoder:
+    # see Nick create_config
+
+    # pretraining
+    conformer_encoder = None
+    idx = 0
+    while True:
+        conformer_encoder = pretrain_layers_and_dims(idx, encoder_args, **pretrain_opts)
+        if not conformer_encoder:
+            break
+        if epoch <= (idx * pretrain_reps) + 1:
+            break
+        idx += 1
+
+    if not conformer_encoder:
+        conformer_encoder = ConformerEncoder(**encoder_args)
+        conformer_encoder.create_network()
+    return conformer_encoder
+
+
+def pretrain_layers_and_dims(
+        idx, encoder_args, variant, reduce_dims=True, initial_dim_factor=0.5):
+    """
+    Pretraining implementation that works for multiple encoder/decoder combinations
+
+    :param idx:
+    :param encoder_args:
+    :param variant:
+    :param reduce_dims:
+    :param initial_dim_factor:
+    :return:
+    """
+
+    InitialDimFactor = initial_dim_factor
+
+    encoder_keys = ['ff_dim', 'enc_key_dim', 'conv_kernel_size']
+    encoder_args_copy = copy.deepcopy(encoder_args)
+
+    final_num_blocks = encoder_args['num_blocks']
+
+    assert final_num_blocks >= 2
+
+    idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
+
+    if variant == 1:
+        num_blocks = max(2 * idx, 1)  # 1/1/2/4/6/8/10/12 -> 8
+        StartNumLayers = 1
+    elif variant == 2:
+        num_blocks = 2 ** idx  # 1/1/2/4/8/12 -> 6
+        StartNumLayers = 1
+    elif variant == 3:
+        idx += 1
+        num_blocks = 2 * idx  # 2/2/4/6/8/10/12 -> 7
+        StartNumLayers = 2
+    elif variant == 4:
+        idx += 1
+        num_blocks = 2 ** idx  # 2/2/4/8/12 -> 5
+        StartNumLayers = 2
+    elif variant == 5:
+        idx += 2
+        num_blocks = 2 ** idx  # 4/4/8/12 -> 4
+        StartNumLayers = 4
+    elif variant == 6:
+        idx += 1  # 1 1 2 3
+        num_blocks = 4 * idx  # 4 4 8 12 16
+        StartNumLayers = 4
+    else:
+        raise ValueError("variant {} is not defined".format(variant))
+
+    if num_blocks > final_num_blocks:
+        return None
+
+    encoder_args_copy['num_blocks'] = num_blocks
+    AttNumHeads = encoder_args_copy['att_num_heads']
+
+    if reduce_dims:
+        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
+        dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
+
+        for key in encoder_keys:
+            encoder_args_copy[key] = int(encoder_args[key] * dim_frac_enc / float(AttNumHeads)) * AttNumHeads
+
+    else:
+        dim_frac_enc = 1
+
+    # do not enable regulizations in the first pretraining step to make it more stable
+    for k in encoder_args_copy.keys():
+        if 'dropout' in k and encoder_args_copy[k] is not None:
+            if idx <= 1:
+                encoder_args_copy[k] = 0.0
+            else:
+                encoder_args_copy[k] *= dim_frac_enc
+        if 'l2' in k and encoder_args_copy[k] is not None:
+            if idx <= 1:
+                encoder_args_copy[k] = 0.0
+            else:
+                encoder_args_copy[k] *= dim_frac_enc
+
+    conformer_encoder = ConformerEncoder(**encoder_args_copy)
+    conformer_encoder.create_network()
+    return conformer_encoder
 
 
 class ConformerEncoder:
@@ -886,91 +985,6 @@ class ConformerEncoder:
     if self.create_only_blocks:
       return self._create_conformer_blocks(input=self.input)
     return self._create_all_network_parts()
-
-
-def pretrain_layers_and_dims(
-        idx, encoder_args, variant, reduce_dims=True, initial_dim_factor=0.5):
-    """
-    Pretraining implementation that works for multiple encoder/decoder combinations
-
-    :param idx:
-    :param encoder_args:
-    :param variant:
-    :param reduce_dims:
-    :param initial_dim_factor:
-    :return:
-    """
-
-    InitialDimFactor = initial_dim_factor
-
-    encoder_keys = ['ff_dim', 'enc_key_dim', 'conv_kernel_size']
-    encoder_args_copy = copy.deepcopy(encoder_args)
-
-    final_num_blocks = encoder_args['num_blocks']
-
-    assert final_num_blocks >= 2
-
-    idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
-
-    if variant == 1:
-        num_blocks = max(2 * idx, 1)  # 1/1/2/4/6/8/10/12 -> 8
-        StartNumLayers = 1
-    elif variant == 2:
-        num_blocks = 2 ** idx  # 1/1/2/4/8/12 -> 6
-        StartNumLayers = 1
-    elif variant == 3:
-        idx += 1
-        num_blocks = 2 * idx  # 2/2/4/6/8/10/12 -> 7
-        StartNumLayers = 2
-    elif variant == 4:
-        idx += 1
-        num_blocks = 2 ** idx  # 2/2/4/8/12 -> 5
-        StartNumLayers = 2
-    elif variant == 5:
-        idx += 2
-        num_blocks = 2 ** idx  # 4/4/8/12 -> 4
-        StartNumLayers = 4
-    elif variant == 6:
-        idx += 1  # 1 1 2 3
-        num_blocks = 4 * idx  # 4 4 8 12 16
-        StartNumLayers = 4
-    else:
-        raise ValueError("variant {} is not defined".format(variant))
-
-    if num_blocks > final_num_blocks:
-        return None
-
-    encoder_args_copy['num_blocks'] = num_blocks
-    AttNumHeads = encoder_args_copy['att_num_heads']
-
-    if reduce_dims:
-        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
-        dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
-
-        for key in encoder_keys:
-            encoder_args_copy[key] = int(encoder_args[key] * dim_frac_enc / float(AttNumHeads)) * AttNumHeads
-
-    else:
-        dim_frac_enc = 1
-
-    # do not enable regulizations in the first pretraining step to make it more stable
-    for k in encoder_args_copy.keys():
-        if 'dropout' in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
-        if 'l2' in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
-
-    conformer_encoder = ConformerEncoder(**encoder_args_copy)
-    conformer_encoder.create_network()
-
-    net_dict = conformer_encoder.network.get_net()
-    return net_dict
 
 
 class ReturnnNetwork:
