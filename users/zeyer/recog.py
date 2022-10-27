@@ -4,6 +4,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 
 from __future__ import annotations
 
+import os
 from typing import Dict, Any, Sequence, Iterator, Callable
 
 import sisyphus
@@ -231,7 +232,9 @@ class GetBestRecogTrainExp(sisyphus.Job):
         """
         if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
             from datetime import datetime
-            with open(tk.Path("update.log", self).get_path(), "a") as log_stream:
+            log_filename = tk.Path("update.log", self).get_path()
+            os.makedirs(os.path.dirname(log_filename), exist_ok=True)
+            with open(log_filename, "a") as log_stream:
                 log_stream.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
                 for epoch in get_relevant_epochs_from_training_learning_rate_scores(
