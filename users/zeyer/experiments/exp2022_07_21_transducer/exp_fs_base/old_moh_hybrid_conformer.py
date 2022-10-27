@@ -524,9 +524,10 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
   return x
 
 
-def transform(source, network, **_kwargs):
+def transform(source, self, **_kwargs):
   """specaugment"""
   data = source(0, as_data=True)
+  network = self.network
   time_factor = 1
   x = data.placeholder
   from returnn.tf.compat import v1 as tf
