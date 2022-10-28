@@ -12,6 +12,20 @@ Every config is just a separate Python file where `sis_run_with_prefix` is defin
 
 ---
 
+Tracks:
+
+- Reproduce original RNA full-sum results:
+  [Paper](https://arxiv.org/abs/2005.09319),
+  [config](https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50.config),
+  [train scores](https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/scores/rna-tf2.blank0.enc6l-grow2l.scratch-lm.rdrop02.lm1-1024.attwb5-drop02.l2_1e_4.mlr50.train.info.txt),
+  17.5% WER Hub500, 16.5% WER Hub501, after 25 full epochs (150 subepochs).
+  - orig_pre20bs5k_native_fixsepblanklast: "hub5e_00": 18.4, "hub5e_01": 17.2
+  - start_slowpretrain: "hub5e_00": 18.0, "hub5e_01": 17.1
+
+- Conformer
+
+---
+
 Differences/Observations:
 
 - pretrain: growing, repeat, etc.
