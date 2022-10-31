@@ -23,12 +23,12 @@ def train(prefix_name: str,
           config: Dict[str, Any],
           post_config: Optional[Dict[str, Any]] = None,
           epilog: Sequence[serialization.SerializerObject] = (),
-          num_epochs: int = 150,
           alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
           model_def: ModelDef[ModelT],
           train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
           init_params: Optional[Checkpoint] = None,
           extra_hash: Any = None,
+          **kwargs
           ) -> ModelWithCheckpoints:
     """
     train
@@ -114,10 +114,12 @@ def train(prefix_name: str,
             continue
         returnn_train_config.post_config[k] = v
 
-    returnn_train_job = ReturnnTrainingJob(
-        returnn_train_config,
-        log_verbosity=5, num_epochs=num_epochs,
-        time_rqmt=80, mem_rqmt=15, cpu_rqmt=4)
+    kwargs = kwargs.copy()
+    for k, v in dict(
+            log_verbosity=5, num_epochs=150,
+            time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
+        kwargs.setdefault(k, v)
+    returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(
