@@ -21,12 +21,17 @@ Tracks:
   17.5% WER Hub500, 16.5% WER Hub501, after 25 full epochs (150 subepochs).
   - orig_pre20bs5k_native_fixsepblanklast: "hub5e_00": 18.4, "hub5e_01": 17.2
   - start_slowpretrain: "hub5e_00": 18.0, "hub5e_01": 17.1
+  Not reached orig, why? Noise? Hardware? RETURNN version? TF version?
 
-- Conformer
+- Conformer, get good results, run existing old RETURNN configs, new RETURNN-common Conformer, maybe import old to new:
+  - old_moh_hybrid_conformer: "hub5e_00": 27.7, "hub5e_01": 23.0
+  - old_nick_att_conformer_lrs2: "hub5e_00": 23.3, "hub5e_01": 19.0
+  - conformer_d384_h6_wd0_nopre_blstmf_specaug: "hub5e_00": 23.6, "hub5e_01": 20.8
+  Far worse than BLSTM. What's the problem?
 
 ---
 
-Differences/Observations:
+RNA differences/Observations:
 
 - pretrain: growing, repeat, etc.
 
@@ -45,3 +50,9 @@ Differences/Observations:
 - lr schedule error key? error but no actual diff
 
 ...
+
+Conformer:
+
+- CTX aux loss...?
+- LR schedule
+- pretrain
