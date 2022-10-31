@@ -309,6 +309,12 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     extra_net_dict = nn.NameCtx.top().root.extra_net_dict
     extra_net_dict["#config"] = {}
     extra_net_dict["#copy_param_mode"] = "subset"
+    if epoch <= 10:
+        extra_net_dict["#config"]["accum_grad_multiple_step"] = 10
+    elif epoch <= 20:
+        extra_net_dict["#config"]["accum_grad_multiple_step"] = 6
+    elif epoch <= 30:
+        extra_net_dict["#config"]["accum_grad_multiple_step"] = 4
     return Model(
         in_dim,
         num_enc_layers=12,
