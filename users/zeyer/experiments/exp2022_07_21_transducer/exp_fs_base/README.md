@@ -59,3 +59,4 @@ Conformer:
 - batch_size / grad accum
 - frontend: conv?
 - param init
+- weight decay
