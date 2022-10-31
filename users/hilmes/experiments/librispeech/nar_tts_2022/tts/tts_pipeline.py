@@ -26,8 +26,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation imp
     asr_evaluation,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
-from i6_experiments.users.hilmes.data.librispeech import get_ls_train_clean_100_tts_silencepreprocessed
-from i6_core.returnn.oggzip import BlissToOggZipJob
+
 
 def get_training_config(
     returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs

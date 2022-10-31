@@ -8,6 +8,18 @@ from i6_core.returnn.search import (
     ReturnnComputeWERJob,
 )
 from i6_core.text import PipelineJob
+from i6_core.report.report import GenerateReportStringJob, MailJob, _Report_Type
+
+def asr_eval_report_format(report: _Report_Type):
+    out = []
+    with open(report["wer"], "rt") as f:
+        wer = f.read()
+    out.append(
+        f"""Name: {report["name"]}
+
+        sWER:{wer}"""
+    )
+    return "\n".join(out)
 
 
 def asr_evaluation(
@@ -67,4 +79,10 @@ def asr_evaluation(
     )
     wer.add_alias(output_path + "/wer_scoring")
     tk.register_output(output_path + "/WER", wer.out_wer)
+
+    report_dict = {"name": output_path, "wer": wer.out_wer}
+    content = GenerateReportStringJob(report_values=report_dict, report_template=asr_eval_report_format).out_report
+    report = MailJob(subject=output_path, result=content, send_contents=True)
+    tk.register_output(f"reports/{output_path}", report.out_status)
+
     return wer.out_wer

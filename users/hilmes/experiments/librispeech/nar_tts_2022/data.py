@@ -19,7 +19,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import (
 from i6_experiments.users.hilmes.data.librispeech import (
     get_ls_train_clean_100_tts_silencepreprocessed, get_ls_train_clean_360_tts_silencepreprocessed
 )
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
+from i6_experiments.users.hilmes.data.datasets import (
     HDFDataset,
     MetaDataset,
     OggZipDataset,
@@ -53,6 +53,9 @@ from i6_experiments.users.hilmes.data.tts_preprocessing import (
     process_corpus_text_with_extended_lexicon,
 )
 from i6_experiments.users.hilmes.tools.data_manipulation import ApplyLogOnHDFJob
+from i6_experiments.common.datasets.librispeech import (
+  get_corpus_object_dict,
+)
 
 def dump_dataset(dataset, returnn_root, returnn_gpu_exe, name):
     """
@@ -1021,3 +1024,112 @@ def get_ls360_100h_data():
     ls_360_100h_segments = ShuffleAndSplitSegmentsJob(ls_360_segments, split={'train': 0.28, 'dev': 0.72}).out_segments["train"]
 
     return sil_pp_train_clean_360_tts, ls_360_100h_segments
+
+
+def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path,prefix: str, center=True, silence_prep=True):
+    from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
+    from i6_core.corpus import (
+        CorpusReplaceOrthFromReferenceCorpus,
+        MergeCorporaJob,
+        SegmentCorpusJob,
+    )
+    if silence_prep:
+        sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    else:
+        sil_pp_train_clean_100_co = get_corpus_object_dict(
+            audio_format="ogg", output_prefix="corpora"
+        )["train-clean-100"]
+    librispeech_g2p_lexicon = extend_lexicon(
+        get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+    )
+    sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+        lexicon=librispeech_g2p_lexicon,
+    )
+
+    forward_segments = SegmentCorpusJob(sil_pp_train_clean_100_tts, 10)
+    verifications = []
+    output_corpora = []
+    reconstruction_norm = True
+    vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, prefix)
+
+    for i in range(10):
+        name = prefix + f"/part_{i}"
+        zip_dataset = BlissToOggZipJob(
+            segments=forward_segments.out_single_segment_files[i + 1],
+            bliss_corpus=sil_pp_train_clean_100_tts,
+            no_conversion=True,
+            returnn_python_exe=returnn_exe,
+            returnn_root=returnn_root,
+        ).out_ogg_zip
+
+        db_options = DBMelFilterbankOptions(
+            fmin=60, fmax=7600, min_amp=1e-10, center=center
+        )
+        options = ReturnnAudioFeatureOptions(
+            sample_rate=16000,
+            num_feature_filters=80,
+            features="db_mel_filterbank",
+            feature_options=db_options,
+            preemphasis=0.97,
+            window_len=0.05,
+            step_len=0.0125,
+            peak_normalization=False,
+        )
+
+        audio_datastream = AudioFeatureDatastream(
+            available_for_inference=True, options=options
+        )
+
+        audio_datastream.add_global_statistics_to_audio_feature_datastream(
+            zip_dataset,
+            segment_file=None,
+            use_scalar_only=True,
+            returnn_python_exe=returnn_exe,
+            returnn_root=returnn_root,
+            alias_path=name,
+        )
+
+        full_ogg = OggZipDataset(
+            path=zip_dataset,
+            audio_opts=audio_datastream.as_returnn_audio_opts(),
+            target_opts=vocab_datastream.as_returnn_targets_opts(),
+            partition_epoch=1,
+            seq_ordering="sorted_reverse",
+        )
+
+        dataset_dump = ReturnnDumpHDFJob(
+            data=full_ogg.as_returnn_opts(), returnn_root=returnn_root, returnn_python_exe=returnn_exe, time=24)
+        tk.register_output(name + "/audio_features", dataset_dump.out_hdf)
+        hdf = dataset_dump.out_hdf
+
+        forward_vocoded, vocoder_forward_job = vocoder.vocode(
+            hdf, iterations=30, cleanup=True, name=name, recon_norm=reconstruction_norm
+        )
+        tk.register_output(name + "/synthesized_corpus.xml.gz", forward_vocoded)
+        output_corpora.append(forward_vocoded)
+        verification = VerifyCorpus(forward_vocoded).out
+        verifications.append(verification)
+
+        cleanup = MultiJobCleanup(
+            [dataset_dump, vocoder_forward_job], verification, output_only=True
+        )
+        tk.register_output(
+            name + "/cleanup/cleanup.log", cleanup.out
+        )
+
+    from i6_core.corpus.transform import MergeStrategy
+
+    merge_job = MergeCorporaJob(
+        output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT
+    )
+    for verfication in verifications:
+        merge_job.add_input(verfication)
+
+    cv_synth_corpus = CorpusReplaceOrthFromReferenceCorpus(
+        bliss_corpus=merge_job.out_merged_corpus,
+        reference_bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+    ).out_corpus
+
+    tk.register_output(prefix + "/synthesized_corpus.xml.gz", cv_synth_corpus)
+    return cv_synth_corpus

@@ -204,7 +204,7 @@ class Decoder(nn.Module):
     self.linear_ref = nn.Linear(out_dim=self.linear_dim)
 
   def __call__(
-    self, rep: nn.Tensor, speaker_embedding: nn.Tensor, time_dim: nn.Dim
+    self, rep: nn.Tensor, speaker_embedding: Optional[nn.Tensor], time_dim: nn.Dim
   ) -> nn.Tensor:
     """
 
@@ -214,11 +214,14 @@ class Decoder(nn.Module):
         :return:
         """
 
-    cat = nn.concat(
-      (rep, rep.feature_dim),
-      (speaker_embedding, speaker_embedding.feature_dim),
-      allow_broadcast=True,
-    )
+    if speaker_embedding is not None:
+      cat = nn.concat(
+        (rep, rep.feature_dim),
+        (speaker_embedding, speaker_embedding.feature_dim),
+        allow_broadcast=True,
+      )
+    else:
+      cat = rep
 
     dec_lstm_fw, _ = self.dec_lstm_fw_1(cat, axis=time_dim, direction=1)
     dec_lstm_bw, _ = self.dec_lstm_bw_1(cat, axis=time_dim, direction=-1)
@@ -453,7 +456,10 @@ class NARTTSModel(nn.Module):
     dropout: float = 0.5,
     training: bool = True,
     gauss_up: bool = False,
+    round_durations: bool = True,
+    duration_scale: float = 1.0,
     use_true_durations: bool = False,
+    dump_durations: bool = False,
     dump_speaker_embeddings: bool = False,
     dump_vae: bool = False,
     use_vae: bool = False,
@@ -479,7 +485,11 @@ class NARTTSModel(nn.Module):
     self.dropout = dropout
     self.training = training
     self.gauss_up = gauss_up
+    assert round_durations or gauss_up, "Currently non int durations only for Gauss Upsampling"
+    self.duration_scale = duration_scale
+    self.round_durations = round_durations
     self.use_true_durations = use_true_durations
+    self.dump_durations = dump_durations
     self.dump_speaker_embeddings = dump_speaker_embeddings
     self.calc_speaker_embedding = calc_speaker_embedding
     assert use_vae or not dump_vae, "Needs to use VAE in order to dump it!"
@@ -623,10 +633,12 @@ class NARTTSModel(nn.Module):
       duration_int = nn.cast(durations, dtype="int32")
       duration_float = nn.cast(durations, dtype="float32")  # [B, Label-time]
     label_notime = nn.squeeze(speaker_labels, axis=label_time)
-    if self.training or self.calc_speaker_embedding:
+    if (self.training or self.calc_speaker_embedding) and not self.skip_speaker_embeddings:
       speaker_embedding = self.speaker_embedding(label_notime)
-    else:
+    elif not self.skip_speaker_embeddings:
       speaker_embedding = label_notime
+    else:
+      speaker_embedding = None
     if self.use_vae and not self.test_vae:
       if speaker_prior is None:
         vae_speaker_embedding = self.vae_embedding(target_speech)
@@ -683,11 +695,14 @@ class NARTTSModel(nn.Module):
     encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
     # duration predictor
-    duration_in = nn.concat(
-      (cat, cat.feature_dim),
-      (speaker_embedding, speaker_embedding.feature_dim),
-      allow_broadcast=True,
-    )
+    if self.skip_speaker_embeddings:
+      duration_in = cat
+    else:
+      duration_in = nn.concat(
+        (cat, cat.feature_dim),
+        (speaker_embedding, speaker_embedding.feature_dim),
+        allow_broadcast=True,
+      )
     duration_in = nn.dropout(
       duration_in, dropout=self.dropout, axis=duration_in.feature_dim
     )
@@ -715,6 +730,8 @@ class NARTTSModel(nn.Module):
       duration_prediction = self.duration(
         inp=duration_in, time_dim=time_dim
       )  # [B, Label-time, 1]
+      if self.dump_durations:
+        return duration_prediction
 
     if self.training:
       duration_prediction_loss = nn.mean_absolute_difference(
@@ -724,8 +741,13 @@ class NARTTSModel(nn.Module):
     else:
       if self.duration_add != 0:
         duration_prediction = duration_prediction + self.duration_add
-      rint = nn.rint(duration_prediction)
-      duration_int = nn.cast(rint, dtype="int32")
+      if self.duration_scale != 1.0:
+        duration_prediction = duration_prediction * self.duration_scale
+      if self.round_durations:
+        rint = nn.rint(duration_prediction)
+        duration_int = nn.cast(rint, dtype="int32")
+      else:
+        duration_int = duration_prediction
       duration_int = nn.squeeze(duration_int, axis=duration_int.feature_dim)
 
     # upsampling

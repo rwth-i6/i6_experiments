@@ -271,7 +271,7 @@ class RandomSpeakerAssignmentJob(Job):
                 speakers.append(segment.speaker_name or recording.speaker_name)
         if not self.keep_ratio:
             speakers = list(set(speakers))
-        if not self.shuffle:
+        if self.shuffle:
             random.shuffle(speakers)
 
         mapping = {}

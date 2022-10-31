@@ -21,7 +21,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
   DataInitArgs,
   DimInitArgs,
 )
-from i6_experiments.users.rossenbach.common_setups.returnn.datasets.audio import (
+from i6_experiments.users.hilmes.data.datasets.audio import (
   OggZipDataset,
 )
 

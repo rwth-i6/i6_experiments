@@ -20,6 +20,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pi
   gl_swer,
   get_forward_config,
   build_vae_speaker_prior_dataset,
+  tts_forward
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
   get_default_vocoder,
@@ -31,7 +32,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data impor
 )
 
 
-def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, return_trainings=False):
+def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, return_trainings=False, basic_trainings=False):
   """
     :param alignments
     Experiments with duration predictor cheating
@@ -117,7 +118,62 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
         checkpoint=train_job.out_checkpoints[200],
         config=forward_config,
       )
+      forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(
+          dataset=training_datasets.cv, datastreams=training_datasets.datastreams
+        ),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=(upsampling == "gauss"),
+        calc_speaker_embedding=True,
+        use_true_durations=True,
+      )
+      gl_swer(
+        name=exp_name + "/gl_swer_true_durations",
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+      )
       # synthesis
+      if upsampling == "gauss" and align_name == "tts_align_sat":
+        speaker_embedding_hdf = build_speaker_embedding_dataset(
+          returnn_common_root=returnn_common_root,
+          returnn_exe=returnn_exe,
+          returnn_root=returnn_root,
+          datasets=training_datasets,
+          prefix=exp_name,
+          train_job=train_job,
+        )
+
+        synth_dataset = get_inference_dataset(
+          new_corpus,
+          returnn_root=returnn_root,
+          returnn_exe=returnn_exe,
+          datastreams=training_datasets.datastreams,
+          speaker_embedding_hdf=speaker_embedding_hdf,
+          durations=None,
+          process_corpus=False,
+        )
+        forward_config = get_forward_config(
+          returnn_common_root=returnn_common_root,
+          forward_dataset=synth_dataset,
+          embedding_size=256,
+          speaker_embedding_size=256,
+          gauss_up=True,
+          dump_durations=True,
+        )
+        forward_job = tts_forward(
+          checkpoint=train_job.out_checkpoints[200],
+          config=forward_config,
+          prefix=exp_name + "/dump_dur",
+          returnn_root=returnn_root,
+          returnn_exe=returnn_exe
+        )
+        forward_hdf = forward_job.out_hdf_files["output.hdf"]
+        tk.register_output(exp_name + "/dump_dur/durations.hdf", forward_hdf)
 
       speaker_embedding_hdf = build_speaker_embedding_dataset(
         returnn_common_root=returnn_common_root,
@@ -218,7 +274,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           )
 
           synth_corpus = synthesize_with_splits(
-            name=exp_name + f"/{dur_pred}",
+            name=exp_name + f"/{dur_pred}_no_shuff",
             reference_corpus=reference_corpus.corpus_file,
             corpus_name="train-clean-100",
             job_splits=job_splits,
@@ -234,8 +290,107 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             use_true_durations=(dur_pred == "cheat"),
           )
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_no_shuff"] = synth_corpus
+        if (
+          upsampling == "gauss"
+          and align_name == "tts_align_sat"
+          and dur_pred == "pred"
+        ):
+          synth_dataset = get_inference_dataset(
+            new_corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            durations=durations_hdf if dur_pred == "cheat" else None,
+            process_corpus=False,
+          )
+
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}_no_round",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+            round_durations=False,
+          )
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_no_round"] = synth_corpus
+        for duration_scale in [0.9, 1.1, 1.2, 1.3, 2.0]:
+          if upsampling != "gauss" or dur_pred != "pred" or align_name != "tts_align_sat":
+            continue
+          synth_dataset = get_inference_dataset(
+            new_corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            durations=durations_hdf if dur_pred == "cheat" else None,
+            process_corpus=False,
+          )
+
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}_scale_{duration_scale}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+            round_durations=True,
+            duration_scale=duration_scale
+          )
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_scale_{duration_scale}"] = synth_corpus
+          if duration_scale == 1.1:
+            synth_dataset = get_inference_dataset(
+              new_corpus,
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+              datastreams=training_datasets.datastreams,
+              speaker_embedding_hdf=speaker_embedding_hdf,
+              durations=durations_hdf if dur_pred == "cheat" else None,
+              process_corpus=False,
+            )
+
+            synth_corpus = synthesize_with_splits(
+              name=exp_name + f"/{dur_pred}_scale_{duration_scale}_no_round",
+              reference_corpus=reference_corpus.corpus_file,
+              corpus_name="train-clean-100",
+              job_splits=job_splits,
+              datasets=synth_dataset,
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+              returnn_common_root=returnn_common_root,
+              checkpoint=train_job.out_checkpoints[200],
+              vocoder=default_vocoder,
+              embedding_size=256,
+              speaker_embedding_size=256,
+              gauss_up=(upsampling == "gauss"),
+              use_true_durations=(dur_pred == "cheat"),
+              round_durations=False,
+              duration_scale=duration_scale
+            )
+            synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_scale_{duration_scale}_no_round"] = synth_corpus
+
   if return_trainings:
     return trainings
+  if basic_trainings:
+    print("Warning: Only basic training graph executed")
+    return synthetic_data_dict
   for align_name in ["tts_align_sat"]:
     alignment = alignments[align_name]
     name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_align/{align_name}"
@@ -276,9 +431,11 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
       "energy_mul_vae",
       "f0_test",
       "energy_test",
+      "energy_test_mul_vae",
       # "f0_energy_test", REMOVED because of space
       # "log_energy_test", REMOVED because of space
       # "no_dropout_small", REMOVED because of space
+      "no_speaker_emb"
     ]:
       if "energy" in variance:
         returnn_root_job = CloneGitRepositoryJob(
@@ -286,14 +443,16 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           commit="882b63641be44d1f91566ac6d5aa517707de0c43",  # apply center to energy
         )
         returnn_root = returnn_root_job.out_repository
-      if "test" in variance or "small" in variance:
+      if variance not in ["f0", "energy", "energy_add_vae", "energy_mul_vae"]:
         returnn_root_job = CloneGitRepositoryJob(
           "https://github.com/rwth-i6/returnn",
           commit="5cbec73032aeba2eec269624eb755fc5766f3c98",  # fix memory
         )
         returnn_root = returnn_root_job.out_repository
       for upsampling in ["repeat", "gauss"]:
-        if "test" in variance and upsampling == "gauss":
+        if variance in ["f0_test"] and upsampling == "gauss":
+          continue
+        if variance in ["no_speaker_emb", "energy_test_mul_vae"] and upsampling == "repeat":
           continue
         exp_name = name + f"/{variance}/{upsampling}"
         var_training_datasets = deepcopy(training_datasets)
@@ -334,6 +493,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           kwargs["test"] = True
         if "no_dropout" in variance:
           kwargs["dropout"] = 0.0
+        if "no_speaker_emb" in variance:
+          kwargs["skip_speaker_embeddings"] = True
         train_config = get_training_config(
           returnn_common_root=returnn_common_root,
           training_datasets=var_training_datasets,
@@ -352,8 +513,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           returnn_exe=returnn_exe,
           returnn_root=returnn_root,
           prefix=exp_name,
-          num_epochs=200 if "300" not in variance else 300,
-          mem=8 if "test" in variance or "small" in variance else 32,
+          num_epochs=200,
+          mem=32 if variance in ["f0", "energy", "energy_add_vae", "energy_mul_vae"] else 8,
         )
         forward_dataset = deepcopy(training_datasets.cv)
         forward_datastreams = deepcopy(training_datasets.datastreams)
@@ -390,15 +551,40 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           checkpoint=checkpoint,
           config=forward_config,
         )
-
-        speaker_embedding_hdf = build_speaker_embedding_dataset(
+        forward_config = get_forward_config(
           returnn_common_root=returnn_common_root,
-          returnn_exe=returnn_exe,
-          returnn_root=returnn_root,
-          datasets=var_training_datasets,
-          prefix=exp_name,
-          train_job=train_job,
+          forward_dataset=TTSForwardData(
+            dataset=training_datasets.cv, datastreams=training_datasets.datastreams
+          ),
+          embedding_size=256,
+          speaker_embedding_size=256,
+          gauss_up=(upsampling == "gauss"),
+          calc_speaker_embedding=variance != "no_speaker_emb",
+          use_pitch_pred=("f0" in variance),
+          use_energy_pred=("energy" in variance),
+          use_true_durations=True,
+          **gl_swer_kwargs,
         )
+        gl_swer(
+          name=exp_name + "/gl_swer_true_durations",
+          vocoder=default_vocoder,
+          returnn_root=returnn_root,
+          returnn_exe=returnn_exe,
+          checkpoint=train_job.out_checkpoints[200],
+          config=forward_config,
+        )
+        if "no_speaker_emb" not in variance:
+          speaker_embedding_hdf = build_speaker_embedding_dataset(
+            returnn_common_root=returnn_common_root,
+            returnn_exe=returnn_exe,
+            returnn_root=returnn_root,
+            datasets=var_training_datasets,
+            prefix=exp_name,
+            train_job=train_job,
+          )
+        else:
+          speaker_embedding_hdf = None
+
         if "vae" in variance:
           vae_dataset = deepcopy(training_datasets.cv)
           vae_dataset.datasets["audio"]["segment_file"] = None
@@ -416,7 +602,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           )
         if "log" in variance:
           continue
-        for synth_method in ["pred", "cheat_dur", "cheat_f0", "cheat_energy_cheat_dur", "cheat_f0_cheat_dur", "scale_en"]:
+        #for synth_method in ["pred", "cheat_dur", "cheat_f0", "cheat_energy_cheat_dur", "cheat_f0_cheat_dur", "scale_en"]:
+        for synth_method in ["pred", "cheat_dur", "cheat_f0", "cheat_energy_cheat_dur"]:
           if synth_method == "scale_en" and not variance == "energy_test":
             continue
           synth_kwargs = deepcopy(kwargs)
@@ -437,7 +624,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             returnn_root=returnn_root,
             returnn_exe=returnn_exe,
             datastreams=var_training_datasets.datastreams,
-            speaker_embedding_hdf=speaker_embedding_hdf,
+            speaker_embedding_hdf=speaker_embedding_hdf if "no_speaker_emb" not in variance else None,
             durations=durations_hdf if "cheat_dur" in synth_method else None,
             process_corpus=False,
             speaker_prior_hdf=speaker_prior_hdf if "vae" in variance else None,

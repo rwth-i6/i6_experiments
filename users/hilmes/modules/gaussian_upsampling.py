@@ -57,7 +57,8 @@ class GaussianUpsampling(nn.Module):
     Performs gaussian upsampling for given input, duration and (learned) variances
     """
 
-    def __init__(self):
+    def __init__(self, int_durations: bool = True):
+        self.int_durations = int_durations
         super().__init__()
 
     def __call__(
@@ -79,6 +80,8 @@ class GaussianUpsampling(nn.Module):
         durations_float = nn.cast(durations, dtype="float32")
         c = nn.cumsum(durations_float, axis=time_dim) - (0.5 * durations_float)  # [B,N]
 
+        if not self.int_durations:
+            durations = nn.rint(durations)
         l = nn.reduce(durations, mode="sum", axis=time_dim, use_time_mask=True)  # [B]
         l = nn.cast(l, dtype="int32")
 

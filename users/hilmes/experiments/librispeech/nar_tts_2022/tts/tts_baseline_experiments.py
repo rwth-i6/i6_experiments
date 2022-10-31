@@ -20,6 +20,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pi
   synthesize_with_splits,
   build_speaker_embedding_dataset,
   build_vae_speaker_prior_dataset,
+  tts_forward
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
   get_default_vocoder,
@@ -139,6 +140,33 @@ def ctc_baseline():
       prefix=exp_name,
       train_job=train_job,
     )
+    if upsampling == "gauss":
+      synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        durations=None,
+        process_corpus=False,
+      )
+      forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=synth_dataset,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=True,
+        dump_durations=True,
+      )
+      forward_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+        prefix=exp_name + "/dump_dur",
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe
+      )
+      forward_hdf = forward_job.out_hdf_files["output.hdf"]
+      tk.register_output(exp_name + "/dump_dur/durations.hdf", forward_hdf)
     synth_dataset = get_inference_dataset_old(
       corpus,
       returnn_root=returnn_root,
@@ -387,7 +415,7 @@ def ctc_baseline():
         pitch_cheat=("cheat_f0" in synth_method),
         **synth_kwargs,
       )
-      synthetic_data_dict[f"ctc_vae_{1}_{synth_method}"] = synth_corpus
+      synthetic_data_dict[f"ctc_{mode}_{1}_{synth_method}"] = synth_corpus
     for loss in [0.1, 0.01, 0]:
       exp_name = name + f"/{mode}_scale_ls_{loss}"
       train_config = get_training_config(
@@ -807,6 +835,33 @@ def ctc_loss_scale():
           prefix=exp_name,
           train_job=train_job,
         )
+        if upsampling == "gauss":
+          synth_dataset = get_inference_dataset(
+            corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            durations=None,
+            process_corpus=False,
+          )
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root,
+            forward_dataset=synth_dataset,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=True,
+            dump_durations=True,
+          )
+          forward_job = tts_forward(
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+            prefix=exp_name + "/dump_dur",
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe
+          )
+          forward_hdf = forward_job.out_hdf_files["output.hdf"]
+          tk.register_output(exp_name + "/dump_dur/durations.hdf", forward_hdf)
         for dur_pred in ["pred", "cheat"]:
           synth_dataset = get_inference_dataset_old(
             corpus,
@@ -836,3 +891,25 @@ def ctc_loss_scale():
           )
           synthetic_data_dict[f"ctc_{scale}_{upsampling}_{dur_pred}"] = synth_corpus
   return synthetic_data_dict
+
+
+def synthesize_ls_100_features(silence_prep=True):
+  from i6_core.tools.git import CloneGitRepositoryJob
+  from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_ls_100_features
+
+  returnn_exe = tk.Path(
+    "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+  )
+  returnn_root = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn",
+    commit="aadac2637ed6ec00925b9debf0dbd3c0ee20d6a6",
+  ).out_repository
+  name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/real_features"
+  if not silence_prep:
+    name = name + 'no_silence_prep'
+
+  default_vocoder = get_default_vocoder(name=name)
+  corpus = get_ls_100_features(vocoder=default_vocoder, returnn_root=returnn_root, returnn_exe=returnn_exe, prefix=name, silence_prep=silence_prep)
+
+  return corpus
