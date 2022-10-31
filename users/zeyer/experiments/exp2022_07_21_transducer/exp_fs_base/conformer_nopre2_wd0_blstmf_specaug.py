@@ -51,7 +51,8 @@ config = dict(
     newbob_relative_error_threshold=-0.01,
     use_last_best_model=dict(
         only_last_n=3,  # make sure in cleanup_old_models that keep_last_n covers those
-        filter_score=50., min_score_dist=1.5, first_epoch=35),
+        filter_score=50., min_score_dist=1.5),
+    stop_on_nonfinite_train_score=False,
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
@@ -62,9 +63,7 @@ lr = 0.0008
 min_lr_factor = 50
 wup_start_lr = 0.0002
 wup = 20
-const_lr = [42, 100]  # use const LR during pretraining
-learning_rates = \
-    [wup_start_lr] * const_lr[0] + list(numpy.linspace(wup_start_lr, lr, num=wup)) + [lr] * const_lr[1]
+learning_rates = [wup_start_lr] * 42 + list(numpy.linspace(wup_start_lr, lr, num=wup))
 config['learning_rate'] = lr
 config['learning_rates'] = learning_rates
 config['min_learning_rate'] = lr / min_lr_factor
