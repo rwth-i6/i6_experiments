@@ -56,3 +56,6 @@ Conformer:
 - CTX aux loss...?
 - LR schedule
 - pretrain
+- batch_size / grad accum
+- frontend: conv?
+- param init
