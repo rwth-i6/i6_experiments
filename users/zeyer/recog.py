@@ -29,6 +29,7 @@ def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints
         exp=model,
         recog_and_score_func=_RecogAndScoreFunc(prefix_name, task, model, recog_def),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better)
+    summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
 
