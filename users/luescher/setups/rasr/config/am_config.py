@@ -76,7 +76,7 @@ class AmRasrConfig:
     )  # only used when tying_type = global-and-nonword
     state_tying_file: Optional[tk.Path] = None
 
-    def get_config(self):
+    def get(self):
         am_config = am.acoustic_model_config(
             state_tying=self.state_tying,
             states_per_phone=self.states_per_phone,
