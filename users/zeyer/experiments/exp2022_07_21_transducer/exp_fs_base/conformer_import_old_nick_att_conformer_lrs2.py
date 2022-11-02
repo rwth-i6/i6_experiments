@@ -31,7 +31,11 @@ def sis_run_with_prefix(prefix_name: str):
         checkpoint=Checkpoint(index_path=tk.Path(
             f"/u/zeyer/setups/combined/2021-05-31"
             f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index")),
-        make_model_func=make_model,
+        make_model_func=MakeModel(
+            extern_data_dict=task.train_dataset.get_extern_data(),
+            default_input_key=task.train_dataset.get_default_input(),
+            default_target_key=task.train_dataset.get_default_target(),
+        ),
         map_func=map_param_func,
     ).out_checkpoint
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
@@ -40,21 +44,30 @@ def sis_run_with_prefix(prefix_name: str):
     tk.register_output(prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
 
 
-def make_model() -> Model:
+class MakeModel:
     """for import"""
-    in_dim = nn.FeatureDim("data", 40)
-    target_dim = nn.FeatureDim("bpe1k", 1030)
-    return Model(
-        in_dim,
-        num_enc_layers=12,
-        enc_model_dim=nn.FeatureDim("enc", 512),
-        enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
-        enc_att_num_heads=8,
-        nb_target_dim=target_dim,
-        wb_target_dim=target_dim + 1,
-        blank_idx=target_dim.dimension,
-        bos_idx=_get_bos_idx(target_dim),
-    )
+
+    def __init__(self, *, extern_data_dict, default_input_key, default_target_key):
+        self.extern_data_dict = extern_data_dict
+        self.default_input_key = default_input_key
+        self.default_target_key = default_target_key
+
+    def __call__(self) -> Model:
+        data = nn.Data(name=self.default_input_key, **self.extern_data_dict[self.default_input_key])
+        targets = nn.Data(name=self.default_target_key, **self.extern_data_dict[self.default_target_key])
+        in_dim = data.feature_dim_or_sparse_dim
+        target_dim = targets.feature_dim_or_sparse_dim
+        return Model(
+            in_dim,
+            num_enc_layers=12,
+            enc_model_dim=nn.FeatureDim("enc", 512),
+            enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
+            enc_att_num_heads=8,
+            nb_target_dim=target_dim,
+            wb_target_dim=target_dim + 1,
+            blank_idx=target_dim.dimension,
+            bos_idx=_get_bos_idx(target_dim),
+        )
 
 
 def map_param_func(reader, var):
