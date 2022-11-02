@@ -61,7 +61,9 @@ class ConvertCheckpointJob(Job):
         model = self.make_model_func()
         print("Created model:", model)
 
-        with tf1.Graph().as_default() as graph, tf1.Session(graph=graph, config=tf1.ConfigProto(device_count=dict(GPU=0))).as_default() as session:
+        with tf1.Graph().as_default() as graph, tf1.Session(
+            graph=graph, config=tf1.ConfigProto(device_count=dict(GPU=0))
+        ).as_default() as session:
 
             for name, param in model.named_parameters():
                 assert isinstance(name, str)
@@ -69,7 +71,11 @@ class ConvertCheckpointJob(Job):
 
                 tf_var_name = name.replace(".", "/") + "/param"
                 tf_var = tf1.Variable(
-                    name=tf_var_name, initial_value=0, dtype=param.dtype, shape=param.shape_ordered)
+                    name=tf_var_name,
+                    initial_value=0,
+                    dtype=param.dtype,
+                    shape=param.shape_ordered,
+                )
                 value = self.map_func(reader, tf_var)
                 tf_var.load(value, session=session)
 
@@ -79,14 +85,16 @@ class ConvertCheckpointJob(Job):
                 tf_var.load(value, session=session)
 
         saver = tf1.train.Saver(
-            var_list=tf1.global_variables(), max_to_keep=2 ** 31 - 1)
+            var_list=tf1.global_variables(), max_to_keep=2**31 - 1
+        )
         ckpt_name = os.path.basename(self.in_checkpoint.ckpt_path)
         saver.save(session, self._out_model_dir.get_path() + "/" + ckpt_name)
 
         if ckpt_name != "checkpoint":
             prefix = self._out_model_dir.get_path() + "/" + ckpt_name + "."
             for filename in glob(prefix + "*"):
-                postfix = filename[len(prefix):]
+                postfix = filename[len(prefix) :]
                 os.symlink(
                     os.path.basename(filename),
-                    self._out_model_dir.get_path() + "/checkpoint." + postfix)
+                    self._out_model_dir.get_path() + "/checkpoint." + postfix,
+                )
