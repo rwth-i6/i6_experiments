@@ -61,7 +61,7 @@ class ConvertCheckpointJob(Job):
         model = self.make_model_func()
         print("Created model:", model)
 
-        with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+        with tf1.Graph().as_default() as graph, tf1.Session(graph=graph, config=tf1.ConfigProto(device_count=dict(GPU=0))).as_default() as session:
 
             for name, param in model.named_parameters():
                 assert isinstance(name, str)
