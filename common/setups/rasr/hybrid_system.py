@@ -383,16 +383,6 @@ class HybridSystem(NnSystem):
         train_crp = train_data.get_crp()
         dev_crp = dev_data.get_crp()
 
-        test_prefix = nn_train_args.pop("test_prefix", False)
-        if test_prefix:
-            corpus = train_crp.corpus_config.file
-            from i6_core.corpus.transform import MergeCorporaJob
-
-            merged_corpus = MergeCorporaJob([corpus], "new_corpus").out_merged_corpus
-            train_crp.corpus_config = copy.deepcopy(train_crp.corpus_config)
-            train_crp.corpus_config.file = merged_corpus
-            train_crp.corpus_config.remove_corpus_name_prefix = "new_corpus/"
-
         assert train_data.feature_flow == dev_data.feature_flow
         assert train_data.features == dev_data.features
         assert train_data.alignments == dev_data.alignments
