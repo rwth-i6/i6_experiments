@@ -43,6 +43,7 @@ class ConvertCheckpointJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
+        import numpy
         from returnn_common import nn
         from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
         import tensorflow as tf
