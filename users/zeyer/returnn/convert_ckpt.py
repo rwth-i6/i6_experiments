@@ -70,11 +70,13 @@ class ConvertCheckpointJob(Job):
                 assert isinstance(param, nn.Parameter)
 
                 tf_var_name = name.replace(".", "/") + "/param"
+                dtype = param.dtype
+                shape = tuple(d.dimension for d in param.shape_ordered)
                 tf_var = tf1.Variable(
                     name=tf_var_name,
-                    initial_value=0,
-                    dtype=param.dtype,
-                    shape=tuple(d.dimension for d in param.shape_ordered),
+                    initial_value=numpy.zeros(shape, dtype=dtype),
+                    dtype=dtype,
+                    shape=shape,
                 )
                 value = self.map_func(reader, tf_var)
                 tf_var.load(value, session=session)
