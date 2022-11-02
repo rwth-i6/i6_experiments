@@ -54,7 +54,11 @@ class ConvertCheckpointJob(Job):
             tf1 = tf.compat.v1
 
         reader = CheckpointReader(self.in_checkpoint.ckpt_path)
+        print("Input checkpoint:")
+        print(reader.debug_string().decode("utf-8"))
+
         model = self.make_model_func()
+        print("Created model:", model)
 
         with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
 
