@@ -108,6 +108,7 @@ def get_monophone_args():
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
+        "keep_steps": [0, 1]
     }
 
     monophone_recognition_args = {

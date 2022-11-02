@@ -26,7 +26,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation imp
     asr_evaluation,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
-
+from typing import Optional, List, Dict, Union
 
 def get_training_config(
     returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
@@ -484,6 +484,7 @@ def synthesize_with_splits(
     vocoder,
     batch_size: int = 4000,
     reconstruction_norm: bool = True,
+    segments: Optional[Dict] = None,
     **tts_model_kwargs,
 ):
     """
@@ -501,7 +502,11 @@ def synthesize_with_splits(
     :param tts_model_kwargs: kwargs to be passed to the tts model for synthesis
     :return:
     """
-    forward_segments = SegmentCorpusJob(reference_corpus, job_splits)
+    if segments is None:
+        forward_segments = SegmentCorpusJob(reference_corpus, job_splits).out_single_segment_files
+    else:
+        job_splits = len(segments)
+        forward_segments = segments
 
     verifications = []
     output_corpora = []
@@ -515,7 +520,7 @@ def synthesize_with_splits(
         )
         forward_config.config["eval"]["datasets"]["audio"][
             "segment_file"
-        ] = forward_segments.out_single_segment_files[i + 1]
+        ] = forward_segments[i + 1]
 
         last_forward_job = ReturnnForwardJob(
             model_checkpoint=checkpoint,

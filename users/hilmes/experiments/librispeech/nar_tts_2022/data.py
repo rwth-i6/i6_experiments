@@ -1021,7 +1021,7 @@ def get_ls360_100h_data():
         lexicon=librispeech_g2p_lexicon,
     )
     ls_360_segments = SegmentCorpusJob(sil_pp_train_clean_360_tts, 1).out_single_segment_files[1]
-    ls_360_100h_segments = ShuffleAndSplitSegmentsJob(ls_360_segments, split={'train': 0.28, 'dev': 0.72}).out_segments["train"]
+    ls_360_100h_segments = ShuffleAndSplitSegmentsJob(ls_360_segments, split={'train': 0.27, 'dev': 0.73}).out_segments["train"]
 
     return sil_pp_train_clean_360_tts, ls_360_100h_segments
 

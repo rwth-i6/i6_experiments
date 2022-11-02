@@ -2,6 +2,7 @@ from sisyphus import *
 from typing import Dict
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.returnn.training import ReturnnTrainingJob
+from i6_core.corpus.segments import SplitSegmentFileJob
 from i6_experiments.common.datasets.librispeech import get_corpus_object_dict
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
   get_default_vocoder,
@@ -58,6 +59,7 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
       checkout_folder_name="returnn_common",
     ).out_repository
     corpus, segments = get_ls360_100h_data()
+    segment_list = SplitSegmentFileJob(segments, concurrent=10).out_single_segments
     name = (
       "experiments/librispeech/nar_tts_2022/tts/tts_synth_ls360_experiments/100h/"
     )
@@ -142,6 +144,7 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
           use_energy_pred=("energy" in train_name),
           energy_cheat=("cheat_energy" in synth_method),
           pitch_cheat=("cheat_f0" in synth_method),
+          segments=segment_list,
           **synth_kwargs,
         )
         synthetic_data_dict[
