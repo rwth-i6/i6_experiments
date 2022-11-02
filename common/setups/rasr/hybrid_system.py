@@ -500,7 +500,7 @@ class HybridSystem(NnSystem):
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
         )
-        graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
+        graph_compile_job.add_alias(f"nn_recog/graph/{name}")
         return graph_compile_job.out_graph
 
     # -------------------- Rescoring  --------------------
