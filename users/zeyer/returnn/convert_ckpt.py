@@ -26,12 +26,12 @@ class ConvertCheckpointJob(Job):
         *,
         checkpoint: Checkpoint,
         make_model_func: Callable[[], nn.Module],
-        map_func: Callable[[CheckpointReader, tf.compat.v1.Variable], numpy.ndarray],
+        map_func: Callable[[CheckpointReader, str, tf.compat.v1.Variable], numpy.ndarray],
     ):
         """
         :param checkpoint:
         :param make_model_func:
-        :param map_func: (reader, var) -> var_value
+        :param map_func: (reader, name, var) -> var_value
         """
         self.in_checkpoint = checkpoint
         self.make_model_func = make_model_func
@@ -58,9 +58,17 @@ class ConvertCheckpointJob(Job):
         reader = CheckpointReader(self.in_checkpoint.ckpt_path)
         print("Input checkpoint:")
         print(reader.debug_string().decode("utf-8"))
+        print()
 
+        print("Creating model...")
         model = self.make_model_func()
         print("Created model:", model)
+        print("Model parameters:")
+        for name, param in model.named_parameters():
+            assert isinstance(name, str)
+            assert isinstance(param, nn.Parameter)
+            print(f"{name}: {param}")
+        print()
 
         with tf1.Graph().as_default() as graph, tf1.Session(
             graph=graph, config=tf1.ConfigProto(device_count=dict(GPU=0))
@@ -79,7 +87,7 @@ class ConvertCheckpointJob(Job):
                     dtype=dtype,
                     shape=shape,
                 )
-                value = self.map_func(reader, tf_var)
+                value = self.map_func(reader, name, tf_var)
                 tf_var.load(value, session=session)
 
             if reader.has_tensor("global_step"):
