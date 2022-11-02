@@ -279,16 +279,20 @@ class RasrSystem(meta.System):
                 self.generic_features(corpus, k, **v)
 
     @tk.block()
-    def extract_features(self, feat_args: dict, **kwargs):
+    def extract_features(
+        self, feat_args: dict, corpus_list: Optional[List[str]] = None, **kwargs
+    ):
         """
         TODO: docstring
         TODO: add more generic flow dependencies
 
         :param feat_args: see RasrInitArgs.feature_extraction_args
+        :param corpus_list:
         :param kwargs:
         :return:
         """
-        corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
+        if corpus_list is None:
+            corpus_list = self.train_corpora + self.dev_corpora + self.test_corpora
 
         for c in corpus_list:
             self.extract_features_for_corpus(c, feat_args)
@@ -339,10 +343,12 @@ class RasrSystem(meta.System):
     def forced_align(
         self,
         name: str,
+        *,
         target_corpus_key: str,
         flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
-        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
         feature_scorer_corpus_key: str = None,
+        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
+        scorer_index: int = -1,
         dump_alignment: bool = False,
         **kwargs,
     ):
@@ -359,7 +365,10 @@ class RasrSystem(meta.System):
         :return:
         """
         selected_feature_scorer = meta.select_element(
-            self.feature_scorers, feature_scorer_corpus_key, feature_scorer
+            self.feature_scorers,
+            feature_scorer_corpus_key,
+            feature_scorer,
+            scorer_index,
         )
         self.align(
             name=name,

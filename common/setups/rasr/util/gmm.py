@@ -14,7 +14,7 @@ __all__ = [
 
 import copy
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 
@@ -189,7 +189,9 @@ class GmmTriphoneArgs:
 class GmmVtlnArgs:
     def __init__(
         self,
-        training_args: Dict[str, Union[str, int, Dict]],
+        training_args: Dict[
+            str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]
+        ],
         recognition_args: dict,
         test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
@@ -212,6 +214,7 @@ class GmmVtlnArgs:
                 'accs_per_split': 2,
                 'initial_alignment': "train_tri",  # if using run function not needed
                 'feature_flow': "mfcc+context+lda+vtln",
+                'align_extra_args': {'extra_config': rasr.RasrConfig},
             }
 
         vtln align time = 8
@@ -245,7 +248,7 @@ class PrevCtm:
     :param pronunciation_scale: one of the existing pronunciation scales
     :param lm_scale: one of the existing lm-scales
     :param iteration: one of the existing GMM iterations
-    :param optimized_lm: use automatically optimized lm.scale which might differ from param lm_scale
+    :param optimized_lm: use automatically optimized lm scale which might differ from param lm_scale
     """
 
     prev_step_key: str
@@ -416,8 +419,6 @@ class GmmOutput:
     def as_returnn_rasr_data_input(
         self,
         name: str = "init",
-        *,
-        feature_flow_key: str = "gt",
         shuffle_data: bool = True,
     ):
         """
@@ -433,8 +434,8 @@ class GmmOutput:
             name=name,
             crp=copy.deepcopy(self.crp),
             alignments=self.alignments,
-            feature_flow=self.feature_flows[feature_flow_key],
-            features=self.features[feature_flow_key],
+            feature_flow=self.feature_flows,
+            features=self.features,
             acoustic_mixtures=self.acoustic_mixtures,
             feature_scorers=self.feature_scorers,
             shuffle_data=shuffle_data,

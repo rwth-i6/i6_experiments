@@ -40,12 +40,19 @@ class G2PBasedOovAugmenter:
         "min_iter"       : 1,
         "max_iter"       : 60,
         "devel"          : "5%",
-        "size_constrains": "0,1,0,1"
+        "size_constrains": "0,1,0,1",
+        "extra_args": "",
+        "g2p_path": Optional[tk.Path] = None,
+        "g2p_python": Optional[tk.Path] = None,
         }
         #######################################
         :param apply_args: apply_args = {
         "variants_mass"  : 1.0,
         "variants_number": 1
+        "g2p_path": "",
+        "g2p_python": "",
+        "filter_empty_words": bool,
+        "concurrent": int,
         }
         """
         self.original_bliss_lexicon = original_bliss_lexicon

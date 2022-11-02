@@ -1,6 +1,13 @@
-__all__ = ["ReturnnRasrDataInput", "OggZipHdfDataInput", "HybridArgs", "NnRecogArgs"]
+__all__ = [
+    "ReturnnRasrDataInput",
+    "OggZipHdfDataInput",
+    "HybridArgs",
+    "NnRecogArgs",
+    "NnForcedAlignArgs",
+]
 
-from typing import Any, Dict, List, Optional, Type, Union, TypedDict
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
 from sisyphus import tk
 
@@ -9,6 +16,10 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath
+
+from .rasr import RasrDataInput
+
+RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
 
 
 class ReturnnRasrDataInput:
@@ -20,13 +31,11 @@ class ReturnnRasrDataInput:
         self,
         name: str,
         crp: Optional[rasr.CommonRasrParameters] = None,
-        alignments: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+        alignments: Optional[RasrCacheTypes] = None,
+        feature_flow: Optional[
+            Union[rasr.FlowNetwork, Dict[str, rasr.FlowNetwork]]
         ] = None,
-        feature_flow: Optional[rasr.FlowNetwork] = None,
-        features: Optional[
-            Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None,
+        features: Optional[Union[RasrCacheTypes, Dict[str, RasrCacheTypes]]] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
         shuffle_data: bool = True,
@@ -312,3 +321,35 @@ class HybridArgs:
         self.training_args = training_args
         self.recognition_args = recognition_args
         self.test_recognition_args = test_recognition_args
+
+
+@dataclass()
+class NnRecogArgs:
+    name: str
+    returnn_config: returnn.ReturnnConfig
+    checkpoints: Dict[int, returnn.Checkpoint]
+    acoustic_mixture_path: tk.Path
+    prior_scales: List[float]
+    pronunciation_scales: List[float]
+    lm_scales: List[float]
+    optimize_am_lm_scale: bool
+    feature_flow_key: str
+    search_parameters: Dict
+    lm_lookahead: bool
+    lattice_to_ctm_kwargs: Dict
+    parallelize_conversion: bool
+    rtf: int
+    mem: int
+    lookahead_options: Optional[Dict] = None
+    epochs: Optional[List[int]] = None
+
+
+class NnForcedAlignArgs(TypedDict):
+    name: str
+    target_corpus_keys: List[str]
+    feature_scorer_corpus_key: str
+    scorer_model_key: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
+    epoch: int
+    base_flow_key: str
+    tf_flow_key: str
+    dump_alignment: bool

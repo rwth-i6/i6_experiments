@@ -8,10 +8,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
-import sisyphus.toolkit as tk
-import sisyphus.global_settings as gs
-
-from sisyphus.delayed_ops import DelayedFormat
+from sisyphus import tk
 
 # -------------------- Recipes --------------------
 
@@ -30,6 +27,7 @@ from .util import (
     HybridArgs,
     NnRecogArgs,
     RasrSteps,
+    NnForcedAlignArgs,
 )
 
 # -------------------- Init --------------------
@@ -105,6 +103,7 @@ class HybridSystem(NnSystem):
         self.nn_configs = {}
         self.nn_models = {}  # TODO remove?
         self.nn_checkpoints = {}
+        self.tf_flows = {}
 
     # -------------------- Helpers --------------------
     @staticmethod
@@ -267,10 +266,12 @@ class HybridSystem(NnSystem):
             trn_c = pairing[0]
             cv_c = pairing[1]
 
-            self.jobs[f"{trn_c}_{cv_c}"] = {}
-            self.nn_models[f"{trn_c}_{cv_c}"] = {}
-            self.nn_checkpoints[f"{trn_c}_{cv_c}"] = {}
-            self.nn_configs[f"{trn_c}_{cv_c}"] = {}
+            corpus_pair_name = f"{trn_c}_{cv_c}"
+
+            self.jobs[corpus_pair_name] = {}
+            self.nn_models[corpus_pair_name] = {}
+            self.nn_checkpoints[corpus_pair_name] = {}
+            self.nn_configs[corpus_pair_name] = {}
 
     def _set_eval_data(self, data_dict):
         for c_key, c_data in data_dict.items():
@@ -278,6 +279,7 @@ class HybridSystem(NnSystem):
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
+            self.feature_scorers[c_key] = {}
 
     def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):
         for name in self.train_corpora + self.devtrain_corpora + self.cv_corpora:
@@ -342,6 +344,7 @@ class HybridSystem(NnSystem):
         nn_train_args,
         train_corpus_key,
         cv_corpus_key,
+        feature_flow_key: str = "gt",
     ):
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[cv_corpus_key]
@@ -353,7 +356,9 @@ class HybridSystem(NnSystem):
         assert train_data.features == dev_data.features
         assert train_data.alignments == dev_data.alignments
 
-        if train_data.feature_flow is not None:
+        if isinstance(train_data.feature_flow, Dict):
+            feature_flow = train_data.feature_flow[feature_flow_key]
+        elif isinstance(train_data.feature_flow, rasr.FlowNetwork):
             feature_flow = train_data.feature_flow
         else:
             if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
@@ -482,11 +487,25 @@ class HybridSystem(NnSystem):
                     native_lstm_job.out_op,
                     forward_output_layer,
                 )
+                tf_flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
+                self.tf_flows[f"{name}-{epoch}"] = tf_flow
+
                 flow = self.add_tf_flow_to_base_flow(feature_flow, tf_flow)
                 flow.config.tf_fwd.loader.saved_model_file = checkpoints[epoch]
 
+                self.feature_scorers[recognition_corpus_key][
+                    f"pre-nn-{name}-{prior:02.2f}"
+                ] = scorer
+                self.feature_flows[recognition_corpus_key][
+                    f"{feature_flow_key}-tf-{epoch:03d}"
+                ] = flow
+
+                recog_name = (
+                    f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
+                )
+
                 recog_func(
-                    name=f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}",
+                    name=f"{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
                     corpus=recognition_corpus_key,
                     flow=flow,
@@ -615,6 +634,24 @@ class HybridSystem(NnSystem):
             for cv_c in self.cv_corpora[trn_c]:
                 raise NotImplementedError
 
+    def run_forced_align_step(self, step_args: NnForcedAlignArgs):
+        for tc_key in step_args["target_corpus_keys"]:
+            featurer_scorer_corpus_key = step_args["feature_scorer_corpus_key"]
+            scorer_model_key = step_args["scorer_model_key"]
+            epoch = step_args["epoch"]
+            base_flow = self.feature_flows[tc_key][step_args["base_flow_key"]]
+            tf_flow = self.tf_flows[step_args["tf_flow_key"]]
+            feature_flow = self.add_tf_flow_to_base_flow(base_flow, tf_flow)
+
+            self.forced_align(
+                name=step_args["name"],
+                target_corpus_key=tc_key,
+                flow=feature_flow,
+                feature_scorer_corpus_key=featurer_scorer_corpus_key,
+                feature_scorer=scorer_model_key,
+                dump_alignment=step_args["dump_alignment"],
+            )
+
     # -------------------- run setup  --------------------
 
     def run(self, steps: RasrSteps):
@@ -637,18 +674,25 @@ class HybridSystem(NnSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 if step_args is None:
+                    corpus_list = (
+                        self.train_corpora
+                        + self.cv_corpora
+                        + self.devtrain_corpora
+                        + self.dev_corpora
+                        + self.test_corpora
+                    )
                     step_args = self.rasr_init_args.feature_extraction_args
-                for all_c in (
-                    self.train_corpora
-                    + self.cv_corpora
-                    + self.devtrain_corpora
-                    + self.dev_corpora
-                    + self.test_corpora
-                ):
-                    self.feature_caches[all_c] = {}
-                    self.feature_bundles[all_c] = {}
-                    self.feature_flows[all_c] = {}
-                self.extract_features(step_args)
+                else:
+                    corpus_list = step_args.pop("corpus_list")
+
+                for all_c in corpus_list:
+                    if all_c not in self.feature_caches.keys():
+                        self.feature_caches[all_c] = {}
+                    if all_c not in self.feature_bundles.keys():
+                        self.feature_bundles[all_c] = {}
+                    if all_c not in self.feature_flows.keys():
+                        self.feature_flows[all_c] = {}
+                self.extract_features(step_args, corpus_list=corpus_list)
 
             # ---------- Prepare data ----------
             if step_name.startswith("data"):
@@ -668,3 +712,7 @@ class HybridSystem(NnSystem):
             # ---------- Realign ----------
             if step_name.startswith("realign"):
                 self.run_realign_step(step_args)
+
+            # ---------- Forced Alignment ----------
+            if step_name.startswith("forced") or step_name.startswith("align"):
+                self.run_forced_align_step(step_args)

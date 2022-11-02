@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from typing import Optional
 
 from sisyphus import tk
 
@@ -169,7 +170,11 @@ def get_corpus_object_dict(audio_format="flac", output_prefix="datasets"):
 
 
 @lru_cache()
-def get_ogg_zip_dict(output_prefix="datasets"):
+def get_ogg_zip_dict(
+    output_prefix: str = "datasets",
+    returnn_python_exe: Optional[tk.Path] = None,
+    returnn_root: Optional[tk.Path] = None,
+):
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
 
@@ -195,7 +200,12 @@ def get_ogg_zip_dict(output_prefix="datasets"):
         audio_format="ogg", output_prefix=output_prefix
     )
     for name, bliss_corpus in bliss_corpus_dict.items():
-        ogg_zip_job = BlissToOggZipJob(bliss_corpus, no_conversion=True)
+        ogg_zip_job = BlissToOggZipJob(
+            bliss_corpus,
+            no_conversion=True,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+        )
         ogg_zip_job.add_alias(
             os.path.join(output_prefix, "LibriSpeech", "%s_ogg_zip_job" % name)
         )

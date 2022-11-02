@@ -177,6 +177,8 @@ def get_g2p_augmented_bliss_lexicon_dict(
     :param bool use_stress_marker: uses phoneme symbols with stress markers
     :param bool add_unknown_phoneme_and_mapping: add [UNKNOWN] as phoneme, otherwise add only the lemma without it
     :param str output_prefix:
+    :param g2p_train_args:
+    :param g2p_apply_args:
     :return: dictionary of Paths to augmented bliss_lexicon
     :rtype: dict[str, Path]
     """
