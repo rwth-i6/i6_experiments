@@ -125,7 +125,17 @@ def _add_params():
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.bias"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
         # self-att
-        # TODO ...
+        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_mod_qkv/W"
+        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.proj.weight"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
+        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
+        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
+        # TODO ... self-att rel pos
+        #   encoder/conformer_block_06_self_att_ln_rel_pos_enc/encoding_matrix
+        # TODO remove biases... check what's actually standard. configurable?
 
 
 _add_params()
