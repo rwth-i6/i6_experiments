@@ -74,7 +74,7 @@ class ConvertCheckpointJob(Job):
                     name=tf_var_name,
                     initial_value=0,
                     dtype=param.dtype,
-                    shape=param.shape_ordered,
+                    shape=tuple(d.dimension for d in param.shape_ordered),
                 )
                 value = self.map_func(reader, tf_var)
                 tf_var.load(value, session=session)
