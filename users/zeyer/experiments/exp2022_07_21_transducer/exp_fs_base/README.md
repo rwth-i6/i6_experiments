@@ -60,3 +60,7 @@ Conformer:
 - frontend: conv?
 - param init
 - weight decay
+
+Other aspects:
+
+- Use full train corpora, including current CV set, and use hub500 as CV set. (Via Tina, matters for full-sum training.)
