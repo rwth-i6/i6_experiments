@@ -16,6 +16,10 @@ import i6_core.features as features
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
+from i6_core.returnn.flow import (
+    make_precomputed_hybrid_tf_feature_flow,
+    add_tf_flow_to_base_flow,
+)
 from i6_core.util import MultiPath, MultiOutputPath
 
 from .nn_system import NnSystem
@@ -337,7 +341,9 @@ class HybridSystem(NnSystem):
 
         return train_job
 
-    def _get_feature_flow(self, feature_flow_key: str, data_input: ReturnnRasrDataInput):
+    def _get_feature_flow(
+        self, feature_flow_key: str, data_input: ReturnnRasrDataInput
+    ):
         if isinstance(data_input.feature_flow, Dict):
             feature_flow = data_input.feature_flow[feature_flow_key]
         elif isinstance(data_input.feature_flow, rasr.FlowNetwork):
@@ -484,7 +490,6 @@ class HybridSystem(NnSystem):
                     priori_scale=prior,
                 )
 
-                from i6_core.returnn.flow import make_precomputed_hybrid_tf_feature_flow, add_tf_flow_to_base_flow
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
                     tf_checkpoint=checkpoints[epoch],
                     tf_graph=tf_graph,
@@ -561,8 +566,12 @@ class HybridSystem(NnSystem):
                     **r_args,
                 )
 
-
-    def nn_compile_graph(self, name:str, returnn_config: returnn.ReturnnConfig, epoch=None):
+    def nn_compile_graph(
+        self,
+        name: str,
+        returnn_config: returnn.ReturnnConfig,
+        epoch: Optional[int] = None,
+    ):
         """
         graph compile helper including alias
 
@@ -580,7 +589,6 @@ class HybridSystem(NnSystem):
         graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
         return graph_compile_job.out_graph
 
-
     # -------------------- Rescoring  --------------------
 
     def nn_rescoring(self):
@@ -593,7 +601,7 @@ class HybridSystem(NnSystem):
         # TODO here be ogg zip generation for training or lattice generation for SDT
         raise NotImplementedError
 
-    def run_nn_step(self, step_name:str, step_args: HybridArgs):
+    def run_nn_step(self, step_name: str, step_args: HybridArgs):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
