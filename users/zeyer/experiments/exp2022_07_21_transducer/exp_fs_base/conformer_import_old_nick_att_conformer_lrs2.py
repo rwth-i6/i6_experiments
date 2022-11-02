@@ -70,16 +70,84 @@ class MakeModel:
         )
 
 
-def map_param_func(reader, var):
+_ParamMapping = {}  # type: Dict[str,str]
+
+
+def _add_params():
+    # frontend
+    for layer_idx in [0, 1]:
+        for direction in ["fw", "bw"]:
+            for param_name in ["W", "W_re", "b"]:
+                _ParamMapping[f"encoder.input_layer.layers.{layer_idx}.{direction}.param_{param_name}"] = \
+                    f"encoder/lstm{layer_idx}_{direction}/rec/{param_name}"
+    _ParamMapping.update({
+        "encoder.input_projection.weight": "encoder/source_linear/W",
+    })
+    # conformer
+    for layer_idx in range(12):
+        # FF
+        for sub in [1, 2]:
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff1/W"
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff1/b"
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/W"
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/b"
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.layer_norm.scale"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/scale"
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.layer_norm.bias"] = \
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/bias"
+        # conv
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv1/W"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv1/b"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv2/W"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv2/b"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_mean"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_mean"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_variance"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_variance"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.beta"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_beta"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.gamma"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_gamma"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.scale"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/scale"
+        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
+        # self-att
+        # TODO ...
+
+
+_add_params()
+
+
+def map_param_func(reader, name, var):
     """map params"""
     import numpy
     import tensorflow as tf
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     assert isinstance(reader, CheckpointReader)
     assert isinstance(var, tf.Variable)
-    if reader.has_tensor(var.name):
-        return reader.get_tensor(var.name)
-    raise NotImplementedError(f"cannot map {var}")
+    if reader.has_tensor(var.op.name):
+        return reader.get_tensor(var.op.name)
+    if name in _ParamMapping:
+        var_name = _ParamMapping[name]
+        assert reader.has_tensor(var_name)
+        value = reader.get_tensor(var_name)
+        assert value.shape == tuple(var.shape.as_list())
+        assert value.dtype == var.dtype.as_numpy_dtype
+        return value
+    raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
 class Model(nn.Module):
