@@ -27,14 +27,15 @@ def sis_run_with_prefix(prefix_name: str):
     model = train(
         prefix_name, task=task, config=config, post_config=post_config,
         horovod_num_processes=4, multi_node_slots=4,
+        num_epochs=300,
         model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
 
 config = dict(
-    horovod_dataset_distribution = "random_seed_offset",
-    horovod_reduce_type = "param",
-    horovod_param_sync_time_diff = 100.,
+    horovod_dataset_distribution="random_seed_offset",
+    horovod_reduce_type="param",
+    horovod_param_sync_time_diff=100.,
 
     batching="random",
     batch_size=10000,
