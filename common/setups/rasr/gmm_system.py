@@ -213,7 +213,6 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         split_keep_values: Optional[dict] = None,
         accum_keep_values: Optional[dict] = None,
-        keep_steps: Optional[List[int]] = None,
         dump_alignment_score_report=False,
         **kwargs,
     ):
@@ -233,7 +232,6 @@ class GmmSystem(RasrSystem):
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
-        :param keep_steps: list to select special steps additionally by hand
         :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
@@ -249,9 +247,8 @@ class GmmSystem(RasrSystem):
         action_sequence = meta.align_and_accumulate_sequence(
             align_iter,
             1,
-            mark_accumulate=False,
-            mark_align=False,
-            keep_steps=keep_steps,
+            mark_accumulate=kwargs.pop("mark_accumulate", False),
+            mark_align=kwargs.pop("mark_align", False),
         )
         action_sequence += meta.split_and_accumulate_sequence(
             splits, accs_per_split
