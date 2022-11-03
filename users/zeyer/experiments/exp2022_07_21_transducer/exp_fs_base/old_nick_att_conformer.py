@@ -1290,51 +1290,6 @@ class ReturnnNetwork:
         pool_idx += 1
     return src
 
-  def add_residual_lstm_layers(self, input, num_layers, lstm_dim, dropout, l2, rec_weight_dropout, pool_sizes,
-                               residual_proj_dim=None, batch_norm=True):
-    src = input
-    pool_idx = 0
-
-    for layer in range(num_layers):
-
-      # Forward LSTM
-      lstm_fw_name = self.add_rec_layer(
-        name='lstm%i_fw' % layer, source=src, n_out=lstm_dim, direction=1, l2=l2, dropout=dropout,
-        rec_weight_dropout=rec_weight_dropout)
-
-      # Backward LSTM
-      lstm_bw_name = self.add_rec_layer(
-        name='lstm%i_bw' % layer, source=src, n_out=lstm_dim, direction=-1, l2=l2, dropout=dropout,
-        rec_weight_dropout=rec_weight_dropout)
-
-      # Concat LSTM outputs
-      new_src = [lstm_fw_name, lstm_bw_name]
-
-      # If given, project both LSTM output and LSTM input
-      residual_lstm_out = new_src
-      residual_lstm_in = src
-      if residual_proj_dim:
-        residual_lstm_out = self.add_linear_layer('lstm%i_lin_proj' % layer, new_src, n_out=residual_proj_dim, l2=l2)
-        residual_lstm_in = self.add_linear_layer('lstm%i_inp_lin_proj' % layer, src, n_out=residual_proj_dim, l2=l2)
-
-      # residual connection
-      lstm_combine = self.add_combine_layer(
-        'lstm%i_combine' % layer, [residual_lstm_in, residual_lstm_out], kind='add', n_out=residual_proj_dim)
-
-      # apply batch norm if enabled
-      if batch_norm:
-        lstm_combine = self.add_batch_norm_layer(lstm_combine + '_bn', lstm_combine)
-
-      if pool_sizes and pool_idx < len(pool_sizes):
-        lstm_pool_name = 'lstm%i_pool' % layer
-        src = self.add_pool_layer(
-          name=lstm_pool_name, source=lstm_combine, pool_size=(pool_sizes[pool_idx],), padding='same')
-        pool_idx += 1
-      else:
-        src = lstm_combine
-
-    return src
-
   def add_dot_layer(self, name, source, **kwargs):
     self._net[name] = {'class': 'dot', 'from': source}
     self._net[name].update(kwargs)
