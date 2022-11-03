@@ -84,7 +84,7 @@ class ConvertCheckpointJob(Job):
                 shape = tuple(d.dimension for d in param.shape_ordered)
                 tf_var = tf1.Variable(
                     name=tf_var_name,
-                    initial_value=numpy.zeros(shape, dtype=dtype),
+                    initial_value=tf.zeros(shape, dtype=dtype),
                     dtype=dtype,
                     shape=shape,
                 )
