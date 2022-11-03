@@ -26,7 +26,7 @@ def sis_run_with_prefix(prefix_name: str):
     task = get_switchboard_task_bpe1k()
     model = train(
         prefix_name, task=task, config=config, post_config=post_config,
-        horovod_num_processes=4, parallel_tasks=4,
+        horovod_num_processes=4, multi_node_slots=4,
         model_def=from_scratch_model_def, train_def=from_scratch_training)
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
