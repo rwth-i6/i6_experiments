@@ -70,6 +70,7 @@ class ConvertCheckpointJob(Job):
             print(f"{name}: {param}")
         print()
 
+        tf_vars = []
         with tf1.Graph().as_default() as graph, tf1.Session(
             graph=graph, config=tf1.ConfigProto(device_count=dict(GPU=0))
         ).as_default() as session:
@@ -89,15 +90,15 @@ class ConvertCheckpointJob(Job):
                 )
                 value = self.map_func(reader, name, tf_var)
                 tf_var.load(value, session=session)
+                tf_vars.append(tf_var)
 
             if reader.has_tensor("global_step"):
                 value = reader.get_tensor("global_step")
                 tf_var = tf1.train.get_or_create_global_step()
                 tf_var.load(value, session=session)
+                tf_vars.append(tf_var)
 
-        saver = tf1.train.Saver(
-            var_list=tf1.global_variables(), max_to_keep=2**31 - 1
-        )
+        saver = tf1.train.Saver(var_list=tf_vars, max_to_keep=2**31 - 1)
         ckpt_name = os.path.basename(self.in_checkpoint.ckpt_path)
         saver.save(session, self._out_model_dir.get_path() + "/" + ckpt_name)
 
