@@ -28,6 +28,7 @@ Tracks:
   - old_nick_att_conformer_lrs2: "hub5e_00": 23.3, "hub5e_01": 19.0
   - conformer_d384_h6_wd0_nopre_blstmf_specaug: "hub5e_00": 23.6, "hub5e_01": 20.8
   Far worse than BLSTM. What's the problem?
+  Check: `/u/jxu/setups/switchboard/2022-05-24-speaker-adaptation-for-neural-acoustic-modeling/work/jxu/crnn/sprint_training/do_not_delete/oclr_baseline_10_4/CRNNSprintTrainingJob.IoaZg3yRZi9L/output/crnn.config`
 
 ---
 
@@ -64,3 +65,6 @@ Conformer:
 Other aspects:
 
 - Use full train corpora, including current CV set, and use hub500 as CV set. (Via Tina, matters for full-sum training.)
+  - Maybe only the non-OOV segments from Hub500?
+  `/u/raissi/experiments/lm-sa-swb/dependencies/zhou-dev-segments-hub`
+  - Maybe cleanup Hub500. Might have different text processing...
