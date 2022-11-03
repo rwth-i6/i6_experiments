@@ -110,3 +110,4 @@ class ConvertCheckpointJob(Job):
                     os.path.basename(filename),
                     self._out_model_dir.get_path() + "/checkpoint." + postfix,
                 )
+            assert os.path.exists(self.out_checkpoint.index_path.get_path())
