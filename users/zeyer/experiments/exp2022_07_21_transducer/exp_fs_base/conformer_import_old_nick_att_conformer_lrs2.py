@@ -65,11 +65,12 @@ class MakeModel:
             enc_att_num_heads=8,
             enc_conformer_layer_opts=dict(
                 self_att_opts=dict(
+                    # Shawn et al 2018 style, old RETURNN way.
                     with_bias=False,
                     with_linear_pos=False,
                     with_pos_bias=False,
                     learnable_pos_emb=True,
-                    separate_pos_emb_per_head=True,
+                    separate_pos_emb_per_head=False,
                 )
             ),
             nb_target_dim=target_dim,
@@ -135,16 +136,20 @@ def _add_params():
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
         # self-att
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_mod_qkv/W"
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att/QKV"
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att.proj.weight"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
         _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
-        # TODO ... self-att rel pos
-        #   encoder/conformer_block_06_self_att_ln_rel_pos_enc/encoding_matrix
-        # TODO set self-att biases to 0
+        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
+        # final layer norm
+        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.scale"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_ln/scale"
+        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.bias"] = \
+            f"encoder/conformer_block_{layer_idx + 1:02d}_ln/bias"
 
 
 _add_params()
@@ -152,7 +157,6 @@ _add_params()
 
 def map_param_func(reader, name, var):
     """map params"""
-    import numpy
     import tensorflow as tf
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     assert isinstance(reader, CheckpointReader)
