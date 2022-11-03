@@ -95,23 +95,23 @@ def _add_params():
                 f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/W"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"] = \
                 f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/b"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.layer_norm.scale"] = \
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"] = \
                 f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/scale"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.layer_norm.bias"] = \
+            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"] = \
                 f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/bias"
         # conv
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv1/W"
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv1/b"
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/b"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv2/W"
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/W"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_positionwise_conv2/b"
+            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/b"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_mean"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_mean"
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_variance"] = \
@@ -135,7 +135,7 @@ def _add_params():
             f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
         # TODO ... self-att rel pos
         #   encoder/conformer_block_06_self_att_ln_rel_pos_enc/encoding_matrix
-        # TODO remove biases... check what's actually standard. configurable?
+        # TODO set self-att biases to 0
 
 
 _add_params()
