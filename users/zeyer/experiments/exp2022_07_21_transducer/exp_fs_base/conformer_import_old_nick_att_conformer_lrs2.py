@@ -57,6 +57,11 @@ class MakeModel:
         targets = nn.Data(name=self.default_target_key, **self.extern_data_dict[self.default_target_key])
         in_dim = data.feature_dim_or_sparse_dim
         target_dim = targets.feature_dim_or_sparse_dim
+        return self.make_model(in_dim, target_dim)
+
+    @classmethod
+    def make_model(cls, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
+        """make"""
         return Model(
             in_dim,
             num_enc_layers=12,
@@ -413,31 +418,8 @@ def _get_bos_idx(target_dim: nn.Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
     """Function is run within RETURNN."""
-    # Pretraining:
-    extra_net_dict = nn.NameCtx.top().root.extra_net_dict
-    extra_net_dict["#config"] = {}
-    extra_net_dict["#copy_param_mode"] = "subset"
-    num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 8, 12]), [])
-    num_enc_layers = num_enc_layers_[epoch - 1] if epoch <= len(num_enc_layers_) else num_enc_layers_[-1]
-    if num_enc_layers <= 2:
-        extra_net_dict["#config"]["batch_size"] = 20000
-    initial_dim_factor = 0.5
-    grow_frac_enc = 1.0 - float(num_enc_layers_[-1] - num_enc_layers) / (num_enc_layers_[-1] - num_enc_layers_[0])
-    dim_frac_enc = initial_dim_factor + (1.0 - initial_dim_factor) * grow_frac_enc
-    enc_att_num_heads = 4
-    return Model(
-        in_dim,
-        num_enc_layers=num_enc_layers,
-        enc_model_dim=nn.FeatureDim("enc", int(512 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
-        enc_ff_dim=nn.FeatureDim("enc-ff", int(2048 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
-        enc_att_num_heads=enc_att_num_heads,
-        nb_target_dim=target_dim,
-        wb_target_dim=target_dim + 1,
-        blank_idx=target_dim.dimension,
-        bos_idx=_get_bos_idx(target_dim),
-        enc_dropout=0.1 * dim_frac_enc,
-        enc_att_dropout=0.05 * dim_frac_enc,
-    )
+    epoch  # noqa
+    return MakeModel.make_model(in_dim, target_dim)
 
 
 from_scratch_model_def: ModelDef[Model]
