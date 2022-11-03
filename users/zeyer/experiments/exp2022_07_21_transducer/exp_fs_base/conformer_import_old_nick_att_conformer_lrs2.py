@@ -3,7 +3,7 @@ Starting point, 2022-10-12
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple, Dict, Sequence
+from typing import Optional, Any, Tuple, Dict, Sequence
 import contextlib
 from sisyphus import tk
 from returnn_common import nn
@@ -63,6 +63,15 @@ class MakeModel:
             enc_model_dim=nn.FeatureDim("enc", 512),
             enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
             enc_att_num_heads=8,
+            enc_conformer_layer_opts=dict(
+                self_att_opts=dict(
+                    with_bias=False,
+                    with_linear_pos=False,
+                    with_pos_bias=False,
+                    learnable_pos_emb=True,
+                    separate_pos_emb_per_head=True,
+                )
+            ),
             nb_target_dim=target_dim,
             wb_target_dim=target_dim + 1,
             blank_idx=target_dim.dimension,
@@ -172,6 +181,7 @@ class Model(nn.Module):
                  enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
                  enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
                  enc_att_num_heads: int = 4,
+                 enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
                  enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
                  att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
                  att_dropout: float = 0.1,
@@ -191,6 +201,7 @@ class Model(nn.Module):
                 num_layers=2, time_reduction=6,
                 dropout=enc_dropout,
             ),
+            encoder_layer_opts=enc_conformer_layer_opts,
             num_layers=num_enc_layers,
             num_heads=enc_att_num_heads,
             dropout=enc_dropout,
