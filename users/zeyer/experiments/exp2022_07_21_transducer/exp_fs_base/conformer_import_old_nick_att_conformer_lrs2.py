@@ -69,11 +69,11 @@ class MakeModel:
         return self.make_model(in_dim, target_dim)
 
     @classmethod
-    def make_model(cls, in_dim: nn.Dim, target_dim: nn.Dim) -> Model:
+    def make_model(cls, in_dim: nn.Dim, target_dim: nn.Dim, *, num_enc_layers: int = 12) -> Model:
         """make"""
         return Model(
             in_dim,
-            num_enc_layers=12,
+            num_enc_layers=num_enc_layers,
             enc_model_dim=nn.FeatureDim("enc", 512),
             enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
             enc_att_num_heads=8,
@@ -188,6 +188,10 @@ def map_param_func(reader, name, var):
 
 
 def test_import():
+    _layer_mapping = {
+        "encoder/source_linear": "encoder/input_projection",
+    }
+
     from i6_experiments.common.setups.returnn_common import serialization
     exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
 
@@ -200,7 +204,9 @@ def test_import():
     target_spatial_dim = nn.SpatialDim("target_spatial")
     target = nn.Data("target", dim_tags=[nn.batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from .old_nick_att_conformer_lrs2 import Model as OldModel
+    num_layers = 3
+    from .old_nick_att_conformer_lrs2 import Model as OldModel, encoder_args as old_encoder_args
+    old_encoder_args["num_blocks"] = num_layers
 
     print("*** Create old model")
     nn.reset_default_root_name_ctx()
@@ -222,6 +228,7 @@ def test_import():
 
     from returnn.tf.network import TFNetwork
     import tensorflow as tf
+    import numpy.testing
     import tempfile
     import atexit
     import shutil
@@ -238,8 +245,23 @@ def test_import():
         print("*** Save old model")
         net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
 
+        from returnn_common.tests.returnn_helpers import make_feed_dict
+        feed_dict = make_feed_dict(net.extern_data)
+        fetches = net.get_fetches_dict()
+        old_model_outputs_data = {}
+        for old_layer_name, _ in _layer_mapping.items():
+            layer = net.get_layer(old_layer_name)
+            out = layer.output.copy_as_batch_major()
+            old_model_outputs_data[old_layer_name] = out
+            fetches["layer:" + old_layer_name] = out.placeholder
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
+        old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
+
     def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim)
+        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
 
     print("*** Convert old model to new model")
     converter = ConvertCheckpointJob(
@@ -262,6 +284,55 @@ def test_import():
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
         net.load_params_from_file(ckpt_dir + "/new_model/model", session=session)
+
+        old_model_outputs_data["encoder/source_linear"].get_time_dim_tag().declare_same_as(
+            net.get_layer("encoder/input_projection").output.get_time_dim_tag())
+
+        feed_dict = make_feed_dict(net.extern_data)
+        fetches = net.get_fetches_dict()
+        for old_layer_name, new_layer_name in _layer_mapping.items():
+            layer = net.get_layer(new_layer_name)
+            old_out = old_model_outputs_data[old_layer_name]
+            assert old_out.batch_ndim == layer.output.batch_ndim
+            mapped_axes = layer.output.find_matching_dim_map(
+                old_out, list(range(old_out.batch_ndim)))
+            out = layer.output.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
+            fetches["layer:" + old_layer_name] = out.placeholder
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
+        new_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
+
+        for old_layer_name, new_layer_name in _layer_mapping.items():
+            out = old_model_outputs_data[old_layer_name]
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    numpy.testing.assert_equal(old_v, new_v)
+            old_v = old_model_outputs_fetch["layer:" + old_layer_name]
+            new_v = new_model_outputs_fetch["layer:" + old_layer_name]
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    assert tag.dyn_size_ext.dim_tags == (nn.batch_dim,)  # not implemented otherwise
+                    assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
+                    size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    for b in range(old_v.shape[0]):
+                        idx = [slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)]
+                        old_v[idx] = 0
+                        new_v[idx] = 0
+            numpy.testing.assert_almost_equal(old_v, new_v)
+
+    print("*** Done, exit now ***")
+    raise SystemExit("done")
+
+
+# `py` is the default sis config function name. so when running this directly, run the import test.
+# So you can just run:
+# `sis m recipe/i6_experiments/users/zeyer/experiments/exp2022_07_21_transducer/exp_fs_base/
+#  conformer_import_old_nick_att_conformer_lrs2.py`
+py = test_import
 
 
 class Model(nn.Module):
