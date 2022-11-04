@@ -187,6 +187,83 @@ def map_param_func(reader, name, var):
     raise NotImplementedError(f"cannot map {name!r} {var}")
 
 
+def test_import():
+    from i6_experiments.common.setups.returnn_common import serialization
+    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
+
+    in_dim = nn.FeatureDim("in", 40)
+    time_dim = nn.SpatialDim("time")
+    target_dim = nn.FeatureDim("target", 1030)
+    target_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
+        [str(i) for i in range(target_dim.dimension)], eos_label=0)
+    data = nn.Data("data", dim_tags=[nn.batch_dim, time_dim, in_dim])
+    target_spatial_dim = nn.SpatialDim("target_spatial")
+    target = nn.Data("target", dim_tags=[nn.batch_dim, target_spatial_dim], sparse_dim=target_dim)
+
+    from .old_nick_att_conformer_lrs2 import Model as OldModel
+
+    print("*** Create old model")
+    nn.reset_default_root_name_ctx()
+    old_model = OldModel(
+        in_dim,
+        nb_target_dim=target_dim,
+        wb_target_dim=target_dim + 1,
+        blank_idx=target_dim.dimension,
+        bos_idx=_get_bos_idx(target_dim),
+        epoch=300,
+    )
+    from_scratch_training(
+        model=old_model, data=nn.get_extern_data(data), data_spatial_dim=time_dim,
+        targets=nn.get_extern_data(target), targets_spatial_dim=target_spatial_dim)
+
+    from returnn.config import Config
+    config = Config(dict(log_verbositiy=5))
+    config.update(nn.get_returnn_config().get_config_raw_dict(old_model))
+
+    from returnn.tf.network import TFNetwork
+    import tensorflow as tf
+    import tempfile
+    import atexit
+    import shutil
+    ckpt_dir = tempfile.mkdtemp("returnn-import-test")
+    atexit.register(lambda: shutil.rmtree(ckpt_dir))
+
+    print("*** Construct TF graph for old model")
+    tf1 = tf.compat.v1
+    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+        net = TFNetwork(config=config)
+        net.construct_from_dict(config.typed_dict["network"])
+        print("*** Random init old model")
+        net.initialize_params(session)
+        print("*** Save old model")
+        net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
+
+    def _make_new_model():
+        return MakeModel.make_model(in_dim, target_dim)
+
+    print("*** Convert old model to new model")
+    converter = ConvertCheckpointJob(
+        checkpoint=Checkpoint(index_path=tk.Path(ckpt_dir + "/old_model/model.index")),
+        make_model_func=_make_new_model,
+        map_func=map_param_func,
+    )
+    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
+    converter.out_checkpoint.index_path = tk.Path(ckpt_dir + "/new_model/model.index")
+    converter.run()
+
+    print("*** Create new model")
+    nn.reset_default_root_name_ctx()
+    new_model = _make_new_model()
+    x = nn.get_extern_data(data)
+    y = new_model.encode(x, in_spatial_dim=time_dim)[0]["enc"]
+    y.mark_as_default_output()
+    config.update(nn.get_returnn_config().get_config_raw_dict(new_model))
+    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+        net = TFNetwork(config=config)
+        net.construct_from_dict(config.typed_dict["network"])
+        net.load_params_from_file(ckpt_dir + "/new_model/model", session=session)
+
+
 class Model(nn.Module):
     """Model definition"""
 
