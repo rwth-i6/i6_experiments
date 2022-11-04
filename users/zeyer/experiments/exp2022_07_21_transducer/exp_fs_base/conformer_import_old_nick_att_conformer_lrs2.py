@@ -1,5 +1,14 @@
 """
 Starting point, 2022-10-12
+
+Import model old_nick_att_conformer_lrs2,
+which uses a Conformer from an old pure-RETURNN net dict config,
+into a new RETURNN-common `nn.Conformer`.
+
+TODO
+  Checkpoint conversion seems to work
+  but model seems not correct (WER is very high).
+  So, now we probably should check layer by layer the outputs...
 """
 
 from __future__ import annotations
