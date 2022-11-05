@@ -327,7 +327,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
         enc_ff_dim=nn.FeatureDim("enc-ff", int(2048 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
         enc_att_num_heads=enc_att_num_heads,
         enc_conformer_layer_opts=dict(
-            conv_norm_use_mask=True,
+            conv_norm_opts=dict(use_mask=True),
             self_att_opts=dict(
                 # Shawn et al 2018 style, old RETURNN way.
                 with_bias=False,

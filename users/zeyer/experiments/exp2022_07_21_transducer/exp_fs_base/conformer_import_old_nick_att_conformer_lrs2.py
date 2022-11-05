@@ -74,7 +74,7 @@ class MakeModel:
             enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
             enc_att_num_heads=8,
             enc_conformer_layer_opts=dict(
-                conv_norm_use_mask=True,
+                conv_norm_opts=dict(use_mask=True),
                 self_att_opts=dict(
                     # Shawn et al 2018 style, old RETURNN way.
                     with_bias=False,
