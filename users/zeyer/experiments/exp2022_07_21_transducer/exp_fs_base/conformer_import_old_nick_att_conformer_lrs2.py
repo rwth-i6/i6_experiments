@@ -74,6 +74,7 @@ class MakeModel:
         return Model(
             in_dim,
             num_enc_layers=num_enc_layers,
+            enc_input_allow_pool_last=True,
             enc_model_dim=nn.FeatureDim("enc", 512),
             enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
             enc_att_num_heads=8,
@@ -190,6 +191,7 @@ def map_param_func(reader, name, var):
 def test_import():
     _layer_mapping = {
         "encoder/source_linear": "encoder/input_projection",
+        "encoder": "encoder",
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -242,9 +244,10 @@ def test_import():
         net.construct_from_dict(config.typed_dict["network"])
         print("*** Random init old model")
         net.initialize_params(session)
-        print("*** Save old model")
+        print("*** Save old model to disk")
         net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
 
+        print("*** Forwarding ...")
         from returnn_common.tests.returnn_helpers import make_feed_dict
         feed_dict = make_feed_dict(net.extern_data)
         fetches = net.get_fetches_dict()
@@ -283,11 +286,13 @@ def test_import():
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
+        print("*** Load new model params from disk")
         net.load_params_from_file(ckpt_dir + "/new_model/model", session=session)
 
         old_model_outputs_data["encoder/source_linear"].get_time_dim_tag().declare_same_as(
             net.get_layer("encoder/input_projection").output.get_time_dim_tag())
 
+        print("*** Forwarding ...")
         feed_dict = make_feed_dict(net.extern_data)
         fetches = net.get_fetches_dict()
         for old_layer_name, new_layer_name in _layer_mapping.items():
@@ -310,7 +315,7 @@ def test_import():
                 if tag.dyn_size_ext:
                     old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
                     new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                    numpy.testing.assert_equal(old_v, new_v)
+                    numpy.testing.assert_equal(old_v, new_v, err_msg=f"{tag} mismatch")
             old_v = old_model_outputs_fetch["layer:" + old_layer_name]
             new_v = new_model_outputs_fetch["layer:" + old_layer_name]
             for i, tag in enumerate(out.dim_tags):
@@ -319,9 +324,10 @@ def test_import():
                     assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
                     size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
                     for b in range(old_v.shape[0]):
-                        idx = [slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)]
+                        idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
                         old_v[idx] = 0
                         new_v[idx] = 0
+            print("* Comparing", old_layer_name, "vs", new_layer_name)
             numpy.testing.assert_almost_equal(old_v, new_v)
 
     print("*** Done, exit now ***")
@@ -344,6 +350,7 @@ class Model(nn.Module):
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
                  bos_idx: int,
+                 enc_input_allow_pool_last: bool = False,
                  enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
                  enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
                  enc_att_num_heads: int = 4,
@@ -366,6 +373,7 @@ class Model(nn.Module):
                 nn.FeatureDim("pre-lstm", 512),
                 num_layers=2, time_reduction=6,
                 dropout=enc_dropout,
+                allow_pool_last=enc_input_allow_pool_last,
             ),
             encoder_layer_opts=enc_conformer_layer_opts,
             num_layers=num_enc_layers,
