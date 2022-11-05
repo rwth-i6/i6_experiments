@@ -4,11 +4,6 @@ Starting point, 2022-10-12
 Import model old_nick_att_conformer_lrs2,
 which uses a Conformer from an old pure-RETURNN net dict config,
 into a new RETURNN-common `nn.Conformer`.
-
-TODO
-  Checkpoint conversion seems to work
-  but model seems not correct (WER is very high).
-  So, now we probably should check layer by layer the outputs...
 """
 
 from __future__ import annotations
@@ -45,7 +40,7 @@ def sis_run_with_prefix(prefix_name: str):
             default_input_key=task.train_dataset.get_default_input(),
             default_target_key=task.train_dataset.get_default_target(),
         ),
-        map_func=map_param_func,
+        map_func=map_param_func_v2,
     ).out_checkpoint
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
@@ -171,7 +166,7 @@ def _add_params():
 _add_params()
 
 
-def map_param_func(reader, name, var):
+def map_param_func_v2(reader, name, var):
     """map params"""
     import tensorflow as tf
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
@@ -287,7 +282,7 @@ def test_import():
     converter = ConvertCheckpointJob(
         checkpoint=Checkpoint(index_path=tk.Path(ckpt_dir + "/old_model/model.index")),
         make_model_func=_make_new_model,
-        map_func=map_param_func,
+        map_func=map_param_func_v2,
     )
     converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
     converter.out_checkpoint.index_path = tk.Path(ckpt_dir + "/new_model/model.index")
