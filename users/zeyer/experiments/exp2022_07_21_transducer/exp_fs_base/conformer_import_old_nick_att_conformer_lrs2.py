@@ -114,17 +114,17 @@ def _add_params():
         # FF
         for sub in [1, 2]:
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff1/W"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/W"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff1/b"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/b"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/W"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/W"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ff2/b"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/b"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/scale"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/scale"
             _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_1_ln/bias"
+                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/bias"
         # conv
         _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"] = \
             f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
@@ -201,6 +201,10 @@ def test_import():
         "encoder/conformer_block_01_conv_mod_bn": "encoder/layers/0/conv_block/norm",
         "encoder/conformer_block_01_conv_mod_pointwise_conv2": "encoder/layers/0/conv_block",
         "encoder/conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
+        "encoder/conformer_block_01_ffmod_2_ln": "encoder/layers/0/ffn2_layer_norm",
+        "encoder/conformer_block_01_ffmod_2_ff1": "encoder/layers/0/ffn2/linear_ff",
+        "encoder/conformer_block_01_ffmod_2_swish": "encoder/layers/0/ffn2/swish",
+        "encoder/conformer_block_01_ffmod_2_drop2": "encoder/layers/0/ffn2",
         "encoder/conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
         "encoder/conformer_block_01": "encoder/layers/0",
         "encoder": "encoder",
@@ -343,7 +347,7 @@ def test_import():
             print("* Comparing", old_layer_name, "vs", new_layer_name)
             numpy.testing.assert_almost_equal(old_v, new_v, decimal=5)
 
-    print("*** Done, exit now ***")
+    print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
 
 
