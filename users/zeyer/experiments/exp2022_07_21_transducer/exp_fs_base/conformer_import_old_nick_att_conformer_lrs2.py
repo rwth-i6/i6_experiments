@@ -79,6 +79,7 @@ class MakeModel:
             enc_ff_dim=nn.FeatureDim("enc-ff", 2048),
             enc_att_num_heads=8,
             enc_conformer_layer_opts=dict(
+                conv_norm_use_mask=True,
                 self_att_opts=dict(
                     # Shawn et al 2018 style, old RETURNN way.
                     with_bias=False,
@@ -194,6 +195,11 @@ def test_import():
         "encoder/conformer_block_01_ffmod_1_drop2": "encoder/layers/0/ffn1",
         "encoder/conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
         "encoder/conformer_block_01_self_att_res": "encoder/layers/0/add_0",
+        "encoder/conformer_block_01_conv_mod_ln": "encoder/layers/0/conv_layer_norm",
+        "encoder/conformer_block_01_conv_mod_glu": "encoder/layers/0/conv_block/gating",
+        "encoder/conformer_block_01_conv_mod_depthwise_conv2": "encoder/layers/0/conv_block/depthwise_conv",
+        "encoder/conformer_block_01_conv_mod_bn": "encoder/layers/0/conv_block/norm",
+        "encoder/conformer_block_01_conv_mod_pointwise_conv2": "encoder/layers/0/conv_block",
         "encoder/conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
         "encoder/conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
         "encoder/conformer_block_01": "encoder/layers/0",
@@ -215,6 +221,7 @@ def test_import():
     num_layers = 3
     from .old_nick_att_conformer_lrs2 import Model as OldModel, encoder_args as old_encoder_args
     old_encoder_args["num_blocks"] = num_layers
+    old_encoder_args["batch_norm_opts"]["update_sample_only_in_training"] = True  # better for testing
 
     print("*** Create old model")
     nn.reset_default_root_name_ctx()
