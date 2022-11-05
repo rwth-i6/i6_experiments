@@ -191,6 +191,12 @@ def map_param_func(reader, name, var):
 def test_import():
     _layer_mapping = {
         "encoder/source_linear": "encoder/input_projection",
+        "encoder/conformer_block_01_ffmod_1_drop2": "encoder/layers/0/ffn1",
+        "encoder/conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
+        "encoder/conformer_block_01_self_att_res": "encoder/layers/0/add_0",
+        "encoder/conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
+        "encoder/conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
+        "encoder/conformer_block_01": "encoder/layers/0",
         "encoder": "encoder",
     }
 
@@ -328,7 +334,7 @@ def test_import():
                         old_v[idx] = 0
                         new_v[idx] = 0
             print("* Comparing", old_layer_name, "vs", new_layer_name)
-            numpy.testing.assert_almost_equal(old_v, new_v)
+            numpy.testing.assert_almost_equal(old_v, new_v, decimal=5)
 
     print("*** Done, exit now ***")
     raise SystemExit("done")
