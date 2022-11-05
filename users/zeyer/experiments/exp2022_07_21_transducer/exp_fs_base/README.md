@@ -28,7 +28,20 @@ Tracks:
   - old_nick_att_conformer_lrs2: "hub5e_00": 23.3, "hub5e_01": 19.0
   - conformer_d384_h6_wd0_nopre_blstmf_specaug: "hub5e_00": 23.6, "hub5e_01": 20.8
   Far worse than BLSTM. What's the problem?
-  Check: `/u/jxu/setups/switchboard/2022-05-24-speaker-adaptation-for-neural-acoustic-modeling/work/jxu/crnn/sprint_training/do_not_delete/oclr_baseline_10_4/CRNNSprintTrainingJob.IoaZg3yRZi9L/output/crnn.config`
+  Check: `/u/jxu/setups/switchboard/2022-05-24-speaker-adaptation-for-neural-acoustic-modeling/work/jxu/crnn/sprint_training/do_not_delete/oclr_baseline_10_4/CRNNSprintTrainingJob.IoaZg3yRZi9L/output/crnn.config` (Via Tina)
+  - CE with focal_loss_factor 2
+  - 12 layers
+  - conv-based frontend
+  - 384 / 1536 dim
+  - 6 heads
+  - depthwise_conv filter size 8
+  - layer norm instead of BN
+  - dropout 0.1 / attention dropout 0.1
+  - "one-cycle" learning rate, 0.002 to 0.02 to 0.002 to 1e-07
+  - num epochs 260, partition epoch 6 (swb)
+  - aux loss layer 4, layer 8
+  - no L2
+  - no pretrain
 
 ---
 
@@ -54,13 +67,15 @@ RNA differences/Observations:
 
 Conformer:
 
-- CTX aux loss...?
+- model: frontend, num layers, dim, ff dim, heads, depthwise_conv filter size, ...
+- aux loss (CTC or CE or whatever)
 - LR schedule
+- layer norm vs batch norm
 - pretrain
 - batch_size / grad accum
 - frontend: conv?
 - param init
-- weight decay
+- weight decay (L2)
 
 Other aspects:
 
