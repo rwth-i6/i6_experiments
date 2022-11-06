@@ -354,8 +354,10 @@ def from_scratch_training(*,
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     for i in aux_loss_layers:
+        if i >= len(model.encoder.layers):
+            continue
         linear = getattr(model, f"enc_aux_logits_{i}")
-        aux_logits = linear(collected_outputs[str(i)])
+        aux_logits = linear(collected_outputs[str(i - 1)])
         aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
         aux_loss.mark_as_loss(f"ctc_{i}")
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
