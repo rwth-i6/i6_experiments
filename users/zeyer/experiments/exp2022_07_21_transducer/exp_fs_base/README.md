@@ -31,7 +31,7 @@ Tracks:
   Check: `/u/jxu/setups/switchboard/2022-05-24-speaker-adaptation-for-neural-acoustic-modeling/work/jxu/crnn/sprint_training/do_not_delete/oclr_baseline_10_4/CRNNSprintTrainingJob.IoaZg3yRZi9L/output/crnn.config` (Via Tina)
   - CE with focal_loss_factor 2
   - 12 layers
-  - conv-based frontend
+  - frontend: conv-based, downsampling 3 via strides
   - 384 / 1536 dim
   - 6 heads
   - depthwise_conv filter size 8
@@ -42,7 +42,8 @@ Tracks:
   - aux loss layer 4, layer 8
   - no L2
   - no pretrain
-  - accum_grad_multiple_step? batch size?
+  - batch size 14k, no grad accum
+  - chunking 500
 
 ---
 
