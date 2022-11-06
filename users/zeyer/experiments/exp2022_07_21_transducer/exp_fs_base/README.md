@@ -68,13 +68,19 @@ RNA differences/Observations:
 
 Conformer:
 
-- model: frontend, num layers, dim, ff dim, heads, depthwise_conv filter size, ...
-- aux loss (CTC or CE or whatever)
+- model:
+  - frontend: conv (and its variants) or BLSTM
+  - num layers
+  - dim, ff dim
+  - num heads
+  - depthwise_conv filter size
+  - layer norm vs batch norm
+    - layer norm allows for much higher LR?
+  - pos encoding type: old, new, other...
 - LR schedule
-- layer norm vs batch norm
 - pretrain
+- aux loss (CTC or CE or whatever)
 - batch_size / grad accum
-- frontend: conv?
 - param init
 - weight decay (L2)
 
