@@ -44,7 +44,8 @@ config = dict(
     learning_rate=0.02,
     learning_rates=(
         # matching pretraining
-        list(numpy.linspace(0.0001, 0.02, num=10)) * 4
+        list(numpy.linspace(0.0001, 0.01, num=10)) * 3 +
+        list(numpy.linspace(0.0001, 0.02, num=30))
     ),
     min_learning_rate=0.001 / 50,
     learning_rate_control="newbob_multi_epoch",
