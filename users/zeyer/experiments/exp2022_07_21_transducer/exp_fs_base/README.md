@@ -42,6 +42,7 @@ Tracks:
   - aux loss layer 4, layer 8
   - no L2
   - no pretrain
+  - accum_grad_multiple_step? batch size?
 
 ---
 
