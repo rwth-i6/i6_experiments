@@ -108,9 +108,8 @@ class Model(nn.Module):
             att_dropout=enc_att_dropout,
         )
 
-        self.enc_aux_logits = nn.ModuleList({
-            str(i): nn.Linear(enc_model_dim, wb_target_dim)
-            for i in enc_aux_logits})
+        for i in enc_aux_logits:
+            setattr(self, f"enc_aux_logits_{i}", nn.Linear(enc_model_dim, nb_target_dim))
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -355,7 +354,8 @@ def from_scratch_training(*,
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
     for i in aux_loss_layers:
-        aux_logits = model.enc_aux_logits[str(i)](collected_outputs[str(i)])
+        linear = getattr(model, f"enc_aux_logits_{i}")
+        aux_logits = linear(collected_outputs[str(i)])
         aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
         aux_loss.mark_as_loss(f"ctc_{i}")
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
