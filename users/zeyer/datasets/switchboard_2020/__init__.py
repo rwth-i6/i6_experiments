@@ -57,6 +57,8 @@ class _Bpe(VocabConfig):
     }
     if self.other_opts:
       d.update(self.other_opts)
+      if self.other_opts.get("class") == "SamplingBytePairEncoding":
+        d.pop("bpe_file")
     return d
 
   def get_eos_idx(self) -> Optional[int]:
