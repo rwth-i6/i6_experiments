@@ -63,6 +63,7 @@ config = dict(
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
 )
+aux_loss_layers = [4, 8]
 
 
 class Model(nn.Module):
@@ -74,6 +75,7 @@ class Model(nn.Module):
                  wb_target_dim: nn.Dim,
                  blank_idx: int,
                  bos_idx: int,
+                 enc_aux_logits: Sequence[int] = (),  # layers
                  enc_input_allow_pool_last: bool = False,
                  enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
                  enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
@@ -103,6 +105,9 @@ class Model(nn.Module):
             dropout=enc_dropout,
             att_dropout=enc_att_dropout,
         )
+
+        for i in enc_aux_logits:
+            setattr(self, f"enc_aux_logits_{i}", nn.Linear(enc_model_dim, nb_target_dim))
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -135,10 +140,12 @@ class Model(nn.Module):
         for p in self.enc_ctx.parameters():
             p.weight_decay = l2
 
-    def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim) -> (Dict[str, nn.Tensor], nn.Dim):
+    def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim,
+               collected_outputs: Optional[Dict[str, nn.Tensor]] = None,
+               ) -> Tuple[Dict[str, nn.Tensor], nn.Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         source = specaugment_v2(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
-        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim)
+        enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, axis=enc_spatial_dim, window_dim=self.enc_win_dim)
@@ -324,6 +331,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
         enc_model_dim=nn.FeatureDim("enc", int(384 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
         enc_ff_dim=nn.FeatureDim("enc-ff", int(384 * 4 * dim_frac_enc / float(enc_att_num_heads)) * enc_att_num_heads),
         enc_att_num_heads=enc_att_num_heads,
+        enc_aux_logits=aux_loss_layers,
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
         blank_idx=target_dim.dimension,
@@ -343,7 +351,15 @@ def from_scratch_training(*,
                           targets: nn.Tensor, targets_spatial_dim: nn.Dim
                           ):
     """Function is run within RETURNN."""
-    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    collected_outputs = {}
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
+    for i in aux_loss_layers:
+        if i >= len(model.encoder.layers):
+            continue
+        linear = getattr(model, f"enc_aux_logits_{i}")
+        aux_logits = linear(collected_outputs[str(i - 1)])
+        aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
+        aux_loss.mark_as_loss(f"ctc_{i}")
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
         targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
     probs, _ = model.decode(
