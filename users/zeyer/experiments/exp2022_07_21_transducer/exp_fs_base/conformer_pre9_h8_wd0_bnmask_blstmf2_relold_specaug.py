@@ -59,7 +59,7 @@ config = dict(
     learning_rate_decay=0.9,
     newbob_relative_error_threshold=-0.01,
     use_last_best_model=dict(
-        only_last_n=3,  # make sure in cleanup_old_models that keep_last_n covers those
+        only_last_epochs=3,  # make sure in cleanup_old_models that keep_last_n covers those
         filter_score=50., min_score_dist=1.5, first_epoch=35),
 )
 post_config = dict(
