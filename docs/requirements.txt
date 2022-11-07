@@ -1,1 +1,1 @@
-git+git://github.com/rwth-i6/sisyphus.git
+git+https://github.com/rwth-i6/sisyphus.git
