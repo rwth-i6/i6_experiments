@@ -21,7 +21,10 @@ from i6_experiments.users.zeyer.recog import recog_model
 from i6_experiments.users.zeyer.returnn.convert_ckpt import ConvertCheckpointJob
 
 
-_exclude_me = False
+# Can be excluded now. The test was successful. This version exactly reproduces the old model.
+# More specifically, `test_import` passes exactly, and the recog is within a reasonable range.
+# One small diff is that we use update_sample_only_in_training=True here but not in the original model.
+_exclude_me = True
 
 
 def sis_run_with_prefix(prefix_name: str):
