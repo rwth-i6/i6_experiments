@@ -9,7 +9,7 @@ from ..task import Task
 from ..score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
-def get_switchboard_task_bpe1k() -> Task:
+def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
     """
     Switchboard
     """
@@ -17,6 +17,9 @@ def get_switchboard_task_bpe1k() -> Task:
     from .score import score
 
     vocab = bpe1k
+    if bpe_sample:
+        assert not vocab.other_opts  # not expected here
+        vocab = vocab.copy(other_opts={"class": "SamplingBytePairEncoding", "breadth_prob": bpe_sample})
     train_epoch_split = 6
     train_dataset = SwitchboardExternSprint(vocab=vocab, train_epoch_split=train_epoch_split)
     dev_dataset = SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="dev")

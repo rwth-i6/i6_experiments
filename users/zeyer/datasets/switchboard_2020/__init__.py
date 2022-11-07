@@ -26,6 +26,7 @@ class _Bpe(VocabConfig):
                eos_idx: Optional[int] = None,
                bos_idx: Optional[int] = None,
                unknown_label: Optional[str] = None,
+               other_opts: Optional[Dict[str, Any]] = None,
                ):
     super(_Bpe, self).__init__()
     self.dim = dim
@@ -34,6 +35,7 @@ class _Bpe(VocabConfig):
     self.eos_idx = eos_idx
     self.bos_idx = bos_idx
     self.unknown_label = unknown_label
+    self.other_opts = other_opts
 
   def get_num_classes(self) -> int:
     """
@@ -45,7 +47,7 @@ class _Bpe(VocabConfig):
     """
     Get opts
     """
-    return {
+    d = {
       'bpe_file': self.codes,
       'vocab_file': self.vocab,
       'unknown_label': self.unknown_label,
@@ -53,6 +55,9 @@ class _Bpe(VocabConfig):
       'eos_label': self.eos_idx,
       # 'seq_postfix': [0]  # no EOS needed for RNN-T
     }
+    if self.other_opts:
+      d.update(self.other_opts)
+    return d
 
   def get_eos_idx(self) -> Optional[int]:
     """EOS"""
@@ -64,7 +69,9 @@ class _Bpe(VocabConfig):
 
   def copy(self, **kwargs):
     """Copy"""
-    opts = {k: getattr(self, k) for k in ["dim", "codes", "vocab", "eos_idx", "bos_idx", "unknown_label"]}
+    opts = {
+      k: getattr(self, k)
+      for k in ["dim", "codes", "vocab", "eos_idx", "bos_idx", "unknown_label", "other_opts"]}
     opts.update(kwargs)
     return _Bpe(**opts)
 
