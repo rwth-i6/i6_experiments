@@ -85,6 +85,12 @@ Conformer:
 - param init
 - weight decay (L2)
 
+I think a big problem is overfitting, esp on Switchboard.
+Should use some better regularization:
+- time warping (e.g. see also ESPnet, or our old twarp variants, and other variants)
+- weight dropout
+- variational weight noise
+
 Other aspects:
 
 - Use full train corpora, including current CV set, and use hub500 as CV set. (Via Tina, matters for full-sum training.)
