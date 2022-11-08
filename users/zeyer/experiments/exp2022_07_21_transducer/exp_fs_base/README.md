@@ -84,6 +84,9 @@ Conformer:
 - batch_size / grad accum
 - param init
 - weight decay (L2)
+- chunking
+  - can even do that on whole seq, inside the network (only for training)
+  - alternatively, similar effect: restrict self-attention to local context
 
 I think a big problem is overfitting, esp on Switchboard.
 Should use some better regularization:
