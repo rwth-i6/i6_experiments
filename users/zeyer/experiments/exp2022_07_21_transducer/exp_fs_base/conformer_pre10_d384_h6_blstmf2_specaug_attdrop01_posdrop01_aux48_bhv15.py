@@ -40,8 +40,6 @@ config = dict(
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
-    decouple_constraints=True,  # decoupled weight decay
-    decouple_constraints_factor=0.025,
     # gradient_noise=0.0,
     learning_rate=0.0005,
     learning_rates=(
@@ -351,7 +349,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
 
 
 from_scratch_model_def: ModelDef[Model]
-from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.behavior_version = 15
 
 
 def from_scratch_training(*,
