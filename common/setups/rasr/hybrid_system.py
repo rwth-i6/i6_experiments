@@ -258,6 +258,16 @@ class HybridSystem(NnSystem):
     def _get_feature_flow(
         self, feature_flow_key: str, data_input: ReturnnRasrDataInput
     ):
+        """
+        Select the appropriate feature flow from the data input object.
+
+        If no flows are defined, tries to create the flow based on the features
+        cache directly
+
+        :param feature_flow_key: key identifier, e.g. "gt" or "mfcc40" etc...
+        :param data_input: Data input object containing the flows
+        :return: training feature flow
+        """
         if isinstance(data_input.feature_flow, Dict):
             feature_flow = data_input.feature_flow[feature_flow_key]
         elif isinstance(data_input.feature_flow, rasr.FlowNetwork):
@@ -489,9 +499,10 @@ class HybridSystem(NnSystem):
         """
         graph compile helper including alias
 
-        :param name:
-        :param returnn_config:
-        :param epoch:
+        :param name: name for the alias
+        :param returnn_config: ReturnnConfig that defines the graph
+        :param epoch: optionally a specific epoch to compile when using
+            e.g. `def get_network(epoch=...)` in the config
         :return: the TF graph
         """
         graph_compile_job = returnn.CompileTFGraphJob(
