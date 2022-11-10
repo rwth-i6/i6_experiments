@@ -355,7 +355,10 @@ def create_config(
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         gradient_clip=0.0, specaug_str_func_opts=None,
-        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None):
+        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None,
+        config_override=None,
+
+):
 
     exp_config = copy.deepcopy(config)  # type: dict
 
@@ -540,6 +543,9 @@ def create_config(
 
     if use_data_pipeline:
         extra_python_code += '\n' + data_pipeline_code
+
+    if config_override:
+        exp_config.update(config_override)
 
     returnn_config = ReturnnConfig(
         exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog, python_epilog=extra_python_code, hash_full_python_code=True,

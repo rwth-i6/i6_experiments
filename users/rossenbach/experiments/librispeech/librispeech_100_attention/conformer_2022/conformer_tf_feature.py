@@ -8,12 +8,12 @@ from i6_core.tools import CloneGitRepositoryJob
 from i6_core.returnn import ReturnnConfig
 
 from .pipeline import \
-    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, search_single, get_average_checkpoint
-
+    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, search_single, get_average_checkpoint, get_average_checkpoint_v2
 
 from .attention_asr_config import create_config, ConformerEncoderArgs, TransformerDecoderArgs, RNNDecoderArgs
+from .base_config import get_lm_opts, apply_fairseq_init_to_conformer_encoder
+from .feature_extraction_net import log10_net, log10_net_10ms, get_roll_augment_net
 
-from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
 
 def conformer_tf_features():
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
@@ -22,8 +22,9 @@ def conformer_tf_features():
     prefix_name = "experiments/librispeech/librispeech_100_attention/conformer_2022"
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
-    training_datasets = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True)
     training_datasets_speedperturbed = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True)
+    # retrain dataset has curriculum options disabled
+    training_datasets_speedperturbed_retrain = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=False)
 
     # build testing datasets
     test_dataset_tuples = {}
@@ -36,17 +37,10 @@ def conformer_tf_features():
         num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
         pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
 
-    # fairseq init
-    fairseq_ff_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=1.0)"  # limit = sqrt(6 / (fan_in + fan_out))
-    fairseq_mhsa_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=0.5)"  # limit = sqrt(6 * 0.5 / (fan_in + fan_out)) = sqrt(3 / (fan_in + fan_out))
-    conformer_enc_args.ff_init = fairseq_ff_init
-    conformer_enc_args.mhsa_init = fairseq_mhsa_init
-    conformer_enc_args.mhsa_out_init = fairseq_ff_init
-    conformer_enc_args.conv_module_init = fairseq_ff_init
+    apply_fairseq_init_to_conformer_encoder(conformer_enc_args)
     conformer_enc_args.ctc_loss_scale = 1.0
 
     rnn_dec_args = RNNDecoderArgs()
-
     training_args = {}
 
     # LR scheduling
@@ -67,119 +61,13 @@ def conformer_tf_features():
     # pretraining
     training_args['pretrain_opts'] = {'variant': 4, "initial_batch_size": 20000*200}
     training_args['pretrain_reps'] = 6
+    training_args['with_staged_network'] = True
 
-    # ---------------------------------------------------------
-    # LM Settings
-    transf_lm_net = TransformerLM(
-        source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
-    transf_lm_net.create_network()
-    transf_lm_opts = {
-        'lm_subnet': transf_lm_net.network.get_net(),
-        'lm_output_prob_name': 'lm_output',
-        'is_recurrent': True,
-        'preload_from_files': {
-            'lm_model': {
-                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.016',
-                'prefix': 'lm_'
-            }
-        },
-        'name': 'trafo',
-    }
-    # ---------------------------------------------------------
-
-
-    # conformer round 1
-    name = 'tf_feature_conformer_12l_lstm_1l_short'
-    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
-    local_conformer_enc_args.ctc_loss_scale = 1.0
-    local_training_args = copy.deepcopy(training_args)
-
-    # pretraining
-    local_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 20000*200}
-    local_training_args['pretrain_reps'] = 5
-    local_training_args['batch_size'] = 15000*200  # frames * samples per frame
-
-    exp_prefix = prefix_name + "/" + name
-    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
-    args['name'] = name
-    args['with_staged_network'] = True
-    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
-
-    from .feature_extraction_net import layernorm_ft_net, log10_net, log10_halved_net, log10_net_10ms
-
-    def run_exp(ft_name, feature_extraction_net):
-        returnn_config = create_config(training_datasets=training_datasets, **args, feature_extraction_net=feature_extraction_net)
-        train_job = training(ft_name, returnn_config, returnn_exe, returnn_root)
-        search(ft_name + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
-
-        ext_lm_search_args = copy.deepcopy(args)
-        ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
-
-        for lm_scale in [0.36, 0.38, 0.4, 0.42, 0.44]:
-            search_args = copy.deepcopy(ext_lm_search_args)
-            search_args['ext_lm_opts']['lm_scale'] = lm_scale
-            returnn_config = create_config(training_datasets=training_datasets, **search_args, feature_extraction_net=feature_extraction_net)
-            returnn_config.config["batch_size"] = 10000*200  # smaller size for recognition
-            search_single(ft_name + "/default_last_ext_lm_%.2f" % lm_scale,
-                          returnn_config,
-                          train_job.out_checkpoints[250],
-                          test_dataset_tuples["dev-other"][0],
-                          test_dataset_tuples["dev-other"][1],
-                          returnn_exe,
-                          returnn_root)
-
-    run_exp(exp_prefix + "/" + "layernormnet", layernorm_ft_net)
-    run_exp(exp_prefix + "/" + "raw_log10", log10_net)
-    run_exp(exp_prefix + "/" + "raw_log10_halved", log10_halved_net)
-
-
-
-    # conformer round 2
-    name = 'tf_feature_conformer_12l_lstm_1l_short_v2'
-    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
-    local_conformer_enc_args.ctc_loss_scale = 1.0
-    local_training_args = copy.deepcopy(training_args)
-
-    # pretraining
-    local_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 20000*200}
-    local_training_args['pretrain_reps'] = 6
-    local_training_args['batch_size'] = 15000*200  # frames * samples per frame
-
-    exp_prefix = prefix_name + "/" + name
-    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
-    args['name'] = name
-    args['with_staged_network'] = True
-    returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
-                                         commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
-
-    def run_exp_v2(ft_name, feature_extraction_net):
-        returnn_config = create_config(training_datasets=training_datasets_speedperturbed, **args, feature_extraction_net=feature_extraction_net)
-        train_job = training(ft_name, returnn_config, returnn_exe, returnn_root, num_epochs=300)
-        search(ft_name + "/default_last", returnn_config, train_job.out_checkpoints[300], test_dataset_tuples, returnn_exe, returnn_root)
-
-        ext_lm_search_args = copy.deepcopy(args)
-        ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
-
-        for lm_scale in [0.36, 0.38, 0.4, 0.42, 0.44]:
-            search_args = copy.deepcopy(ext_lm_search_args)
-            search_args['ext_lm_opts']['lm_scale'] = lm_scale
-            returnn_config = create_config(training_datasets=training_datasets, **search_args, feature_extraction_net=feature_extraction_net)
-            returnn_config.config["batch_size"] = 10000*200  # smaller size for recognition
-            search_single(ft_name + "/default_last_ext_lm_%.2f" % lm_scale,
-                          returnn_config,
-                          train_job.out_checkpoints[300],
-                          test_dataset_tuples["dev-other"][0],
-                          test_dataset_tuples["dev-other"][1],
-                          returnn_exe,
-                          returnn_root)
-
-    run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net)
+    transf_lm_opts = get_lm_opts()
 
     # conformer round 2
     name = 'tf_feature_conformer_12l_lstm_1l_normal_v2'
     local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
-    local_conformer_enc_args.ctc_loss_scale = 1.0
     local_training_args = copy.deepcopy(training_args)
 
     # pretraining
@@ -190,16 +78,26 @@ def conformer_tf_features():
     exp_prefix = prefix_name + "/" + name
     args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
     args['name'] = name
-    args['with_staged_network'] = True
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                          commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
 
-    def run_exp_v2(ft_name, feature_extraction_net, **args):
-        returnn_config = create_config(training_datasets=training_datasets_speedperturbed, **args, feature_extraction_net=feature_extraction_net)
+    def run_exp_v2(ft_name, feature_extraction_net, datasets, train_args, search_args=None):
+        search_args = search_args if search_args is not None else train_args
+        returnn_config = create_config(training_datasets=datasets, **train_args, feature_extraction_net=feature_extraction_net)
+        returnn_search_config = create_config(training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
         train_job = training(ft_name, returnn_config, returnn_exe, returnn_root, num_epochs=250)
-        average = get_average_checkpoint(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
-        search(ft_name + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
-        search(ft_name + "/average_4", returnn_config, average, test_dataset_tuples, returnn_exe, returnn_root)
+        # average = get_average_checkpoint(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+        average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+        from i6_core.returnn.training import GetBestTFCheckpointJob
+        best_checkpoint_job = GetBestTFCheckpointJob(
+            train_job.out_model_dir,
+            train_job.out_learning_rates,
+            key="dev_score_output/output_prob",
+            index=0)
+
+        search(ft_name + "/default_best", returnn_search_config, best_checkpoint_job.out_checkpoint, test_dataset_tuples, returnn_exe, returnn_root)
+        search(ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
+        search(ft_name + "/average_4", returnn_search_config, average, test_dataset_tuples, returnn_exe, returnn_root)
 
         ext_lm_search_args = copy.deepcopy(args)
         ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
@@ -207,7 +105,7 @@ def conformer_tf_features():
         for lm_scale in [0.36, 0.38, 0.4, 0.42, 0.44]:
             search_args = copy.deepcopy(ext_lm_search_args)
             search_args['ext_lm_opts']['lm_scale'] = lm_scale
-            returnn_config = create_config(training_datasets=training_datasets, **search_args, feature_extraction_net=feature_extraction_net)
+            returnn_config = create_config(training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
             returnn_config.config["batch_size"] = 10000*200  # smaller size for recognition
             search_single(ft_name + "/default_last_ext_lm_%.2f" % lm_scale,
                           returnn_config,
@@ -218,8 +116,59 @@ def conformer_tf_features():
                           returnn_root)
         return train_job
 
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, **args)
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = train_job.out_checkpoints[80]
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, **args_retrain)
+    train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
 
+    #local_args = copy.deepcopy(args)
+    #local_args["pretrain_opts"]["variant"] = 7
+    #train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_var7", log10_net_10ms, **local_args)
+
+    args_retrain = copy.deepcopy(args)
+    args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain)
+    
+    args_retrain_newbob = copy.deepcopy(args)
+    args_retrain_newbob["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    args_retrain_newbob["config_override"] = {"newbob_error_threshold": 0.0}
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob)
+ 
+    args_retrain_newbob_v2 = copy.deepcopy(args)
+    args_retrain_newbob_v2["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    args_retrain_newbob_v2["config_override"] = {"newbob_relative_error_threshold": 0.0}
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob_v2)
+
+    from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.synthetic_storage import synthetic_ogg_zip_data
+
+    training_datasets_speedperturbed_synth = build_training_datasets(
+        returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=True,
+        synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
+        partition_epoch=18,
+        original_scale=3,
+        synthetic_scale=1,
+    )
+
+    training_datasets_speedperturbed_retrain_synth = build_training_datasets(
+        returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=False,
+        synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
+        partition_epoch=18,
+        original_scale=3,
+        synthetic_scale=1,
+    )
+
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args)
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain)
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob)
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob_v2)
+
+    local_args = copy.deepcopy(args)
+    local_args["config_override"] = {"newbob_error_threshold": 0.0}
+    run_exp_v2(exp_prefix + "/" + "raw_log10_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=local_args)
+
+
+    # Dataaug experiment
+    local_args = copy.deepcopy(args)
+    log10_net_10ms_aug = get_roll_augment_net(min_val=0.125, max_val=0.25)
+    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_18_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args)
+    log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25)
+    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args)
+    log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25, broadcast_scale=False)
+    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_no_broadcast", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args)

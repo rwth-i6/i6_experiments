@@ -8,7 +8,7 @@ from i6_core.tools import CloneGitRepositoryJob
 from i6_core.returnn import ReturnnConfig
 
 from .pipeline import \
-    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, search_single
+    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, search_single, get_average_checkpoint_v2
 
 from .attention_asr_config import create_config, ConformerEncoderArgs, TransformerDecoderArgs, RNNDecoderArgs
 from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
@@ -29,6 +29,14 @@ def conformer_tf_features():
         bpe_size=10000,
         use_raw_features=True,
         link_speed_perturbation=True
+    )
+    training_datasets_speedperturbed_retrain = build_training_datasets(
+        returnn_exe,
+        returnn_root_datasets,
+        prefix_name, bpe_size=10000,
+        use_raw_features=True,
+        link_speed_perturbation=True,
+        use_curicculum=False
     )
 
     # build testing datasets
@@ -111,11 +119,23 @@ def conformer_tf_features():
     returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                          commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
 
-    def run_exp_v2(ft_name, feature_extraction_net):
-        returnn_config = create_config(training_datasets=training_datasets_speedperturbed, **args, feature_extraction_net=feature_extraction_net)
+    def run_exp_v2(ft_name, feature_extraction_net, datasets, train_args, search_args=None):
+        search_args = search_args if search_args is not None else train_args
+        returnn_config = create_config(training_datasets=datasets, **train_args, feature_extraction_net=feature_extraction_net)
+        returnn_search_config = create_config(training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
         train_job = training(ft_name, returnn_config, returnn_exe, returnn_root, num_epochs=250)
-        search(ft_name + "/default_last", returnn_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
+        # average = get_average_checkpoint(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+        average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+        from i6_core.returnn.training import GetBestTFCheckpointJob
+        best_checkpoint_job = GetBestTFCheckpointJob(
+            train_job.out_model_dir,
+            train_job.out_learning_rates,
+            key="dev_score_output/output_prob",
+            index=0)
 
+        search(ft_name + "/default_best", returnn_search_config, best_checkpoint_job.out_checkpoint, test_dataset_tuples, returnn_exe, returnn_root)
+        search(ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250], test_dataset_tuples, returnn_exe, returnn_root)
+        search(ft_name + "/average_4", returnn_search_config, average, test_dataset_tuples, returnn_exe, returnn_root)
         # ext_lm_search_args = copy.deepcopy(args)
         # ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
 
@@ -131,6 +151,15 @@ def conformer_tf_features():
         #                   test_dataset_tuples["dev-other"][1],
         #                   returnn_exe,
         #                   returnn_root)
+        return train_job
 
-    run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms)
+    train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
+
+    local_args = copy.deepcopy(args)
+    local_args["config_override"] = {"newbob_error_threshold": 0.0}
+    run_exp_v2(exp_prefix + "/" + "raw_log10_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=local_args)
+ 
+    args_retrain = copy.deepcopy(args)
+    args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain)
 

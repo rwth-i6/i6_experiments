@@ -98,6 +98,12 @@ class ReturnnAudioFeatureOptions:
             self.__dict__["features"] = self.features.value
 
 
+@dataclasses.dataclass(frozen=True)
+class ReturnnAudioRawOptions:
+    peak_normalization: bool = True
+    preemphasis: float = None
+
+
 class AudioFeatureDatastream(Datastream):
     """
     Encapsulates options for audio features used by OggZipDataset via :class:`ExtractAudioFeaturesOptions` in RETURNN
@@ -218,6 +224,50 @@ class AudioFeatureDatastream(Datastream):
             self.additional_options[
                 "norm_std_dev"
             ] = extract_dataset_statistics_job.out_std_dev_file
+
+
+class AudioRawDatastream(Datastream):
+    """
+    Encapsulates options for audio features used by OggZipDataset via :class:`ExtractAudioFeaturesOptions` in RETURNN
+    """
+
+    def __init__(
+            self,
+            available_for_inference: bool,
+            options: ReturnnAudioRawOptions,
+            **kwargs,
+    ):
+        super().__init__(available_for_inference)
+        self.options = options
+
+
+    def as_returnn_extern_data_opts(
+            self, available_for_inference: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        """
+        :param bool available_for_inference: allows to overwrite the given state if desired. This can be used in case
+            the stream is used as output of one model but as input to the next one.
+        :return: dictionary for an `extern_data` entry.
+        """
+        return {
+            **super().as_returnn_extern_data_opts(
+                available_for_inference=available_for_inference
+            ),
+            "shape": (None, 1),
+            "dim": 1,
+        }
+
+    def as_returnn_data_opts(
+        self, available_for_inference: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        return self.as_returnn_extern_data_opts(available_for_inference=available_for_inference)
+
+    def as_returnn_audio_opts(self) -> Dict[str, Any]:
+        """
+        :return: dictionary for `ExtractAudioFeatures` parameters, e.g. as `audio` parameter of the OggZipDataset
+        """
+        audio_opts_dict = dataclasses.asdict(self.options)
+        return {'features': "raw", **audio_opts_dict}
 
 
 def get_default_asr_audio_datastream(

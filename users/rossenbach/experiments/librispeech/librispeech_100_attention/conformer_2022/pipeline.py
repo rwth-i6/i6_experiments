@@ -74,7 +74,10 @@ def build_training_datasets(
         use_curicculum=True,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=False,
-        use_raw_features=False
+        use_raw_features=False,
+        synthetic_ogg_zip=None,
+        original_scale=1,
+        synthetic_scale=1,
     ):
     """
 
@@ -115,8 +118,12 @@ def build_training_datasets(
     if link_speed_perturbation:
         training_audio_opts["pre_process"] = CodeWrapper("speed_pert")
 
+    training_ogg_combination = train_clean_100_ogg
+    if synthetic_ogg_zip:
+        training_ogg_combination = [train_clean_100_ogg] * original_scale + [synthetic_ogg_zip] * synthetic_scale
+
     train_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=train_clean_100_ogg,
+        path=training_ogg_combination,
         audio_opts=training_audio_opts,
         target_opts=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=partition_epoch,
@@ -279,6 +286,7 @@ def get_best_checkpoint(training_job, output_path):
     best_checkpoint_job.add_alias(os.path.join(output_path, "get_best_checkpoint"))
     return best_checkpoint_job.out_checkpoint
 
+
 def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:int = 4):
     """
     get an averaged checkpoint using n models
@@ -298,6 +306,29 @@ def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:
         epochs.append(best_checkpoint_job.out_epoch)
     average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
     return average_checkpoint_job.out_checkpoint
+
+
+def get_average_checkpoint_v2(training_job, returnn_exe, returnn_root, num_average:int = 4):
+    """
+    get an averaged checkpoint using n models
+
+    :param training_job:
+    :param num_average:
+    :return:
+    """
+    from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
+    from i6_core.returnn.training import GetBestTFCheckpointJob
+    epochs = []
+    for i in range(num_average):
+        best_checkpoint_job = GetBestTFCheckpointJob(
+            training_job.out_model_dir,
+            training_job.out_learning_rates,
+            key="dev_score_output/output_prob",
+            index=i)
+        epochs.append(best_checkpoint_job.out_epoch)
+    average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    return average_checkpoint_job.out_checkpoint
+
 
 def search_single(
         prefix_name,
@@ -340,6 +371,7 @@ def search_single(
 
     tk.register_output(prefix_name + "/search_out_words.py", search_words)
     tk.register_output(prefix_name + "/wer", wer.out_wer)
+    return wer.out_wer
 
 
 def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root):
@@ -354,7 +386,22 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     :return:
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
+    wers = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
-        search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+        wers[key] = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+
+    from i6_core.report import GenerateReportStringJob, MailJob
+    format_string = " - ".join(["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()])
+    values = {}
+    for key in test_dataset_tuples.keys():
+        values[key] = key
+        values["%s_val" % key] = wers[key]
+
+    report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
+    mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
+    tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+
+
+
 
 

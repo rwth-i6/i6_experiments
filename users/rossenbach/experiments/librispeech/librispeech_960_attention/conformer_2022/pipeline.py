@@ -224,6 +224,28 @@ def get_best_checkpoint(training_job, output_path):
     return best_checkpoint_job.out_checkpoint
 
 
+def get_average_checkpoint_v2(training_job, returnn_exe, returnn_root, num_average:int = 4):
+    """
+    get an averaged checkpoint using n models
+
+    :param training_job:
+    :param num_average:
+    :return:
+    """
+    from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
+    from i6_core.returnn.training import GetBestTFCheckpointJob
+    epochs = []
+    for i in range(num_average):
+        best_checkpoint_job = GetBestTFCheckpointJob(
+            training_job.out_model_dir,
+            training_job.out_learning_rates,
+            key="dev_score_output/output_prob",
+            index=i)
+        epochs.append(best_checkpoint_job.out_epoch)
+    average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    return average_checkpoint_job.out_checkpoint
+
+
 def search_single(
         prefix_name,
         returnn_config,

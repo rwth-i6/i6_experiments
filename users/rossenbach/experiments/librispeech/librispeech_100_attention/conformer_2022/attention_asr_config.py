@@ -13,7 +13,19 @@ from .zeineldeen_helpers import data_aug
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
-from .base_config import config, post_config
+config = {
+}
+
+# changing these does not change the hash
+post_config = {
+    'use_tensorflow': True,
+    'tf_log_memory_usage': True,
+    'cleanup_old_models': True,
+    'log_batch_size': True,
+    'debug_print_layer_output_template': True,
+    'debug_mode': False,
+    'batching': 'random'
+}
 
 # -------------------------- LR Scheduling -------------------------- #
 
@@ -164,6 +176,10 @@ def pretrain_layers_and_dims(
         idx += 1  # 1 1 2 3
         num_blocks = 4 * idx  # 4 4 8 12 16
         StartNumLayers = 4
+    elif variant == 7:
+        idx += 1 # 1 1 2 3 4
+        StartNumLayers = 6
+        num_blocks = 4 + 2*idx  # 6 6 8 10 12
     else:
         raise ValueError("variant {} is not defined".format(variant))
 
@@ -355,14 +371,17 @@ def create_config(
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         gradient_clip=0.0, specaug_str_func_opts=None,
-        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None):
+        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None,
+        config_override=None,
+):
 
     exp_config = copy.deepcopy(config)  # type: dict
 
     exp_config["extern_data"] = training_datasets.extern_data
-    exp_config["train"] = training_datasets.train.as_returnn_opts()
-    exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-    exp_config["eval_datasets"] = {'devtrain': training_datasets.devtrain.as_returnn_opts()}
+    if not is_recog:
+        exp_config["train"] = training_datasets.train.as_returnn_opts()
+        exp_config["dev"] = training_datasets.cv.as_returnn_opts()
+        exp_config["eval_datasets"] = {'devtrain': training_datasets.devtrain.as_returnn_opts()}
 
     target = 'bpe_labels'
 
@@ -540,6 +559,9 @@ def create_config(
 
     if use_data_pipeline:
         extra_python_code += '\n' + data_pipeline_code
+
+    if config_override:
+        exp_config.update(config_override)
 
     returnn_config = ReturnnConfig(
         exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog, python_epilog=extra_python_code, hash_full_python_code=True,
