@@ -44,6 +44,21 @@ Tracks:
   - no pretrain
   - batch size 14k, no grad accum
   - chunking 500
+  Check: `/work/asr4/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/crnn/custom_sprint_training/CustomCRNNSprintTrainingJob.C7DaO3jCzO1K/output/crnn.config` (via Wei)
+  - full-sum training
+  - 12 layers
+  - frontend: 3 layer 2d conv, downsampling 4 via 2*2 strides
+  - 512 / 2048 dim
+  - 8 heads
+  - depthwise_conv filter size 32
+  - Batch norm: 'delay_sample_update': True, 'epsilon': 1e-05, 'momentum': 0.0, 'update_sample_only_in_training': True, 'use_sample': 1.0
+  - L2: 5e-06 (but not everywhere)
+  - Dropout 0.2 / attention dropout 0.2
+  - batch_size 3000, accum_grad_multiple_step 3
+  - no aux loss
+  - custom one cycle LR
+  - custom spec augment
+  - no pretrain
 
 ---
 
