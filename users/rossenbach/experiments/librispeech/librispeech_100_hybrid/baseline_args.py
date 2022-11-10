@@ -48,18 +48,18 @@ def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
     return network, output_layers
 
 
-def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250):
-    evaluation_epochs  = list(np.arange(250, num_epochs + 1, 10))
+def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, extra_exps=False):
+    evaluation_epochs  = list(np.arange(num_epochs, num_epochs + 1, 10))
 
     returnn_configs = get_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
-        evaluation_epochs=evaluation_epochs
+        evaluation_epochs=evaluation_epochs, extra_exps=extra_exps,
     )
 
     returnn_recog_configs = get_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
         evaluation_epochs=evaluation_epochs,
-        recognition=True,
+        recognition=True, extra_exps=extra_exps,
     )
 
 
@@ -153,7 +153,7 @@ def get_feature_extraction_args():
 
 def get_returnn_configs(
         num_inputs: int, num_outputs: int, batch_size: int, evaluation_epochs: List[int],
-        recognition=False,
+        recognition=False, extra_exps=False
 ):
     # ******************** blstm base ********************
 
@@ -206,7 +206,6 @@ def get_returnn_configs(
         network["log_output"]["is_output_layer"] = True
 
 
-
     blstm_base_config = copy.deepcopy(base_config)
     blstm_base_config.update(
         {
@@ -226,15 +225,31 @@ def get_returnn_configs(
         }
     )
 
-    blstm_base_returnn_config = ReturnnConfig(
-        config=blstm_base_config,
-        post_config=base_post_config,
-        hash_full_python_code=True,
-        python_prolog=get_funcs(),
-        pprint_kwargs={"sort_dicts": False},
-    )
+    def make_returnn_config(config):
+        return ReturnnConfig(
+            config=config,
+            post_config=base_post_config,
+            hash_full_python_code=True,
+            python_prolog=get_funcs(),
+            pprint_kwargs={"sort_dicts": False},
+        )
+    blstm_base_returnn_config = make_returnn_config(blstm_base_config)
 
-    return {
-        "blstm_base": blstm_base_returnn_config,
-    }
+    if extra_exps:
+        oclr_v1_config = copy.deepcopy(blstm_base_config)
+        oclr_v1_config["learning_rates"] = list(np.linspace(2.5e-5, 3e-4, 50)) + list(np.linspace(3e-4, 2.5e-5, 50))
+        oclr_v1_config["newbob_multi_num_epochs"] = 3
+        oclr_v2_config = copy.deepcopy(blstm_base_config)
+        oclr_v2_config["learning_rates"] = list(np.linspace(2.5e-5, 4e-4, 50)) + list(np.linspace(4e-4, 2.5e-5, 50))
+        oclr_v2_config["newbob_multi_num_epochs"] = 3
+
+        return {
+            "blstm_oclr_v1": make_returnn_config(oclr_v1_config),
+            "blstm_oclr_v2": make_returnn_config(oclr_v2_config),
+            "blstm_base": blstm_base_returnn_config,
+        }
+    else:
+        return {
+            "blstm_base": blstm_base_returnn_config,
+        }
 
