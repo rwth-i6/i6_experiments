@@ -213,7 +213,9 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         split_keep_values: Optional[dict] = None,
         accum_keep_values: Optional[dict] = None,
-        dump_alignment_score_report=False,
+        dump_alignment_score_report: bool = False,
+        mark_accumulate: bool = False,
+        mark_align: bool = False,
         **kwargs,
     ):
         """
@@ -232,6 +234,8 @@ class GmmSystem(RasrSystem):
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
+        :param mark_accumulate: Passed to split_and_accumulate_sequence, defines accums to be marked
+        :param mark_align: Passed to split_and_accumulate_sequence, defines alings to be marked
         :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
@@ -247,8 +251,8 @@ class GmmSystem(RasrSystem):
         action_sequence = meta.align_and_accumulate_sequence(
             align_iter,
             1,
-            mark_accumulate=kwargs.pop("mark_accumulate", False),
-            mark_align=kwargs.pop("mark_align", False),
+            mark_accumulate=mark_accumulate,
+            mark_align=mark_align,
         )
         action_sequence += meta.split_and_accumulate_sequence(
             splits, accs_per_split
@@ -1474,13 +1478,13 @@ class GmmSystem(RasrSystem):
             self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
-            ppl_job = lm.ComputePerplexityJob(
-                self.crp[eval_c],
-                corpus_recipes.CorpusToTxtJob(
-                    self.crp[eval_c].corpus_config.file
-                ).out_txt,
-            )
-            tk.register_output(f"lms/{eval_c}.ppl", ppl_job.perplexity)
+            #ppl_job = lm.ComputePerplexityJob(
+            #    self.crp[eval_c],
+            #    corpus_recipes.CorpusToTxtJob(
+            #        self.crp[eval_c].corpus_config.file
+            #    ).out_txt,
+            #)
+            #tk.register_output(f"lms/{eval_c}.ppl", ppl_job.perplexity)
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------
