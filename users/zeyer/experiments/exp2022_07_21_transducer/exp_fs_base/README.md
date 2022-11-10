@@ -28,6 +28,7 @@ Tracks:
   - old_nick_att_conformer_lrs2: "hub5e_00": 23.3, "hub5e_01": 19.0
   - conformer_d384_h6_wd0_nopre_blstmf_specaug: "hub5e_00": 23.6, "hub5e_01": 20.8
   Far worse than BLSTM. What's the problem?
+
   Check: `/u/jxu/setups/switchboard/2022-05-24-speaker-adaptation-for-neural-acoustic-modeling/work/jxu/crnn/sprint_training/do_not_delete/oclr_baseline_10_4/CRNNSprintTrainingJob.IoaZg3yRZi9L/output/crnn.config` (Via Tina)
   - CE with focal_loss_factor 2
   - 12 layers
@@ -38,12 +39,13 @@ Tracks:
   - layer norm instead of BN
   - dropout 0.1 / attention dropout 0.1
   - "one-cycle" learning rate, 0.002 to 0.02 to 0.002 to 1e-07
-  - num epochs 260, partition epoch 6 (swb)
+  - num sub-epochs 260, partition epoch 6 (swb)
   - aux loss layer 4, layer 8
   - no L2
   - no pretrain
   - batch size 14k, no grad accum
   - chunking 500
+
   Check: `/work/asr4/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/crnn/custom_sprint_training/CustomCRNNSprintTrainingJob.C7DaO3jCzO1K/output/crnn.config` (via Wei)
   - full-sum training
   - 12 layers
@@ -59,6 +61,7 @@ Tracks:
   - custom one cycle LR
   - custom spec augment
   - no pretrain
+  - num sub-epochs 240, partition epoch 6
 
 ---
 
