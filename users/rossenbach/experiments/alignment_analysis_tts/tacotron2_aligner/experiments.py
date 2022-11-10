@@ -4,8 +4,9 @@ from sisyphus import tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
 
-from .pipeline import build_training_dataset, tts_training
 from .config import get_training_config, get_finetune_config
+from .data import build_training_dataset
+from .pipeline import tts_training
 
 
 baseline_network_options = {

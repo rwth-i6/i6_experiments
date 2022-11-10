@@ -147,6 +147,20 @@ def get_librispeech_tts_segments():
     return generate_tts_segments_job.out_train_segments, generate_tts_segments_job.out_dev_segments
 
 
+def get_speaker_extraction_segments(subcorpus_name):
+    """
+
+    :param subcorpus_name:
+    :return:
+    """
+    bliss_corpus_dict = get_bliss_corpus_dict()
+    segments = SegmentCorpusJob(bliss_corpus_dict[subcorpus_name], 1).out_single_segment_files[1]
+    generate_tts_segments_job = GenerateBalancedSpeakerDevSegmentFileJob(
+        segment_file=segments,
+        dev_segments_per_speaker=1
+    )
+    return generate_tts_segments_job.out_dev_segments
+
 
 def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
     """

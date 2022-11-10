@@ -83,12 +83,53 @@ def get_baseline_ctc_alignment_v2():
     return duration_hdf
 
 
+def get_baseline_ctc_alignment_v2_centered():
+    """
+    Baseline for the ctc aligner in returnn_common with serialization
+
+    Uses updated RETURNN_COMMON
+
+    :return: durations_hdf
+    """
+
+
+    name = "experiments/alignment_analysis_tts/ctc_aligner_v2/baseline_center"
+
+    training_datasets = build_training_dataset(center=True)
+
+    aligner_config = get_training_config(
+        returnn_common_root=RETURNN_COMMON, training_datasets=training_datasets, use_v2=True,
+    )  # implicit reconstruction loss
+    forward_config = get_forward_config(
+        returnn_common_root=RETURNN_COMMON,
+        forward_dataset=training_datasets.joint,
+        datastreams=training_datasets.datastreams,
+        use_v2=True,
+    )
+    train_job = ctc_training(
+        config=aligner_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name,
+    )
+    duration_hdf = ctc_forward(
+        checkpoint=train_job.out_checkpoints[100],
+        config=forward_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name
+    )
+    return duration_hdf
+
+
 def get_loss_scale_ctc_alignment():
     """
     Baseline for the ctc aligner in returnn_common with serialization
     :return: durations_hdf
     """
     base_name = "experiments/alignment_analysis_tts/ctc_aligner/baseline"
+
+    duration_hdfs = {}
 
     for center in [True, False]:
         training_datasets = build_training_dataset(center=center)
@@ -97,11 +138,27 @@ def get_loss_scale_ctc_alignment():
             name = center_name + f"_rloss{reconstruction_loss_scale:.2f}"
             aligner_config = get_training_config(
                 returnn_common_root=RETURNN_COMMON, training_datasets=training_datasets,
-                reconstruction_scale=reconstruction_loss_scale,
+                reconstruction_scale=reconstruction_loss_scale, use_v2=True,
             )  # explicit reconstruction loss
+            forward_config = get_forward_config(
+                returnn_common_root=RETURNN_COMMON,
+                forward_dataset=training_datasets.joint,
+                datastreams=training_datasets.datastreams,
+                use_v2=True,
+            )
             train_job = ctc_training(
                 config=aligner_config,
                 returnn_exe=RETURNN_EXE,
                 returnn_root=RETURNN_RC_ROOT,
                 prefix=name,
             )
+            duration_hdf = ctc_forward(
+                checkpoint=train_job.out_checkpoints[100],
+                config=forward_config,
+                returnn_exe=RETURNN_EXE,
+                returnn_root=RETURNN_RC_ROOT,
+                prefix=name
+            )
+            duration_hdfs[f"center-{center}_loss-{reconstruction_loss_scale:.1f}"] = duration_hdf
+
+    return duration_hdfs

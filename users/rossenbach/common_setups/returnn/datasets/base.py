@@ -15,7 +15,7 @@ class GenericDataset(abc.ABC):
 
     def __init__(self, *, additional_options: Optional[Dict]):
         """
-        :param additional_options: any options not explicitely covered by the helper classes or for debugging purposes
+        :param additional_options: any options not explicitly covered by the helper classes or for debugging purposes
         """
         self.additional_options = additional_options
 

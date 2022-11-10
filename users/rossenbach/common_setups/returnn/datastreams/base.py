@@ -1,3 +1,4 @@
+from sisyphus import tk
 from typing import *
 
 from i6_experiments.common.setups.returnn_common.serialization import DataInitArgs, DimInitArgs
@@ -68,4 +69,37 @@ class Datastream:
             )
 
 
+class FeatureDatastream(Datastream):
+    """
+    Defines a datastream for an arbitrary feature
+    """
 
+    def __init__(
+            self,
+            available_for_inference: bool,
+            feature_size: Union[tk.Variable, int],
+    ):
+        """
+
+        :param bool available_for_inference:
+        :Param tk.Variable|int embedding_size:
+        """
+        super().__init__(available_for_inference)
+        self.feature_size = feature_size
+
+    def as_returnn_extern_data_opts(
+            self, available_for_inference: Optional[bool] = None, **kwargs
+    ) -> Dict[str, Any]:
+        """
+        :param available_for_inference:
+        :rtype: dict[str]
+        """
+        d = {
+            **super().as_returnn_extern_data_opts(
+                available_for_inference=available_for_inference
+            ),
+            "shape": (None, self.feature_size),
+            "dim": self.feature_size,
+        }
+        d.update(kwargs)
+        return d

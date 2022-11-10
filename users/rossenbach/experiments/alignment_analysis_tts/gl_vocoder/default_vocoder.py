@@ -19,6 +19,8 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio imp
 )
 from .vocoder_data import get_vocoder_data
 
+from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT
+
 post_config_template = {
   "cleanup_old_models": True,
   "use_tensorflow": True,
@@ -312,7 +314,7 @@ class LJSpeechMiniGLVocoder:
       self.train_job.out_returnn_config_file,
     )
 
-  def vocode(self, hdf_input, iterations=1, checkpoint=None, name=None, cleanup=False):
+  def vocode(self, hdf_input, iterations=1, checkpoint=None, name=None, cleanup=False, peak_normalization=True):
     if name is None:
       name = self._alias_path
     forward_config = self.build_forward_config(hdf_input)
@@ -340,6 +342,7 @@ class LJSpeechMiniGLVocoder:
       window_shift=self._source_audio_opts.options.step_len,
       window_size=self._source_audio_opts.options.window_len,
       preemphasis=self._source_audio_opts.options.preemphasis,
+      peak_normalization=peak_normalization,
       file_format="ogg",
       mem_rqmt=16,
       time_rqmt=16,
@@ -377,15 +380,11 @@ def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
 
 
 def get_default_vocoder(name):
-  returnn_exe = tk.Path("/u/rossenbach/bin/returnn_tf2.3_launcher.sh")
+  returnn_exe = RETURNN_EXE
 
-  old_root = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn",
-    commit="d780490b24028ebe276cc68ba6086bf5c230d4cf",
-  ).out_repository
   corpus_data = get_vocoder_data()
   output_path = name
 
-  mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, old_root)
+  mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, RETURNN_RC_ROOT)
   mini_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
   return mini_vocoder

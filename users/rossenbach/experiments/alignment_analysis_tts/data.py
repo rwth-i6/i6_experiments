@@ -7,7 +7,7 @@ from typing import List
 from i6_core.returnn.oggzip import BlissToOggZipJob
 from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 
-from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict
+from i6_experiments.common.datasets.librispeech import get_g2p_augmented_bliss_lexicon_dict, get_bliss_corpus_dict
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import AudioFeatureDatastream, DBMelFilterbankOptions, ReturnnAudioFeatureOptions, FeatureType
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
@@ -26,12 +26,12 @@ DATA_PREFIX = "experiments/alignment_analysis_tts/data/"
 
 
 @lru_cache
-def get_librispeech_lexicon() -> tk.Path:
+def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
     """
-
+    get the TTS-extended g2p bliss lexicon with [start], [end] and [space] marker
     :return:
     """
-    return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"])
+    return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
 
 
 @lru_cache
@@ -43,15 +43,35 @@ def get_ls100_silence_preprocessed_bliss() -> tk.Path:
     # this is the FFmpeg silence preprocessed version of LibriSpeech train-clean-100
     sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
 
-    # get the TTS-extended g2p bliss lexicon with [start], [end] and [space] marker
-
-
     # convert the corpus transcriptions into phoneme and marker representation
     sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
         bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
         lexicon=get_librispeech_lexicon())
 
     return sil_pp_train_clean_100_tts
+
+
+@lru_cache
+def get_ls360_zip_for_synthesis_only() -> tk.Path:
+    """
+    TTS label processed librispeech 360 without audio
+
+    :return:
+    """
+    ls460_lexicon = extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-460"])
+    corpus = get_bliss_corpus_dict()["train-clean-360"]  # original corpus as .flac
+    tts_corpus = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=corpus,
+        lexicon=ls460_lexicon
+    )
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=tts_corpus,
+        no_audio=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_DATA_ROOT,
+    ).out_ogg_zip
+
+    return zip_dataset
 
 
 @lru_cache
@@ -169,14 +189,14 @@ def get_tts_log_mel_datastream(
     return audio_datastream
 
 
-def get_lexicon(with_blank: bool = False) -> tk.Path:
+def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100") -> tk.Path:
     """
     Get the TTS/CTC lexicon
 
     :param with_blank: add blank (e.g. for CTC training or extraction)
     :return: path to bliss lexicon file
     """
-    lexicon = get_librispeech_lexicon()
+    lexicon = get_librispeech_lexicon(corpus_key=corpus_key)
     lexicon = extend_lexicon_with_tts_lemmas(lexicon)
     if with_blank:
         lexicon = extend_lexicon_with_blank(lexicon)

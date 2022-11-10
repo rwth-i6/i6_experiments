@@ -5,6 +5,7 @@ from returnn_common import nn
 from typing import Tuple, Union, Optional, Sequence
 
 from .conv_modules import Conv1DBlock, ConvStack
+from .gaussian_upsampling import GaussianUpsampling, LstmVarianceNetwork
 
 class LConvBlock(nn.Module):
     """
@@ -344,21 +345,10 @@ class NARTTSModel(nn.Module):
             gauss_up: bool = False,
             use_true_durations: bool = False,
             dump_speaker_embeddings: bool = False,
-            calc_speaker_embeddings: bool = False,
-            dump_vae: bool = False,
-            use_vae: bool = False,
-            kl_beta: float = 1.0,
-            use_pitch_pred: bool = False,
-            use_energy_pred: bool = False,
-            duration_add: float = 0.0,
+            calc_speaker_embedding: bool = False,
+            duration_scale: float = 1.0,
             skip_speaker_embeddings: bool = False,
             test_vae: bool = False,
-            log_energy: bool = False,
-            scale_kl_loss: bool = False,
-            vae_usage: str = "speak_emb_cat",
-            use_true_pitch: bool = False,
-            use_true_energy: bool = False,
-            test: bool = False,
     ):
         super(NARTTSModel, self).__init__()
 
@@ -368,27 +358,10 @@ class NARTTSModel(nn.Module):
         self.gauss_up = gauss_up
         self.use_true_durations = use_true_durations
         self.dump_speaker_embeddings = dump_speaker_embeddings
-        self.calc_speaker_embeddings = calc_speaker_embeddings
-        assert use_vae or not dump_vae, "Needs to use VAE in order to dump it!"
-        self.dump_vae = dump_vae
-        self.use_pitch_pred = use_pitch_pred
-        self.use_energy_pred = use_energy_pred
-        self.duration_add = duration_add
+        self.calc_speaker_embedding = calc_speaker_embedding
+        self.duration_scale = duration_scale
         self.skip_speaker_embeddings = skip_speaker_embeddings
         self.test_vae = test_vae
-        assert use_energy_pred or not log_energy, "Ja, ich mach auch immer log auf ne Energy die ich gar nicht predicte..."
-        self.log_energy = log_energy
-        assert use_vae or not scale_kl_loss, "Wat soll ich scalen wenns das nicht gibt!"
-        self.scale_kl_loss = scale_kl_loss
-        assert vae_usage in ["speak_emb_cat", "energy_add", "energy_mul"], "Not supported usage of the VAE"
-        if vae_usage == "energy_add":
-            assert use_energy_pred, "Need to pred energy to add VAE"
-        self.vae_usage = vae_usage
-        assert use_pitch_pred or not use_true_pitch
-        self.use_true_pitch = use_true_pitch
-        assert use_energy_pred or not use_true_energy
-        self.use_true_energy = use_true_energy
-        self.test = test
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -405,73 +378,11 @@ class NARTTSModel(nn.Module):
         self.enc_lstm_fw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
         self.enc_lstm_bw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
         self.decoder = Decoder(in_dim=2*self.enc_lstm_dim + self.speaker_embedding_dim, dec_lstm_size_1=dec_lstm_size, dropout=dropout)
-        if self.gauss_up:
-            # only import here to reduce serializer imports and not import for every model that doesn't use it
-            from i6_experiments.users.hilmes.modules.gaussian_upsampling import (
-                GaussianUpsampling,
-                VarianceNetwork,
-            )
 
-            self.variance_net = VarianceNetwork()
-            self.upsamling = GaussianUpsampling()
-        else:
-            self.variance_net = None
-            self.upsamling = None
+        self.variance_net = LstmVarianceNetwork(in_dim=2*self.enc_lstm_dim)
+        self.upsamling = GaussianUpsampling()
+
         self.duration = DurationPredictor(in_dim=2*self.enc_lstm_dim + self.speaker_embedding_dim, dropout=(dropout, dropout))
-        self.use_vae = use_vae
-        self.kl_scale = kl_beta
-        # if self.use_vae:
-        #     vae_lin_dim = nn.FeatureDim("vae_embedding", 512)
-        #     self.vae_embedding = nn.Linear(vae_lin_dim)
-        #     if self.test_vae:
-        #         self.test_lconv_stack = nn.Sequential(
-        #             [
-        #                 LConvBlock(
-        #                     linear_size=vae_lin_dim, filter_size=17
-        #                 )
-        #                 for _ in range(3)
-        #             ]
-        #         )
-        #         self.test_mixed_stack = nn.Sequential()
-        #         for _ in range(6):
-        #             self.test_mixed_stack.append(
-        #                 LConvBlock(
-        #                     linear_size=vae_lin_dim, filter_size=17
-        #                 )
-        #             )
-        #             self.test_mixed_stack.append(
-        #                 Conv1DBlock(dim=vae_lin_dim, filter_size=5, dropout=dropout)
-        #             )
-        #         self.test_latent_dim = nn.FeatureDim("VAE_lat_dim", 8)
-        #         self.test_lin_mu = nn.Linear(self.test_latent_dim)
-        #         self.test_lin_log_var = nn.Linear(self.test_latent_dim)
-        #         self.test_lin_out = nn.Linear(nn.FeatureDim("VAE_out_dim", 512))
-        #     elif self.skip_speaker_embeddings:
-        #         self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim, out_size=speaker_embedding_size, dropout=dropout)
-        #     else:
-        #         self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim, dropout=dropout)
-        # else:
-        #     self.vae = None
-        self.vae = None
-        #if self.use_pitch_pred:
-        #    self.pitch_pred = VariancePredictor()
-        #    self.pitch_emb = nn.Conv1d(out_dim=2 * self.enc_lstm_dim,
-        #                               filter_size=3,
-        #                               padding="same",
-        #                               with_bias=False)
-        #else:
-        #    self.pitch_pred = None
-        #    self.pitch_emb = None
-        self.pitch_pred = None
-        self.pitch_emb = None
-        # if self.use_energy_pred:
-        #     self.energy_pred = VariancePredictor()
-        #     self.energy_emb = nn.Linear(2 * self.enc_lstm_dim)
-        # else:
-        #     self.energy_pred = None
-        #     self.energy_emb = None
-        self.energy_pred = None
-        self.energy_emb = None
 
     def __call__(
             self,
@@ -479,16 +390,10 @@ class NARTTSModel(nn.Module):
             durations: Union[nn.Tensor, None],
             speaker_labels: nn.Tensor,
             target_speech: nn.Tensor,
-            pitch: Union[nn.Tensor, None],
-            energy: Union[nn.Tensor, None],
             phon_time_dim: nn.Dim,
             speaker_label_time: nn.Dim,
             speech_time: Union[nn.Dim, None],
             duration_time: Union[nn.Dim, None],
-            speaker_prior: Union[nn.Tensor, None],
-            prior_time: Union[nn.Dim, None],
-            pitch_time: Union[nn.Dim, None],
-            energy_time: Union[nn.Dim, None],
     ) -> nn.Tensor:
         """
 
@@ -503,7 +408,6 @@ class NARTTSModel(nn.Module):
             """
         duration_int = None
         duration_float = None
-        latents = None
         # input data prep
         if self.training or self.use_true_durations:
             durations, _ = nn.reinterpret_new_dim(
@@ -512,50 +416,13 @@ class NARTTSModel(nn.Module):
             duration_float = nn.cast(durations, dtype="float32")  # [B, Label-time, 1]
             durations = nn.squeeze(durations, axis=durations.feature_dim)
             duration_int = nn.cast(durations, dtype="int32")  # [B, Label-time]
-        label_notime = nn.squeeze(speaker_labels, axis=speaker_label_time)
-        if self.training or self.calc_speaker_embeddings:
-            speaker_embedding = self.speaker_embedding(label_notime)
+        speaker_notime = nn.squeeze(speaker_labels, axis=speaker_label_time)
+        if self.training or self.calc_speaker_embedding:
+            speaker_embedding = self.speaker_embedding(speaker_notime)
         else:
-            speaker_embedding, _ = nn.reinterpret_new_dim(label_notime, in_dim=speaker_labels.feature_dim, out_dim=self.speaker_embedding_dim)
-        if self.use_vae and not self.test_vae:
-            if speaker_prior is None:
-                vae_speaker_embedding = self.vae_embedding(target_speech)
-                latents, mu, log_var = self.vae(vae_speaker_embedding, speech_time)
-                if self.training:
-                    comb = log_var - (mu ** 2) - nn.exp(log_var)
-                    kl_loss = -0.5 * (1 + comb)
-                    if self.scale_kl_loss:
-                        norm = nn.minimum(nn.cast(nn.global_train_step(), dtype="float32") / 100000.0, 1.0)
-                        kl_loss = kl_loss * norm
-                        kl_loss.mark_as_loss(scale=self.kl_scale)
-                    else:
-                        kl_loss.mark_as_loss(scale=self.kl_scale)
-                if self.skip_speaker_embeddings:
-                    speaker_embedding = latents
-                elif self.vae_usage == "speak_emb_cat":
-                    speaker_embedding = nn.concat_features(
-                        speaker_embedding, latents,
-                    )
-            else:
-                latents = nn.squeeze(speaker_prior, axis=prior_time)
-                if self.skip_speaker_embeddings:
-                    speaker_embedding = latents
-                elif self.vae_usage == "speak_emb_cat":
-                    speaker_embedding = nn.concat(
-                        (speaker_embedding, speaker_embedding.feature_dim),
-                        (latents, latents.feature_dim),
-                    )
-
-        if self.dump_vae and self.dump_speaker_embeddings:
-            speaker_embedding = nn.concat(
-                (speaker_embedding, speaker_embedding.feature_dim),
-                (latents, latents.feature_dim),
-            )
+            speaker_embedding = speaker_notime
+        if self.dump_speaker_embeddings:
             return speaker_embedding
-        elif self.dump_speaker_embeddings:
-            return speaker_embedding
-        elif self.dump_vae:
-            return latents
 
         # embedding
         emb = self.embedding(text)
@@ -581,21 +448,6 @@ class NARTTSModel(nn.Module):
         duration_in = nn.dropout(
             duration_in, dropout=self.dropout, axis=duration_in.feature_dim
         )
-        if self.use_pitch_pred:
-            if self.use_true_pitch:
-                pitch_time.declare_same_as(phon_time_dim)
-                pitch_pred = pitch
-            else:
-                pitch_pred = self.pitch_pred(duration_in, phon_time_dim)
-            if self.training:
-                pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch_time, out_dim=phon_time_dim)
-                pitch, _ = nn.reinterpret_new_dim(pitch, in_dim=pitch.feature_dim, out_dim=pitch_pred.feature_dim)
-                pitch_loss = nn.squared_difference(pitch_pred, pitch, name="pitch_loss")
-                pitch_loss.mark_as_loss()
-                if self.test:
-                    pitch_pred = pitch  # this is new, maybe we got a problem here
-            pitch_embedding, _ = self.pitch_emb(pitch_pred, in_spatial_dim=phon_time_dim)
-            encoder = encoder + pitch_embedding
 
         if self.use_true_durations:
             duration_prediction = duration_float
@@ -617,67 +469,15 @@ class NARTTSModel(nn.Module):
             duration_int = nn.cast(rint, dtype="int32")
             duration_int = nn.squeeze(duration_int, axis=duration_int.feature_dim)
 
-        # upsampling
-        if self.gauss_up:
-            var = self.variance_net(inp=encoder, durations=duration_int, time_dim=phon_time_dim)
-            rep, rep_dim = self.upsamling(
-                inp=encoder,
-                durations=duration_int,
-                variances=var,
-                time_dim=phon_time_dim,
-                out_dim=speech_time,
-            )
-        else:
-            if self.test_vae:
-                vae_speaker_embedding = self.vae_embedding(encoder)
-                x = self.test_lconv_stack(vae_speaker_embedding, time_dim=phon_time_dim)
-                x = self.test_mixed_stack(x, time_dim=phon_time_dim)
 
-                # draw latent
-                mu = self.test_lin_mu(x)  # [B, F]
-                log_var = self.test_lin_log_var(x)
-                std = nn.exp(0.5 * log_var)
-                eps = nn.random_normal(std.shape_ordered)
-                eps = eps * std
-                eps = eps + mu
-
-                out = self.test_lin_out(eps)
-                if self.training:
-                    comb = log_var - (mu ** 2) - nn.exp(log_var)
-                    kl_loss = -0.5 * (1 + comb)
-                    kl_loss.mark_as_loss(name="kl_loss", scale=self.kl_scale)
-                encoder = out
-
-            rep, rep_dim = nn.repeat(encoder, axis=phon_time_dim, repetitions=duration_int)
-
-        if self.use_energy_pred:
-            if self.use_true_energy:
-                energy_time.declare_same_as(rep_dim)
-                energy_pred = energy
-            else:
-                energy_pred = self.energy_pred(rep, rep_dim)
-            if self.vae_usage == "energy_add":
-                latents = nn.reduce(latents, axis=latents.feature_dim, mode="mean")
-                energy_pred += latents
-            elif self.vae_usage == "energy_mul":
-                latents = nn.reduce(latents, axis=latents.feature_dim, mode="mean")
-                energy_pred *= latents
-            if self.log_energy:
-                energy_pred = nn.safe_log(energy_pred)
-            if self.training:
-                energy.feature_dim.declare_same_as(energy_pred.feature_dim)
-                energy_time.declare_same_as(rep_dim)
-                if self.log_energy:
-                    energy = nn.safe_log(energy)
-                energy_loss = nn.squared_difference(energy_pred, energy)
-                #if self.log_energy:
-                #  energy_loss = nn.exp(energy_loss)
-                energy_loss.mark_as_loss(name="energy_loss")
-                if self.test:
-                    energy_pred = energy
-            energy_embedding = self.energy_emb(energy_pred)
-            rep += energy_embedding
-
+        var = self.variance_net(inp=encoder, durations=duration_int, time_dim=phon_time_dim)
+        rep, rep_dim = self.upsamling(
+            inp=encoder,
+            durations=duration_int,
+            variances=var,
+            time_dim=phon_time_dim,
+            out_dim=speech_time,
+        )
 
         # decoder
         dec_lin = self.decoder(
@@ -702,9 +502,6 @@ def construct_network(
         speaker_label_data: nn.Data,  # speaker labels
         phoneme_duration_data: Optional[nn.Data] = None,  # durations
         audio_data: Optional[nn.Data] = None,  # target speech
-        speaker_prior_data: Optional[nn.Data] = None,  # VAE speaker prior
-        pitch_data: Optional[nn.Data] = None,  # Pitch information
-        energy_data: Optional[nn.Data] = None,
         **kwargs
 ):
     net = NARTTSModel(
@@ -714,29 +511,16 @@ def construct_network(
     )
 
     phonemes = nn.get_extern_data(phoneme_data) if phoneme_data is not None else None
-    speaker_prior = nn.get_extern_data(speaker_prior_data) if speaker_prior_data is not None else None
-    pitch = nn.get_extern_data(pitch_data) if pitch_data is not None else None
-    energy = nn.get_extern_data(energy_data) if energy_data is not None else None
-
-    prior_time = speaker_prior_data.dim_tags[speaker_prior_data.time_dim_axis] if speaker_prior_data else None
-    pitch_time = pitch_data.dim_tags[pitch_data.time_dim_axis] if pitch_data else None
-    energy_time = pitch_data.dim_tags[energy_data.time_dim_axis] if pitch_data else None
 
     out = net(
         text=phonemes,
         durations=nn.get_extern_data(phoneme_duration_data) if phoneme_duration_data is not None else None,
         speaker_labels=nn.get_extern_data(speaker_label_data) if speaker_label_data is not None else None,
         target_speech=nn.get_extern_data(audio_data) if audio_data is not None else None,
-        speaker_prior=speaker_prior,
-        pitch=pitch,
-        energy=energy,
         phon_time_dim=phoneme_data.dim_tags[phoneme_data.time_dim_axis],
         speaker_label_time=speaker_label_data.dim_tags[speaker_label_data.time_dim_axis],
-        speech_time=audio_data.dim_tags[audio_data.time_dim_axis] if audio_data is not None else None,
-        duration_time=phoneme_duration_data.dim_tags[phoneme_duration_data.time_dim_axis] if phoneme_duration_data is not None else None,
-        prior_time=prior_time,
-        pitch_time=pitch_time,
-        energy_time=energy_time
+        speech_time=audio_data.dim_tags[audio_data.time_dim_axis],
+        duration_time=phoneme_duration_data.dim_tags[phoneme_duration_data.time_dim_axis],
     )
     out.mark_as_default_output()
 

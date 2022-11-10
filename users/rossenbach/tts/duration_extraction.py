@@ -1,8 +1,6 @@
 import numpy
 from sisyphus import tk, Job, Task
-import h5py
-import sys
-
+from typing import Optional, Union
 
 from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.lib import lexicon
@@ -11,11 +9,15 @@ from i6_experiments.users.rossenbach.lib.hdf import load_default_data
 
 
 class ViterbiAlignmentToDurationsJob(Job):
+
+    __sis_hash_exclude__ = {"blank_token": None}
+
     def __init__(
             self,
-            viterbi_alignment_hdf,
-            bliss_lexicon,
-            returnn_root=None,
+            viterbi_alignment_hdf: tk.Path,
+            bliss_lexicon: tk.Path,
+            returnn_root: Optional[tk.Path] = None,
+            blank_token: Optional[Union[str, int]] = None,
             *,
             dataset_to_check=None,
             time_rqmt=2,
@@ -24,13 +26,15 @@ class ViterbiAlignmentToDurationsJob(Job):
         """
         :param Path viterbi_alignment: Path to the alignment HDF produced by CTC/Viterbi
         :param Path bliss_lexicon: used to determine the epsilon and do some verification
-        :param skip_token: Value of the blank token in CTC. This is the last value in the vocabulary.
         :param tk.Path|None returnn_root:
+        :param blank_token: Value of the blank token in CTC, or the phoneme string of the lexicon.
+            Will use the last phoneme-inventory index if not provided.
         :param tk.Path|None dataset_to_check:
         """
         self.viterbi_alignment_hdf = viterbi_alignment_hdf
         self.bliss_lexicon = bliss_lexicon
         self.returnn_root = returnn_root
+        self.blank_token = blank_token
         self.check = dataset_to_check
         self.out_durations_hdf = self.output_path("durations.hdf")
         self.rqmt = {"time": time_rqmt, "mem": mem_rqmt}
@@ -45,7 +49,13 @@ class ViterbiAlignmentToDurationsJob(Job):
 
         lex = lexicon.Lexicon()
         lex.load(self.bliss_lexicon.get_path())
-        skip_token = len(lex.phonemes) - 1
+        if isinstance(self.blank_token, str):
+            raise NotImplementedError
+        elif isinstance(self.blank_token, int):
+            skip_token = self.blank_token
+        else:
+            assert self.blank_token is None
+            skip_token = len(lex.phonemes) - 1
 
         # sort based on tags
         if self.check is not None:
@@ -95,6 +105,7 @@ class ViterbiAlignmentToDurationsJob(Job):
     def hash(cls, parsed_args):
         d = {
             'viterbi_alignment_hdf': parsed_args['viterbi_alignment_hdf'],
-            'returnn_root': parsed_args['returnn_root']
+            'returnn_root': parsed_args['returnn_root'],
+            'blank_token': parsed_args['blank_token']
         }
         return super().hash(d)

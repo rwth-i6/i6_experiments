@@ -1,7 +1,7 @@
 """
 Implementation of the CTC Aligner, updated for the new non-lazy init
 """
-from typing import Tuple, Union
+from typing import List, Union
 from returnn_common import nn
 
 
@@ -71,10 +71,10 @@ class ConvStack(nn.Module):
             self,
             in_dim: nn.Dim,
             num_layers: int = 5,
-            dim_sizes: Tuple[int] = (256,),
-            filter_sizes: Tuple[int] = (5, 5, 5, 5, 5),
+            dim_sizes: List[int] = (256,),
+            filter_sizes: List[int] = (5, 5, 5, 5, 5),
             bn_epsilon: float = 1e-5,
-            dropout: Tuple[float] = (0.35, 0.35, 0.35, 0.35, 0.35),
+            dropout: List[float] = (0.35, 0.35, 0.35, 0.35, 0.35),
             l2: float = 1e-07,
     ):
         """
@@ -86,20 +86,19 @@ class ConvStack(nn.Module):
         :param l2: weight decay value
         """
         super(ConvStack, self).__init__()
-        assert (
-                len(dim_sizes) == num_layers or len(dim_sizes) == 1
-        )  # mismatch in dim_sizes
+        assert isinstance(dim_sizes, int) or len(dim_sizes) == num_layers  # mismatch in dim_sizes
         assert len(filter_sizes) == num_layers  # mismatch in filter_sizes
         assert len(dropout) == num_layers  # mismatch in dropout
 
         self.num_layers = num_layers
         # simplify tags a bit if possible
-        if len(set(dim_sizes)) == 1:  # all sizes equal
+        if isinstance(dim_sizes, int):
+            out_dims = [nn.FeatureDim("conv_dim", dim_sizes)] * num_layers
+        elif len(set(dim_sizes)) == 1:  # all sizes equal
             out_dims = [nn.FeatureDim("conv_dim", dim_sizes[0])] * num_layers
         else:
             out_dims = [
-                nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x])
-                for x in range(num_layers)
+                nn.FeatureDim("conv_dim_%s" % str(x), dim_sizes[x]) for x in range(num_layers)
             ]
 
         sequential_list = []
