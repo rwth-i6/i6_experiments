@@ -229,8 +229,9 @@ class ConvFrontend(nn.ISeqDownsamplingEncoder):
     def __init__(self, in_dim: nn.Dim):
         super(ConvFrontend, self).__init__()
         self.in_dim = in_dim
+        self._dummy_feat_dim = nn.FeatureDim("dummy", 1)
         self.conv1 = nn.Conv2d(
-            in_dim, nn.FeatureDim("conv1", 32), filter_size=(3, 3), padding="same")
+            self._dummy_feat_dim, nn.FeatureDim("conv1", 32), filter_size=(3, 3), padding="same")
         self.conv2 = nn.Conv2d(
             self.conv1.out_dim, nn.FeatureDim("conv2", 64), filter_size=(3, 3), padding="same", strides=(2, 1))
         self.conv3 = nn.Conv2d(
@@ -240,9 +241,8 @@ class ConvFrontend(nn.ISeqDownsamplingEncoder):
             param.weight_decay = 0.01
 
     def __call__(self, x: nn.Tensor, *, in_spatial_dim: nn.Dim) -> Tuple[nn.Tensor, nn.Dim]:
-        dummy_feat_dim = nn.FeatureDim("dummy", 1)
         feat_dim = self.in_dim
-        x = nn.expand_dim(x, dim=dummy_feat_dim)  # [B,T,F,D]
+        x = nn.expand_dim(x, dim=self._dummy_feat_dim)  # [B,T,F,D]
         x, _ = self.conv1(x, in_spatial_dims=[in_spatial_dim, feat_dim])
         x, feat_dim = nn.pool1d(x, in_spatial_dim=self.in_dim, mode="max", pool_size=2)
         x, (in_spatial_dim, feat_dim) = self.conv2(x, in_spatial_dims=[in_spatial_dim, feat_dim])
