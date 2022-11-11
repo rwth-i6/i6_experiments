@@ -65,11 +65,19 @@ Tracks:
 
   Conformer now seems to perform well on Hub500 Swb and Hub501 and RT03s
   but bad on Hub500 CH. Why?
+  - Overfitting in Transducer decoder? But why not for BLSTM encoder?
+    Maybe because BLSTM converges faster and then decoder directly uses the encoder output more?
+
+  TODO:
+  - Transducer only later, first only CTC (based on aux4812f) (check overfitting in Transducer)
+  - Variational noise
+  - Weight dropout
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
   - Maybe grad accum in behavior version 15 helps? https://github.com/rwth-i6/returnn/pull/1206
   - Native-CTC is known to be non-deterministic. But how much?
+  - How much relevant is transducer? Or the WarpRna loss?
   - Other aspects?
 
 ---
