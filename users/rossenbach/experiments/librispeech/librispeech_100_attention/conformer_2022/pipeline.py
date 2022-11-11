@@ -391,15 +391,20 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
         wers[key] = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
 
     from i6_core.report import GenerateReportStringJob, MailJob
-    format_string = " - ".join(["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()])
+    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
+    format_string = " - ".join(["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()])
     values = {}
+    values_report = {}
     for key in test_dataset_tuples.keys():
-        values[key] = key
-        values["%s_val" % key] = wers[key]
+        values[prefix_name + key] = key
+        values["%s_val" % (prefix_name + key)] = wers[key]
+        values_report["%s_val" % (prefix_name + key)] = wers[key]
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
     tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    return format_string_report, values_report
+
 
 
 
