@@ -165,6 +165,9 @@ class RasrSystem(meta.System):
         :param eval_corpus_key:
         :return:
         """
+
+        self.glm_files.update(self.rasr_init_args.scorer_args.get("glm_files", {}))
+        self.stm_files.update(self.rasr_init_args.scorer_args.get("stm_files", {}))
         if self.rasr_init_args.scorer == "kaldi":
             scorer_args = (
                 self.rasr_init_args.scorer_args
