@@ -63,6 +63,15 @@ Tracks:
   - no pretrain
   - num sub-epochs 240, partition epoch 6
 
+  Conformer now seems to perform well on Hub500 Swb and Hub501 and RT03s
+  but bad on Hub500 CH. Why?
+
+- Understand cause(s) of non-determinism.
+  - https://github.com/rwth-i6/returnn/issues/1210
+  - Maybe grad accum in behavior version 15 helps? https://github.com/rwth-i6/returnn/pull/1206
+  - Native-CTC is known to be non-deterministic. But how much?
+  - Other aspects?
+
 ---
 
 RNA differences/Observations:
