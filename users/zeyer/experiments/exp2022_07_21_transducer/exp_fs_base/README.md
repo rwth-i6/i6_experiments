@@ -70,8 +70,10 @@ Tracks:
 
   TODO:
   - Transducer only later, first only CTC (based on aux4812f) (check overfitting in Transducer)
-  - Variational noise
+  - Variational weight noise
   - Weight dropout
+  - Gradient noise
+  - Check param init
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
