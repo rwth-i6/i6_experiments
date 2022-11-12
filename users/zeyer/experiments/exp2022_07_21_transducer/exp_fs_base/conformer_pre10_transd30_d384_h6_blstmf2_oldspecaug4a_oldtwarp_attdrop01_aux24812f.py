@@ -429,7 +429,7 @@ def model_recog(*,
         else:
             assert len(model.encoder.layers) in aux_loss_layers
             linear = getattr(model, f"enc_aux_logits_{len(model.encoder.layers)}")
-            logits = linear(enc)
+            logits = linear(enc["enc"])
             log_prob = nn.log_softmax(logits, axis=model.wb_target_dim)
 
         label = nn.choice(
