@@ -5,7 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import Dict, Any, Sequence, Iterator, Callable
+from typing import Dict, Any, Sequence, Collection, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
@@ -23,12 +23,21 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Mode
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
 
 
-def recog_training_exp(prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+def recog_training_exp(
+        prefix_name: str,
+        task: Task,
+        model: ModelWithCheckpoints,
+        recog_def: RecogDef,
+        *,
+        exclude_epochs: Collection[int] = (),
+):
     """recog on all relevant epochs"""
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=_RecogAndScoreFunc(prefix_name, task, model, recog_def),
-        main_measure_lower_is_better=task.main_measure_type.lower_is_better)
+        main_measure_lower_is_better=task.main_measure_type.lower_is_better,
+        exclude_epochs=exclude_epochs,
+    )
     summarize_job.add_alias(prefix_name + "/train-summarize")
     tk.register_output(prefix_name + "/recog_results_best", summarize_job.out_summary_json)
     tk.register_output(prefix_name + "/recog_results_all_epochs", summarize_job.out_results_all_epochs_json)
@@ -197,10 +206,14 @@ class GetBestRecogTrainExp(sisyphus.Job):
         }
     """
 
+    __sis_hash_exclude__ = {"exclude_epochs": ()}
+
     def __init__(self, exp: ModelWithCheckpoints, *,
                  recog_and_score_func: Callable[[int], ScoreResultCollection],
                  main_measure_lower_is_better: bool = True,
-                 check_train_scores_n_best: int = 2):
+                 check_train_scores_n_best: int = 2,
+                 exclude_epochs: Collection[int] = (),
+                 ):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
         :param recog_and_score_func: epoch -> scores. called in graph proc
@@ -211,6 +224,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
         self.recog_and_score_func = recog_and_score_func
         self.main_measure_lower_is_better = main_measure_lower_is_better
         self.check_train_scores_n_best = check_train_scores_n_best
+        self.exclude_epochs = exclude_epochs
         self._update_checked_relevant_epochs = False
         self.out_summary_json = self.output_path("summary.json")
         self.out_results_all_epochs_json = self.output_path("results_all_epoch.json")
@@ -249,6 +263,8 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
     def _add_recog(self, epoch: int):
         if epoch in self._scores_outputs:
+            return
+        if epoch in self.exclude_epochs:
             return
         res = self.recog_and_score_func(epoch)
         assert isinstance(res, ScoreResultCollection)
