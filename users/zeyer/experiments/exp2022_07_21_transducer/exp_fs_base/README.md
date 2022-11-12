@@ -74,6 +74,7 @@ Tracks:
   - Weight dropout
   - Gradient noise
   - Check param init
+  - Check LR schedules, one-cycle, cosine, etc
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
