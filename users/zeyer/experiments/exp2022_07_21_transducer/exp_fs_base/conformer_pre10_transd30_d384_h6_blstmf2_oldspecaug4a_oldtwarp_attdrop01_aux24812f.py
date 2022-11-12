@@ -62,7 +62,7 @@ config = dict(
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
 )
-aux_loss_layers = [4, 8, 12]
+aux_loss_layers = [2, 4, 8, 12]
 transducer_start_epoch = 30
 
 
