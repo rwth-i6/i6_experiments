@@ -71,6 +71,9 @@ Tracks:
     For BLSTM, it is about 30/31, for Conformer it is about 28/32.
     kernel size 8 (`conformer_pre9_d384_h6_ks8_wd0_blstmf2_specaug`) better?
     layer norm (`conformer_ln_pre9_d384_h6_wd0_blstmf2_specaug`) better?
+  - Anything with feature normalization wrong? input_stddev consistent?
+  - Check Hub500 difference between BLSTM and Conformer in detail.
+    Where does it fail? Listen to audio.
 
   TODO:
   - Transducer only later, first only CTC (based on aux4812f) (check overfitting in Transducer)
