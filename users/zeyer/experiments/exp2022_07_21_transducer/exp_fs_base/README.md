@@ -193,4 +193,5 @@ Experiments parts:
   not on any others, like layer-norm, batch norm, biases, etc
   (https://github.com/rwth-i6/returnn_common/issues/241)
 - nN: num layers N
+- attscaledist: scaled gradients by exp(-|dist|*0.1) for attention scores
 - fix245: fix missing dropout after self-attention (https://github.com/rwth-i6/returnn_common/issues/245)
