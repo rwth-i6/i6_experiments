@@ -158,33 +158,43 @@ Experiments parts:
 - conformer: new returnn-common implementation
 - orig: BLSTM pure RETURNN configs
 - preN: different pretraining + LR scheduling variants
+  - 9 and 10 seems good
 - specaug: spec augment
 - blstmf: BLSTM frontend, fixed with pool last
 - old_moh_hybrid_conformer: Conformer pure-RETURNN from Mohammad hybrid (returnn-experiments)
 - old_nick_att_conformer: Conformer pure-RETURNN from Nick (based on Mohammad)
 - nopreN: no pretraining (variants)
-- dN: model dimension (implies 4N for ff dim)
-- hN: num heads
-- wd0: no weight decay for encoder
+- dN: model dimension (implies 4N for ff dim), default 512
+- hN: num heads, default 8
+- wd0: no weight decay for encoder (default everywhere)
 - lrd0F: LR decay factor 0.F
 - mgpupeN: multi-node (PE) multi-GPU training on N GPUs
 - relold: old-style relative pos encoding
-- bnmask: batch norm use mask
+  - seems worse
+- bnmask: batch norm use mask (default: no mask)
 - ln: layer norm instead of batch norm
+  - unstable?
 - lr0F: learning rate (peak) 0.F
 - auxL: CTC aux losses on list of layers L
 - auxLf: fixed on very-last layer
 - auxLff: fixed with blank logits (before dim was one too less)
 - attdrop0F: attention dropout 0.F (instead of 0.0)
+  - 0.1 is usually default elsewhere, seems good, better than 0.0, better than 0.2
 - bpesample0F: BPE sampling 0.F
+  - increases overfitting a lot?
+    "hub5e_00": 20.5, "hub5e_01": 15.8, "rt03s": 19.6 without,
+    "hub5e_00": 25.1, "hub5e_01": 16.6, "rt03s": 22.9 with bpesample01
 - encl2_F: encoder L2 set to F
 - oldspecaug4a_oldtwarp: old SpecAug + time-warping implementation
 - posdrop0F: dropout 0.F on positional encoding
-- decwd0F: decoupled weight decay with factor 0.F
+  - 0.1 is sometimes default elsewhere, seems better than 0.0
+- decwd0F: decoupled weight decay with factor 0.F. depends on learning_rate setting
 - bhvN: behavior version N (14 default otherwise).
   15 is with https://github.com/rwth-i6/returnn/pull/1206, more correct grad accum?
 - winN: restrict self-attention to window of size N, only in training
+  - win50 very slightly better than win10 or no win?
 - convwei: Conv-based frontend, based on Weis config
+  - worse? a bit less overfitting?
 - copyN: exactly identical copy of the config (to test non-determinism, https://github.com/rwth-i6/returnn/issues/1210)
 - transdN: transducer loss only starting from sub-epoch N
 - vn0F: variational noise 0.F on LSTM W, W_re and Linear weight params
@@ -195,3 +205,22 @@ Experiments parts:
 - nN: num layers N
 - attscaledist: scaled gradients by exp(-|dist|*0.1) for attention scores
 - fix245: fix missing dropout after self-attention (https://github.com/rwth-i6/returnn_common/issues/245)
+
+Current good Conformer baselines:
+- conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
+  "hub5e_00": 20.2, "hub5e_01": 15.1, "rt03s": 19.1
+- conformer_pre10_transd30_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
+  "hub5e_00": 19.8, "hub5e_01": 15.6, "rt03s": 20.0
+- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48_bhv14:
+  "hub5e_00": 20.4, "hub5e_01": 16.0, "rt03s": 20.1
+- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux4812:
+  "hub5e_00": 20.3, "hub5e_01": 15.5, "rt03s": 19.5
+- conformer_pre9_d384_h6_wd0_blstmf2_specaug_aux4812:
+  "hub5e_00": 20.2, "hub5e_01": 15.2, "rt03s": 19.7
+
+Current recommended:
+- attdrop01
+- posdrop01
+- aux48ff or aux4812ff
+- wdf?
+- fix245
