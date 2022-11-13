@@ -82,6 +82,7 @@ Tracks:
   - Gradient noise
   - Check param init
   - Check LR schedules, one-cycle, cosine, etc
+  - Chunking in some way, either using fixed alignment + framewise CE, or direct somehow.
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
