@@ -81,6 +81,8 @@ class Model(nn.Module):
                  l2: float = 0.0001,
                  ):
         super(Model, self).__init__()
+        if nn.ConformerEncoderLayer.use_dropout_after_self_att:
+            nn.ConformerEncoderLayer.use_dropout_after_self_att = False
         self.in_dim = in_dim
         self.encoder = nn.ConformerEncoder(
             in_dim,
