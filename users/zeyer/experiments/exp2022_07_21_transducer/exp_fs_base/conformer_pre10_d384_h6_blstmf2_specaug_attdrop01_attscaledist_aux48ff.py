@@ -307,7 +307,7 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
         scores *= self.key_dim_per_head.dimension ** -0.5
 
         dist = nn.cast(nn.combine_bc(nn.range_over_dim(hist_dim), "-", nn.range_over_dim(axis)), dtype="float32")
-        scores = nn.scaled_gradient(scores, scale=dist * self.grad_dist_scale)
+        scores = nn.scaled_gradient(scores, scale=nn.exp(-nn.abs(dist * self.grad_dist_scale)))
 
         att_weights = nn.softmax(scores, axis=hist_dim, name="att_weights_recog")
         att = nn.dot(att_weights, v, reduce=hist_dim, name="att")
