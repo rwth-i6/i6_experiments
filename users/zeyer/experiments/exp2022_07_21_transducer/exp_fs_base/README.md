@@ -148,3 +148,49 @@ Other aspects:
   - Maybe only the non-OOV segments from Hub500?
   `/u/raissi/experiments/lm-sa-swb/dependencies/zhou-dev-segments-hub`
   - Maybe cleanup Hub500. Might have different text processing...
+
+---
+
+Experiments parts:
+
+- start: BLSTM returnn-common implementation
+- slowpretrain: slower pretrain
+- conformer: new returnn-common implementation
+- orig: BLSTM pure RETURNN configs
+- preN: different pretraining + LR scheduling variants
+- specaug: spec augment
+- blstmf: BLSTM frontend, fixed with pool last
+- old_moh_hybrid_conformer: Conformer pure-RETURNN from Mohammad hybrid (returnn-experiments)
+- old_nick_att_conformer: Conformer pure-RETURNN from Nick (based on Mohammad)
+- nopreN: no pretraining (variants)
+- dN: model dimension (implies 4N for ff dim)
+- hN: num heads
+- wd0: no weight decay for encoder
+- lrd0F: LR decay factor 0.F
+- mgpupeN: multi-node (PE) multi-GPU training on N GPUs
+- relold: old-style relative pos encoding
+- bnmask: batch norm use mask
+- ln: layer norm instead of batch norm
+- lr0F: learning rate (peak) 0.F
+- auxL: CTC aux losses on list of layers L
+- auxLf: fixed on very-last layer
+- auxLff: fixed with blank logits (before dim was one too less)
+- attdrop0F: attention dropout 0.F (instead of 0.0)
+- bpesample0F: BPE sampling 0.F
+- encl2_F: encoder L2 set to F
+- oldspecaug4a_oldtwarp: old SpecAug + time-warping implementation
+- posdrop0F: dropout 0.F on positional encoding
+- decwd0F: decoupled weight decay with factor 0.F
+- bhvN: behavior version N (14 default otherwise).
+  15 is with https://github.com/rwth-i6/returnn/pull/1206, more correct grad accum?
+- winN: restrict self-attention to window of size N, only in training
+- convwei: Conv-based frontend, based on Weis config
+- copyN: exactly identical copy of the config (to test non-determinism, https://github.com/rwth-i6/returnn/issues/1210)
+- transdN: transducer loss only starting from sub-epoch N
+- vn0F: variational noise 0.F on LSTM W, W_re and Linear weight params
+- wdrop0F: weight dropout 0.F on LSTM W, W_re and Linear weight params
+- wdf: fixed weight decay, only on LSTM W, W_re and Linear weight params,
+  not on any others, like layer-norm, batch norm, biases, etc
+  (https://github.com/rwth-i6/returnn_common/issues/241)
+- nN: num layers N
+- fix245: fix missing dropout after self-attention (https://github.com/rwth-i6/returnn_common/issues/245)
