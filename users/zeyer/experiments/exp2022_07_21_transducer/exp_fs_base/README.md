@@ -212,6 +212,10 @@ Experiments parts:
 - oclr: one-cycle LR, adapted from Tinas config
 - mlrF: min_learning_rate F
 - specaugwei: specaug hyper params taken from Weis config
+- wdro: weight decay (L2) on readout_in, like in original config
+- declstmdN: decoder LSTM dim N
+- declstmwdrop0F: decoder LSTM weight dropout 0.F
+- declstmz: decoder LSTM with zoneout
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
