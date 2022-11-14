@@ -80,17 +80,17 @@ Tracks:
     Where does it fail? Listen to audio.
 
   TODO:
-  - Transducer only later, first only CTC (based on aux4812f) (check overfitting in Transducer)
-  - Variational weight noise
-  - Weight dropout
+  - Transducer only later, first only CTC (based on aux4812f) (check overfitting in Transducer) -> see `transdN` experiments
+  - Variational weight noise -> see `vn0F` experiments
+  - Weight dropout -> see `wdrop0F` experiments
   - Gradient noise
   - Check param init
-  - Check LR schedules, one-cycle, cosine, etc
+  - Check LR schedules, one-cycle, cosine, etc -> `oclr` and others
   - Chunking in some way, either using fixed alignment + framewise CE, or direct somehow.
   - Label smoothing variant for RNN-T
   - More on time-warping, speed/tempo perturbation
   - "Sequence noise injected training for end-to-end speech recognition"
-  - Switchout on label context
+  - Switchout on label context -> `decswitchout0F` experiments
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
@@ -220,6 +220,7 @@ Experiments parts:
 - declstmdN: decoder LSTM dim N
 - declstmwdrop0F: decoder LSTM weight dropout 0.F
 - declstmz: decoder LSTM with zoneout
+- decswitchout0F: decoder LM labels input switchout 0.F
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
