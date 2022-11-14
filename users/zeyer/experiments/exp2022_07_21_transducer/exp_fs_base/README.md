@@ -143,6 +143,7 @@ Conformer:
 - chunking
   - can even do that on whole seq, inside the network (only for training)
   - alternatively, similar effect: restrict self-attention to local context
+- stochastic depth
 
 I think a big problem is overfitting, esp on Switchboard.
 Should use some better regularization:
