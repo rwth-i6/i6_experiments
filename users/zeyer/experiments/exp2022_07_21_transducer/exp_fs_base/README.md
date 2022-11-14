@@ -87,6 +87,10 @@ Tracks:
   - Check param init
   - Check LR schedules, one-cycle, cosine, etc
   - Chunking in some way, either using fixed alignment + framewise CE, or direct somehow.
+  - Label smoothing variant for RNN-T
+  - More on time-warping, speed/tempo perturbation
+  - "Sequence noise injected training for end-to-end speech recognition"
+  - Switchout on label context
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
