@@ -39,6 +39,7 @@ Tracks:
   - layer norm instead of BN
   - dropout 0.1 / attention dropout 0.1
   - "one-cycle" learning rate, 0.002 to 0.02 to 0.002 to 1e-07
+    - `list(numpy.linspace(0.002, 0.02, 100)) + list(numpy.linspace(0.02, 0.002, 100)) + list(numpy.linspace(0.002, 1e-07, 60))`
   - num sub-epochs 260, partition epoch 6 (swb)
   - aux loss layer 4, layer 8
   - no L2
@@ -47,7 +48,7 @@ Tracks:
   - chunking 500
 
   Check: `/work/asr4/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/work/crnn/custom_sprint_training/CustomCRNNSprintTrainingJob.C7DaO3jCzO1K/output/crnn.config` (via Wei)
-  - full-sum training
+  - full-sum training, imports framewise CE trained model (below), only finetuning
   - 12 layers
   - frontend: 3 layer 2d conv, downsampling 4 via 2*2 strides
   - 512 / 2048 dim
@@ -58,10 +59,13 @@ Tracks:
   - Dropout 0.2 / attention dropout 0.2
   - batch_size 3000, accum_grad_multiple_step 3
   - no aux loss
-  - custom one cycle LR
+  - custom one cycle LR, only finetuning, starting at 5e-5, then down to 1e-5, then down to 1e-6 
   - custom spec augment
   - no pretrain
   - num sub-epochs 240, partition epoch 6
+
+  Check: `/u/zhou/asr-exps/swb1/2021-12-09_phoneme-transducer/alias/01_mono-eow-ss4_transducer_viterbi_v2/train_monophone-eow_gt40_ss4_vgg-conformer_segLoss5.0_v3/output/crnn.config` (via Wei, framewise CE)
+  - LR: initial 8e-5, peak 8e-4, final 1e-6  
 
   Conformer now seems to perform well on Hub500 Swb and Hub501 and RT03s
   but bad on Hub500 CH. Why?
