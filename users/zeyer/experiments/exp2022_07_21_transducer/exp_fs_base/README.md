@@ -209,6 +209,9 @@ Experiments parts:
 - nN: num layers N
 - attscaledist: scaled gradients by exp(-|dist|*0.1) for attention scores
 - fix245: fix missing dropout after self-attention (https://github.com/rwth-i6/returnn_common/issues/245)
+- oclr: one-cycle LR, adapted from Tinas config
+- mlrF: min_learning_rate F
+- specaugwei: specaug hyper params taken from Weis config
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
