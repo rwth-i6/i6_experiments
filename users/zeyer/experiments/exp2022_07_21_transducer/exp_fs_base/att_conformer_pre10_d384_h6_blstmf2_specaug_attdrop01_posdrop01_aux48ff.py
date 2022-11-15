@@ -311,7 +311,7 @@ def from_scratch_training(*,
         loop.state.label = loop.unstack(targets)
         logits = loop.stack(logits)
 
-    loss = nn.sparse_softmax_cross_entropy_with_logits(logits=logits, targets=targets, axis=targets_spatial_dim)
+    loss = nn.sparse_softmax_cross_entropy_with_logits(logits=logits, targets=targets, axis=model.nb_target_dim)
     loss.mark_as_loss("ce")
 
 
@@ -348,7 +348,7 @@ def model_recog(*,
             prev_nb_target=loop.state.label,
             prev_nb_target_spatial_dim=nn.single_step_dim,
             state=loop.state.decoder)
-        log_prob = nn.log_softmax(logits, axis=logits.feature_dim)
+        log_prob = nn.log_softmax(logits, axis=model.nb_target_dim)
 
         label = nn.choice(
             log_prob, input_type="log_prob",
