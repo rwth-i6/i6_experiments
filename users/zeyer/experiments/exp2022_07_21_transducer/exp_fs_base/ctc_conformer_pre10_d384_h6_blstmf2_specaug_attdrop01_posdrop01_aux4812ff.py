@@ -108,6 +108,7 @@ class Model(nn.Module):
 
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", nn.Linear(enc_model_dim, wb_target_dim))
+        self.logits = nn.Linear(enc_model_dim, wb_target_dim)
 
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
@@ -205,10 +206,13 @@ def from_scratch_training(*,
         aux_logits = linear(collected_outputs[str(i - 1)])
         aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
         aux_loss.mark_as_loss(f"ctc_{i}")
+    logits = model.logits(enc_args["enc"])
+    loss = nn.ctc_loss(logits=logits, targets=targets)
+    loss.mark_as_loss("ctc")
 
 
 from_scratch_training: TrainDef[Model]
-from_scratch_training.learning_rate_control_error_measure = "dev_score_ctc_12"
+from_scratch_training.learning_rate_control_error_measure = "dev_score_ctc"
 
 
 def model_recog(*,
@@ -232,9 +236,7 @@ def model_recog(*,
     loop.max_seq_len = nn.dim_value(enc_spatial_dim) * 2
     with loop:
         enc = model.encoder_unstack(enc_args)
-        assert len(model.encoder.layers) in aux_loss_layers
-        linear = getattr(model, f"enc_aux_logits_{len(model.encoder.layers)}")
-        logits = linear(enc["enc"])
+        logits = model.logits(enc["enc"])
         log_prob = nn.log_softmax(logits, axis=model.wb_target_dim)
 
         label = nn.choice(
