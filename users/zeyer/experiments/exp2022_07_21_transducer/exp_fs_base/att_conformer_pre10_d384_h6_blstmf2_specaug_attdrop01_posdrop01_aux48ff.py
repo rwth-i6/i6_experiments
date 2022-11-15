@@ -292,15 +292,23 @@ def from_scratch_training(*,
         aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
         aux_loss.mark_as_loss(f"ctc_{i}")
 
+    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
     targets, targets_spatial_dim = nn.postfix_in_time(targets, axis=targets_spatial_dim, postfix=model.eos_idx)
-    prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=False)
 
-    logits, _ = model.decode(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
+    loop = nn.Loop(axis=targets_spatial_dim)
+    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
+    loop.state.label = nn.constant(model.bos_idx, shape=batch_dims, sparse_dim=model.nb_target_dim)
+    with loop:
+        logits, loop.state.decoder = model.decode(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            prev_nb_target=loop.state.label,
+            prev_nb_target_spatial_dim=nn.single_step_dim,
+            state=loop.state.decoder)
+
+        loop.state.label = loop.unstack(targets)
+        logits = loop.stack(logits)
+
     loss = nn.sparse_softmax_cross_entropy_with_logits(logits=logits, targets=targets, axis=targets_spatial_dim)
     loss.mark_as_loss("ce")
 
@@ -327,14 +335,13 @@ def model_recog(*,
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
-    loop = nn.Loop(axis=enc_spatial_dim)  # time-sync transducer
+    loop = nn.Loop()
     loop.max_seq_len = nn.dim_value(enc_spatial_dim) * 2
     loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
     loop.state.label = nn.constant(model.bos_idx, shape=batch_dims, sparse_dim=model.nb_target_dim)
     with loop:
-        enc = model.encoder_unstack(enc_args)
         logits, loop.state.decoder = model.decode(
-            **enc,
+            **enc_args,
             enc_spatial_dim=nn.single_step_dim,
             prev_nb_target=loop.state.label,
             prev_nb_target_spatial_dim=nn.single_step_dim,
