@@ -137,8 +137,6 @@ class Model(nn.Module):
 
         for p in self.encoder.parameters():
             p.weight_decay = l2
-        for p in self.enc_ctx.parameters():
-            p.weight_decay = l2
         for p in list(self.readout_in_am.parameters()) + list(self.readout_in_lm.parameters()) + [self.readout_in_bias]:
             p.weight_decay = l2
 
