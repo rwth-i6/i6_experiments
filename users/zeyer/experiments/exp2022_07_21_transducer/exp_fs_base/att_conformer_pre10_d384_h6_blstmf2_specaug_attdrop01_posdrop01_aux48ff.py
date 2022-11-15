@@ -165,7 +165,7 @@ class Model(nn.Module):
         """Default initial state"""
         return nn.LayerState(
             s=self.s.default_initial_state(batch_dims=batch_dims),
-            att=nn.zeros(list(batch_dims) + [self.encoder.out_dim]),
+            att=nn.zeros(list(batch_dims) + [self.num_heads * self.encoder.out_dim]),
             accum_att_weights=nn.zeros(list(batch_dims) + [enc_spatial_dim, self.num_heads]),
         )
 
