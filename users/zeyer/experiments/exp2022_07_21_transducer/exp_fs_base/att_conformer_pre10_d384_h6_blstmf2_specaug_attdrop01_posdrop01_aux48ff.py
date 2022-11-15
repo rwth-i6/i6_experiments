@@ -120,6 +120,8 @@ class Model(nn.Module):
         for i in enc_aux_logits:
             setattr(self, f"enc_aux_logits_{i}", nn.Linear(self.encoder.out_dim, wb_target_dim))
 
+        # https://github.com/rwth-i6/returnn-experiments/blob/master/2020-rnn-transducer/configs/base2.conv2l.specaug4a.ctc.devtrain.config
+
         enc_key_total_dim = nn.FeatureDim("key", 1024)
         num_heads = nn.SpatialDim("heads", 1)
         self.num_heads = num_heads
@@ -129,13 +131,13 @@ class Model(nn.Module):
 
         self.target_embed = nn.Linear(nb_target_dim, nn.FeatureDim("target_embed", 621), with_bias=False)
 
-        self.s = nn.LSTM(self.target_embed.out_dim + self.encoder.out_dim, nn.FeatureDim("lstm", 1000))
+        self.s = nn.LSTM(self.target_embed.out_dim + num_heads * self.encoder.out_dim, nn.FeatureDim("lstm", 1000))
 
         self.weight_feedback = nn.Linear(num_heads, enc_key_total_dim, with_bias=False)
         self.s_transformed = nn.Linear(self.s.out_dim, enc_key_total_dim, with_bias=False)
         self.energy = nn.Linear(enc_key_total_dim, num_heads, with_bias=False)
         self.readout_in = nn.Linear(
-            self.s.out_dim + self.target_embed.out_dim + self.encoder.out_dim,
+            self.s.out_dim + self.target_embed.out_dim + num_heads * self.encoder.out_dim,
             nn.FeatureDim("readout", 1000))
         self.output_prob = nn.Linear(self.readout_in.out_dim // 2, nb_target_dim)
 
