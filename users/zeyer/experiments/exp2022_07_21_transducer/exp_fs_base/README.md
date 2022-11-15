@@ -225,6 +225,7 @@ Experiments parts:
 - decembN: decoder embedding dim N
 - decnoatt: no attention in decoder
 - ctc: pure CTC model, no transducer at all
+- nepN: num subepochs N
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
