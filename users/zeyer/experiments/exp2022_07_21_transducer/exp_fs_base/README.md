@@ -223,6 +223,7 @@ Experiments parts:
 - declstmz: decoder LSTM with zoneout
 - decswitchout0F: decoder LM labels input switchout 0.F
 - decembN: decoder embedding dim N
+- decnoatt: no attention in decoder
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
