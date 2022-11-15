@@ -40,11 +40,11 @@ config = dict(
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
     # gradient_noise=0.0,
-    learning_rate=0.0005,
+    learning_rate=0.001,
     learning_rates=(
         # matching pretraining
-        list(numpy.linspace(0.0000001, 0.001, num=10)) * 3 +
-        list(numpy.linspace(0.0000001, 0.001, num=30))
+        list(numpy.linspace(0.0000001, 0.001, num=5)) * 4 +
+        list(numpy.linspace(0.0000001, 0.001, num=10))
     ),
     min_learning_rate=0.001 / 50,
     learning_rate_control="newbob_multi_epoch",
