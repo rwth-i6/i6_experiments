@@ -129,7 +129,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     extra_net_dict["#copy_param_mode"] = "subset"
     return Model(
         in_dim,
-        num_enc_layers=min((epoch - 1) // 2 + 2, 6) if epoch <= 10 else 6,
+        num_enc_layers=min((epoch - 1) // 5 + 2, 6) if epoch <= 20 else 6,
         enc_model_dim=nn.FeatureDim("enc", 1024),
         nb_target_dim=target_dim,
         wb_target_dim=target_dim + 1,
