@@ -236,6 +236,7 @@ Experiments parts:
 - ls0F: label smoothing 0.F (via label_smoothed_log_prob_gradient)
 - ls0Fa: label smoothing scheduled by pretrain growth factor
 - mhsapinit0F: param init variance-scaling scale 0.F for the multi-head self-attention qkv linear layers
+- specaugweia: pure returnn-common implementation of specaugwei
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
