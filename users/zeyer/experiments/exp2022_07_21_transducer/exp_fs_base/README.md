@@ -133,7 +133,8 @@ Conformer:
   - depthwise_conv filter size
   - layer norm vs batch norm
     - layer norm allows for much higher LR?
-  - pos encoding type: old, new, other...
+  - pos encoding type: old, new, other..., clip size
+  - variants: SE-block, E-Branchformer
 - LR schedule
 - pretrain
 - aux loss (CTC or CE or whatever)
@@ -144,6 +145,9 @@ Conformer:
   - can even do that on whole seq, inside the network (only for training)
   - alternatively, similar effect: restrict self-attention to local context
 - stochastic depth
+- specaugment variant, maybe time-warping
+- longer training?
+  maybe for 25 epochs, BLSTM is better than Conformer, but only with more training, Conformer becomes better?
 
 I think a big problem is overfitting, esp on Switchboard.
 Should use some better regularization:
@@ -157,6 +161,8 @@ Other aspects:
   - Maybe only the non-OOV segments from Hub500?
   `/u/raissi/experiments/lm-sa-swb/dependencies/zhou-dev-segments-hub`
   - Maybe cleanup Hub500. Might have different text processing...
+- LM and ILM pipeline
+- Librispeech
 
 ---
 
@@ -217,6 +223,7 @@ Experiments parts:
 - oclr: one-cycle LR, adapted from Tinas config
 - mlrF: min_learning_rate F
 - specaugwei: specaug hyper params taken from Weis config
+  - seems better
 - wdro: weight decay (L2) on readout_in, like in original config
 - declstmdN: decoder LSTM dim N
 - declstmwdrop0F: decoder LSTM weight dropout 0.F
