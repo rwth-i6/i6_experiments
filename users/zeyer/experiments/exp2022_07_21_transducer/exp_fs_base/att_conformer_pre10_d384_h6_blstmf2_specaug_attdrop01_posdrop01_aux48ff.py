@@ -344,7 +344,7 @@ def model_recog(*,
     with loop:
         logits, loop.state.decoder = model.decode(
             **enc_args,
-            enc_spatial_dim=nn.single_step_dim,
+            enc_spatial_dim=enc_spatial_dim,
             prev_nb_target=loop.state.label,
             prev_nb_target_spatial_dim=nn.single_step_dim,
             state=loop.state.decoder)
