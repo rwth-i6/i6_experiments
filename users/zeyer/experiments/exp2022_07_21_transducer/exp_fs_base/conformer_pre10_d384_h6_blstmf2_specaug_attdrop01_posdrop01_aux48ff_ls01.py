@@ -16,8 +16,7 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-# Does not converge, maybe too much label smoothing initially? See ls01a as another variant.
-_exclude_me = True
+_exclude_me = False
 
 
 def sis_run_with_prefix(prefix_name: str):
