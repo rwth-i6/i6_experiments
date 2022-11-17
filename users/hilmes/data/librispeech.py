@@ -218,6 +218,7 @@ def get_ls_train_clean_360_tts_silencepreprocessed(alias_path=""):
     # the pipeline uses n4.1.4, but we assume that it is safe to user other versions of FFMPEG as well
     # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
     ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"),
+    alias_path=alias_path,
   )
 
   return deepcopy(processed_corpus)

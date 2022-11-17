@@ -71,7 +71,7 @@ class ConvStack(nn.Module):
   def __init__(
     self,
     num_layers: int = 3,
-    dim_sizes: Tuple[int] = (256, 256, 256),
+    dim_sizes: Union[Tuple[int], int] = (256, 256, 256),
     filter_sizes: Tuple[int] = (5, 5, 5),
     bn_epsilon: float = 1e-5,
     dropout: Sequence[float] = (0.5, 0.5, 0.5),
@@ -86,13 +86,15 @@ class ConvStack(nn.Module):
         :param l2: weight decay value
         """
     super(ConvStack, self).__init__()
-    assert len(dim_sizes) == num_layers  # mismatch in dim_sizes
+    assert isinstance(dim_sizes, int) or len(dim_sizes) == num_layers  # mismatch in dim_sizes
     assert len(filter_sizes) == num_layers  # mismatch in filter_sizes
     assert len(dropout) == num_layers  # mismatch in dropout
 
     self.num_layers = num_layers
     # simplify tags a bit if possible
-    if len(set(dim_sizes)) == 1:  # all sizes equal
+    if isinstance(dim_sizes, int):
+      out_dims = [nn.FeatureDim("conv_dim", dim_sizes)] * num_layers
+    elif len(set(dim_sizes)) == 1:  # all sizes equal
       out_dims = [nn.FeatureDim("conv_dim", dim_sizes[0])] * num_layers
     else:
       out_dims = [
@@ -257,7 +259,7 @@ class DurationPredictor(nn.Module):
   def __init__(
     self,
     num_layers: int = 2,
-    conv_sizes: Sequence[int] = (256, 256),
+    conv_sizes: Union[Sequence[int], int] = (256, 256),
     filter_sizes: Sequence[int] = (3, 3),
     dropout: Sequence[float] = (0.5, 0.5),
     l2: float = 1e-07,
@@ -272,7 +274,7 @@ class DurationPredictor(nn.Module):
         """
     super(DurationPredictor, self).__init__()
 
-    assert len(conv_sizes) == num_layers
+    assert isinstance(conv_sizes, int) or len(conv_sizes) == num_layers
     assert len(filter_sizes) == num_layers
     assert len(dropout) == num_layers
 
@@ -283,7 +285,9 @@ class DurationPredictor(nn.Module):
       "pred_lin_dim", 1
     )  # fixed to one to predict one duration per time/batch
     # simplify tags a bit if possible
-    if len(set(conv_sizes)) == 1:  # all sizes equal
+    if isinstance(conv_sizes, int):
+      out_dims = [nn.FeatureDim("dur_conv_dim", conv_sizes)] * num_layers
+    elif len(set(conv_sizes)) == 1:  # all sizes equal
       out_dims = [nn.FeatureDim("dur_conv_dim", conv_sizes[0])] * num_layers
     else:
       out_dims = [
@@ -460,6 +464,7 @@ class NARTTSModel(nn.Module):
     duration_scale: float = 1.0,
     use_true_durations: bool = False,
     dump_durations: bool = False,
+      dump_round_durations: bool = False,
     dump_speaker_embeddings: bool = False,
     dump_vae: bool = False,
     use_vae: bool = False,
@@ -478,6 +483,8 @@ class NARTTSModel(nn.Module):
     test: bool = False,
     pitch_scale: float = 1.0,
     energy_scale: float = 1.0,
+    hidden_dim: int = 256,
+    variance_dim: int = 512,
   ):
     super(NARTTSModel, self).__init__()
 
@@ -490,6 +497,8 @@ class NARTTSModel(nn.Module):
     self.round_durations = round_durations
     self.use_true_durations = use_true_durations
     self.dump_durations = dump_durations
+    assert not dump_round_durations or dump_durations, "can only round if durations are rounded"
+    self.dump_round_durations = dump_round_durations
     self.dump_speaker_embeddings = dump_speaker_embeddings
     self.calc_speaker_embedding = calc_speaker_embedding
     assert use_vae or not dump_vae, "Needs to use VAE in order to dump it!"
@@ -526,7 +535,7 @@ class NARTTSModel(nn.Module):
     # layers
     self.embedding = nn.Linear(out_dim=self.embedding_dim)
     self.speaker_embedding = nn.Linear(out_dim=self.speaker_embedding_dim)
-    self.conv_stack = ConvStack(dropout=(dropout, dropout, dropout))
+    self.conv_stack = ConvStack(dropout=(dropout, dropout, dropout), dim_sizes=hidden_dim)
     self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim)
     self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim)
     self.decoder = Decoder(dec_lstm_size_1=dec_lstm_size, dropout=dropout)
@@ -537,16 +546,16 @@ class NARTTSModel(nn.Module):
         VarianceNetwork,
       )
 
-      self.variance_net = VarianceNetwork()
+      self.variance_net = VarianceNetwork(lstm_size=variance_dim)
       self.upsamling = GaussianUpsampling()
     else:
       self.variance_net = None
       self.upsamling = None
-    self.duration = DurationPredictor(dropout=(dropout, dropout))
+    self.duration = DurationPredictor(dropout=(dropout, dropout), conv_sizes=hidden_dim)
     self.use_vae = use_vae
     self.kl_scale = kl_beta
     if self.use_vae:
-      vae_lin_dim = nn.FeatureDim("vae_embedding", 512)
+      vae_lin_dim = nn.FeatureDim("vae_embedding", hidden_dim*2)
       self.vae_embedding = nn.Linear(vae_lin_dim)
       if self.test_vae:
         self.test_lconv_stack = nn.Sequential(
@@ -731,6 +740,9 @@ class NARTTSModel(nn.Module):
         inp=duration_in, time_dim=time_dim
       )  # [B, Label-time, 1]
       if self.dump_durations:
+        if self.dump_round_durations:
+          rint = nn.rint(duration_prediction)
+          duration_prediction = nn.cast(rint, dtype="int32")
         return duration_prediction
 
     if self.training:

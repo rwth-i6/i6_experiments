@@ -14,6 +14,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
 )
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
+from i6_core.rasr.config import RasrConfig
 
 def get_init_args():
     dc_detection = False
@@ -86,7 +87,7 @@ def get_init_args():
     )
 
 
-def get_monophone_args():
+def get_monophone_args(pool_variance=True):
     linear_alignment_args = {
         "minimum_segment_length": 0,
         "maximum_segment_length": 6000,
@@ -108,7 +109,6 @@ def get_monophone_args():
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
-        "keep_steps": [0, 1]
     }
 
     monophone_recognition_args = {
@@ -136,6 +136,12 @@ def get_monophone_args():
         "mem": 4,
         "use_gpu": False,
     }
+    if not pool_variance:
+        cov_config = RasrConfig()
+        cov_config["*"].mixture_set_trainer.force_covariance_tying = "no"
+        monophone_training_args["accumulate_extra_args"] = {"extra_config": cov_config}
+        monophone_training_args["mark_accumulate"] = [(0, 0)]
+        monophone_recognition_args["iters"] = [0]  # this is the last step
 
     return util.GmmMonophoneArgs(
         linear_alignment_args, monophone_training_args, monophone_recognition_args

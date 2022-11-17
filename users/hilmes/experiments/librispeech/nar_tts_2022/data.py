@@ -9,6 +9,7 @@ from i6_core.returnn.vocabulary import ReturnnVocabFromPhonemeInventory
 from i6_experiments.common.setups.returnn.data import get_returnn_length_hdfs
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.corpus.segments import SegmentCorpusJob, ShuffleAndSplitSegmentsJob
+from i6_core.corpus.filter import FilterCorpusBySegmentsJob
 
 from i6_experiments.common.datasets.librispeech import (
     get_g2p_augmented_bliss_lexicon_dict,
@@ -338,7 +339,7 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
 
 
 def get_tts_data_from_rasr_alignment(
-    output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones
+    output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones, silence_prep=True
 ):
     """
     Build the datastreams for TTS training from RASR alignment
@@ -349,7 +350,13 @@ def get_tts_data_from_rasr_alignment(
     :param rasr_allophones:
     :return:
     """
-    sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    if silence_prep:
+        sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    else:
+        corpus_object_dict = get_corpus_object_dict(
+            audio_format="ogg", output_prefix="corpora"
+        )
+        sil_pp_train_clean_100_co = corpus_object_dict["train-clean-100"]
     returnn_durations = get_returnn_durations(
         corpus=sil_pp_train_clean_100_co.corpus_file,
         returnn_exe=returnn_exe,
@@ -386,6 +393,13 @@ def get_tts_data_from_rasr_alignment(
 
     # get datastreams
     train_segments, cv_segments = get_librispeech_tts_segments()
+
+    from i6_core.corpus.filter import FilterCorpusBySegmentsJob
+    train_job = FilterCorpusBySegmentsJob(bliss_corpus=new_corpus, segment_file=train_segments)
+    tk.register_output(output_path + "/train_corpus.xml.gz", train_job.out_corpus)
+    dev_job = FilterCorpusBySegmentsJob(bliss_corpus=new_corpus, segment_file=cv_segments)
+    tk.register_output(output_path + "/dev_corpus.xml.gz", dev_job.out_corpus)
+
     log_mel_datastream = get_tts_audio_datastream(
         zip_dataset,
         train_segments,
@@ -782,6 +796,7 @@ def get_inference_dataset(
     original_corpus: Optional[tk.Path] = None,
     segments: Optional[tk.Path] = None,
     shuffle_info: bool = True,
+    return_mapping: bool = False,
 ):
     """
     Builds the inference dataset, gives option for different additional datasets to be passed depending on experiment
@@ -870,7 +885,10 @@ def get_inference_dataset(
     if energy_hdf is not None:
         datastreams["energy_data"] = SpeakerEmbeddingDatastream(embedding_size=1, available_for_inference=True)
 
-    return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
+    if return_mapping:
+        return TTSForwardData(dataset=inference_dataset, datastreams=datastreams), mapping_pkl
+    else:
+        return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
 
 
 def get_ls_100_f0_hdf(durations: tk.Path, returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center: bool = False, phoneme_level: bool = True):
@@ -1011,7 +1029,7 @@ def get_ls_100_energy_hdf(returnn_root: tk.Path, returnn_exe: tk.Path, prefix: s
 
 def get_ls360_100h_data():
 
-    sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed()
+    sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed("datasets/ls360")
     librispeech_g2p_lexicon = extend_lexicon(
         get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-360"]
     )
@@ -1026,7 +1044,7 @@ def get_ls360_100h_data():
     return sil_pp_train_clean_360_tts, ls_360_100h_segments
 
 
-def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path,prefix: str, center=True, silence_prep=True):
+def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center=True, silence_prep=True):
     from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
     from i6_core.corpus import (
         CorpusReplaceOrthFromReferenceCorpus,
@@ -1133,3 +1151,76 @@ def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path,pre
 
     tk.register_output(prefix + "/synthesized_corpus.xml.gz", cv_synth_corpus)
     return cv_synth_corpus
+
+
+def cov_prepare_ls_100_alignment(
+  alignment: tk.Path,
+  allophones: tk.Path,
+  name_prefix: str,
+  returnn_root: tk.Path,
+  returnn_exe: tk.Path,
+  only_dev: bool = True):
+
+  sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+  librispeech_g2p_lexicon = extend_lexicon(
+    get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)["train-clean-100"]
+  )
+  train_segments, cv_segments = get_librispeech_tts_segments()
+
+  returnn_durations = get_returnn_durations(
+    corpus=sil_pp_train_clean_100_co.corpus_file,
+    returnn_exe=returnn_exe,
+    returnn_root=returnn_root,
+    output_path=(name_prefix + "/get_durations/"),
+  )
+
+  converter = ExtractDurationsFromRASRAlignmentJob(
+    rasr_alignment=alignment["tts_align_sat"],
+    rasr_allophones=allophones,
+    bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
+    target_duration_hdf=returnn_durations,
+    silence_token="[SILENCE]",
+    start_token="[start]",
+    end_token="[end]",
+    boundary_token="[space]",
+  )
+  converter.add_alias(name_prefix + "/extract_job")
+  durations = converter.out_durations_hdf
+  corpus = converter.out_bliss
+  tk.register_output(name_prefix + "/durations.hdf", durations)
+
+  if only_dev:
+    corpus = FilterCorpusBySegmentsJob(
+      bliss_corpus=corpus,
+      segment_file=cv_segments).out_corpus
+  tk.register_output(name_prefix + "/corpus.xml.gz", corpus)
+
+  zip_dataset = BlissToOggZipJob(
+    segments=None,
+    bliss_corpus=corpus,
+    no_conversion=True,
+    returnn_python_exe=returnn_exe,
+    returnn_root=returnn_root,
+  ).out_ogg_zip
+  audio_datastream = get_tts_audio_datastream(
+    train_ogg_zip=zip_dataset,
+    segment_file=cv_segments,
+    returnn_cpu_exe=returnn_exe,
+    returnn_root=returnn_root,
+    output_path=name_prefix,
+    center=False
+  )
+
+  vocab_datastream = get_vocab_datastream(librispeech_g2p_lexicon, name_prefix)
+
+  full_ogg = OggZipDataset(
+    path=zip_dataset,
+    audio_opts=audio_datastream.as_returnn_audio_opts(),
+    target_opts=vocab_datastream.as_returnn_targets_opts(),
+    partition_epoch=1,
+    seq_ordering="sorted_reverse",
+  )
+  dataset_dump = ReturnnDumpHDFJob(
+      data=full_ogg.as_returnn_opts(), returnn_root=returnn_root, returnn_python_exe=returnn_exe, time=24)
+  tk.register_output(name_prefix + "/audio_features", dataset_dump.out_hdf)
+

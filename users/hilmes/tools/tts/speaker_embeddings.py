@@ -9,7 +9,7 @@ from typing import Iterator, Optional, Dict
 
 from i6_private.users.rossenbach.lib.hdf import SimpleHDFWriter
 from i6_core.lib import corpus
-
+import collections
 
 class DistributeSpeakerEmbeddings(Job):
     """
@@ -572,3 +572,55 @@ class AverageF0OverDurationJob(Job):
         hdf_writer.close()
         self.out_mean.set(mean)
         self.out_std.set(std)
+
+
+class RemoveSpeakerTagsJob(Job):
+
+    def __init__(self, corpus: tk.Path):
+        self.corpus = corpus
+        self.out_corpus = self.output_path("corpus.xml.gz")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        bliss = corpus.Corpus()
+        bliss.load(self.corpus.get_path())
+
+        bliss.speakers = {}
+        for recording in bliss.all_recordings():
+            for segment in recording.segments:
+                segment.speaker_name = None
+                recording.speaker_name = None
+
+        bliss.dump(self.out_corpus.get_path())
+
+
+class AddSpeakerTagsFromMappingJob(Job):
+
+    def __init__(self, corpus: tk.Path, mapping: tk.Path):
+        self.corpus = corpus
+        self.mapping = mapping
+
+        self.out_corpus = self.output_path("corpus.xml.gz")
+
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        bliss = corpus.Corpus()
+        bliss.load(self.corpus.get_path())
+
+        with open(self.mapping.get_path(), "rb") as f:
+            mapping = pickle.load(f)  # type: Dict
+
+        bliss.speakers = collections.OrderedDict()
+        for id in set(mapping.values()):
+            speaker = corpus.Speaker()
+            speaker.name = str(id)
+            bliss.add_speaker(speaker)
+        for recording in bliss.all_recordings():
+            for segment in recording.segments:
+                segment.speaker_name = mapping[segment.fullname()]
+
+        bliss.dump(self.out_corpus.get_path())

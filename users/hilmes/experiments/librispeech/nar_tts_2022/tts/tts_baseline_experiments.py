@@ -416,6 +416,243 @@ def ctc_baseline():
         **synth_kwargs,
       )
       synthetic_data_dict[f"ctc_{mode}_{1}_{synth_method}"] = synth_corpus
+
+    exp_name = name + f"/{mode}_2.0"
+    vae_dataset = deepcopy(training_datasets)
+    vae_dataset.datastreams["audio_features"].available_for_inference = True
+    train_config = get_training_config(
+      returnn_common_root=returnn_common_root,
+      training_datasets=vae_dataset,
+      embedding_size=512,
+      speaker_embedding_size=512,
+      gauss_up=True,
+      use_vae=True,
+      scale_kl_loss=True,
+      batch_size=4500,
+      skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=512,
+      dec_lstm_size=2048,
+      hidden_dim=512,
+      variance_dim=1024,
+    )
+    train_job = tts_training(
+      config=train_config,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      prefix=exp_name,
+      num_epochs=200,
+    )
+    vae_swer_dataset = deepcopy(training_datasets.cv)
+    vae_swer_datastreams = deepcopy(training_datasets.datastreams)
+    vae_swer_datastreams["audio_features"].available_for_inference = True
+    forward_config = get_forward_config(
+      returnn_common_root=returnn_common_root,
+      forward_dataset=TTSForwardData(
+        dataset=vae_swer_dataset, datastreams=vae_swer_datastreams
+      ),
+      embedding_size=512,
+      speaker_embedding_size=512,
+      calc_speaker_embedding=True,
+      use_vae=True,
+      use_audio_data=True,
+      scale_kl_loss=True,
+      skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=512,
+      dec_lstm_size=2048,
+      hidden_dim=512,
+      variance_dim=1024,
+      gauss_up=True,
+    )
+    gl_swer(
+      name=exp_name + "/gl_swer",
+      vocoder=default_vocoder,
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+      checkpoint=train_job.out_checkpoints[200],
+      config=forward_config,
+    )
+    if "speaker_emb" in mode:
+      speaker_embedding_hdf = None
+    else:
+      speaker_embedding_hdf = build_speaker_embedding_dataset(
+        returnn_common_root=returnn_common_root,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        datasets=training_datasets,
+        prefix=exp_name,
+        train_job=train_job,
+      )
+    vae_dataset_fw = deepcopy(training_datasets.cv)
+    vae_dataset_fw.datasets["audio"]["segment_file"] = None
+    vae_datastreams_fw = deepcopy(training_datasets.datastreams)
+    vae_datastreams_fw["audio_features"].available_for_inference = True
+    speaker_prior_hdf = build_vae_speaker_prior_dataset(
+      returnn_common_root=returnn_common_root,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      dataset=vae_dataset_fw,
+      datastreams=vae_datastreams_fw,
+      prefix=exp_name,
+      train_job=train_job,
+      corpus=reference_corpus.corpus_file,
+      skip_speaker_embeddings=("speaker_emb" in mode)
+    )
+    for synth_method in ["pred"]:
+      synth_kwargs = {"use_vae": True, "use_calculated_prior": True, "skip_speaker_embeddings": ("speaker_emb" in mode)}
+      synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        durations=durations if "cheat_dur" in synth_method else None,
+        process_corpus=False,
+        speaker_prior_hdf=speaker_prior_hdf,
+        speaker_prior_size=512 if "speaker_emb" in mode else 32
+      )
+      synth_corpus = synthesize_with_splits(
+        name=exp_name + f"/{synth_method}",
+        reference_corpus=reference_corpus.corpus_file,
+        corpus_name="train-clean-100",
+        job_splits=job_splits,
+        datasets=synth_dataset,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        returnn_common_root=returnn_common_root,
+        checkpoint=train_job.out_checkpoints[200],
+        vocoder=default_vocoder,
+        embedding_size=512,
+        speaker_embedding_size=512,
+        enc_lstm_size=512,
+        dec_lstm_size=2048,
+        hidden_dim=512,
+        variance_dim=1024,
+        gauss_up=True,
+        use_true_durations=("cheat_dur" in synth_method),
+        energy_cheat=("cheat_energy" in synth_method),
+        pitch_cheat=("cheat_f0" in synth_method),
+        **synth_kwargs,
+      )
+      synthetic_data_dict[f"ctc_{mode}_{2.0}_{synth_method}"] = synth_corpus
+
+    exp_name = name + f"/{mode}_1.5"
+    vae_dataset = deepcopy(training_datasets)
+    vae_dataset.datastreams["audio_features"].available_for_inference = True
+    train_config = get_training_config(
+      returnn_common_root=returnn_common_root,
+      training_datasets=vae_dataset,
+      embedding_size=384,
+      speaker_embedding_size=384,
+      gauss_up=True,
+      use_vae=True,
+      scale_kl_loss=True,
+      batch_size=4500,
+      skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=384,
+      dec_lstm_size=1536,
+      hidden_dim=384,
+      variance_dim=768,
+    )
+    train_job = tts_training(
+      config=train_config,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      prefix=exp_name,
+      num_epochs=200,
+    )
+    vae_swer_dataset = deepcopy(training_datasets.cv)
+    vae_swer_datastreams = deepcopy(training_datasets.datastreams)
+    vae_swer_datastreams["audio_features"].available_for_inference = True
+    forward_config = get_forward_config(
+      returnn_common_root=returnn_common_root,
+      forward_dataset=TTSForwardData(
+        dataset=vae_swer_dataset, datastreams=vae_swer_datastreams
+      ),
+      embedding_size=384,
+      speaker_embedding_size=384,
+      calc_speaker_embedding=True,
+      use_vae=True,
+      use_audio_data=True,
+      scale_kl_loss=True,
+      skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=384,
+      dec_lstm_size=1536,
+      hidden_dim=384,
+      variance_dim=768,
+      gauss_up=True,
+    )
+    gl_swer(
+      name=exp_name + "/gl_swer",
+      vocoder=default_vocoder,
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+      checkpoint=train_job.out_checkpoints[200],
+      config=forward_config,
+    )
+    if "speaker_emb" in mode:
+      speaker_embedding_hdf = None
+    else:
+      speaker_embedding_hdf = build_speaker_embedding_dataset(
+        returnn_common_root=returnn_common_root,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        datasets=training_datasets,
+        prefix=exp_name,
+        train_job=train_job,
+      )
+    vae_dataset_fw = deepcopy(training_datasets.cv)
+    vae_dataset_fw.datasets["audio"]["segment_file"] = None
+    vae_datastreams_fw = deepcopy(training_datasets.datastreams)
+    vae_datastreams_fw["audio_features"].available_for_inference = True
+    speaker_prior_hdf = build_vae_speaker_prior_dataset(
+      returnn_common_root=returnn_common_root,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      dataset=vae_dataset_fw,
+      datastreams=vae_datastreams_fw,
+      prefix=exp_name,
+      train_job=train_job,
+      corpus=reference_corpus.corpus_file,
+      skip_speaker_embeddings=("speaker_emb" in mode)
+    )
+    for synth_method in ["pred"]:
+      synth_kwargs = {"use_vae": True, "use_calculated_prior": True, "skip_speaker_embeddings": ("speaker_emb" in mode)}
+      synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        durations=durations if "cheat_dur" in synth_method else None,
+        process_corpus=False,
+        speaker_prior_hdf=speaker_prior_hdf,
+        speaker_prior_size=384 if "speaker_emb" in mode else 32
+      )
+      synth_corpus = synthesize_with_splits(
+        name=exp_name + f"/{synth_method}",
+        reference_corpus=reference_corpus.corpus_file,
+        corpus_name="train-clean-100",
+        job_splits=job_splits,
+        datasets=synth_dataset,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        returnn_common_root=returnn_common_root,
+        checkpoint=train_job.out_checkpoints[200],
+        vocoder=default_vocoder,
+        embedding_size=384,
+        speaker_embedding_size=384,
+        enc_lstm_size=384,
+        dec_lstm_size=1536,
+        hidden_dim=384,
+        variance_dim=768,
+        gauss_up=True,
+        use_true_durations=("cheat_dur" in synth_method),
+        energy_cheat=("cheat_energy" in synth_method),
+        pitch_cheat=("cheat_f0" in synth_method),
+        **synth_kwargs,
+      )
+      synthetic_data_dict[f"ctc_{mode}_{1.5}_{synth_method}"] = synth_corpus
+
     for loss in [0.1, 0.01, 0]:
       exp_name = name + f"/{mode}_scale_ls_{loss}"
       train_config = get_training_config(

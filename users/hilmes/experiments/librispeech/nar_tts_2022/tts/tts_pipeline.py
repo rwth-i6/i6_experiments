@@ -20,13 +20,15 @@ from i6_experiments.common.datasets.librispeech import get_corpus_object_dict
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
     TTSTrainingDatasets,
     TTSForwardData,
+    get_inference_dataset,
 )
 from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
 from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation import (
     asr_evaluation,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
-from typing import Optional, List, Dict, Union
+from typing import Optional, List, Dict, Union, Any
+from i6_experiments.users.hilmes.tools.tts.analysis import CalculateVarianceFromFeaturesJob
 
 def get_training_config(
     returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
@@ -631,3 +633,71 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
         vae_hdf=vae_prior_hdf, corpus_file=corpus).out_prior
     tk.register_output(prefix + "/calculated_priors", priors)
     return priors
+
+
+def calculate_feature_variance(
+    train_job,
+    corpus,
+    returnn_root,
+    returnn_common_root,
+    returnn_exe,
+    prefix: str,
+    training_datasets,
+    **kwargs):
+
+    speaker_embedding_hdf = build_speaker_embedding_dataset(
+        returnn_common_root=returnn_common_root,
+        returnn_exe=returnn_exe,
+        returnn_root=returnn_root,
+        datasets=training_datasets,
+        prefix=prefix,
+        train_job=train_job,
+    )
+
+    synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        durations=None,
+        process_corpus=False,
+        shuffle_info=False
+    )
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=synth_dataset,
+        **kwargs,
+        #embedding_size=256,
+        #speaker_embedding_size=256,
+        #gauss_up=True,
+    )
+    forward_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+        prefix=prefix + "/cov_analysis/full/features",
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+    )
+    durations_hdf = forward_job.out_hdf_files["output.hdf"]
+    tk.register_output(prefix + "/cov_analysis/full/features.hdf", durations_hdf)
+    forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=synth_dataset,
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=True,
+        dump_round_durations=True,
+        dump_durations=True,
+    )
+    forward_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+        prefix=prefix + "/cov_analysis/full/durations",
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+    )
+    forward_hdf = forward_job.out_hdf_files["output.hdf"]
+    tk.register_output(prefix + "/cov_analysis/full/durations.hdf", forward_hdf)
+    var_job = CalculateVarianceFromFeaturesJob(feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus)
+    tk.register_output(prefix + "/cov_analysis/full/variance", var_job.out_variance)

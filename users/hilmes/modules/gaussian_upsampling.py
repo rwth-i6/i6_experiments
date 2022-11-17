@@ -17,9 +17,9 @@ class VarianceNetwork(nn.Module):
     Predicts the variance for the upsampling
     """
 
-    def __init__(self):
+    def __init__(self, lstm_size: int = 512):
         super().__init__()
-        self.lstm_dim = nn.FeatureDim("lstm_dim", 512)
+        self.lstm_dim = nn.FeatureDim("lstm_dim", lstm_size)
         self.lstm_1_fw = nn.LSTM(out_dim=self.lstm_dim)
         self.lstm_1_bw = nn.LSTM(out_dim=self.lstm_dim)
         self.lstm_2_fw = nn.LSTM(out_dim=self.lstm_dim)
