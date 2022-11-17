@@ -213,25 +213,29 @@ class GmmSystem(RasrSystem):
         align_keep_values: Optional[dict] = None,
         split_keep_values: Optional[dict] = None,
         accum_keep_values: Optional[dict] = None,
-        dump_alignment_score_report=False,
+        dump_alignment_score_report: bool = False,
+        mark_accumulate: bool = False,
+        mark_align: bool = False,
         **kwargs,
     ):
         """
         TODO: docstring
-        :param name:
-        :param corpus_key:
-        :param linear_alignment_args:
+        :param name: Name of the step
+        :param corpus_key: Corpus key to perform training on
+        :param linear_alignment_args: extra arguments for the linear alignment
         :param feature_energy_flow_key:
         :param feature_flow:
-        :param align_iter:
-        :param splits:
-        :param accs_per_split:
+        :param align_iter: number of align steps
+        :param splits: number of split steps
+        :param accs_per_split: number of accumulates per split
         :param align_keep_values: sisyphus keep values for cleaning of alignment jobs
         :param split_keep_values: sisyphus keep values for cleaning of split jobs
         :param accum_keep_values: sisyphus keep values for cleaning of accumulation jobs
         :param dump_alignment_score_report: collect the alignment logs and write the report.
             please do not activate this flag if you already cleaned all alignments, as then all deleted
             jobs will re-run.
+        :param mark_accumulate: Passed to split_and_accumulate_sequence, defines accums to be marked
+        :param mark_align: Passed to split_and_accumulate_sequence, defines alings to be marked
         :param kwargs: passed to AlignSplitAccumulateSequence
         :return:
         """
@@ -245,12 +249,14 @@ class GmmSystem(RasrSystem):
             )
 
         action_sequence = meta.align_and_accumulate_sequence(
-            align_iter, 1, mark_accumulate=False, mark_align=False
+            align_iter,
+            1,
+            mark_accumulate=mark_accumulate,
+            mark_align=mark_align,
         )
         action_sequence += meta.split_and_accumulate_sequence(
             splits, accs_per_split
         ) + ["align!"]
-
         akv = dict(**self.default_align_keep_values)
         if align_keep_values is not None:
             akv.update(align_keep_values)
