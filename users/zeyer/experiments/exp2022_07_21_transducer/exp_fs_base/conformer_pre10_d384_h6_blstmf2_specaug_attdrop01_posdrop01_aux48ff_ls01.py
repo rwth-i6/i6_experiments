@@ -16,7 +16,8 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-_exclude_me = False
+# Unstable, diverges in the end, needs less label smoothing, or more warmup, slower pretrain.
+_exclude_me = True
 
 
 def sis_run_with_prefix(prefix_name: str):
