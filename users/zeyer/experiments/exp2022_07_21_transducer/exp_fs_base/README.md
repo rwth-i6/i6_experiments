@@ -242,6 +242,7 @@ Experiments parts:
 - lsx...: label smoothing with blank excluded 
 - ls0Fg: label smoothing via gradient instead of label_smoothing. this is the case anyway for all full-sum, but not for attention
 - lsxx...: label smoothing only on the log prob of non-blank labels
+- nbt0F: newbob threshold 0.F
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
