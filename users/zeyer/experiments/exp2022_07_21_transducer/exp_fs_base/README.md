@@ -163,6 +163,7 @@ Other aspects:
   - Maybe cleanup Hub500. Might have different text processing...
 - LM and ILM pipeline
 - Librispeech
+- all label smoothing: note that the LR scheduling is very much affected by this!
 
 ---
 
