@@ -76,5 +76,9 @@ def _compare_old_new():
     # eval hub5e_01 dataset hash: Y76oLHItr2Pt
     # eval rt03s dataset hash: qgqYRU0DGiw1
 
+    # TODO now use SwitchboardExternSprint instead.
+    # TODO how to handle extern_data?
+    # TODO where/how to keep default target, default input?
+
 
 py = _compare_old_new
