@@ -86,7 +86,7 @@ bpe1k = _Bpe(
 bpe1k_with_unk = bpe1k.copy(unknown_label="UNK")
 
 
-class SwitchboardExternSprint(DatasetConfig):
+class SwitchboardExternSprintOld(DatasetConfig):
   """
   This uses hardcoded paths to i6 internal features.
 
@@ -99,7 +99,7 @@ class SwitchboardExternSprint(DatasetConfig):
                vocab: Optional[VocabConfig] = None,
                main_key: Optional[str] = None,
                train_epoch_split=6):
-    super(SwitchboardExternSprint, self).__init__()
+    super(SwitchboardExternSprintOld, self).__init__()
     self.vocab = vocab
     assert main_key in {None, "train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
     self.main_key = main_key
@@ -108,11 +108,11 @@ class SwitchboardExternSprint(DatasetConfig):
   @classmethod
   def defaults2020(cls,
                    vocab: Optional[VocabConfig] = bpe1k,
-                   **kwargs) -> SwitchboardExternSprint:
+                   **kwargs) -> SwitchboardExternSprintOld:
     """
     Return dataset with old defaults
     """
-    return SwitchboardExternSprint(vocab=vocab, **kwargs)
+    return SwitchboardExternSprintOld(vocab=vocab, **kwargs)
 
   def get_extern_data(self) -> Dict[str, Dict[str, Any]]:
     """

@@ -13,7 +13,7 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
     """
     Switchboard
     """
-    from . import bpe1k, bpe1k_with_unk, SwitchboardExternSprint
+    from . import bpe1k, bpe1k_with_unk, SwitchboardExternSprintOld
     from .score import score
 
     vocab = bpe1k
@@ -21,12 +21,12 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
         assert not vocab.other_opts  # not expected here
         vocab = vocab.copy(other_opts={"class": "SamplingBytePairEncoding", "breadth_prob": bpe_sample})
     train_epoch_split = 6
-    train_dataset = SwitchboardExternSprint(vocab=vocab, train_epoch_split=train_epoch_split)
-    dev_dataset = SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="dev")
+    train_dataset = SwitchboardExternSprintOld(vocab=vocab, train_epoch_split=train_epoch_split)
+    dev_dataset = SwitchboardExternSprintOld(vocab=bpe1k_with_unk, main_key="dev")
     eval_datasets = {
         "hub5e_00": dev_dataset,
-        "hub5e_01": SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="hub5e_01"),
-        "rt03s": SwitchboardExternSprint(vocab=bpe1k_with_unk, main_key="rt03s"),
+        "hub5e_01": SwitchboardExternSprintOld(vocab=bpe1k_with_unk, main_key="hub5e_01"),
+        "rt03s": SwitchboardExternSprintOld(vocab=bpe1k_with_unk, main_key="rt03s"),
     }
 
     return Task(
