@@ -240,7 +240,9 @@ Experiments parts:
 - specaugweia: pure returnn-common implementation of specaugwei
 - ls0Fb: label smoothing warmup
 - lsx...: label smoothing with blank excluded 
-- ls0Fg: label smoothing via gradient instead of label_smoothing. this is the case anyway for all full-sum, but not for attention
+- ls0Fg: label smoothing via gradient instead of label_smoothing.
+  this is the case anyway for all full-sum, but not for attention.
+  note that this is not really comparable to ls0F because LR scheduling. 
 - lsxx...: label smoothing only on the log prob of non-blank labels
 - nbt0F: newbob threshold 0.F
 
