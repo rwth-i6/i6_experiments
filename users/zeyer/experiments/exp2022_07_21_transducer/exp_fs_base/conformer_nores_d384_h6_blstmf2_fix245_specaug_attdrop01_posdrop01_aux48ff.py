@@ -44,7 +44,7 @@ config = dict(
     learning_rate=0.0005,
     learning_rates=(
         # matching pretraining
-        list(numpy.linspace(0.0000001, 0.001, num=10)) * 3 +
+        list(numpy.linspace(0.0000001, 0.001, num=10)) * 6 +
         list(numpy.linspace(0.0000001, 0.001, num=30))
     ),
     min_learning_rate=0.001 / 50,
@@ -79,8 +79,7 @@ class ConformerEncoderLayerNoRes(nn.ConformerEncoderLayer):
         # MHSA
         x_mhsa_ln = self.self_att_layer_norm(x_ffn1_out)
         x_mhsa = self.self_att(x_mhsa_ln, axis=spatial_dim)
-        if self.use_dropout_after_self_att:  # TODO if flag removed, just always use it
-            x_mhsa = nn.dropout(x_mhsa, axis=inp.feature_dim, dropout=self.dropout)
+        x_mhsa = nn.dropout(x_mhsa, axis=inp.feature_dim, dropout=self.dropout)
         x_mhsa_out = x_mhsa + x_ffn1_out
 
         # Conv
@@ -352,7 +351,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     extra_net_dict = nn.NameCtx.top().root.extra_net_dict
     extra_net_dict["#config"] = {}
     extra_net_dict["#copy_param_mode"] = "subset"
-    num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 8, 12]), [])
+    num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 6, 8, 10, 12]), [])
     num_enc_layers = num_enc_layers_[epoch - 1] if epoch <= len(num_enc_layers_) else num_enc_layers_[-1]
     if num_enc_layers <= 2:
         extra_net_dict["#config"]["batch_size"] = 20000
