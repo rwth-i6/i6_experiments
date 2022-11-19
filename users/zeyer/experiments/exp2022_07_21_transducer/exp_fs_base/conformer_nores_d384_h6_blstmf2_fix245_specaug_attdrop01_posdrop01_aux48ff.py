@@ -44,7 +44,7 @@ config = dict(
     learning_rate=0.0005,
     learning_rates=(
         # matching pretraining
-        list(numpy.linspace(0.0000001, 0.001, num=10)) * 6 +
+        list(numpy.linspace(0.0000001, 0.001, num=10)) * 5 +
         list(numpy.linspace(0.0000001, 0.001, num=30))
     ),
     min_learning_rate=0.001 / 50,
