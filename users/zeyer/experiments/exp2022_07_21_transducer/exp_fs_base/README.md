@@ -245,6 +245,8 @@ Experiments parts:
   note that this is not really comparable to ls0F because LR scheduling. 
 - lsxx...: label smoothing only on the log prob of non-blank labels
 - nbt0F: newbob threshold 0.F
+- gn0F: gradient noise 0.F
+- adam: use Adam instead of Nadam
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
@@ -257,6 +259,8 @@ Current good Conformer baselines:
   "hub5e_00": 20.3, "hub5e_01": 15.5, "rt03s": 19.5
 - conformer_pre9_d384_h6_wd0_blstmf2_specaug_aux4812:
   "hub5e_00": 20.2, "hub5e_01": 15.2, "rt03s": 19.7
+- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
+  "hub5e_00": 23.2, "hub5e_01": 15.8, "rt03s": 20.5
 
 Current recommended:
 - attdrop01
@@ -264,3 +268,4 @@ Current recommended:
 - aux48ff or aux4812ff
 - wdf?
 - fix245
+- wdro
