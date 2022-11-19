@@ -250,6 +250,7 @@ Experiments parts:
 - cnnblstmfN: like blstmf but with extra CNN frontend, like start or orig
 - nores: no residual connections (or much less)
 - gaccN: gradient accumulation N
+- nepnewlrN: learning_rate_control_min_num_epochs_per_new_lr N
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
