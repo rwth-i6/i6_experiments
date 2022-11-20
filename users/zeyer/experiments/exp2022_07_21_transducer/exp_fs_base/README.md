@@ -190,6 +190,7 @@ Experiments parts:
 - bnmask: batch norm use mask (default: no mask)
 - ln: layer norm instead of batch norm
   - unstable?
+  - in another exp, seems better
 - lr0F: learning rate (peak) 0.F
 - auxL: CTC aux losses on list of layers L
 - auxLf: fixed on very-last layer
@@ -267,6 +268,8 @@ Current good Conformer baselines:
   "hub5e_00": 20.2, "hub5e_01": 15.2, "rt03s": 19.7
 - conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
   "hub5e_00": 23.2, "hub5e_01": 15.8, "rt03s": 20.5
+- conformer_ln_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
+  "hub5e_00": 19.0, "hub5e_01": 15.8, "rt03s": 19.4
 
 Current recommended:
 - attdrop01
@@ -275,3 +278,9 @@ Current recommended:
 - wdf?
 - fix245
 - wdro
+- lsxx01 or other lsxx
+- cnnblstmfN?
+- specaugweia?
+- twarp?
+- mhsapinit05
+- bhv16
