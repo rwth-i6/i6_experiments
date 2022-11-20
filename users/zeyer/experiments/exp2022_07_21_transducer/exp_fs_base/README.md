@@ -223,8 +223,10 @@ Experiments parts:
 - fix245: fix missing dropout after self-attention (https://github.com/rwth-i6/returnn_common/issues/245)
 - oclr: one-cycle LR, adapted from Tinas config
 - mlrF: min_learning_rate F
-- specaugwei: specaug hyper params taken from Weis config
-  - seems better
+- specaugwei: specaug hyper params taken from Weis config.
+  - seems better than standard specaug.
+  - see specaugweia for pure returnn-common implementation
+  - Note that oldtwarp here is not correct and not used. See specaugweia with oldtwarp.
 - wdro: weight decay (L2) on readout_in, like in original config
 - declstmdN: decoder LSTM dim N
 - declstmwdrop0F: decoder LSTM weight dropout 0.F
