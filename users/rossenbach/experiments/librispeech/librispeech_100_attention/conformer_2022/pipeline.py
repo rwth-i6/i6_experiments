@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict
 
-from i6_experiments.users.rossenbach.setups.returnn_standalone.data.audio import get_default_asr_audio_datastream
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import get_default_asr_audio_datastream
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import ReturnnAudioRawOptions, AudioRawDatastream
 from sisyphus import tk
 
@@ -13,7 +13,8 @@ from i6_core.returnn.training import ReturnnTrainingJob
 from i6_experiments.common.datasets.librispeech import get_ogg_zip_dict, get_bliss_corpus_dict
 
 from i6_experiments.common.datasets.librispeech import get_subword_nmt_bpe
-from i6_experiments.users.rossenbach.setups import returnn_standalone
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import BpeDatastream
+from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 
 
 @lru_cache()
@@ -29,7 +30,7 @@ def get_bpe_datastream(bpe_size, is_recog):
     """
     # build dataset
     bpe_settings = get_subword_nmt_bpe(corpus_key="train-clean-100", bpe_size=bpe_size, unk_label='<unk>')
-    bpe_targets = returnn_standalone.data.vocabulary.BpeDatastream(
+    bpe_targets = BpeDatastream(
         available_for_inference=False,
         bpe_settings=bpe_settings,
         use_unk_label=is_recog
@@ -43,10 +44,10 @@ def get_audio_datastream(returnn_python_exe, returnn_root, output_path):
     train_clean_100_ogg = ogg_zip_dict['train-clean-100']
 
     audio_datastream = get_default_asr_audio_datastream(
-        statistics_ogg_zip=train_clean_100_ogg,
+        statistics_ogg_zips=[train_clean_100_ogg],
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
-        output_path=output_path,
+        alias_path=output_path,
     )
 
     return audio_datastream
@@ -61,9 +62,9 @@ def get_audio_raw_datastream():
 
 @dataclass(frozen=True)
 class TrainingDatasets:
-    train: returnn_standalone.data.datasets.GenericDataset
-    cv: returnn_standalone.data.datasets.GenericDataset
-    devtrain: returnn_standalone.data.datasets.GenericDataset
+    train: Dataset
+    cv: Dataset
+    devtrain: Dataset
     extern_data: Dict[str, Dict[str, Any]]
 
 
@@ -106,8 +107,8 @@ def build_training_datasets(
         )
 
     extern_data = {
-        'audio_features': audio_datastream.as_returnn_data_opts(),
-        'bpe_labels': train_bpe_datastream.as_returnn_data_opts()
+        'audio_features': audio_datastream.as_returnn_extern_data_opts(),
+        'bpe_labels': train_bpe_datastream.as_returnn_extern_data_opts()
     }
 
     data_map = {"audio_features": ("zip_dataset", "data"),
@@ -122,42 +123,42 @@ def build_training_datasets(
     if synthetic_ogg_zip:
         training_ogg_combination = [train_clean_100_ogg] * original_scale + [synthetic_ogg_zip] * synthetic_scale
 
-    train_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=training_ogg_combination,
-        audio_opts=training_audio_opts,
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+    train_zip_dataset = OggZipDataset(
+        files=training_ogg_combination,
+        audio_options=training_audio_opts,
+        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=partition_epoch,
         seq_ordering=seq_ordering,
-        other_opts={"epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}} if use_curicculum else None}  # still hardcoded, future work
+        additional_options={"epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}} if use_curicculum else None}  # still hardcoded, future work
     )
-    train_dataset = returnn_standalone.data.datasets.MetaDataset(
+    train_dataset = MetaDataset(
         data_map=data_map,
         datasets={"zip_dataset": train_zip_dataset},
         seq_order_control_dataset="zip_dataset"
     )
 
     from i6_experiments.users.rossenbach.datasets.librispeech import get_mixed_cv_segments
-    cv_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=[dev_clean_ogg, dev_other_ogg],
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+    cv_zip_dataset = OggZipDataset(
+        files=[dev_clean_ogg, dev_other_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         segment_file=get_mixed_cv_segments(),
         seq_ordering="sorted_reverse"
     )
-    cv_dataset = returnn_standalone.data.datasets.MetaDataset(
+    cv_dataset = MetaDataset(
         data_map=data_map,
         datasets={"zip_dataset": cv_zip_dataset},
         seq_order_control_dataset="zip_dataset"
     )
 
-    devtrain_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=train_clean_100_ogg,
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+    devtrain_zip_dataset = OggZipDataset(
+        files=train_clean_100_ogg,
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
-        subset=3000,
+        random_subset=3000,
     )
-    devtrain_dataset = returnn_standalone.data.datasets.MetaDataset(
+    devtrain_dataset = MetaDataset(
         data_map=data_map,
         datasets={"zip_dataset": devtrain_zip_dataset},
         seq_order_control_dataset="zip_dataset"
@@ -195,13 +196,13 @@ def build_test_dataset(dataset_key, returnn_python_exe, returnn_root, output_pat
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}
 
-    test_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=[test_ogg],
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse"
     )
-    test_dataset = returnn_standalone.data.datasets.MetaDataset(
+    test_dataset = MetaDataset(
         data_map=data_map,
         datasets={"zip_dataset": test_zip_dataset},
         seq_order_control_dataset="zip_dataset"
@@ -229,13 +230,13 @@ def build_profile_dataset(dataset_key, returnn_python_exe, returnn_root, output_
     data_map = {"audio_features": ("zip_dataset", "data"),
                 "bpe_labels": ("zip_dataset", "classes")}
 
-    test_zip_dataset = returnn_standalone.data.datasets.OggZipDataset(
-        path=[test_ogg],
-        audio_opts=audio_datastream.as_returnn_audio_opts(),
-        target_opts=train_bpe_datastream.as_returnn_targets_opts(),
+    test_zip_dataset = OggZipDataset(
+        files=[test_ogg],
+        audio_options=audio_datastream.as_returnn_audio_opts(),
+        target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse"
     )
-    test_dataset = returnn_standalone.data.datasets.MetaDataset(
+    test_dataset = MetaDataset(
         data_map=data_map,
         datasets={"zip_dataset": test_zip_dataset},
         seq_order_control_dataset="zip_dataset"

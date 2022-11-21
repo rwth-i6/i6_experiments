@@ -12,7 +12,7 @@ def get_lm_opts():
         'is_recurrent': True,
         'preload_from_files': {
             'lm_model': {
-                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.016',
+                'filename': '/work/asr4/zeineldeen/setups-data/librispeech/2021-02-21--lm-bpe/dependencies/lm_models/transf/epoch.017',
                 'prefix': 'lm_'
             }
         },

@@ -42,17 +42,25 @@ def conformer_tf_features():
         num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
         pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
 
+    conformer_enc_fixed_bn_args = ConformerEncoderArgs(
+        num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
+        pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
+
     apply_fairseq_init_to_conformer_encoder(conformer_enc_args)
     conformer_enc_args.ctc_loss_scale = 1.0
+
+    apply_fairseq_init_to_conformer_encoder(conformer_enc_fixed_bn_args)
+    conformer_enc_fixed_bn_args.ctc_loss_scale = 1.0
+
 
     rnn_dec_args = RNNDecoderArgs()
     training_args = {}
 
     # LR scheduling
-    training_args['const_lr'] = [42, 100]  # use const LR during pretraining
+    training_args['const_lr'] = [50, 20]  # use const LR during pretraining
     training_args['wup_start_lr'] = 0.0002
-    training_args['wup'] = 20
-
+    training_args['wup'] = 30
+    training_args['with_staged_network'] = True
     training_args['speed_pert'] = True
 
     # overwrite BN params
@@ -62,12 +70,6 @@ def conformer_tf_features():
         'update_sample_only_in_training': False,
         'delay_sample_update': False
     }
-
-    # pretraining
-    training_args['pretrain_opts'] = {'variant': 4, "initial_batch_size": 20000*200}
-    training_args['pretrain_reps'] = 6
-    training_args['with_staged_network'] = True
-
     transf_lm_opts = get_lm_opts()
 
     # conformer round 2
@@ -133,6 +135,15 @@ def conformer_tf_features():
 
     train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args, report=report)
 
+    args_longer_const = copy.deepcopy(args)
+    args_longer_const['const_lr'] = [50, 45]  # use const LR during pretraining, to half of first training stage
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_long_const", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args_longer_const, report=report)
+
+    args_bn_fix = copy.deepcopy(args)
+    args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_bn_fix", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args_bn_fix, report=report)
+
+
     #local_args = copy.deepcopy(args)
     #local_args["pretrain_opts"]["variant"] = 7
     #train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_var7", log10_net_10ms, **local_args)
@@ -141,78 +152,80 @@ def conformer_tf_features():
     args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
     train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain, report=report)
 
-    args_retrain_newbob = copy.deepcopy(args)
-    args_retrain_newbob["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    args_retrain_newbob["config_override"] = {"newbob_error_threshold": 0.0}
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob)
+    # args_retrain_newbob = copy.deepcopy(args)
+    # args_retrain_newbob["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    # args_retrain_newbob["config_override"] = {"newbob_error_threshold": 0.0}
+    # train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob)
  
-    args_retrain_newbob_v2 = copy.deepcopy(args)
-    args_retrain_newbob_v2["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    args_retrain_newbob_v2["config_override"] = {"newbob_relative_error_threshold": 0.0}
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob_v2)
+    # # args_retrain_newbob_v2 = copy.deepcopy(args)
+    # # args_retrain_newbob_v2["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    # # args_retrain_newbob_v2["config_override"] = {"newbob_relative_error_threshold": 0.0}
+    # # train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain_newbob_v2)
 
-    from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.synthetic_storage import synthetic_ogg_zip_data
+    # from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.synthetic_storage import synthetic_ogg_zip_data
 
-    training_datasets_speedperturbed_synth = build_training_datasets(
-        returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=True,
-        synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
-        partition_epoch=18,
-        original_scale=3,
-        synthetic_scale=1,
-    )
+    # training_datasets_speedperturbed_synth = build_training_datasets(
+    #     returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=True,
+    #     synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
+    #     partition_epoch=18,
+    #     original_scale=3,
+    #     synthetic_scale=1,
+    # )
 
-    training_datasets_speedperturbed_retrain_synth = build_training_datasets(
-        returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=False,
-        synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
-        partition_epoch=18,
-        original_scale=3,
-        synthetic_scale=1,
-    )
+    # training_datasets_speedperturbed_retrain_synth = build_training_datasets(
+    #     returnn_exe, returnn_root_datasets, prefix_name, bpe_size=2000, use_raw_features=True, link_speed_perturbation=True, use_curicculum=False,
+    #     synthetic_ogg_zip=synthetic_ogg_zip_data["default_ctc_tts"],
+    #     partition_epoch=18,
+    #     original_scale=3,
+    #     synthetic_scale=1,
+    # )
 
-    train_job_synth_base = run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args)
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain)
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob)
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob_v2)
+    # train_job_synth_base = run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args)
+    # train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain)
+    # train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob)
+    # # Had issues
+    # # train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain_synthtest_newbob_v2_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain_synth, train_args=args_retrain_newbob_v2)
 
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = train_job_synth_base.out_checkpoints[250]
-    run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args_retrain)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = train_job_synth_base.out_checkpoints[250]
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args_retrain)
 
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = train_job_synth_base.out_checkpoints[250]
-    args_retrain["config_override"] = {"newbob_error_threshold": 0.0}
-    run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest_retrain_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args_retrain)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = train_job_synth_base.out_checkpoints[250]
+    # args_retrain["config_override"] = {"newbob_error_threshold": 0.0}
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_synthtest_retrain_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed_synth, train_args=args_retrain)
 
-    local_args = copy.deepcopy(args)
-    local_args["config_override"] = {"newbob_error_threshold": 0.0}
-    run_exp_v2(exp_prefix + "/" + "raw_log10_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=local_args)
+    # local_args = copy.deepcopy(args)
+    # local_args["config_override"] = {"newbob_error_threshold": 0.0}
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_newbob_threshold_0", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=local_args)
 
-    # Dataaug experiment
-    local_args = copy.deepcopy(args)
+    # # Dataaug experiment
+    # local_args = copy.deepcopy(args)
 
-    log10_net_10ms_aug = get_roll_augment_net(min_val=0.125, max_val=0.25)
-    base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_18_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
-    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_18_12_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
+    # log10_net_10ms_aug = get_roll_augment_net(min_val=0.125, max_val=0.25)
+    # base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_18_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_18_12_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
 
-    log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25)
-    base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
-    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
+    # log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25)
+    # base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
 
-    log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25, broadcast_scale=False)
-    base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_no_broadcast", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
-    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_no_broadcast_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
+    # log10_net_10ms_aug = get_roll_augment_net(min_val=0.0625, max_val=0.25, broadcast_scale=False)
+    # base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_no_broadcast", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_24_12_no_broadcast_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
 
-    log10_net_10ms_aug = get_roll_augment_net_exponential(min_val=-120, max_val=-12)
-    base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_120_12_expo", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
-    args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
-    run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_120_12_expo_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
+    # Did not converge
+    # log10_net_10ms_aug = get_roll_augment_net_exponential(min_val=-120, max_val=-12)
+    # base = run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_120_12_expo", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=local_args, search_extraction_net=log10_net_10ms)
+    # args_retrain = copy.deepcopy(args)
+    # args_retrain["retrain_checkpoint"] = base.out_checkpoints[250]
+    # run_exp_v2(exp_prefix + "/" + "raw_log10_roll_aug_120_12_expo_retrain", log10_net_10ms_aug, datasets=training_datasets_speedperturbed, train_args=args_retrain, search_extraction_net=log10_net_10ms)
 
 
     tk.register_report(prefix_name + "/report.csv", values=report.values, template=report.format_str)
