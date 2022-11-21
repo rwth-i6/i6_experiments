@@ -98,7 +98,7 @@ class Model(nn.Module):
             allow_pool_last=enc_input_allow_pool_last,
         )
         self.encoder = nn.ConformerEncoder(
-            in_dim,
+            self.frontend.out_dim,
             enc_model_dim,
             ff_dim=enc_ff_dim,
             input_layer=None,
