@@ -21,7 +21,7 @@ from .default_tools import RETURNN_COMMON
 
 
 def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, **net_kwargs):
-    evaluation_epochs  = list(range(250, num_epochs + 1, 10))
+    evaluation_epochs  = list(range(num_epochs, num_epochs + 1, 10))
 
     returnn_configs = get_rc_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=5000,
@@ -134,7 +134,7 @@ def get_rc_returnn_configs(
             "chunking": "50:25",
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.3,
-            "learning_rates": list(np.linspace(2.5e-5, 2.5e-4, 10)),
+            "learning_rates": list(np.linspace(2.5e-5, 3e-4, 50)) + list(np.linspace(3e-4, 2.5e-5, 50)),
             "learning_rate_control": "newbob_multi_epoch",
             "learning_rate_control_min_num_epochs_per_new_lr": 3,
             "learning_rate_control_relative_error_relative_lr": True,
@@ -155,8 +155,8 @@ def get_rc_returnn_configs(
 
     # those are hashed
     rc_package = "i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.rc_networks"
-    rc_encoder = Import(rc_package + ".default_hybrid.BLSTMEncoder")
-    rc_construction_code = Import(rc_package + ".default_hybrid.construct_hybrid_network")
+    rc_encoder = Import(rc_package + ".default_hybrid_v2.BLSTMEncoder")
+    rc_construction_code = Import(rc_package + ".default_hybrid_v2.construct_hybrid_network")
 
 
     net_kwargs = {
@@ -173,10 +173,10 @@ def get_rc_returnn_configs(
            "max_features_per_mask": 10
        }
     }
-    net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
-    net_kwargs_focal_loss["focal_loss_scale"] = 2.0
+    #net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
+    #net_kwargs_focal_loss["focal_loss_scale"] = 2.0
 
-    def construct_from_net_kwargs(net_kwargs, explicit_hash=None):
+    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
         rc_network = Network(
             net_func_name=rc_construction_code.object_name,
             net_func_map={
@@ -204,14 +204,18 @@ def get_rc_returnn_configs(
         )
 
         blstm_base_returnn_config = ReturnnConfig(
-            config=blstm_base_config,
+            config=base_config,
             post_config=base_post_config,
             python_epilog=[serializer],
             pprint_kwargs={"sort_dicts": False},
         )
         return blstm_base_returnn_config
 
+    bhv15_config = copy.deepcopy(blstm_base_config)
+    bhv15_config["behavior_version"] = 15
+
     return {
-        "blstm_base": construct_from_net_kwargs(net_kwargs),
-        "blstm_focal_loss": construct_from_net_kwargs(net_kwargs_focal_loss, explicit_hash="focal_loss_v2"),
+        "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, net_kwargs),
+        "blstm_oclr_v1_bhv15": construct_from_net_kwargs(bhv15_config, net_kwargs),
+        #"blstm_focal_loss": construct_from_net_kwargs(net_kwargs_focal_loss, explicit_hash="focal_loss_v2"),
     }

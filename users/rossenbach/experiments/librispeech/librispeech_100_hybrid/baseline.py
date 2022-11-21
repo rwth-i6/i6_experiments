@@ -177,7 +177,7 @@ def run_hybrid_baseline_newcv():
 
 def run_hybrid_baseline_rc():
 
-    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_rc'
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_rc_newcv'
 
     gmm_system = run_librispeech_100_common_baseline()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
@@ -189,7 +189,9 @@ def run_hybrid_baseline_rc():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs(gmm_system)
-    nn_args = get_rc_nn_args()
+
+    nn_args = get_rc_nn_args(num_epochs=125)
+    nn_args.training_args ["partition_epochs"] = {"train": 10, "dev": 1}
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 

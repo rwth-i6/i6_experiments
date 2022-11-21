@@ -239,12 +239,15 @@ def get_returnn_configs(
         oclr_v1_config = copy.deepcopy(blstm_base_config)
         oclr_v1_config["learning_rates"] = list(np.linspace(2.5e-5, 3e-4, 50)) + list(np.linspace(3e-4, 2.5e-5, 50))
         oclr_v1_config["newbob_multi_num_epochs"] = 3
+        oclr_v1_nofl_config = copy.deepcopy(oclr_v1_config)
+        oclr_v1_nofl_config["network"]["output"]["loss_opts"] = None
         oclr_v2_config = copy.deepcopy(blstm_base_config)
         oclr_v2_config["learning_rates"] = list(np.linspace(2.5e-5, 4e-4, 50)) + list(np.linspace(4e-4, 2.5e-5, 50))
         oclr_v2_config["newbob_multi_num_epochs"] = 3
 
         return {
             "blstm_oclr_v1": make_returnn_config(oclr_v1_config),
+            "blstm_oclr_v1_nofl": make_returnn_config(oclr_v1_nofl_config),
             "blstm_oclr_v2": make_returnn_config(oclr_v2_config),
             "blstm_base": blstm_base_returnn_config,
         }

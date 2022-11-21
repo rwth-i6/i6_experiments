@@ -1,3 +1,6 @@
+"""
+Like the original, but with the updated syntax
+"""
 from typing import Any, Callable, Optional, Tuple
 
 from returnn_common import nn
@@ -47,18 +50,18 @@ class BLSTMLayer(nn.Module):
     """
     BLSTM with time broadcasted dropout
     """
-    def __init__(self, size=512, dropout: float = 0.0):
+    def __init__(self, in_dim: nn.Dim, size=512, dropout: float = 0.0):
         super().__init__()
         self.lstm_dim = nn.FeatureDim(description="BLSTM-out-dim", dimension=size)
-        self.out_dim = self.lstm_dim * 2
-        self.fwd_lstm = nn.LSTM(out_dim=self.lstm_dim)
-        self.bwd_lstm = nn.LSTM(out_dim=self.lstm_dim)
+        self.out_dim = 2*self.lstm_dim
+        self.fwd_lstm = nn.LSTM(in_dim=in_dim, out_dim=self.lstm_dim)
+        self.bwd_lstm = nn.LSTM(in_dim=in_dim, out_dim=self.lstm_dim)
         self.dropout = dropout
 
     def __call__(self, source: nn.Tensor, time_dim: nn.Dim):
-        fwd, _ = self.fwd_lstm(source, axis=time_dim, direction=1)
-        bwd, _ = self.bwd_lstm(source, axis=time_dim, direction=-1)
-        concat = nn.concat((fwd, self.lstm_dim), (bwd, self.lstm_dim))
+        fwd, _ = self.fwd_lstm(source, spatial_dim=time_dim, direction=1)
+        bwd, _ = self.bwd_lstm(source, spatial_dim=time_dim, direction=-1)
+        concat, _  = nn.concat((fwd, self.lstm_dim), (bwd, self.lstm_dim))
         if self.dropout > 0.0:
             return nn.dropout(concat, self.dropout, axis=[nn.batch_dim, concat.feature_dim])
         else:
@@ -70,16 +73,19 @@ class BLSTMEncoder(ISeqFramewiseEncoder):
     BLSTM encoder with specaugment
     """
 
-    def __init__(self, label_dim: nn.Dim, num_layers: int, size: int, dropout: float, specaugment_options=None):
+    def __init__(self, in_dim: nn.Dim, num_layers: int, size: int, dropout: float, specaugment_options=None):
         super().__init__()
         self.specaugment_options = specaugment_options
-        self.out_dim = label_dim
-        self.blstm_stack = nn.Sequential(
-            [
-                BLSTMLayer(size=size, dropout=dropout)
-                for _ in range(num_layers)
-            ]
-        )
+
+        running_dim = in_dim
+        blstm_layers = []
+        for _ in range(num_layers):
+            blstm_layer = BLSTMLayer(in_dim=running_dim, size=size, dropout=dropout)
+            blstm_layers.append(blstm_layer)
+            running_dim = blstm_layer.out_dim
+
+        self.out_dim = running_dim
+        self.blstm_stack = nn.Sequential(blstm_layers)
 
     def __call__(self, source: nn.Tensor, *, spatial_dim: nn.Dim) -> nn.Tensor:
         if self.specaugment_options:
@@ -99,9 +105,9 @@ class HybridHMM(IHybridHMM):
     def __init__(self, *, encoder: EncoderType, out_dim: nn.Dim, focal_loss_scale: float = 1.0):
         super().__init__()
         self.encoder = encoder
-        self.out_dim = out_dim
         self.focal_loss_scale = focal_loss_scale
-        self.out_projection = nn.Linear(out_dim)
+        self.out_dim = out_dim
+        self.out_projection = nn.Linear(in_dim=self.encoder.out_dim, out_dim=out_dim)
 
     def __call__(self, source: nn.Tensor, *,
                  state: Optional[nn.LayerState] = None,
@@ -146,7 +152,7 @@ def construct_hybrid_network(
     """
     label_feature_dim = label_data.sparse_dim
     focal_loss_scale = kwargs.pop("focal_loss_scale", 1.0)
-    enc = encoder(label_feature_dim, **kwargs)
+    enc = encoder(in_dim=audio_data.feature_dim_or_sparse_dim, **kwargs)
     net = HybridHMM(
         encoder=enc,
         out_dim=label_feature_dim,
