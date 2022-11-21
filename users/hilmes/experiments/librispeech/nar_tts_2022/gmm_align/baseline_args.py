@@ -81,10 +81,13 @@ def get_init_args():
         },
     }
 
+    #scorer_args = {}
+
     return util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
+        #scorer_args=scorer_args
     )
 
 

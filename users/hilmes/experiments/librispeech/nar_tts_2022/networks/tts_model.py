@@ -734,6 +734,8 @@ class NARTTSModel(nn.Module):
       encoder = encoder + pitch_embedding
 
     if self.use_true_durations:
+      if self.dump_durations:
+        return duration_float
       duration_prediction = duration_float
     else:
       duration_prediction = self.duration(
@@ -839,7 +841,8 @@ class NARTTSModel(nn.Module):
       dec_lin_loss.mark_as_loss()
 
     # dec_lin.mark_as_default_output()
-
+    if self.dump_durations:
+      return duration_prediction
     return dec_lin
 
 

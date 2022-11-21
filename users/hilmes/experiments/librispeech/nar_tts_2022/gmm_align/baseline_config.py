@@ -234,7 +234,8 @@ def run_librispeech_100_common_tts_sil_prep_no_speaker(
     tk.register_output(f"reports/{alias_prefix}", report.out_status)
 
     alignments = {}
-    for align in ["tts_align_mono", "tts_align_sat"]:
+    # for align in ["tts_align_mono", "tts_align_sat"]:, REMOVED for space
+    for align in ["tts_align_sat"]:
         alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
     return (
         alignments,

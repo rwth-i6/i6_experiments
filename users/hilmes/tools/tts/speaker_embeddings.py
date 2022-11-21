@@ -597,10 +597,12 @@ class RemoveSpeakerTagsJob(Job):
 
 
 class AddSpeakerTagsFromMappingJob(Job):
+    __sis_hash_exclude__ = {"segment_level": True}
 
-    def __init__(self, corpus: tk.Path, mapping: tk.Path):
+    def __init__(self, corpus: tk.Path, mapping: tk.Path, segment_level=True):
         self.corpus = corpus
         self.mapping = mapping
+        self.segment_level = segment_level
 
         self.out_corpus = self.output_path("corpus.xml.gz")
 
@@ -621,6 +623,9 @@ class AddSpeakerTagsFromMappingJob(Job):
             bliss.add_speaker(speaker)
         for recording in bliss.all_recordings():
             for segment in recording.segments:
-                segment.speaker_name = mapping[segment.fullname()]
+                if self.segment_level:
+                    segment.speaker_name = mapping[segment.fullname()]
+                else:
+                    recording.speaker_name = mapping[segment.fullname()]
 
         bliss.dump(self.out_corpus.get_path())

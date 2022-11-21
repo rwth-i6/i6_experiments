@@ -47,7 +47,7 @@ from i6_experiments.users.hilmes.tools.tts.viterbi_to_durations import (
     ViterbiToDurationsJob,
 )
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import (
-    DistributeSpeakerEmbeddings, RandomSpeakerAssignmentJob, SingularizeHDFPerSpeakerJob, DistributeHDFByMappingJob, AverageF0OverDurationJob
+    DistributeSpeakerEmbeddings, RandomSpeakerAssignmentJob, SingularizeHDFPerSpeakerJob, DistributeHDFByMappingJob, AverageF0OverDurationJob, AddSpeakerTagsFromMappingJob
 )
 from i6_experiments.users.hilmes.data.tts_preprocessing import (
     extend_lexicon,
@@ -797,6 +797,7 @@ def get_inference_dataset(
     segments: Optional[tk.Path] = None,
     shuffle_info: bool = True,
     return_mapping: bool = False,
+    alias: str = None,
 ):
     """
     Builds the inference dataset, gives option for different additional datasets to be passed depending on experiment
@@ -847,11 +848,24 @@ def get_inference_dataset(
         seq_ordering="sorted_reverse",
     )
     if original_corpus:
-        mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, speaker_bliss_corpus=original_corpus, shuffle=shuffle_info).out_mapping
+        if alias is not None:
+            job = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, speaker_bliss_corpus=original_corpus, shuffle=shuffle_info)
+            job.add_alias(alias + "/speaker_assignment")
+            mapping_pkl = job.out_mapping
+        else:
+            mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, speaker_bliss_corpus=original_corpus, shuffle=shuffle_info).out_mapping
     else:
-        mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, shuffle=shuffle_info).out_mapping
+        if alias is not None:
+            job = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, shuffle=shuffle_info)
+            job.add_alias(alias + "/speaker_assignment")
+            mapping_pkl = job.out_mapping
+        else:
+            mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, shuffle=shuffle_info).out_mapping
     if speaker_embedding_hdf:
-        speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus).out_hdf
+        speaker_embedding_job = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus)
+        if alias is not None:
+            speaker_embedding_job.add_alias(alias + "/singularize_speaker_emb")
+        speaker_embedding_hdf = speaker_embedding_job.out_hdf
         speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
         speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
     else:
@@ -1044,7 +1058,8 @@ def get_ls360_100h_data():
     return sil_pp_train_clean_360_tts, ls_360_100h_segments
 
 
-def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center=True, silence_prep=True):
+def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path, prefix: str, center=True, silence_prep=True,
+                        add_speaker_tags=False):
     from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
     from i6_core.corpus import (
         CorpusReplaceOrthFromReferenceCorpus,
@@ -1150,6 +1165,14 @@ def get_ls_100_features(vocoder, returnn_root: tk.Path, returnn_exe: tk.Path, pr
     ).out_corpus
 
     tk.register_output(prefix + "/synthesized_corpus.xml.gz", cv_synth_corpus)
+    if add_speaker_tags:
+        job = RandomSpeakerAssignmentJob(bliss_corpus=sil_pp_train_clean_100_co.corpus_file, shuffle=False)
+        job.add_alias(prefix + "/get_speaker_tags")
+        speaker_mapping = job.out_mapping
+        tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=cv_synth_corpus, mapping=speaker_mapping)
+        tag_corpus_job.add_alias(prefix + "/add_tags")
+        tk.register_output(prefix + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
+        cv_synth_corpus = tag_corpus_job.out_corpus
     return cv_synth_corpus
 
 

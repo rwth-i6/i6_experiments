@@ -653,7 +653,8 @@ def ctc_baseline():
       )
       synthetic_data_dict[f"ctc_{mode}_{1.5}_{synth_method}"] = synth_corpus
 
-    for loss in [0.1, 0.01, 0]:
+    # for loss in [0.1, 0.01, 0]:, REMOVED because of space
+    for loss in [0.1]:
       exp_name = name + f"/{mode}_scale_ls_{loss}"
       train_config = get_training_config(
         returnn_common_root=returnn_common_root,
@@ -856,7 +857,8 @@ def ctc_baseline():
     checkpoint=train_job.out_checkpoints[200],
     config=forward_config,
   )
-  for variance in ["f0", "energy", "f0_energy"]:
+  # for variance in ["f0", "energy", "f0_energy"]:, REMOVED because of space
+  for variance in []:
     exp_name = name + f"/{variance}_pred"
     returnn_common_root = CloneGitRepositoryJob(
       "https://github.com/rwth-i6/returnn_common",
@@ -1130,7 +1132,7 @@ def ctc_loss_scale():
   return synthetic_data_dict
 
 
-def synthesize_ls_100_features(silence_prep=True):
+def synthesize_ls_100_features(silence_prep=True, add_speaker_tags=False):
   from i6_core.tools.git import CloneGitRepositoryJob
   from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_ls_100_features
 
@@ -1144,9 +1146,11 @@ def synthesize_ls_100_features(silence_prep=True):
   ).out_repository
   name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/real_features"
   if not silence_prep:
-    name = name + 'no_silence_prep'
+    name = name + '_no_silence_prep'
+  if add_speaker_tags:
+    name = name + '_added_tags'
 
   default_vocoder = get_default_vocoder(name=name)
-  corpus = get_ls_100_features(vocoder=default_vocoder, returnn_root=returnn_root, returnn_exe=returnn_exe, prefix=name, silence_prep=silence_prep)
+  corpus = get_ls_100_features(vocoder=default_vocoder, returnn_root=returnn_root, returnn_exe=returnn_exe, prefix=name, silence_prep=silence_prep, add_speaker_tags=add_speaker_tags)
 
   return corpus

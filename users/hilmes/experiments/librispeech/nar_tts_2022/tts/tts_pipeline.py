@@ -29,7 +29,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation imp
 from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
 from typing import Optional, List, Dict, Union, Any
 from i6_experiments.users.hilmes.tools.tts.analysis import CalculateVarianceFromFeaturesJob
-
+from i6_core.report import GenerateReportStringJob, MailJob
 def get_training_config(
     returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
 ):
@@ -464,13 +464,13 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
         "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
         "pretrain3.natctc_recognize_pretrained.config"
     )
-    asr_evaluation(
-        config_file=librispeech_trafo,
-        corpus=cv_synth_corpus,
-        output_path=name,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_exe,
-    )
+    #asr_evaluation(
+    #    config_file=librispeech_trafo,
+    #    corpus=cv_synth_corpus,
+    #    output_path=name,
+    #    returnn_root=returnn_root,
+    #    returnn_python_exe=returnn_exe,
+    #)
 
 
 def synthesize_with_splits(
@@ -634,6 +634,16 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
     tk.register_output(prefix + "/calculated_priors", priors)
     return priors
 
+def variance_report_format(report):
+    out = []
+    with open(report["var"], "rt") as f:
+        var = f.read()
+    out.append(
+        f"""Name: {report["name"]}
+
+        Variance mean:{var}"""
+    )
+    return "\n".join(out)
 
 def calculate_feature_variance(
     train_job,
@@ -643,7 +653,9 @@ def calculate_feature_variance(
     returnn_exe,
     prefix: str,
     training_datasets,
-    **kwargs):
+    durations=None,
+    **kwargs
+):
 
     speaker_embedding_hdf = build_speaker_embedding_dataset(
         returnn_common_root=returnn_common_root,
@@ -660,17 +672,15 @@ def calculate_feature_variance(
         returnn_exe=returnn_exe,
         datastreams=training_datasets.datastreams,
         speaker_embedding_hdf=speaker_embedding_hdf,
-        durations=None,
+        durations=durations,
         process_corpus=False,
-        shuffle_info=False
+        shuffle_info=False,
+        alias=prefix
     )
     forward_config = get_forward_config(
         returnn_common_root=returnn_common_root,
         forward_dataset=synth_dataset,
         **kwargs,
-        #embedding_size=256,
-        #speaker_embedding_size=256,
-        #gauss_up=True,
     )
     forward_job = tts_forward(
         checkpoint=train_job.out_checkpoints[200],
@@ -679,25 +689,45 @@ def calculate_feature_variance(
         returnn_root=returnn_root,
         returnn_exe=returnn_exe,
     )
-    durations_hdf = forward_job.out_hdf_files["output.hdf"]
-    tk.register_output(prefix + "/cov_analysis/full/features.hdf", durations_hdf)
-    forward_config = get_forward_config(
-        returnn_common_root=returnn_common_root,
-        forward_dataset=synth_dataset,
-        embedding_size=256,
-        speaker_embedding_size=256,
-        gauss_up=True,
-        dump_round_durations=True,
-        dump_durations=True,
-    )
-    forward_job = tts_forward(
-        checkpoint=train_job.out_checkpoints[200],
-        config=forward_config,
-        prefix=prefix + "/cov_analysis/full/durations",
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-    )
     forward_hdf = forward_job.out_hdf_files["output.hdf"]
-    tk.register_output(prefix + "/cov_analysis/full/durations.hdf", forward_hdf)
+    tk.register_output(prefix + "/cov_analysis/full/features.hdf", forward_hdf)
+    if durations:
+        durations_hdf = durations
+        tk.register_output(prefix + "/cov_analysis/full/durations.hdf", durations_hdf)
+    else:
+        forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root,
+            forward_dataset=synth_dataset,
+            dump_round_durations=True,
+            dump_durations=True,
+            **kwargs,
+        )
+        duration_job = tts_forward(
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+            prefix=prefix + "/cov_analysis/full/durations",
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+        )
+        durations_hdf = duration_job.out_hdf_files["output.hdf"]
+        tk.register_output(prefix + "/cov_analysis/full/durations.hdf", durations_hdf)
     var_job = CalculateVarianceFromFeaturesJob(feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus)
+    var_job.add_alias(prefix + "/cov_analysis/full/calculate_job")
     tk.register_output(prefix + "/cov_analysis/full/variance", var_job.out_variance)
+
+    if durations:
+        cleanup = MultiJobCleanup(
+            [forward_job], var_job.out_variance, output_only=True
+        )
+    else:
+        cleanup = MultiJobCleanup(
+            [forward_job, duration_job], var_job.out_variance, output_only=True
+        )
+    tk.register_output(
+        prefix + "/cleanup/cleanup.log", cleanup.out
+    )
+
+    report_dict = {"name": prefix, "var": var_job.out_variance}
+    content = GenerateReportStringJob(report_values=report_dict, report_template=variance_report_format).out_report
+    report = MailJob(subject=prefix, result=content, send_contents=True)
+    tk.register_output(f"reports/{prefix}", report.out_status)

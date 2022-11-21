@@ -16,7 +16,7 @@ class CalculateVarianceFromFeaturesJob(Job):
     self.out_variance = self.output_var("variance")
 
   def tasks(self):
-    yield Task("run", rqmt={"mem": 16})
+    yield Task("run", rqmt={"mem": 16, "time": 2})
 
   def run(self):
 
@@ -48,12 +48,17 @@ class CalculateVarianceFromFeaturesJob(Job):
     bliss.load(self.corpus.get_path())
 
     phoneme_dict = {}
+    counter = 0
     for recording in bliss.all_recordings():
       for segment in recording.segments:
         text = segment.orth.split(" ")
+        print(counter)
+        counter += 1
         durations = durations_by_tag[segment.fullname()]
         features = features_by_tag[segment.fullname()]
-        assert np.sum(durations) == len(features), (sum(durations), len(features), segment.fullname())
+        if np.sum(durations) != len(features):
+          print(sum(durations), len(features), segment.fullname())
+        # assert np.sum(durations) == len(features), (sum(durations), len(features), segment.fullname())
         assert len(text) == len(durations), (len(text), len(durations), segment.fullname())
         offset = 0
         for duration, token in zip(durations, text):

@@ -320,18 +320,28 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
         )
         synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
 
+        var_root = CloneGitRepositoryJob(
+          "https://github.com/rwth-i6/returnn",
+          commit="5cbec73032aeba2eec269624eb755fc5766f3c98",
+        ).out_repository
+        var_common_root = CloneGitRepositoryJob(
+          "https://github.com/rwth-i6/returnn_common",
+          commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
+          checkout_folder_name="returnn_common",
+        ).out_repository
         calculate_feature_variance(
           train_job=train_job,
           corpus=new_corpus,
-          returnn_root=returnn_root,
+          returnn_root=var_root,
           returnn_exe=returnn_exe,
-          returnn_common_root=returnn_common_root,
-          prefix=exp_name,
+          returnn_common_root=var_common_root,
+          prefix=exp_name + f"/{dur_pred}",
           training_datasets=training_datasets,
           gauss_up=(upsampling == "gauss"),
           embedding_size=256,
           speaker_embedding_size=256,
           use_true_durations=(dur_pred == "cheat"),
+          durations=durations_hdf if dur_pred == "cheat" else None,
         )
 
         synth_corpus = synthesize_with_splits(
@@ -483,8 +493,14 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           tag_corpus_job.add_alias(exp_name + "/add_tags")
           tk.register_output(exp_name + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_speaker_tags"] = tag_corpus_job.out_corpus
-        for duration_scale in [0.9, 1.1, 1.2, 1.3, 2.0, 1.15, 1.25, 1.75]:
-        # TODO for duration_scale in [1.1, 1.2, 1.3, 1.15, 1.25]: once finished use this + remove 2-3 more
+
+          tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=speaker_mapping, segment_level=False)
+          tag_corpus_job.add_alias(exp_name + "/add_tags_recording_level")
+          tk.register_output(exp_name + "/add_tags_recording_level/corpus.xml.gz", tag_corpus_job.out_corpus)
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_speaker_tags_rec_level"] = tag_corpus_job.out_corpus
+        # for duration_scale in [0.9, 1.1, 1.2, 1.3, 2.0, 1.15, 1.25, 1.75]:, REMOVED because of space
+        for duration_scale in [1.1, 1.2, 1.3, 1.15, 1.25]:
+        # TODO for duration_scale in [1.1, 1.2, 1.3, 1.15, 1.25]: once finished use this + maybe remove 1.3, 1.25
           if upsampling != "gauss" or dur_pred != "pred" or align_name != "tts_align_sat":
             continue
           synth_dataset = get_inference_dataset(
@@ -515,8 +531,33 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             round_durations=True,
             duration_scale=duration_scale
           )
+          var_root = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn",
+            commit="5cbec73032aeba2eec269624eb755fc5766f3c98",
+          ).out_repository
+          var_common_root = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn_common",
+            commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
+            checkout_folder_name="returnn_common",
+          ).out_repository
+
+          calculate_feature_variance(
+            train_job=train_job,
+            corpus=new_corpus,
+            returnn_root=var_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=var_common_root,
+            prefix=exp_name + f"/{dur_pred}_scale{duration_scale}",
+            training_datasets=training_datasets,
+            gauss_up=(upsampling == "gauss"),
+            embedding_size=256,
+            speaker_embedding_size=256,
+            use_true_durations=(dur_pred == "cheat"),
+            durations=durations_hdf if dur_pred == "cheat" else None,
+            duration_scale=duration_scale
+          )
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_scale_{duration_scale}"] = synth_corpus
-          if duration_scale in [1.1, 1.2]:
+          if duration_scale in [1.1, 1.2, 1.15]:
             synth_dataset = get_inference_dataset(
               new_corpus,
               returnn_root=returnn_root,
@@ -590,15 +631,17 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
       # "f0_log_energy", REMOVED because of space
       # "f0_energy_vae", REMOVED because of space
       # "log_energy", REMOVED because of space
-      "energy_add_vae",
-      "energy_mul_vae",
-      "f0_test",
+      # "energy_add_vae", REMOVED because of space
+      # "energy_mul_vae", REMOVED because of space
+      # "f0_test", REMOVED because of space
       "energy_test",
-      "energy_test_mul_vae",
+      # "energy_test_mul_vae", REMOVED because of space
       # "f0_energy_test", REMOVED because of space
       # "log_energy_test", REMOVED because of space
       # "no_dropout_small", REMOVED because of space
-      "no_speaker_emb"
+      "no_speaker_emb",
+      "energy_no_speaker_emb",
+      "energy_test_no_speaker_emb",
     ]:
       if "energy" in variance:
         returnn_root_job = CloneGitRepositoryJob(
@@ -615,7 +658,11 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
       for upsampling in ["repeat", "gauss"]:
         if variance in ["f0_test"] and upsampling == "gauss":
           continue
-        if variance in ["no_speaker_emb", "energy_test_mul_vae"] and upsampling == "repeat":
+        if variance in [
+          "no_speaker_emb",
+          "energy_test_mul_vae",
+          "energy_no_speaker_emb",
+          "energy_test_no_speaker_emb"] and upsampling == "repeat":
           continue
         exp_name = name + f"/{variance}/{upsampling}"
         var_training_datasets = deepcopy(training_datasets)
@@ -915,8 +962,8 @@ def gmm_side_experiments(alignments: Dict, rasr_allophones):
       hash_overwrite="GENERIC_RETURNN_LAUNCHER",
     )
     for variance in [
-      "f0_scale_0.5",
-      "f0_scale_2.0"
+      # "f0_scale_0.5", REMOVED because of space
+      # "f0_scale_2.0", REMOVED because of space
     ]:
       #for upsampling in ["repeat", "gauss"]:
       for upsampling in ["repeat"]:
