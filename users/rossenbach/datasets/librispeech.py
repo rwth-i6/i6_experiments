@@ -1,3 +1,4 @@
+import copy
 from collections import defaultdict
 import random
 from functools import lru_cache
@@ -186,4 +187,4 @@ def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
         # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
         ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
 
-    return processed_corpus
+    return copy.deepcopy(processed_corpus)
