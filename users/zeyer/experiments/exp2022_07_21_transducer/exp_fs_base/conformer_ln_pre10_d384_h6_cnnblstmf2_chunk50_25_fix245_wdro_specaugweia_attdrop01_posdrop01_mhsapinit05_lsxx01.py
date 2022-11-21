@@ -171,8 +171,9 @@ class Model(nn.Module):
                 enc_, in_spatial_dim=chunk_spatial_dim, out_spatial_dim=enc_spatial_dim,
                 window_dim=win_dim, stride=stride)
             cond.true = enc_
-            enc_ = self.encoder(enc, in_spatial_dim=enc_spatial_dim)
+            enc_, _ = self.encoder(enc, in_spatial_dim=enc_spatial_dim)
             cond.false = enc_
+        enc = cond.result
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, spatial_dim=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, spatial_dim=enc_spatial_dim, window_dim=self.enc_win_dim)
