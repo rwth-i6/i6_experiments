@@ -112,6 +112,13 @@ class Model(nn.Module):
             att_dropout=enc_att_dropout,
         )
 
+        count = 0
+        for mod in self.encoder.modules():
+            if isinstance(mod, nn.RelPosSelfAttention):
+                count += 1
+                mod.qkv.weight.initial = nn.init.VarianceScaling(scale=0.5, mode="fan_avg", distribution="uniform")
+        assert count == num_enc_layers
+
         for p in self.encoder.parameters():
             p.weight_decay = l2
 
