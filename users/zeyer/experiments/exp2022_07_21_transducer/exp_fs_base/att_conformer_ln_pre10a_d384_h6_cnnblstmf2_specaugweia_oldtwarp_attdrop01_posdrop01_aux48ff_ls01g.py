@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence
 import numpy
 from returnn_common import nn
-from returnn_common.nn.encoder.blstm import BlstmEncoder
+from returnn_common.nn.encoder.blstm_cnn import BlstmCnnEncoder
 from returnn_common.asr.specaugment import random_mask_v2
 
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
@@ -100,7 +100,7 @@ class Model(nn.Module):
             in_dim,
             enc_model_dim,
             ff_dim=enc_ff_dim,
-            input_layer=BlstmEncoder(
+            input_layer=BlstmCnnEncoder(
                 in_dim,
                 nn.FeatureDim("pre-lstm", 512),
                 num_layers=2, time_reduction=6,
@@ -246,7 +246,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 8, 12]), [])
     num_enc_layers = num_enc_layers_[epoch - 1] if epoch <= len(num_enc_layers_) else num_enc_layers_[-1]
     if num_enc_layers <= 2:
-        extra_net_dict["#config"]["batch_size"] = 20000
+        extra_net_dict["#config"]["batch_size"] = 18000
     initial_dim_factor = 0.5
     grow_frac_enc = 1.0 - float(num_enc_layers_[-1] - num_enc_layers) / (num_enc_layers_[-1] - num_enc_layers_[0])
     dim_frac_enc = initial_dim_factor + (1.0 - initial_dim_factor) * grow_frac_enc
