@@ -331,7 +331,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
     num_enc_layers_ = sum(([i] * 10 for i in [2, 4, 8, 12]), [])
     num_enc_layers = num_enc_layers_[epoch - 1] if epoch <= len(num_enc_layers_) else num_enc_layers_[-1]
     if num_enc_layers <= 2:
-        extra_net_dict["#config"]["batch_size"] = 20000
+        extra_net_dict["#config"]["batch_size"] = 18000
     initial_dim_factor = 0.5
     grow_frac_enc = 1.0 - float(num_enc_layers_[-1] - num_enc_layers) / (num_enc_layers_[-1] - num_enc_layers_[0])
     dim_frac_enc = initial_dim_factor + (1.0 - initial_dim_factor) * grow_frac_enc
