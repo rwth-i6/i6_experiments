@@ -162,7 +162,7 @@ class Model(nn.Module):
         enc, enc_spatial_dim = self.frontend(source, in_spatial_dim=in_spatial_dim)
         with nn.Cond(nn.train_flag()) as cond:
             win_dim = nn.SpatialDim("win", 50)
-            stride = 25
+            stride = 50
             enc_chunked, chunk_spatial_dim = nn.window(
                 enc, spatial_dim=enc_spatial_dim,
                 window_dim=win_dim, stride=stride)
