@@ -93,8 +93,6 @@ class Model(nn.Module):
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
-        if nn.ConformerEncoderLayer.use_dropout_after_self_att:
-            nn.ConformerEncoderLayer.use_dropout_after_self_att = False
         self.in_dim = in_dim
         self.encoder = nn.ConformerEncoder(
             in_dim,
