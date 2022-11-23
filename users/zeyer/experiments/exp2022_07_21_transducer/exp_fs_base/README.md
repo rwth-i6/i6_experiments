@@ -166,9 +166,6 @@ Other aspects:
 - all label smoothing: note that the LR scheduling is very much affected by this!
 
 TODO:
-- chunking:
-  - aux CTC, needs extension of CondLayer to return multiple outputs
-  - cond on train_flag and only if seq_len > chunk_size
 - reproduction loss, as regularization, to get better alignment behavior
 
 ---
