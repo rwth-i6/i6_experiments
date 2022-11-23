@@ -254,6 +254,8 @@ Experiments parts:
 - nores: no residual connections (or much less)
 - gaccN: gradient accumulation N
 - nepnewlrN: learning_rate_control_min_num_epochs_per_new_lr N
+- chunkN: chunking with chunk size N
+- chunkNa: chunking but only when seq len > chunk size
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
