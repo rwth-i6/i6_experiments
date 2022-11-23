@@ -170,7 +170,11 @@ class Model(nn.Module):
             collected_outputs_ = {}
             enc_, _ = self.encoder(enc_chunked, in_spatial_dim=win_dim, collected_outputs=collected_outputs_)
             collected_outputs_ = {
-                str(i - 1): collected_outputs_[str(i - 1)] for i in aux_loss_layers
+                str(i - 1): nn.inverse_window(
+                    collected_outputs_[str(i - 1)],
+                    in_spatial_dim=chunk_spatial_dim, out_spatial_dim=enc_spatial_dim,
+                    window_dim=win_dim, stride=stride)
+                for i in aux_loss_layers
                 if str(i - 1) in collected_outputs_ and collected_outputs is not None}
             enc_ = nn.inverse_window(
                 enc_, in_spatial_dim=chunk_spatial_dim, out_spatial_dim=enc_spatial_dim,
@@ -181,7 +185,8 @@ class Model(nn.Module):
             collected_outputs_ = {}
             enc_, _ = self.encoder(enc, in_spatial_dim=enc_spatial_dim, collected_outputs=collected_outputs_)
             collected_outputs_ = {
-                str(i - 1): collected_outputs_[str(i - 1)] for i in aux_loss_layers
+                str(i - 1): collected_outputs_[str(i - 1)]
+                for i in aux_loss_layers
                 if str(i - 1) in collected_outputs_ and collected_outputs is not None}
             cond.false = enc_, collected_outputs_
         enc, collected_outputs_ = cond.result
