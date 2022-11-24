@@ -148,7 +148,7 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
     else:
         if use_word_end_classes:
             acousticNet["centerState"] = {"class": "eval", "from": ["centerPhoneme", "stateId", "wordEndClass"],
-                                          "eval": f"(((source(0)*{n_states_per_phone})+source(2))*2)+source(1)",
+                                          "eval": f"(((source(0)*{n_states_per_phone})+source(1))*2)+source(2)",
                                           "register_as_extern_data": "centerState",
                                           "out_type": {'dim': n_contexts * n_states_per_phone * 2, 'dtype': 'int32',
                                                        'sparse': True}}
