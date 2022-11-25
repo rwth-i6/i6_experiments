@@ -8,7 +8,9 @@ from i6_core.tools import CloneGitRepositoryJob
 from i6_core.returnn import ReturnnConfig
 
 from .pipeline import \
-    build_training_datasets, build_test_dataset, training, search, get_best_checkpoint, search_single, get_average_checkpoint_v2
+    training, search, get_best_checkpoint, search_single, get_average_checkpoint_v2
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_960_attention.conformer_2022.data import \
+    build_training_datasets, build_test_dataset
 
 from .attention_asr_config import create_config, ConformerEncoderArgs, TransformerDecoderArgs, RNNDecoderArgs
 from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
@@ -61,13 +63,22 @@ def conformer_tf_features():
 
     rnn_dec_args = RNNDecoderArgs()
 
+    trafo_dec_args = TransformerDecoderArgs(
+        num_layers=6, embed_dropout=0.1, label_smoothing=0.1,
+        apply_embed_weight=True,
+        pos_enc='rel',
+        ff_init=fairseq_ff_init,
+        mhsa_init=fairseq_mhsa_init,
+        mhsa_out_init=fairseq_ff_init
+    )
+
     training_args = {}
 
     # LR scheduling
     training_args['const_lr'] = [42, 100]  # use const LR during pretraining
     training_args['wup_start_lr'] = 0.0002
     training_args['wup'] = 20
-
+    training_args['with_staged_network'] = True
     training_args['speed_pert'] = True
 
     # overwrite BN params
@@ -77,10 +88,6 @@ def conformer_tf_features():
         'update_sample_only_in_training': False,
         'delay_sample_update': False
     }
-
-    # pretraining
-    training_args['pretrain_opts'] = {'variant': 4, "initial_batch_size": 20000*200}
-    training_args['pretrain_reps'] = 6
 
     # ---------------------------------------------------------
     # LM Settings
@@ -108,9 +115,9 @@ def conformer_tf_features():
     local_training_args = copy.deepcopy(training_args)
 
     # pretraining
-    local_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 18000*200}
+    local_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 22500*160}
     local_training_args['pretrain_reps'] = 5
-    local_training_args['batch_size'] = 12000*200  # frames * samples per frame
+    local_training_args['batch_size'] = 15000*160  # frames * samples per frame
 
     exp_prefix = prefix_name + "/" + name
     args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
@@ -162,4 +169,32 @@ def conformer_tf_features():
     args_retrain = copy.deepcopy(args)
     args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
     train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain)
+
+
+    # conformer round 2
+    name = 'tf_feature_conformer_12l_trafo_6l_normal_v2'
+    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
+    local_conformer_enc_args.ctc_loss_scale = 1.0
+    local_training_args = copy.deepcopy(training_args)
+    local_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 20000*160}
+    local_training_args['pretrain_reps'] = 5
+    local_training_args['batch_size'] = 12000*160  # frames * samples per frame
+    exp_prefix = prefix_name + "/" + name
+    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": trafo_dec_args})
+    args['name'] = name
+
+    train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
+
+
+    local_conformer_enc_args_fix_bn = copy.deepcopy(local_conformer_enc_args)
+    local_conformer_enc_args_fix_bn.batch_norm_opts = {
+        'momentum': 0.1,
+        'epsilon': 1e-3,
+        'update_sample_only_in_training': True,
+        'delay_sample_update': True,
+    }
+    args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args_fix_bn, "decoder_args": trafo_dec_args})
+    args['name'] = name
+
+    train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10_fix_bn", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
 

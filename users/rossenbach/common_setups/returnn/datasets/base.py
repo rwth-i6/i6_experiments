@@ -37,6 +37,7 @@ class ControlDataset(GenericDataset, abc.ABC):
         partition_epoch: Optional[int] = None,
         seq_list_filter_file: Optional[tk.Path] = None,
         seq_ordering: Optional[str] = None,
+        random_subset: Optional[int] = None,
         # super parameters
         additional_options: Optional[Dict] = None,
     ):
@@ -44,12 +45,15 @@ class ControlDataset(GenericDataset, abc.ABC):
         :param partition_epoch: partition the data into N parts
         :param seq_list_filter_file: text file (gzip/plain) or pkl containg list of sequence tags to use
         :param seq_ordering: see `https://returnn.readthedocs.io/en/latest/dataset_reference/index.html`_.
+        :param random_subset: take a random subset of the data, this is typically used for "dev-train", a part
+            of the training data which is used to see training scores without data augmentation
         :param additional_options: custom options directly passed to the dataset
         """
         super().__init__(additional_options=additional_options)
         self.partition_epoch = partition_epoch or 1
         self.seq_list_filter_file = seq_list_filter_file
         self.seq_ordering = seq_ordering
+        self.random_subset = random_subset
 
     def as_returnn_opts(self) -> Dict[str, Any]:
         d = {
@@ -59,7 +63,8 @@ class ControlDataset(GenericDataset, abc.ABC):
             d["seq_ordering"] = self.seq_ordering
         if self.seq_list_filter_file:
             d["seq_list_filter_file"] = self.seq_list_filter_file
-
+        if self.random_subset:
+            d['fixed_random_subset'] = self.random_subset
         sd = super().as_returnn_opts()
         assert all([k not in sd.keys() for k in d.keys()]), (
             "conflicting keys in %s and %s"

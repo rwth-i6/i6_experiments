@@ -49,6 +49,7 @@ class OggZipDataset(ControlDataset):
         # super parameters
         partition_epoch: Optional[int] = None,
         seq_ordering: Optional[str] = None,
+        random_subset: Optional[int] = None,
         # super-super parameters
         additional_options: Optional[Dict] = None,
     ):
@@ -61,12 +62,15 @@ class OggZipDataset(ControlDataset):
         :param partition_epoch: partition the data into N parts
         :param seq_list_filter_file: text file (gzip/plain) or pkl containg list of sequence tags to use
         :param seq_ordering: see `https://returnn.readthedocs.io/en/latest/dataset_reference/index.html`_.
+        :param random_subset: take a random subset of the data, this is typically used for "dev-train", a part
+            of the training data which is used to see training scores without data augmentation
         :param additional_options: custom options directly passed to the dataset
         """
         super().__init__(
             partition_epoch=partition_epoch,
             seq_list_filter_file=None,  # OggZipDataset has custom seq filtering logic
             seq_ordering=seq_ordering,
+            random_subset=random_subset,
             additional_options=additional_options,
         )
         self.path = path
