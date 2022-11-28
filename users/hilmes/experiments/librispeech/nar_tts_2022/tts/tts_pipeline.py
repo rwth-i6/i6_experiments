@@ -26,12 +26,22 @@ from i6_private.users.hilmes.tools.tts import VerifyCorpus, MultiJobCleanup
 from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation import (
     asr_evaluation,
 )
-from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import CalculateSpeakerPriorJob
+from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import (
+    CalculateSpeakerPriorJob,
+)
 from typing import Optional, List, Dict, Union, Any
-from i6_experiments.users.hilmes.tools.tts.analysis import CalculateVarianceFromFeaturesJob
+from i6_experiments.users.hilmes.tools.tts.analysis import (
+    CalculateVarianceFromFeaturesJob,
+    CalculateVarianceFromDurations,
+)
 from i6_core.report import GenerateReportStringJob, MailJob
+
+
 def get_training_config(
-    returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
+    returnn_common_root: tk.Path,
+    training_datasets: TTSTrainingDatasets,
+    batch_size=18000,
+    **kwargs,
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_model
@@ -90,16 +100,16 @@ def get_training_config(
     )
 
     net_func_map = {
-            "net_module": rc_model.object_name,
-            "phoneme_data": "phonemes",
-            "duration_data": "duration_data",
-            "label_data": "speaker_labels",
-            "audio_data": "audio_features",
-            "time_dim": "phonemes_time",
-            "label_time_dim": "speaker_labels_time",
-            "speech_time_dim": "audio_features_time",
-            "duration_time_dim": "duration_data_time",
-        }
+        "net_module": rc_model.object_name,
+        "phoneme_data": "phonemes",
+        "duration_data": "duration_data",
+        "label_data": "speaker_labels",
+        "audio_data": "audio_features",
+        "time_dim": "phonemes_time",
+        "label_time_dim": "speaker_labels_time",
+        "speech_time_dim": "audio_features_time",
+        "duration_time_dim": "duration_data_time",
+    }
 
     if "use_pitch_pred" in kwargs.keys() and kwargs["use_pitch_pred"]:
         net_func_map["pitch"] = "pitch_data"
@@ -181,16 +191,16 @@ def get_forward_config(
     )
 
     net_func_map = {
-            "net_module": rc_model.object_name,
-            "phoneme_data": "phonemes",
-            "duration_data": "duration_data" if use_true_durations else "None",
-            "label_data": "speaker_labels",
-            "audio_data": "audio_features" if use_audio_data else "None",
-            "time_dim": "phonemes_time",
-            "label_time_dim": "speaker_labels_time",
-            "speech_time_dim": "audio_features_time" if use_audio_data else "None",
-            "duration_time_dim": "duration_data_time" if use_true_durations else "None",
-        }
+        "net_module": rc_model.object_name,
+        "phoneme_data": "phonemes",
+        "duration_data": "duration_data" if use_true_durations else "None",
+        "label_data": "speaker_labels",
+        "audio_data": "audio_features" if use_audio_data else "None",
+        "time_dim": "phonemes_time",
+        "label_time_dim": "speaker_labels_time",
+        "speech_time_dim": "audio_features_time" if use_audio_data else "None",
+        "duration_time_dim": "duration_data_time" if use_true_durations else "None",
+    }
     if use_calculated_prior:
         assert kwargs["use_vae"], "Need to also set use_vae in network kwargs"
         net_func_map["speaker_prior"] = "speaker_prior"
@@ -202,7 +212,9 @@ def get_forward_config(
         net_func_map["pitch_time"] = "pitch_data_time"
 
     if energy_cheat:
-        assert kwargs["use_energy_pred"], "Need to use energy pred to use the true energy"
+        assert kwargs[
+            "use_energy_pred"
+        ], "Need to use energy pred to use the true energy"
         net_func_map["energy"] = "energy_data"
         net_func_map["energy_time"] = "energy_data_time"
 
@@ -401,7 +413,7 @@ def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=200, mem=
     return train_job
 
 
-def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
+def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix, hdf_outputs=None):
     """
 
     :param checkpoint:
@@ -411,10 +423,12 @@ def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     :param prefix:
     :return:
     """
+    if not hdf_outputs:
+        hdf_outputs = []
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=config,
-        hdf_outputs=[],
+        hdf_outputs=hdf_outputs,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
     )
@@ -464,13 +478,13 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
         "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
         "pretrain3.natctc_recognize_pretrained.config"
     )
-    #asr_evaluation(
+    # asr_evaluation(
     #    config_file=librispeech_trafo,
     #    corpus=cv_synth_corpus,
     #    output_path=name,
     #    returnn_root=returnn_root,
     #    returnn_python_exe=returnn_exe,
-    #)
+    # )
 
 
 def synthesize_with_splits(
@@ -505,7 +519,9 @@ def synthesize_with_splits(
     :return:
     """
     if segments is None:
-        forward_segments = SegmentCorpusJob(reference_corpus, job_splits).out_single_segment_files
+        forward_segments = SegmentCorpusJob(
+            reference_corpus, job_splits
+        ).out_single_segment_files
     else:
         job_splits = len(segments)
         forward_segments = segments
@@ -537,7 +553,11 @@ def synthesize_with_splits(
         tk.register_output(split_name + "/foward.hdf", forward_hdf)
 
         forward_vocoded, vocoder_forward_job = vocoder.vocode(
-            forward_hdf, iterations=30, cleanup=True, name=split_name, recon_norm=reconstruction_norm
+            forward_hdf,
+            iterations=30,
+            cleanup=True,
+            name=split_name,
+            recon_norm=reconstruction_norm,
         )
         tk.register_output(split_name + "/synthesized_corpus.xml.gz", forward_vocoded)
         output_corpora.append(forward_vocoded)
@@ -547,9 +567,7 @@ def synthesize_with_splits(
         cleanup = MultiJobCleanup(
             [last_forward_job, vocoder_forward_job], verification, output_only=True
         )
-        tk.register_output(
-            split_name + "/cleanup/cleanup.log", cleanup.out
-        )
+        tk.register_output(split_name + "/cleanup/cleanup.log", cleanup.out)
 
     from i6_core.corpus.transform import MergeStrategy
 
@@ -564,11 +582,21 @@ def synthesize_with_splits(
         reference_bliss_corpus=reference_corpus,
     ).out_corpus
 
-    tk.register_output(name + "/synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
+    tk.register_output(
+        name + "/synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus
+    )
     return cv_synth_corpus
 
 
-def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_root, datasets, prefix, train_job, epoch=200):
+def build_speaker_embedding_dataset(
+    returnn_common_root,
+    returnn_exe,
+    returnn_root,
+    datasets,
+    prefix,
+    train_job,
+    epoch=200,
+):
     """
 
     :param returnn_common_root:
@@ -585,7 +613,8 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
         training=True,
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
-            dataset=datasets.cv, datastreams=datasets.datastreams  # cv is fine here cause we assume all speakers in cv
+            dataset=datasets.cv,
+            datastreams=datasets.datastreams,  # cv is fine here cause we assume all speakers in cv
         ),
     )
     extraction_job = tts_forward(
@@ -599,8 +628,18 @@ def build_speaker_embedding_dataset(returnn_common_root, returnn_exe, returnn_ro
     return speaker_embedding_hdf
 
 
-def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_root, dataset, datastreams, prefix, train_job, corpus,
-    epoch=200, **forward_kwargs):
+def build_vae_speaker_prior_dataset(
+    returnn_common_root,
+    returnn_exe,
+    returnn_root,
+    dataset,
+    datastreams,
+    prefix,
+    train_job,
+    corpus,
+    epoch=200,
+    **forward_kwargs,
+):
     """
 
     :param returnn_common_root:
@@ -616,9 +655,7 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
         speaker_embedding_size=256,
         training=True,
         returnn_common_root=returnn_common_root,
-        forward_dataset=TTSForwardData(
-            dataset=dataset, datastreams=datastreams
-        ),
+        forward_dataset=TTSForwardData(dataset=dataset, datastreams=datastreams),
         **forward_kwargs,
     )
     vae_extraction_job = tts_forward(
@@ -630,20 +667,25 @@ def build_vae_speaker_prior_dataset(returnn_common_root, returnn_exe, returnn_ro
     )
     vae_prior_hdf = vae_extraction_job.out_default_hdf
     priors = CalculateSpeakerPriorJob(
-        vae_hdf=vae_prior_hdf, corpus_file=corpus).out_prior
+        vae_hdf=vae_prior_hdf, corpus_file=corpus
+    ).out_prior
     tk.register_output(prefix + "/calculated_priors", priors)
     return priors
 
-def variance_report_format(report):
-    out = []
-    with open(report["var"], "rt") as f:
-        var = f.read()
-    out.append(
-        f"""Name: {report["name"]}
 
-        Variance mean:{var}"""
+def var_rep_format(report) -> str:
+    out = []
+    out.append(
+        f"""
+        Name: {report["name"]}
+                  Full / No Silence / Weighted / Weighted no Silence
+        Features:{str(report["feat_var"])}, {str(report["feat_var_no_sil"])}, {str(report["feat_var_weight"])}, {str(report["feat_var_weight_no_sil"])}
+        Durations:{str(report["dur_var"])}, {str(report["dur_var_no_sil"])}, {str(report["dur_var_weight"])}, {str(report["dur_var_weight_no_sil"])}
+        Excel: {str(report["feat_var"])}/{str(report["feat_var_weight"])}, {str(report["feat_var_no_sil"])}/{str(report["feat_var_weight_no_sil"])}, {str(report["dur_var"])}/{str(report["dur_var_weight"])}, {str(report["dur_var_no_sil"])}/{str(report["dur_var_weight_no_sil"])} 
+"""
     )
     return "\n".join(out)
+
 
 def calculate_feature_variance(
     train_job,
@@ -654,7 +696,7 @@ def calculate_feature_variance(
     prefix: str,
     training_datasets,
     durations=None,
-    **kwargs
+    **kwargs,
 ):
 
     speaker_embedding_hdf = build_speaker_embedding_dataset(
@@ -675,19 +717,22 @@ def calculate_feature_variance(
         durations=durations,
         process_corpus=False,
         shuffle_info=False,
-        alias=prefix
+        alias=prefix,
     )
     forward_config = get_forward_config(
         returnn_common_root=returnn_common_root,
         forward_dataset=synth_dataset,
+        dump_round_durations=True,
+        dump_durations_to_hdf=True,
         **kwargs,
     )
     forward_job = tts_forward(
         checkpoint=train_job.out_checkpoints[200],
         config=forward_config,
-        prefix=prefix + "/cov_analysis/full/features",
+        prefix=prefix + "/cov_analysis/full/forward",
         returnn_root=returnn_root,
         returnn_exe=returnn_exe,
+        hdf_outputs=["durations.hdf"] if durations is None else None
     )
     forward_hdf = forward_job.out_hdf_files["output.hdf"]
     tk.register_output(prefix + "/cov_analysis/full/features.hdf", forward_hdf)
@@ -695,39 +740,51 @@ def calculate_feature_variance(
         durations_hdf = durations
         tk.register_output(prefix + "/cov_analysis/full/durations.hdf", durations_hdf)
     else:
-        forward_config = get_forward_config(
-            returnn_common_root=returnn_common_root,
-            forward_dataset=synth_dataset,
-            dump_round_durations=True,
-            dump_durations=True,
-            **kwargs,
-        )
-        duration_job = tts_forward(
-            checkpoint=train_job.out_checkpoints[200],
-            config=forward_config,
-            prefix=prefix + "/cov_analysis/full/durations",
-            returnn_root=returnn_root,
-            returnn_exe=returnn_exe,
-        )
-        durations_hdf = duration_job.out_hdf_files["output.hdf"]
+#        forward_config = get_forward_config(
+#            returnn_common_root=returnn_common_root,
+#            forward_dataset=synth_dataset,
+#            dump_round_durations=True,
+#            dump_durations=True,
+#            **kwargs,
+#        )
+#        duration_job = tts_forward(
+#            checkpoint=train_job.out_checkpoints[200],
+#            config=forward_config,
+#            prefix=prefix + "/cov_analysis/full/durations",
+#            returnn_root=returnn_root,
+#            returnn_exe=returnn_exe,
+#        )
+        durations_hdf = forward_job.out_hdf_files["durations.hdf"]
         tk.register_output(prefix + "/cov_analysis/full/durations.hdf", durations_hdf)
-    var_job = CalculateVarianceFromFeaturesJob(feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus)
-    var_job.add_alias(prefix + "/cov_analysis/full/calculate_job")
-    tk.register_output(prefix + "/cov_analysis/full/variance", var_job.out_variance)
-
-    if durations:
-        cleanup = MultiJobCleanup(
-            [forward_job], var_job.out_variance, output_only=True
-        )
-    else:
-        cleanup = MultiJobCleanup(
-            [forward_job, duration_job], var_job.out_variance, output_only=True
-        )
-    tk.register_output(
-        prefix + "/cleanup/cleanup.log", cleanup.out
+    feat_var_job = CalculateVarianceFromFeaturesJob(
+        feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus
     )
-
-    report_dict = {"name": prefix, "var": var_job.out_variance}
-    content = GenerateReportStringJob(report_values=report_dict, report_template=variance_report_format).out_report
+    feat_var_job.add_alias(prefix + "/cov_analysis/full/calculate_feat_var_job")
+    tk.register_output(
+        prefix + "/cov_analysis/full/feat_variance", feat_var_job.out_variance
+    )
+    dur_var_job = CalculateVarianceFromDurations(
+        duration_hdf=durations_hdf, bliss=corpus
+    )
+    dur_var_job.add_alias(prefix + "/cov_analysis/full/calculate_dur_var_job")
+    tk.register_output(
+        prefix + "/cov_analysis/full/dur_variance", dur_var_job.out_variance
+    )
+    report_dict = {
+        "name": prefix,
+        "feat_var": feat_var_job.out_variance,
+        "feat_var_no_sil": feat_var_job.out_variance_no_sil,
+        "feat_var_weight": feat_var_job.out_weight_variance,
+        "feat_var_weight_no_sil": feat_var_job.out_weight_variance_no_sil,
+        "dur_var": dur_var_job.out_variance,
+        "dur_var_no_sil": dur_var_job.out_variance_no_sil,
+        "dur_var_weight": dur_var_job.out_weight_variance,
+        "dur_var_weight_no_sil": dur_var_job.out_weight_variance_no_sil
+    }
+    content = GenerateReportStringJob(
+        report_values=report_dict, report_template=var_rep_format
+    ).out_report
     report = MailJob(subject=prefix, result=content, send_contents=True)
     tk.register_output(f"reports/{prefix}", report.out_status)
+    cleanup = MultiJobCleanup([forward_job], report.out_status, output_only=True)
+    tk.register_output(prefix + "/cleanup/cleanup.log", cleanup.out)

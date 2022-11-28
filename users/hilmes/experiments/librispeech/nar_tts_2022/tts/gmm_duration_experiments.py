@@ -343,25 +343,25 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           use_true_durations=(dur_pred == "cheat"),
           durations=durations_hdf if dur_pred == "cheat" else None,
         )
-
-        synth_corpus = synthesize_with_splits(
-          name=exp_name + f"/{dur_pred}_norm_fix",
-          reference_corpus=reference_corpus.corpus_file,
-          corpus_name="train-clean-100",
-          job_splits=job_splits,
-          datasets=synth_dataset,
-          returnn_root=returnn_root,
-          returnn_exe=returnn_exe,
-          returnn_common_root=returnn_common_root,
-          checkpoint=train_job.out_checkpoints[200],
-          vocoder=default_vocoder,
-          embedding_size=256,
-          speaker_embedding_size=256,
-          gauss_up=(upsampling == "gauss"),
-          use_true_durations=(dur_pred == "cheat"),
-          reconstruction_norm=False,
-        )
-        synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_norm_fix"] = synth_corpus
+        if silence_prep:
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}_norm_fix",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+            reconstruction_norm=False,
+          )
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_norm_fix"] = synth_corpus
         if basic_trainings:
           continue
         if (
@@ -554,7 +554,8 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
             speaker_embedding_size=256,
             use_true_durations=(dur_pred == "cheat"),
             durations=durations_hdf if dur_pred == "cheat" else None,
-            duration_scale=duration_scale
+            duration_scale=duration_scale,
+            round_durations=True
           )
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_scale_{duration_scale}"] = synth_corpus
           if duration_scale in [1.1, 1.2, 1.15]:
@@ -634,7 +635,7 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
       # "energy_add_vae", REMOVED because of space
       # "energy_mul_vae", REMOVED because of space
       # "f0_test", REMOVED because of space
-      "energy_test",
+      # "energy_test", REMOVED because of space
       # "energy_test_mul_vae", REMOVED because of space
       # "f0_energy_test", REMOVED because of space
       # "log_energy_test", REMOVED because of space
@@ -873,7 +874,26 @@ def gmm_duration_cheat(alignments: Dict, rasr_allophones, full_graph=False, retu
           synthetic_data_dict[
             f"{align_name}_{variance}_{upsampling}_{synth_method}"
           ] = synth_corpus
-
+          if upsampling == "gauss" and synth_method in ["cheat_dur, pred"]:
+            calculate_feature_variance(
+              train_job=train_job,
+              corpus=new_corpus,
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+              returnn_common_root=returnn_common_root,
+              prefix=exp_name + f"/{synth_method}",
+              training_datasets=training_datasets,
+              embedding_size=256,
+              speaker_embedding_size=256,
+              gauss_up=(upsampling == "gauss"),
+              use_true_durations=("cheat_dur" in synth_method),
+              use_pitch_pred=("f0" in variance),
+              use_energy_pred=("energy" in variance),
+              energy_cheat=("cheat_energy" in synth_method),
+              pitch_cheat=("cheat_f0" in synth_method),
+              durations=durations_hdf if synth_method == "cheat_dur" else None,
+              **synth_kwargs,
+            )
           if variance == "energy_test" and False:
             synth_corpus = synthesize_with_splits(
               name=exp_name + f"/{synth_method}_norm_fix",
@@ -1137,4 +1157,161 @@ def gmm_side_experiments(alignments: Dict, rasr_allophones):
             f"{align_name}_{variance}_{upsampling}_{synth_method}"
           ] = synth_corpus
 
+  return synthetic_data_dict
+
+
+def gmm_ablation_studies(alignments: Dict, rasr_allophones):
+  returnn_exe = tk.Path(
+    "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+  )
+
+  returnn_root = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn",
+    commit="aadac2637ed6ec00925b9debf0dbd3c0ee20d6a6",
+  ).out_repository
+  returnn_common_root = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn_common",
+    commit="79876b18552f61a3af7c21c670475fee51ef3991",
+    checkout_folder_name="returnn_common",
+  ).out_repository
+  synthetic_data_dict = {}
+  job_splits = 10
+  reference_corpus = get_corpus_object_dict(
+    audio_format="ogg", output_prefix="corpora"
+  )["train-clean-100"]
+  default_vocoder = get_default_vocoder(
+    name="experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_duration_cheat/vocoder/"
+  )
+  for align_name, alignment in alignments.items():
+    if "mono" in align_name:
+      continue
+    name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_align/{align_name}"
+    (
+      training_datasets,
+      vocoder_data,
+      new_corpus,
+      durations_hdf,
+    ) = get_tts_data_from_rasr_alignment(
+      name + "/datasets",
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      rasr_alignment=alignment,
+      rasr_allophones=rasr_allophones,
+    )
+    for scale in [1.5, 2.0]:
+      for upsampling in ["gauss"]:
+        exp_name = name + f"/{upsampling}/size_{scale}"
+        train_config = get_training_config(
+          returnn_common_root=returnn_common_root,
+          training_datasets=training_datasets,
+          embedding_size=int(256 * scale),
+          speaker_embedding_size=int(256 * scale),
+          gauss_up=(upsampling == "gauss"),
+          enc_lstm_size=int(256 * scale),
+          dec_lstm_size=int(1024 * scale),
+          hidden_dim=int(256 * scale),
+          variance_dim=int(512 * scale),
+          batch_size=12000,
+        )
+        if upsampling == "gauss":
+          train_config.config["learning_rates"] = [0.0001, 0.001]
+        train_job = tts_training(
+          config=train_config,
+          returnn_exe=returnn_exe,
+          returnn_root=returnn_root,
+          prefix=exp_name,
+          num_epochs=200,
+        )
+        for dur_pred in ["pred", "cheat_dur"]:
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root,
+            forward_dataset=TTSForwardData(
+              dataset=training_datasets.cv, datastreams=training_datasets.datastreams
+            ),
+            embedding_size=int(256 * scale),
+            speaker_embedding_size=int(256 * scale),
+            gauss_up=(upsampling == "gauss"),
+            enc_lstm_size=int(256 * scale),
+            dec_lstm_size=int(1024 * scale),
+            hidden_dim=int(256 * scale),
+            variance_dim=int(512 * scale),
+            calc_speaker_embedding=True,
+            use_true_durations=(dur_pred == "cheat_dur"),
+          )
+          gl_swer(
+            name=exp_name + f"/gl_swer_{dur_pred}",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
+          speaker_embedding_hdf = build_speaker_embedding_dataset(
+            returnn_common_root=returnn_common_root,
+            returnn_exe=returnn_exe,
+            returnn_root=returnn_root,
+            datasets=training_datasets,
+            prefix=exp_name,
+            train_job=train_job,
+          )
+          synth_dataset = get_inference_dataset_old(
+            new_corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            durations=durations_hdf if dur_pred == "cheat_dur" else None,
+            process_corpus=False,
+          )
+
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{dur_pred}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-100",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=train_job.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=int(256 * scale),
+            speaker_embedding_size=int(256 * scale),
+            gauss_up=(upsampling == "gauss"),
+            enc_lstm_size=int(256 * scale),
+            dec_lstm_size=int(1024 * scale),
+            hidden_dim=int(256 * scale),
+            variance_dim=int(512 * scale),
+            use_true_durations=(dur_pred == "cheat_dur"),
+          )
+          synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}"] = synth_corpus
+
+          #var_root = CloneGitRepositoryJob(
+          #  "https://github.com/rwth-i6/returnn",
+          #  commit="5cbec73032aeba2eec269624eb755fc5766f3c98",
+          #).out_repository
+          #var_common_root = CloneGitRepositoryJob(
+          #  "https://github.com/rwth-i6/returnn_common",
+          #  commit="ec4688ad6c712252b8b7a320a7a8bb73aba71543",
+          #  checkout_folder_name="returnn_common",
+          #).out_repository
+          calculate_feature_variance(
+            train_job=train_job,
+            corpus=new_corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            prefix=exp_name + f"/{dur_pred}",
+            training_datasets=training_datasets,
+            embedding_size=int(256 * scale),
+            speaker_embedding_size=int(256 * scale),
+            gauss_up=(upsampling == "gauss"),
+            enc_lstm_size=int(256 * scale),
+            dec_lstm_size=int(1024 * scale),
+            hidden_dim=int(256 * scale),
+            variance_dim=int(512 * scale),
+            use_true_durations=(dur_pred == "cheat_dur"),
+            durations=durations_hdf if dur_pred == "cheat_dur" else None,
+          )
   return synthetic_data_dict

@@ -464,7 +464,8 @@ class NARTTSModel(nn.Module):
     duration_scale: float = 1.0,
     use_true_durations: bool = False,
     dump_durations: bool = False,
-      dump_round_durations: bool = False,
+    dump_durations_to_hdf: bool = False,
+    dump_round_durations: bool = False,
     dump_speaker_embeddings: bool = False,
     dump_vae: bool = False,
     use_vae: bool = False,
@@ -497,7 +498,9 @@ class NARTTSModel(nn.Module):
     self.round_durations = round_durations
     self.use_true_durations = use_true_durations
     self.dump_durations = dump_durations
-    assert not dump_round_durations or dump_durations, "can only round if durations are rounded"
+    assert not dump_round_durations or (dump_durations or dump_durations_to_hdf), "can only round if durations are rounded"
+    assert not (dump_durations and dump_durations_to_hdf), "Cant do both dump to HDF and return durs"
+    self.dump_durations_to_hdf = dump_durations_to_hdf
     self.dump_round_durations = dump_round_durations
     self.dump_speaker_embeddings = dump_speaker_embeddings
     self.calc_speaker_embedding = calc_speaker_embedding
@@ -734,18 +737,22 @@ class NARTTSModel(nn.Module):
       encoder = encoder + pitch_embedding
 
     if self.use_true_durations:
-      if self.dump_durations:
-        return duration_float
       duration_prediction = duration_float
     else:
       duration_prediction = self.duration(
         inp=duration_in, time_dim=time_dim
       )  # [B, Label-time, 1]
-      if self.dump_durations:
+      if self.dump_durations or self.dump_durations_to_hdf:
+        duration_dump = duration_prediction
+        if self.duration_scale != 1.0:
+              duration_dump = duration_dump * self.duration_scale
         if self.dump_round_durations:
-          rint = nn.rint(duration_prediction)
-          duration_prediction = nn.cast(rint, dtype="int32")
-        return duration_prediction
+          duration_dump = nn.rint(duration_dump)
+        if self.dump_durations_to_hdf:
+          duration_dump = nn.hdf_dump(duration_dump, filename="durations.hdf")
+          duration_dump.mark_as_output()
+        else:
+          return duration_prediction
 
     if self.training:
       duration_prediction_loss = nn.mean_absolute_difference(
