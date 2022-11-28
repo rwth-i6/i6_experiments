@@ -9,6 +9,8 @@ import i6_core.rasr as rasr
 import i6_core.recognition as recog
 import i6_core.returnn as returnn
 
+from i6_core.returnn.flow import make_precomputed_hybrid_tf_feature_flow, add_tf_flow_to_base_flow
+
 from .base_decoder import BaseDecoder
 from .util.decode import (
     RecognitionParameters,
@@ -18,7 +20,6 @@ from .util.decode import (
     OptimizeJobArgs,
     PriorPath,
 )
-from .util.flow import get_tf_flow, add_tf_flow_to_base_flow
 
 
 class HybridDecoder(BaseDecoder):
@@ -128,11 +129,11 @@ class HybridDecoder(BaseDecoder):
                 continue
             for lm_name, lm_conf in lm_rasr_configs:
                 for s_name, p in prior_paths:
-                    tf_flow = get_tf_flow(
-                        checkpoint_path=ckpt,
-                        tf_graph_path=am_meta_graph,
-                        returnn_op_path=self.native_ops,
-                        forward_output_layer=forward_output_layer,
+                    tf_flow = make_precomputed_hybrid_tf_feature_flow(
+                        tf_graph=am_meta_graph,
+                        tf_checkpoint=ckpt,
+                        output_layer_name=forward_output_layer,
+                        native_ops=self.native_ops,
                         tf_fwd_input_name=tf_fwd_input_name,
                     )
                     feature_tf_flow = add_tf_flow_to_base_flow(
