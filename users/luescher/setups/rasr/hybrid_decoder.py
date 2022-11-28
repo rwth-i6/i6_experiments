@@ -1,6 +1,5 @@
 __all__ = ["HybridDecoder"]
 
-import itertools
 from typing import Dict, List, Optional, Type, Union
 
 from sisyphus import tk
