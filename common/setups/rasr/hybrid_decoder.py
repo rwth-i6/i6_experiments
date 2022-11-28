@@ -9,7 +9,10 @@ import i6_core.rasr as rasr
 import i6_core.recognition as recog
 import i6_core.returnn as returnn
 
-from i6_core.returnn.flow import make_precomputed_hybrid_tf_feature_flow, add_tf_flow_to_base_flow
+from i6_core.returnn.flow import (
+    make_precomputed_hybrid_tf_feature_flow,
+    add_tf_flow_to_base_flow,
+)
 
 from .base_decoder import BaseDecoder
 from .util.decode import (
