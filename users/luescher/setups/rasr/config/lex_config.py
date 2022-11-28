@@ -1,4 +1,4 @@
-__all_ = ["LexiconRasrConfig"]
+__all__ = ["LexiconRasrConfig"]
 
 from dataclasses import dataclass
 

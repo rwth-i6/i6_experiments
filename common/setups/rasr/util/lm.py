@@ -15,7 +15,7 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
-import i6_experiments.common.setups.rasr.config.lm_config as lm_config
+import i6_experiments.users.luescher.setups.rasr.config.lm_config as lm_config
 
 # -------------------- Init --------------------
 
