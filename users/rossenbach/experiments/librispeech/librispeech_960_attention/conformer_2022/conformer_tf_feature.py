@@ -15,7 +15,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_960_att
 from .attention_asr_config import create_config, ConformerEncoderArgs, TransformerDecoderArgs, RNNDecoderArgs
 from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
 
-from .feature_extraction_net import log10_net_10ms
+from .feature_extraction_net import log10_net_10ms, log10_net_10ms_long_bn
 
 def conformer_tf_features():
     returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
@@ -184,6 +184,11 @@ def conformer_tf_features():
     args['name'] = name
 
     train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
+    train_job_base_lbn = run_exp_v2(exp_prefix + "/" + "raw_log10_bnfeat", log10_net_10ms_long_bn, datasets=training_datasets_speedperturbed, train_args=args)
+
+    args_retrain = copy.deepcopy(args)
+    args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain)
 
 
     local_conformer_enc_args_fix_bn = copy.deepcopy(local_conformer_enc_args)
