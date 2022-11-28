@@ -15,7 +15,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pi
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
   get_inference_dataset,
   get_ls360_100h_data,
-  get_tts_data_from_rasr_alignment
+  get_tts_data_from_rasr_alignment,
 )
 from copy import deepcopy
 
@@ -33,12 +33,7 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
   for align_name in ["tts_align_sat"]:
     alignment = alignments[align_name]
     name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_align/{align_name}"
-    (
-      training_datasets,
-      vocoder_data,
-      original_corpus,
-      durations_hdf,
-    ) = get_tts_data_from_rasr_alignment(
+    (training_datasets, vocoder_data, original_corpus, durations_hdf,) = get_tts_data_from_rasr_alignment(
       name + "/datasets",
       returnn_exe=returnn_exe,
       returnn_root=returnn_root,
@@ -60,12 +55,8 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
     ).out_repository
     corpus, segments = get_ls360_100h_data()
     segment_list = SplitSegmentFileJob(segments, concurrent=10).out_single_segments
-    name = (
-      "experiments/librispeech/nar_tts_2022/tts/tts_synth_ls360_experiments/100h/"
-    )
-    reference_corpus = get_corpus_object_dict(
-      audio_format="ogg", output_prefix="corpora"
-    )["train-clean-360"]
+    name = "experiments/librispeech/nar_tts_2022/tts/tts_synth_ls360_experiments/100h/"
+    reference_corpus = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")["train-clean-360"]
     default_vocoder = get_default_vocoder(name=name)
     synthetic_data_dict = {}
     job_splits = 10
@@ -122,7 +113,7 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
           process_corpus=False,
           speaker_prior_hdf=speaker_prior_hdf if "vae" in train_name else None,
           original_corpus=original_corpus,
-          segments=segments
+          segments=segments,
         )
 
         synth_corpus = synthesize_with_splits(
@@ -147,7 +138,5 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
           segments=segment_list,
           **synth_kwargs,
         )
-        synthetic_data_dict[
-          f"ls360/100h/{train_name}"
-        ] = synth_corpus
+        synthetic_data_dict[f"ls360/100h/{train_name}"] = synth_corpus
     return synthetic_data_dict
