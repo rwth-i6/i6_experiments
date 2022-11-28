@@ -17,14 +17,15 @@ class VarianceNetwork(nn.Module):
     Predicts the variance for the upsampling
     """
 
-    def __init__(self, lstm_size: int = 512):
+    def __init__(self, in_dim: nn.Dim, lstm_size: int = 512):
         super().__init__()
         self.lstm_dim = nn.FeatureDim("lstm_dim", lstm_size)
-        self.lstm_1_fw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_1_bw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_2_fw = nn.LSTM(out_dim=self.lstm_dim)
-        self.lstm_2_bw = nn.LSTM(out_dim=self.lstm_dim)
-        self.linear = nn.Linear(out_dim=nn.FeatureDim("gauss_variance", 1))
+        self.dur_dim = nn.FeatureDim("dur", 1)
+        self.lstm_1_fw = nn.LSTM(out_dim=self.lstm_dim, in_dim=in_dim+self.dur_dim)
+        self.lstm_1_bw = nn.LSTM(out_dim=self.lstm_dim, in_dim=in_dim+self.dur_dim)
+        self.lstm_2_fw = nn.LSTM(out_dim=self.lstm_dim, in_dim=2*self.lstm_dim)
+        self.lstm_2_bw = nn.LSTM(out_dim=self.lstm_dim, in_dim=2*self.lstm_dim)
+        self.linear = nn.Linear(out_dim=nn.FeatureDim("gauss_variance", 1), in_dim=2*self.lstm_dim)
 
     def __call__(self, inp: nn.Tensor, durations: nn.Tensor, time_dim: nn.Dim):
         """
@@ -33,17 +34,17 @@ class VarianceNetwork(nn.Module):
         :param durations: d, [B, N]
         :return: variance [B, N]
         """
-        durations = nn.expand_dim(durations, dim=nn.FeatureDim("dur", 1))
+        durations = nn.expand_dim(durations, dim=self.dur_dim)
         durations = nn.cast(durations, dtype="float32")
-        cat = nn.concat((inp, inp.feature_dim), (durations, durations.feature_dim))
+        cat, _ = nn.concat((inp, inp.feature_dim), (durations, durations.feature_dim))
 
-        fw_1, _ = self.lstm_1_fw(cat, axis=time_dim, direction=1)
-        bw_1, _ = self.lstm_1_bw(cat, axis=time_dim, direction=-1)
-        cat = nn.concat((fw_1, fw_1.feature_dim), (bw_1, bw_1.feature_dim))
+        fw_1, _ = self.lstm_1_fw(cat, spatial_dim=time_dim, direction=1)
+        bw_1, _ = self.lstm_1_bw(cat, spatial_dim=time_dim, direction=-1)
+        cat, _ = nn.concat((fw_1, fw_1.feature_dim), (bw_1, bw_1.feature_dim))
 
-        fw_2, _ = self.lstm_2_fw(cat, axis=time_dim, direction=1)
-        bw_2, _ = self.lstm_2_bw(cat, axis=time_dim, direction=-1)
-        cat = nn.concat((fw_2, fw_2.feature_dim), (bw_2, bw_2.feature_dim))
+        fw_2, _ = self.lstm_2_fw(cat, spatial_dim=time_dim, direction=1)
+        bw_2, _ = self.lstm_2_bw(cat, spatial_dim=time_dim, direction=-1)
+        cat, _ = nn.concat((fw_2, fw_2.feature_dim), (bw_2, bw_2.feature_dim))
 
         lin = self.linear(cat)
         # Softplus activation

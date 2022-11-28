@@ -1130,6 +1130,15 @@ def gmm_ablation_studies(alignments: Dict, rasr_allophones):
       rasr_allophones=rasr_allophones,
     )
     for scale in [1.5, 2.0]:
+      returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="45fad83c785a45fa4abfeebfed2e731dd96f960c",
+      ).out_repository
+      returnn_common_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn_common",
+        commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+        checkout_folder_name="returnn_common",
+      ).out_repository
       for upsampling in ["gauss"]:
         exp_name = name + f"/{upsampling}/size_{scale}"
         train_config = get_training_config(
