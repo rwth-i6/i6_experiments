@@ -16,7 +16,6 @@ import i6_core.features as features
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
-from i6_core.recognition import AdvancedTreeSearchLmImageAndGlobalCacheJob
 from i6_core.returnn.flow import (
     make_precomputed_hybrid_tf_feature_flow,
     add_tf_flow_to_base_flow,
@@ -197,11 +196,6 @@ class HybridSystem(NnSystem):
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
-            self.set_binaries_for_crp(
-                crp_key=c_key,
-                rasr_binary_path=self.rasr_binary_path,
-                rasr_arch=self.rasr_arch,
-            )
             self.feature_flows[c_key] = c_data.feature_flow
             self.feature_scorers[c_key] = {}
 
@@ -380,8 +374,6 @@ class HybridSystem(NnSystem):
         epochs: Optional[List[int]] = None,
         use_epoch_for_compile=False,
         forward_output_layer="output",
-        prior_file: Optional[tk.Path] = None,
-        acoustic_mixture_path_for_global_cache_and_lm_image: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -408,24 +400,6 @@ class HybridSystem(NnSystem):
 
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
-            am_path = (
-                acoustic_mixture_path_for_global_cache_and_lm_image
-                if acoustic_mixture_path_for_global_cache_and_lm_image is not None
-                else acoustic_mixture_path
-            )
-            lm_image_scorer = rasr.DiagonalMaximumScorer(am_path)
-            lm_image_job = AdvancedTreeSearchLmImageAndGlobalCacheJob(
-                crp=self.crp[recognition_corpus_key],
-                feature_scorer=lm_image_scorer,
-            )
-            lm_image_job.add_alias(
-                f"lm_image_and_global_cache/{name}.{recognition_corpus_key}"
-            )
-            tk.register_output(
-                f"lm_image_and_global_cache/{name}.{recognition_corpus_key}.global.cache",
-                lm_image_job.out_global_cache,
-            )
-
             for pron, lm, prior, epoch in itertools.product(
                 pronunciation_scales, lm_scales, prior_scales, epochs
             ):
@@ -438,7 +412,6 @@ class HybridSystem(NnSystem):
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
-                    prior_file=prior_file,
                 )
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
@@ -678,11 +651,10 @@ class HybridSystem(NnSystem):
             if step_name.startswith("data"):
                 self.run_data_preparation_step(step_args)
 
-            # ---------- NN Training and Recognition ----------
+            # ---------- NN Training ----------
             if step_name.startswith("nn"):
                 self.run_nn_step(step_name, step_args)
 
-            # ---------- NN Recognition ----------
             if step_name.startswith("recog"):
                 self.run_nn_recog_step(step_args)
 

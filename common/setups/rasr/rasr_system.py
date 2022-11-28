@@ -1,6 +1,6 @@
 __all__ = ["RasrSystem"]
 
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -15,7 +15,7 @@ import i6_core.meta as meta
 import i6_core.mm as mm
 import i6_core.rasr as rasr
 
-from .util import RasrDataInput, add_lm_rasr_config_to_crp
+from .util import RasrDataInput
 
 # -------------------- Init --------------------
 
@@ -122,17 +122,22 @@ class RasrSystem(meta.System):
 
     @tk.block()
     def _init_lm(
-        self,
-        corpus_key: str,
-        lm_args: Dict,
+        self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs
     ):
         """
-        adds a LM to the common rasr parameters of a corpus during system init
+        TODO: docstring
 
         :param corpus_key:
-        :param lm_args: lm parameters, depends on type of LM
+        :param filename:
+        :param type:
+        :param scale:
+        :param kwargs:
+        :return:
         """
-        add_lm_rasr_config_to_crp(self.crp[corpus_key], lm_args)
+        self.crp[corpus_key].language_model_config = rasr.RasrConfig()
+        self.crp[corpus_key].language_model_config.type = type
+        self.crp[corpus_key].language_model_config.file = filename
+        self.crp[corpus_key].language_model_config.scale = scale
 
     @tk.block()
     def _init_lexicon(

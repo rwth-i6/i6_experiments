@@ -17,7 +17,6 @@ import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath
 
-from .lm import add_lm_rasr_config_to_crp
 from .rasr import RasrDataInput
 
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
@@ -70,11 +69,6 @@ class ReturnnRasrDataInput:
         cart_tree_path=None,
         allophone_file=None,
         lm_args=None,
-        lm_lookahead_args=None,
-        returnn_python_exe=None,
-        returnn_root=None,
-        rasr_binary_path=None,
-        rasr_arch=None,
     ):
         """
         constructs and returns a CommonRasrParameters from the given settings and files
@@ -104,22 +98,13 @@ class ReturnnRasrDataInput:
             crp.acoustic_model_config.state_tying.file = cart_tree_path
 
         if lm_args is not None:
-            add_lm_rasr_config_to_crp(
-                crp,
-                lm_args,
-                lm_lookahead_args=lm_lookahead_args,
-                returnn_python_exe=returnn_python_exe,
-                returnn_root=returnn_root,
-            )
+            crp.language_model_config = rasr.RasrConfig()
+            crp.language_model_config.type = lm_args["type"]
+            crp.language_model_config.file = lm_args["filename"]
+            crp.language_model_config.scale = lm_args["scale"]
 
         if allophone_file is not None:
             crp.acoustic_model_config.allophones.add_from_file = allophone_file
-
-        if rasr_binary_path is not None:
-            rasr_exe_path = {"rasr_binary_path": rasr_binary_path}
-            if rasr_arch is not None:
-                rasr_exe_path["rasr_arch"] = rasr_arch
-            crp.set_executables(**rasr_exe_path)
 
         self.crp = crp
 
@@ -355,11 +340,8 @@ class NnRecogArgs:
     parallelize_conversion: bool
     rtf: int
     mem: int
-    use_gpu: bool = False
-    prior_file: Optional[tk.Path] = None
     lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None
-    acoustic_mixture_path_for_global_cache_and_lm_image: Optional[tk.Path] = None
 
 
 class NnForcedAlignArgs(TypedDict):
