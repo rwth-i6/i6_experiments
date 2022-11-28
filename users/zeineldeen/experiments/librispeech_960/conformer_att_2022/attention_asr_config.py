@@ -16,8 +16,7 @@ from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
 # -------------------------- Base Config -------------------------- #
 
-config = {
-}
+config = {}
 
 # changing these does not change the hash
 post_config = {
@@ -113,8 +112,9 @@ def dataset_pipeline(context):
 
 
 def pretrain_layers_and_dims(
-        idx, net_dict: dict, encoder_type, decoder_type, encoder_args, decoder_args, variant, reduce_dims=True, initial_dim_factor=0.5,
-        initial_batch_size=20000, initial_batch_size_idx=3, second_bs=None, second_bs_idx=None, enc_dec_share_grow_frac=True):
+        idx, net_dict: dict, encoder_type, decoder_type, encoder_args, decoder_args, variant, reduce_dims=True,
+        initial_dim_factor=0.5, initial_batch_size=20000, initial_batch_size_idx=3, second_bs=None, second_bs_idx=None,
+        enc_dec_share_grow_frac=True):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
 
@@ -278,7 +278,6 @@ class ConformerEncoderArgs(EncoderArgs):
     native_ctc: bool = True
     ctc_loss_scale: Optional[float] = None
 
-
     # param init
     ff_init: Optional[str] = None
     mhsa_init: Optional[str] = None
@@ -300,7 +299,6 @@ class ConformerEncoderArgs(EncoderArgs):
     l2: float = 0.0001
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
-    stoc_layers_prob: float = 0.0
 
 
 class DecoderArgs:
@@ -361,20 +359,17 @@ class RNNDecoderArgs(DecoderArgs):
 
 
 def create_config(
-        name, training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False,
-        is_recog=False, input_key="audio_features",
-        lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20, batch_size=10000,
-        accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
+        training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False,
+        input_key="audio_features", lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20,
+        batch_size=10000, accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
         warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
         speed_pert=True,
-        gradient_clip_global_norm=0.0,
+        gradient_clip_global_norm=0.0, gradient_clip=0.0,
         ext_lm_opts=None, beam_size=12,
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
-        gradient_clip=0.0, specaug_str_func_opts=None,
-        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None,
-        config_override=None,
-
+        specaug_str_func_opts=None,
+        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None, config_override=None,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -394,7 +389,7 @@ def create_config(
         'gradient_noise': gradient_noise,
         'batch_size': batch_size,
         'max_seqs': 200,
-        'truncation': -1
+        'truncation': -1,
     }
     # default: Adam optimizer
     hyperparams['adam'] = True
@@ -449,7 +444,6 @@ def create_config(
     if isinstance(encoder_args, ConformerEncoderArgs):
         encoder_type = ConformerEncoder
 
-    decoder_type = None
     if isinstance(decoder_args, TransformerDecoderArgs):
         decoder_type = TransformerDecoder
     elif isinstance(decoder_args, RNNDecoderArgs):
@@ -496,8 +490,9 @@ def create_config(
         exp_config['import_model_train_epoch1'] = retrain_checkpoint
 
     if ext_lm_opts and ext_lm_opts.get('preload_from_files'):
-        assert 'preload_from_files' not in exp_config
-        exp_config['preload_from_files'] = copy.deepcopy(ext_lm_opts['preload_from_files'])
+        if 'preload_from_files' not in exp_config:
+            exp_config['preload_from_files'] = {}
+        exp_config['preload_from_files'].update(copy.deepcopy(ext_lm_opts['preload_from_files']))
 
     if preload_from_files:
         if 'preload_from_files' not in exp_config:

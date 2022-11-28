@@ -14,7 +14,11 @@ from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2
     training, search, get_average_checkpoint, get_best_checkpoint
 
 
+train_jobs_map = {}  # dict[str, ReturnnTrainJob]
+
+
 def conformer_baseline():
+
     abs_name = os.path.basename(__file__)
     prefix_name = abs_name[abs_name.find('experiments') + len('experiments') + 1:][:-len('.py')]
 
@@ -24,6 +28,7 @@ def conformer_baseline():
         use_raw_features=True,
         link_speed_perturbation=True
     )
+
     train_data_retrain = build_training_datasets(
         bpe_size=10000,
         use_raw_features=True,
@@ -36,44 +41,39 @@ def conformer_baseline():
     for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_test_dataset(testset, use_raw_features=True)
 
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # local experiment function
 
-    def run_exp(ft_name, feature_extraction_net, datasets, train_args, search_args=None):
+    def run_exp(exp_name, feature_extraction_net, datasets, train_args, search_args=None):
+        exp_prefix = os.path.join(prefix_name, exp_name)
+
+        returnn_config = create_config(
+            training_datasets=datasets, **train_args, feature_extraction_net=feature_extraction_net)
+
+        num_epochs = train_args.get('num_epochs', 300)
+        train_job = training(
+            exp_prefix, returnn_config, RETURNN_EXE, RETURNN_ROOT, num_epochs=num_epochs)
+
+        train_jobs_map[exp_name] = train_job
+
         search_args = search_args if search_args is not None else train_args
 
-        returnn_config = create_config(training_datasets=datasets, **train_args, feature_extraction_net=feature_extraction_net)
-        returnn_search_config = create_config(training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
+        returnn_search_config = create_config(
+            training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net)
 
-        train_job = training(ft_name, returnn_config, RETURNN_EXE, RETURNN_ROOT, num_epochs=250)
-
-        averaged_checkpoint = get_average_checkpoint(train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
+        averaged_checkpoint = get_average_checkpoint(
+            train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
         best_checkpoint = get_best_checkpoint(train_job)
 
-        search(ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250], test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
-        search(ft_name + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
-        search(ft_name + "/average_4", returnn_search_config, averaged_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
+        search(exp_prefix + "/default_last", returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
+        search(exp_prefix + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
+        search(exp_prefix + "/average_4", returnn_search_config, averaged_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
 
         return train_job
-
-
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # General Settings
-    # ---------------------------------------------------------------------------------------------------------------- #
 
     conformer_enc_args = ConformerEncoderArgs(
         num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
         pos_enc='rel', dropout=0.1, att_dropout=0.1, l2=0.0001)
-
     apply_fairseq_init_to_conformer_encoder(conformer_enc_args)
     conformer_enc_args.ctc_loss_scale = 1.0
-    # overwrite BN params
-    conformer_enc_args.batch_norm_opts = {
-        'momentum': 0.1,
-        'epsilon': 1e-3,
-        'update_sample_only_in_training': True,
-        'delay_sample_update': True
-    }
 
     rnn_dec_args = RNNDecoderArgs()
 
@@ -84,7 +84,9 @@ def conformer_baseline():
     )
     apply_fairseq_init_to_transformer_decoder(trafo_dec_args)
 
-    training_args = {}
+    training_args = dict()
+
+    training_args['feature_extraction_net'] = log10_net_10ms
 
     # LR scheduling
     training_args['const_lr'] = [42, 100]  # use const LR during pretraining
@@ -93,44 +95,22 @@ def conformer_baseline():
     training_args['with_staged_network'] = True
     training_args['speed_pert'] = True
 
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # LSTM Decoder Setup
-    # ---------------------------------------------------------------------------------------------------------------- #
+    trafo_training_args = copy.deepcopy(training_args)
+    trafo_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 20000 * 160}
+    trafo_training_args['pretrain_reps'] = 5
+    trafo_training_args['batch_size'] = 12000 * 160  # frames * samples per frame
 
-    name = 'tf_feature_conformer_12l_lstm_1l'
-    exp_prefix = prefix_name + "/" + name
+    trafo_dec_exp_args = copy.deepcopy({**trafo_training_args, "encoder_args": conformer_enc_args, "decoder_args": trafo_dec_args})
 
     lstm_training_args = copy.deepcopy(training_args)
     lstm_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 22500*160}
     lstm_training_args['pretrain_reps'] = 5
     lstm_training_args['batch_size'] = 15000*160  # frames * samples per frame
-    lstm_training_args['name'] = name
 
-    exp_args = copy.deepcopy({**lstm_training_args, "encoder_args": conformer_enc_args, "decoder_args": rnn_dec_args})
-    train_job_base = run_exp(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=train_data, train_args=exp_args)
+    lstm_dec_exp_args = copy.deepcopy({**lstm_training_args, "encoder_args": conformer_enc_args, "decoder_args": rnn_dec_args})
 
-    exp_args_retrain = copy.deepcopy(exp_args)
-    exp_args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=exp_args_retrain)
 
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # Transformer Decoder Setup
-    # ---------------------------------------------------------------------------------------------------------------- #
+    # --------------------- Experiments --------------------- #
 
-    name = 'tf_feature_conformer_12l_trafo_6l'
-    exp_prefix = prefix_name + "/" + name#
-
-    trafo_training_args = copy.deepcopy(training_args)
-    trafo_training_args['pretrain_opts'] = {'variant': 3, "initial_batch_size": 20000*160}
-    trafo_training_args['pretrain_reps'] = 5
-    trafo_training_args['batch_size'] = 12000*160  # frames * samples per frame
-    trafo_training_args['name'] = name
-
-    exp_args = copy.deepcopy({**trafo_training_args, "encoder_args": conformer_enc_args, "decoder_args": trafo_dec_args})
-
-    train_job_base = run_exp(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=train_data, train_args=exp_args)
-    train_job_base_lbn = run_exp(exp_prefix + "/" + "raw_log10_bnfeat", log10_net_10ms_long_bn, datasets=train_data, train_args=exp_args)
-
-    args_retrain = copy.deepcopy(exp_args)
-    args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=args_retrain)
+    run_exp(exp_name='base_conf_12l_trafo_6l', feature_extraction_net=log10_net_10ms, datasets=train_data, **trafo_dec_exp_args)
+    run_exp(exp_name='base_conf_12l_lstm_1l', feature_extraction_net=log10_net_10ms, datasets=train_data, **lstm_dec_exp_args)

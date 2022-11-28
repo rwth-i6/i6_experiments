@@ -14,8 +14,8 @@ class ConformerEncoder:
                dropout=0.1, att_dropout=0.1, enc_key_dim=256, att_num_heads=4, target='bpe', l2=0.0, lstm_dropout=0.1,
                rec_weight_dropout=0., with_ctc=False, native_ctc=False, ctc_dropout=0., ctc_l2=0., ctc_opts=None,
                subsample=None, start_conv_init=None, conv_module_init=None, mhsa_init=None, mhsa_out_init=None,
-               ff_init=None, rel_pos_clipping=16, dropout_in=0.1, stoc_layers_prob=0.0, batch_norm_opts=None,
-               pytorch_bn_opts=False, use_ln=False, pooling_str=None, self_att_l2=0.0, sandwich_conv=False,
+               ff_init=None, rel_pos_clipping=16, dropout_in=0.1, batch_norm_opts=None,
+               use_ln=False, pooling_str=None, self_att_l2=0.0, sandwich_conv=False,
                add_to_prefix_name=None, output_layer_name='encoder', create_only_blocks=False,
                no_mhsa_module=False, proj_input=False):
     """
@@ -87,9 +87,6 @@ class ConformerEncoder:
     self.rec_weight_dropout = rec_weight_dropout
 
     if batch_norm_opts is None:
-      batch_norm_opts = {}
-
-    if pytorch_bn_opts:
       batch_norm_opts['momentum'] = 0.1
       batch_norm_opts['epsilon'] = 1e-3
       batch_norm_opts['update_sample_only_in_training'] = True
@@ -123,11 +120,6 @@ class ConformerEncoder:
 
     self.network = ReturnnNetwork()
 
-    self.stoc_layers_prob = stoc_layers_prob
-    if stoc_layers_prob:
-      # this is only used to define the shape for the dropout mask (it needs source)
-      self.mask_var = self.network.add_variable_layer('mask_var', shape=(1,), init=1)
-
     self.use_ln = use_ln
 
     self.pooling_str = pooling_str
@@ -140,34 +132,6 @@ class ConformerEncoder:
     self.no_mhsa_module = no_mhsa_module
     self.proj_input = proj_input
 
-  def _get_stoc_layer_dropout(self, layer_index):
-    """
-    Returns the probability to drop a layer
-      p_l = l / L * (1 - p)  where p is a hyperparameter
-
-    :param int layer_index: index of layer
-    :rtype float
-    """
-    return layer_index / self.num_blocks * (1 - self.stoc_layers_prob)
-
-  def _add_stoc_res_layer(self, prefix_name, f_x, x, layer_index):
-    """
-    Add stochastic layer to the network. the layer will be scaled and masked
-      M * F(x) * (1 / 1 - p_l)
-
-    :param prefix_name: prefix name for layer
-    :param f_x: module output. e.g self-attention or FF
-    :param x: input
-    :param int layer_index: index of layer
-    :rtype list[str]
-    """
-    stoc_layer_drop = self._get_stoc_layer_dropout(layer_index)
-    stoc_scale = 1 / 1 - stoc_layer_drop
-    mask = self.network.add_dropout_layer('stoc_layer{}_mask'.format(layer_index), self.mask_var, stoc_layer_drop)
-    masked_and_scaled_out = self.network.add_eval_layer(
-      '{}_scaled_mask_layer'.format(prefix_name), [mask, f_x],
-      eval='source(0) * source(1) * {}'.format(stoc_scale))
-    return [masked_and_scaled_out, x]
 
   def _create_ff_module(self, prefix_name, i, source, layer_index):
     """
@@ -202,9 +166,6 @@ class ConformerEncoder:
     half_step_ff = self.network.add_eval_layer('{}_half_step'.format(prefix_name), drop2, eval='0.5 * source(0)')
 
     res_inputs = [half_step_ff, source]
-
-    if self.stoc_layers_prob:
-      res_inputs = self._add_stoc_res_layer(prefix_name, f_x=half_step_ff, x=source, layer_index=layer_index)
 
     ff_module_res = self.network.add_combine_layer(
       '{}_res'.format(prefix_name), kind='add', source=res_inputs, n_out=self.enc_key_dim)
@@ -243,9 +204,6 @@ class ConformerEncoder:
     drop = self.network.add_dropout_layer('{}_dropout'.format(prefix_name), mhsa_linear, dropout=self.dropout)
 
     res_inputs = [drop, source]
-
-    if self.stoc_layers_prob:
-      res_inputs = self._add_stoc_res_layer(prefix_name, f_x=drop, x=source, layer_index=layer_index)
 
     mhsa_res = self.network.add_combine_layer(
       '{}_res'.format(prefix_name), kind='add', source=res_inputs, n_out=self.enc_value_dim)
@@ -294,9 +252,6 @@ class ConformerEncoder:
       drop = self.network.add_eval_layer('{}_half_step'.format(prefix_name), drop, eval='0.5 * source(0)')
 
     res_inputs = [drop, source]
-
-    if self.stoc_layers_prob:
-      res_inputs = self._add_stoc_res_layer(prefix_name, f_x=drop, x=source, layer_index=layer_index)
 
     res = self.network.add_combine_layer(
       '{}_res'.format(prefix_name), kind='add', source=res_inputs, n_out=self.enc_key_dim)
@@ -393,10 +348,6 @@ class ConformerEncoder:
     source_linear = self.network.add_linear_layer(
       'source_linear', subsampled_input, n_out=self.enc_key_dim, l2=self.l2, forward_weights_init=self.ff_init,
       with_bias=False)
-
-    # add positional encoding
-    if self.pos_enc == 'abs':
-      source_linear = self.network.add_pos_encoding_layer('{}_abs_pos_enc'.format(subsampled_input), source_linear)
 
     if self.dropout_in:
       source_linear = self.network.add_dropout_layer('source_dropout', source_linear, dropout=self.dropout_in)

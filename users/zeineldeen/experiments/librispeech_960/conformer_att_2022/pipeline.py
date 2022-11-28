@@ -8,7 +8,7 @@ from i6_core.returnn.training import GetBestTFCheckpointJob
 from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
 
 
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
+def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs):
     """
 
     :param prefix_name:
