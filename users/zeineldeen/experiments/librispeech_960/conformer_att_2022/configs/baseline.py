@@ -86,8 +86,6 @@ def conformer_baseline():
 
     training_args = dict()
 
-    training_args['feature_extraction_net'] = log10_net_10ms
-
     # LR scheduling
     training_args['const_lr'] = [42, 100]  # use const LR during pretraining
     training_args['wup_start_lr'] = 0.0002
@@ -112,5 +110,5 @@ def conformer_baseline():
 
     # --------------------- Experiments --------------------- #
 
-    run_exp(exp_name='base_conf_12l_trafo_6l', feature_extraction_net=log10_net_10ms, datasets=train_data, **trafo_dec_exp_args)
-    run_exp(exp_name='base_conf_12l_lstm_1l', feature_extraction_net=log10_net_10ms, datasets=train_data, **lstm_dec_exp_args)
+    run_exp(exp_name='base_conf_12l_trafo_6l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=trafo_dec_exp_args)
+    run_exp(exp_name='base_conf_12l_lstm_1l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=lstm_dec_exp_args)

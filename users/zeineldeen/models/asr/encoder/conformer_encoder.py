@@ -87,6 +87,7 @@ class ConformerEncoder:
     self.rec_weight_dropout = rec_weight_dropout
 
     if batch_norm_opts is None:
+      batch_norm_opts = dict()
       batch_norm_opts['momentum'] = 0.1
       batch_norm_opts['epsilon'] = 1e-3
       batch_norm_opts['update_sample_only_in_training'] = True
