@@ -112,7 +112,7 @@ class HybridDecoder(BaseDecoder):
         epochs: Optional[List[int]] = None,
         scorer_hyp_param_name: str = "hyp",
         optimize_am_lm_scales: bool = False,
-        forward_output_layer: str = "log_output",
+        forward_output_layer: str = "output",
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
         self._compile_necessary_native_ops()
