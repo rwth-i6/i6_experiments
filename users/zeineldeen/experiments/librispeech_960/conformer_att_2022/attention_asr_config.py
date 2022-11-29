@@ -289,6 +289,7 @@ class ConformerEncoderArgs(EncoderArgs):
     ff_dim: int = 2048
     conv_kernel_size: int = 32
     input_layer: str = 'lstm-6'
+    input_layer_conv_act: str = 'relu'
     pos_enc: str = 'rel'
 
     sandwich_conv: bool = False

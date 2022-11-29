@@ -9,8 +9,8 @@ class ConformerEncoder:
   * Ref: https://arxiv.org/abs/2005.08100
   """
 
-  def __init__(self, input='data', input_layer='conv', num_blocks=16, conv_kernel_size=32, specaug=True, pos_enc='rel',
-               activation='swish', block_final_norm=True, ff_dim=512, ff_bias=True, ctc_loss_scale=None,
+  def __init__(self, input='data', input_layer='lstm-6', input_layer_conv_act='relu', num_blocks=16, conv_kernel_size=32,
+               specaug=True, pos_enc='rel', activation='swish', block_final_norm=True, ff_dim=512, ff_bias=True, ctc_loss_scale=None,
                dropout=0.1, att_dropout=0.1, enc_key_dim=256, att_num_heads=4, target='bpe', l2=0.0, lstm_dropout=0.1,
                rec_weight_dropout=0., with_ctc=False, native_ctc=False, ctc_dropout=0., ctc_l2=0., ctc_opts=None,
                subsample=None, start_conv_init=None, conv_module_init=None, mhsa_init=None, mhsa_out_init=None,
@@ -48,6 +48,7 @@ class ConformerEncoder:
 
     self.input = input
     self.input_layer = input_layer
+    self.input_layer_conv_act = input_layer_conv_act
 
     self.num_blocks = num_blocks
     self.conv_kernel_size = conv_kernel_size
@@ -326,23 +327,21 @@ class ConformerEncoder:
       subsampled_input = self.network.add_lstm_layers(
         data, num_layers=2, lstm_dim=self.enc_key_dim, dropout=self.lstm_dropout, bidirectional=True,
         rec_weight_dropout=self.rec_weight_dropout, l2=self.l2, pool_sizes=pool_sizes)
-    elif self.input_layer == 'conv':
-      # subsample by 4
+    elif self.input_layer == 'conv-4':
+      # conv-layer-1: 3x3x32 followed by max pool layer on feature axis (1, 2)
+      # conv-layer-2: 3x3x64 with striding (2, 1) on time axis
+      # conv-layer-3: 3x3x64 with striding (2, 1) on time axis
+
+      split_src = self.network.add_split_dim_layer('source0', data)
+
+      conv_input = self.network.add_conv_block(
+        'conv_out', split_src, hwpc_sizes=[((3, 3), (1, 2), 32)],
+        l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, merge_out=False)
+
       subsampled_input = self.network.add_conv_block(
-        'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 128), ((3, 3), (2, 2), 128)],
-        l2=self.l2, activation='relu', init=self.start_conv_init)
-    elif self.input_layer == "conv-new":
-      subsampled_input = self.network.add_conv_block(
-        'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 16), ((3, 3), (2, 2), 32)],
-        l2=self.l2, activation='relu', init=self.start_conv_init)
-    elif self.input_layer == 'vgg':
-      subsampled_input = self.network.add_conv_block(
-        'vgg_conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 32), ((3, 3), (2, 2), 64)], l2=self.l2, activation='relu',
-        init=self.start_conv_init)
-    elif self.input_layer == 'neural_sp_conv':
-      subsampled_input = self.network.add_conv_block(
-        'conv_merged', data, hwpc_sizes=([(3, 3), (1, 1), 32], [(3, 3), (2, 2), 32]), l2=self.l2, activation='relu',
-        init=self.start_conv_init)
+        'conv_merged', conv_input, hwpc_sizes=[((3, 3), (2, 1), 64), ((3, 3), (2, 1), 64)],
+        l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, use_striding=True,
+        split_input=False, prefix_name='subsample_')
 
     assert subsampled_input is not None
 

@@ -26,11 +26,13 @@ class ReturnnNetwork:
     return name
 
   def add_conv_layer(self, name, source, filter_size, n_out, l2, padding='same', activation=None, with_bias=True,
-                     forward_weights_init=None, **kwargs):
+                     forward_weights_init=None, strides=None, **kwargs):
     d = {
       'class': 'conv', 'from': source, 'padding': padding, 'filter_size': filter_size, 'n_out': n_out,
       'activation': activation, 'with_bias': with_bias
     }
+    if strides:
+      d['strides'] = strides
     if l2:
       d['L2'] = l2
     if forward_weights_init:
@@ -267,18 +269,26 @@ class ReturnnNetwork:
     self._net[name] = {'class': 'reinterpret_data', 'from': source, **kwargs}
     return name
 
-  def add_conv_block(self, name, source, hwpc_sizes, l2, activation, dropout=0.0, init=None):
-    src = self.add_split_dim_layer('source0', source)
+  def add_conv_block(self, name, source, hwpc_sizes, l2, activation, dropout=0.0, init=None,
+                     use_striding=False, split_input=True, merge_out=True, prefix_name=None):
+    if split_input:
+      src = self.add_split_dim_layer('source0', source)
+    else:
+      src = source
+    if prefix_name is None:
+      prefix_name = ''
     for idx, hwpc in enumerate(hwpc_sizes):
       filter_size, pool_size, n_out = hwpc
       src = self.add_conv_layer(
-        'conv%i' % idx, src, filter_size=filter_size, n_out=n_out, l2=l2, activation=activation,
-        forward_weights_init=init)
-      if pool_size:
-        src = self.add_pool_layer('conv%ip' % idx, src, pool_size=pool_size, padding='same')
+        f'{prefix_name}conv%i' % idx, src, filter_size=filter_size, n_out=n_out, l2=l2, activation=activation,
+        forward_weights_init=init, strides=pool_size if use_striding else None)
+      if pool_size and not use_striding:
+        src = self.add_pool_layer(f'{prefix_name}conv%ip' % idx, src, pool_size=pool_size, padding='same')
     if dropout:
-      src = self.add_dropout_layer('conv_dropout', src, dropout=dropout)
-    return self.add_merge_dims_layer(name, src)
+      src = self.add_dropout_layer(f'{prefix_name}conv_dropout', src, dropout=dropout)
+    if merge_out:
+      return self.add_merge_dims_layer(name, src)
+    return self.add_copy_layer(name, src)
 
   def add_lstm_layers(self, input, num_layers, lstm_dim, dropout, l2, rec_weight_dropout, pool_sizes,  bidirectional):
     src = input

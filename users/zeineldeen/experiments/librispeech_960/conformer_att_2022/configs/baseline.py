@@ -107,6 +107,16 @@ def conformer_baseline():
     run_exp(exp_name='base_conf_12l_trafo_6l', train_args=trafo_dec_exp_args)
     run_exp(exp_name='base_conf_12l_lstm_1l', train_args=lstm_dec_exp_args)
 
+    args = copy.deepcopy(lstm_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-4'
+    args['encoder_args'].input_layer_conv_act = 'swish'
+    run_exp(exp_name='base_conf_12l_lstm_1l_conv4_swish', train_args=args)
+
+    # TODO: modify decoder lstm dims
+    args = copy.deepcopy(lstm_dec_exp_args)
+    args['decoder_args']
+    run_exp(exp_name='base_conf_12l_lstm_1l', train_args=args)
+
     # TODO: no epoch wise filter
     args = copy.deepcopy(trafo_dec_exp_args)
     run_exp('base_conf12l_trafo_noCurrLR', train_args=args, epoch_wise_filter=None)
@@ -119,6 +129,22 @@ def conformer_baseline():
     args = copy.deepcopy(trafo_dec_exp_args)
     run_exp('base_conf12l_trafo_currLRv2', train_args=args,
             epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
+
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['pretrain_opts']['variant'] = 4
+    args['pretrain_reps'] = 6
+    run_exp('base_conf12l_trafo_currLRv2_pre4_reps6', train_args=args,
+            epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
+
+    # TODO: conv front-end
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-4'
+    run_exp(exp_name='base_conf_12l_trafo_6l_conv4_relu', train_args=args)
+
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-4'
+    args['encoder_args'].input_layer_conv_act = 'swish'
+    run_exp(exp_name='base_conf_12l_trafo_6l_conv4_swish', train_args=args)
 
     # TODO: default init
     args = copy.deepcopy(trafo_dec_exp_args)
@@ -151,7 +177,8 @@ def conformer_baseline():
         'total_ep': 400,  # 20 epochs
         'n_step': 1700,
     }
-    run_exp(f'base_conf12l_trafo6l_OCLR', train_args=args, num_epochs=400)
+    args['with_pretrain'] = False
+    run_exp(f'base_conf12l_trafo6l_OCLR_nopre', train_args=args, num_epochs=400)
 
     # TODO: warmup LR
     # 20 full epochs = 400 subepochs
@@ -159,5 +186,6 @@ def conformer_baseline():
     args = copy.deepcopy(trafo_dec_exp_args)
     for peak_lr, wup_steps in [(8e-4, 6800), (8e-4, 8500), (8e-4, 10200)]:
         args['warmup_lr_opts'] = {'peak_lr': peak_lr, 'warmup_steps': wup_steps}
-        run_exp(f'base_conf12l_trafo6l_warmupLR_{peak_lr}-{wup_steps}', train_args=args, num_epochs=400)
+        args['with_pretrain'] = False
+        run_exp(f'base_conf12l_trafo6l_warmupLR_{peak_lr}-{wup_steps}_nopre', train_args=args, num_epochs=400)
 
