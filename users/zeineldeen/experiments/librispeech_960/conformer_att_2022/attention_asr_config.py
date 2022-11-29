@@ -359,7 +359,7 @@ class RNNDecoderArgs(DecoderArgs):
 
 
 def create_config(
-        training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False,
+        training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False, is_recog=False,
         input_key="audio_features", lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20,
         batch_size=10000, accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
         warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
@@ -511,7 +511,7 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None:
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0

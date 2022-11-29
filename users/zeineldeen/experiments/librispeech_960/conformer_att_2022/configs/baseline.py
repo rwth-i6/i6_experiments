@@ -58,7 +58,7 @@ def conformer_baseline():
         search_args = search_args if search_args is not None else train_args
 
         returnn_search_config = create_config(
-            training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net)
+            training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
 
         averaged_checkpoint = get_average_checkpoint(
             train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
