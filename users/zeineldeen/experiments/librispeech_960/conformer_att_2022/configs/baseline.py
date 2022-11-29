@@ -3,7 +3,7 @@ import copy, os
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.attention_asr_config import \
     create_config, ConformerEncoderArgs, TransformerDecoderArgs, RNNDecoderArgs
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.additional_config import \
-    apply_fairseq_init_to_conformer_encoder, apply_fairseq_init_to_transformer_decoder
+    apply_fairseq_init_to_conformer_encoder, apply_fairseq_init_to_transformer_decoder, reset_params_init
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.data import \
     build_training_datasets, build_test_dataset
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.default_tools import \
@@ -19,8 +19,9 @@ train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 
 def conformer_baseline():
 
-    abs_name = os.path.basename(__file__)
-    prefix_name = abs_name[abs_name.find('experiments') + len('experiments') + 1:][:-len('.py')]
+    abs_name = os.path.abspath(__file__)
+    #prefix_name = abs_name[abs_name.find('/experiments') + len('/experiments') + 1:][:-len('.py')]
+    prefix_name = os.path.basename(abs_name)[:-len('.py')]
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data = build_training_datasets(
@@ -112,3 +113,48 @@ def conformer_baseline():
 
     run_exp(exp_name='base_conf_12l_trafo_6l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=trafo_dec_exp_args)
     run_exp(exp_name='base_conf_12l_lstm_1l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=lstm_dec_exp_args)
+
+    # TODO: default init
+    args = copy.deepcopy(trafo_dec_exp_args)
+    reset_params_init(args['encoder_args'])
+    reset_params_init(args['decoder_args'])
+    run_exp('base_conf12l_trafo_defaultInit', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    # TODO: pretrain variant 4
+    for reps in [5, 6]:
+        args = copy.deepcopy(trafo_dec_exp_args)
+        args['pretrain_opts']['variant'] = 4
+        args['pretrain_reps'] = reps
+        name = f'base_conf12l_trafo_6l_pretrain4_reps{reps}'
+        run_exp(exp_name=name, feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    # TODO: tune L2
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['encoder_args'].l2 = 1e-6
+    args['decoder_args'].l2 = 1e-6
+    run_exp('base_conf12l_trafo_6l_L2e-6', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    # TODO: wo apply embed weight
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['decoder_args'].apply_embed_weight = False
+    run_exp('base_conf12l_trafo_6l_noEmbWeight', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    # TODO: LR scheduling
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['const_lr'] = 0
+    run_exp('base_conf12l_trafo_6l_noConstLR', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['const_lr'] = [35, 20]
+    run_exp('base_conf12l_trafo_6l_constLR_35-20', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+
+    # TODO: No pretraining and long warmup
+    for wup in [20, 30, 40]:
+        for wup_start_lr in [2e-4, 2e-5, 1e-4]:
+            args = copy.deepcopy(trafo_dec_exp_args)
+            args['const_lr'] = 0
+            args['with_pretrain'] = False
+            args['wup_start_lr'] = wup_start_lr
+            args['wup'] = wup
+            run_exp(f'base_conf12l_trafo_6l_noPre_wup{wup}_startLR{wup_start_lr}',
+                    feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
