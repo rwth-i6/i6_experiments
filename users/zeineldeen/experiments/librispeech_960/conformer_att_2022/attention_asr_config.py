@@ -66,6 +66,27 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
     return learning_rate * cyclic_lr(step=global_train_step)
 """
 
+oclr_str = """
+def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs):
+      initialLR  = {initial_lr}
+      peakLR     = {peak_lr}
+      finalLR    = {final_lr}
+      cycleEpoch = {cycle_ep}
+      totalEpoch = {total_ep}
+      nStep      = {n_step}
+    
+      steps     = cycleEpoch * nStep
+      stepSize  = (peakLR - initialLR) / steps
+      steps2    = (totalEpoch - 2 * cycleEpoch) * nStep
+      stepSize2 = (initialLR - finalLR) / steps2
+    
+      import tensorflow as tf
+      n = tf.cast(global_train_step, tf.float32)
+      return tf.where(global_train_step <= steps, initialLR + stepSize * n,
+                 tf.where(global_train_step <= 2*steps, peakLR - stepSize * (n - steps), 
+                     tf.maximum(initialLR - stepSize2 * (n - 2*steps), finalLR)))
+"""
+
 # -------------------------- SpecAugment -------------------------- #
 
 specaug_transform_func = """
@@ -363,7 +384,7 @@ def create_config(
         input_key="audio_features", lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20,
         batch_size=10000, accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
         warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
-        speed_pert=True,
+        speed_pert=True, oclr_opts=None,
         gradient_clip_global_norm=0.0, gradient_clip=0.0,
         ext_lm_opts=None, beam_size=12,
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
@@ -419,6 +440,13 @@ def create_config(
         exp_config['learning_rate'] = warmup_lr_opts['peak_lr']
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + warmup_lr_str.format(**warmup_lr_opts)
+    elif oclr_opts:
+        exp_config['learning_rate'] = oclr_opts['peak_lr']
+        exp_config['learning_rate_control'] = 'constant'
+        oclr_peak_lr = oclr_opts['peak_lr']
+        oclr_initial_lr = oclr_peak_lr / 10
+        extra_python_code += '\n' + oclr_str.format(
+            **oclr_opts, initial_lr=oclr_initial_lr)
     else:  # newbob
         if retrain_checkpoint is not None:
             learning_rates = None

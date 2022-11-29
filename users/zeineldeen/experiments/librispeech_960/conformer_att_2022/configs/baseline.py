@@ -23,33 +23,26 @@ def conformer_baseline():
     #prefix_name = abs_name[abs_name.find('/experiments') + len('/experiments') + 1:][:-len('.py')]
     prefix_name = os.path.basename(abs_name)[:-len('.py')]
 
-    # build the training datasets object containing train, cv, dev-train and the extern_data dict
-    train_data = build_training_datasets(
-        bpe_size=10000,
-        use_raw_features=True,
-        link_speed_perturbation=True
-    )
-
-    train_data_retrain = build_training_datasets(
-        bpe_size=10000,
-        use_raw_features=True,
-        link_speed_perturbation=True,
-        use_curicculum=False
-    )
-
     # build testing datasets
     test_dataset_tuples = {}
     for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_test_dataset(testset, use_raw_features=True)
 
 
-    def run_exp(exp_name, feature_extraction_net, datasets, train_args, search_args=None):
+    def run_exp(exp_name, train_args, feature_extraction_net=log10_net_10ms, num_epochs=300, search_args=None, **kwargs):
         exp_prefix = os.path.join(prefix_name, exp_name)
 
-        returnn_config = create_config(
-            training_datasets=datasets, **train_args, feature_extraction_net=feature_extraction_net)
+        train_data = build_training_datasets(
+            bpe_size=10000,
+            use_raw_features=True,
+            epoch_wise_filter=kwargs.get('epoch_wise_filter', [(1, 5, 1000)]),
+            link_speed_perturbation=train_args.get('speed_pert', True),
+            seq_ordering=kwargs.get('seq_ordering', 'laplace:.1000'),
+        )
 
-        num_epochs = train_args.get('num_epochs', 300)
+        returnn_config = create_config(
+            training_datasets=train_data, **train_args, feature_extraction_net=feature_extraction_net)
+
         train_job = training(
             exp_prefix, returnn_config, RETURNN_EXE, RETURNN_ROOT, num_epochs=num_epochs)
 
@@ -58,7 +51,7 @@ def conformer_baseline():
         search_args = search_args if search_args is not None else train_args
 
         returnn_search_config = create_config(
-            training_datasets=datasets, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
+            training_datasets=train_data, **search_args, feature_extraction_net=feature_extraction_net, is_recog=True)
 
         averaged_checkpoint = get_average_checkpoint(
             train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
@@ -111,50 +104,60 @@ def conformer_baseline():
 
     # --------------------- Experiments --------------------- #
 
-    run_exp(exp_name='base_conf_12l_trafo_6l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=trafo_dec_exp_args)
-    run_exp(exp_name='base_conf_12l_lstm_1l', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=lstm_dec_exp_args)
+    run_exp(exp_name='base_conf_12l_trafo_6l', train_args=trafo_dec_exp_args)
+    run_exp(exp_name='base_conf_12l_lstm_1l', train_args=lstm_dec_exp_args)
+
+    # TODO: no epoch wise filter
+    args = copy.deepcopy(trafo_dec_exp_args)
+    run_exp('base_conf12l_trafo_noCurrLR', train_args=args, epoch_wise_filter=None)
+
+    # TODO: seq ordering
+    args = copy.deepcopy(trafo_dec_exp_args)
+    run_exp('base_conf12l_trafo_seqOrdLaplace281', train_args=args, seq_ordering='laplace:281')
+
+    # TODO: more curr learning
+    args = copy.deepcopy(trafo_dec_exp_args)
+    run_exp('base_conf12l_trafo_currLRv2', train_args=args,
+            epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
 
     # TODO: default init
     args = copy.deepcopy(trafo_dec_exp_args)
     reset_params_init(args['encoder_args'])
     reset_params_init(args['decoder_args'])
-    run_exp('base_conf12l_trafo_defaultInit', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
-
-    # TODO: pretrain variant 4
-    for reps in [5, 6]:
-        args = copy.deepcopy(trafo_dec_exp_args)
-        args['pretrain_opts']['variant'] = 4
-        args['pretrain_reps'] = reps
-        name = f'base_conf12l_trafo_6l_pretrain4_reps{reps}'
-        run_exp(exp_name=name, feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+    run_exp('base_conf12l_trafo_defaultInit', train_args=args)
 
     # TODO: tune L2
     args = copy.deepcopy(trafo_dec_exp_args)
     args['encoder_args'].l2 = 1e-6
     args['decoder_args'].l2 = 1e-6
-    run_exp('base_conf12l_trafo_6l_L2e-6', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+    run_exp('base_conf12l_trafo_6l_L2e-6', train_args=args)
 
     # TODO: wo apply embed weight
     args = copy.deepcopy(trafo_dec_exp_args)
     args['decoder_args'].apply_embed_weight = False
-    run_exp('base_conf12l_trafo_6l_noEmbWeight', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+    run_exp('base_conf12l_trafo_6l_noEmbWeight', train_args=args)
 
     # TODO: LR scheduling
     args = copy.deepcopy(trafo_dec_exp_args)
-    args['const_lr'] = 0
-    run_exp('base_conf12l_trafo_6l_noConstLR', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
-
-    args = copy.deepcopy(trafo_dec_exp_args)
     args['const_lr'] = [35, 20]
-    run_exp('base_conf12l_trafo_6l_constLR_35-20', feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+    run_exp('base_conf12l_trafo_6l_constLR_35-20', train_args=args)
 
-    # TODO: No pretraining and long warmup
-    for wup in [20, 30, 40]:
-        for wup_start_lr in [2e-4, 2e-5, 1e-4]:
-            args = copy.deepcopy(trafo_dec_exp_args)
-            args['const_lr'] = 0
-            args['with_pretrain'] = False
-            args['wup_start_lr'] = wup_start_lr
-            args['wup'] = wup
-            run_exp(f'base_conf12l_trafo_6l_noPre_wup{wup}_startLR{wup_start_lr}',
-                    feature_extraction_net=log10_net_10ms, datasets=train_data, train_args=args)
+    # TODO: OCLR
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['oclr_opts'] = {
+        'peak_lr': 8e-4,
+        'final_lr': 1e-6,
+        'cycle_ep': 180,
+        'total_ep': 400,  # 20 epochs
+        'n_step': 1700,
+    }
+    run_exp(f'base_conf12l_trafo6l_OCLR', train_args=args, num_epochs=400)
+
+    # TODO: warmup LR
+    # 20 full epochs = 400 subepochs
+    # each subepoch is around 1700 steps
+    args = copy.deepcopy(trafo_dec_exp_args)
+    for peak_lr, wup_steps in [(8e-4, 6800), (8e-4, 8500), (8e-4, 10200)]:
+        args['warmup_lr_opts'] = {'peak_lr': peak_lr, 'warmup_steps': wup_steps}
+        run_exp(f'base_conf12l_trafo6l_warmupLR_{peak_lr}-{wup_steps}', train_args=args, num_epochs=400)
+

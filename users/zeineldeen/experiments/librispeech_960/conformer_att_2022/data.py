@@ -52,7 +52,7 @@ class TrainingDatasets:
 def build_training_datasets(
         bpe_size=10000,
         partition_epoch=20,
-        use_curicculum=True,
+        epoch_wise_filter=None,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=False,
         use_raw_features=False
@@ -92,13 +92,19 @@ def build_training_datasets(
     if link_speed_perturbation:
         training_audio_opts["pre_process"] = CodeWrapper("speed_pert")
 
+    additional_opts = {}
+    if epoch_wise_filter:
+        additional_opts['epoch_wise_filter'] = {}
+        for fr, to, max_mean_len in epoch_wise_filter:
+            additional_opts['epoch_wise_filter'][(fr, to)] = {"max_mean_len": max_mean_len}
+
     train_zip_dataset = OggZipDataset(
         files=train_clean_960_ogg,
         audio_options=training_audio_opts,
         target_options=train_bpe_datastream.as_returnn_targets_opts(),
         partition_epoch=partition_epoch,
         seq_ordering=seq_ordering,
-        additional_options={"epoch_wise_filter": {(1, 5): {"max_mean_len": 1000}} if use_curicculum else None}  # still hardcoded, future work
+        additional_options=additional_opts,
     )
     train_dataset = MetaDataset(
         data_map=data_map,
