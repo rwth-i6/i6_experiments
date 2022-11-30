@@ -244,7 +244,7 @@ class FairseqHydraTrainingJob(Job):
                             .strip()
                             .decode("utf8")
                         )
-                        local_unzipped_dir.append(os.path.join(os.path.dirname(cached_audio_zip_dir), audio))
+                        local_unzipped_dir.append(os.path.join(os.path.dirname(cached_audio_zip_dir), "audio"))
                         sp.check_call(
                             [
                                 "unzip",
