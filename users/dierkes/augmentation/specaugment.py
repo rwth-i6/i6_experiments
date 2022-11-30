@@ -1,3 +1,9 @@
+"""
+Modified SpecAugment helpers.
+
+They are used because SpecAugment is modified in wav2vec 2.0 to statically sample the mask length.
+"""
+
 from dataclasses import dataclass
 
 from returnn.import_ import import_
