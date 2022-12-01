@@ -107,6 +107,19 @@ def conformer_baseline():
     run_exp(exp_name='base_conf_12l_trafo_6l', train_args=trafo_dec_exp_args)
     run_exp(exp_name='base_conf_12l_lstm_1l', train_args=lstm_dec_exp_args)
 
+    for bn_mom in [0.01, 0.001]:
+        feature_net = copy.deepcopy(log10_net_10ms_long_bn)
+        feature_net['log_mel_features']['momentum'] = bn_mom
+        run_exp(
+            exp_name=f'base_conf_12l_trafo_6l_featureBN{bn_mom}',
+            feature_extraction_net=feature_net,
+            train_args=trafo_dec_exp_args)
+
+    # TODO: BN eps
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['batch_norm_opts'] = {'epsilon': 1e-5}
+    run_exp(exp_name='base_conf_12l_trafo_6l_BNeps_1e-5', train_args=trafo_dec_exp_args)
+
     # TODO: conv for lstm decoder
     # OOM for batch size 15k
     for bs in [10, 11, 15]:
@@ -194,6 +207,13 @@ def conformer_baseline():
     args = copy.deepcopy(trafo_dec_exp_args)
     args['const_lr'] = [35, 20]
     run_exp('base_conf12l_trafo_6l_constLR_35-20', train_args=args)
+
+    for bn_mom in [0.01, 0.001]:
+        args = copy.deepcopy(trafo_dec_exp_args)
+        args['const_lr'] = [35, 20]
+        feature_net = copy.deepcopy(log10_net_10ms_long_bn)
+        feature_net['log_mel_features']['momentum'] = bn_mom
+        run_exp(f'base_conf12l_trafo_6l_constLR_35-20_featBN{bn_mom}', feature_extraction_net=feature_net, train_args=args)
 
     # TODO: use LN instead
     args = copy.deepcopy(trafo_dec_exp_args)
