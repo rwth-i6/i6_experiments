@@ -322,6 +322,8 @@ class ConformerEncoderArgs(EncoderArgs):
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
 
+    use_sqrd_relu: bool = False
+
 
 class DecoderArgs:
     pass
@@ -392,6 +394,7 @@ def create_config(
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         specaug_str_func_opts=None,
         recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None, config_override=None,
+        feature_extraction_net_global_norm=False,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -438,10 +441,14 @@ def create_config(
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + noam_lr_str.format(**noam_opts)
     elif warmup_lr_opts:
+        if warmup_lr_opts.get('learning_rates', None):
+            exp_config['learning_rates'] = warmup_lr_opts['learning_rates']
         exp_config['learning_rate'] = warmup_lr_opts['peak_lr']
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + warmup_lr_str.format(**warmup_lr_opts)
     elif oclr_opts:
+        if oclr_opts.get('learning_rates', None):
+            exp_config['learning_rates'] = oclr_opts['learning_rates']
         exp_config['learning_rate'] = oclr_opts['peak_lr']
         exp_config['learning_rate_control'] = 'constant'
         oclr_peak_lr = oclr_opts['peak_lr']
@@ -511,6 +518,26 @@ def create_config(
     exp_config['network'].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
+        if feature_extraction_net_global_norm:
+            # TODO: just for experimenting!
+            exp_config["a_global_mean_logmel80"] = '/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.mean.txt'
+            exp_config["a_global_stddev_logmel80"] = '/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.std_dev.txt'
+
+            exp_config['a_global_mean_var'] = CodeWrapper("numpy.loadtxt(a_global_mean_logmel80)")
+            exp_config['a_global_stddev_var'] = CodeWrapper("numpy.loadtxt(a_global_stddev_logmel80)")
+
+            feature_extraction_net = copy.deepcopy(feature_extraction_net)
+
+            feature_extraction_net['a_global_mean'] = {'class': 'constant', 'value': CodeWrapper('a_global_mean_var')}
+            feature_extraction_net['a_global_stddev'] = {'class': 'constant', 'value': CodeWrapper('a_global_stddev_var')}
+
+            # TODO: does it broadcast automatically?
+            feature_extraction_net['log10_norm'] = {
+                'class': 'eval', 'from': ['log10', 'a_global_mean', 'a_global_stddev'],
+                'eval': '(source(0) - source(1)) / source(2)'}
+
+            feature_extraction_net['log_mel_features']['from'] = 'log10_norm'
+
         exp_config['network'].update(feature_extraction_net)
 
     # -------------------------- end network -------------------------- #
@@ -590,6 +617,9 @@ def create_config(
 
     if config_override:
         exp_config.update(config_override)
+
+    if feature_extraction_net_global_norm:
+        python_prolog += ['import numpy']
 
     returnn_config = ReturnnConfig(
         exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog,

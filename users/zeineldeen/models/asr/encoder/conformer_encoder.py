@@ -17,7 +17,7 @@ class ConformerEncoder:
                ff_init=None, rel_pos_clipping=16, dropout_in=0.1, batch_norm_opts=None,
                use_ln=False, pooling_str=None, self_att_l2=0.0, sandwich_conv=False,
                add_to_prefix_name=None, output_layer_name='encoder', create_only_blocks=False,
-               no_mhsa_module=False, proj_input=False):
+               no_mhsa_module=False, proj_input=False, use_sqrd_relu=False):
     """
     :param str input: input layer name
     :param str input_layer: type of input layer which does subsampling
@@ -134,6 +134,7 @@ class ConformerEncoder:
     self.no_mhsa_module = no_mhsa_module
     self.proj_input = proj_input
 
+    self.use_sqrt_relu = use_sqrd_relu
 
   def _create_ff_module(self, prefix_name, i, source, layer_index):
     """
@@ -155,7 +156,11 @@ class ConformerEncoder:
       '{}_ff1'.format(prefix_name), ln, n_out=self.ff_dim, l2=self.l2, forward_weights_init=self.ff_init,
       with_bias=self.ff_bias)
 
-    swish_act = self.network.add_activation_layer('{}_swish'.format(prefix_name), ff1, activation=self.activation)
+    if self.use_sqrt_relu:
+      swish_act = self.network.add_activation_layer('{}_relu'.format(prefix_name), ff1, activation='relu')
+      swish_act = self.network.add_eval_layer('{}_square_relu'.format(prefix_name), swish_act, eval='source(0) ** 2')
+    else:
+      swish_act = self.network.add_activation_layer('{}_swish'.format(prefix_name), ff1, activation=self.activation)
 
     drop1 = self.network.add_dropout_layer('{}_drop1'.format(prefix_name), swish_act, dropout=self.dropout)
 
@@ -332,16 +337,26 @@ class ConformerEncoder:
       # conv-layer-2: 3x3x64 with striding (2, 1) on time axis
       # conv-layer-3: 3x3x64 with striding (2, 1) on time axis
 
-      split_src = self.network.add_split_dim_layer('source0', data)
+      # TODO: make this more generic
 
       conv_input = self.network.add_conv_block(
-        'conv_out', split_src, hwpc_sizes=[((3, 3), (1, 2), 32)],
+        'conv_out', data, hwpc_sizes=[((3, 3), (1, 2), 32)],
         l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, merge_out=False)
 
       subsampled_input = self.network.add_conv_block(
         'conv_merged', conv_input, hwpc_sizes=[((3, 3), (2, 1), 64), ((3, 3), (2, 1), 64)],
         l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, use_striding=True,
         split_input=False, prefix_name='subsample_')
+    elif self.input_layer == 'conv-6':
+      conv_input = self.network.add_conv_block(
+        'conv_out', data, hwpc_sizes=[((3, 3), (1, 2), 32)],
+        l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, merge_out=False)
+
+      subsampled_input = self.network.add_conv_block(
+        'conv_merged', conv_input, hwpc_sizes=[((3, 3), (3, 1), 64), ((3, 3), (2, 1), 64)],
+        l2=self.l2, activation=self.input_layer_conv_act, init=self.start_conv_init, use_striding=True,
+        split_input=False, prefix_name='subsample_')
+
 
     assert subsampled_input is not None
 
