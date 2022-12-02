@@ -58,10 +58,11 @@ def conformer_baseline():
             train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
         best_checkpoint = get_best_checkpoint(train_job)
 
-        default_recog_epochs = set()
-        default_recog_epochs.update([80 * i for i in range(1, int(num_epochs / 80) + 1)])
-        if recog_epochs:
-            default_recog_epochs.update(recog_epochs)
+        if recog_epochs is None:
+            default_recog_epochs = [80 * i for i in range(1, int(num_epochs / 80) + 1)]
+        else:
+            default_recog_epochs = recog_epochs
+
         for ep in default_recog_epochs:
             search(
                 exp_prefix + f"/recogs/ep-{ep}", returnn_search_config, train_job.out_checkpoints[ep],
