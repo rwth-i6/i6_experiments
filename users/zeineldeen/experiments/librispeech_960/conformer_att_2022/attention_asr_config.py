@@ -3,10 +3,16 @@ import copy
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, asdict
 
-from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
-from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
+from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
+    ConformerEncoder,
+)
+from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
+    TransformerDecoder,
+)
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import ExternalLMDecoder
+from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import (
+    ExternalLMDecoder,
+)
 
 from i6_experiments.users.zeineldeen import data_aug
 from i6_experiments.users.zeineldeen.data_aug import specaugment
@@ -20,13 +26,13 @@ config = {}
 
 # changing these does not change the hash
 post_config = {
-    'use_tensorflow': True,
-    'tf_log_memory_usage': True,
-    'cleanup_old_models': True,
-    'log_batch_size': True,
-    'debug_print_layer_output_template': True,
-    'debug_mode': False,
-    'batching': 'random'
+    "use_tensorflow": True,
+    "tf_log_memory_usage": True,
+    "cleanup_old_models": True,
+    "log_batch_size": True,
+    "debug_print_layer_output_template": True,
+    "debug_mode": False,
+    "batching": "random",
 }
 
 
@@ -117,9 +123,22 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
 
 
 def pretrain_layers_and_dims(
-        idx, net_dict: dict, encoder_type, decoder_type, encoder_args, decoder_args, variant, reduce_dims=True,
-        initial_dim_factor=0.5, initial_batch_size=20000, initial_batch_size_idx=3, second_bs=None, second_bs_idx=None,
-        enc_dec_share_grow_frac=True):
+    idx,
+    net_dict: dict,
+    encoder_type,
+    decoder_type,
+    encoder_args,
+    decoder_args,
+    variant,
+    reduce_dims=True,
+    initial_dim_factor=0.5,
+    initial_batch_size=20000,
+    initial_batch_size_idx=3,
+    second_bs=None,
+    second_bs_idx=None,
+    enc_dec_share_grow_frac=True,
+    repeat_first=True,
+):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
 
@@ -142,12 +161,12 @@ def pretrain_layers_and_dims(
 
     InitialDimFactor = initial_dim_factor
 
-    encoder_keys = ['ff_dim', 'enc_key_dim', 'conv_kernel_size']
-    decoder_keys = ['ff_dim']
+    encoder_keys = ["ff_dim", "enc_key_dim", "conv_kernel_size"]
+    decoder_keys = ["ff_dim"]
     encoder_args_copy = copy.deepcopy(encoder_args)
     decoder_args_copy = copy.deepcopy(decoder_args)
 
-    final_num_blocks = encoder_args['num_blocks']
+    final_num_blocks = encoder_args["num_blocks"]
 
     assert final_num_blocks >= 2
 
@@ -161,13 +180,14 @@ def pretrain_layers_and_dims(
         if idx < second_bs_idx:
             extra_net_dict["#config"]["batch_size"] = second_bs
 
-    idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
+    if repeat_first:
+        idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
 
     if variant == 1:
         num_blocks = max(2 * idx, 1)  # 1/1/2/4/6/8/10/12 -> 8
         StartNumLayers = 1
     elif variant == 2:
-        num_blocks = 2 ** idx  # 1/1/2/4/8/12 -> 6
+        num_blocks = 2**idx  # 1/1/2/4/8/12 -> 6
         StartNumLayers = 1
     elif variant == 3:
         idx += 1
@@ -175,11 +195,11 @@ def pretrain_layers_and_dims(
         StartNumLayers = 2
     elif variant == 4:
         idx += 1
-        num_blocks = 2 ** idx  # 2/2/4/8/12 -> 5
+        num_blocks = 2**idx  # 2/2/4/8/12 -> 5
         StartNumLayers = 2
     elif variant == 5:
         idx += 2
-        num_blocks = 2 ** idx  # 4/4/8/12 -> 4
+        num_blocks = 2**idx  # 4/4/8/12 -> 4
         StartNumLayers = 4
     elif variant == 6:
         idx += 1  # 1 1 2 3
@@ -191,31 +211,40 @@ def pretrain_layers_and_dims(
     if num_blocks > final_num_blocks:
         return None
 
-    encoder_args_copy['num_blocks'] = num_blocks
-    decoder_args_copy['label_smoothing'] = 0
-    AttNumHeads = encoder_args_copy['att_num_heads']
+    encoder_args_copy["num_blocks"] = num_blocks
+    decoder_args_copy["label_smoothing"] = 0
+    AttNumHeads = encoder_args_copy["att_num_heads"]
 
     if reduce_dims:
-        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
+        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (
+            final_num_blocks - StartNumLayers
+        )
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
-            encoder_args_copy[key] = int(encoder_args[key] * dim_frac_enc / float(AttNumHeads)) * AttNumHeads
+            encoder_args_copy[key] = (
+                int(encoder_args[key] * dim_frac_enc / float(AttNumHeads)) * AttNumHeads
+            )
 
         if decoder_type == TransformerDecoder:
-            transf_dec_layers = decoder_args_copy['num_layers']
+            transf_dec_layers = decoder_args_copy["num_layers"]
             num_transf_layers = min(num_blocks, transf_dec_layers)
-            decoder_args_copy['num_layers'] = num_transf_layers
+            decoder_args_copy["num_layers"] = num_transf_layers
 
             if enc_dec_share_grow_frac:
                 grow_frac_dec = grow_frac_enc
             else:
-                grow_frac_dec = 1.0 - float(transf_dec_layers - num_transf_layers) / (transf_dec_layers - StartNumLayers)
+                grow_frac_dec = 1.0 - float(transf_dec_layers - num_transf_layers) / (
+                    transf_dec_layers - StartNumLayers
+                )
 
             dim_frac_dec = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_dec
 
             for key in decoder_keys:
-                decoder_args_copy[key] = int(decoder_args[key] * dim_frac_dec / float(AttNumHeads)) * AttNumHeads
+                decoder_args_copy[key] = (
+                    int(decoder_args[key] * dim_frac_dec / float(AttNumHeads))
+                    * AttNumHeads
+                )
         else:
             dim_frac_dec = 1
     else:
@@ -224,24 +253,24 @@ def pretrain_layers_and_dims(
 
     # do not enable regulizations in the first pretraining step to make it more stable
     for k in encoder_args_copy.keys():
-        if 'dropout' in k and encoder_args_copy[k] is not None:
+        if "dropout" in k and encoder_args_copy[k] is not None:
             if idx <= 1:
                 encoder_args_copy[k] = 0.0
             else:
                 encoder_args_copy[k] *= dim_frac_enc
-        if 'l2' in k and encoder_args_copy[k] is not None:
+        if "l2" in k and encoder_args_copy[k] is not None:
             if idx <= 1:
                 encoder_args_copy[k] = 0.0
             else:
                 encoder_args_copy[k] *= dim_frac_enc
 
     for k in decoder_args_copy.keys():
-        if 'dropout' in k and decoder_args_copy[k] is not None:
+        if "dropout" in k and decoder_args_copy[k] is not None:
             if idx <= 1:
                 decoder_args_copy[k] = 0.0
             else:
                 decoder_args_copy[k] *= dim_frac_dec
-        if 'l2' in k and decoder_args_copy[k] is not None:
+        if "l2" in k and decoder_args_copy[k] is not None:
             if idx <= 1:
                 decoder_args_copy[k] = 0.0
             else:
@@ -250,7 +279,9 @@ def pretrain_layers_and_dims(
     conformer_encoder = encoder_type(**encoder_args_copy)
     conformer_encoder.create_network()
 
-    transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args_copy)
+    transformer_decoder = decoder_type(
+        base_model=conformer_encoder, **decoder_args_copy
+    )
     transformer_decoder.create_network()
 
     net_dict = conformer_encoder.network.get_net()
@@ -259,11 +290,13 @@ def pretrain_layers_and_dims(
 
     return net_dict
 
+
 # -------------------------------------------------------------------- #
 
 
 class EncoderArgs:
     pass
+
 
 @dataclass
 class ConformerEncoderArgs(EncoderArgs):
@@ -272,9 +305,9 @@ class ConformerEncoderArgs(EncoderArgs):
     att_num_heads: int = 8
     ff_dim: int = 2048
     conv_kernel_size: int = 32
-    input_layer: str = 'lstm-6'
-    input_layer_conv_act: str = 'relu'
-    pos_enc: str = 'rel'
+    input_layer: str = "lstm-6"
+    input_layer_conv_act: str = "relu"
+    pos_enc: str = "rel"
 
     sandwich_conv: bool = False
     subsample: Optional[str] = None
@@ -311,6 +344,7 @@ class ConformerEncoderArgs(EncoderArgs):
 
 class DecoderArgs:
     pass
+
 
 @dataclass
 class TransformerDecoderArgs(DecoderArgs):
@@ -367,18 +401,46 @@ class RNNDecoderArgs(DecoderArgs):
 
 
 def create_config(
-        training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False, is_recog=False,
-        input_key="audio_features", lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20,
-        batch_size=10000, accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
-        warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
-        speed_pert=True, oclr_opts=None,
-        gradient_clip_global_norm=0.0, gradient_clip=0.0,
-        ext_lm_opts=None, beam_size=12, recog_epochs=None,
-        prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
-        decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
-        specaug_str_func_opts=None,
-        recursion_limit=3000, feature_extraction_net=None, config_override=None,
-        feature_extraction_net_global_norm=False,
+    training_datasets,
+    encoder_args: EncoderArgs,
+    decoder_args: DecoderArgs,
+    with_staged_network=False,
+    is_recog=False,
+    input_key="audio_features",
+    lr=0.0008,
+    wup_start_lr=0.0003,
+    lr_decay=0.9,
+    const_lr=0,
+    wup=10,
+    epoch_split=20,
+    batch_size=10000,
+    accum_grad=2,
+    pretrain_reps=5,
+    max_seq_length=75,
+    noam_opts=None,
+    warmup_lr_opts=None,
+    with_pretrain=True,
+    pretrain_opts=None,
+    speed_pert=True,
+    oclr_opts=None,
+    gradient_clip_global_norm=0.0,
+    gradient_clip=0.0,
+    ext_lm_opts=None,
+    beam_size=12,
+    recog_epochs=None,
+    prior_lm_opts=None,
+    gradient_noise=0.0,
+    adamw=False,
+    retrain_checkpoint=None,
+    decouple_constraints_factor=0.025,
+    extra_str=None,
+    preload_from_files=None,
+    min_lr_factor=50,
+    specaug_str_func_opts=None,
+    recursion_limit=3000,
+    feature_extraction_net=None,
+    config_override=None,
+    feature_extraction_net_global_norm=False,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -388,78 +450,88 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {'devtrain': training_datasets.devtrain.as_returnn_opts()}
+        exp_config["eval_datasets"] = {
+            "devtrain": training_datasets.devtrain.as_returnn_opts()
+        }
 
-    target = 'bpe_labels'
+    target = "bpe_labels"
 
     # add default hyperparameters
     # model and learning_rates paths are added in the CRNNTraining job
     hyperparams = {
-        'gradient_clip': gradient_clip,
-        'accum_grad_multiple_step': accum_grad,
-        'gradient_noise': gradient_noise,
-        'batch_size': batch_size,
-        'max_seqs': 200,
-        'truncation': -1,
+        "gradient_clip": gradient_clip,
+        "accum_grad_multiple_step": accum_grad,
+        "gradient_noise": gradient_noise,
+        "batch_size": batch_size,
+        "max_seqs": 200,
+        "truncation": -1,
     }
     # default: Adam optimizer
-    hyperparams['adam'] = True
-    hyperparams['optimizer_epsilon'] = 1e-8
+    hyperparams["adam"] = True
+    hyperparams["optimizer_epsilon"] = 1e-8
 
     if adamw:
-        hyperparams['decouple_constraints'] = True
-        hyperparams['decouple_constraints_factor'] = decouple_constraints_factor
+        hyperparams["decouple_constraints"] = True
+        hyperparams["decouple_constraints_factor"] = decouple_constraints_factor
 
     if max_seq_length:
-        hyperparams['max_seq_length'] = {target: max_seq_length}  # char-bpe
+        hyperparams["max_seq_length"] = {target: max_seq_length}  # char-bpe
     if gradient_clip_global_norm:
-        hyperparams['gradient_clip_global_norm'] = gradient_clip_global_norm
+        hyperparams["gradient_clip_global_norm"] = gradient_clip_global_norm
 
-    extra_python_code = '\n'.join(['import sys', 'sys.setrecursionlimit({})'.format(recursion_limit)])  # for network construction
+    extra_python_code = "\n".join(
+        ["import sys", "sys.setrecursionlimit({})".format(recursion_limit)]
+    )  # for network construction
 
     # LR scheduling
     if noam_opts:
-        noam_opts['model_d'] = encoder_args.enc_key_dim
-        exp_config['learning_rate'] = noam_opts['lr']
-        exp_config['learning_rate_control'] = 'constant'
-        extra_python_code += '\n' + noam_lr_str.format(**noam_opts)
+        noam_opts["model_d"] = encoder_args.enc_key_dim
+        exp_config["learning_rate"] = noam_opts["lr"]
+        exp_config["learning_rate_control"] = "constant"
+        extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
     elif warmup_lr_opts:
-        if warmup_lr_opts.get('learning_rates', None):
-            exp_config['learning_rates'] = warmup_lr_opts['learning_rates']
-        exp_config['learning_rate'] = warmup_lr_opts['peak_lr']
-        exp_config['learning_rate_control'] = 'constant'
-        extra_python_code += '\n' + warmup_lr_str.format(**warmup_lr_opts)
+        if warmup_lr_opts.get("learning_rates", None):
+            exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
+        exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
+        exp_config["learning_rate_control"] = "constant"
+        extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
     elif oclr_opts:
-        if oclr_opts.get('learning_rates', None):
-            exp_config['learning_rates'] = oclr_opts['learning_rates']
-        exp_config['learning_rate'] = oclr_opts['peak_lr']
-        exp_config['learning_rate_control'] = 'constant'
-        oclr_peak_lr = oclr_opts['peak_lr']
+        if oclr_opts.get("learning_rates", None):
+            exp_config["learning_rates"] = oclr_opts["learning_rates"]
+        exp_config["learning_rate"] = oclr_opts["peak_lr"]
+        exp_config["learning_rate_control"] = "constant"
+        oclr_peak_lr = oclr_opts["peak_lr"]
         oclr_initial_lr = oclr_peak_lr / 10
-        extra_python_code += '\n' + oclr_str.format(
-            **oclr_opts, initial_lr=oclr_initial_lr)
+        extra_python_code += "\n" + oclr_str.format(
+            **oclr_opts, initial_lr=oclr_initial_lr
+        )
     else:  # newbob
         if retrain_checkpoint is not None:
             learning_rates = None
         elif isinstance(const_lr, int):
-            learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
+            learning_rates = [wup_start_lr] * const_lr + list(
+                numpy.linspace(wup_start_lr, lr, num=wup)
+            )
         elif isinstance(const_lr, list):
             assert len(const_lr) == 2
-            learning_rates = \
-                [wup_start_lr] * const_lr[0] + list(numpy.linspace(wup_start_lr, lr, num=wup)) + [lr] * const_lr[1]
+            learning_rates = (
+                [wup_start_lr] * const_lr[0]
+                + list(numpy.linspace(wup_start_lr, lr, num=wup))
+                + [lr] * const_lr[1]
+            )
         else:
-            raise ValueError('unknown const_lr format')
+            raise ValueError("unknown const_lr format")
 
-        exp_config['learning_rate'] = lr
-        exp_config['learning_rates'] = learning_rates
-        exp_config['min_learning_rate'] = lr / min_lr_factor
-        exp_config['learning_rate_control'] = "newbob_multi_epoch"
-        exp_config['learning_rate_control_relative_error_relative_lr'] = True
-        exp_config['learning_rate_control_min_num_epochs_per_new_lr'] = 3
-        exp_config['use_learning_rate_control_always'] = True
-        exp_config['newbob_multi_num_epochs'] = epoch_split
-        exp_config['newbob_multi_update_interval'] = 1
-        exp_config['newbob_learning_rate_decay'] = lr_decay
+        exp_config["learning_rate"] = lr
+        exp_config["learning_rates"] = learning_rates
+        exp_config["min_learning_rate"] = lr / min_lr_factor
+        exp_config["learning_rate_control"] = "newbob_multi_epoch"
+        exp_config["learning_rate_control_relative_error_relative_lr"] = True
+        exp_config["learning_rate_control_min_num_epochs_per_new_lr"] = 3
+        exp_config["use_learning_rate_control_always"] = True
+        exp_config["newbob_multi_num_epochs"] = epoch_split
+        exp_config["newbob_multi_update_interval"] = 1
+        exp_config["newbob_learning_rate_decay"] = lr_decay
 
     # -------------------------- network -------------------------- #
     encoder_type = None
@@ -489,39 +561,60 @@ def create_config(
     transformer_decoder.create_network()
 
     decision_layer_name = transformer_decoder.decision_layer_name
-    exp_config['search_output_layer'] = decision_layer_name
+    exp_config["search_output_layer"] = decision_layer_name
 
     if ext_lm_opts:
         transformer_decoder = ExternalLMDecoder(
-            transformer_decoder, ext_lm_opts, prior_lm_opts=prior_lm_opts, beam_size=beam_size, dec_type='transformer')
+            transformer_decoder,
+            ext_lm_opts,
+            prior_lm_opts=prior_lm_opts,
+            beam_size=beam_size,
+            dec_type="transformer",
+        )
         transformer_decoder.create_network()
 
     # add full network
-    exp_config['network'] = conformer_encoder.network.get_net()  # type: dict
-    exp_config['network'].update(transformer_decoder.network.get_net())
+    exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
+    exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
         if feature_extraction_net_global_norm:
             # TODO: just for experimenting!
-            exp_config["a_global_mean_logmel80"] = '/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.mean.txt'
-            exp_config["a_global_stddev_logmel80"] = '/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.std_dev.txt'
+            exp_config[
+                "a_global_mean_logmel80"
+            ] = "/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.mean.txt"
+            exp_config[
+                "a_global_stddev_logmel80"
+            ] = "/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.std_dev.txt"
 
-            exp_config['a_global_mean_var'] = CodeWrapper("numpy.loadtxt(a_global_mean_logmel80)")
-            exp_config['a_global_stddev_var'] = CodeWrapper("numpy.loadtxt(a_global_stddev_logmel80)")
+            exp_config["a_global_mean_var"] = CodeWrapper(
+                "numpy.loadtxt(a_global_mean_logmel80)"
+            )
+            exp_config["a_global_stddev_var"] = CodeWrapper(
+                "numpy.loadtxt(a_global_stddev_logmel80)"
+            )
 
             feature_extraction_net = copy.deepcopy(feature_extraction_net)
 
-            feature_extraction_net['a_global_mean'] = {'class': 'constant', 'value': CodeWrapper('a_global_mean_var')}
-            feature_extraction_net['a_global_stddev'] = {'class': 'constant', 'value': CodeWrapper('a_global_stddev_var')}
+            feature_extraction_net["a_global_mean"] = {
+                "class": "constant",
+                "value": CodeWrapper("a_global_mean_var"),
+            }
+            feature_extraction_net["a_global_stddev"] = {
+                "class": "constant",
+                "value": CodeWrapper("a_global_stddev_var"),
+            }
 
             # TODO: does it broadcast automatically?
-            feature_extraction_net['log10_norm'] = {
-                'class': 'eval', 'from': ['log10', 'a_global_mean', 'a_global_stddev'],
-                'eval': '(source(0) - source(1)) / source(2)'}
+            feature_extraction_net["log10_norm"] = {
+                "class": "eval",
+                "from": ["log10", "a_global_mean", "a_global_stddev"],
+                "eval": "(source(0) - source(1)) / source(2)",
+            }
 
-            feature_extraction_net['log_mel_features']['from'] = 'log10_norm'
+            feature_extraction_net["log_mel_features"]["from"] = "log10_norm"
 
-        exp_config['network'].update(feature_extraction_net)
+        exp_config["network"].update(feature_extraction_net)
 
     # -------------------------- end network -------------------------- #
 
@@ -529,21 +622,25 @@ def create_config(
     exp_config.update(hyperparams)
 
     if retrain_checkpoint is not None:
-        exp_config['import_model_train_epoch1'] = retrain_checkpoint
+        exp_config["import_model_train_epoch1"] = retrain_checkpoint
 
-    if ext_lm_opts and ext_lm_opts.get('preload_from_files'):
-        if 'preload_from_files' not in exp_config:
-            exp_config['preload_from_files'] = {}
-        exp_config['preload_from_files'].update(copy.deepcopy(ext_lm_opts['preload_from_files']))
+    if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
+        if "preload_from_files" not in exp_config:
+            exp_config["preload_from_files"] = {}
+        exp_config["preload_from_files"].update(
+            copy.deepcopy(ext_lm_opts["preload_from_files"])
+        )
 
     if preload_from_files:
-        if 'preload_from_files' not in exp_config:
-            exp_config['preload_from_files'] = {}
-        exp_config['preload_from_files'].update(preload_from_files)
+        if "preload_from_files" not in exp_config:
+            exp_config["preload_from_files"] = {}
+        exp_config["preload_from_files"].update(preload_from_files)
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += '\n' + specaug_transform_func.format(**specaug_str_func_opts)
+        extra_python_code += "\n" + specaug_transform_func.format(
+            **specaug_str_func_opts
+        )
     else:
         python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
 
@@ -553,20 +650,33 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
+    if (
+        with_pretrain
+        and ext_lm_opts is None
+        and retrain_checkpoint is None
+        and is_recog is False
+    ):
         if with_staged_network:
             staged_network_dict = {}
             idx = 0
             while True:
-                net = pretrain_layers_and_dims(idx, exp_config['network'], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts)
+                net = pretrain_layers_and_dims(
+                    idx,
+                    exp_config["network"],
+                    encoder_type,
+                    decoder_type,
+                    encoder_args,
+                    decoder_args,
+                    **pretrain_opts
+                )
                 if not net:
                     break
-                net["#copy_param_mode"] =  "subset"
+                net["#copy_param_mode"] = "subset"
                 if feature_extraction_net:
                     net.update(feature_extraction_net)
-                staged_network_dict[(idx*pretrain_reps) + 1] = net
+                staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
-            staged_network_dict[(idx*pretrain_reps) + 1] = exp_config["network"]
+            staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
             exp_config.pop("network")
         else:
             if pretrain_opts is None:
@@ -575,39 +685,54 @@ def create_config(
             pretrain_networks = []
             idx = 0
             while True:
-                net = pretrain_layers_and_dims(idx, exp_config['network'], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts)
+                net = pretrain_layers_and_dims(
+                    idx,
+                    exp_config["network"],
+                    encoder_type,
+                    decoder_type,
+                    encoder_args,
+                    decoder_args,
+                    **pretrain_opts
+                )
                 if not net:
                     break
                 pretrain_networks.append(net)
                 idx += 1
 
-            exp_config['pretrain_nets_lookup'] = {k: v for k, v in enumerate(pretrain_networks)}
-
-            exp_config['pretrain'] = {
-                "repetitions": pretrain_reps,
-                "copy_param_mode": "subset",
-                "construction_algo": CodeWrapper('custom_construction_algo')
+            exp_config["pretrain_nets_lookup"] = {
+                k: v for k, v in enumerate(pretrain_networks)
             }
 
-            pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
+            exp_config["pretrain"] = {
+                "repetitions": pretrain_reps,
+                "copy_param_mode": "subset",
+                "construction_algo": CodeWrapper("custom_construction_algo"),
+            }
+
+            pretrain_algo_str = "def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)"
             python_prolog += [pretrain_algo_str]
 
     if recog_epochs:
-      assert isinstance(recog_epochs, list)
-      post_config['cleanup_old_models'] = {'keep': recog_epochs}
+        assert isinstance(recog_epochs, list)
+        post_config["cleanup_old_models"] = {"keep": recog_epochs}
 
     if extra_str:
-        extra_python_code += '\n' + extra_str
+        extra_python_code += "\n" + extra_str
 
     if config_override:
         exp_config.update(config_override)
 
     if feature_extraction_net_global_norm:
-        python_prolog += ['import numpy']
+        python_prolog += ["import numpy"]
 
     returnn_config = ReturnnConfig(
-        exp_config, staged_network_dict=staged_network_dict, post_config=post_config, python_prolog=python_prolog,
-        python_epilog=extra_python_code, hash_full_python_code=True,
-        pprint_kwargs={'sort_dicts': False})
+        exp_config,
+        staged_network_dict=staged_network_dict,
+        post_config=post_config,
+        python_prolog=python_prolog,
+        python_epilog=extra_python_code,
+        hash_full_python_code=True,
+        pprint_kwargs={"sort_dicts": False},
+    )
 
     return returnn_config

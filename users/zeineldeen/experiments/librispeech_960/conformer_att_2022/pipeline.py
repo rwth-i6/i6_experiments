@@ -5,7 +5,7 @@ from sisyphus import tk
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.training import GetBestTFCheckpointJob
-from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
+from i6_core.returnn.training import AverageTFCheckpointsJob
 
 
 def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs):
@@ -18,17 +18,15 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs)
     :return:
     """
     default_rqmt = {
-        'mem_rqmt': 15,
-        'time_rqmt': 168,
-        'log_verbosity': 5,
-        'returnn_python_exe': returnn_exe,
-        'returnn_root': returnn_root,
+        "mem_rqmt": 15,
+        "time_rqmt": 168,
+        "log_verbosity": 5,
+        "returnn_python_exe": returnn_exe,
+        "returnn_root": returnn_root,
     }
 
     train_job = ReturnnTrainingJob(
-        returnn_config=returnn_config,
-        num_epochs=num_epochs,
-        **default_rqmt
+        returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt
     )
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
@@ -36,21 +34,24 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs)
     return train_job
 
 
-def get_best_checkpoint(training_job, key='dev_score_output/output_prob'):
+def get_best_checkpoint(training_job, key="dev_score_output/output_prob"):
     """
     :param ReturnnTrainingJob training_job:
     :return:
     """
     best_checkpoint_job = GetBestTFCheckpointJob(
-        training_job.out_model_dir,
-        training_job.out_learning_rates,
-        key=key,
-        index=0)
+        training_job.out_model_dir, training_job.out_learning_rates, key=key, index=0
+    )
     return best_checkpoint_job.out_checkpoint
 
 
 def get_average_checkpoint(
-        training_job, returnn_exe, returnn_root, num_average:int = 4, key='dev_score_output/output_prob'):
+    training_job,
+    returnn_exe,
+    returnn_root,
+    num_average: int = 4,
+    key="dev_score_output/output_prob",
+):
     """
     get an averaged checkpoint using n models
 
@@ -64,24 +65,28 @@ def get_average_checkpoint(
             training_job.out_model_dir,
             training_job.out_learning_rates,
             key=key,
-            index=i)
+            index=i,
+        )
         epochs.append(best_checkpoint_job.out_epoch)
-    # TODO: add AverageCheckpointsJobV2 to main
-    average_checkpoint_job = AverageCheckpointsJobV2(
-        training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    average_checkpoint_job = AverageTFCheckpointsJob(
+        training_job.out_model_dir,
+        epochs=epochs,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+    )
     return average_checkpoint_job.out_checkpoint
 
 
 def search_single(
-        prefix_name,
-        returnn_config,
-        checkpoint,
-        recognition_dataset,
-        recognition_reference,
-        returnn_exe,
-        returnn_root,
-        mem_rqmt=8,
-        time_rqmt=4,
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    recognition_dataset,
+    recognition_reference,
+    returnn_exe,
+    returnn_root,
+    mem_rqmt=8,
+    time_rqmt=4,
 ):
     """
     Run search for a specific test dataset
@@ -94,7 +99,11 @@ def search_single(
     :param Path returnn_exe:
     :param Path returnn_root:
     """
-    from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob, ReturnnComputeWERJob
+    from i6_core.returnn.search import (
+        ReturnnSearchJobV2,
+        SearchBPEtoWordsJob,
+        ReturnnComputeWERJob,
+    )
 
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
@@ -104,11 +113,13 @@ def search_single(
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
         returnn_python_exe=returnn_exe,
-        returnn_root=returnn_root
+        returnn_root=returnn_root,
     )
     search_job.add_alias(prefix_name + "/search_job")
 
-    search_words = SearchBPEtoWordsJob(search_job.out_search_file).out_word_search_results
+    search_words = SearchBPEtoWordsJob(
+        search_job.out_search_file
+    ).out_word_search_results
     wer = ReturnnComputeWERJob(search_words, recognition_reference)
 
     tk.register_output(prefix_name + "/search_out_words.py", search_words)
@@ -116,7 +127,14 @@ def search_single(
     return wer.out_wer
 
 
-def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root):
+def search(
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    test_dataset_tuples,
+    returnn_exe,
+    returnn_root,
+):
     """
 
     :param str prefix_name:
@@ -131,11 +149,26 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
     wers = {}
     for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
         wers[key] = search_single(
-            prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
+            prefix_name + "/%s" % key,
+            returnn_config,
+            checkpoint,
+            test_dataset,
+            test_dataset_reference,
+            returnn_exe,
+            returnn_root,
+        )
 
     from i6_core.report import GenerateReportStringJob, MailJob
-    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
-    format_string = " - ".join(["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()])
+
+    format_string_report = ",".join(
+        ["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()]
+    )
+    format_string = " - ".join(
+        [
+            "{%s}: {%s_val}" % (prefix_name + key, prefix_name + key)
+            for key in test_dataset_tuples.keys()
+        ]
+    )
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
@@ -143,9 +176,9 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
         values["%s_val" % (prefix_name + key)] = wers[key]
         values_report["%s_val" % (prefix_name + key)] = wers[key]
 
-    report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
+    report = GenerateReportStringJob(
+        report_values=values, report_template=format_string, compress=False
+    ).out_report
     mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-    #tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    # tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
     return format_string_report, values_report
-
-
