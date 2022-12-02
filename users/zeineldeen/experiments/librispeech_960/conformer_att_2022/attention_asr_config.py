@@ -113,22 +113,6 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
   return x
 """
 
-
-# ------------------------- Data Pipeline ------------------------- #
-
-data_pipeline_code = """
-def dataset_pipeline(context):
-    from returnn.tf.compat import v1 as tf
-    dataset = context.get_returnn_dataset()
-    dataset = dataset.padded_batch(
-      batch_size=12,
-      padded_shapes=tf.data.get_output_shapes(dataset),
-      drop_remainder=False)
-    dataset = context.map_producer_to_consumer(dataset)
-    dataset = context.prefetch_to_consumer_device(dataset)
-    return dataset
-"""
-
 # -------------------------- Pretraining -------------------------- #
 
 
@@ -389,16 +373,15 @@ def create_config(
         warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
         speed_pert=True, oclr_opts=None,
         gradient_clip_global_norm=0.0, gradient_clip=0.0,
-        ext_lm_opts=None, beam_size=12,
+        ext_lm_opts=None, beam_size=12, recog_epochs=None,
         prior_lm_opts=None, gradient_noise=0.0, adamw=False, retrain_checkpoint=None,
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         specaug_str_func_opts=None,
-        recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None, config_override=None,
+        recursion_limit=3000, feature_extraction_net=None, config_override=None,
         feature_extraction_net_global_norm=False,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
-
 
     exp_config["extern_data"] = training_datasets.extern_data
 
@@ -609,11 +592,12 @@ def create_config(
             pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
             python_prolog += [pretrain_algo_str]
 
+    if recog_epochs:
+      assert isinstance(recog_epochs, list)
+      post_config['cleanup_old_models'] = {'keep': recog_epochs}
+
     if extra_str:
         extra_python_code += '\n' + extra_str
-
-    if use_data_pipeline:
-        extra_python_code += '\n' + data_pipeline_code
 
     if config_override:
         exp_config.update(config_override)

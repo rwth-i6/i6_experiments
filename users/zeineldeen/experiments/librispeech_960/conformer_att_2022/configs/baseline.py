@@ -28,7 +28,8 @@ def conformer_baseline():
     for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
         test_dataset_tuples[testset] = build_test_dataset(testset, use_raw_features=True)
 
-    def run_exp(exp_name, train_args, feature_extraction_net=log10_net_10ms, num_epochs=300, search_args=None, **kwargs):
+    def run_exp(exp_name, train_args, feature_extraction_net=log10_net_10ms, num_epochs=300, search_args=None,
+                recog_epochs=None, **kwargs):
         exp_prefix = os.path.join(prefix_name, exp_name)
 
         train_data = build_training_datasets(
@@ -40,7 +41,8 @@ def conformer_baseline():
         )
 
         returnn_config = create_config(
-            training_datasets=train_data, **train_args, feature_extraction_net=feature_extraction_net)
+            training_datasets=train_data, **train_args, feature_extraction_net=feature_extraction_net,
+            recog_epochs=recog_epochs)
 
         train_job = training(
             exp_prefix, returnn_config, RETURNN_EXE, RETURNN_ROOT, num_epochs=num_epochs)
@@ -56,11 +58,15 @@ def conformer_baseline():
             train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
         best_checkpoint = get_best_checkpoint(train_job)
 
-        default_recog_epochs = [80 * i for i in range(1, int(num_epochs / 80))]
+        default_recog_epochs = set()
+        default_recog_epochs.update([80 * i for i in range(1, int(num_epochs / 80) + 1)])
+        if recog_epochs:
+            default_recog_epochs.update(recog_epochs)
         for ep in default_recog_epochs:
             search(
                 exp_prefix + f"/recogs/ep-{ep}", returnn_search_config, train_job.out_checkpoints[ep],
                 test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
+
 
         search(exp_prefix + "/default_last", returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
         search(exp_prefix + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
@@ -113,6 +119,15 @@ def conformer_baseline():
     run_exp(exp_name='base_conf_12l_trafo_6l', train_args=trafo_dec_exp_args)
     run_exp(exp_name='base_conf_12l_lstm_1l', train_args=lstm_dec_exp_args)
 
+    args = copy.deepcopy(lstm_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-6'
+    run_exp(exp_name='base_conf_12l_lstm_1l_conv6', train_args=args)
+
+    args = copy.deepcopy(lstm_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-6'
+    args['const_lr'] = [35, 20]
+    run_exp(exp_name='base_conf_12l_lstm_1l_conv6_constLR-35_20', train_args=args)
+
     for bn_mom in [0.01, 0.001]:
         feature_net = copy.deepcopy(log10_net_10ms_long_bn)
         feature_net['log_mel_features']['momentum'] = bn_mom
@@ -123,33 +138,13 @@ def conformer_baseline():
 
     # TODO: BN eps
     args = copy.deepcopy(trafo_dec_exp_args)
-    args['batch_norm_opts'] = {'epsilon': 1e-5}
-    run_exp(exp_name='base_conf_12l_trafo_6l_BNeps_1e-5', train_args=trafo_dec_exp_args)
-
-    # TODO: conv for lstm decoder
-    # OOM for batch size 15k
-    for bs in [10, 11, 15]:
-        args = copy.deepcopy(lstm_dec_exp_args)
-        args['batch_size'] = bs * 1000 * 160
-        args['encoder_args'].input_layer = 'conv-4'
-        args['encoder_args'].input_layer_conv_act = 'relu'
-        run_exp(exp_name=f'base_conf_12l_lstm_1l_conv4_relu_bs{bs}k', train_args=args)
-
-    args = copy.deepcopy(lstm_dec_exp_args)
-    args['decoder_args'].zoneout = False
-    args['decoder_args'].dropout = 0.1
-    run_exp(exp_name='base_conf_12l_lstm_1l_noZonout_drop1e-1', train_args=args)
+    args['encoder_args'].batch_norm_opts = {'epsilon': 1e-5}
+    run_exp(exp_name='base_conf_12l_trafo_6l_BNeps_1e-5', train_args=args)
 
     args = copy.deepcopy(lstm_dec_exp_args)
     args['decoder_args'].lstm_num_units = 1000
     args['decoder_args'].output_num_units = 1000
     run_exp(exp_name='base_conf_12l_lstm_1l_dim1k', train_args=args)
-
-    args = copy.deepcopy(lstm_dec_exp_args)
-    args['decoder_args'].lstm_num_units = args['encoder_args'].enc_key_dim
-    args['decoder_args'].output_num_units = args['encoder_args'].enc_key_dim
-    args['decoder_args'].embed_dim = args['encoder_args'].enc_key_dim
-    run_exp(exp_name='base_conf_12l_lstm_1l_encKeyDim', train_args=args)
 
     # TODO: no epoch wise filter
     args = copy.deepcopy(trafo_dec_exp_args)
@@ -160,37 +155,25 @@ def conformer_baseline():
     run_exp('base_conf12l_trafo_seqOrdLaplace281', train_args=args, seq_ordering='laplace:281')
 
     # TODO: more curr learning
+    # much worse
     args = copy.deepcopy(trafo_dec_exp_args)
     run_exp('base_conf12l_trafo_currLRv2', train_args=args,
             epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
 
-    args = copy.deepcopy(trafo_dec_exp_args)
-    args['pretrain_opts']['variant'] = 4
-    args['pretrain_reps'] = 6
-    args['gradient_clip'] = 20
-    run_exp('base_conf12l_trafo_currLRv2_pre4_reps6_gradClip20', train_args=args,
-            epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
-
     # TODO: conv front-end
-    args = copy.deepcopy(trafo_dec_exp_args)
-    args['encoder_args'].input_layer = 'conv-4'
-    run_exp(exp_name='base_conf_12l_trafo_6l_conv4_relu', train_args=args)
-
-    # TODO: OOV with 12k
-    for bs in [10, 11, 12]:
-        args = copy.deepcopy(trafo_dec_exp_args)
-        args['batch_size'] = bs * 1000 * 160
-        args['encoder_args'].input_layer = 'conv-4'
-        run_exp(exp_name=f'base_conf_12l_trafo_6l_conv4_relu_bs{bs}k', train_args=args)
-
     args = copy.deepcopy(trafo_dec_exp_args)
     args['encoder_args'].input_layer = 'conv-6'
     run_exp(exp_name=f'base_conf_12l_trafo_6l_conv6_relu', train_args=args)
 
     args = copy.deepcopy(trafo_dec_exp_args)
-    args['encoder_args'].input_layer = 'conv-4'
-    args['encoder_args'].input_layer_conv_act = 'swish'
-    run_exp(exp_name='base_conf_12l_trafo_6l_conv4_swish', train_args=args)
+    args['encoder_args'].input_layer = 'conv-6'
+    args['const_lr'] = [35, 20]
+    run_exp(exp_name=f'base_conf_12l_trafo_6l_conv6_relu_constLR_35-20', train_args=args)
+
+    args = copy.deepcopy(trafo_dec_exp_args)
+    args['encoder_args'].input_layer = 'conv-6'
+    args['const_lr'] = 35
+    run_exp(exp_name=f'base_conf_12l_trafo_6l_conv6_relu_constLR_35', train_args=args)
 
     # TODO: default init
     args = copy.deepcopy(trafo_dec_exp_args)
@@ -221,12 +204,6 @@ def conformer_baseline():
         feature_net['log_mel_features']['momentum'] = bn_mom
         run_exp(f'base_conf12l_trafo_6l_constLR_35-20_featBN{bn_mom}', feature_extraction_net=feature_net, train_args=args)
 
-    # TODO: use LN instead
-    args = copy.deepcopy(trafo_dec_exp_args)
-    args['encoder_args'].use_ln = True
-    args['gradient_clip'] = 20
-    run_exp('base_conf12l_trafo_6l_LN_gradClip20', train_args=args)
-
     args = copy.deepcopy(trafo_dec_exp_args)
     args['encoder_args'].use_sqrd_relu = True
     run_exp('base_conf12l_trafo_6l_sqrdReLU', train_args=args)
@@ -237,16 +214,16 @@ def conformer_baseline():
     # TODO: const lr in the beginning
 
     # TODO: OCLR
-    for const_lr_ep in [10, 20, 30, 40]:
-        args = copy.deepcopy(trafo_dec_exp_args)
-        args['oclr_opts'] = {
-            'peak_lr': 8e-4,
-            'final_lr': 1e-6,
-            'cycle_ep': int((180 + const_lr_ep) * 0.45),
-            'total_ep': 400 + const_lr_ep,  # 20 epochs
-            'n_step': 1700,
-            'learning_rates': [8e-5] * const_lr_ep
-        }
-        args['with_pretrain'] = False
-        run_exp(f'base_conf12l_trafo6l_OCLR_nopre_constLR{const_lr_ep}_Curr4', train_args=args, num_epochs=400 + const_lr_ep,
-                epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
+    # for const_lr_ep in [10, 20, 30, 40]:
+    #     args = copy.deepcopy(trafo_dec_exp_args)
+    #     args['oclr_opts'] = {
+    #         'peak_lr': 8e-4,
+    #         'final_lr': 1e-6,
+    #         'cycle_ep': int((180 + const_lr_ep) * 0.45),
+    #         'total_ep': 400 + const_lr_ep,  # 20 epochs
+    #         'n_step': 1700,
+    #         'learning_rates': [8e-5] * const_lr_ep
+    #     }
+    #     args['with_pretrain'] = False
+    #     run_exp(f'base_conf12l_trafo6l_OCLR_nopre_constLR{const_lr_ep}_Curr4', train_args=args, num_epochs=400 + const_lr_ep,
+    #             epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
