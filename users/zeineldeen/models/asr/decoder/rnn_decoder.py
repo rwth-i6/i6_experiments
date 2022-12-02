@@ -109,8 +109,9 @@ class RNNDecoder:
     # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
     lstm_lm_component = None
     if self.add_lstm_lm:
-      lstm_lm_component = subnet_unit.add_rnn_cell_layer(
-        'lm_like_s', 'prev:target_embed', n_out=self.lstm_lm_dim, l2=self.l2)
+      lstm_lm_component = subnet_unit.add_rec_layer(
+          'lm_like_s', 'prev:target_embed', n_out=self.lstm_lm_dim, l2=self.l2, unit='NativeLSTM2',
+          rec_weight_dropout=self.rec_weight_dropout, weights_init=self.lstm_weights_init)
 
     lstm_inputs = []
     if lstm_lm_component:
@@ -125,14 +126,10 @@ class RNNDecoder:
         's', lstm_inputs, n_out=self.dec_lstm_num_units, l2=self.l2, weights_init=self.lstm_weights_init,
         unit='zoneoutlstm', unit_opts={'zoneout_factor_cell': 0.15, 'zoneout_factor_output': 0.05})
     else:
-      if self.rec_weight_dropout:
-        # a rec layer with unit nativelstm2 is required to use rec_weight_dropout
-        subnet_unit.add_rec_layer(
-          's', lstm_inputs, n_out=self.dec_lstm_num_units, l2=self.l2, unit='NativeLSTM2',
-          rec_weight_dropout=self.rec_weight_dropout, weights_init=self.lstm_weights_init)
-      else:
-        subnet_unit.add_rnn_cell_layer(
-          's', lstm_inputs, n_out=self.dec_lstm_num_units, l2=self.l2, weights_init=self.lstm_weights_init)
+      subnet_unit.add_rec_layer(
+        's', lstm_inputs, n_out=self.dec_lstm_num_units, l2=self.l2, unit='NativeLSTM2',
+        rec_weight_dropout=self.rec_weight_dropout, weights_init=self.lstm_weights_init)
+
 
     # ASR softmax output layer
     subnet_unit.add_linear_layer(
