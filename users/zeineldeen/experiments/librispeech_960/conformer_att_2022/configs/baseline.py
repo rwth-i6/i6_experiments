@@ -120,6 +120,13 @@ def conformer_baseline():
     run_exp(exp_name='base_conf_12l_trafo_6l', train_args=trafo_dec_exp_args)
     run_exp(exp_name='base_conf_12l_lstm_1l', train_args=lstm_dec_exp_args)
 
+    # TODO: location awareness attention (using 1D conv)
+    for num_channels in [512, 1024]:
+        args = copy.deepcopy(lstm_dec_exp_args)
+        args['decoder_args'].loc_conv_att_filter_size = 5
+        args['decoder_args'].loc_conv_att_num_channels = num_channels
+        run_exp(exp_name=f'base_conf_12l_lstm_1l_locConv5_ch{num_channels}', train_args=lstm_dec_exp_args)
+
     args = copy.deepcopy(lstm_dec_exp_args)
     args['encoder_args'].input_layer = 'conv-6'
     run_exp(exp_name='base_conf_12l_lstm_1l_conv6', train_args=args)

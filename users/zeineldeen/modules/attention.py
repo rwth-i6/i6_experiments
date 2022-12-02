@@ -17,15 +17,17 @@ class ConvLocAwareness(AbsModule):
   def create(self):
     out_net = ReturnnNetwork()
 
+    assert self.filter_size % 2 == 1
+    padding = self.filter_size // 2
+
     pad_left = out_net.add_pad_layer(
-      'feedback_pad_left', 'prev:att_weights', axes='s:0', padding=((self.filter_size - 1) // 2, 0),
-      value=0)
+      'feedback_pad_left', 'prev:att_weights', axes='s:0', padding=(padding, 0), value=0)
 
     pad_right = out_net.add_pad_layer(
-      'feedback_pad_right', pad_left, axes='s:0', padding=(0, (self.filter_size - 1) // 2), value=0)
+      'feedback_pad_right', pad_left, axes='s:0', padding=(0, padding), value=0)
 
     loc_att_conv = out_net.add_conv_layer(
-      'loc_att_conv', pad_right, activation=None, with_bias=False, filter_size=(self.filter_size,),
+      'weight_feedback', pad_right, activation=None, with_bias=False, filter_size=(self.filter_size,),
       padding='valid', n_out=self.num_channels, l2=self.l2)
 
     self.name = out_net.add_linear_layer(
