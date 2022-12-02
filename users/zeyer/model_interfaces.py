@@ -86,6 +86,9 @@ class ModelWithCheckpoints:
     # However, this structure here is also used when wrapping old configs,
     # where we might have pretrain epochs.
     num_pretrain_epochs: int = 0
+    # Note: This object influences the hash of certain jobs, e.g. GetBestRecogTrainExp.
+    # Thus, when anything is added, we might want to define our custom _sis_hash here,
+    # following the logic of the default sis_hash_helper.
 
     @classmethod
     def from_training_job(cls, definition: ModelDef, training_job: ReturnnTrainingJob, *,

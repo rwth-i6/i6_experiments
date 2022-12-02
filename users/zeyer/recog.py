@@ -53,6 +53,7 @@ class _RecogAndScoreFunc:
                  search_post_config: Optional[Dict[str, Any]] = None,
                  search_mem_rqmt: Union[int, float] = 6,
                  ):
+        # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
         self.task = task
         self.model = model
@@ -67,6 +68,21 @@ class _RecogAndScoreFunc:
             search_post_config=self.search_post_config, search_mem_rqmt=self.search_mem_rqmt)
         tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
         return res
+
+    def _sis_hash(self) -> bytes:
+        from sisyphus.hash import sis_hash_helper
+        d = self.__dict__.copy()
+        # Remove irrelevant stuff which should not affect the hash.
+        del d["prefix_name"]
+        del d["search_post_config"]
+        del d["search_mem_rqmt"]
+        # Not the whole task object is relevant but only some minimal parts.
+        task = d.pop("task")
+        assert isinstance(task, Task)
+        for k in ["train_dataset", "train_epoch_split"]:  # for hash relevant parts
+            d[f"task.{k}"] = getattr(task, k)
+        d["class"] = "_RecogAndScoreFunc"  # some identifier; not full qualname to allow for moving the class
+        return sis_hash_helper(d)
 
 
 def recog_model(
