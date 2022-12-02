@@ -5,7 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import Dict, Any, Sequence, Collection, Iterator, Callable
+from typing import Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
@@ -29,12 +29,16 @@ def recog_training_exp(
         model: ModelWithCheckpoints,
         recog_def: RecogDef,
         *,
+        search_post_config: Optional[Dict[str, Any]] = None,
+        search_mem_rqmt: Union[int, float] = 6,
         exclude_epochs: Collection[int] = (),
 ):
     """recog on all relevant epochs"""
     summarize_job = GetBestRecogTrainExp(
         exp=model,
-        recog_and_score_func=_RecogAndScoreFunc(prefix_name, task, model, recog_def),
+        recog_and_score_func=_RecogAndScoreFunc(
+            prefix_name, task, model, recog_def,
+            search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
         exclude_epochs=exclude_epochs,
     )
@@ -44,25 +48,39 @@ def recog_training_exp(
 
 
 class _RecogAndScoreFunc:
-    def __init__(self, prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef):
+    def __init__(self,
+                 prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef, *,
+                 search_post_config: Optional[Dict[str, Any]] = None,
+                 search_mem_rqmt: Union[int, float] = 6,
+                 ):
         self.prefix_name = prefix_name
         self.task = task
         self.model = model
         self.recog_def = recog_def
+        self.search_post_config = search_post_config
+        self.search_mem_rqmt = search_mem_rqmt
 
     def __call__(self, epoch: int) -> ScoreResultCollection:
         model_with_checkpoint = self.model.get_epoch(epoch)
-        res = recog_model(self.task, model_with_checkpoint, self.recog_def)
+        res = recog_model(
+            self.task, model_with_checkpoint, self.recog_def,
+            search_post_config=self.search_post_config, search_mem_rqmt=self.search_mem_rqmt)
         tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
         return res
 
 
-def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> ScoreResultCollection:
+def recog_model(
+        task: Task, model: ModelWithCheckpoint, recog_def: RecogDef, *,
+        search_post_config: Optional[Dict[str, Any]] = None,
+        search_mem_rqmt: Union[int, float] = 6,
+) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
         recog_out = search_dataset(
             dataset=dataset, model=model, recog_def=recog_def,
+            search_post_config=search_post_config,
+            search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs)
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
@@ -70,7 +88,10 @@ def recog_model(task: Task, model: ModelWithCheckpoint, recog_def: RecogDef) -> 
 
 
 def search_dataset(
+    *,
     dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
 ) -> RecogOutput:
     """
@@ -79,12 +100,12 @@ def search_dataset(
     search_job = ReturnnSearchJobV2(
         search_data=dataset.get_main_dataset(),
         model_checkpoint=model.checkpoint,
-        returnn_config=search_config(dataset, model.definition, recog_def),
+        returnn_config=search_config(dataset, model.definition, recog_def, post_config=search_post_config),
         returnn_python_exe=tools_paths.get_returnn_python_exe(),
         returnn_root=tools_paths.get_returnn_root(),
         output_gzip=True,
         log_verbosity=5,
-        mem_rqmt=6,
+        mem_rqmt=search_mem_rqmt,
     )
     res = search_job.out_search_file
     if recog_def.output_blank_label:
@@ -107,7 +128,11 @@ SharedPostConfig = {
 }
 
 
-def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef) -> ReturnnConfig:
+def search_config(
+        dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef,
+        *,
+        post_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
     """
     config for search
     """
@@ -158,6 +183,9 @@ def search_config(dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogD
         batch_size=20000,
         max_seqs=200,
     ))
+
+    if post_config:
+        returnn_recog_config.post_config.update(post_config)
 
     for k, v in SharedPostConfig.items():
         if k in returnn_recog_config.config or k in returnn_recog_config.post_config:

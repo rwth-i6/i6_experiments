@@ -27,7 +27,7 @@ def sis_run_with_prefix(prefix_name: str):
     model = train(
         prefix_name, task=task, config=config, post_config=post_config,
         model_def=from_scratch_model_def, train_def=from_scratch_training)
-    recog_training_exp(prefix_name, task, model, recog_def=model_recog)
+    recog_training_exp(prefix_name, task, model, recog_def=model_recog, search_mem_rqmt=8)
 
 
 config = dict(
