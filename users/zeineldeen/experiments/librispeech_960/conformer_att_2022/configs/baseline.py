@@ -7,7 +7,7 @@ from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.data import \
     build_training_datasets, build_test_dataset
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.default_tools import \
-    RETURNN_EXE, RETURNN_ROOT
+    RETURNN_EXE, RETURNN_ROOT, RETURNN_CPU_EXE
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.feature_extraction_net import \
     log10_net_10ms, log10_net_10ms_long_bn
 from i6_experiments.users.zeineldeen.experiments.librispeech_960.conformer_att_2022.pipeline import \
@@ -56,9 +56,15 @@ def conformer_baseline():
             train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
         best_checkpoint = get_best_checkpoint(train_job)
 
-        search(exp_prefix + "/default_last", returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
-        search(exp_prefix + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
-        search(exp_prefix + "/average_4", returnn_search_config, averaged_checkpoint, test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)
+        default_recog_epochs = [80 * i for i in range(1, int(num_epochs / 80))]
+        for ep in default_recog_epochs:
+            search(
+                exp_prefix + f"/recogs/ep-{ep}", returnn_search_config, train_job.out_checkpoints[ep],
+                test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
+
+        search(exp_prefix + "/default_last", returnn_search_config, train_job.out_checkpoints[num_epochs], test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
+        search(exp_prefix + "/default_best", returnn_search_config, best_checkpoint, test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
+        search(exp_prefix + "/average_4", returnn_search_config, averaged_checkpoint, test_dataset_tuples, RETURNN_CPU_EXE, RETURNN_ROOT)
 
         return train_job
 
@@ -244,14 +250,3 @@ def conformer_baseline():
         args['with_pretrain'] = False
         run_exp(f'base_conf12l_trafo6l_OCLR_nopre_constLR{const_lr_ep}_Curr4', train_args=args, num_epochs=400 + const_lr_ep,
                 epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
-
-    # TODO: warmup LR
-    # 20 full epochs = 400 subepochs
-    # each subepoch is around 1700 steps
-    # args = copy.deepcopy(trafo_dec_exp_args)
-    # for peak_lr, wup_steps in [(8e-4, 6800), (8e-4, 8500), (8e-4, 10200)]:
-    #     args['warmup_lr_opts'] = {'peak_lr': peak_lr, 'warmup_steps': wup_steps}
-    #     args['with_pretrain'] = False
-    #     run_exp(f'base_conf12l_trafo6l_warmupLR_{peak_lr}-{wup_steps}_nopre_Curr4', train_args=args, num_epochs=400,
-    #             epoch_wise_filter=[(1, 5, 1000), (5, 10, 2000), (10, 20, 3000)])
-

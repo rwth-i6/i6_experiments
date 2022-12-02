@@ -145,7 +145,7 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-    tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    #tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
     return format_string_report, values_report
 
 
