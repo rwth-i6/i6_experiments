@@ -125,7 +125,7 @@ def conformer_baseline():
         args = copy.deepcopy(lstm_dec_exp_args)
         args['decoder_args'].loc_conv_att_filter_size = 5
         args['decoder_args'].loc_conv_att_num_channels = num_channels
-        run_exp(exp_name=f'base_conf_12l_lstm_1l_locConv5_ch{num_channels}', train_args=lstm_dec_exp_args)
+        run_exp(exp_name=f'base_conf_12l_lstm_1l_locConv5_ch{num_channels}', train_args=args)
 
     args = copy.deepcopy(lstm_dec_exp_args)
     args['encoder_args'].input_layer = 'conv-6'

@@ -27,7 +27,7 @@ class ConvLocAwareness(AbsModule):
       'feedback_pad_right', pad_left, axes='s:0', padding=(0, padding), value=0)
 
     loc_att_conv = out_net.add_conv_layer(
-      'weight_feedback', pad_right, activation=None, with_bias=False, filter_size=(self.filter_size,),
+      'loc_att_conv', pad_right, activation=None, with_bias=False, filter_size=(self.filter_size,),
       padding='valid', n_out=self.num_channels, l2=self.l2)
 
     self.name = out_net.add_linear_layer(
