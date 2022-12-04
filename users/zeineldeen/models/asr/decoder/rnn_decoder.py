@@ -15,7 +15,7 @@ class RNNDecoder:
                output_num_units=1024, enc_key_dim=1024, l2=None, att_dropout=None, rec_weight_dropout=None, zoneout=False,
                ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
                loc_conv_att_num_channels=None, reduceout=True, att_num_heads=1, embed_weight_init=None,
-               lstm_weights_init=None):
+               lstm_weights_init=None, lstm_lm_proj_dim=1024):
     """
     :param base_model: base/encoder model instance
     :param str source: input to decoder subnetwork
@@ -74,6 +74,7 @@ class RNNDecoder:
 
     self.add_lstm_lm = add_lstm_lm
     self.lstm_lm_dim = lstm_lm_dim
+    self.lstm_lm_proj_dim = lstm_lm_proj_dim
 
     self.loc_conv_att_filter_size = loc_conv_att_filter_size
     self.loc_conv_att_num_channels = loc_conv_att_num_channels
@@ -107,15 +108,18 @@ class RNNDecoder:
     subnet_unit.update(att.create())
 
     # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
-    lstm_lm_component = None
+    lstm_lm_component_proj = None
     if self.add_lstm_lm:
       lstm_lm_component = subnet_unit.add_rec_layer(
           'lm_like_s', 'prev:target_embed', n_out=self.lstm_lm_dim, l2=self.l2, unit='NativeLSTM2',
           rec_weight_dropout=self.rec_weight_dropout, weights_init=self.lstm_weights_init)
+      lstm_lm_component_proj = subnet_unit.add_linear_layer(
+        'lm_like_s_proj', lstm_lm_component, n_out=self.lstm_lm_proj_dim, l2=self.l2, with_bias=False,
+        dropout=self.dropout)
 
     lstm_inputs = []
-    if lstm_lm_component:
-      lstm_inputs += [lstm_lm_component]
+    if lstm_lm_component_proj:
+      lstm_inputs += [lstm_lm_component_proj]
     else:
       lstm_inputs += ['prev:target_embed']
     lstm_inputs += ['prev:att']
@@ -130,10 +134,14 @@ class RNNDecoder:
         's', lstm_inputs, n_out=self.dec_lstm_num_units, l2=self.l2, unit='NativeLSTM2',
         rec_weight_dropout=self.rec_weight_dropout, weights_init=self.lstm_weights_init)
 
+    s_name = "s"
+    if self.add_lstm_lm:
+      s_name = subnet_unit.add_linear_layer(
+        's_proj', 's', n_out=self.lstm_lm_proj_dim, with_bias=False, dropout=self.dropout, l2=self.l2)
 
     # ASR softmax output layer
     subnet_unit.add_linear_layer(
-      'readout_in', ["s", "prev:target_embed", "att"], n_out=self.dec_output_num_units, l2=self.l2)
+      'readout_in', [s_name, "prev:target_embed", "att"], n_out=self.dec_output_num_units, l2=self.l2)
 
     if self.reduceout:
       subnet_unit.add_reduceout_layer('readout', 'readout_in')

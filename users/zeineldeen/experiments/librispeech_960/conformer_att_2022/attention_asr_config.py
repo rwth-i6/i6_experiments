@@ -399,6 +399,11 @@ class RNNDecoderArgs(DecoderArgs):
     zoneout: bool = True
     reduceout: bool = True
 
+    # lstm lm
+    lstm_lm_proj_dim: int = 1024
+    lstm_lm_dim: int = 1024
+    add_lstm_lm: bool = False
+
 
 def create_config(
     training_datasets,
