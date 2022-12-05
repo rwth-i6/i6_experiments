@@ -377,11 +377,12 @@ def create_config(
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
-
     exp_config["extern_data"] = training_datasets.extern_data
-    exp_config["train"] = training_datasets.train.as_returnn_opts()
-    exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-    exp_config["eval_datasets"] = {'devtrain': training_datasets.devtrain.as_returnn_opts()}
+
+    if not is_recog:
+        exp_config["train"] = training_datasets.train.as_returnn_opts()
+        exp_config["dev"] = training_datasets.cv.as_returnn_opts()
+        exp_config["eval_datasets"] = {'devtrain': training_datasets.devtrain.as_returnn_opts()}
 
     target = 'bpe_labels'
 
@@ -515,7 +516,7 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None:
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0

@@ -5,7 +5,10 @@ from sisyphus import tk
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.training import GetBestTFCheckpointJob
+from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob, ReturnnComputeWERJob
 from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
+
+from .default_tools import RETURNN_CPU_EXE, RETURNN_ROOT
 
 
 def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
@@ -49,7 +52,7 @@ def get_best_checkpoint(training_job):
     return best_checkpoint_job.out_checkpoint
 
 
-def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:int = 4):
+def get_average_checkpoint(training_job, num_average:int = 4):
     """
     get an averaged checkpoint using n models
 
@@ -57,6 +60,7 @@ def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:
     :param num_average:
     :return:
     """
+    from i6_core.returnn.training import AverageTFCheckpointsJob
     epochs = []
     for i in range(num_average):
         best_checkpoint_job = GetBestTFCheckpointJob(
@@ -65,7 +69,7 @@ def get_average_checkpoint(training_job, returnn_exe, returnn_root, num_average:
             key="dev_score_output/output_prob",
             index=i)
         epochs.append(best_checkpoint_job.out_epoch)
-    average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs, returnn_python_exe=RETURNN_CPU_EXE, returnn_root=RETURNN_ROOT)
     return average_checkpoint_job.out_checkpoint
 
 
@@ -90,16 +94,13 @@ def search_single(
     :param Path returnn_exe:
     :param Path returnn_root:
     """
-    from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob, ReturnnComputeWERJob
-    from i6_experiments.users.rossenbach.returnn.config import get_specific_returnn_config
-
-
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
         model_checkpoint=checkpoint,
-        returnn_config=get_specific_returnn_config(returnn_config),
+        returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
+        time_rqmt=2,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root
     )

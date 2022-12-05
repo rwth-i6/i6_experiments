@@ -353,13 +353,12 @@ def search_single(
     :param Path returnn_root:
     """
     from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob, ReturnnComputeWERJob
-    from i6_experiments.users.rossenbach.returnn.config import get_specific_returnn_config
 
 
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
         model_checkpoint=checkpoint,
-        returnn_config=get_specific_returnn_config(returnn_config),
+        returnn_config=returnn_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
         returnn_python_exe=returnn_exe,

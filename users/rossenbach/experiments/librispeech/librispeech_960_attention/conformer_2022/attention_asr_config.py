@@ -499,7 +499,7 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None:
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0

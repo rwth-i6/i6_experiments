@@ -51,7 +51,7 @@ def conformer_baseline():
 
         train_job = training(ft_name, returnn_config, RETURNN_EXE, RETURNN_ROOT, num_epochs=250)
 
-        averaged_checkpoint = get_average_checkpoint(train_job, returnn_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT, num_average=4)
+        averaged_checkpoint = get_average_checkpoint(train_job, num_average=4)
         best_checkpoint = get_best_checkpoint(train_job)
 
         search(ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250], test_dataset_tuples, RETURNN_EXE, RETURNN_ROOT)

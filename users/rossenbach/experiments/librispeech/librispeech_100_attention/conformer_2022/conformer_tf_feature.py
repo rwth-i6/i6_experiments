@@ -70,6 +70,14 @@ def conformer_tf_features():
         'update_sample_only_in_training': False,
         'delay_sample_update': False
     }
+
+    conformer_enc_fixed_bn_args.batch_norm_opts = {
+        'momentum': 0.1,
+        'epsilon': 1e-3,
+        'update_sample_only_in_training': True,
+        'delay_sample_update': True
+    }
+
     transf_lm_opts = get_lm_opts()
 
     # conformer round 2
@@ -134,10 +142,6 @@ def conformer_tf_features():
         return train_job
 
     train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args, report=report)
-
-    args_longer_const = copy.deepcopy(args)
-    args_longer_const['const_lr'] = [50, 45]  # use const LR during pretraining, to half of first training stage
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_long_const", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args_longer_const, report=report)
 
     args_bn_fix = copy.deepcopy(args)
     args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args
