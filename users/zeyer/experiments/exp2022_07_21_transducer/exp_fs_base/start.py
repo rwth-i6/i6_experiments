@@ -15,6 +15,11 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
+# Finished by sis-setup-utils/cleanup-training.py.
+# Best results: {'best_scores': {'hub5e_00': 22.1, 'hub5e_01': 21.1, 'rt03s': 25.0}, 'best_epoch': 148}
+_exclude_me = True
+
+
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()

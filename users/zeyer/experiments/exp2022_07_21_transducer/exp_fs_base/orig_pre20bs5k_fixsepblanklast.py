@@ -29,6 +29,11 @@ raw_config_filename = f"{__my_dir__}/_{name}_config.py"
 config_code_dir = os.path.dirname(os.path.abspath(config_code.__file__))
 
 
+# Finished by sis-setup-utils/cleanup-training.py.
+# Best results: {'best_scores': {'hub5e_00': 18.7, 'hub5e_01': 17.5, 'rt03s': 20.8}, 'best_epoch': 150}
+_exclude_me = True
+
+
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
     task = get_switchboard_task_bpe1k()

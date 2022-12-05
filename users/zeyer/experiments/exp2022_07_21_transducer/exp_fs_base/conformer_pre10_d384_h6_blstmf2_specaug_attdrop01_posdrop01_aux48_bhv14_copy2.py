@@ -16,7 +16,9 @@ from i6_experiments.users.zeyer.recog import recog_training_exp
 from ..train import train
 
 
-_exclude_me = False
+# Finished by sis-setup-utils/cleanup-training.py.
+# Best results: {'best_scores': {'hub5e_00': 20.4, 'hub5e_01': 16.0, 'rt03s': 20.1}, 'best_epoch': 148}
+_exclude_me = True
 
 
 def sis_run_with_prefix(prefix_name: str):
