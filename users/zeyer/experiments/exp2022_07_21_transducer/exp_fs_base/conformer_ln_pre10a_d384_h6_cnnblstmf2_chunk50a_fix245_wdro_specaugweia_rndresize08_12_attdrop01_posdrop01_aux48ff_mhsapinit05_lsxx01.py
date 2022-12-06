@@ -161,10 +161,13 @@ class Model(nn.Module):
                ) -> Tuple[Dict[str, nn.Tensor], nn.Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         if self.training:
-            with nn.Cond(nn.train_flag()) as cond:
-                cond.true = nn.random_uniform((), minval=0.8, maxval=1.2)
-                cond.false = nn.constant(1.0)
-            rnd_scale = cond.result
+            rnd_scale = nn.where(
+                nn.train_flag(),
+                nn.random_uniform(
+                    (), minval=0.8, maxval=nn.where(
+                        nn.dim_value(in_spatial_dim) <= 250,
+                        1.2, 1.0)),
+                nn.constant(1.0))
             source, in_spatial_dim = nn.resize(source, axis=in_spatial_dim, factor=rnd_scale, kind="linear")
             source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
         enc, enc_spatial_dim = self.frontend(source, in_spatial_dim=in_spatial_dim)
