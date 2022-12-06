@@ -86,9 +86,7 @@ def get_init_args():
     )
 
 
-def get_monophone_args(
-        feature_flow: str = "mfcc+deriv+norm"
-) -> util.GmmMonophoneArgs:
+def get_monophone_args(feature_flow: str = "mfcc+deriv+norm") -> util.GmmMonophoneArgs:
 
     linear_alignment_args = {
         "minimum_segment_length": 0,
@@ -200,9 +198,7 @@ def get_cart_args(
     )
 
 
-def get_triphone_args(
-    feature_flow: str = "mfcc+context+lda"
-) -> util.GmmTriphoneArgs:
+def get_triphone_args(feature_flow: str = "mfcc+context+lda") -> util.GmmTriphoneArgs:
     """
     :param feature_flow:
     """
@@ -257,9 +253,7 @@ def get_triphone_args(
     )
 
 
-def get_vtln_args(
-    feature_flow: str = "mfcc+context+lda"
-) -> util.GmmVtlnArgs:
+def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
     """
     :param feature_flow:
     """
@@ -328,13 +322,11 @@ def get_vtln_args(
     )
 
 
-def get_sat_args(
-        feature_flow: str = "mfcc+context+lda"
-) -> util.GmmSatArgs:
+def get_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmSatArgs:
     """
     :param feature_flow:
     """
-    base_flow = feature_flow.split('+')[0]
+    base_flow = feature_flow.split("+")[0]
     sat_training_args = {
         "name": "sat",
         "mixtures": "estimate_mixtures_sdm.tri",
@@ -398,9 +390,7 @@ def get_sat_args(
     )
 
 
-def get_vtln_sat_args(
-    feature_flow: str = "mfcc+context+lda"
-) -> util.GmmVtlnSatArgs:
+def get_vtln_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnSatArgs:
     """
     :param feature_flow:
     """

@@ -41,7 +41,6 @@ def run_librispeech_960_common_baseline(
 
     # **************** GMM step definitions *****************
 
-
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     steps.add_step("mono", mono_args)
