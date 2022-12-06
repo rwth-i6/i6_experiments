@@ -22,6 +22,7 @@ from .feature_extraction_net import (
 )
 
 
+
 class LocalReport:
   def __init__(self, header):
     self.format_str = header
@@ -34,14 +35,18 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
   )
+  returnn_cpu_exe = tk.Path(
+    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+  )
   returnn_root_datasets = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn",
     commit="c2b31983bfc1049c7ce1549d7ffed153c9d4a443",
   ).out_repository
-  name = "experiments/librispeech/nar_tts_2022/conformer_training/synthetic/"
+  pref_name = "experiments/librispeech/nar_tts_2022/conformer_training/synthetic/"
   for synth_name, synthethic_corpus in synthethic_corpus_dict.items():
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
-    prefix_name = name + synth_name + "/"
+    prefix_name = pref_name + synth_name + "/"
     training_datasets_speedperturbed = build_training_datasets(
       returnn_exe,
       returnn_root_datasets,
@@ -77,19 +82,6 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
         use_raw_features=True,
       )
 
-    conformer_enc_args = ConformerEncoderArgs(
-      num_blocks=12,
-      input_layer="lstm-6",
-      att_num_heads=8,
-      ff_dim=2048,
-      enc_key_dim=512,
-      conv_kernel_size=32,
-      pos_enc="rel",
-      dropout=0.1,
-      att_dropout=0.1,
-      l2=0.0001,
-    )
-
     conformer_enc_fixed_bn_args = ConformerEncoderArgs(
       num_blocks=12,
       input_layer="lstm-6",
@@ -102,9 +94,6 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
       att_dropout=0.1,
       l2=0.0001,
     )
-
-    apply_fairseq_init_to_conformer_encoder(conformer_enc_args)
-    conformer_enc_args.ctc_loss_scale = 1.0
 
     apply_fairseq_init_to_conformer_encoder(conformer_enc_fixed_bn_args)
     conformer_enc_fixed_bn_args.ctc_loss_scale = 1.0
@@ -119,14 +108,6 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
     training_args["with_staged_network"] = True
     training_args["speed_pert"] = True
 
-    # overwrite BN params
-    conformer_enc_args.batch_norm_opts = {
-      "momentum": 0.1,
-      "epsilon": 1e-3,
-      "update_sample_only_in_training": False,
-      "delay_sample_update": False,
-    }
-
     conformer_enc_fixed_bn_args.batch_norm_opts = {
       "momentum": 0.1,
       "epsilon": 1e-3,
@@ -136,19 +117,18 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
 
     transf_lm_opts = get_lm_opts()
 
-    # conformer round 2 TODO: This part aswell?
-    name = "tf_feature_conformer_12l_lstm_1l_normal_v2"
-    local_conformer_enc_args = copy.deepcopy(conformer_enc_args)
+    # conformer round 2
+    name = "tf_feature_conformer_12l_lstm_1l_normal_v2/"
     local_training_args = copy.deepcopy(training_args)
 
     # pretraining
-    local_training_args["pretrain_opts"] = {"variant": 3, "initial_batch_size": 18000 * 200}
+    local_training_args["pretrain_opts"] = {"variant": 3, "initial_batch_size": 22500 * 160}
     local_training_args["pretrain_reps"] = 5
-    local_training_args["batch_size"] = 12000 * 200  # frames * samples per frame
+    local_training_args["batch_size"] = 15000 * 160  # frames * samples per frame
 
-    exp_prefix = prefix_name + "/" + name
+    exp_prefix = prefix_name + name
     args = copy.deepcopy(
-      {**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args}
+      {**local_training_args, "encoder_args": conformer_enc_fixed_bn_args, "decoder_args": rnn_dec_args}
     )
     args["name"] = name
     returnn_root = CloneGitRepositoryJob(
@@ -171,7 +151,7 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
       )
       train_job = training(ft_name, returnn_config, returnn_exe, returnn_root, num_epochs=250)
       # average = get_average_checkpoint(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
-      average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+      average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_cpu_exe, returnn_root=returnn_root, num_average=4)
       from i6_core.returnn.training import GetBestTFCheckpointJob
 
       best_checkpoint_job = GetBestTFCheckpointJob(
@@ -224,28 +204,9 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
                               returnn_root)"""
       return train_job
 
-    train_job_base = run_exp_v2(
-      exp_prefix + "/" + "raw_log10",
-      log10_net_10ms,
-      datasets=training_datasets_speedperturbed,
-      train_args=args,
-      report=report,
-    )
-
-    args_longer_const = copy.deepcopy(args)
-    args_longer_const["const_lr"] = [50, 45]  # use const LR during pretraining, to half of first training stage
-    train_job = run_exp_v2(
-      exp_prefix + "/" + "raw_log10_long_const",
-      log10_net_10ms,
-      datasets=training_datasets_speedperturbed,
-      train_args=args_longer_const,
-      report=report,
-    )
-
     args_bn_fix = copy.deepcopy(args)
-    args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args
     train_job_bn = run_exp_v2(
-      exp_prefix + "/" + "raw_log10_bn_fix",
+      exp_prefix + "raw_log10_bn_fix",
       log10_net_10ms,
       datasets=training_datasets_speedperturbed,
       train_args=args_bn_fix,
@@ -253,20 +214,9 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
     )
 
     args_retrain = copy.deepcopy(args)
-    args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    train_job = run_exp_v2(
-      exp_prefix + "/" + "raw_log10_retrain",
-      log10_net_10ms,
-      datasets=training_datasets_speedperturbed_retrain,
-      train_args=args_retrain,
-      report=report,
-    )
-
-    args_retrain = copy.deepcopy(args)
     args_retrain["retrain_checkpoint"] = train_job_bn.out_checkpoints[250]
-    args_retrain["encoder_args"] = conformer_enc_fixed_bn_args
     train_job = run_exp_v2(
-      exp_prefix + "/" + "raw_log10_retrain",
+      exp_prefix + "raw_log10_retrain",
       log10_net_10ms,
       datasets=training_datasets_speedperturbed_retrain,
       train_args=args_retrain,

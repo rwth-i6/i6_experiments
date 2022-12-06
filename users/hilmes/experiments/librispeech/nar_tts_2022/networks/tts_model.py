@@ -143,16 +143,16 @@ class LConvBlock(nn.Module):
             self.lin_dim = linear_size
             self.groups = linear_size.dimension
 
-        self.glu = nn.Linear(self.lin_dim, self.lin_dim * 2)
-        self.linear_up = nn.Linear(self.lin_dim, self.lin_dim * 4)
-        self.linear_down = nn.Linear(self.lin_dim * 4, self.lin_dim)
+        self.glu = nn.Linear(in_dim=self.lin_dim, out_dim=self.lin_dim * 2)
+        self.linear_up = nn.Linear(in_dim=self.lin_dim, out_dim=self.lin_dim * 4)
+        self.linear_down = nn.Linear(in_dim=self.lin_dim * 4, out_dim=self.lin_dim)
         self.conv = nn.Conv1d(
             out_dim=self.lin_dim,
             filter_size=filter_size,
             groups=self.groups,
             with_bias=False,
             padding="same",
-            in_dim=self.lin_dim * 2,
+            in_dim=self.lin_dim,
         )
 
     def __call__(self, spectrogramm: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
@@ -363,7 +363,7 @@ class VariancePredictor(nn.Module):
             in_dim=self.conv_1.out_dim,
         )
         self.norm_2 = nn.LayerNorm(self.conv_2.out_dim)
-        self.linear = nn.Linear(self.conv_2.out_dim, nn.FeatureDim("pitch_pred", 1))
+        self.linear = nn.Linear(in_dim=self.conv_2.out_dim, out_dim=nn.FeatureDim("pitch_pred", 1))
 
     def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim) -> nn.Tensor:
         x, _ = self.conv_1(inp, in_spatial_dim=time_dim)
@@ -406,14 +406,14 @@ class VariationalAutoEncoder(nn.Module):
             )
         self.latent_dim = nn.FeatureDim("VAE_lat_dim", latent_size)
         self.lin_mu = nn.Linear(
-            linear_size if isinstance(linear_size, nn.Dim) else nn.FeatureDim("vae_linear_dim", linear_size),
-            self.latent_dim,
+            in_dim=linear_size if isinstance(linear_size, nn.Dim) else nn.FeatureDim("vae_linear_dim", linear_size),
+            out_dim=self.latent_dim,
         )
         self.lin_log_var = nn.Linear(
-            linear_size if isinstance(linear_size, nn.Dim) else nn.FeatureDim("vae_linear_dim", linear_size),
-            self.latent_dim,
+            in_dim=linear_size if isinstance(linear_size, nn.Dim) else nn.FeatureDim("vae_linear_dim", linear_size),
+            out_dim=self.latent_dim,
         )
-        self.lin_out = nn.Linear(self.latent_dim, nn.FeatureDim("VAE_out_dim", out_size))
+        self.lin_out = nn.Linear(in_dim=self.latent_dim, out_dim=nn.FeatureDim("VAE_out_dim", out_size))
 
     def __call__(self, spectrogramm: nn.Tensor, spectrogramm_time: nn.SpatialDim) -> [nn.Tensor, nn.Tensor, nn.Tensor]:
         x = self.lconv_stack(spectrogramm, time_dim=spectrogramm_time)
@@ -442,6 +442,7 @@ class NARTTSModel(nn.Module):
         phoneme_in_dim: nn.Dim,
         speaker_in_dim: nn.Dim,
         audio_in_dim: nn.Dim,
+        speaker_prior_dim: Optional[nn.Dim] = None,
         embedding_size: int = 256,
         speaker_embedding_size: int = 256,
         enc_lstm_size: int = 256,
@@ -537,14 +538,6 @@ class NARTTSModel(nn.Module):
         )
         self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.conv_stack.out_dims[-1])
         self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.conv_stack.out_dims[-1])
-        self.decoder = Decoder(
-            dec_lstm_size_1=dec_lstm_size,
-            dec_lstm_size_2=dec_lstm_size,
-            dropout=dropout,
-            in_dim=2 * self.enc_lstm_dim + self.speaker_embedding_dim
-            if not self.skip_speaker_embeddings
-            else 2 * self.enc_lstm_dim,
-        )
         if self.gauss_up:
             # only import here to reduce serializer imports and not import for every model that doesn't use it
             from i6_experiments.users.hilmes.modules.gaussian_upsampling import (
@@ -557,18 +550,12 @@ class NARTTSModel(nn.Module):
         else:
             self.variance_net = None
             self.upsamling = None
-        self.duration = DurationPredictor(
-            dropout=(dropout, dropout),
-            conv_sizes=hidden_dim,
-            in_dim=2 * self.enc_lstm_dim + self.speaker_embedding_dim
-            if not self.skip_speaker_embeddings
-            else 2 * self.enc_lstm_dim,
-        )
+
         self.use_vae = use_vae
         self.kl_scale = kl_beta
-        if self.use_vae:
+        if self.use_vae and self.audio_in_dim is not None:
             vae_lin_dim = nn.FeatureDim("vae_embedding", hidden_dim * 2)
-            self.vae_embedding = nn.Linear(self.audio_in_dim, vae_lin_dim)
+            self.vae_embedding = nn.Linear(in_dim=self.audio_in_dim, out_dim=vae_lin_dim)
             if self.test_vae:
                 self.test_lconv_stack = nn.Sequential(
                     [LConvBlock(linear_size=vae_lin_dim, filter_size=17) for _ in range(3)]
@@ -591,6 +578,29 @@ class NARTTSModel(nn.Module):
                 self.vae = VariationalAutoEncoder(linear_size=vae_lin_dim, dropout=dropout)
         else:
             self.vae = None
+        decoder_dim = 2*self.enc_lstm_dim
+        if not self.skip_speaker_embeddings:
+            decoder_dim += self.speaker_embedding_dim
+        if self.use_vae:
+            decoder_dim += self.vae.lin_out.out_dim if self.vae is not None else speaker_prior_dim
+        self.decoder = Decoder(
+            dec_lstm_size_1=dec_lstm_size,
+            dec_lstm_size_2=dec_lstm_size,
+            dropout=dropout,
+            in_dim=decoder_dim,
+        )
+        duration_in = 2 * self.enc_lstm_dim
+        if not self.skip_speaker_embeddings:
+            duration_in += self.speaker_embedding_dim
+        if self.use_vae:
+            duration_in += self.vae.lin_out.out_dim if self.vae is not None else speaker_prior_dim
+        self.duration = DurationPredictor(
+            dropout=(dropout, dropout),
+            conv_sizes=hidden_dim,
+            in_dim=2 * self.enc_lstm_dim + self.speaker_embedding_dim
+            if not self.skip_speaker_embeddings
+            else 2 * self.enc_lstm_dim,
+        )
         if self.use_pitch_pred:
             self.pitch_pred = VariancePredictor(
                 2 * self.enc_lstm_dim + self.speaker_embedding_dim
@@ -609,7 +619,7 @@ class NARTTSModel(nn.Module):
             self.pitch_emb = None
         if self.use_energy_pred:
             self.energy_pred = VariancePredictor(in_dim=2 * self.enc_lstm_dim)
-            self.energy_emb = nn.Linear(nn.FeatureDim("pred_dim", 1), 2 * self.enc_lstm_dim)
+            self.energy_emb = nn.Linear(in_dim=nn.FeatureDim("pred_dim", 1), out_dim=2 * self.enc_lstm_dim)
         else:
             self.energy_pred = None
             self.energy_emb = None
@@ -866,9 +876,10 @@ def construct_network(
     **kwargs
 ):
     net = net_module(
-        phoneme_in_dim=phoneme_data.feature_dim_or_sparse_dim,
-        speaker_in_dim=label_data.feature_dim_or_sparse_dim,
-        audio_in_dim=audio_data.feature_dim_or_sparse_dim,
+        phoneme_in_dim=None if phoneme_data is None else phoneme_data.feature_dim_or_sparse_dim,
+        speaker_in_dim=None if label_data is None else label_data.feature_dim_or_sparse_dim,
+        audio_in_dim=None if audio_data is None else audio_data.feature_dim_or_sparse_dim,
+        speaker_prior_dim=None if speaker_prior is None else speaker_prior.feature_dim_or_sparse_dim,
         **kwargs
     )
 

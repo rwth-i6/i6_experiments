@@ -552,6 +552,8 @@ def build_speaker_embedding_dataset(
   prefix,
   train_job,
   epoch=200,
+  speaker_embedding_size=256,
+  **kwargs,
 ):
   """
 
@@ -565,13 +567,14 @@ def build_speaker_embedding_dataset(
     """
 
   extraction_config = get_speaker_extraction_config(
-    speaker_embedding_size=256,
+    speaker_embedding_size=speaker_embedding_size,
     training=True,
     returnn_common_root=returnn_common_root,
     forward_dataset=TTSForwardData(
       dataset=datasets.cv,
       datastreams=datasets.datastreams,  # cv is fine here cause we assume all speakers in cv
     ),
+    **kwargs
   )
   extraction_job = tts_forward(
     checkpoint=train_job.out_checkpoints[epoch],
@@ -594,6 +597,7 @@ def build_vae_speaker_prior_dataset(
   train_job,
   corpus,
   epoch=200,
+  speaker_embedding_size=256,
   **forward_kwargs,
 ):
   """
@@ -608,7 +612,7 @@ def build_vae_speaker_prior_dataset(
     :return:
     """
   vae_extraction_config = get_vae_prior_config(
-    speaker_embedding_size=256,
+    speaker_embedding_size=speaker_embedding_size,
     training=True,
     returnn_common_root=returnn_common_root,
     forward_dataset=TTSForwardData(dataset=dataset, datastreams=datastreams),
@@ -718,3 +722,24 @@ def calculate_feature_variance(
   tk.register_output(f"reports/{prefix}", report.out_status)
   cleanup = MultiJobCleanup([forward_job], report.out_status, output_only=True)
   tk.register_output(prefix + "/cleanup/cleanup.log", cleanup.out)
+
+def get_average_checkpoint_v2(training_job, returnn_exe, returnn_root, num_average: int = 4):
+  """
+  get an averaged checkpoint using n models
+
+  :param training_job:
+  :param num_average:
+  :return:
+  """
+  from i6_core.returnn.training import GetBestTFCheckpointJob, AverageTFCheckpointsJob
+  epochs = []
+  for i in range(num_average):
+    best_checkpoint_job = GetBestTFCheckpointJob(
+      training_job.out_model_dir,
+      training_job.out_learning_rates,
+      key="dev_score_nartts_model_mean_absolute_difference_reduce",
+      index=i)
+    epochs.append(best_checkpoint_job.out_epoch)
+  average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs,
+    returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+  return average_checkpoint_job.out_checkpoint

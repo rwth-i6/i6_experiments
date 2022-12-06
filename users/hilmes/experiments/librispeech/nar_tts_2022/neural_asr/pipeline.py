@@ -327,8 +327,7 @@ def get_average_checkpoint_v2(training_job, returnn_exe, returnn_root, num_avera
     :param num_average:
     :return:
     """
-    from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
-    from i6_core.returnn.training import GetBestTFCheckpointJob
+    from i6_core.returnn.training import GetBestTFCheckpointJob, AverageTFCheckpointsJob
     epochs = []
     for i in range(num_average):
         best_checkpoint_job = GetBestTFCheckpointJob(
@@ -337,7 +336,7 @@ def get_average_checkpoint_v2(training_job, returnn_exe, returnn_root, num_avera
             key="dev_score_output/output_prob",
             index=i)
         epochs.append(best_checkpoint_job.out_epoch)
-    average_checkpoint_job = AverageCheckpointsJobV2(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
+    average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs, returnn_python_exe=returnn_exe, returnn_root=returnn_root)
     return average_checkpoint_job.out_checkpoint
 
 
@@ -402,15 +401,15 @@ def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn
         wers[key] = search_single(prefix_name + "/%s" % key, returnn_config, checkpoint, test_dataset, test_dataset_reference, returnn_exe, returnn_root)
 
     from i6_core.report import GenerateReportStringJob, MailJob
-    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
-    format_string = " - ".join(["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()])
+    format_string_report = ",".join(["{%s_val}" % (prefix_name + "/" + key) for key in test_dataset_tuples.keys()])
+    format_string = "\n".join(["{%s}: {%s_val}" % (prefix_name + "/" + key, prefix_name + "/" + key) for key in test_dataset_tuples.keys()])
+    format_string += "\nExcel: " + ",".join(["{%s_val}" % (prefix_name + "/" + key) for key in test_dataset_tuples.keys()])
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
-        values[prefix_name + key] = key
-        values["%s_val" % (prefix_name + key)] = wers[key]
-        values_report["%s_val" % (prefix_name + key)] = wers[key]
-
+        values[prefix_name + "/" + key] = key
+        values["%s_val" % (prefix_name + "/" + key)] = wers[key]
+        values_report["%s_val" % (prefix_name + "/" + key)] = wers[key]
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
     tk.register_output(os.path.join(prefix_name, "mail_status"), mail)

@@ -373,11 +373,19 @@ def ctc_baseline():
       prefix=exp_name,
       num_epochs=200,
     )
+    returnn_common_root_local = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn_common",
+      commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+      checkout_folder_name="returnn_common",
+    ).out_repository
+    returnn_root_local = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+    ).out_repository
     vae_swer_dataset = deepcopy(training_datasets.cv)
     vae_swer_datastreams = deepcopy(training_datasets.datastreams)
     vae_swer_datastreams["audio_features"].available_for_inference = True
     forward_config = get_forward_config(
-      returnn_common_root=returnn_common_root,
+      returnn_common_root=returnn_common_root_local,
       forward_dataset=TTSForwardData(dataset=vae_swer_dataset, datastreams=vae_swer_datastreams),
       embedding_size=512,
       speaker_embedding_size=512,
@@ -395,7 +403,7 @@ def ctc_baseline():
     gl_swer(
       name=exp_name + "/gl_swer",
       vocoder=default_vocoder,
-      returnn_root=returnn_root,
+      returnn_root=returnn_root_local,
       returnn_exe=returnn_exe,
       checkpoint=train_job.out_checkpoints[200],
       config=forward_config,
@@ -404,33 +412,45 @@ def ctc_baseline():
       speaker_embedding_hdf = None
     else:
       speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
+        returnn_common_root=returnn_common_root_local,
         returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         datasets=training_datasets,
         prefix=exp_name,
         train_job=train_job,
+        speaker_embedding_size=512
       )
     vae_dataset_fw = deepcopy(training_datasets.cv)
     vae_dataset_fw.datasets["audio"]["segment_file"] = None
     vae_datastreams_fw = deepcopy(training_datasets.datastreams)
     vae_datastreams_fw["audio_features"].available_for_inference = True
     speaker_prior_hdf = build_vae_speaker_prior_dataset(
-      returnn_common_root=returnn_common_root,
+      returnn_common_root=returnn_common_root_local,
       returnn_exe=returnn_exe,
-      returnn_root=returnn_root,
+      returnn_root=returnn_root_local,
       dataset=vae_dataset_fw,
       datastreams=vae_datastreams_fw,
       prefix=exp_name,
       train_job=train_job,
       corpus=reference_corpus.corpus_file,
+      embedding_size=512,
+      speaker_embedding_size=512,
+      calc_speaker_embedding=True,
+      use_vae=True,
+      use_audio_data=True,
+      scale_kl_loss=True,
       skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=512,
+      dec_lstm_size=2048,
+      hidden_dim=512,
+      variance_dim=1024,
+      gauss_up=True,
     )
     for synth_method in ["pred"]:
       synth_kwargs = {"use_vae": True, "use_calculated_prior": True, "skip_speaker_embeddings": ("speaker_emb" in mode)}
       synth_dataset = get_inference_dataset(
         corpus,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         returnn_exe=returnn_exe,
         datastreams=training_datasets.datastreams,
         speaker_embedding_hdf=speaker_embedding_hdf,
@@ -445,9 +465,9 @@ def ctc_baseline():
         corpus_name="train-clean-100",
         job_splits=job_splits,
         datasets=synth_dataset,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
+        returnn_common_root=returnn_common_root_local,
         checkpoint=train_job.out_checkpoints[200],
         vocoder=default_vocoder,
         embedding_size=512,
@@ -489,11 +509,19 @@ def ctc_baseline():
       prefix=exp_name,
       num_epochs=200,
     )
+    returnn_common_root_local = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn_common",
+      commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+      checkout_folder_name="returnn_common",
+    ).out_repository
+    returnn_root_local = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+    ).out_repository
     vae_swer_dataset = deepcopy(training_datasets.cv)
     vae_swer_datastreams = deepcopy(training_datasets.datastreams)
     vae_swer_datastreams["audio_features"].available_for_inference = True
     forward_config = get_forward_config(
-      returnn_common_root=returnn_common_root,
+      returnn_common_root=returnn_common_root_local,
       forward_dataset=TTSForwardData(dataset=vae_swer_dataset, datastreams=vae_swer_datastreams),
       embedding_size=384,
       speaker_embedding_size=384,
@@ -511,7 +539,7 @@ def ctc_baseline():
     gl_swer(
       name=exp_name + "/gl_swer",
       vocoder=default_vocoder,
-      returnn_root=returnn_root,
+      returnn_root=returnn_root_local,
       returnn_exe=returnn_exe,
       checkpoint=train_job.out_checkpoints[200],
       config=forward_config,
@@ -520,33 +548,44 @@ def ctc_baseline():
       speaker_embedding_hdf = None
     else:
       speaker_embedding_hdf = build_speaker_embedding_dataset(
-        returnn_common_root=returnn_common_root,
+        returnn_common_root=returnn_common_root_local,
         returnn_exe=returnn_exe,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         datasets=training_datasets,
         prefix=exp_name,
         train_job=train_job,
+        speaker_embedding_size=384
       )
     vae_dataset_fw = deepcopy(training_datasets.cv)
     vae_dataset_fw.datasets["audio"]["segment_file"] = None
     vae_datastreams_fw = deepcopy(training_datasets.datastreams)
     vae_datastreams_fw["audio_features"].available_for_inference = True
     speaker_prior_hdf = build_vae_speaker_prior_dataset(
-      returnn_common_root=returnn_common_root,
+      returnn_common_root=returnn_common_root_local,
       returnn_exe=returnn_exe,
-      returnn_root=returnn_root,
+      returnn_root=returnn_root_local,
       dataset=vae_dataset_fw,
       datastreams=vae_datastreams_fw,
       prefix=exp_name,
       train_job=train_job,
       corpus=reference_corpus.corpus_file,
       skip_speaker_embeddings=("speaker_emb" in mode),
+      enc_lstm_size=384,
+      dec_lstm_size=1536,
+      hidden_dim=384,
+      variance_dim=768,
+      gauss_up=True,
+      embedding_size=384,
+      speaker_embedding_size=384,
+      calc_speaker_embedding=True,
+      use_vae=True,
+      scale_kl_loss=True,
     )
     for synth_method in ["pred"]:
       synth_kwargs = {"use_vae": True, "use_calculated_prior": True, "skip_speaker_embeddings": ("speaker_emb" in mode)}
       synth_dataset = get_inference_dataset(
         corpus,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         returnn_exe=returnn_exe,
         datastreams=training_datasets.datastreams,
         speaker_embedding_hdf=speaker_embedding_hdf,
@@ -561,9 +600,9 @@ def ctc_baseline():
         corpus_name="train-clean-100",
         job_splits=job_splits,
         datasets=synth_dataset,
-        returnn_root=returnn_root,
+        returnn_root=returnn_root_local,
         returnn_exe=returnn_exe,
-        returnn_common_root=returnn_common_root,
+        returnn_common_root=returnn_common_root_local,
         checkpoint=train_job.out_checkpoints[200],
         vocoder=default_vocoder,
         embedding_size=384,
