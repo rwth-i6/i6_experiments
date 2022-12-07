@@ -37,7 +37,7 @@ def get_init_args() -> util.RasrInitArgs:
             0.0,
             3.0,
             "infinity",
-            6.0,
+            21.0,
         ),  # only used when tying_type = global-and-nonword
     }
 
@@ -150,6 +150,7 @@ def get_cart_args(
     max_leaves: int = 12001,
     min_obs: int = 1000,
     hmm_states: int = 3,
+    n_phones: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
 ) -> util.GmmCartArgs:
@@ -159,6 +160,7 @@ def get_cart_args(
     :param max_leaves: total number of final CART states
     :param min_obs: minimum observation count needed for a label
     :param hmm_states: number of states per label for the HMM-topology
+    :param n_phones: phoneme context per label, use 3 for triphone and 2 for diphone context
     :param feature_flow:
     :param add_unknown: set to true if an unknown phoneme exists
     """
@@ -171,6 +173,7 @@ def get_cart_args(
         max_leaves=max_leaves,
         min_obs=min_obs,
         add_unknown=add_unknown,
+        n_phones=n_phones,
     )
 
     cart_questions = cart.PythonCartQuestions(
