@@ -259,7 +259,7 @@ def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
     """
     vtln_training_args = {
         "feature_flow": {
-            "name": f"uncached_ {feature_flow}",
+            "name": f"uncached_{feature_flow}",
             "lda_matrix_key": "cart_mono",
             "base_flow_key": f"uncached_{feature_flow.split('+')[0]}",  # e.g. "uncached_mfcc"
             "context_size": 9,
