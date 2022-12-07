@@ -15,7 +15,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 
-def get_init_args():
+def get_init_args() -> util.RasrInitArgs:
     dc_detection = False
     samples_options = {
         "audio_format": "wav",
