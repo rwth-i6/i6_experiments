@@ -51,7 +51,10 @@ def get_init_args():
                 "warping_function": "mel",
                 # to be compatible with our old magic number, we have to use 20 features
                 "filter_width": filter_width_from_channels(
-                    channels=20, warping_function="mel", f_max=8000
+                    channels=20,
+                    warping_function="mel",
+                    f_max=8000,
+                    f_min=0,
                 ),
                 "normalize": True,
                 "normalization_options": None,
