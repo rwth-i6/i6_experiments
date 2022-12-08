@@ -9,6 +9,7 @@ import numpy
 from returnn_common import nn
 from returnn_common.nn.encoder.blstm_cnn import BlstmCnnEncoder
 from returnn_common.asr.specaugment import random_mask_v2
+from returnn_common.nn.utils.augmentation import random_frame_drop
 
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
@@ -546,12 +547,3 @@ def specaugment_wei(
         cond.true = x_masked
         cond.false = x
     return cond.result
-
-
-def random_frame_drop(source: nn.Tensor, in_spatial_dim: nn.Dim, drop_prob: float) -> Tuple[nn.Tensor, nn.Dim]:
-    """
-    Randomly drop some frames.
-    """
-    mask_shape = in_spatial_dim.dyn_size_ext.dim_tags + (in_spatial_dim,)
-    mask = nn.random_uniform(mask_shape, minval=0.0, maxval=1.0) < drop_prob
-    return nn.boolean_mask(source, mask=mask, in_spatial_dim=in_spatial_dim)
