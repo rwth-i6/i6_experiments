@@ -351,6 +351,7 @@ class TransformerDecoderArgs(DecoderArgs):
     num_layers: int = 6
     att_num_heads: int = 8
     ff_dim: int = 2048
+    ff_act: str = 'relu'
     pos_enc: Optional[str] = None
     embed_pos_enc: bool = False
 
@@ -389,7 +390,8 @@ class RNNDecoderArgs(DecoderArgs):
     embed_weight_init: Optional[str] = None
 
     # dropout
-    dropout: float = 0.3
+    dropout: float = 0.0
+    softmax_dropout: float = 0.3
     att_dropout: float = 0.0
     embed_dropout: float = 0.1
     rec_weight_dropout: float = 0.0
@@ -446,6 +448,7 @@ def create_config(
     feature_extraction_net=None,
     config_override=None,
     feature_extraction_net_global_norm=False,
+    freeze_bn=False,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -489,18 +492,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts:
+    if noam_opts and retrain_checkpoint is None:
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts:
+    elif warmup_lr_opts and retrain_checkpoint is None:
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts:
+    elif oclr_opts and retrain_checkpoint is None:
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
@@ -511,6 +514,8 @@ def create_config(
             **oclr_opts, initial_lr=oclr_initial_lr
         )
     else:  # newbob
+        if const_lr is None:
+            const_lr = 0
         if retrain_checkpoint is not None:
             learning_rates = None
         elif isinstance(const_lr, int):
@@ -555,6 +560,10 @@ def create_config(
         encoder_args.update({"target": target, "input": "log_mel_features"})
     else:
         encoder_args.update({"target": target, "input": "data:" + input_key})
+
+    if freeze_bn:
+        # freeze BN during training (e.g when retraining.)
+        encoder_args['batch_norm_opts'] = {'momentum': 0.0, 'use_sample': 1.0}
 
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()

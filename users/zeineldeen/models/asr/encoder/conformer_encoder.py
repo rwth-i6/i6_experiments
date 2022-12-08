@@ -90,12 +90,17 @@ class ConformerEncoder:
     if batch_norm_opts is None:
       batch_norm_opts = {}
 
+    bn_momentum = batch_norm_opts.pop('momentum', 0.1)
+    bn_eps = batch_norm_opts.pop('epsilon', 1e-3)
+    bn_update_sample_only_in_train = batch_norm_opts.pop('update_sample_only_in_training', True)
+    bn_delay_sample_update = batch_norm_opts.pop('delay_sample_update', True)
     self.batch_norm_opts = {
-      'momentum': batch_norm_opts.get('momentum', 0.1),
-      'epsilon': batch_norm_opts.get('epsilon', 1e-3),
-      'update_sample_only_in_training': batch_norm_opts.get('update_sample_only_in_training', True),
-      'delay_sample_update': batch_norm_opts.get('delay_sample_update', True),
+      'momentum': bn_momentum,
+      'epsilon': bn_eps,
+      'update_sample_only_in_training': bn_update_sample_only_in_train,
+      'delay_sample_update': bn_delay_sample_update,
     }
+    self.batch_norm_opts.update(**batch_norm_opts)
 
     self.with_ctc = with_ctc
     self.native_ctc = native_ctc
@@ -135,7 +140,7 @@ class ConformerEncoder:
     self.no_mhsa_module = no_mhsa_module
     self.proj_input = proj_input
 
-    self.use_sqrt_relu = use_sqrd_relu
+    self.use_sqrd_relu = use_sqrd_relu
 
   def _create_ff_module(self, prefix_name, i, source, layer_index):
     """
@@ -157,7 +162,7 @@ class ConformerEncoder:
       '{}_ff1'.format(prefix_name), ln, n_out=self.ff_dim, l2=self.l2, forward_weights_init=self.ff_init,
       with_bias=self.ff_bias)
 
-    if self.use_sqrt_relu:
+    if self.use_sqrd_relu:
       swish_act = self.network.add_activation_layer('{}_relu'.format(prefix_name), ff1, activation='relu')
       swish_act = self.network.add_eval_layer('{}_square_relu'.format(prefix_name), swish_act, eval='source(0) ** 2')
     else:

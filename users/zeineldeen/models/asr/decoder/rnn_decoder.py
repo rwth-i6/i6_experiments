@@ -10,7 +10,7 @@ class RNNDecoder:
       ref: https://arxiv.org/abs/2001.07263
   """
 
-  def __init__(self, base_model, source=None, dropout=0.3, label_smoothing=0.1, target='bpe',
+  def __init__(self, base_model, source=None, dropout=0.0, softmax_dropout=0.3, label_smoothing=0.1, target='bpe',
                beam_size=12, embed_dim=621, embed_dropout=0., lstm_num_units=1024,
                output_num_units=1024, enc_key_dim=1024, l2=None, att_dropout=None, rec_weight_dropout=None, zoneout=False,
                ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
@@ -19,7 +19,7 @@ class RNNDecoder:
     """
     :param base_model: base/encoder model instance
     :param str source: input to decoder subnetwork
-    :param float dropout: Dropout applied to the softmax input
+    :param float softmax_dropout: Dropout applied to the softmax input
     :param float label_smoothing: label smoothing value applied to softmax
     :param str target: target data key name
     :param int beam_size: value of the beam size
@@ -47,6 +47,7 @@ class RNNDecoder:
     self.source = source
 
     self.dropout = dropout
+    self.softmax_dropout = softmax_dropout
     self.label_smoothing = label_smoothing
 
     self.enc_key_dim = enc_key_dim
@@ -124,6 +125,10 @@ class RNNDecoder:
       lstm_inputs += ['prev:target_embed']
     lstm_inputs += ['prev:att']
 
+    if self.add_lstm_lm:
+      # element-wise addition is applied instead of concat
+      lstm_inputs = subnet_unit.add_combine_layer('add_embed_ctx', lstm_inputs, kind='add', n_out=self.lstm_lm_proj_dim)
+
     # LSTM decoder (or decoder state)
     if self.dec_zoneout:
       subnet_unit.add_rnn_cell_layer(
@@ -139,9 +144,14 @@ class RNNDecoder:
       s_name = subnet_unit.add_linear_layer(
         's_proj', 's', n_out=self.lstm_lm_proj_dim, with_bias=False, dropout=self.dropout, l2=self.l2)
 
-    # ASR softmax output layer
+    if self.add_lstm_lm:
+      readout_in_src = subnet_unit.add_combine_layer(
+        'add_s_att', [s_name, 'att'], kind='add', n_out=self.lstm_lm_proj_dim)
+    else:
+      readout_in_src = [s_name, "prev:target_embed", "att"]
+
     subnet_unit.add_linear_layer(
-      'readout_in', [s_name, "prev:target_embed", "att"], n_out=self.dec_output_num_units, l2=self.l2)
+      'readout_in', readout_in_src, n_out=self.dec_output_num_units, l2=self.l2)
 
     if self.reduceout:
       subnet_unit.add_reduceout_layer('readout', 'readout_in')
@@ -150,7 +160,7 @@ class RNNDecoder:
 
     self.output_prob = subnet_unit.add_softmax_layer(
       'output_prob', 'readout', l2=self.l2, loss='ce', loss_opts={'label_smoothing': self.label_smoothing},
-      target=self.target, dropout=self.dropout)
+      target=self.target, dropout=self.softmax_dropout)
 
     subnet_unit.add_choice_layer(
       'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)

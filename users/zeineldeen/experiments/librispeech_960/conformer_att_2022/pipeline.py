@@ -85,8 +85,8 @@ def search_single(
     recognition_reference,
     returnn_exe,
     returnn_root,
-    mem_rqmt=8,
-    time_rqmt=4,
+    mem_rqmt,
+    time_rqmt,
 ):
     """
     Run search for a specific test dataset
@@ -134,6 +134,8 @@ def search(
     test_dataset_tuples,
     returnn_exe,
     returnn_root,
+    mem_rqmt=8,
+    time_rqmt=4,
 ):
     """
 
@@ -156,6 +158,8 @@ def search(
             test_dataset_reference,
             returnn_exe,
             returnn_root,
+            mem_rqmt=mem_rqmt,
+            time_rqmt=time_rqmt,
         )
 
     from i6_core.report import GenerateReportStringJob, MailJob
