@@ -205,7 +205,7 @@ class Model(nn.Module):
             if collected_outputs is not None:
                 collected_outputs.update(collected_outputs_)
         else:  # not training
-            enc_, _ = self.encoder(enc, in_spatial_dim=enc_spatial_dim, collected_outputs=collected_outputs)
+            enc, _ = self.encoder(enc, in_spatial_dim=enc_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(nn.dropout(enc, self.enc_ctx_dropout, axis=enc.feature_dim))
         enc_ctx_win, _ = nn.window(enc_ctx, spatial_dim=enc_spatial_dim, window_dim=self.enc_win_dim)
         enc_val_win, _ = nn.window(enc, spatial_dim=enc_spatial_dim, window_dim=self.enc_win_dim)
