@@ -260,6 +260,7 @@ Experiments parts:
 - chunkN: chunking with chunk size N
 - chunkNa: chunking but only when seq len > chunk size
 - rndresizeF1_F2: random resize to F1..F2
+- rndframedropF: random frame drop with prob F
 
 Current good Conformer baselines:
 - conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
