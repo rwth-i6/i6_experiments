@@ -583,7 +583,7 @@ def create_config(
             ext_lm_opts,
             prior_lm_opts=prior_lm_opts,
             beam_size=beam_size,
-            dec_type="transformer",
+            dec_type="transformer" if isinstance(decoder_args, TransformerDecoderArgs) else 'lstm',
         )
         transformer_decoder.create_network()
 

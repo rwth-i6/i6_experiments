@@ -26,8 +26,8 @@ class LSTMILMDecoder(ILMDecoder):
     self.prior_lm_opts = prior_lm_opts
 
   def _add_prior_input(self, subnet_unit):
-    # TODO: "currently train_avg_ctx and train_avg_enc won't work since RETURNN does not support loading numpy vectors
-    #  with constant layer. A change in RETURNN was done to make this work but we need a better solution"
+    # TODO: currently train_avg_ctx and train_avg_enc won't work since RETURNN does not support loading numpy vectors
+    # with constant layer. A change in RETURNN was done to make this work but we need a better solution
 
     prior_type = self.prior_lm_opts.get('type', 'zero')
 
@@ -308,7 +308,7 @@ class ExternalLMDecoder:
     ext_lm_scale = self.ext_lm_opts['lm_scale']
 
     assert isinstance(ext_lm_subnet, dict)
-    is_recurrent = self.ext_lm_opts.get('is_recurrent', False)
+    is_recurrent = self.ext_lm_opts.get('is_recurrent', False)  # TODO: is this needed? we can always use subnet maybe
     if is_recurrent:
       lm_output_prob = self.ext_lm_opts['lm_output_prob_name']
       ext_lm_subnet[lm_output_prob]['target'] = self.target
