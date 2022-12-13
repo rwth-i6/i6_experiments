@@ -171,7 +171,8 @@ class Model(nn.Module):
                 nn.constant(1.0))
             source, in_spatial_dim = nn.resize(source, axis=in_spatial_dim, factor=rnd_scale, kind="linear")
             source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
-            source, in_spatial_dim = random_frame_drop(source, in_spatial_dim=in_spatial_dim, drop_prob=0.1)
+            source, in_spatial_dim = random_frame_drop(
+                source, in_spatial_dim=in_spatial_dim, drop_prob=0.1, min_keep_num=10)
 
         enc, enc_spatial_dim = self.frontend(source, in_spatial_dim=in_spatial_dim)
         if self.training:
