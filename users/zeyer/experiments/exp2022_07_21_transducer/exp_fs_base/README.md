@@ -261,6 +261,10 @@ Experiments parts:
 - chunkNa: chunking but only when seq len > chunk size
 - rndresizeF1_F2: random resize to F1..F2
 - rndframedropF: random frame drop with prob F
+- bN: baseline number N, derives all hyperparams from that.
+  prefix conformer, and optionally att or ctc is still explicit.
+  N=2: conformer_ln_pre10a_d384_h6_cnnblstmf2_chunk50_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+    -> conformer_b2
 
 Current good Conformer baselines:
 - conformer_ln_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
@@ -281,9 +285,9 @@ Current recommended:
 - wdro
 - lsxx01, or other lsxx
 - cnnblstmf2
-- specaugweia? yes but generalize...
-- twarp?
+- specaugweia? yes but generalize... also could be optimized
+- twarp? should get a pure returnn-common implementation
 - rndresize09_12, or other
 - mhsapinit05
 - bhv16
-- chunk, some variant...
+- chunk, some variant, unclear which is best...
