@@ -449,6 +449,8 @@ def create_config(
     config_override=None,
     feature_extraction_net_global_norm=False,
     freeze_bn=False,
+    keep_all_epochs=False,
+    allow_lr_scheduling=True,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -492,18 +494,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and retrain_checkpoint is None:
+    if noam_opts and retrain_checkpoint is None and allow_lr_scheduling:
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and retrain_checkpoint is None:
+    elif warmup_lr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and retrain_checkpoint is None:
+    elif oclr_opts and retrain_checkpoint is None and allow_lr_scheduling:
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
@@ -517,6 +519,8 @@ def create_config(
         if const_lr is None:
             const_lr = 0
         if retrain_checkpoint is not None:
+            learning_rates = None
+        elif not allow_lr_scheduling:
             learning_rates = None
         elif isinstance(const_lr, int):
             learning_rates = [wup_start_lr] * const_lr + list(
@@ -729,6 +733,9 @@ def create_config(
     if recog_epochs:
         assert isinstance(recog_epochs, list)
         post_config["cleanup_old_models"] = {"keep": recog_epochs}
+
+    if keep_all_epochs:
+        post_config['cleanup_old_models'] = False
 
     if extra_str:
         extra_python_code += "\n" + extra_str

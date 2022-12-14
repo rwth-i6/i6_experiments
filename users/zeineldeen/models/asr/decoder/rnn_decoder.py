@@ -15,7 +15,7 @@ class RNNDecoder:
                output_num_units=1024, enc_key_dim=1024, l2=None, att_dropout=None, rec_weight_dropout=None, zoneout=False,
                ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
                loc_conv_att_num_channels=None, reduceout=True, att_num_heads=1, embed_weight_init=None,
-               lstm_weights_init=None, lstm_lm_proj_dim=1024):
+               lstm_weights_init=None, lstm_lm_proj_dim=1024, length_normalization=True):
     """
     :param base_model: base/encoder model instance
     :param str source: input to decoder subnetwork

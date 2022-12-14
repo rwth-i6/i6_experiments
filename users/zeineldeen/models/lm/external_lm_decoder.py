@@ -40,23 +40,11 @@ class LSTMILMDecoder(ILMDecoder):
       prior_att_input = subnet_unit.add_constant_layer(
         'train_avg_enc', value=self.prior_lm_opts['data'], with_batch_dim=True, dtype='float32')
     elif prior_type == 'mini_lstm':  # train a mini LM-like LSTM and use that as prior
-      # example: lstmdim_100-l2_5e-05-recwd_0.0
-      n_out = 50
-      l2 = 0.0
-      recwd = 0.0
-      if self.prior_lm_opts.get('prefix_name', None):
-        segs = self.prior_lm_opts['prefix_name'].split('-')
-        for arg in segs:
-          name, val = arg.split('_', 1)
-          if name == 'lstmdim':
-            n_out = int(val)
-          elif name == 'l2':
-            l2 = float(val)
-          elif name == 'recwd':
-            recwd = float(val)
-      subnet_unit.add_rec_layer('mini_att_lstm', 'prev:target_embed', n_out=n_out, l2=l2, rec_weight_dropout=recwd)
-      prior_att_input = subnet_unit.add_linear_layer('mini_att', 'mini_att_lstm', activation=None, n_out=2048,
-                                                     l2=0.0001)
+      mini_lstm_dim = self.prior_lm_opts.get('mini_lstm_dim', 50)
+      ctx_dim = self.prior_lm_opts['ctx_dim']
+      subnet_unit.add_rec_layer('mini_att_lstm', 'prev:target_embed', n_out=mini_lstm_dim, l2=0.0)
+      prior_att_input = subnet_unit.add_linear_layer(
+        'mini_att', 'mini_att_lstm', activation=None, n_out=ctx_dim)
     elif prior_type == 'trained_vec':
       prior_att_input = subnet_unit.add_variable_layer('trained_vec_att_var', shape=[2048], L2=0.0001)
     else:

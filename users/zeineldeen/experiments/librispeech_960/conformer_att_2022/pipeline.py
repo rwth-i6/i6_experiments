@@ -8,7 +8,7 @@ from i6_core.returnn.training import GetBestTFCheckpointJob
 from i6_core.returnn.training import AverageTFCheckpointsJob
 
 
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs):
+def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168):
     """
 
     :param prefix_name:
@@ -18,8 +18,8 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs)
     :return:
     """
     default_rqmt = {
-        "mem_rqmt": 15,
-        "time_rqmt": 168,
+        "mem_rqmt": mem_rqmt,
+        "time_rqmt": time_rqmt,
         "log_verbosity": 5,
         "returnn_python_exe": returnn_exe,
         "returnn_root": returnn_root,
