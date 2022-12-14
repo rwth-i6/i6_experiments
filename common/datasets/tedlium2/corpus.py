@@ -75,3 +75,8 @@ def get_corpus_object_dict(
         corpus_object_dict[corpus_name] = corpus_object
 
     return corpus_object_dict
+
+
+@lru_cache()
+def get_stm_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
+    return download_data_dict(output_prefix=output_prefix)["stm"]
