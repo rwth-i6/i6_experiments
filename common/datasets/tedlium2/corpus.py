@@ -1,18 +1,15 @@
 import os
-
 from functools import lru_cache
 from typing import Dict, Optional
 
 from sisyphus import tk
 
 from i6_core.audio.encoding import BlissChangeEncodingJob
-from i6_core.datasets.tedlium2 import (
-    DownloadTEDLIUM2CorpusJob,
-    CreateTEDLIUM2BlissCorpusJob,
-)
+
 from i6_core.meta import CorpusObject
 
 from .constants import durations
+from .download import download_data_dict
 
 
 @lru_cache()
@@ -21,14 +18,9 @@ def get_bliss_corpus_dict(
 ) -> Dict[str, tk.Path]:
     assert audio_format in ["flac", "ogg", "wav", "sph", "nist"]
 
-    output_prefix = os.path.join(output_prefix, "TedLiumV2")
+    output_prefix = os.path.join(output_prefix, "Ted-Lium-2")
 
-    download_tedlium2_job = DownloadTEDLIUM2CorpusJob()
-    download_tedlium2_job.add_alias(
-        os.path.join(output_prefix, "download", "corpus_job")
-    )
-
-    bliss_corpus_dict = download_tedlium2_job.out_corpus_folders
+    bliss_corpus_dict = download_data_dict(output_prefix=output_prefix)["bliss_nist"]
 
     audio_format_options = {
         "wav": {
