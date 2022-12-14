@@ -1,10 +1,10 @@
-durations = {
+DURATIONS = {
     "train": 212.07,
     "dev": 1.60,
     "test": 2.62,
 }
 
-num_segments = {
+NUM_SEGMENTS = {
     "train": 92973,
     "dev": 507,
     "test": 1155,
@@ -12,7 +12,7 @@ num_segments = {
 
 # concurrent should roughly be set to 5 hours per sub-task for training
 # and 0.5 hours per subtask for recognition
-concurrent = {
+CONCURRENT = {
     "train": 50,
     "dev": 5,
     "test": 5,

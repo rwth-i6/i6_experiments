@@ -8,7 +8,7 @@ from i6_core.audio.encoding import BlissChangeEncodingJob
 
 from i6_core.meta import CorpusObject
 
-from .constants import durations
+from .constants import DURATIONS
 from .download import download_data_dict
 
 
@@ -70,7 +70,7 @@ def get_corpus_object_dict(
         corpus_object.corpus_file = bliss_corpus
         corpus_object.audio_format = audio_format
         corpus_object.audio_dir = None
-        corpus_object.duration = durations[corpus_name]
+        corpus_object.duration = DURATIONS[corpus_name]
 
         corpus_object_dict[corpus_name] = corpus_object
 
