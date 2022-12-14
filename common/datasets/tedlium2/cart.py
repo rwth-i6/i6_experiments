@@ -1,5 +1,7 @@
 __all__ = ["CartQuestions"]
 
+from .constants import BOUNDARY, SILENCE, PHONEMES
+
 
 class CartQuestions:
     def __init__(
@@ -11,49 +13,9 @@ class CartQuestions:
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.n_phones = n_phones
-        self.boundary = "#"
-        self.silence = "[SILENCE]"
-        self.phonemes = [
-            "AA",
-            "AE",
-            "AH",
-            "AO",
-            "AW",
-            "AY",
-            "B",
-            "CH",
-            "D",
-            "DH",
-            "EH",
-            "ER",
-            "EY",
-            "F",
-            "G",
-            "HH",
-            "IH",
-            "IY",
-            "JH",
-            "K",
-            "L",
-            "M",
-            "N",
-            "NG",
-            "OW",
-            "OY",
-            "P",
-            "R",
-            "S",
-            "SH",
-            "T",
-            "TH",
-            "UH",
-            "UW",
-            "V",
-            "W",
-            "Y",
-            "Z",
-            "ZH",
-        ]
+        self.boundary = BOUNDARY
+        self.silence = SILENCE
+        self.phonemes = PHONEMES
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary_silence = (
             [self.boundary] + [self.silence] + self.phonemes
