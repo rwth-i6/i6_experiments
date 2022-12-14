@@ -92,7 +92,7 @@ def get_bliss_lexicon(
 
 
 @lru_cache()
-def get_g2p_augmented_bliss_lexicon_dict(
+def get_g2p_augmented_bliss_lexicon(
     output_prefix="datasets",
 ) -> lexicon.Lexicon:
     original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
