@@ -60,9 +60,12 @@ def _get_raw_bliss_lexicon(
     vocab = download_data_dict(output_prefix=output_prefix)["vocab"]
 
     convert_lexicon_job = LexiconFromTextFileJob(
-        text_file=vocab, compressed=True,
+        text_file=vocab,
+        compressed=True,
     )
-    convert_lexicon_job.add_alias(os.path.join(output_prefix, "convert_text_to_bliss_lexicon_job"))
+    convert_lexicon_job.add_alias(
+        os.path.join(output_prefix, "convert_text_to_bliss_lexicon_job")
+    )
 
     return convert_lexicon_job.out_bliss_lexicon
 
@@ -72,7 +75,9 @@ def get_bliss_lexicon(
     output_prefix="datasets",
 ) -> tk.Path:
     static_lexicon = _get_special_lemma_lexicon()
-    static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
+    static_lexicon_job = WriteLexiconJob(
+        static_lexicon, sort_phonemes=True, sort_lemmata=False
+    )
     static_lexicon_job.add_alias(os.path.join(output_prefix, "static_lexicon_job"))
 
     raw_tedlium2_lexicon = _get_raw_bliss_lexicon(output_prefix=output_prefix)
@@ -94,7 +99,7 @@ def get_bliss_lexicon(
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon(
     output_prefix="datasets",
-) -> lexicon.Lexicon:
+) -> tk.Path:
     original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
     corpus_name = "train"
     bliss_corpus = get_bliss_corpus_dict(output_prefix=output_prefix)[corpus_name]
