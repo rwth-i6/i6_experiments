@@ -263,31 +263,27 @@ Experiments parts:
 - rndframedropF: random frame drop with prob F
 
 Current good Conformer baselines:
-- conformer_pre10_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
-  "hub5e_00": 20.2, "hub5e_01": 15.1, "rt03s": 19.1
-- conformer_pre10_transd30_d384_h6_blstmf2_oldspecaug4a_oldtwarp_attdrop01_aux24812f:
-  "hub5e_00": 19.8, "hub5e_01": 15.6, "rt03s": 20.0
-- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48_bhv14:
-  "hub5e_00": 20.4, "hub5e_01": 16.0, "rt03s": 20.1
-- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux4812:
-  "hub5e_00": 20.3, "hub5e_01": 15.5, "rt03s": 19.5
-- conformer_pre9_d384_h6_wd0_blstmf2_specaug_aux4812:
-  "hub5e_00": 20.2, "hub5e_01": 15.2, "rt03s": 19.7
-- conformer_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
-  "hub5e_00": 23.2, "hub5e_01": 15.8, "rt03s": 20.5
 - conformer_ln_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
   "hub5e_00": 19.0, "hub5e_01": 15.8, "rt03s": 19.4
+- conformer_ln_pre10a_d384_h6_cnnblstmf2_chunk50_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+  "hub5e_00": 16.8, "hub5e_01": 15.7, "rt03s": 19.4
+- conformer_ln_pre10_d384_h6_blstmf2_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+  "hub5e_00": 17.4, "hub5e_01": 14.7, "rt03s": 18.0
+- conformer_ln_pre10a_d384_h6_cnnblstmf2_chunk50a_fix245_wdro_specaugweia_rndresize09_12_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+  "hub5e_00": 18.3, "hub5e_01": 15.1, "rt03s": 19.1
 
 Current recommended:
 - attdrop01
 - posdrop01
-- aux48ff or aux4812ff
+- aux48ff, or aux4812ff
 - wdf?
 - fix245
 - wdro
-- lsxx01 or other lsxx
-- cnnblstmfN?
-- specaugweia?
+- lsxx01, or other lsxx
+- cnnblstmf2
+- specaugweia? yes but generalize...
 - twarp?
+- rndresize09_12, or other
 - mhsapinit05
 - bhv16
+- chunk, some variant...
