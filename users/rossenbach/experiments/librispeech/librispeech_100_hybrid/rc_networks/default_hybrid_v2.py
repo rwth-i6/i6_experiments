@@ -102,7 +102,7 @@ class HybridHMM(IHybridHMM):
     Hybrid NN-HMM
     """
 
-    def __init__(self, *, encoder: EncoderType, out_dim: nn.Dim, focal_loss_scale: float = 1.0):
+    def __init__(self, *, encoder: EncoderType, out_dim: nn.Dim, focal_loss_scale: float = 0.0):
         super().__init__()
         self.encoder = encoder
         self.focal_loss_scale = focal_loss_scale
@@ -127,7 +127,7 @@ class HybridHMM(IHybridHMM):
             assert out_spatial_dim in targets.shape
             ce_loss = nn.sparse_softmax_cross_entropy_with_logits(logits=out_embed, targets=targets, axis=self.out_dim)
             # focal loss (= more emphasis on "low" scores), might not be correct yet
-            if self.focal_loss_scale != 1.0:
+            if self.focal_loss_scale > 0.0:
                 ce_loss *= (1.0 - nn.exp(-ce_loss)) ** self.focal_loss_scale
             ce_loss.mark_as_loss(name="default_ce")
         return nn.log_softmax(out_embed, axis=self.out_dim), None
@@ -136,7 +136,6 @@ class HybridHMM(IHybridHMM):
 def construct_hybrid_network(
         epoch: int,
         train: bool,
-        encoder: Callable[[nn.Dim, Any], EncoderType],
         audio_data: nn.Data,
         label_data: nn.Data,
         **kwargs
@@ -151,8 +150,8 @@ def construct_hybrid_network(
     :return:
     """
     label_feature_dim = label_data.sparse_dim
-    focal_loss_scale = kwargs.pop("focal_loss_scale", 1.0)
-    enc = encoder(in_dim=audio_data.feature_dim_or_sparse_dim, **kwargs)
+    focal_loss_scale = kwargs.pop("focal_loss_scale", 0.0)
+    enc = BLSTMEncoder(in_dim=audio_data.feature_dim_or_sparse_dim, **kwargs)
     net = HybridHMM(
         encoder=enc,
         out_dim=label_feature_dim,

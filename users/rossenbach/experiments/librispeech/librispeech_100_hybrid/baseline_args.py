@@ -148,7 +148,7 @@ def get_feature_extraction_args():
                 "samples_options": samples_options,
                 "normalization_options": {},
             }
-        }
+        },
     }
 
 def get_returnn_configs(

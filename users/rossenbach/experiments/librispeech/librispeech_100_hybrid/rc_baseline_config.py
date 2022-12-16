@@ -130,6 +130,7 @@ def get_rc_returnn_configs(
     blstm_base_config = copy.deepcopy(base_config)
     blstm_base_config.update(
         {
+            "behavior_version": 15,
             "batch_size": batch_size,  # {"classes": batch_size, "data": batch_size},
             "chunking": "50:25",
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
@@ -155,7 +156,6 @@ def get_rc_returnn_configs(
 
     # those are hashed
     rc_package = "i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.rc_networks"
-    rc_encoder = Import(rc_package + ".default_hybrid_v2.BLSTMEncoder")
     rc_construction_code = Import(rc_package + ".default_hybrid_v2.construct_hybrid_network")
 
 
@@ -173,14 +173,14 @@ def get_rc_returnn_configs(
            "max_features_per_mask": 10
        }
     }
-    #net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
-    #net_kwargs_focal_loss["focal_loss_scale"] = 2.0
+
+    net_kwargs_focal_loss = copy.deepcopy(net_kwargs)
+    net_kwargs_focal_loss["focal_loss_scale"] = 2.0
 
     def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
         rc_network = Network(
             net_func_name=rc_construction_code.object_name,
             net_func_map={
-                "encoder": rc_encoder.object_name,
                 "audio_data": "data",  # name of the constructor parameter vs name of the data object in RETURNN
                 "label_data": "classes"
             },  # this is hashed
@@ -188,7 +188,6 @@ def get_rc_returnn_configs(
         )
         serializer_objects = [
             rc_extern_data,
-            rc_encoder,
             rc_construction_code,
             rc_network,
         ]
@@ -211,11 +210,7 @@ def get_rc_returnn_configs(
         )
         return blstm_base_returnn_config
 
-    bhv15_config = copy.deepcopy(blstm_base_config)
-    bhv15_config["behavior_version"] = 15
-
     return {
         "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, net_kwargs),
-        "blstm_oclr_v1_bhv15": construct_from_net_kwargs(bhv15_config, net_kwargs),
-        #"blstm_focal_loss": construct_from_net_kwargs(net_kwargs_focal_loss, explicit_hash="focal_loss_v2"),
+        "blstm_oclr_v1_focal_loss": construct_from_net_kwargs(blstm_base_config, net_kwargs_focal_loss),
     }
