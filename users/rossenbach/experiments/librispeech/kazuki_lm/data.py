@@ -78,8 +78,8 @@ class LmDataset(ControlDataset):
         return d
 
 
-def build_training_data(output_prefix="", partition_epoch=4):
-    bpe_settings = get_subword_nmt_bpe(corpus_key="train-clean-100", bpe_size=2000, unk_label='<unk>')
+def build_training_data(output_prefix="", corpus_key="train-clean-100", bpe_size=2000, partition_epoch=4):
+    bpe_settings = get_subword_nmt_bpe(corpus_key=corpus_key, bpe_size=bpe_size, unk_label='<unk>')
     # conversion factor for PPL computation is 1.448
     ls_bliss_corpus_dict = get_bliss_corpus_dict()
     bpe_datastream = BpeDatastream(available_for_inference=False, bpe_settings=bpe_settings)
