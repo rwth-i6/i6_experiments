@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from sisyphus import tk
 from copy import deepcopy
 
@@ -339,7 +339,7 @@ def get_returnn_durations(corpus, returnn_exe, returnn_root, output_path):
 
 
 def get_tts_data_from_rasr_alignment(
-    output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones, silence_prep=True
+    output_path, returnn_exe, returnn_root, rasr_alignment, rasr_allophones, silence_prep=True, speaker_embeddings: Tuple = None,
 ):
     """
     Build the datastreams for TTS training from RASR alignment
@@ -421,7 +421,7 @@ def get_tts_data_from_rasr_alignment(
         available_for_inference=True,
         vocab_size=speaker_label_job.out_num_speakers,
         vocab=speaker_label_job.out_speaker_dict,
-    )
+    ) if speaker_embeddings is None else SpeakerEmbeddingDatastream(available_for_inference=True, embedding_size=speaker_embeddings[0])
     duration_datastream = DurationDatastream(available_for_inference=True)
 
     datastreams = {
@@ -440,7 +440,7 @@ def get_tts_data_from_rasr_alignment(
         seq_ordering="laplace:.1000",
     )
 
-    speaker_hdf_dataset = HDFDataset(files=[train_speakers])
+    speaker_hdf_dataset = HDFDataset(files=[train_speakers if speaker_embeddings is None else speaker_embeddings[1]])
     train_duration_hdf = HDFDataset(files=[durations])
     train_dataset = _make_meta_dataset(
         train_ogg_zip, speaker_hdf_dataset, train_duration_hdf

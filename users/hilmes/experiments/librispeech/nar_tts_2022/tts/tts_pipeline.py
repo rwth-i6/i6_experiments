@@ -565,7 +565,6 @@ def build_speaker_embedding_dataset(
     :param train_job:
     :return:
     """
-
   extraction_config = get_speaker_extraction_config(
     speaker_embedding_size=speaker_embedding_size,
     training=True,
@@ -639,7 +638,7 @@ def var_rep_format(report) -> str:
                   Full / No Silence / Weighted / Weighted no Silence
         Features:{str(report["feat_var"])}, {str(report["feat_var_no_sil"])}, {str(report["feat_var_weight"])}, {str(report["feat_var_weight_no_sil"])}
         Durations:{str(report["dur_var"])}, {str(report["dur_var_no_sil"])}, {str(report["dur_var_weight"])}, {str(report["dur_var_weight_no_sil"])}
-        Excel: {str(report["feat_var"])}/{str(report["feat_var_weight"])}, {str(report["feat_var_no_sil"])}/{str(report["feat_var_weight_no_sil"])}, {str(report["dur_var"])}/{str(report["dur_var_weight"])}, {str(report["dur_var_no_sil"])}/{str(report["dur_var_weight_no_sil"])} 
+        Excel: {report["feat_var"].get():.{4}f}/{str(report["feat_var_weight"])}, {str(report["feat_var_no_sil"])}/{str(report["feat_var_weight_no_sil"])}, {str(report["dur_var"])}/{str(report["dur_var_weight"])}, {str(report["dur_var_no_sil"])}/{str(report["dur_var_weight_no_sil"])} 
 """
   )
   return "\n".join(out)
@@ -656,7 +655,10 @@ def calculate_feature_variance(
   durations=None,
   **kwargs,
 ):
-
+  if "speaker_embedding_size" in kwargs:
+    speaker_embedding_size = kwargs["speaker_embedding_size"]
+  else:
+    speaker_embedding_size = 256
   speaker_embedding_hdf = build_speaker_embedding_dataset(
     returnn_common_root=returnn_common_root,
     returnn_exe=returnn_exe,
@@ -664,6 +666,7 @@ def calculate_feature_variance(
     datasets=training_datasets,
     prefix=prefix,
     train_job=train_job,
+    speaker_embedding_size=speaker_embedding_size
   )
 
   synth_dataset = get_inference_dataset(
@@ -676,6 +679,7 @@ def calculate_feature_variance(
     process_corpus=False,
     shuffle_info=False,
     alias=prefix,
+    speaker_embedding_size=speaker_embedding_size
   )
   forward_config = get_forward_config(
     returnn_common_root=returnn_common_root,

@@ -476,6 +476,7 @@ class NARTTSModel(nn.Module):
         energy_scale: float = 1.0,
         hidden_dim: int = 256,
         variance_dim: int = 512,
+        xvectors: bool = False,
     ):
         super(NARTTSModel, self).__init__()
 
@@ -523,6 +524,7 @@ class NARTTSModel(nn.Module):
         self.use_true_energy = use_true_energy
         self.energy_scale = energy_scale
         self.test = test
+        self.xvectors = xvectors
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -590,16 +592,14 @@ class NARTTSModel(nn.Module):
             in_dim=decoder_dim,
         )
         duration_in = 2 * self.enc_lstm_dim
-        if not self.skip_speaker_embeddings:
+        if not self.skip_speaker_embeddings or self.xvectors:
             duration_in += self.speaker_embedding_dim
         if self.use_vae:
             duration_in += self.vae.lin_out.out_dim if self.vae is not None else speaker_prior_dim
         self.duration = DurationPredictor(
             dropout=(dropout, dropout),
             conv_sizes=hidden_dim,
-            in_dim=2 * self.enc_lstm_dim + self.speaker_embedding_dim
-            if not self.skip_speaker_embeddings
-            else 2 * self.enc_lstm_dim,
+            in_dim=duration_in,
         )
         if self.use_pitch_pred:
             self.pitch_pred = VariancePredictor(
@@ -662,10 +662,11 @@ class NARTTSModel(nn.Module):
             duration_int = nn.cast(durations, dtype="int32")
             duration_float = nn.cast(durations, dtype="float32")  # [B, Label-time]
         label_notime = nn.squeeze(speaker_labels, axis=label_time)
-        if (self.training or self.calc_speaker_embedding) and not self.skip_speaker_embeddings:
+        if (self.training or self.calc_speaker_embedding) and not self.skip_speaker_embeddings and not self.xvectors:
             speaker_embedding = self.speaker_embedding(label_notime)
-        elif not self.skip_speaker_embeddings:
+        elif not self.skip_speaker_embeddings or self.xvectors:
             speaker_embedding = label_notime
+            speaker_embedding.feature_dim.declare_same_as(self.speaker_embedding_dim)
         else:
             speaker_embedding = None
         if self.use_vae and not self.test_vae:
@@ -693,7 +694,7 @@ class NARTTSModel(nn.Module):
                 if self.skip_speaker_embeddings:
                     speaker_embedding = latents
                 elif self.vae_usage == "speak_emb_cat":
-                    speaker_embedding = nn.concat(
+                    speaker_embedding, _ = nn.concat(
                         (speaker_embedding, speaker_embedding.feature_dim),
                         (latents, latents.feature_dim),
                     )
@@ -719,7 +720,7 @@ class NARTTSModel(nn.Module):
         encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
         # duration predictor
-        if self.skip_speaker_embeddings:
+        if speaker_embedding is None:
             duration_in = cat
         else:
             duration_in = nn.concat_features(
