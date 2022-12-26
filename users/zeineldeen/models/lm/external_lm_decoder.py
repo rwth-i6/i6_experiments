@@ -273,12 +273,27 @@ class TransformerMiniLSTMDecoder(ILMDecoder):
     return 'prior_output_prob'
 
 
+class TransformerMiniSelfAttDecoder(ILMDecoder):
+  """
+  Add (mini-)self-attention ILM for Transformer decoder.
+  """
+
+  def __init__(self, asr_decoder, prior_lm_opts):
+    super(TransformerMiniSelfAttDecoder, self).__init__(asr_decoder)
+    self.asr_decoder = asr_decoder
+    self.prior_lm_opts = prior_lm_opts  # type: dict[str]
+
+  def _create_prior_net(self, subnet_unit):
+      # handled inside `TransformerDecoder` class.
+      return 'prior_output_prob'
+
+
 class ExternalLMDecoder:
   """
   Integrates an external LM decoder into an ASR decoder
   """
 
-  def __init__(self, asr_decoder, ext_lm_opts, beam_size, dec_type, prior_lm_opts=None):
+  def __init__(self, asr_decoder, ext_lm_opts, beam_size, dec_type, prior_lm_opts=None, length_normalization=True):
     self.asr_decoder = copy.deepcopy(asr_decoder)
     self.am_output_prob = self.asr_decoder.output_prob
     self.target = self.asr_decoder.target
@@ -286,6 +301,7 @@ class ExternalLMDecoder:
     self.beam_size = beam_size
     self.prior_lm_opts = prior_lm_opts
     self.dec_type = dec_type
+    self.length_normalization = length_normalization
 
     self.network = None
 
@@ -302,9 +318,15 @@ class ExternalLMDecoder:
       ext_lm_subnet[lm_output_prob]['target'] = self.target
       lm_net_out.update(ext_lm_subnet)  # just append
     else:
-      ext_lm_model = self.ext_lm_opts['lm_model']
+      ext_lm_model = self.ext_lm_opts.get('lm_model', None)
+      if ext_lm_model:
+        load_on_init = ext_lm_model
+      else:
+        assert 'load_on_init_opts' in self.ext_lm_opts, 'load_on_init opts or lm_model are missing for loading subnet.'
+        assert 'filename' in self.ext_lm_opts['load_on_init_opts'], 'Checkpoint missing for loading subnet.'
+        load_on_init = self.ext_lm_opts['load_on_init_opts']
       lm_net_out.add_subnetwork(
-        'lm_output', 'prev:output', subnetwork_net=ext_lm_subnet, load_on_init=ext_lm_model)
+        'lm_output', 'prev:output', subnetwork_net=ext_lm_subnet, load_on_init=load_on_init)
       lm_output_prob = lm_net_out.add_activation_layer(
         'lm_output_prob', 'lm_output', activation='softmax', target=self.target)
 
@@ -316,7 +338,7 @@ class ExternalLMDecoder:
       if self.dec_type == 'lstm':
         ilm_decoder = LSTMILMDecoder(self.asr_decoder, self.prior_lm_opts)
       elif self.dec_type == 'transformer':
-        ilm_decoder = TransformerMiniLSTMDecoder(self.asr_decoder, self.prior_lm_opts)
+        ilm_decoder = TransformerMiniSelfAttDecoder(self.asr_decoder, self.prior_lm_opts)
       else:
         raise ValueError('dec type: {} is not valid'.format(self.dec_type))
 
@@ -325,9 +347,14 @@ class ExternalLMDecoder:
       fusion_source += [ilm_decoder.output_prob_name]
 
     lm_net_out.add_eval_layer('combo_output_prob', source=fusion_source, eval=fusion_str)
-    lm_net_out.add_choice_layer(
-      'output', 'combo_output_prob', target=self.target, beam_size=self.beam_size, initial_output=0,
-      input_type='log_prob')
+    if self.length_normalization:
+      lm_net_out.add_choice_layer(
+        'output', 'combo_output_prob', target=self.target, beam_size=self.beam_size, initial_output=0,
+        input_type='log_prob')
+    else:
+      lm_net_out.add_choice_layer(
+        'output', 'combo_output_prob', target=self.target, beam_size=self.beam_size, initial_output=0,
+        input_type='log_prob', length_normalization=self.length_normalization)
 
     return lm_net_out.get_net()
 
