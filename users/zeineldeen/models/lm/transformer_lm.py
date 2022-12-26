@@ -89,13 +89,15 @@ class TransformerLM:
     # final LN
     decoder = subnet_unit.add_layer_norm_layer('{}decoder'.format(self.prefix_name), x)
 
-    subnet_unit.add_softmax_layer(
-      '{}output'.format(self.prefix_name), decoder, forward_weights_init=self.forward_weights_init, loss='ce',
-      target=self.target, with_bias=True, dropout=self.dropout)
-
     if self.use_as_ext_lm:
+      subnet_unit.add_linear_layer('output', decoder, n_out=self.vocab_size)
+      subnet_unit.get_net()['target_embed_raw'].pop('from')
       self.network = copy.deepcopy(subnet_unit)
     else:
+      subnet_unit.add_softmax_layer(
+        '{}output'.format(self.prefix_name), decoder, forward_weights_init=self.forward_weights_init, loss='ce',
+        target=self.target, with_bias=True, dropout=self.dropout)
+
       self.network.add_subnet_rec_layer(
           'output', unit=subnet_unit.get_net(), target=self.target, source=self.source)
 
