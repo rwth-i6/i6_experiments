@@ -13,7 +13,8 @@ class TransformerDecoder:
                base_model, target='bpe', num_layers=6, beam_size=12, ff_init=None, ff_dim=2048, ff_act='relu', att_num_heads=8,
                dropout=0.1, att_dropout=0.0, softmax_dropout=0.0, embed_dropout=0.1, l2=0.0, embed_pos_enc=False,
                apply_embed_weight=False, label_smoothing=0.1, mhsa_init=None, mhsa_out_init=None,
-               pos_enc=None, rel_pos_clipping=16):
+               pos_enc=None, rel_pos_clipping=16, length_normalization=True,
+               replace_cross_att_w_masked_self_att=False, create_ilm_decoder=False, ilm_type=None):
 
     self.base_model = base_model
     self.enc_value_dim = base_model.enc_value_dim
@@ -55,6 +56,15 @@ class TransformerDecoder:
 
     self.decision_layer_name = None
 
+    self.length_normalization = length_normalization
+
+    self.replace_cross_att_w_masked_self_att = replace_cross_att_w_masked_self_att  # used to train ILM
+
+    # used for recognition with ILM
+    self.create_ilm_decoder = create_ilm_decoder
+    self.ilm_type = ilm_type
+    if self.create_ilm_decoder:
+      self.replace_cross_att_w_masked_self_att = False  # keep original decoder as-is
 
     self.network = ReturnnNetwork()
     self.subnet_unit = ReturnnNetwork()
@@ -162,9 +172,24 @@ class TransformerDecoder:
   def _create_decoder_block(self, subnet_unit: ReturnnNetwork, source, i):
     prefix = 'transformer_decoder_%02i' % i
     masked_mhsa = self._create_masked_mhsa(subnet_unit, prefix, source)
-    mhsa = self._create_mhsa(subnet_unit, prefix, masked_mhsa)
+    if self.replace_cross_att_w_masked_self_att:
+      mhsa = self._create_masked_mhsa(subnet_unit, 'ilm_' + prefix, masked_mhsa)
+    else:
+      mhsa = self._create_mhsa(subnet_unit, prefix, masked_mhsa)
     ff = self._create_ff_module(subnet_unit, prefix, mhsa)
     out = subnet_unit.add_copy_layer(prefix, ff)
+    return out
+
+  def _create_ilm_decoder_block(self, subnet_unit: ReturnnNetwork, source, i):
+    prefix = 'transformer_decoder_%02i' % i
+    masked_mhsa = self._create_masked_mhsa(subnet_unit, 'prior_' + prefix, source)
+    if self.ilm_type == 'mini_lstm':
+      mhsa = self._create_masked_mhsa(subnet_unit, 'mini_ilm_' + prefix, masked_mhsa)
+    else:
+      assert self.ilm_type == 'zero'
+      mhsa = subnet_unit.add_eval_layer('zero_att_%02i' % i, masked_mhsa, eval='tf.zeros_like(source(0))')
+    ff = self._create_ff_module(subnet_unit, 'prior_' + prefix, mhsa)
+    out = subnet_unit.add_copy_layer('prior_' + prefix, ff)
     return out
 
   def _create_decoder(self, subnet_unit: ReturnnNetwork):
@@ -174,8 +199,14 @@ class TransformerDecoder:
       loss_opts={'label_smoothing': self.label_smoothing}, target=self.target, dropout=self.softmax_dropout,
       forward_weights_init=self.ff_init, l2=self.l2)
 
-    output = subnet_unit.add_choice_layer(
-      'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
+    if self.length_normalization:
+      output = subnet_unit.add_choice_layer(
+        'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
+    else:
+      output = subnet_unit.add_choice_layer(
+        'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0,
+        length_normalization=self.length_normalization)
+
     subnet_unit.add_compare_layer('end', output, value=0)
 
     target_embed_raw = subnet_unit.add_linear_layer(
@@ -196,6 +227,18 @@ class TransformerDecoder:
     for i in range(1, self.num_layers + 1):
       x = self._create_decoder_block(subnet_unit, x, i)
     subnet_unit.add_layer_norm_layer('decoder', x)
+
+    if self.create_ilm_decoder:
+      x = target_embed
+      for i in range(1, self.num_layers + 1):
+        x = self._create_ilm_decoder_block(subnet_unit, x, i)
+      subnet_unit.add_layer_norm_layer('prior_decoder', x)
+
+      subnet_unit.add_softmax_layer(
+        'prior_output_prob', 'prior_decoder', loss='ce',
+        loss_opts={'label_smoothing': self.label_smoothing}, target=self.target, dropout=self.softmax_dropout,
+        forward_weights_init=self.ff_init, l2=self.l2
+      )
 
     dec_output = self.network.add_subnet_rec_layer('output', unit=subnet_unit.get_net(), target=self.target)
 

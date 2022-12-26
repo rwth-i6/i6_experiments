@@ -96,6 +96,10 @@ class ReturnnNetwork:
     self._net[name].update(kwargs)
     return name
 
+  def add_cast_layer(self, name, source, dtype):
+    self._net[name] = {'class': 'cast', 'from': source, 'dtype': dtype}
+    return name
+
   def add_combine_layer(self, name, source, kind, n_out, **kwargs):
     self._net[name] = {'class': 'combine', 'kind': kind, 'from': source, 'n_out': n_out}
     self._net[name].update(kwargs)

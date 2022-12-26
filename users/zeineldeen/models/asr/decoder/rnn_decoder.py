@@ -15,7 +15,8 @@ class RNNDecoder:
                output_num_units=1024, enc_key_dim=1024, l2=None, att_dropout=None, rec_weight_dropout=None, zoneout=False,
                ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
                loc_conv_att_num_channels=None, reduceout=True, att_num_heads=1, embed_weight_init=None,
-               lstm_weights_init=None, lstm_lm_proj_dim=1024, length_normalization=True):
+               lstm_weights_init=None, lstm_lm_proj_dim=1024, length_normalization=True,
+               coverage_threshold=None, coverage_scale=None,):
     """
     :param base_model: base/encoder model instance
     :param str source: input to decoder subnetwork
@@ -84,6 +85,10 @@ class RNNDecoder:
     self.lstm_weights_init = lstm_weights_init
 
     self.reduceout = reduceout
+
+    self.length_normalization = length_normalization
+    self.coverage_threshold = coverage_threshold
+    self.coverage_scale = coverage_scale
 
     self.network = ReturnnNetwork()
     self.subnet_unit = ReturnnNetwork()
@@ -162,8 +167,30 @@ class RNNDecoder:
       'output_prob', 'readout', l2=self.l2, loss='ce', loss_opts={'label_smoothing': self.label_smoothing},
       target=self.target, dropout=self.softmax_dropout)
 
-    subnet_unit.add_choice_layer(
-      'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
+    if self.coverage_scale and self.coverage_threshold:
+      assert self.att_num_heads == 1, 'Not supported for multi-head attention.'  # TODO: just average the heads?
+      accum_w = self.subnet_unit.add_eval_layer(
+        'accum_w', source=['prev:att_weights', 'att_weights'], eval='source(0) + source(1)')  # [B,enc-T,H=1]
+      merge_accum_w = self.subnet_unit.add_merge_dims_layer('merge_accum_w', accum_w, axes='except_batch')  # [B,enc-T]
+      coverage_mask = self.subnet_unit.add_compare_layer(
+        'coverage_mask', merge_accum_w, kind='greater', value=self.coverage_threshold)  # [B,enc-T]
+      float_coverage_mask = self.subnet_unit.add_cast_layer('float_coverage_mask', coverage_mask, dtype='float32')  # [B,enc-T]
+      accum_coverage = self.subnet_unit.add_reduce_layer(
+        'accum_coverage', float_coverage_mask, mode='sum', axes=-1, keep_dims=True)  # [B,1]
+
+      self.output_prob = self.subnet_unit.add_eval_layer(
+        'output_prob_coverage', source=[self.output_prob, accum_coverage],
+        eval=f'source(0) * (source(1) ** {self.coverage_scale})'
+      )
+
+    if self.length_normalization:
+      subnet_unit.add_choice_layer(
+        'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0)
+    else:
+      subnet_unit.add_choice_layer(
+        'output', self.output_prob, target=self.target, beam_size=self.beam_size, initial_output=0,
+        length_normalization=False,
+      )
 
     # recurrent subnetwork
     dec_output = self.network.add_subnet_rec_layer(

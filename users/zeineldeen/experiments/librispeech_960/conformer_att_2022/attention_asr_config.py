@@ -372,6 +372,11 @@ class TransformerDecoderArgs(DecoderArgs):
     label_smoothing: float = 0.1
     apply_embed_weight: bool = False
 
+    length_normalization: bool = True
+
+    replace_cross_att_w_masked_self_att: bool = False
+    create_ilm_decoder: bool = False
+    ilm_type: bool = None
 
 @dataclass
 class RNNDecoderArgs(DecoderArgs):
@@ -406,6 +411,10 @@ class RNNDecoderArgs(DecoderArgs):
     lstm_lm_dim: int = 1024
     add_lstm_lm: bool = False
 
+    length_normalization: bool = True
+
+    coverage_scale: float = None
+    coverage_threshold: float = None
 
 def create_config(
     training_datasets,
@@ -451,9 +460,12 @@ def create_config(
     freeze_bn=False,
     keep_all_epochs=False,
     allow_lr_scheduling=True,
+    learning_rates_list=None,
+    min_lr=None,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
+    exp_post_config = copy.deepcopy(post_config)
 
     exp_config["extern_data"] = training_datasets.extern_data
 
@@ -516,29 +528,32 @@ def create_config(
             **oclr_opts, initial_lr=oclr_initial_lr
         )
     else:  # newbob
-        if const_lr is None:
-            const_lr = 0
-        if retrain_checkpoint is not None:
-            learning_rates = None
-        elif not allow_lr_scheduling:
-            learning_rates = None
-        elif isinstance(const_lr, int):
-            learning_rates = [wup_start_lr] * const_lr + list(
-                numpy.linspace(wup_start_lr, lr, num=wup)
-            )
-        elif isinstance(const_lr, list):
-            assert len(const_lr) == 2
-            learning_rates = (
-                [wup_start_lr] * const_lr[0]
-                + list(numpy.linspace(wup_start_lr, lr, num=wup))
-                + [lr] * const_lr[1]
-            )
+        if learning_rates_list:
+            learning_rates = learning_rates_list
         else:
-            raise ValueError("unknown const_lr format")
+            if const_lr is None:
+                const_lr = 0
+            if retrain_checkpoint is not None:
+                learning_rates = None
+            elif not allow_lr_scheduling:
+                learning_rates = None
+            elif isinstance(const_lr, int):
+                learning_rates = [wup_start_lr] * const_lr + list(
+                    numpy.linspace(wup_start_lr, lr, num=wup)
+                )
+            elif isinstance(const_lr, list):
+                assert len(const_lr) == 2
+                learning_rates = (
+                    [wup_start_lr] * const_lr[0]
+                    + list(numpy.linspace(wup_start_lr, lr, num=wup))
+                    + [lr] * const_lr[1]
+                )
+            else:
+                raise ValueError("unknown const_lr format")
 
         exp_config["learning_rate"] = lr
         exp_config["learning_rates"] = learning_rates
-        exp_config["min_learning_rate"] = lr / min_lr_factor
+        exp_config["min_learning_rate"] = lr / min_lr_factor if min_lr is None else min_lr
         exp_config["learning_rate_control"] = "newbob_multi_epoch"
         exp_config["learning_rate_control_relative_error_relative_lr"] = True
         exp_config["learning_rate_control_min_num_epochs_per_new_lr"] = 3
@@ -554,8 +569,10 @@ def create_config(
 
     if isinstance(decoder_args, TransformerDecoderArgs):
         decoder_type = TransformerDecoder
+        dec_type = 'transformer'
     elif isinstance(decoder_args, RNNDecoderArgs):
         decoder_type = RNNDecoder
+        dec_type = 'lstm'
     else:
         assert False, "invalid decoder_args type"
 
@@ -587,7 +604,8 @@ def create_config(
             ext_lm_opts,
             prior_lm_opts=prior_lm_opts,
             beam_size=beam_size,
-            dec_type="transformer" if isinstance(decoder_args, TransformerDecoderArgs) else 'lstm',
+            dec_type=dec_type,
+            length_normalization=decoder_args['length_normalization'],
         )
         transformer_decoder.create_network()
 
@@ -732,10 +750,10 @@ def create_config(
 
     if recog_epochs:
         assert isinstance(recog_epochs, list)
-        post_config["cleanup_old_models"] = {"keep": recog_epochs}
+        exp_post_config["cleanup_old_models"] = {"keep": recog_epochs}
 
     if keep_all_epochs:
-        post_config['cleanup_old_models'] = False
+        exp_post_config['cleanup_old_models'] = False
 
     if extra_str:
         extra_python_code += "\n" + extra_str
@@ -749,7 +767,7 @@ def create_config(
     returnn_config = ReturnnConfig(
         exp_config,
         staged_network_dict=staged_network_dict,
-        post_config=post_config,
+        post_config=exp_post_config,
         python_prolog=python_prolog,
         python_epilog=extra_python_code,
         hash_full_python_code=True,
