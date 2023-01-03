@@ -27,7 +27,7 @@ def run_tedlium2_common_baseline(
     final_output_args.define_corpus_type("train", "train")
     final_output_args.define_corpus_type("dev", "dev")
     final_output_args.define_corpus_type("test", "test")
-    #final_output_args.add_feature_to_extract("gt")
+    # final_output_args.add_feature_to_extract("gt")
 
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
