@@ -234,9 +234,9 @@ class BaseDecoder:
             feature_flow=feature_flow,
             **search_job_args,
         )
-        #search_job.set_vis_name(
+        # search_job.set_vis_name(
         #    f"Recog: {self.alias_output_prefix}{name}. Corpus: {corpus_key}"
-        #)
+        # )
         search_job.add_alias(f"{self.alias_output_prefix}recog_{corpus_key}/{name}")
 
         lat_2_ctm_job = recog.LatticeToCtmJob(

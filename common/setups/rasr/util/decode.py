@@ -77,7 +77,7 @@ class PriorPath:
 
 
 class LookaheadOptions(TypedDict):
-    test: str # TODO
+    test: str  # TODO
 
 
 class SearchJobArgs(TypedDict):
