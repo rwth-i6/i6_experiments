@@ -3,12 +3,14 @@ __all__ = [
     "PriorPath",
     "SearchJobArgs",
     "Lattice2CtmArgs",
+    "StmArgs",
     "ScliteScorerArgs",
     "OptimizeJobArgs",
 ]
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Type, TypedDict, Union
+from itertools import product
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 
 from sisyphus import tk
 
@@ -26,9 +28,10 @@ class RecognitionParameters:
         prior_scales: List[float],
         pronunciation_scales: List[Optional[float]],
         tdp_scales: List[float],
-        speech_tdps: List[Type[Tdp]],
-        silence_tdps: List[Type[Tdp]],
-        nonspeech_tdps: List[Optional[Type[Tdp]]],
+        speech_tdps: List[Tdp],
+        silence_tdps: List[Tdp],
+        nonspeech_tdps: List[Optional[Tdp]],
+        altas: List[Optional[float]],
     ):
         self.am_scales = am_scales
         self.lm_scales = lm_scales
@@ -38,11 +41,12 @@ class RecognitionParameters:
         self.speech_tdps = speech_tdps
         self.silence_tdps = silence_tdps
         self.nonspeech_tdps = nonspeech_tdps
+        self.altas = altas
 
     def _get_iter(self):
         return [
-            (am, lm, pri, pron, tdp, speech, sil, nonspeech)
-            for am, lm, pri, pron, tdp, speech, sil, nonspeech in zip(
+            (am, lm, pri, pron, tdp, speech, sil, nonspeech, al)
+            for am, lm, pri, pron, tdp, speech, sil, nonspeech, al in product(
                 self.am_scales,
                 self.lm_scales,
                 self.prior_scales,
@@ -51,6 +55,7 @@ class RecognitionParameters:
                 self.speech_tdps,
                 self.silence_tdps,
                 self.nonspeech_tdps,
+                self.altas,
             )
         ]
 
@@ -67,9 +72,8 @@ class RecognitionParameters:
 
 @dataclass()
 class PriorPath:
-    acoustic_mixture_path: tk.Path
     prior_xml_path: tk.Path
-    priori_scale: float
+    acoustic_mixture_path: tk.Path
 
 
 class LookaheadOptions(TypedDict):
@@ -86,7 +90,6 @@ class SearchJobArgs(TypedDict):
 
 
 class AdvTreeSearchJobArgs(SearchJobArgs):
-    feature_scorer: Type[rasr.FeatureScorer]
     search_parameters: Dict[str, Any]
     lm_lookahead: bool
     lookahead_options: Optional[Union[LookaheadOptions, Dict]]
@@ -104,8 +107,17 @@ class Lattice2CtmArgs(TypedDict):
     extra_post_config: Optional[rasr.RasrConfig]
 
 
+class StmArgs(TypedDict):
+    exclude_non_speech: bool
+    non_speech_tokens: Optional[List[str]]
+    remove_punctuation: bool
+    punctuation_tokens: Optional[Union[str, List[str]]]
+    fix_whitespace: bool
+    name: str
+    tag_mapping: List[Tuple[Tuple[str, str, str], Dict[int, tk.Path]]]
+
+
 class ScliteScorerArgs(TypedDict):
-    ref: Optional[tk.Path]
     cer: bool
     sort_files: bool
     additional_args: Optional[List[str]]

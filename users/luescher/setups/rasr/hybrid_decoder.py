@@ -14,6 +14,14 @@ from i6_core.returnn.flow import (
 )
 
 from .base_decoder import BaseDecoder
+from .config.am_config import AmRasrConfig
+from .config.lex_config import LexiconRasrConfig
+from .config.lm_config import (
+    ArpaLmRasrConfig,
+    TfRnnLmRasrConfig,
+    SimpleTfNeuralLmRasrConfig,
+    CombineLmRasrConfig,
+)
 from .util.decode import (
     RecognitionParameters,
     SearchJobArgs,
@@ -22,6 +30,13 @@ from .util.decode import (
     OptimizeJobArgs,
     PriorPath,
 )
+
+LmConfig = Union[
+    ArpaLmRasrConfig,
+    TfRnnLmRasrConfig,
+    SimpleTfNeuralLmRasrConfig,
+    CombineLmRasrConfig,
+]
 
 
 class HybridDecoder(BaseDecoder):
@@ -67,8 +82,25 @@ class HybridDecoder(BaseDecoder):
 
         self.blas_lib = blas_lib
         self.search_numpy_blas = search_numpy_blas
-        self.required_native_ops = required_native_ops
+        self.required_native_ops = (
+            required_native_ops if required_native_ops is not None else []
+        )
         self.native_ops = []
+
+    def init_decoder(
+        self,
+        *,
+        acoustic_model_config: AmRasrConfig,
+        lexicon_config: LexiconRasrConfig,
+        extra_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
+        crp_name: str = "base",
+    ):
+        self.init_base_crp(
+            acoustic_model_config=acoustic_model_config.get(),
+            lexicon_config=lexicon_config.get(),
+            extra_configs=extra_configs if extra_configs is not None else None,
+            crp_name=crp_name,
+        )
 
     def _compile_necessary_native_ops(self):
         for op in self.required_native_ops:
@@ -89,25 +121,15 @@ class HybridDecoder(BaseDecoder):
         )
         return graph_job.out_graph
 
-    def _get_lm_image_and_global_cache(self):
-        pass
-
-    def _get_prior_file(self):
-        pass
-
-    def _build_recog_loop(self):
-        pass
-
     def recognition(
         self,
         name: str,
+        *,
         returnn_config: Union[returnn.ReturnnConfig, tk.Path],
         checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-        prior_paths: Dict[str, PriorPath],
-        feature_flow: rasr.FlowNetwork,
         recognition_parameters: RecognitionParameters,
-        lm_rasr_configs: Dict[str, rasr.RasrConfig],
-        *,
+        lm_configs: Dict[str, LmConfig],
+        prior_paths: Dict[str, PriorPath],
         search_job_args: Union[SearchJobArgs, Dict],
         lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
         scorer_args: Union[ScliteScorerArgs, Dict],
@@ -124,13 +146,16 @@ class HybridDecoder(BaseDecoder):
         if epochs is None:
             epochs = [checkpoints.keys()]
 
-        len_scorers = len(prior_paths.keys())
-
         for idx, ckpt in checkpoints.items():
-            if idx not in epochs:
+            if idx in epochs:
                 continue
-            for lm_name, lm_conf in lm_rasr_configs:
-                for s_name, p in prior_paths:
+            for lm_name, lm_conf in lm_configs.items():
+                for s_name, p in prior_paths.items():
+                    feature_scorer = rasr.PrecomputedHybridFeatureScorer(
+                        prior_mixtures=p.acoustic_mixture_path,
+                        prior_file=p.prior_xml_path,
+                    )
+
                     tf_flow = make_precomputed_hybrid_tf_feature_flow(
                         tf_graph=am_meta_graph,
                         tf_checkpoint=ckpt,
@@ -138,32 +163,27 @@ class HybridDecoder(BaseDecoder):
                         native_ops=self.native_ops,
                         tf_fwd_input_name=tf_fwd_input_name,
                     )
-                    feature_tf_flow = add_tf_flow_to_base_flow(
-                        base_flow=feature_flow,
-                        tf_flow=tf_flow,
-                        tf_fwd_input_name=tf_fwd_input_name,
-                    )
 
-                    feature_scorer = rasr.PrecomputedHybridFeatureScorer(
-                        prior_mixtures=p.acoustic_mixture_path,
-                        scale=1.0,
-                        priori_scale=p.priori_scale,
-                        prior_file=p.prior_xml_path,
-                    )
+                    for eval_c in self.eval_corpora:
+                        feature_tf_flow = add_tf_flow_to_base_flow(
+                            base_flow=self.feature_flows[eval_c],
+                            tf_flow=tf_flow,
+                            tf_fwd_input_name=tf_fwd_input_name,
+                        )
 
-                    exp_name = f"{name}_ep{idx:3f.}_lm{lm_name}"
-                    if len_scorers >= 1:
-                        exp_name += f"_{s_name}"
+                        exp_name = f"{name}_ep{idx:03}_lm-{lm_name}_{s_name}"
 
-                    self.decode(
-                        name=exp_name,
-                        feature_scorer=feature_scorer,
-                        feature_flow=feature_tf_flow,
-                        recognition_parameters=recognition_parameters,
-                        search_job_args=search_job_args,
-                        lat_2_ctm_args=lat_2_ctm_args,
-                        scorer_args=scorer_args,
-                        optimize_parameters=optimize_parameters,
-                        scorer_hyp_param_name=scorer_hyp_param_name,
-                        optimize_am_lm_scales=optimize_am_lm_scales,
-                    )
+                        self.decode(
+                            name=exp_name,
+                            corpus_key=eval_c,
+                            feature_scorer=feature_scorer,
+                            feature_flow=feature_tf_flow,
+                            recognition_parameters=recognition_parameters,
+                            lm_rasr_config=lm_conf.get(),
+                            search_job_args=search_job_args,
+                            lat_2_ctm_args=lat_2_ctm_args,
+                            scorer_args=scorer_args,
+                            optimize_parameters=optimize_parameters,
+                            scorer_hyp_param_name=scorer_hyp_param_name,
+                            optimize_am_lm_scales=optimize_am_lm_scales,
+                        )
