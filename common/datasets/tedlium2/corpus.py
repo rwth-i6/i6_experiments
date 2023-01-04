@@ -16,6 +16,11 @@ from .download import download_data_dict
 def get_bliss_corpus_dict(
     audio_format: str = "wav", output_prefix: str = "datasets"
 ) -> Dict[str, tk.Path]:
+    """
+    :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
+    :param output_prefix:
+    :return:
+    """
     assert audio_format in ["flac", "ogg", "wav", "sph", "nist"]
 
     output_prefix = os.path.join(output_prefix, "Ted-Lium-2")
