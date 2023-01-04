@@ -7,10 +7,9 @@ from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINAR
 
 
 def get_init_args():
-    dc_detection = False
     samples_options = {
         "audio_format": "wav",
-        "dc_detection": dc_detection,
+        "dc_detection": False,
     }
 
     am_args = {
@@ -51,7 +50,7 @@ def get_init_args():
                 "cepstrum_options": {
                     "normalize": False,
                     "outputs": 16,  # this is the actual output feature dimension
-                    "add_epsilon": not dc_detection,  # when there is no dc-detection we can have log(0) otherwise
+                    "add_epsilon": True,  # when there is no dc-detection we can have log(0) otherwise
                     "epsilon": 1e-10,
                 },
                 "fft_options": None,
