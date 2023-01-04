@@ -377,6 +377,7 @@ class TransformerDecoderArgs(DecoderArgs):
     replace_cross_att_w_masked_self_att: bool = False
     create_ilm_decoder: bool = False
     ilm_type: bool = None
+    ilm_args: Optional[dict] = None
 
 @dataclass
 class RNNDecoderArgs(DecoderArgs):

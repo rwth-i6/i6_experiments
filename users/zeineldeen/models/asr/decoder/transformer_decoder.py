@@ -14,7 +14,7 @@ class TransformerDecoder:
                dropout=0.1, att_dropout=0.0, softmax_dropout=0.0, embed_dropout=0.1, l2=0.0, embed_pos_enc=False,
                apply_embed_weight=False, label_smoothing=0.1, mhsa_init=None, mhsa_out_init=None,
                pos_enc=None, rel_pos_clipping=16, length_normalization=True,
-               replace_cross_att_w_masked_self_att=False, create_ilm_decoder=False, ilm_type=None):
+               replace_cross_att_w_masked_self_att=False, create_ilm_decoder=False, ilm_type=None, ilm_args=None):
 
     self.base_model = base_model
     self.enc_value_dim = base_model.enc_value_dim
@@ -63,6 +63,7 @@ class TransformerDecoder:
     # used for recognition with ILM
     self.create_ilm_decoder = create_ilm_decoder
     self.ilm_type = ilm_type
+    self.ilm_args = ilm_args or {}
     if self.create_ilm_decoder:
       self.replace_cross_att_w_masked_self_att = False  # keep original decoder as-is
 
@@ -70,19 +71,24 @@ class TransformerDecoder:
     self.subnet_unit = ReturnnNetwork()
     self.output_prob = None
 
-  def _create_masked_mhsa(self, subnet_unit: ReturnnNetwork, prefix, source):
+  def _create_masked_mhsa(self, subnet_unit: ReturnnNetwork, prefix, source, **kwargs):
     prefix = '{}_self_att'.format(prefix)
+
+    # for tuning mini-self-att ILM
+    att_num_heads = kwargs.get('att_num_heads', self.att_num_heads)
+    enc_key_dim = kwargs.get('enc_key_dim', self.enc_key_dim)
+    enc_key_per_head_dim = enc_key_dim // att_num_heads
 
     ln = subnet_unit.add_layer_norm_layer('{}_ln'.format(prefix), source)
 
     ln_rel_pos_enc = None
     if self.pos_enc == 'rel':
       ln_rel_pos_enc = self.subnet_unit.add_relative_pos_encoding_layer(
-        '{}_ln_rel_pos_enc'.format(prefix), ln, n_out=self.enc_key_per_head_dim, forward_weights_init=self.ff_init,
+        '{}_ln_rel_pos_enc'.format(prefix), ln, n_out=enc_key_per_head_dim, forward_weights_init=self.ff_init,
         clipping=self.rel_pos_clipping)
 
     att = subnet_unit.add_self_att_layer(
-      '{}_att'.format(prefix), ln, num_heads=self.att_num_heads, total_key_dim=self.enc_key_dim,
+      '{}_att'.format(prefix), ln, num_heads=att_num_heads, total_key_dim=enc_key_dim,
       n_out=self.enc_value_dim, attention_left_only=True, att_dropout=self.att_dropout,
       forward_weights_init=self.mhsa_init, l2=self.l2, key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None)
 
@@ -173,7 +179,7 @@ class TransformerDecoder:
     prefix = 'transformer_decoder_%02i' % i
     masked_mhsa = self._create_masked_mhsa(subnet_unit, prefix, source)
     if self.replace_cross_att_w_masked_self_att:
-      mhsa = self._create_masked_mhsa(subnet_unit, 'ilm_' + prefix, masked_mhsa)
+      mhsa = self._create_masked_mhsa(subnet_unit, 'ilm_' + prefix, masked_mhsa, **self.ilm_args)
     else:
       mhsa = self._create_mhsa(subnet_unit, prefix, masked_mhsa)
     ff = self._create_ff_module(subnet_unit, prefix, mhsa)
@@ -184,7 +190,7 @@ class TransformerDecoder:
     prefix = 'transformer_decoder_%02i' % i
     masked_mhsa = self._create_masked_mhsa(subnet_unit, 'prior_' + prefix, source)
     if self.ilm_type == 'mini_lstm':
-      mhsa = self._create_masked_mhsa(subnet_unit, 'mini_ilm_' + prefix, masked_mhsa)
+      mhsa = self._create_masked_mhsa(subnet_unit, 'mini_ilm_' + prefix, masked_mhsa, **self.ilm_args)
     else:
       assert self.ilm_type == 'zero'
       mhsa = subnet_unit.add_eval_layer('zero_att_%02i' % i, masked_mhsa, eval='tf.zeros_like(source(0))')
