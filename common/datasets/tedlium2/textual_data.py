@@ -14,11 +14,15 @@ def get_text_data_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
 
     lm_dir = download_data_dict(output_prefix=output_prefix)["lm_dir"]
 
-    txt_list = os.listdir(lm_dir)
+    text_corpora = [
+        "commoncrawl-9pc",
+        "europarl-v7-6pc",
+        "giga-fren-4pc",
+        "news-18pc",
+        "news-commentary-v8-9pc",
+        "yandex-1m-31pc",
+    ]
 
-    for t in txt_list:
-        name = os.path.splitext(os.path.basename(t))[0]
-        path = tk.Path(os.path.abspath(t), cached=True)
-        txt_dict[name] = path
+    txt_dict = {name: lm_dir.join_right("%.en.gz" % name) for name in text_corpora}
 
     return txt_dict
