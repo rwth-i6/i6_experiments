@@ -13,15 +13,15 @@ from typing import List, Tuple, Dict, Optional, Union
 from sisyphus import tk, gs
 from i6_core.tools import CloneGitRepositoryJob
 from i6_core.report import Report
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.pipeline import (
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.pipeline import (
     build_training_datasets, build_test_dataset, training, search, search_single, get_average_checkpoint_v2
 )
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.\
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
   attention_asr_config import create_config, ConformerEncoderArgs, RNNDecoderArgs
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.\
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
   base_config import get_lm_opts, apply_fairseq_init_to_conformer_encoder
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_attention.conformer_2022.\
-  feature_extraction_net import log10_net_10ms
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
+  feature_extraction_net import log10_net_10ms_ref
 
 
 # sisyphus related
@@ -158,16 +158,18 @@ def conformer_tf_features():
                     returnn_root)
       report_args = ({"name": ft_name.split("/")[-1] + "/default_last", "dev-other": wer, "ext_lm": lm_scale})
       report.add(report_args)
-    return train_job, report
+    return report
 
   # run_exp_v2(
-  #   exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args)
+  #   exp_prefix + "/" + "raw_log10", log10_net_10ms_ref, datasets=training_datasets_speedperturbed, train_args=args)
 
   args_bn_fix = copy.deepcopy(args)
   args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args
-  _, report = run_exp_v2(
-    exp_prefix + "/" + "raw_log10_bn_fix", log10_net_10ms, datasets=training_datasets_speedperturbed,
-    train_args=args_bn_fix)
+  report_list = []
+  report_list.append(run_exp_v2(
+    exp_prefix + "/" + "raw_log10_bn_fix", log10_net_10ms_ref, datasets=training_datasets_speedperturbed,
+    train_args=args_bn_fix))
+  report = Report.merge_reports(report_list)
   tk.register_report(
     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",
     values=report.get_values(),
