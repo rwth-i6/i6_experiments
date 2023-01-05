@@ -120,6 +120,10 @@ class ReturnnNetwork:
     self._net[name].update(kwargs)
     return name
 
+  def add_squeeze_layer(self, name, source, **kwargs):
+    self._net[name] = {'class': 'squeeze', 'from': source, **kwargs}
+    return name
+
   def add_rnn_cell_layer(self, name, source, n_out, unit='LSTMBlock', l2=0., unit_opts=None, weights_init=None,
                          **kwargs):
     d = {'class': 'rnn_cell', 'unit': unit, 'n_out': n_out, 'from': source}
@@ -271,6 +275,18 @@ class ReturnnNetwork:
 
   def add_reinterpret_data_layer(self, name, source, **kwargs):
     self._net[name] = {'class': 'reinterpret_data', 'from': source, **kwargs}
+    return name
+
+  def add_masked_computation_layer(self, name, source, mask, unit, **kwargs):
+    self._net[name] = {'class': 'masked_computation', 'from': source, 'mask': mask, 'unit': unit, **kwargs}
+    return name
+
+  def add_unmask_layer(self, name, source, mask, **kwargs):
+    self._net[name] = {'class': 'unmask', 'from': source, 'mask': mask, **kwargs}
+    return name
+
+  def add_window_layer(self, name, source, window_size, **kwargs):
+    self._net[name] = {'class': 'window', 'from': source, 'window_size': window_size, **kwargs}
     return name
 
   def add_conv_block(self, name, source, hwpc_sizes, l2, activation, dropout=0.0, init=None,
