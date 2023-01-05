@@ -21,7 +21,7 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
   base_config import get_lm_opts, apply_fairseq_init_to_conformer_encoder
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
-  feature_extraction_net import log10_net_10ms_ref
+  feature_extraction_net import log10_net_10ms_ref, log10_net_10ms, dim_tags
 
 
 # sisyphus related
@@ -169,6 +169,11 @@ def conformer_tf_features():
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10_bn_fix", log10_net_10ms_ref, datasets=training_datasets_speedperturbed,
     train_args=args_bn_fix))
+  args_fnet = copy.deepcopy(args_bn_fix)
+  args_fnet["network_prolog"] = dim_tags
+  report_list.append(run_exp_v2(
+    exp_prefix + "/" + "raw_log10_bn_fix_fnet", log10_net_10ms, datasets=training_datasets_speedperturbed,
+    train_args=args_fnet))
   report = Report.merge_reports(report_list)
   tk.register_report(
     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",

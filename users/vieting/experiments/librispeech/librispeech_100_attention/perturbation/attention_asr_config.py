@@ -1,3 +1,4 @@
+import black
 import numpy
 import copy
 from typing import Any, Dict, Optional
@@ -372,7 +373,7 @@ def create_config(
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         gradient_clip=0.0, specaug_str_func_opts=None,
         recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None,
-        config_override=None,
+        config_override=None, network_prolog="",
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -526,11 +527,19 @@ def create_config(
                 net["#copy_param_mode"] =  "subset"
                 if feature_extraction_net:
                     net.update(feature_extraction_net)
+                if network_prolog:
+                    content = f"{network_prolog}\n\nnetwork = {str(net)}"
+                    net = black.format_str(content, mode=black.Mode())
                 staged_network_dict[(idx*pretrain_reps) + 1] = net
                 idx += 1
-            staged_network_dict[(idx*pretrain_reps) + 1] = exp_config["network"]
-            exp_config.pop("network")
+            net = exp_config.pop("network")
+            if network_prolog:
+                content = f"{network_prolog}\n\nnetwork = {str(net)}"
+                net = black.format_str(content, mode=black.Mode())
+            staged_network_dict[(idx*pretrain_reps) + 1] = net
         else:
+            if network_prolog:
+                python_prolog += network_prolog
             if pretrain_opts is None:
                 pretrain_opts = {}
 
@@ -553,6 +562,8 @@ def create_config(
 
             pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
             python_prolog += [pretrain_algo_str]
+    elif network_prolog:
+        python_prolog += network_prolog
 
     if extra_str:
         extra_python_code += '\n' + extra_str
