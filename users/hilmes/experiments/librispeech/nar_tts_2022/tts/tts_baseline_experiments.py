@@ -253,7 +253,8 @@ def ctc_baseline(basic_experiments=False):
     checkout_folder_name="returnn_common",
   ).out_repository
   returnn_root = returnn_root_job.out_repository
-  for mode in ["vae", "vae_no_speaker_emb"]:
+  #for mode in ["vae", "vae_no_speaker_emb"]:, REMOVED due to space
+  for mode in []:
     exp_name = name + f"/{mode}_scale"
     vae_dataset = deepcopy(training_datasets)
     vae_dataset.datastreams["audio_features"].available_for_inference = True
@@ -400,7 +401,6 @@ def ctc_baseline(basic_experiments=False):
       speaker_embedding_size=512,
       calc_speaker_embedding=True,
       use_vae=True,
-      use_audio_data=True,
       scale_kl_loss=True,
       skip_speaker_embeddings=("speaker_emb" in mode),
       enc_lstm_size=512,
@@ -408,6 +408,7 @@ def ctc_baseline(basic_experiments=False):
       hidden_dim=512,
       variance_dim=1024,
       gauss_up=True,
+      use_audio_data=True,
     )
     gl_swer(
       name=exp_name + "/gl_swer",
@@ -446,7 +447,6 @@ def ctc_baseline(basic_experiments=False):
       speaker_embedding_size=512,
       calc_speaker_embedding=True,
       use_vae=True,
-      use_audio_data=True,
       scale_kl_loss=True,
       skip_speaker_embeddings=("speaker_emb" in mode),
       enc_lstm_size=512,
@@ -623,7 +623,7 @@ def ctc_baseline(basic_experiments=False):
       synthetic_data_dict[f"ctc_{mode}_{1.5}_{synth_method}"] = synth_corpus
 
     # for loss in [0.1, 0.01, 0]:, REMOVED because of space
-    for loss in [0.1]:
+    for loss in []:
       exp_name = name + f"/{mode}_scale_ls_{loss}"
       train_config = get_training_config(
         returnn_common_root=returnn_common_root if not mode == "vae_no_speaker_emb" else returnn_common_root_local,
@@ -730,7 +730,7 @@ def ctc_baseline(basic_experiments=False):
           **synth_kwargs,
         )
         synthetic_data_dict[f"ctc_{mode}_{loss}_{synth_method}"] = synth_corpus
-
+  """ REMOVED, due to space
   exp_name = name + "/vae_no_speaker_emb"
   vae_dataset = deepcopy(training_datasets)
   vae_dataset.datastreams["audio_features"].available_for_inference = True
@@ -884,7 +884,7 @@ def ctc_baseline(basic_experiments=False):
       checkpoint=train_job.out_checkpoints[200],
       config=forward_config,
     )
-
+  """
   return synthetic_data_dict
 
 

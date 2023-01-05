@@ -30,6 +30,14 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
     "https://github.com/rwth-i6/returnn",
     commit="aadac2637ed6ec00925b9debf0dbd3c0ee20d6a6",
   ).out_repository
+  returnn_common_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn_common",
+    commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+    checkout_folder_name="returnn_common",
+  ).out_repository
+  returnn_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+  ).out_repository
   for align_name in ["tts_align_sat"]:
     alignment = alignments[align_name]
     name = f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/gmm_align/{align_name}"
@@ -61,6 +69,12 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
     synthetic_data_dict = {}
     job_splits = 10
     for train_name, training in trainings.items():
+      if "_2.0" in train_name:
+        scale = 2.0
+      elif "_1.5" in train_name:
+        scale = 1.5
+      else:
+        scale = 1.0
       speaker_prior_hdf = None
       exp_name = name + train_name
       speaker_embedding_hdf = build_speaker_embedding_dataset(
@@ -70,6 +84,7 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
         datasets=training_datasets,
         prefix=exp_name,
         train_job=training,
+        speaker_embedding_size=int(256 * scale)
       )
       if "vae" in train_name:
         vae_dataset = deepcopy(training_datasets.cv)
@@ -103,40 +118,79 @@ def synthesize_100h_ls_360(trainings: Dict[str, ReturnnTrainingJob], alignments:
         synth_kwargs = deepcopy(kwargs)
         if "vae" in train_name:
           synth_kwargs["use_calculated_prior"] = True
-
-        synth_dataset = get_inference_dataset(
-          corpus,
-          returnn_root=returnn_root,
-          returnn_exe=returnn_exe,
-          datastreams=training_datasets.datastreams,
-          speaker_embedding_hdf=speaker_embedding_hdf,
-          process_corpus=False,
-          speaker_prior_hdf=speaker_prior_hdf if "vae" in train_name else None,
-          original_corpus=original_corpus,
-          segments=segments,
-        )
-
-        synth_corpus = synthesize_with_splits(
-          name=exp_name + f"/{synth_method}",
-          reference_corpus=reference_corpus.corpus_file,
-          corpus_name="train-clean-360",
-          job_splits=job_splits,
-          datasets=synth_dataset,
-          returnn_root=returnn_root,
-          returnn_exe=returnn_exe,
-          returnn_common_root=returnn_common_root,
-          checkpoint=training.out_checkpoints[200],
-          vocoder=default_vocoder,
-          embedding_size=256,
-          speaker_embedding_size=256,
-          gauss_up=("gauss" in train_name),
-          use_true_durations=("cheat_dur" in synth_method),
-          use_pitch_pred=("f0" in train_name),
-          use_energy_pred=("energy" in train_name),
-          energy_cheat=("cheat_energy" in synth_method),
-          pitch_cheat=("cheat_f0" in synth_method),
-          segments=segment_list,
-          **synth_kwargs,
-        )
-        synthetic_data_dict[f"ls360/100h/{train_name}"] = synth_corpus
+        if scale == 1.0:
+          synth_dataset = get_inference_dataset(
+            corpus,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            process_corpus=False,
+            speaker_prior_hdf=speaker_prior_hdf if "vae" in train_name else None,
+            original_corpus=original_corpus,
+            segments=segments,
+          )
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{synth_method}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-360",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root,
+            checkpoint=training.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=("gauss" in train_name),
+            use_true_durations=("cheat_dur" in synth_method),
+            use_pitch_pred=("f0" in train_name),
+            use_energy_pred=("energy" in train_name),
+            energy_cheat=("cheat_energy" in synth_method),
+            pitch_cheat=("cheat_f0" in synth_method),
+            segments=segment_list,
+            **synth_kwargs,
+          )
+          synthetic_data_dict[f"ls360/100h/{train_name}"] = synth_corpus
+        else:
+          synth_dataset = get_inference_dataset(
+            corpus,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            datastreams=training_datasets.datastreams,
+            speaker_embedding_hdf=speaker_embedding_hdf,
+            process_corpus=False,
+            speaker_prior_hdf=speaker_prior_hdf if "vae" in train_name else None,
+            original_corpus=original_corpus,
+            segments=segments,
+            speaker_embedding_size=int(256 * scale),
+          )
+          synth_corpus = synthesize_with_splits(
+            name=exp_name + f"/{synth_method}",
+            reference_corpus=reference_corpus.corpus_file,
+            corpus_name="train-clean-360",
+            job_splits=job_splits,
+            datasets=synth_dataset,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root_local,
+            checkpoint=training.out_checkpoints[200],
+            vocoder=default_vocoder,
+            embedding_size=int(256 * scale),
+            speaker_embedding_size=int(256 * scale),
+            gauss_up=("gauss" in train_name),
+            use_true_durations=("cheat_dur" in synth_method),
+            use_pitch_pred=("f0" in train_name),
+            use_energy_pred=("energy" in train_name),
+            energy_cheat=("cheat_energy" in synth_method),
+            pitch_cheat=("cheat_f0" in synth_method),
+            segments=segment_list,
+            enc_lstm_size=int(256 * scale),
+            dec_lstm_size=int(1024 * scale),
+            hidden_dim=int(256 * scale),
+            variance_dim=int(512 * scale),
+            **synth_kwargs,
+          )
+          synthetic_data_dict[f"ls360/100h/{train_name}"] = synth_corpus
     return synthetic_data_dict

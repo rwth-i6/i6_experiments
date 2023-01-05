@@ -797,6 +797,7 @@ def get_inference_dataset(
     segments: Optional[tk.Path] = None,
     shuffle_info: bool = True,
     return_mapping: bool = False,
+    original_speakers = False,
     alias: str = None,
 ):
     """
@@ -861,7 +862,9 @@ def get_inference_dataset(
             mapping_pkl = job.out_mapping
         else:
             mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=corpus_file, shuffle=shuffle_info).out_mapping
-    if speaker_embedding_hdf:
+    if original_speakers and speaker_embedding_hdf:
+        speaker_hdf_dataset = HDFDataset(files=[speaker_embedding_hdf])
+    elif speaker_embedding_hdf:
         speaker_embedding_job = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=corpus_file if original_corpus is None else original_corpus)
         if alias is not None:
             speaker_embedding_job.add_alias(alias + "/singularize_speaker_emb")

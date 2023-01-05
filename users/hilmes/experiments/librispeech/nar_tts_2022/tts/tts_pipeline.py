@@ -638,7 +638,7 @@ def var_rep_format(report) -> str:
                   Full / No Silence / Weighted / Weighted no Silence
         Features:{str(report["feat_var"])}, {str(report["feat_var_no_sil"])}, {str(report["feat_var_weight"])}, {str(report["feat_var_weight_no_sil"])}
         Durations:{str(report["dur_var"])}, {str(report["dur_var_no_sil"])}, {str(report["dur_var_weight"])}, {str(report["dur_var_weight_no_sil"])}
-        Excel: {report["feat_var"].get():.{4}f}/{str(report["feat_var_weight"])}, {str(report["feat_var_no_sil"])}/{str(report["feat_var_weight_no_sil"])}, {str(report["dur_var"])}/{str(report["dur_var_weight"])}, {str(report["dur_var_no_sil"])}/{str(report["dur_var_weight_no_sil"])} 
+        Excel: {report["feat_var"].get():.{4}f}/{report["feat_var_weight"].get():.{4}f}, {report["feat_var_no_sil"].get():.{4}f}/{report["feat_var_weight_no_sil"].get():.{4}f}, {report["dur_var"].get():.{4}f}/{report["dur_var_weight"].get():.{4}f}, {report["dur_var_no_sil"].get():.{4}f}/{report["dur_var_weight_no_sil"].get():.{4}f} 
 """
   )
   return "\n".join(out)
@@ -653,21 +653,23 @@ def calculate_feature_variance(
   prefix: str,
   training_datasets,
   durations=None,
+  speaker_embedding_hdf: Optional = None,
   **kwargs,
 ):
   if "speaker_embedding_size" in kwargs:
     speaker_embedding_size = kwargs["speaker_embedding_size"]
   else:
     speaker_embedding_size = 256
-  speaker_embedding_hdf = build_speaker_embedding_dataset(
-    returnn_common_root=returnn_common_root,
-    returnn_exe=returnn_exe,
-    returnn_root=returnn_root,
-    datasets=training_datasets,
-    prefix=prefix,
-    train_job=train_job,
-    speaker_embedding_size=speaker_embedding_size
-  )
+  if not speaker_embedding_hdf:
+    speaker_embedding_hdf = build_speaker_embedding_dataset(
+      returnn_common_root=returnn_common_root,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root,
+      datasets=training_datasets,
+      prefix=prefix,
+      train_job=train_job,
+      speaker_embedding_size=speaker_embedding_size
+    )
 
   synth_dataset = get_inference_dataset(
     corpus,
