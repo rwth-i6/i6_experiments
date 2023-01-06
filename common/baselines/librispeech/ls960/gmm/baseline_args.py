@@ -215,9 +215,9 @@ def get_triphone_args(feature_flow: str = "mfcc+context+lda") -> util.GmmTriphon
         "feature_flow": feature_flow,
         "splits": 10,
         "accs_per_split": 2,
-        "align_extra_rqmt": {"mem": 4},
-        "accumulate_extra_rqmt": {"mem": 4},
-        "split_extra_rqmt": {"mem": 4},
+        "align_extra_rqmt": {"mem": 6},
+        "accumulate_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     triphone_recognition_args = {
@@ -241,8 +241,8 @@ def get_triphone_args(feature_flow: str = "mfcc+context+lda") -> util.GmmTriphon
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
@@ -283,9 +283,9 @@ def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": f"{feature_flow}+vtln",
-            "accumulate_extra_rqmt": {"mem": 4},
-            "align_extra_rqmt": {"mem": 4},
-            "split_extra_rqmt": {"mem": 4},
+            "accumulate_extra_rqmt": {"mem": 6},
+            "align_extra_rqmt": {"mem": 6},
+            "split_extra_rqmt": {"mem": 6},
         },
     }
 
@@ -310,7 +310,7 @@ def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
+        "rtf": 50,
         "mem": 8,
         "parallelize_conversion": True,
     }
@@ -342,9 +342,9 @@ def get_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmSatArgs:
         "cache_regex": f"^{base_flow}.*$",
         "splits": 10,
         "accs_per_split": 2,
-        "accumulate_extra_rqmt": {"mem": 4},
-        "align_extra_rqmt": {"mem": 4},
-        "split_extra_rqmt": {"mem": 4},
+        "accumulate_extra_rqmt": {"mem": 6},
+        "align_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     sat_recognition_args = {
@@ -378,8 +378,8 @@ def get_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmSatArgs:
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
@@ -409,9 +409,9 @@ def get_vtln_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnSat
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
-        "accumulate_extra_rqmt": {"mem": 4},
-        "align_extra_rqmt": {"mem": 4},
-        "split_extra_rqmt": {"mem": 4},
+        "accumulate_extra_rqmt": {"mem": 6},
+        "align_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     vtln_sat_recognition_args = {
@@ -445,8 +445,8 @@ def get_vtln_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnSat
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
