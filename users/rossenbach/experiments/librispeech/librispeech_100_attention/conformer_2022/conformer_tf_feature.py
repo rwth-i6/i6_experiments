@@ -141,7 +141,26 @@ def conformer_tf_features():
                           returnn_root)
         return train_job
 
+    def run_extra_lm(ft_name, train_job, extraction_net, datasets, search_args, filename, lm_scale=0.4):
+        search_args = copy.deepcopy(search_args)
+        search_args["ext_lm_opts"] = copy.deepcopy(transf_lm_opts)
+        search_args["ext_lm_opts"]["preload_from_files"]["lm_model"]["filename"] = filename
+        search_args['ext_lm_opts']['lm_scale'] = lm_scale
+        returnn_config = create_config(training_datasets=datasets, **search_args, feature_extraction_net=extraction_net, is_recog=True)
+        returnn_config.config["batch_size"] = 10000*200  # smaller size for recognition
+        search_single(ft_name + "/default_last_ext_lm_%.2f" % lm_scale,
+                      returnn_config,
+                      train_job.out_checkpoints[250],
+                      test_dataset_tuples["dev-other"][0],
+                      test_dataset_tuples["dev-other"][1],
+                      returnn_exe,
+                      returnn_root)
+
     train_job_base = run_exp_v2(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed, train_args=args, report=report)
+    run_extra_lm(ft_name=exp_prefix + "/" + "raw_log10" + "/" + "new_lm", train_job=train_job_base, extraction_net=log10_net_10ms,
+                 datasets=training_datasets_speedperturbed,
+                 search_args=args,
+                 filename="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_core/returnn/training/ReturnnTrainingJob.5ay7wpGaxNPg/output/models/epoch.041")
 
     args_bn_fix = copy.deepcopy(args)
     args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args

@@ -11,6 +11,7 @@ from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJ
 from .default_tools import RETURNN_CPU_EXE, RETURNN_ROOT
 
 
+@tk.block()
 def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs=250):
     """
 
@@ -52,6 +53,7 @@ def get_best_checkpoint(training_job):
     return best_checkpoint_job.out_checkpoint
 
 
+@tk.block()
 def get_average_checkpoint(training_job, num_average:int = 4):
     """
     get an averaged checkpoint using n models
@@ -72,7 +74,7 @@ def get_average_checkpoint(training_job, num_average:int = 4):
     average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs, returnn_python_exe=RETURNN_CPU_EXE, returnn_root=RETURNN_ROOT)
     return average_checkpoint_job.out_checkpoint
 
-
+@tk.block()
 def search_single(
         prefix_name,
         returnn_config,
@@ -114,6 +116,7 @@ def search_single(
     return wer.out_wer
 
 
+@tk.block()
 def search(prefix_name, returnn_config, checkpoint, test_dataset_tuples, returnn_exe, returnn_root):
     """
 

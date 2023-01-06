@@ -1,3 +1,5 @@
+from sisyphus import tk
+
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, Any
@@ -48,7 +50,7 @@ class TrainingDatasets:
     devtrain: Dataset
     extern_data: Dict[str, Dict[str, Any]]
 
-
+@tk.block()
 def build_training_datasets(
         returnn_python_exe, returnn_root, output_path,
         bpe_size=10000,

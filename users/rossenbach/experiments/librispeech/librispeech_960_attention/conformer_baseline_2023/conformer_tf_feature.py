@@ -111,11 +111,11 @@ def conformer_baseline():
     lstm_training_args['name'] = name
 
     exp_args = copy.deepcopy({**lstm_training_args, "encoder_args": conformer_enc_args, "decoder_args": rnn_dec_args})
-    train_job_base = run_exp(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=train_data, train_args=exp_args)
+    # train_job_base = run_exp(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=train_data, train_args=exp_args)
 
-    exp_args_retrain = copy.deepcopy(exp_args)
-    exp_args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=exp_args_retrain)
+    # exp_args_retrain = copy.deepcopy(exp_args)
+    # exp_args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
+    # run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=exp_args_retrain)
 
     # ---------------------------------------------------------------------------------------------------------------- #
     # Transformer Decoder Setup
@@ -133,8 +133,8 @@ def conformer_baseline():
     exp_args = copy.deepcopy({**trafo_training_args, "encoder_args": conformer_enc_args, "decoder_args": trafo_dec_args})
 
     train_job_base = run_exp(exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=train_data, train_args=exp_args)
-    train_job_base_lbn = run_exp(exp_prefix + "/" + "raw_log10_bnfeat", log10_net_10ms_long_bn, datasets=train_data, train_args=exp_args)
+    # train_job_base_lbn = run_exp(exp_prefix + "/" + "raw_log10_bnfeat", log10_net_10ms_long_bn, datasets=train_data, train_args=exp_args)
 
     args_retrain = copy.deepcopy(exp_args)
     args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=args_retrain)
+    # run_exp(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=train_data_retrain, train_args=args_retrain)
