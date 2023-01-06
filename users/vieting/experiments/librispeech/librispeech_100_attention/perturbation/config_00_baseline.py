@@ -105,7 +105,8 @@ def conformer_tf_features():
   local_training_args['batch_size'] = 12000 * 200  # frames * samples per frame
 
   exp_prefix = prefix_name + "/" + name
-  args = copy.deepcopy({**local_training_args, "encoder_args": local_conformer_enc_args, "decoder_args": rnn_dec_args})
+  args = copy.deepcopy(
+    {**local_training_args, "encoder_args": conformer_enc_fixed_bn_args, "decoder_args": rnn_dec_args})
   args['name'] = name
   returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                        commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
@@ -119,28 +120,38 @@ def conformer_tf_features():
     returnn_search_config = create_config(training_datasets=datasets, **search_args,
                                           feature_extraction_net=search_extraction_net, is_recog=True)
     train_job = training(ft_name, returnn_config, returnn_exe, returnn_root, num_epochs=250)
-    # average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
-    # from i6_core.returnn.training import GetBestTFCheckpointJob
-    # best_checkpoint_job = GetBestTFCheckpointJob(
-    #   train_job.out_model_dir,
-    #   train_job.out_learning_rates,
-    #   key="dev_score_output/output_prob",
-    #   index=0)
-    #
-    # search(
-    #   ft_name + "/default_best", returnn_search_config,
-    #   best_checkpoint_job.out_checkpoint, test_dataset_tuples, returnn_exe, returnn_root)
-    report_template, report_values = search(
-      ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250],
-      test_dataset_tuples, returnn_exe, returnn_root)
-    report_args = {k.replace(ft_name + "/default_last", "")[:-4]: v for k, v in report_values.items()}
-    report_args.update({"name": ft_name.split("/")[-1] + "/default_last"})
-    report.add(report_args)
-    # search(
-    #   ft_name + "/average_4", returnn_search_config, average, test_dataset_tuples,
-    #   returnn_exe, returnn_root)
+    average = get_average_checkpoint_v2(train_job, returnn_exe=returnn_exe, returnn_root=returnn_root, num_average=4)
+    from i6_core.returnn.training import GetBestTFCheckpointJob
+    best_checkpoint_job = GetBestTFCheckpointJob(
+      train_job.out_model_dir,
+      train_job.out_learning_rates,
+      key="dev_score_output/output_prob",
+      index=0)
 
-    ext_lm_search_args = copy.deepcopy(args)
+    exp_name = ft_name.split("/")[-1]
+    # best checkpoint
+    _, report_values = search(
+      ft_name + "/default_best", returnn_search_config,
+      best_checkpoint_job.out_checkpoint, test_dataset_tuples, returnn_exe, returnn_root, mail=False)
+    report_args = {k.replace(ft_name + "/default_best", "")[:-4]: v for k, v in report_values.items()}
+    report_args.update({"name": exp_name, "checkpoint": "best"})
+    report.add(report_args)
+    # last checkpoint
+    _, report_values = search(
+      ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250],
+      test_dataset_tuples, returnn_exe, returnn_root, mail=False)
+    report_args = {k.replace(ft_name + "/default_last", "")[:-4]: v for k, v in report_values.items()}
+    report_args.update({"name": exp_name, "checkpoint": "last"})
+    report.add(report_args)
+    # averaged checkpoint
+    _, report_values = search(
+      ft_name + "/average_4", returnn_search_config, average, test_dataset_tuples,
+      returnn_exe, returnn_root, mail=False)
+    report_args = {k.replace(ft_name + "/average_4", "")[:-4]: v for k, v in report_values.items()}
+    report_args.update({"name": exp_name, "checkpoint": "average_4"})
+    report.add(report_args)
+
+    ext_lm_search_args = copy.deepcopy(search_args)
     ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
 
     for lm_scale in [0.36, 0.38, 0.4, 0.42, 0.44]:
@@ -156,24 +167,19 @@ def conformer_tf_features():
                     test_dataset_tuples["dev-other"][1],
                     returnn_exe,
                     returnn_root)
-      report_args = ({"name": ft_name.split("/")[-1] + "/default_last", "dev-other": wer, "ext_lm": lm_scale})
+      report_args = ({"name": exp_name, "checkpoint": "last", "dev-other": wer, "ext_lm": lm_scale})
       report.add(report_args)
     return report
 
-  # run_exp_v2(
-  #   exp_prefix + "/" + "raw_log10", log10_net_10ms_ref, datasets=training_datasets_speedperturbed, train_args=args)
-
-  args_bn_fix = copy.deepcopy(args)
-  args_bn_fix["encoder_args"] = conformer_enc_fixed_bn_args
   report_list = []
   report_list.append(run_exp_v2(
-    exp_prefix + "/" + "raw_log10_bn_fix", log10_net_10ms_ref, datasets=training_datasets_speedperturbed,
-    train_args=args_bn_fix))
-  args_fnet = copy.deepcopy(args_bn_fix)
-  args_fnet["network_prolog"] = dim_tags
+    exp_prefix + "/" + "raw_log10_ref", log10_net_10ms_ref, datasets=training_datasets_speedperturbed,
+    train_args=args))
+  args_base = copy.deepcopy(args)
+  args_base["network_prolog"] = dim_tags
   report_list.append(run_exp_v2(
-    exp_prefix + "/" + "raw_log10_bn_fix_fnet", log10_net_10ms, datasets=training_datasets_speedperturbed,
-    train_args=args_fnet))
+    exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed,
+    train_args=args_base))
   report = Report.merge_reports(report_list)
   tk.register_report(
     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",
