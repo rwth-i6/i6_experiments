@@ -119,7 +119,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, extra_exps=Fals
     return nn_args
 
 
-def get_feature_extraction_args():
+def get_feature_extraction_args(fix_features_output=False):
     dc_detection = False
     samples_options = {
         'audio_format': "wav",
@@ -147,6 +147,7 @@ def get_feature_extraction_args():
                 "without_samples": False,
                 "samples_options": samples_options,
                 "normalization_options": {},
+                "add_features_output": fix_features_output,
             }
         },
     }

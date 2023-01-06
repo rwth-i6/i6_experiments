@@ -20,7 +20,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 from .default_tools import RETURNN_COMMON
 
 
-def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, **net_kwargs):
+def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, **net_kwargs):
     evaluation_epochs  = list(range(num_epochs, num_epochs + 1, 10))
 
     returnn_configs = get_rc_returnn_configs(
@@ -38,15 +38,18 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, **net_kwargs):
     training_args = {
         "log_verbosity": 5,
         "num_epochs": num_epochs,
-        "num_classes": num_outputs,
         "save_interval": 1,
         "keep_epochs": None,
         "time_rqmt": 168,
         "mem_rqmt": 8,
         "cpu_rqmt": 3,
-        "partition_epochs": {"train": 40, "dev": 20},
-        "use_python_control": False,
     }
+
+    if use_rasr_returnn_training:
+        training_args["num_classes"] = num_outputs
+        training_args["use_python_control"] = False
+        training_args["partition_epochs"] = {"train": 40, "dev": 20}
+
     recognition_args = {
         "dev-other": {
             "epochs": evaluation_epochs,

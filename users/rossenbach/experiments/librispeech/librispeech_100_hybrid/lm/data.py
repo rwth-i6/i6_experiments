@@ -83,7 +83,7 @@ class LmDataset(ControlDataset):
 def build_training_data(output_prefix="", partition_epoch=20):
     # conversion factor for PPL computation is 1.448
     ls_bliss_corpus_dict = get_bliss_corpus_dict()
-    lm_vocab = get_lm_vocab()
+    lm_vocab = get_lm_vocab(output_prefix=output_prefix)
     label_datastream = LmLabelDatastream(
         available_for_inference=True,
         lm_index_vocab=lm_vocab
