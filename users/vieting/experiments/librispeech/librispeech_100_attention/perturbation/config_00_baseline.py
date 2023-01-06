@@ -181,29 +181,61 @@ def conformer_tf_features():
     return report
 
   report_list = []
+  # ref
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10_ref", log10_net_10ms_ref, datasets=training_datasets_speedperturbed,
     train_args=args))
+  # baseline with custom log mel network
   args_base = copy.deepcopy(args)
   args_base["network_prolog"] = dim_tags
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed,
     train_args=args_base))
+  # no SpecAugment
   args_no_spec = copy.deepcopy(args_base)
   args_no_spec["encoder_args"].specaug = False
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10_nospec", log10_net_10ms, datasets=training_datasets_speedperturbed,
     train_args=args_no_spec))
+  # no speed perturbation
   args_no_speed = copy.deepcopy(args_base)
   args_no_speed["speed_pert"] = False
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10_nospeed", log10_net_10ms, datasets=training_datasets,
     train_args=args_no_speed))
+  # no Specaugment and no speed perturbation
   args_no_speed_no_spec = copy.deepcopy(args_no_speed)
   args_no_speed_no_spec["encoder_args"].specaug = False
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10_nospec_nospeed", log10_net_10ms, datasets=training_datasets,
     train_args=args_no_speed_no_spec))
+  # perturbation of center frequencies, no Specaugment and no speed perturbation
+  args_no_speed_no_spec = copy.deepcopy(args_no_speed_no_spec)
+  for stddev in [0.01, 0.02, 0.04]:
+    feat_net = copy.deepcopy(log10_net_10ms)
+    subnet = feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
+    subnet["center_freqs_clean"] = copy.deepcopy(subnet["center_freqs"])
+    subnet["center_freqs"] = {
+      "class": "eval",
+      "eval": f"source(0) * (1 + tf.random.normal((82,), mean=0.0, stddev={stddev}, name='center_freqs_noise'))",
+      "from": "center_freqs_clean"}
+    feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
+    report_list.append(run_exp_v2(
+      exp_prefix + "/" + f"raw_log10_nospec_nospeed_pert_cfmul{stddev}", feat_net, datasets=training_datasets,
+      train_args=args_no_speed_no_spec, report_args={"pert_cf": f"mul{stddev}"}))
+  for stddev in [1.0, 2.0, 4.0]:
+    feat_net = copy.deepcopy(log10_net_10ms)
+    subnet = feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
+    subnet["center_freqs_clean"] = copy.deepcopy(subnet["center_freqs"])
+    subnet["center_freqs"] = {
+      "class": "eval",
+      "eval": f"source(0) + tf.random.normal((82,), mean=0.0, stddev={stddev}, name='center_freqs_noise')",
+      "from": "center_freqs_clean"}
+    feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
+    report_list.append(run_exp_v2(
+      exp_prefix + "/" + f"raw_log10_nospec_nospeed_pert_cfadd{stddev}", feat_net, datasets=training_datasets,
+      train_args=args_no_speed_no_spec, report_args={"pert_cf": f"add{stddev}"}))
+
   report = Report.merge_reports(report_list)
   tk.register_report(
     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",
