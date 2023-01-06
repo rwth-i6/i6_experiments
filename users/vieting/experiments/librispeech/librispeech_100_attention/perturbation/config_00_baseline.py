@@ -39,6 +39,8 @@ def conformer_tf_features():
   training_datasets_speedperturbed = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name,
                                                              bpe_size=2000, use_raw_features=True,
                                                              link_speed_perturbation=True)
+  training_datasets = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name,
+                                              bpe_size=2000, use_raw_features=True)
   # retrain dataset has curriculum options disabled
   training_datasets_speedperturbed_retrain = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name,
                                                                      bpe_size=2000, use_raw_features=True,
@@ -180,6 +182,21 @@ def conformer_tf_features():
   report_list.append(run_exp_v2(
     exp_prefix + "/" + "raw_log10", log10_net_10ms, datasets=training_datasets_speedperturbed,
     train_args=args_base))
+  args_no_spec = copy.deepcopy(args_base)
+  args_no_spec["encoder_args"].specaug = False
+  report_list.append(run_exp_v2(
+    exp_prefix + "/" + "raw_log10_nospec", log10_net_10ms, datasets=training_datasets_speedperturbed,
+    train_args=args_no_spec))
+  args_no_speed = copy.deepcopy(args_base)
+  args_no_speed["speed_pert"] = False
+  report_list.append(run_exp_v2(
+    exp_prefix + "/" + "raw_log10_nospeed", log10_net_10ms, datasets=training_datasets,
+    train_args=args_no_speed))
+  args_no_speed_no_spec = copy.deepcopy(args_no_speed)
+  args_no_speed_no_spec["encoder_args"].specaug = False
+  report_list.append(run_exp_v2(
+    exp_prefix + "/" + "raw_log10_nospec_nospeed", log10_net_10ms, datasets=training_datasets,
+    train_args=args_no_speed_no_spec))
   report = Report.merge_reports(report_list)
   tk.register_report(
     f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",
