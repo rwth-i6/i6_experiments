@@ -1,11 +1,6 @@
 SUBDIR_PREFIX = "Switchboard"
 
-durations = {
-    "train": 311.62,
-    "hub5e00": 3.61,
-    "hub5e01": 6.17,
-    "rt03s": 6.27
-}
+durations = {"train": 311.62, "hub5e00": 3.61, "hub5e01": 6.17, "rt03s": 6.27}
 
 concurrent = {
     "train": 60,

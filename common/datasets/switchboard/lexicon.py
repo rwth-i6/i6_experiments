@@ -1,16 +1,15 @@
 """
 Functions related to lexicon creation
 """
-__all__ = [
-    "get_special_lemma_lexicon",
-    "get_text_lexicon",
-    "get_bliss_lexicon"
-]
+__all__ = ["get_special_lemma_lexicon", "get_text_lexicon", "get_bliss_lexicon"]
 from sisyphus import tk
 
 import os
 
-from i6_core.datasets.switchboard import DownloadSwitchboardTranscriptionAndDictJob, CreateSwitchboardLexiconTextFileJob
+from i6_core.datasets.switchboard import (
+    DownloadSwitchboardTranscriptionAndDictJob,
+    CreateSwitchboardLexiconTextFileJob,
+)
 from i6_core.lexicon import LexiconFromTextFileJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.lib import lexicon
@@ -98,10 +97,12 @@ def get_text_lexicon(subdir_prefix: str = SUBDIR_PREFIX):
         os.path.join(subdir_prefix, "create_lexicon_text_file_job")
     )
     from i6_core.text.processing import PipelineJob
+
     lowercase_raw_lexicon_file_job = PipelineJob(
-        mapped_raw_lexicon_file_job.out_dict, ["tr '[:upper:]' '[:lower:]'", "sort -u"],
+        mapped_raw_lexicon_file_job.out_dict,
+        ["tr '[:upper:]' '[:lower:]'", "sort -u"],
         zip_output=False,
-        mini_task=True
+        mini_task=True,
     )
     lowercase_raw_lexicon_file_job.add_alias(
         os.path.join(subdir_prefix, "lowercase_lexicon_text_file_job")
@@ -129,9 +130,7 @@ def get_bliss_lexicon(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
 
     mapped_raw_lexicon_file = get_text_lexicon(subdir_prefix=subdir_prefix)
 
-    bliss_lexicon = LexiconFromTextFileJob(
-        mapped_raw_lexicon_file, compressed=True
-    )
+    bliss_lexicon = LexiconFromTextFileJob(mapped_raw_lexicon_file, compressed=True)
     bliss_lexicon.add_alias(os.path.join(subdir_prefix, "create_lexicon_job"))
 
     merge_lexicon_job = MergeLexiconJob(

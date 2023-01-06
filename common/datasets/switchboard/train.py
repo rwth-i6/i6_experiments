@@ -5,7 +5,7 @@ __all__ = [
     "get_train_bliss_corpus_ldc",
     "get_train_bliss_corpus_i6_legacy",
     "get_train_corpus_object_ldc",
-    "get_train_corpus_object_i6_legacy"
+    "get_train_corpus_object_i6_legacy",
 ]
 
 import os
@@ -20,7 +20,7 @@ from i6_core.datasets.switchboard import (
     SwitchboardSphereToWaveJob,
     DownloadSwitchboardSpeakersStatsJob,
     CreateSwitchboardSpeakersListJob,
-    CreateLDCSwitchboardSpeakerListJob
+    CreateLDCSwitchboardSpeakerListJob,
 )
 
 from .constants import SUBDIR_PREFIX
@@ -28,9 +28,10 @@ from .paths import SWITCHBOARD1_PATH, SWITCHBOARD1_LEGACY_PATH
 
 
 def get_train_bliss_corpus(
-        audio_dir: tk.Path,
-        skip_empty_ldc_file: bool = False,
-        subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
+    audio_dir: tk.Path,
+    skip_empty_ldc_file: bool = False,
+    subdir_prefix: str = SUBDIR_PREFIX,
+) -> tk.Path:
     """
     Returns Switchboard training bliss corpus
 
@@ -49,9 +50,14 @@ def get_train_bliss_corpus(
         audio_dir=audio_dir,
         trans_dir=swb_trans_and_dict.out_trans_dir,
         speakers_list_file=speakers_list,
-        skip_empty_ldc_file=skip_empty_ldc_file
+        skip_empty_ldc_file=skip_empty_ldc_file,
     )
-    corpus.add_alias(os.path.join(subdir_prefix, "create_train_corpus_job_skip_empty_%s" % str(skip_empty_ldc_file)))
+    corpus.add_alias(
+        os.path.join(
+            subdir_prefix,
+            "create_train_corpus_job_skip_empty_%s" % str(skip_empty_ldc_file),
+        )
+    )
 
     return corpus.out_corpus
 
@@ -116,13 +122,17 @@ def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
     return corpus_object
 
 
-def get_train_corpus_object_i6_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> CorpusObject:
+def get_train_corpus_object_i6_legacy(
+    subdir_prefix: str = SUBDIR_PREFIX,
+) -> CorpusObject:
     """
     :param subdir_prefix:
     :return:
     """
     corpus_object = CorpusObject()
-    corpus_object.corpus_file = get_train_bliss_corpus_i6_legacy(subdir_prefix=subdir_prefix)
+    corpus_object.corpus_file = get_train_bliss_corpus_i6_legacy(
+        subdir_prefix=subdir_prefix
+    )
     corpus_object.audio_format = "wav"
     corpus_object.audio_dir = None
     corpus_object.duration = 311.78
@@ -156,7 +166,7 @@ def get_speakers_list_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     """
     caller_tab_job = DownloadJob(
         url="https://catalog.ldc.upenn.edu/docs/LDC97S62/caller_tab.csv",
-        checksum="c0c73336973403e95f47f347a2b5c43e344f94408f8782aa8812cfb2a7688442"
+        checksum="c0c73336973403e95f47f347a2b5c43e344f94408f8782aa8812cfb2a7688442",
     )
     caller_tab_job.add_alias(os.path.join(subdir_prefix, "download_caller_tab"))
     caller_tab = caller_tab_job.out_file
@@ -172,8 +182,7 @@ def get_speakers_list_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     conv_tab.hash_overwrite = "LDC-swbd1-release2-conv_tab.csv"
 
     speaker_list_job = CreateLDCSwitchboardSpeakerListJob(
-        caller_tab_file=caller_tab,
-        conv_tab_file=conv_tab
+        caller_tab_file=caller_tab, conv_tab_file=conv_tab
     )
     speaker_list_job.add_alias(os.path.join(subdir_prefix, "create_ldc_speaker_list"))
     return speaker_list_job.out_speakers_list
