@@ -302,6 +302,7 @@ class ConformerEncoderArgs(EncoderArgs):
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
     stoc_layers_prob: float = 0.0
+    specaug: bool = True
 
 
 class DecoderArgs:

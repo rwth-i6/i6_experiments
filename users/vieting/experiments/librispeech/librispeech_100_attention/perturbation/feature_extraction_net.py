@@ -66,6 +66,8 @@ center_freqs_dim = center_freqs_range_dim - 2
 fft_bins_dim = CodeWrapper("fft_bins_dim")
 center_freqs_dim = CodeWrapper("center_freqs_dim")
 center_freqs_range_dim = CodeWrapper("center_freqs_range_dim")
+# fix the following here so the order of the set cannot change in string serialization and break the hash
+mel_filterbank_out_shape = CodeWrapper("{fft_bins_dim, center_freqs_dim}")
 
 log10_net_10ms = {
     "log_mel_features": {
@@ -160,22 +162,22 @@ log10_net_10ms = {
                         "class": "combine",
                         "kind": "sub",
                         "from": ["center_freqs_l", "fft_bins"],
-                        "out_shape": {center_freqs_dim, fft_bins_dim},
+                        "out_shape": mel_filterbank_out_shape,
                     },
                     "mel_filterbank_num_r": {
                         "class": "combine",
                         "kind": "sub",
                         "from": ["fft_bins", "center_freqs_r"],
-                        "out_shape": {center_freqs_dim, fft_bins_dim},
+                        "out_shape": mel_filterbank_out_shape,
                     },
                     "mel_filterbank_l": {
                         "class": "combine", "kind": "truediv",
-                        "out_shape": {fft_bins_dim, center_freqs_dim},
+                        "out_shape": mel_filterbank_out_shape,
                         "from": ["mel_filterbank_num_l", "center_freqs_diff_l"],
                     },
                     "mel_filterbank_r": {
                         "class": "combine", "kind": "truediv",
-                        "out_shape": {fft_bins_dim, center_freqs_dim},
+                        "out_shape": mel_filterbank_out_shape,
                         "from": ["mel_filterbank_num_r", "center_freqs_diff_r"],
                     },
                     "mel_filterbank_lr": {
