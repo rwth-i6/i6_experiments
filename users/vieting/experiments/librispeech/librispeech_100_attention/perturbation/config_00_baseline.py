@@ -113,8 +113,15 @@ def conformer_tf_features():
   returnn_root = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                        commit="3f62155a08722310f51276792819b3c7c64ad356").out_repository
 
-  def run_exp_v2(ft_name, feature_extraction_net, datasets, train_args, search_args=None, search_extraction_net=None):
+  def run_exp_v2(
+    ft_name, feature_extraction_net, datasets, train_args, search_args=None, search_extraction_net=None,
+    report_args=None,
+  ):
     report = Report(columns_start=["name"], columns_end=["dev-clean", "dev-other", "test-clean", "test-other"])
+    report_args = {
+      "specaug": train_args["encoder_args"].specaug,
+      "speed": "U(0.9-1.1)" if train_args["speed_pert"] else "1.0",
+      **(report_args or {})}
     search_args = search_args if search_args is not None else train_args
     search_extraction_net = search_extraction_net if search_extraction_net is not None else feature_extraction_net
     returnn_config = create_config(training_datasets=datasets, **train_args,
@@ -135,23 +142,23 @@ def conformer_tf_features():
     _, report_values = search(
       ft_name + "/default_best", returnn_search_config,
       best_checkpoint_job.out_checkpoint, test_dataset_tuples, returnn_exe, returnn_root, mail=False)
-    report_args = {k.replace(ft_name + "/default_best", "")[:-4]: v for k, v in report_values.items()}
-    report_args.update({"name": exp_name, "checkpoint": "best"})
-    report.add(report_args)
+    rep_args = {k.replace(ft_name + "/default_best", "")[:-4]: v for k, v in report_values.items()}
+    rep_args.update({"name": exp_name, "checkpoint": "best", **report_args})
+    report.add(rep_args)
     # last checkpoint
     _, report_values = search(
       ft_name + "/default_last", returnn_search_config, train_job.out_checkpoints[250],
       test_dataset_tuples, returnn_exe, returnn_root, mail=False)
-    report_args = {k.replace(ft_name + "/default_last", "")[:-4]: v for k, v in report_values.items()}
-    report_args.update({"name": exp_name, "checkpoint": "last"})
-    report.add(report_args)
+    rep_args = {k.replace(ft_name + "/default_last", "")[:-4]: v for k, v in report_values.items()}
+    rep_args.update({"name": exp_name, "checkpoint": "last", **report_args})
+    report.add(rep_args)
     # averaged checkpoint
     _, report_values = search(
       ft_name + "/average_4", returnn_search_config, average, test_dataset_tuples,
       returnn_exe, returnn_root, mail=False)
-    report_args = {k.replace(ft_name + "/average_4", "")[:-4]: v for k, v in report_values.items()}
-    report_args.update({"name": exp_name, "checkpoint": "average_4"})
-    report.add(report_args)
+    rep_args = {k.replace(ft_name + "/average_4", "")[:-4]: v for k, v in report_values.items()}
+    rep_args.update({"name": exp_name, "checkpoint": "average_4", **report_args})
+    report.add(rep_args)
 
     ext_lm_search_args = copy.deepcopy(search_args)
     ext_lm_search_args["ext_lm_opts"] = transf_lm_opts
@@ -169,8 +176,8 @@ def conformer_tf_features():
                     test_dataset_tuples["dev-other"][1],
                     returnn_exe,
                     returnn_root)
-      report_args = ({"name": exp_name, "checkpoint": "last", "dev-other": wer, "ext_lm": lm_scale})
-      report.add(report_args)
+      rep_args = {"name": exp_name, "checkpoint": "last", "dev-other": wer, "ext_lm": lm_scale, **report_args}
+      report.add(rep_args)
     return report
 
   report_list = []
