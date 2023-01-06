@@ -23,6 +23,6 @@ def get_text_data_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
         "yandex-1m-31pc",
     ]
 
-    txt_dict = {name: lm_dir.join_right("%.en.gz" % name) for name in text_corpora}
+    txt_dict = {name: lm_dir.join_right("%s.en.gz" % name) for name in text_corpora}
 
     return txt_dict
