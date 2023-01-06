@@ -15,7 +15,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 
-def get_init_args():
+def get_init_args() -> util.RasrInitArgs:
     dc_detection = False
     samples_options = {
         "audio_format": "wav",
@@ -37,7 +37,7 @@ def get_init_args():
             0.0,
             3.0,
             "infinity",
-            6.0,
+            21.0,
         ),  # only used when tying_type = global-and-nonword
     }
 
@@ -89,7 +89,8 @@ def get_init_args():
     )
 
 
-def get_monophone_args():
+def get_monophone_args(feature_flow: str = "mfcc+deriv+norm") -> util.GmmMonophoneArgs:
+
     linear_alignment_args = {
         "minimum_segment_length": 0,
         "maximum_segment_length": 6000,
@@ -105,8 +106,8 @@ def get_monophone_args():
 
     monophone_training_args = {
         "name": "mono",
-        "feature_flow": "mfcc+deriv+norm",
-        "feature_energy_flow_key": "energy,mfcc+deriv+norm",
+        "feature_flow": feature_flow,
+        "feature_energy_flow_key": "energy," + feature_flow,
         "align_iter": 75,
         "splits": 10,
         "accs_per_split": 2,
@@ -119,7 +120,7 @@ def get_monophone_args():
         "lm_scales": [10],
         "optimize_am_lm_scale": True,
         # meta.System.recog() args:
-        "feature_flow": "mfcc+deriv+norm",
+        "feature_flow": feature_flow,
         "pronunciation_scales": [1.0],
         "lm_lookahead": True,
         "lookahead_options": None,
@@ -130,10 +131,13 @@ def get_monophone_args():
             "beam-pruning": 15.0,
             "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 15000,
+            "word-end-pruning-limit": 10000,
         },
         "parallelize_conversion": False,
-        "lattice_to_ctm_kwargs": {},
+        "lattice_to_ctm_kwargs": {
+            "fill_empty_segments": False,
+            "best_path_algo": "bellman-ford",
+        },
         "rtf": 20,
         "mem": 4,
         "use_gpu": False,
@@ -149,18 +153,19 @@ def get_cart_args(
     max_leaves: int = 12001,
     min_obs: int = 1000,
     hmm_states: int = 3,
+    n_phones: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
-):
+) -> util.GmmCartArgs:
     """
 
     :param use_stress_marker: use ARPAbet stress marker, please also check for correct lexicon then
-    :param max_leaves:
-    :param min_obs:
-    :param hmm_states:
+    :param max_leaves: total number of final CART states
+    :param min_obs: minimum observation count needed for a label
+    :param hmm_states: number of states per label for the HMM-topology
+    :param n_phones: phoneme context per label, use 3 for triphone and 2 for diphone context
     :param feature_flow:
-    :param add_unknown:
-    :return:
+    :param add_unknown: set to true if an unknown phoneme exists
     """
 
     CartQuestions = (
@@ -171,6 +176,7 @@ def get_cart_args(
         max_leaves=max_leaves,
         min_obs=min_obs,
         add_unknown=add_unknown,
+        n_phones=n_phones,
     )
 
     cart_questions = cart.PythonCartQuestions(
@@ -198,21 +204,25 @@ def get_cart_args(
     )
 
 
-def get_triphone_args():
+def get_triphone_args(feature_flow: str = "mfcc+context+lda") -> util.GmmTriphoneArgs:
+    """
+    :param feature_flow:
+    """
+
     triphone_training_args = {
         "name": "tri",
         "initial_alignment": "train_mono",
-        "feature_flow": "mfcc+context+lda",
+        "feature_flow": feature_flow,
         "splits": 10,
         "accs_per_split": 2,
-        "align_extra_rqmt": {"mem": 8},
-        "accumulate_extra_rqmt": {"mem": 8},
-        "split_extra_rqmt": {"mem": 8},
+        "align_extra_rqmt": {"mem": 6},
+        "accumulate_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     triphone_recognition_args = {
         "iters": [8, 10],
-        "feature_flow": "mfcc+context+lda",
+        "feature_flow": feature_flow,
         "pronunciation_scales": [1.0],
         "lm_scales": [25],
         "lm_lookahead": True,
@@ -224,22 +234,22 @@ def get_triphone_args():
             "beam_pruning": 15.0,
             "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 15000,
+            "word-end-pruning-limit": 10000,
         },
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
     sdm_args = {
         "name": "sdm.tri",
         "alignment": "train_tri",
-        "feature_flow_key": "mfcc+context+lda",
+        "feature_flow_key": feature_flow,
     }
 
     return util.GmmTriphoneArgs(
@@ -249,12 +259,15 @@ def get_triphone_args():
     )
 
 
-def get_vtln_args():
+def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
+    """
+    :param feature_flow:
+    """
     vtln_training_args = {
         "feature_flow": {
-            "name": "uncached_mfcc+context+lda",
+            "name": f"uncached_{feature_flow}",
             "lda_matrix_key": "cart_mono",
-            "base_flow_key": "uncached_mfcc",
+            "base_flow_key": f"uncached_{feature_flow.split('+')[0]}",  # e.g. "uncached_mfcc"
             "context_size": 9,
         },
         "warp_mix": {
@@ -269,13 +282,16 @@ def get_vtln_args():
             "initial_alignment_key": "train_tri",
             "splits": 10,
             "accs_per_split": 2,
-            "feature_flow": "mfcc+context+lda+vtln",
+            "feature_flow": f"{feature_flow}+vtln",
+            "accumulate_extra_rqmt": {"mem": 6},
+            "align_extra_rqmt": {"mem": 6},
+            "split_extra_rqmt": {"mem": 6},
         },
     }
 
     vtln_recognition_args = {
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda+vtln",
+        "feature_flow": f"uncached_{feature_flow}+vtln",
         "pronunciation_scales": [1.0],
         "lm_scales": [25],
         "lm_lookahead": True,
@@ -287,22 +303,22 @@ def get_vtln_args():
             "beam_pruning": 15.0,
             "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 15000,
+            "word-end-pruning-limit": 10000,
         },
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
     sdm_args = {
         "name": "sdm.vtln",
         "alignment": "train_vtln",
-        "feature_flow_key": "mfcc+context+lda+vtln",
+        "feature_flow_key": f"{feature_flow}+vtln",
     }
 
     return util.GmmVtlnArgs(
@@ -312,16 +328,23 @@ def get_vtln_args():
     )
 
 
-def get_sat_args():
+def get_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmSatArgs:
+    """
+    :param feature_flow:
+    """
+    base_flow = feature_flow.split("+")[0]
     sat_training_args = {
         "name": "sat",
         "mixtures": "estimate_mixtures_sdm.tri",
         "alignment": "train_tri",
-        "feature_cache": "mfcc",
-        "feature_flow_key": "mfcc+context+lda",
-        "cache_regex": "^mfcc.*$",
+        "feature_cache": base_flow,
+        "feature_flow_key": feature_flow,
+        "cache_regex": f"^{base_flow}.*$",
         "splits": 10,
         "accs_per_split": 2,
+        "accumulate_extra_rqmt": {"mem": 6},
+        "align_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     sat_recognition_args = {
@@ -336,7 +359,7 @@ def get_sat_args():
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda",
+        "feature_flow": f"uncached_{feature_flow}",
         "pronunciation_scales": [1.0],
         "lm_scales": [25],
         "lm_lookahead": True,
@@ -348,22 +371,22 @@ def get_sat_args():
             "beam_pruning": 15.0,
             "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 15000,
+            "word-end-pruning-limit": 10000,
         },
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
     sdm_args = {
         "name": "sdm.sat",
         "alignment": "train_sat",
-        "feature_flow_key": "mfcc+context+lda+cmllr",
+        "feature_flow_key": f"{feature_flow}+cmllr",
     }
 
     return util.GmmSatArgs(
@@ -373,16 +396,22 @@ def get_sat_args():
     )
 
 
-def get_vtln_sat_args():
+def get_vtln_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnSatArgs:
+    """
+    :param feature_flow:
+    """
     vtln_sat_training_args = {
         "name": "vtln+sat",
         "mixtures": "estimate_mixtures_sdm.vtln",
         "alignment": "train_vtln",
-        "feature_cache": "mfcc+context+lda+vtln",
-        "feature_flow_key": "mfcc+context+lda+vtln",
+        "feature_cache": f"{feature_flow}+vtln",
+        "feature_flow_key": f"{feature_flow}+vtln",
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
+        "accumulate_extra_rqmt": {"mem": 6},
+        "align_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6},
     }
 
     vtln_sat_recognition_args = {
@@ -397,7 +426,7 @@ def get_vtln_sat_args():
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
         "iters": [8, 10],
-        "feature_flow": "uncached_mfcc+context+lda+vtln",
+        "feature_flow": f"uncached_{feature_flow}+vtln",
         "pronunciation_scales": [1.0],
         "lm_scales": [25],
         "lm_lookahead": True,
@@ -409,22 +438,22 @@ def get_vtln_sat_args():
             "beam_pruning": 15.0,
             "beam-pruning-limit": 100000,
             "word-end-pruning": 0.5,
-            "word-end-pruning-limit": 15000,
+            "word-end-pruning-limit": 10000,
         },
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": False,
             "best_path_algo": "bellman-ford",
         },
         "optimize_am_lm_scale": True,
-        "rtf": 20,
-        "mem": 4,
+        "rtf": 50,
+        "mem": 8,
         "parallelize_conversion": True,
     }
 
     sdm_args = {
         "name": "sdm.vtln+sat",
         "alignment": "train_vtln+sat",
-        "feature_flow_key": "mfcc+context+lda+vtln+cmllr",
+        "feature_flow_key": f"{feature_flow}+vtln+cmllr",
     }
 
     return util.GmmVtlnSatArgs(
