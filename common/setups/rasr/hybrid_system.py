@@ -92,7 +92,9 @@ class HybridSystem(NnSystem):
 
         self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.devtrain_input_data = (
+            None
+        )  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 

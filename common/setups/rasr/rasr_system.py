@@ -169,7 +169,8 @@ class RasrSystem(meta.System):
         scorer_args = copy.deepcopy(self.rasr_init_args.scorer_args)
         if self.rasr_init_args.scorer == "kaldi":
             scorer_args = (
-                scorer_args if scorer_args is not None
+                scorer_args
+                if scorer_args is not None
                 else dict(mapping={"[SILENCE]": ""})
             )
             self.set_kaldi_scorer(
@@ -178,14 +179,12 @@ class RasrSystem(meta.System):
             )
         elif self.rasr_init_args.scorer == "hub5":
             scorer_args = (
-                scorer_args if self.rasr_init_args.scorer_args is not None
-                else {}
+                scorer_args if self.rasr_init_args.scorer_args is not None else {}
             )
             self.set_hub5_scorer(corpus=eval_corpus_key, **scorer_args)
         else:
             scorer_args = (
-                scorer_args if scorer_args is not None
-                else dict(sort_files=False)
+                scorer_args if scorer_args is not None else dict(sort_files=False)
             )
             self.set_sclite_scorer(
                 corpus=eval_corpus_key,
@@ -367,7 +366,13 @@ class RasrSystem(meta.System):
         name: str,
         *,
         target_corpus_key: str,
-        flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute, rasr.FlowNetwork],
+        flow: Union[
+            str,
+            List[str],
+            Tuple[str],
+            rasr.FlagDependentFlowAttribute,
+            rasr.FlowNetwork,
+        ],
         feature_scorer_corpus_key: str = None,
         feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
         scorer_index: int = -1,

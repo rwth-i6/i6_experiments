@@ -67,7 +67,6 @@ class NnSystem(RasrSystem):
 
         self.blas_lib = blas_lib or (gs.BLAS_LIB if hasattr(gs, "BLAS_LIB") else None)
 
-
         self.native_ops = {}  # type: Dict[str, tk.Path]
 
     def compile_native_op(self, op_name: str):
