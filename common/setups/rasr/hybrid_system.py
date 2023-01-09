@@ -90,11 +90,11 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = None
-        self.cv_input_data = None
-        self.devtrain_input_data = None
-        self.dev_input_data = None
-        self.test_input_data = None
+        self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 
         self.train_cv_pairing = None
 
@@ -198,6 +198,10 @@ class HybridSystem(NnSystem):
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
             self.feature_flows[c_key] = c_data.feature_flow
             self.feature_scorers[c_key] = {}
+            if c_data.stm is not None:
+                self.stm_files[c_key] = c_data.stm
+            if c_data.glm is not None:
+                self.glm_files[c_key] = c_data.glm
 
     def prepare_data(self, raw_sampling_rate: int, feature_sampling_rate: int):
         for name in self.train_corpora + self.devtrain_corpora + self.cv_corpora:
@@ -374,18 +378,13 @@ class HybridSystem(NnSystem):
         epochs: Optional[List[int]] = None,
         use_epoch_for_compile=False,
         forward_output_layer="output",
+        native_ops: Optional[List[str]] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
             recog_func = self.recog_and_optimize if optimize_am_lm_scale else self.recog
 
-            native_lstm_job = returnn.CompileNativeOpJob(
-                "NativeLstm2",
-                returnn_root=self.returnn_root,
-                returnn_python_exe=self.returnn_python_exe,
-                blas_lib=self.blas_lib,
-            )
-            native_lstm_job.add_alias("%s/compile_native_op" % name)
+            native_op_paths = self.get_native_ops(op_names=native_ops)
 
             tf_graph = None
             if not use_epoch_for_compile:
@@ -417,7 +416,7 @@ class HybridSystem(NnSystem):
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
                     tf_checkpoint=checkpoints[epoch],
                     tf_graph=tf_graph,
-                    native_ops=[native_lstm_job.out_op],
+                    native_ops=native_op_paths,
                     output_layer_name=forward_output_layer,
                 )
                 flow = add_tf_flow_to_base_flow(feature_flow, tf_flow)
@@ -614,14 +613,7 @@ class HybridSystem(NnSystem):
             )
             sys.exit(-1)
 
-        for eval_c in self.dev_corpora + self.test_corpora:
-            stm_args = (
-                self.rasr_init_args.stm_args
-                if self.rasr_init_args.stm_args is not None
-                else {}
-            )
-            self.create_stm_from_corpus(eval_c, **stm_args)
-            self._set_scorer_for_corpus(eval_c)
+        self.prepare_scoring()
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------

@@ -39,6 +39,8 @@ class ReturnnRasrDataInput:
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
         shuffle_data: bool = True,
+        stm: Optional[tk.Path] = None,
+        glm: Optional[tk.Path] = None,
         **kwargs,
     ):
         self.name = name
@@ -49,6 +51,8 @@ class ReturnnRasrDataInput:
         self.acoustic_mixtures = acoustic_mixtures
         self.feature_scorers = feature_scorers
         self.shuffle_data = shuffle_data
+        self.stm = stm
+        self.glm = glm
 
     @staticmethod
     def get_data_dict():
@@ -342,6 +346,7 @@ class NnRecogArgs:
     mem: int
     lookahead_options: Optional[Dict] = None
     epochs: Optional[List[int]] = None
+    native_ops: Optional[List[str]] = None
 
 
 class NnForcedAlignArgs(TypedDict):
