@@ -179,7 +179,7 @@ class RasrSystem(meta.System):
             )
         elif self.rasr_init_args.scorer == "hub5":
             scorer_args = (
-                scorer_args if self.rasr_init_args.scorer_args is not None else {}
+                scorer_args if scorer_args is not None else {}
             )
             self.set_hub5_scorer(corpus=eval_corpus_key, **scorer_args)
         else:
