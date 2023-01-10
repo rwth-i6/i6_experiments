@@ -213,6 +213,8 @@ def conformer_tf_features():
   for pert_cf, stddev, specaug, speed in [
     ("mul", 0.01, False, False), ("mul", 0.02, False, False), ("mul", 0.04, False, False),  # a bit better on other
     ("add", 1.0, False, False), ("add", 2.0, False, False), ("add", 4.0, False, False),  # helps on other, 1.0 is best
+    ("add", 0.5, True, False), ("add", 1.0, True, False), ("add", 1.5, True, False),
+    ("add", 1.0, True, True),
   ]:
     args_tmp = copy.deepcopy(args_base)
     args_tmp["encoder_args"].specaug = specaug
