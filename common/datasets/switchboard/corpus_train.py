@@ -11,9 +11,7 @@ __all__ = [
 import os
 from sisyphus import tk
 
-from i6_core.meta import CorpusObject
 from i6_core.tools.download import DownloadJob
-
 from i6_core.datasets.switchboard import (
     DownloadSwitchboardTranscriptionAndDictJob,
     CreateSwitchboardBlissCorpusJob,
@@ -23,7 +21,9 @@ from i6_core.datasets.switchboard import (
     CreateLDCSwitchboardSpeakerListJob,
 )
 
-from .constants import SUBDIR_PREFIX
+from i6_experiments.common.datasets.util import CorpusObject
+
+from .constants import SUBDIR_PREFIX, durations
 from .paths import SWITCHBOARD1_PATH, SWITCHBOARD1_LEGACY_PATH
 
 
@@ -113,13 +113,11 @@ def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
     :param subdir_prefix:
     :return:
     """
-    corpus_object = CorpusObject()
-    corpus_object.corpus_file = get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix)
-    corpus_object.audio_format = "wav"
-    corpus_object.audio_dir = None
-    corpus_object.duration = 311.61
-
-    return corpus_object
+    return CorpusObject(
+        corpus_file=get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix),
+        audio_format="wav",
+        duration=durations["train"]
+    )
 
 
 def get_train_corpus_object_i6_legacy(
@@ -129,15 +127,11 @@ def get_train_corpus_object_i6_legacy(
     :param subdir_prefix:
     :return:
     """
-    corpus_object = CorpusObject()
-    corpus_object.corpus_file = get_train_bliss_corpus_i6_legacy(
-        subdir_prefix=subdir_prefix
+    return CorpusObject(
+        corpus_file= get_train_bliss_corpus_i6_legacy(subdir_prefix=subdir_prefix),
+        audio_format="wav",
+        duration=311.78
     )
-    corpus_object.audio_format = "wav"
-    corpus_object.audio_dir = None
-    corpus_object.duration = 311.78
-
-    return corpus_object
 
 
 def get_speakers_list_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:

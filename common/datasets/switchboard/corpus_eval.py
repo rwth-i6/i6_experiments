@@ -6,7 +6,6 @@ from functools import lru_cache
 from dataclasses import dataclass
 from sisyphus import tk
 
-from i6_core.meta.system import CorpusObject
 from i6_core.datasets.switchboard import (
     SwitchboardSphereToWaveJob,
     CreateHub5e00CorpusJob,
@@ -20,6 +19,7 @@ from i6_experiments.common.datasets.switchboard.paths import (
     HUB5E01_PATH,
     RT03S_PATH,
 )
+from i6_experiments.common.datasets.util import CorpusObject
 
 
 @dataclass(frozen=True)
@@ -58,12 +58,11 @@ def get_hub5e00_corpus_object() -> CorpusObject:
     :return: hub5e00 corpus object
     """
     hub5e00 = get_hub5e00()
-    hub5e00_corpus_object = CorpusObject()
-    hub5e00_corpus_object.corpus_file = hub5e00.bliss_corpus
-    hub5e00_corpus_object.audio_format = "wav"
-    hub5e00_corpus_object.audio_dir = None
-    hub5e00_corpus_object.duration = durations["hub5e00"]
-    return hub5e00_corpus_object
+    return CorpusObject(
+        corpus_file=hub5e00.bliss_corpus,
+        audio_format="wav",
+        duration=durations["hub5e00"]
+    )
 
 
 @lru_cache()
@@ -89,12 +88,11 @@ def get_hub5e01_corpus_object() -> CorpusObject:
     :return: hub5e01 corpus object
     """
     hub5e01 = get_hub5e01()
-    hub5e01_corpus_object = CorpusObject()
-    hub5e01_corpus_object.corpus_file = hub5e01.bliss_corpus
-    hub5e01_corpus_object.audio_format = "wav"
-    hub5e01_corpus_object.audio_dir = None
-    hub5e01_corpus_object.duration = durations["hub5e01"]
-    return hub5e01_corpus_object
+    return CorpusObject(
+        corpus_file=hub5e01.bliss_corpus,
+        audio_format="wav",
+        duration=durations["hub5e01"]
+    )
 
 
 @lru_cache
@@ -124,9 +122,8 @@ def get_rt03s_corpus_object() -> CorpusObject:
     :return: rt03s corpus object
     """
     rt03s = get_rt03s()
-    rt03s_corpus_object = CorpusObject()
-    rt03s_corpus_object.corpus_file = rt03s.bliss_corpus
-    rt03s_corpus_object.audio_format = "wav"
-    rt03s_corpus_object.audio_dir = None
-    rt03s_corpus_object.duration = durations["rt03s"]
-    return rt03s_corpus_object
+    return CorpusObject(
+        corpus_file=rt03s.bliss_corpus,
+        audio_format="wav",
+        duration=durations["rt03s"]
+    )
