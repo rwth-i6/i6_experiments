@@ -5,6 +5,7 @@ from typing import Optional
 
 from i6_core.meta.system import CorpusObject as _CorpusObject
 
+
 @dataclass(frozen=True)
 class CorpusObject(_CorpusObject):
     """
@@ -17,9 +18,8 @@ class CorpusObject(_CorpusObject):
     :param duration: duration of all segments in hours
     :param audio_dir: audio directory if paths in corpus bliss are relative (usually not needed)
     """
+
     corpus_file: tk.Path
     audio_format: str
     duration: float
     audio_dir: Optional[tk.Path] = None
-
-

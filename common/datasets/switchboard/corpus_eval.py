@@ -61,7 +61,7 @@ def get_hub5e00_corpus_object() -> CorpusObject:
     return CorpusObject(
         corpus_file=hub5e00.bliss_corpus,
         audio_format="wav",
-        duration=durations["hub5e00"]
+        duration=durations["hub5e00"],
     )
 
 
@@ -91,7 +91,7 @@ def get_hub5e01_corpus_object() -> CorpusObject:
     return CorpusObject(
         corpus_file=hub5e01.bliss_corpus,
         audio_format="wav",
-        duration=durations["hub5e01"]
+        duration=durations["hub5e01"],
     )
 
 
@@ -123,7 +123,5 @@ def get_rt03s_corpus_object() -> CorpusObject:
     """
     rt03s = get_rt03s()
     return CorpusObject(
-        corpus_file=rt03s.bliss_corpus,
-        audio_format="wav",
-        duration=durations["rt03s"]
+        corpus_file=rt03s.bliss_corpus, audio_format="wav", duration=durations["rt03s"]
     )

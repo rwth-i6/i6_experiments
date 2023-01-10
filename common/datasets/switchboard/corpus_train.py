@@ -116,7 +116,7 @@ def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
     return CorpusObject(
         corpus_file=get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix),
         audio_format="wav",
-        duration=durations["train"]
+        duration=durations["train"],
     )
 
 
@@ -128,9 +128,9 @@ def get_train_corpus_object_i6_legacy(
     :return:
     """
     return CorpusObject(
-        corpus_file= get_train_bliss_corpus_i6_legacy(subdir_prefix=subdir_prefix),
+        corpus_file=get_train_bliss_corpus_i6_legacy(subdir_prefix=subdir_prefix),
         audio_format="wav",
-        duration=311.78
+        duration=311.78,
     )
 
 
