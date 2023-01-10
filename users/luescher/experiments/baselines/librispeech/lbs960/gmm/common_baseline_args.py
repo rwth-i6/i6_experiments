@@ -656,6 +656,15 @@ def get_vtln_sat_args(
     )
 
 
+def get_align_dev_args() -> rasr_util.ForcedAlignmentArgs:
+    return rasr_util.ForcedAlignmentArgs(
+        name="align_dev-other",
+        target_corpus_keys=["dev-other"],
+        flow="uncached_mfcc+context+lda+vtln+cmllr",
+        feature_scorer="train_vtln+sat",
+    )
+
+
 def get_final_output():
     output_args = rasr_util.OutputArgs("final")
 

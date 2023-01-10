@@ -2,7 +2,7 @@ import os
 
 # -------------------- Sisyphus --------------------
 
-from sisyphus import gs, tk
+from sisyphus import gs
 
 # -------------------- Recipes --------------------
 
@@ -10,7 +10,7 @@ import i6_core.rasr as rasr
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.util as rasr_util
-import i6_experiments.users.luescher.setups.librispeech.pipeline_base_args as lbs_gmm_setups
+import i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.common_baseline_args as lbs_gmm_setups
 
 from i6_experiments.common.baselines.librispeech.data import get_corpus_data_inputs
 from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
@@ -33,6 +33,7 @@ def run_librispeech_960_common_baseline():
     vtln_args = lbs_gmm_setups.get_vtln_args()
     sat_args = lbs_gmm_setups.get_sat_args()
     vtln_sat_args = lbs_gmm_setups.get_vtln_sat_args()
+    align_args = lbs_gmm_setups.get_align_dev_args()
     final_output_args = lbs_gmm_setups.get_final_output()
 
     steps = rasr_util.RasrSteps()
@@ -43,6 +44,7 @@ def run_librispeech_960_common_baseline():
     steps.add_step("vtln", vtln_args)
     steps.add_step("sat", sat_args)
     steps.add_step("vtln+sat", vtln_sat_args)
+    steps.add_step("forced_align", align_args)
     steps.add_step("output", final_output_args)
 
     # ******************** Data ********************
