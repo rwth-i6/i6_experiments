@@ -13,6 +13,7 @@ from i6_core.datasets.switchboard import (
 from i6_core.lexicon import LexiconFromTextFileJob
 from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.lib import lexicon
+from i6_core.text.processing import PipelineJob
 
 from .constants import SUBDIR_PREFIX
 
@@ -96,8 +97,6 @@ def get_text_lexicon(subdir_prefix: str = SUBDIR_PREFIX):
     mapped_raw_lexicon_file_job.add_alias(
         os.path.join(subdir_prefix, "create_lexicon_text_file_job")
     )
-    from i6_core.text.processing import PipelineJob
-
     lowercase_raw_lexicon_file_job = PipelineJob(
         mapped_raw_lexicon_file_job.out_dict,
         ["tr '[:upper:]' '[:lower:]'", "sort -u"],
