@@ -540,7 +540,7 @@ def create_config(
             staged_network_dict[(idx*pretrain_reps) + 1] = net
         else:
             if network_prolog:
-                python_prolog += network_prolog
+                python_prolog.append(network_prolog)
             if pretrain_opts is None:
                 pretrain_opts = {}
 
@@ -564,7 +564,7 @@ def create_config(
             pretrain_algo_str = 'def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)'
             python_prolog += [pretrain_algo_str]
     elif network_prolog:
-        python_prolog += network_prolog
+        python_prolog.append(network_prolog)
 
     if extra_str:
         extra_python_code += '\n' + extra_str
