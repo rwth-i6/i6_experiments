@@ -1469,22 +1469,7 @@ class GmmSystem(RasrSystem):
             self.store_allophones(source_corpus=trn_c, target_corpus=trn_c)
             tk.register_output(f"{trn_c}.allophones", self.allophone_files[trn_c])
 
-        for eval_c in self.dev_corpora + self.test_corpora:
-            stm_args = (
-                self.rasr_init_args.stm_args
-                if self.rasr_init_args.stm_args is not None
-                else {}
-            )
-            self.create_stm_from_corpus(eval_c, **stm_args)
-            self._set_scorer_for_corpus(eval_c)
-
-            ppl_job = lm.ComputePerplexityJob(
-                self.crp[eval_c],
-                corpus_recipes.CorpusToTxtJob(
-                    self.crp[eval_c].corpus_config.file
-                ).out_txt,
-            )
-            tk.register_output(f"lms/{eval_c}.ppl", ppl_job.perplexity)
+        self.prepare_scoring()
 
         for step_idx, (step_name, step_args) in enumerate(steps.get_step_iter()):
             # ---------- Feature Extraction ----------

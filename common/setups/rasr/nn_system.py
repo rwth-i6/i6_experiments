@@ -66,3 +66,34 @@ class NnSystem(RasrSystem):
         )
 
         self.blas_lib = blas_lib or (gs.BLAS_LIB if hasattr(gs, "BLAS_LIB") else None)
+
+        self.native_ops = {}  # type: Dict[str, tk.Path]
+
+    def compile_native_op(self, op_name: str):
+        """
+        Compiles and stores a native op for RETURNN
+
+        :param op_name: op name, e.g. "NativeLstm2"
+        """
+        native_op_job = returnn.CompileNativeOpJob(
+            op_name,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            blas_lib=self.blas_lib,
+        )
+        native_op_job.add_alias("native_ops/compile_native_%s" % op_name)
+        self.native_ops[op_name] = native_op_job.out_op
+
+    def get_native_ops(self, op_names: Optional[List[str]]) -> Optional[List[tk.Path]]:
+        """
+        Access self.native_ops and compile if not existing
+
+        :param op_names: list of RETURNN op names, can be None for convenience
+        :return list of native op paths
+        """
+        if op_names is None:
+            return None
+        for op_name in op_names:
+            if op_name not in self.native_ops.keys():
+                self.compile_native_op(op_name)
+        return [self.native_ops[op_name] for op_name in op_names]

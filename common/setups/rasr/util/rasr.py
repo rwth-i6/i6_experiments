@@ -8,6 +8,7 @@ __all__ = [
 
 from collections import OrderedDict
 from typing import Dict, Optional
+from sisyphus import tk
 
 import i6_core.meta as meta
 
@@ -27,17 +28,23 @@ class RasrDataInput:
         lexicon: dict,
         lm: Optional[dict] = None,
         concurrent: int = 10,
+        stm: Optional[tk.Path] = None,
+        glm: Optional[tk.Path] = None,
     ):
         """
         :param corpus_object: corpus_file: Path, audio_dir: Path, audio_format: str, duration: float
         :param lexicon: file: Path, normalize_pronunciation: bool
         :param lm: filename: Path, type: str, scale: float
         :param concurrent: concurrency for gmm hmm pipeline
+        :param stm: optional stm file for evaluation
+        :param glm: optional glm file for evaluation
         """
         self.corpus_object = corpus_object
         self.lexicon = lexicon
         self.lm = lm
         self.concurrent = concurrent
+        self.stm = stm
+        self.glm = glm
 
 
 class RasrInitArgs:
