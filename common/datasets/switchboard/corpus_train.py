@@ -69,7 +69,7 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     identical to the "i6-legacy" version.
 
     :param subdir_prefix:
-    :return:
+    :return: bliss xml for the LDC Switchboard-1
     """
     swb_trans_and_dict = DownloadSwitchboardTranscriptionAndDictJob()
     swb_trans_and_dict.add_alias(
@@ -96,10 +96,7 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
 
 def get_train_bliss_corpus_i6_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     """
-    i6-internal Switchboard-1 training corpus
-
-    :param subdir_prefix:
-    :return:
+    :return: bliss xml corpus for the "old" i6-legacy switchboard corpus
     """
     subdir_prefix = os.path.join(subdir_prefix, "Switchboard-i6-legacy")
     train_bliss_corpus = get_train_bliss_corpus(
@@ -111,7 +108,7 @@ def get_train_bliss_corpus_i6_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> tk.P
 def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
     """
     :param subdir_prefix:
-    :return:
+    :return: Corpus object for the LDC Switchboard-1
     """
     return CorpusObject(
         corpus_file=get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix),
@@ -125,7 +122,7 @@ def get_train_corpus_object_i6_legacy(
 ) -> CorpusObject:
     """
     :param subdir_prefix:
-    :return:
+    :return: Corpus object for the "old" i6-legacy switchboard corpus
     """
     return CorpusObject(
         corpus_file=get_train_bliss_corpus_i6_legacy(subdir_prefix=subdir_prefix),
