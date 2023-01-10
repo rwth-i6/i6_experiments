@@ -27,7 +27,7 @@ from .constants import SUBDIR_PREFIX, durations
 from .paths import SWITCHBOARD1_PATH, SWITCHBOARD1_LEGACY_PATH
 
 
-def get_train_bliss_corpus_legacy(
+def get_train_bliss_corpus_i6_legacy(
     subdir_prefix: str = SUBDIR_PREFIX,
 ) -> tk.Path:
     """
@@ -53,7 +53,7 @@ def get_train_bliss_corpus_legacy(
     corpus.add_alias(
         os.path.join(
             subdir_prefix,
-            "create_legacy_train_corpus_job",
+            "create_i6_legacy_train_corpus_job",
         )
     )
 
@@ -90,17 +90,6 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     corpus.add_alias(os.path.join(subdir_prefix, "create_ldc_train_corpus_job"))
 
     return corpus.out_corpus
-
-
-def get_train_bliss_corpus_i6_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
-    """
-    :return: bliss xml corpus for the "old" i6-legacy switchboard corpus
-    """
-    subdir_prefix = os.path.join(subdir_prefix, "Switchboard-i6-legacy")
-    train_bliss_corpus = get_train_bliss_corpus_legacy(
-        SWITCHBOARD1_LEGACY_PATH, subdir_prefix=subdir_prefix
-    )
-    return train_bliss_corpus
 
 
 def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
