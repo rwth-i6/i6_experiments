@@ -27,18 +27,16 @@ from .constants import SUBDIR_PREFIX, durations
 from .paths import SWITCHBOARD1_PATH, SWITCHBOARD1_LEGACY_PATH
 
 
-def get_train_bliss_corpus(
-    audio_dir: tk.Path,
-    skip_empty_ldc_file: bool = False,
+def get_train_bliss_corpus_legacy(
     subdir_prefix: str = SUBDIR_PREFIX,
 ) -> tk.Path:
     """
-    Returns Switchboard training bliss corpus
+    Returns Switchboard training bliss corpus in the i6-legacy variant.
+    This means it uses slightly modified audio files compared to the official LDC download
+    and only partial speaker information. This means for many recordings a new speaker id is generated.
 
-    :param audio_dir: path for audio data
     :param subdir_prefix: alias name prefix
-    :param skip_empty_ldc_file: exclude sw2167B which is empty in the official LDC download
-    :return: Path to switchboard training corpus
+    :return: Path to bliss xml for the i6-legacy Switchboard-1
     """
     swb_trans_and_dict = DownloadSwitchboardTranscriptionAndDictJob()
     swb_trans_and_dict.add_alias(
@@ -47,15 +45,15 @@ def get_train_bliss_corpus(
 
     speakers_list = get_speakers_list_legacy(subdir_prefix=subdir_prefix)
     corpus = CreateSwitchboardBlissCorpusJob(
-        audio_dir=audio_dir,
+        audio_dir=SWITCHBOARD1_LEGACY_PATH,
         trans_dir=swb_trans_and_dict.out_trans_dir,
         speakers_list_file=speakers_list,
-        skip_empty_ldc_file=skip_empty_ldc_file,
+        skip_empty_ldc_file=False,
     )
     corpus.add_alias(
         os.path.join(
             subdir_prefix,
-            "create_train_corpus_job_skip_empty_%s" % str(skip_empty_ldc_file),
+            "create_legacy_train_corpus_job",
         )
     )
 
@@ -64,12 +62,12 @@ def get_train_bliss_corpus(
 
 def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     """
-    Switchboard-1 training corpus based on the original LDC file
-    Uses i6-custom text processing, and the transcriptions are fully
+    Switchboard-1 training corpus based on the original LDC files.
+    Uses i6-custom text processing, and the transcription processing is fully
     identical to the "i6-legacy" version.
 
     :param subdir_prefix:
-    :return: bliss xml for the LDC Switchboard-1
+    :return: Path to bliss xml for the LDC Switchboard-1
     """
     swb_trans_and_dict = DownloadSwitchboardTranscriptionAndDictJob()
     swb_trans_and_dict.add_alias(
@@ -89,7 +87,7 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
         skip_empty_ldc_file=True,
         lowercase=True,
     )
-    corpus.add_alias(os.path.join(subdir_prefix, "create_train_corpus_job"))
+    corpus.add_alias(os.path.join(subdir_prefix, "create_ldc_train_corpus_job"))
 
     return corpus.out_corpus
 
@@ -99,7 +97,7 @@ def get_train_bliss_corpus_i6_legacy(subdir_prefix: str = SUBDIR_PREFIX) -> tk.P
     :return: bliss xml corpus for the "old" i6-legacy switchboard corpus
     """
     subdir_prefix = os.path.join(subdir_prefix, "Switchboard-i6-legacy")
-    train_bliss_corpus = get_train_bliss_corpus(
+    train_bliss_corpus = get_train_bliss_corpus_legacy(
         SWITCHBOARD1_LEGACY_PATH, subdir_prefix=subdir_prefix
     )
     return train_bliss_corpus
