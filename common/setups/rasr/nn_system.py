@@ -75,14 +75,14 @@ class NnSystem(RasrSystem):
 
         :param op_name: op name, e.g. "NativeLstm2"
         """
-        native_lstm_job = returnn.CompileNativeOpJob(
+        native_op_job = returnn.CompileNativeOpJob(
             op_name,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
             blas_lib=self.blas_lib,
         )
-        native_lstm_job.add_alias("native_ops/compile_native_%s" % op_name)
-        self.native_ops[op_name] = native_lstm_job.out_op
+        native_op_job.add_alias("native_ops/compile_native_%s" % op_name)
+        self.native_ops[op_name] = native_op_job.out_op
 
     def get_native_ops(self, op_names: Optional[List[str]]) -> Optional[List[tk.Path]]:
         """
