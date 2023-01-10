@@ -2,13 +2,13 @@ import os
 from sisyphus import tk
 
 from i6_experiments.common.datasets.switchboard.constants import SUBDIR_PREFIX
-from i6_experiments.common.datasets.switchboard.eval import (
+from i6_experiments.common.datasets.switchboard.corpus_eval import (
     get_hub5e00,
     get_hub5e01,
     get_rt03s,
 )
 from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
-from i6_experiments.common.datasets.switchboard.train import (
+from i6_experiments.common.datasets.switchboard.corpus_train import (
     get_train_bliss_corpus_ldc,
     get_train_bliss_corpus_i6_legacy,
 )
