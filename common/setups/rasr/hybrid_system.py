@@ -432,9 +432,8 @@ class HybridSystem(NnSystem):
                 recog_name = (
                     f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
                 )
-
                 recog_func(
-                    name=f"{recognition_corpus_key}-{recog_name}",
+                    name=f"{name}-{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
                     corpus=recognition_corpus_key,
                     flow=flow,
