@@ -223,3 +223,15 @@ log10_net_10ms = {
         },
     },
 }
+
+pre_emphasis = {
+    "class": "subnetwork",
+    "from": "data",
+    "subnetwork": {
+        "shift_0": {"class": "slice", "axis": "T", "slice_end": -1, "from": "data"},
+        "shift_0_scale": {"class": "eval", "eval": "source(0) * 1.0", "from": "shift_0"},
+        "shift_1": {"class": "slice", "axis": "T", "slice_start": 1, "from": "data"},
+        "shift_1_sync": {"class": "reinterpret_data", "from": "shift_1", "size_base": "shift_0_scale"},
+        "output": {"class": "combine", "kind": "sub", "from": ["shift_1_sync", "shift_0_scale"]},
+    }
+}

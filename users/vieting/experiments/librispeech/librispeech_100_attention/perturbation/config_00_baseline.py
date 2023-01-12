@@ -21,7 +21,7 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
   base_config import get_lm_opts, apply_fairseq_init_to_conformer_encoder
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
-  feature_extraction_net import log10_net_10ms_ref, log10_net_10ms, dim_tags
+  feature_extraction_net import log10_net_10ms_ref, log10_net_10ms, dim_tags, pre_emphasis
 
 
 # sisyphus related
@@ -237,6 +237,28 @@ def conformer_tf_features():
     report_list.append(run_exp_v2(
       name_tmp, feat_net, datasets=training_datasets,
       train_args=args_tmp, report_args={"pert_cf": f"{pert_cf}{stddev}"}))
+
+  # pre-emphasis and perturbation of it
+  args_tmp = copy.deepcopy(args_base)
+  for pe in [0.9, 0.95, 1.0, (0.9, 1.0)]:  # (0.95, 1.0) diverges after 30 sub-epochs
+    if isinstance(pe, (float, int)):
+      eval_str = f"source(0) * {pe}"
+      pe_str = str(pe)
+    elif isinstance(pe, tuple):
+      assert len(pe) == 2
+      eval_str = f"source(0) * tf.random.uniform((1,), {pe[0]}, {pe[1]}, name='preemphasis_factor')"
+      pe_str = f"U({pe[0]}-{pe[1]})"
+    else:
+      raise NotImplementedError(f"Unknown pre-emphasis type: {pe}")
+    name_tmp = exp_prefix + "/" + f"raw_log10_pe_{pe_str}"
+    feat_net = copy.deepcopy(log10_net_10ms)
+    feat_net["log_mel_features"]["subnetwork"]["pre_emphasis"] = copy.deepcopy(pre_emphasis)
+    feat_net["log_mel_features"]["subnetwork"]["stft"]["from"] = "pre_emphasis"
+    feat_net["log_mel_features"]["subnetwork"]["pre_emphasis"]["subnetwork"]["shift_0_scale"]["eval"] = eval_str
+    report_list.append(run_exp_v2(
+      name_tmp, feat_net, datasets=training_datasets,
+      train_args=args_tmp, report_args={"pe": f"{pe_str}"}))
+
 
   report = Report.merge_reports(report_list)
   tk.register_report(
