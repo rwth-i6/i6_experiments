@@ -1,4 +1,3 @@
-import black
 import numpy
 import copy
 from typing import Any, Dict, Optional
@@ -529,14 +528,12 @@ def create_config(
                 if feature_extraction_net:
                     net.update(feature_extraction_net)
                 if network_prolog:
-                    content = f"{network_prolog}\n\nnetwork = {str(net)}"
-                    net = black.format_str(content, mode=black.Mode())
+                    net = f"{network_prolog}\n\nnetwork = {str(net)}"
                 staged_network_dict[(idx*pretrain_reps) + 1] = net
                 idx += 1
             net = exp_config.pop("network")
             if network_prolog:
-                content = f"{network_prolog}\n\nnetwork = {str(net)}"
-                net = black.format_str(content, mode=black.Mode())
+                net = f"{network_prolog}\n\nnetwork = {str(net)}"
             staged_network_dict[(idx*pretrain_reps) + 1] = net
         else:
             if network_prolog:
