@@ -7,12 +7,12 @@ i6_experiments/users/rossenbach/experiments/librispeech/librispeech_100_attentio
 
 import copy
 import os.path
-import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 
 from sisyphus import tk, gs
 from i6_core.tools import CloneGitRepositoryJob
 from i6_core.report import Report
+from i6_core.returnn import CodeWrapper
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.pipeline import (
     build_training_datasets, build_test_dataset, training, search, search_single, get_average_checkpoint_v2
 )
@@ -247,6 +247,33 @@ def conformer_tf_features():
       name_tmp, feat_net, datasets=training_datasets,
       train_args=args_tmp, report_args={"pert_cf": f"{pert_cf}{stddev}"}))
 
+  # filter width perturbation
+  args_tmp = copy.deepcopy(args_base)
+  for stddev in [0.1, 1.0, 2.0]:
+    name_tmp = exp_prefix + "/" + f"raw_log10_pert_fw{stddev}"
+    feat_net = copy.deepcopy(log10_net_10ms)
+    subnet = feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
+    subnet["center_freqs_c"] = {
+      "class": "slice",
+      "axis": "F",
+      "slice_start": 1,
+      "slice_end": -1,
+      "from": "center_freqs",
+      "out_dim": CodeWrapper("center_freqs_dim"),
+    }
+    subnet["filter_offset_raw"] = {"class": "combine", "kind": "sub", "from": ["fft_bins", "center_freqs_c"]}
+    subnet["filter_offset"] = {
+      "class": "eval", "eval": f"source(0) * tf.random.normal((80,), stddev={stddev})", "from": "filter_offset_raw"}
+    subnet["mel_filterbank_l_noisy"] = {
+      "class": "combine", "kind": "add", "from": ["mel_filterbank_l", "filter_offset"]}
+    subnet["mel_filterbank_r_noisy"] = {
+      "class": "combine", "kind": "sub", "from": ["mel_filterbank_r", "filter_offset"]}
+    subnet["mel_filterbank_lr"]["from"] = ["mel_filterbank_l_noisy", "mel_filterbank_r_noisy"]
+    feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
+    report_list.append(run_exp_v2(
+      name_tmp, feat_net, datasets=training_datasets,
+      train_args=args_tmp, report_args={"pert_fw": f"{stddev}"}))
+
   # pre-emphasis and perturbation of it
   args_tmp = copy.deepcopy(args_base)
   for pe in [0.9, 0.95, 1.0, (0.9, 1.0)]:  # (0.95, 1.0) diverges after 30 sub-epochs
@@ -267,7 +294,6 @@ def conformer_tf_features():
     report_list.append(run_exp_v2(
       name_tmp, feat_net, datasets=training_datasets,
       train_args=args_tmp, report_args={"pe": f"{pe_str}"}))
-
 
   report = Report.merge_reports(report_list)
   tk.register_report(
