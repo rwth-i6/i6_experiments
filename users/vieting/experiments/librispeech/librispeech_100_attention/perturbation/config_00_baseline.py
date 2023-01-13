@@ -215,6 +215,7 @@ def conformer_tf_features():
     ("add", 1.0, False, False), ("add", 2.0, False, False), ("add", 4.0, False, False),  # helps on other, 1.0 is best
     ("add", 0.5, True, False), ("add", 1.0, True, False), ("add", 1.5, True, False),
     ("add", 1.0, True, True),
+    ("add_nnd", 1.0, True, False), #("add_nnd", 2.0, True, False),
   ]:
     args_tmp = copy.deepcopy(args_base)
     args_tmp["encoder_args"].specaug = specaug
@@ -223,13 +224,21 @@ def conformer_tf_features():
     subnet = feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
     subnet["center_freqs_clean"] = copy.deepcopy(subnet["center_freqs"])
     eval_str = f"tf.random.normal((82,), mean=0.0, stddev={stddev}, name='center_freqs_noise')"
-    if pert_cf == "mul":
+    if pert_cf.startswith("mul"):
       eval_str = f"source(0) * (1 + {eval_str})"
-    elif pert_cf == "add":
+    elif pert_cf.startswith("add"):
       eval_str = f"source(0) + {eval_str}"
     else:
       raise NotImplementedError(f"Unknown center frequency perturbation type: {pert_cf}")
     subnet["center_freqs"] = {"class": "eval", "eval": eval_str, "from": "center_freqs_clean"}
+    if "nnd" in pert_cf:
+      # avoid negative differences because they lead to filters which are not limited on one side.
+      subnet["center_freqs_diff_raw"] = copy.deepcopy(subnet["center_freqs_diff"])
+      subnet["threshold"] = {"class": "constant", "value": 1e-5}
+      subnet["center_freqs_diff"] = {
+        "class": "combine",
+        "kind": "maximum",
+        "from": ["center_freqs_diff_raw", "threshold"]}
     feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
     name_tmp = (
         exp_prefix + "/" +
