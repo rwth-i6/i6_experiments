@@ -33,10 +33,10 @@ def get_bpe_datastream(bpe_size, is_recog):
 
 
 @lru_cache()
-def get_audio_raw_datastream():
+def get_audio_raw_datastream(preemphasis=None):
     audio_datastream = AudioRawDatastream(
         available_for_inference=True,
-        options=ReturnnAudioRawOptions(peak_normalization=True)
+        options=ReturnnAudioRawOptions(peak_normalization=True, preemphasis=preemphasis)
     )
     return audio_datastream
 
@@ -55,7 +55,8 @@ def build_training_datasets(
         epoch_wise_filter=None,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=False,
-        use_raw_features=False
+        use_raw_features=False,
+        preemphasis=None,  # TODO: by default is None, but we want to experiment
     ):
     """
 
@@ -75,7 +76,7 @@ def build_training_datasets(
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
 
     if use_raw_features:
-        audio_datastream = get_audio_raw_datastream()
+        audio_datastream = get_audio_raw_datastream(preemphasis)
     else:
         raise NotImplementedError
 
@@ -148,7 +149,7 @@ def build_training_datasets(
 
 
 @lru_cache()
-def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False):
+def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, preemphasis=None):
 
     ogg_zip_dict = get_ogg_zip_dict("corpora")
     bliss_dict = get_bliss_corpus_dict()
@@ -159,7 +160,7 @@ def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False):
     train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
 
     if use_raw_features:
-        audio_datastream = get_audio_raw_datastream()
+        audio_datastream = get_audio_raw_datastream(preemphasis)  # TODO: experimenting
     else:
         raise NotImplementedError
 

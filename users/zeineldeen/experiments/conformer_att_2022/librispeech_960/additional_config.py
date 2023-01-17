@@ -1,5 +1,5 @@
 from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
-from .attention_asr_config import ConformerEncoderArgs, TransformerDecoderArgs
+from .attention_asr_config import ConformerEncoderArgs, TransformerDecoderArgs, ConformerDecoderArgs
 
 
 def get_lm_opts():
@@ -25,12 +25,12 @@ fairseq_ff_init = "variance_scaling_initializer(mode='fan_avg', distribution='un
 fairseq_mhsa_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=0.5)"  # limit = sqrt(6 * 0.5 / (fan_in + fan_out)) = sqrt(3 / (fan_in + fan_out))
 
 
-def apply_fairseq_init_to_conformer_encoder(conformer_enc_args: ConformerEncoderArgs):
+def apply_fairseq_init_to_conformer(conformer_args: [ConformerEncoderArgs,ConformerDecoderArgs]):
     # fairseq init
-    conformer_enc_args.ff_init = fairseq_ff_init
-    conformer_enc_args.mhsa_init = fairseq_mhsa_init
-    conformer_enc_args.mhsa_out_init = fairseq_ff_init
-    conformer_enc_args.conv_module_init = fairseq_ff_init
+    conformer_args.ff_init = fairseq_ff_init
+    conformer_args.mhsa_init = fairseq_mhsa_init
+    conformer_args.mhsa_out_init = fairseq_ff_init
+    conformer_args.conv_module_init = fairseq_ff_init
 
 
 def apply_fairseq_init_to_transformer_decoder(transformer_dec_args: TransformerDecoderArgs):

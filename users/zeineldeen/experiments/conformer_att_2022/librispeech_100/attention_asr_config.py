@@ -132,7 +132,7 @@ def pretrain_layers_and_dims(
     variant,
     reduce_dims=True,
     initial_dim_factor=0.5,
-    initial_batch_size=20000,
+    initial_batch_size=20000 * 160,
     initial_batch_size_idx=3,
     second_bs=None,
     second_bs_idx=None,
