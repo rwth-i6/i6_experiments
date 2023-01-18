@@ -8,6 +8,8 @@ from i6_experiments.users.raissi.setups.common.helpers.network_architectures imp
     make_config
 )
 
+
+
 def get_extra_config_segment_order(size, extra_config=None):
     if extra_config is None:
         extra_config = rasr.RasrConfig()
@@ -65,71 +67,38 @@ def warmup_lrates(initial=0.0001, final=0.001, epochs=20):
     return lrates
 
 
-def get_monophone_returnn_config(num_classes, ph_emb_size, st_emb_size,
-                                 use_multi_task=True, add_mlps=True, mlp_l2=0.01,
-                                 focal_loss_factor=2.0, label_smoothing=0.2,
-                                 final_context_type=None, eval_dense_label=False, shared_delta_encoder=False, **returnn_args):
-    ctxMapper = ContextMapper()
-    contextType = ContextEnum(ctxMapper.get_enum(1))
-    final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
+def get_monophone_returnn_config(crnnArgs, crnnCode, ctxEmbSize=10, stateEmbSize=30, focalLossFactor=2.0,
+                              labelSmoothing=0.2, nInputs=40, nClasses=47 * 47 * 47 * 3, mlpL2=0.01,
+                              finalContextType=None,
+                              sprint=True, sharedDeltaEncoder=False):
+    contextType = contextEnum(ctxMapper.get_enum(1))
+    finalContextType = finalContextType if finalContextType is not None else contextEnum(ctxMapper.get_enum(4))
 
-    mono_returnn_config = make_config(context_type=contextType,
-                                      add_mlps=add_mlps,
-                                      use_multi_task=use_multi_task,
-                                      final_context_type=final_context_type,
-                                      ph_emb_size=ph_emb_size,
-                                      st_emb_size=st_emb_size,
-                                      focal_loss_factor=focal_loss_factor,
-                                      label_smoothing=label_smoothing,
-                                      eval_dense_label=eval_dense_label,
-                                      mlp_l2=mlp_l2,
-                                      shared_delta_encoder=shared_delta_encoder,
-                                      **returnn_args)
-    """ 
-    if use_multi_task:
-        mono_returnn_config.config["network"]["left-output"]["target"] = "pastLabel"
-        mono_returnn_config.config["network"]["right-output"]["target"] = "futureLabel"
-        mono_returnn_config.config["network"]["center-output"]["target"] = "centerState"
-    else:
-        mono_returnn_config.config["network"]["center-output"]["target"] = "classes"""
-    mono_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
-                                                 "classes": [num_classes, 1]}
+    monoCrnnConfig = make_config(contextType,
+                                 ctxMapper,
+                                 addMLPs=True,
+                                 finalContextType=finalContextType,
+                                 extraPython=crnnCode,
+                                 sprint=sprint,
+                                 isBoundary=False,
+                                 ctxEmbSize=ctxEmbSize,
+                                 stateEmbSize=stateEmbSize,
+                                 focalLossFactor=focalLossFactor,
+                                 labelSmoothing=labelSmoothing,
+                                 mlpL2=mlpL2,
+                                 sharedDeltaEncoder=sharedDeltaEncoder,
+                                 **crnnArgs)
 
-    return mono_returnn_config
-
-def get_diphone_returnn_config(num_classes, ph_emb_size, st_emb_size, mlp_l2=0.01, use_multi_task=True,
-                                 focal_loss_factor=2.0, label_smoothing=0.2,
-                                 final_context_type=None, shared_delta_encoder=False, **returnn_args):
-    ctxMapper = ContextMapper()
-    contextType = ContextEnum(ctxMapper.get_enum(2))
-    final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
-
-    diphone_returnn_config = make_config(context_type=contextType,
-                                         add_mlps=True,
-                                         use_multi_task=use_multi_task,
-                                         final_context_type=final_context_type,
-                                         ph_emb_size=ph_emb_size,
-                                         st_emb_size=st_emb_size,
-                                         focal_loss_factor=focal_loss_factor,
-                                         label_smoothing=label_smoothing,
-                                         eval_dense_label=True,
-                                         mlp_l2=mlp_l2,
-                                         shared_delta_encoder=shared_delta_encoder,
-                                         **returnn_args)
-
-    del diphone_returnn_config.config["network"]["center-output"]["loss_opts"]["label_smoothing"]
-
-    diphone_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
-                                                 "classes": [num_classes, 1]}
-
-    return diphone_returnn_config
-
-
-
+    monoCrnnConfig.config["network"]["center-output"]["target"] = "centerState"
+    monoCrnnConfig.config["network"]["left-output"]["target"] = "pastLabel"
+    monoCrnnConfig.config["network"]["right-output"]["target"] = "futureLabel"
+    monoCrnnConfig.config["num_outputs"] = {"data": [nInputs, 2],
+                                            "classes": [nClasses, 1]}
+    return monoCrnnConfig
 
 
 def get_monophone_for_bw_returnn_config(num_classes=126, addMLPs=False, mlpL2=0.0001,
-                                        finalContextType=None, **returnn_args):
+                                        finalContextType=None, sprint=False, **returnn_args):
     ctxMapper = ContextMapper()
     contextType = ContextEnum(ctxMapper.get_enum(1))
     finalContextType = finalContextType if finalContextType is not None else ContextEnum(ctxMapper.get_enum(4))
@@ -138,7 +107,7 @@ def get_monophone_for_bw_returnn_config(num_classes=126, addMLPs=False, mlpL2=0.
                                  ctxMapper,
                                  addMLPs=addMLPs,
                                  finalContextType=finalContextType,
-                                 eval_dense_label=False,
+                                 sprint=sprint,
                                  mlpL2=mlpL2,
                                  **returnn_args)
 

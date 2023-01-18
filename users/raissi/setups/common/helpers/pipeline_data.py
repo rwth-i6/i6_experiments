@@ -2,6 +2,7 @@ __all__ = ["ContextEnum", "ContextMapper", "PipelineStages", "LabelInfo", "Sprin
 
 from sisyphus import *
 from i6_core.lib.rasr_cache import FileArchive, FileArchiveBundle
+from i6_experiments.users.raissi.utils.statistics import CalculateSilenceStateLabel
 
 import h5py
 import itertools as it
@@ -53,14 +54,12 @@ class LabelInfo:
         ph_emb_size,
         st_emb_size,
         state_tying,
-        sil_id=None,
         use_word_end_classes=True,
         use_boundary_classes=False,
         add_unknown_phoneme=True,
     ):
         self.n_states_per_phone = n_states_per_phone
         self.n_contexts = n_contexts
-        self.sil_id = sil_id
         self.ph_emb_size = ph_emb_size
         self.st_emb_size = st_emb_size
         self.state_tying = state_tying
@@ -68,15 +67,18 @@ class LabelInfo:
         self.use_boundary_classes = use_boundary_classes
         self.add_unknown_phoneme = add_unknown_phoneme
 
+    def set_sil_ids(self, train_crp):
+        sil_job_cal = CalculateSilenceStateLabel(train_crp)
+        self.silence_state_id = sil_job_cal.silence_state_id
 
-    def get_n_of_dense_classes(self):
+def get_n_of_dense_classes(self):
         n_contexts = self.n_contexts
         if not self.add_unknown_phoneme:
             n_contexts+=1
         return self.n_states_per_phone * (n_contexts**3) * (1 + int(self.use_word_end_classes))
 
-    def get_n_state_classes(self):
-        return self.n_states_per_phone * self.n_contexts * (1 + int(self.use_word_end_classes))
+def get_n_state_classes(self):
+    return self.n_states_per_phone * self.n_contexts * (1 + int(self.use_word_end_classes))
 
 
 
@@ -98,10 +100,6 @@ class PipelineStages:
 
     def get_name(self, alignment_key, context_type):
         return self.names[alignment_key][context_type]
-
-
-
-
 
 
 

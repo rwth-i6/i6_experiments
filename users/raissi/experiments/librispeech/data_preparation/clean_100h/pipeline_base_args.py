@@ -635,3 +635,61 @@ def get_final_output():
     return output_args
 
 
+def get_data_inputs(
+    train_corpus="train-other-960",
+    add_unknown_phoneme_and_mapping=True,
+    use_eval_data_subset: bool = False,
+):
+    corpus_object_dict = lbs_dataset.get_corpus_object_dict(
+        audio_format="wav", output_prefix="corpora",
+    )
+
+    lm = {
+        "filename": lbs_dataset.get_arpa_lm_dict()["4gram"],
+        "type": "ARPA",
+        "scale": 10,
+    }
+
+    train_lexicon = {
+        "filename": lbs_dataset.get_g2p_augmented_bliss_lexicon_dict(
+            use_stress_marker=False,
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
+        )[train_corpus],
+        "normalize_pronunciation": False,
+    }
+
+    lexicon = {
+        'filename': lbs_dataset.get_bliss_lexicon(),
+        'normalize_pronunciation': False,
+    }
+
+    train_data_inputs = {}
+    dev_data_inputs = {}
+    test_data_inputs = {}
+
+    train_data_inputs[train_corpus] = rasr_util.RasrDataInput(
+        corpus_object=corpus_object_dict[train_corpus], concurrent=300, lexicon=train_lexicon,
+    )
+
+    dev_corpus_keys = (
+        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
+    )
+    test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
+
+    for dev_key in dev_corpus_keys:
+        dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
+            corpus_object=corpus_object_dict[dev_key],
+            concurrent=20,
+            lexicon=lexicon,
+            lm=lm,
+        )
+
+    for tst_key in test_corpus_keys:
+        test_data_inputs[tst_key] = rasr_util.RasrDataInput(
+            corpus_object=corpus_object_dict[tst_key],
+            concurrent=20,
+            lexicon=lexicon,
+            lm=lm,
+        )
+
+    return train_data_inputs, dev_data_inputs, test_data_inputs

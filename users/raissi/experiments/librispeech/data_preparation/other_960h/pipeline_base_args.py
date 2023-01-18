@@ -145,6 +145,7 @@ def get_init_args(
         costa_args=costa_args,
         am_args=am_args,
         feature_extraction_args=feature_extraction_args,
+        default_mixture_scorer_args=None,
     )
 
 
