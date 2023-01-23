@@ -7,7 +7,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_new.dependencies.swb.returnn.config.seg import get_compile_config as get_segmental_compile_config
 
 from i6_private.users.schmitt.returnn.search import ReturnnDumpSearchJob
-from i6_private.users.schmitt.returnn.tools import RASRLatticeToCTMJob, RASRDecodingJob, \
+from i6_private.users.schmitt.returnn.tools import RASRLatticeToCTMJob, RASRDecodingJobParallel, \
   ConvertCTMBPEToWordsJob, DumpAlignmentFromTxtJob
 
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob
@@ -16,6 +16,7 @@ from i6_core.rasr.crp import CommonRasrParameters
 from i6_core.recognition.scoring import Hub5ScoreJob
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.corpus.segments import SplitSegmentFileJob
 
 from sisyphus import *
 
@@ -125,11 +126,14 @@ class RasrDecodingExperiment(DecodingExperiment):
           full_sum_decoding: bool,
           allow_recombination: bool,
           max_segment_len: int,
+          concurrent: int = 1,
           **kwargs
   ):
     super().__init__(dependencies=dependencies, **kwargs)
 
     self.dependencies = dependencies
+
+    self.concurrent = concurrent
 
     # if the two pruning thresholds are not set, we use simple beam search
     # otherwise, we use threshold based pruning + histogram pruning
@@ -195,7 +199,14 @@ class RasrDecodingExperiment(DecodingExperiment):
   def get_ctm_path(self) -> Path:
     decoding_crp, decoding_config = self._get_decoding_config()
 
-    rasr_decoding_job = RASRDecodingJob(
+    split_segments_job = SplitSegmentFileJob(
+      segment_file=self.dependencies.segment_paths[self.corpus_key], concurrent=self.concurrent)
+
+    decoding_crp.corpus_config.segments.file = None
+    decoding_crp.segment_path = split_segments_job.out_segment_path
+    decoding_crp.concurrent = self.concurrent
+
+    rasr_decoding_job = RASRDecodingJobParallel(
       rasr_exe_path=RasrExecutables.flf_tool_path,
       flf_lattice_tool_config=decoding_config,
       crp=decoding_crp,
@@ -203,7 +214,7 @@ class RasrDecodingExperiment(DecodingExperiment):
       dump_best_trace=self.dump_best_traces,
       mem_rqmt=24,
       time_rqmt=30,
-      gpu_rqmt=1)
+      use_gpu=True)
     rasr_decoding_job.add_alias("%s/rasr-decoding_%s" % (self.base_alias, self.corpus_key))
 
     if self.dump_best_traces:
@@ -216,12 +227,12 @@ class RasrDecodingExperiment(DecodingExperiment):
       corpus_path=self.dependencies.corpus_paths[self.corpus_key],
       segment_path=self.dependencies.segment_paths[self.corpus_key],
       lexicon_path=self.dependencies.rasr_format_paths.lexicon_path,
-      lattice_path=rasr_decoding_job.out_lattice
+      lattice_path=rasr_decoding_job.out_lattice_bundle
     )
 
     lattice_to_ctm_job = RASRLatticeToCTMJob(
       rasr_exe_path=RasrExecutables.flf_tool_path,
-      lattice_path=rasr_decoding_job.out_lattice,
+      lattice_path=rasr_decoding_job.out_lattice_bundle,
       crp=lattice_to_ctm_crp,
       flf_lattice_tool_config=lattice_to_ctm_config)
 
