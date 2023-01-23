@@ -64,7 +64,7 @@ def pop_phoneme_state_classes(
     labeling_input: str,
     remaining_classes: int,
 ) -> typing.Tuple[Network, str, int]:
-    if label_info.phoneme_state_classes in PhonemeStateClasses.boundary:
+    if label_info.phoneme_state_classes == PhonemeStateClasses.boundary:
         class_layer_name = "boundaryClass"
         labeling_output = "popBoundary"
 
