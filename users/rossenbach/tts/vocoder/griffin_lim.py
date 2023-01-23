@@ -316,14 +316,17 @@ class HDFPhaseReconstruction(Job):
                 corpus.add_recording(recording)
 
         corpus.name = tag.split("/")[0]
+        print("dump corpus")
         corpus.dump("corpus.xml")
         replacement_string = "s:%s:%s:g" % (temp_dir.name, self.out_folder.get_path())
         subprocess.call(["sed", "-i", replacement_string, "corpus.xml"])
         subprocess.call(["gzip", "corpus.xml"])
-        shutil.move("corpus.xml.gz", self.out_corpus.get_path())
-
+        print("copy temp files to output")
         for path in glob.glob(temp_dir.name + "/*"):
+            print(f"copy {path} to {self.out_folder.get_path()}")
             shutil.move(path, self.out_folder.get_path())
+        shutil.move("corpus.xml.gz", self.out_corpus.get_path())
+        print("done")
 
     @classmethod
     def hash(cls, kwargs):
