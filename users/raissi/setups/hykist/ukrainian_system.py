@@ -1,5 +1,4 @@
-__all__ = ["UkrainianGMMSystem",
-           "UkrainianFactoredHybridSystem"]
+__all__ = ["UkrainianGMMSystem", "UkrainianHybridSystem"]
 
 import copy
 import itertools
@@ -32,10 +31,11 @@ from i6_experiments.common.setups.rasr.nn_system import (
 )
 
 from i6_experiments.common.setups.rasr.gmm_system import (
-    GmmSystem
+GmmSystem
 )
 
 from i6_experiments.common.setups.rasr.util import (
+    OggZipHdfDataInput,
     RasrInitArgs,
     RasrDataInput,
     ReturnnRasrDataInput,
@@ -43,7 +43,7 @@ from i6_experiments.common.setups.rasr.util import (
 )
 
 from i6_experiments.common.datasets.librispeech.constants import (
-    num_segments
+num_segments
 )
 
 
@@ -53,7 +53,7 @@ from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior
 
 
 from i6_experiments.users.raissi.returnn.rasr_returnn_bw import (
-    ReturnnRasrTrainingBWJob
+ReturnnRasrTrainingBWJob
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
@@ -84,7 +84,9 @@ from i6_experiments.users.raissi.setups.common.util.rasr import (
     SystemInput,
 )
 
-from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
+import i6_private.users.raissi.datasets.ukrainian_8khz as uk_8khz_data
+
+from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
     get_label_info,
     get_alignment_keys,
     get_lexicon_args,
@@ -98,8 +100,8 @@ from i6_experiments.users.raissi.setups.librispeech.search.factored_hybrid_searc
 
 Path = tk.setup_path(__package__)
 
-# -------------------- GMM System --------------------
-#do I need this?
+# -------------------- System --------------------
+
 class UkrainianGMMSystem(GmmSystem):
     def run(self, steps: Union[List, Tuple] = ("all",)):
         if "init" in steps:
@@ -284,11 +286,9 @@ class UkrainianGMMSystem(GmmSystem):
                 )
 
 
-# -------------------- Factored Hybrid System --------------------
-
-class UkrainianFactoredHybridSystem(NnSystem):
+class UkrainianHybridSystem(NnSystem):
     """
-    self.crp_names are the corpora used during training and decoding: train, cvtrain, devtrain for train and all corpora for decoding
+    this class supports both cart and factored hybrid
     """
 
     def __init__(
@@ -298,10 +298,11 @@ class UkrainianFactoredHybridSystem(NnSystem):
             returnn_python_exe: Optional[str] = None,
             # tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
             rasr_binary_path: Optional[str] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
-            rasr_init_args: RasrInitArgs = None,
+            rasr_init_args:   RasrInitArgs = None,
+            #current legacy from GMMSystem
             train_data: Dict[str, RasrDataInput] = None,
-            dev_data: Dict[str, RasrDataInput] = None,
-            test_data: Dict[str, RasrDataInput] = None,
+            dev_data:   Dict[str, RasrDataInput] = None,
+            test_data:  Dict[str, RasrDataInput] = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -311,13 +312,13 @@ class UkrainianFactoredHybridSystem(NnSystem):
         )
         # arguments used for the initialization of the system, they should be set before running the system
         self.rasr_init_args = rasr_init_args
-        self.train_data = train_data
-        self.dev_data = dev_data
-        self.test_data = test_data
+        self.train_data    = train_data
+        self.dev_data      = dev_data
+        self.test_data     = test_data
 
 
         # general modeling approach
-        self.label_info = LabelInfo(**get_label_info())
+        self.label_info = None
         self.lexicon_args = get_lexicon_args(norm_pronunciation=False)
         self.tdp_values = get_tdp_values()
 
@@ -325,6 +326,7 @@ class UkrainianFactoredHybridSystem(NnSystem):
         self.priors = None #these are for transcript priors
 
         # dataset infomration
+        #see if you want to have these or you want to handle this in the function that sets the cv
         self.cv_corpora = []
         self.devtrain_corpora = []
 
@@ -339,6 +341,7 @@ class UkrainianFactoredHybridSystem(NnSystem):
         self.basic_feature_flows = {}
 
         # train information
+        self.nn_feature_type = 'gt' #Gammatones
         self.initial_nn_args = {'num_input': 40}
 
         self.initial_train_args = {'time_rqmt': 168,
@@ -367,9 +370,27 @@ class UkrainianFactoredHybridSystem(NnSystem):
         self.tf_library = "/work/asr4/raissi/ms-thesis-setups/lm-sa-swb/dependencies/binaries/recognition/NativeLstm2.so"
 
         self.inputs = {}
-        self.train_key = None  # "train"
+        self.num_segment_list = uk_8khz_data.NUM_SEGMENTS
+        #keys when you have different dev and test sets
+        self.train_key = None  # "train-baseline"
 
     # ----------- pipeline construction -----------------
+    def set_crp_pairings(self, dev_key='dev-baseline', test_key='test-baseline'):
+        #have a dict of crp_names so that you can refer to your data as you want
+        keys = self.corpora.keys()
+        if self.train_key is None:
+            self.train_key = [k for k in keys if 'train' in k][0]
+            print('WARNING: train key was None, it has been set to self.train_key')
+        all_names = ['train', 'cvtrain', 'devtrain']
+        all_names.extend([n for n in keys if n != self.train_key])
+        self.crp_names = dict()
+        for k in all_names:
+            if 'train' in k:
+                self.crp_names[k] = f'{self.train_key}.{k}'
+
+        self.crp_names['dev']  = dev_key
+        self.crp_names['test'] = test_key
+
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
         name = self.stage.get_name(alignment, context)
         self.experiments[key] = {
@@ -381,19 +402,6 @@ class UkrainianFactoredHybridSystem(NnSystem):
             "decode_job": {"runner": None, "args": None},
             "extra_returnn_code": {"epilog": "", "prolog": ""}
         }
-
-    def set_crp_pairings(self):
-        keys = self.corpora.keys()
-        train_key = [k for k in keys if 'train' in k][0]
-        all_names = ['train', 'cvtrain', 'devtrain']
-        all_names.extend([n for n in keys if n != train_key])
-        self.crp_names = dict()
-        for k in all_names:
-            if 'train' in k:
-                self.crp_names[k] = f'{train_key}.{k}'
-            else:
-                self.crp_names[k] = k
-
     def set_returnn_config_for_experiment(self, key, returnn_config):
         assert key in self.experiments.keys()
         self.experiments[key]["returnn_config"] = returnn_config
@@ -463,7 +471,12 @@ class UkrainianFactoredHybridSystem(NnSystem):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
-    def init_system(self):
+    def init_system(self, label_info_additional_args=None):
+        label_info_args = get_label_info()
+        if label_info_additional_args is not None:
+            label_info_args.update(label_info_additional_args)
+        self.label_info = LabelInfo(**label_info_args)
+
         for param in [self.rasr_init_args, self.label_info, self.train_data, self.dev_data, self.test_data]:
             assert param is not None
         self._init_am(**self.rasr_init_args.am_args)
@@ -475,12 +488,16 @@ class UkrainianFactoredHybridSystem(NnSystem):
             self.train_corpora.append(corpus_key)
 
         for corpus_key, rasr_data_input in sorted(self.dev_data.items()):
-            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            add_lm = True if rasr_data_input.lm is not None else False
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=add_lm)
             self.dev_corpora.append(corpus_key)
 
         for corpus_key, rasr_data_input in sorted(self.test_data.items()):
-            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=True)
+            add_lm = True if rasr_data_input.lm is not None else False
+            self.add_corpus(corpus_key, data=rasr_data_input, add_lm=add_lm)
             self.test_corpora.append(corpus_key)
+
+        assert len(self.train_corpora) < 2, 'you can have only one corpus for training'
 
     def init_datasets(
             self,
@@ -557,7 +574,7 @@ class UkrainianFactoredHybridSystem(NnSystem):
                 else:
                     if self.train_key != corpus_key:
                         assert (False,
-                                "You already set the train key to be {self.train_key}, you cannot have more than one train key")
+                                f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self.get_system_input(
@@ -598,16 +615,21 @@ class UkrainianFactoredHybridSystem(NnSystem):
             for type in ["*", "silence"]:
                 crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
 
-
-        if self.label_info.use_word_end_classes:
-            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
-        crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
-        crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
-        if 'train' in crp_key:
-            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-            self.label_info.set_sil_ids(crp)
+        if self.label_info.state_tying != 'cart':
+            if self.label_info.use_word_end_classes:
+                crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
+            crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+            crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
+            if 'train' in crp_key:
+                crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+                self.label_info.set_sil_ids(crp)
+            else:
+                crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
         else:
-            crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
+            crp.acoustic_model_config.state_tying = 'cart'
+            assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
+            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
+
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
@@ -636,6 +658,7 @@ class UkrainianFactoredHybridSystem(NnSystem):
 
     # ----- data preparation for train-----------------------------------------------------
     def get_epilog_for_train(self, specaug_args=None):
+        #this is for FH when one needs to define extern data
         if specaug_args is not None:
             spec_augment_epilog = get_specaugment_epilog(**specaug_args)
         else:
@@ -645,10 +668,10 @@ class UkrainianFactoredHybridSystem(NnSystem):
                                            n_states=self.label_info.n_states_per_phone,
                                            specaugment=spec_augment_epilog)
 
-    def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
+    def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=300):
         train_corpus_path = self.corpora[self.train_key].corpus_file
-        total_train_num_segments = num_segments[self.train_key]
-        cv_size = 300 / total_train_num_segments
+        total_train_num_segments = self.num_segment_list[0]
+        cv_size = 100 / total_train_num_segments
 
         all_segments = corpus_recipe.SegmentCorpusJob(
             train_corpus_path, 1
@@ -681,18 +704,20 @@ class UkrainianFactoredHybridSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
 
-    def set_rasr_returnn_input_datas(self, input_key, chunk_size=1152):
+    def set_rasr_returnn_input_datas(self, input_key, chunk_size=300):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
 
-        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = prepare_train_data_with_separate_cv(input_key, chunk_size)
+        nn_train_data_inputs, \
+        nn_cv_data_inputs, \
+        nn_devtrain_data_inputs = self.prepare_train_data_with_cv_from_train(input_key, chunk_size)
 
         nn_dev_data_inputs = {
-            self.crp_names['dev']: self.inputs["dev-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
         }
         nn_test_data_inputs = {
-            self.crp_names['test']: self.inputs["test-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['test']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
         }
 
         self.init_datasets(
@@ -1089,7 +1114,8 @@ class UkrainianFactoredHybridSystem(NnSystem):
 
     def run(self, steps: RasrSteps):
         if "init" in steps.get_step_names_as_list():
-            self.init_system()
+            init_args = steps.get_args_via_idx(0)
+            self.init_system(label_info_additional_args=init_args)
         for eval_c in self.dev_corpora + self.test_corpora:
             stm_args = (
                 self.rasr_init_args.stm_args
@@ -1104,7 +1130,7 @@ class UkrainianFactoredHybridSystem(NnSystem):
             if step_name.startswith("extract"):
                 if step_args is None:
                     step_args = self.rasr_init_args.feature_extraction_args
-                step_args['gt']['prefix'] = 'features/'
+                step_args[self.nn_feature_type]['prefix'] = 'features/'
                 for all_c in (
                         self.train_corpora
                         + self.cv_corpora
@@ -1117,7 +1143,16 @@ class UkrainianFactoredHybridSystem(NnSystem):
                     self.feature_flows[all_c] = {}
 
                 self.extract_features(step_args)
-                # ---------- Step Input ----------
+            #-----------Set alignments if needed-------
+            # here you might one to align cv with a given aligner
+            if step_name.startswith("alignment"):
+                #step_args here is a dict that has the keys as corpora
+                for c in step_args.keys():
+                    self.alignments[c] = step_args[c]
+            # ---------------Step Input ----------
             if step_name.startswith("input"):
+                if not len(step_args.extract_features):
+                    add_feature_to_extract(self.nn_feature_type)
+
                 self.run_input_step(step_args)
 
