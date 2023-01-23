@@ -120,3 +120,16 @@ class LabelInfo:
             * self.n_contexts
             * self.phoneme_state_classes.factor()
         )
+
+    @classmethod
+    def default_ls(cls) -> "LabelInfo":
+        return LabelInfo(
+            n_states_per_phone=3,
+            n_contexts=42,
+            ph_emb_size=32,
+            st_emb_size=128,
+            state_tying=RasrStateTying.triphone,
+            phoneme_state_classes=PhonemeStateClasses.word_end,
+            sil_id=40,
+            add_unknown_phoneme=True,
+        )
