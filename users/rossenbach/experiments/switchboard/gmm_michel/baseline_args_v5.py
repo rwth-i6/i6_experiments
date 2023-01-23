@@ -15,8 +15,6 @@ from i6_experiments.common.datasets.librispeech.cart import (
 
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
-from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
-
 from .data import cart_phonemes, cart_steps
 
 def get_init_args():
@@ -35,8 +33,8 @@ def get_init_args():
         "tdp_scale": 1.0,
         "tdp_transition": (3.0, 0.0, "infinity", 0.0),  # loop, forward, skip, exit
         "tdp_silence": (0.0, 3.0, "infinity", 20.0),
-        "tying_type": "global",
-        "nonword_phones": "",
+        "tying_type": "global-and-nonword",
+        "nonword_phones": "[LAUGHTER],[NOISE],[VOCALIZEDNOISE]",
         "tdp_nonword": (
             0.0,
             3.0,
@@ -78,14 +76,32 @@ def get_init_args():
                 "fft_options": None,
             }
         },
+        "gt": {
+            "gt_options": {
+                "minfreq": 100,
+                "maxfreq": 3800,
+                "channels": 40,
+                "warp_freqbreak": 3700,
+                "tempint_type": "hanning",
+                "tempint_shift": 0.01,
+                "tempint_length": 0.025,
+                "flush_before_gap": True,
+                "do_specint": False,
+                "specint_type": "hanning",
+                "specint_shift": 4,
+                "specint_length": 9,
+                "normalize": True,
+                "preemphasis": True,
+                "legacy_scaling": False,
+                "without_samples": False,
+                "samples_options": samples_options,
+                "normalization_options": {},
+            }
+        },
     }
-
-    hub5e_01 = get_hub5e00()
 
     scorer_args = {
         "sctk_binary_path": SCTK_BINARY_PATH,
-        "stm_files": {"hub5e00": hub5e_01.stm},
-        "glm_files": {"hub5e00": hub5e_01.glm},
     }
 
     return util.RasrInitArgs(
@@ -243,28 +259,120 @@ def get_triphone_args():
         sdm_args=sdm_args,
     )
 
+def get_cart_reestimation_args(
+        max_leaves: int = 9001,
+        hmm_states: int = 3,
+        feature_flow: str = "mfcc+deriv+norm",
+):
+    """
+
+    :param use_stress_marker: use ARPAbet stress marker, please also check for correct lexicon then
+    :param max_leaves:
+    :param min_obs:
+    :param hmm_states:
+    :param feature_flow:
+    :param add_unknown:
+    :return:
+    """
+
+    cart_questions = cart.PythonCartQuestions(
+        phonemes=cart_phonemes,
+        steps=cart_steps,
+        max_leaves=max_leaves,
+        hmm_states=hmm_states,
+    )
+
+    cart_lda_args = {
+        "name": "cart_tri",
+        "alignment": "train_tri",
+        "initial_flow_key": feature_flow,
+        "context_flow_key": feature_flow.split("+")[0],
+        "context_size": 9,
+        "num_dim": 40,
+        "num_iter": 2,
+        "eigenvalue_args": {},
+        "generalized_eigenvalue_args": {"all": {"verification_tolerance": 1e14}},
+    }
+
+    return util.GmmCartArgs(
+        cart_questions=cart_questions,
+        cart_lda_args=cart_lda_args,
+    )
+
+
+def get_triphone_second_pass_args():
+    triphone_training_args = {
+        "name": "tri2",
+        "initial_alignment": "train_tri",
+        "feature_flow": "mfcc+context+lda",
+        "splits": 10,
+        "accs_per_split": 2,
+        "align_extra_rqmt": {"mem": 8},
+        "accumulate_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8},
+    }
+
+    triphone_recognition_args = {
+        "iters": [8, 10],
+        "feature_flow": "mfcc+context+lda",
+        "pronunciation_scales": [1.0],
+        "lm_scales": [20],
+        "lm_lookahead": True,
+        "lookahead_options": None,
+        "create_lattice": True,
+        "eval_single_best": True,
+        "eval_best_in_lattice": True,
+        "search_parameters": {
+            "beam_pruning": 15.0,
+            "beam-pruning-limit": 100000,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 15000,
+        },
+        "lattice_to_ctm_kwargs": {
+            "fill_empty_segments": False,
+            "best_path_algo": "bellman-ford",
+        },
+        "optimize_am_lm_scale": True,
+        "rtf": 30,
+        "mem": 4,
+        "parallelize_conversion": True,
+    }
+
+    sdm_args = {
+        "name": "sdm.tri2",
+        "alignment": "train_tri2",
+        "feature_flow_key": "mfcc+context+lda",
+    }
+
+    return util.GmmTriphoneArgs(
+        training_args=triphone_training_args,
+        recognition_args=triphone_recognition_args,
+        sdm_args=sdm_args,
+    )
+
 
 def get_vtln_args():
     vtln_training_args = {
         "feature_flow": {
             "name": "uncached_mfcc+context+lda",
-            "lda_matrix_key": "cart_mono",
+            "lda_matrix_key": "cart_tri",
             "base_flow_key": "uncached_mfcc",
             "context_size": 9,
         },
         "warp_mix": {
-            "name": "tri",
-            "alignment": "train_tri",
-            "feature_scorer": "estimate_mixtures_sdm.tri",
+            "name": "tri2",
+            "alignment": "train_tri2",
+            "feature_scorer": "estimate_mixtures_sdm.tri2",
             "splits": 8,
             "accs_per_split": 2,
         },
         "train": {
             "name": "vtln",
-            "initial_alignment_key": "train_tri",
+            "initial_alignment_key": "train_tri2",
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": "mfcc+context+lda+vtln",
+            "accumulate_extra_rqmt": {"mem": 4},
         },
     }
 
@@ -311,7 +419,7 @@ def get_sat_args():
     sat_training_args = {
         "name": "sat",
         "mixtures": "estimate_mixtures_sdm.tri",
-        "alignment": "train_tri",
+        "alignment": "train_tri2",
         "feature_cache": "mfcc",
         "feature_flow_key": "mfcc+context+lda",
         "cache_regex": "^mfcc.*$",
@@ -321,7 +429,7 @@ def get_sat_args():
 
     sat_recognition_args = {
         "prev_ctm": util.PrevCtm(
-            prev_step_key="tri",
+            prev_step_key="tri2",
             pronunciation_scale=1.0,
             lm_scale=20,
             iteration=10,
