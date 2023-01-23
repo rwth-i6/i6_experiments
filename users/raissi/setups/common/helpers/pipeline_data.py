@@ -109,7 +109,7 @@ class PipelineStages:
             "di-delta": f"di-delta-from-{align_k}",
             "tri": f"tri-from-{align_k}",
             "tri-delta": f"tridelta-from-{align_k}",
-            "cart": f"cart-from-{align_k}",
+            "cart": f"cart-from-{align_k}"
         }
 
     def get_name(self, alignment_key, context_type):
