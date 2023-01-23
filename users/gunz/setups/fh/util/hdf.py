@@ -25,7 +25,7 @@ class SprintFeatureToHdf(Job):
         yield Task(
             "run",
             rqmt=self.rqmt,
-            args=range(1, len(self.feature_caches.hidden_paths) + 1),
+            args=list(self.feature_caches.hidden_paths.keys()),
         )
 
     def run(self, task_id: int):
@@ -33,7 +33,7 @@ class SprintFeatureToHdf(Job):
         string_dt = h5py.special_dtype(vlen=str)
 
         feature_cache = FileArchive(
-            tk.uncached_path(self.feature_caches.hidden_paths[task_id - 1])
+            tk.uncached_path(self.feature_caches.hidden_paths[task_id])
         )
 
         with tempfile.TemporaryDirectory() as out_dir:
