@@ -17,7 +17,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import conformer, oclr, returnn_time_tag
+from ...setups.common import oclr, returnn_time_tag
 from ...setups.common.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -25,12 +25,14 @@ from ...setups.common.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, PhonemeStateClasses
+from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
-from ...setups.fh.network.extern_data import get_extern_data_config
+from ...setups.fh.decoder.config import PriorInfo
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -162,8 +164,7 @@ def run_single(
     network_builder = conformer.get_best_model_config(
         conf_size,
         num_classes=s.label_info.get_n_of_dense_classes(),
-        label_smoothing=0.0,
-        adapt_for_fh=True,
+        label_smoothing=CONF_LABEL_SMOOTHING,
         time_tag_name=time_tag_name,
         int_loss_at_layer=None,
         int_loss_scale=int_loss_scale,
@@ -183,7 +184,7 @@ def run_single(
         use_multi_task=True,
     )
     for loss_idx, ctx, center_only in int_losses:
-        network = conformer.add_fh_intermediate_loss(
+        network = aux_loss.add_intermediate_loss(
             network,
             time_tag_name=time_tag_name,
             encoder_output_len=conf_size,
@@ -198,7 +199,7 @@ def run_single(
 
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_returnn_lr_config(num_epochs=num_epochs, lr_schedule="v6"),
+        **oclr.get_oclr_config(num_epochs=num_epochs),
         **CONF_SA_CONFIG,
         "batch_size": 6144,
         "use_tensorflow": True,
@@ -215,7 +216,7 @@ def run_single(
         "network": network,
         "extern_data": {
             "data": {"dim": 50},
-            **get_extern_data_config(
+            **extern_data.get_extern_data_config(
                 label_info=s.label_info, time_tag_name=time_tag_name
             ),
         },
@@ -262,17 +263,18 @@ def run_single(
         nn_train_args=train_args,
     )
 
+    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    s.set_graph_for_experiment("fh")
+
     s.set_mono_priors(
-        key="fh",
-        epoch=keep_epochs[-3],
-        tf_library=None,
-        hdf_key=None,
-        gpu=False,
+        key="fh", epoch=keep_epochs[-3], tf_library=None, hdf_key=None, gpu=False
+    )
+
+    s.experiments["fh"]["priors"] = PriorInfo.from_monophone_job(
+        "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/mono-from-GMMtri-conf-ph-1-dim-512-ep-600-cls-WE-lr-v6-epoch-550"
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
-
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
