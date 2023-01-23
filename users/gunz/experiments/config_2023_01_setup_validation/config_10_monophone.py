@@ -270,10 +270,6 @@ def run_single(
         key="fh", epoch=keep_epochs[-3], tf_library=None, hdf_key=None, gpu=False
     )
 
-    s.experiments["fh"]["priors"] = PriorInfo.from_monophone_job(
-        "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/mono-from-GMMtri-conf-ph-1-dim-512-ep-600-cls-WE-lr-v6-epoch-550"
-    )
-
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
