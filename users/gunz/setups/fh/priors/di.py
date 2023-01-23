@@ -1,6 +1,6 @@
 __all__ = ["EstimateDiphonePriorsJob", "DumpXmlForDiphoneJob", "DiphoneTensorMap"]
 
-from datetime import datetime
+import logging
 import math
 import pickle
 import time
@@ -93,7 +93,7 @@ class EstimateDiphonePriorsJob(EstimatePriorsJob):
     def get_encoder_output(self, session, feature_vector: np.ndarray):
         b, t = feature_vector.shape
 
-        print(f"{datetime.now()}: encoder-output from data, b={b}", flush=True)
+        logging.info(f"encoder-output from data, b={b}", flush=True)
 
         return session.run(
             [self.tensor_map["out_encoder_output"]],
@@ -112,9 +112,8 @@ class EstimateDiphonePriorsJob(EstimatePriorsJob):
     ):
         assert target in ["diphone", "context"]
 
-        print(
-            f"{datetime.now()}: {target} posteriors from encoder-output, b={feature_vector.shape[1]}, cls={len(class_label_vector)}",
-            flush=True,
+        logging.info(
+            f"{target} posteriors from encoder-output, b={feature_vector.shape[1]}, cls={len(class_label_vector)}"
         )
 
         if target == "diphone":
@@ -167,7 +166,7 @@ class EstimateDiphonePriorsJob(EstimatePriorsJob):
         ):
             now = time.monotonic()
             if now - last_print > 60:
-                print(f"{datetime.now()}: {max(i - 1, 0)} batches done")
+                logging.info(f"{max(i - 1, 0)} batches done")
                 last_print = now
 
             batch_size = len(batch)
