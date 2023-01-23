@@ -1110,7 +1110,6 @@ class FactoredHybridSystem(NnSystem):
             name=name,
             search_crp=self.crp[crp_corpus],
             context_type=context_type,
-            context_mapper=self.context_mapper,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,
             graph=graph,
