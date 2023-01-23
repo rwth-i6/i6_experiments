@@ -2,7 +2,7 @@ __all__ = ["get_best_model_config"]
 
 import typing
 
-from ...common.conformer.best_conformer import get_best_model_config, Size
+from ...common.conformer.best_conformer import get_best_model_config as get_cfg, Size
 from .augment import Network
 
 
@@ -16,7 +16,7 @@ def get_best_model_config(
     label_smoothing: float = 0.2,
     target: str = "classes",
 ) -> Network:
-    conformer_net = get_best_model_config(
+    conformer_net = get_cfg(
         size=size,
         num_classes=num_classes,
         int_loss_at_layer=int_loss_at_layer,
