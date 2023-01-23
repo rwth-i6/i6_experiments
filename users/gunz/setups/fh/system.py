@@ -37,7 +37,7 @@ from i6_private.users.gunz.util.delayed import DelayedArgMin
 from ..common.compile_graph import compile_tf_graph_from_returnn_config
 from .decoder.config import PriorConfig, PriorInfo
 from .decoder.search import FHDecoder, SearchParameters
-from .factored import PhoneticContext, LabelInfo, SprintFeatureToHdf
+from .factored import PhoneticContext, LabelInfo
 from .priors import (
     DumpXmlForMonophoneJob,
     DumpXmlForDiphoneJob,
