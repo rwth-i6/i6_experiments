@@ -203,7 +203,6 @@ class FactoredHybridSystem(NnSystem):
     def set_experiment_dict(
         self, key: str, alignment: str, context: str, postfix_name=""
     ):
-        name = self.stage.get_name(alignment, context)
         name = f"{context}-from-{alignment}"
         self.experiments[key] = {
             "name": ("-").join([name, postfix_name]),
