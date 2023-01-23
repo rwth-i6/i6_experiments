@@ -53,6 +53,8 @@ class LabelInfo:
         ph_emb_size,
         st_emb_size,
         state_tying,
+        state_tying_file=None,
+        n_cart_labels=None,
         sil_id=None,
         use_word_end_classes=True,
         use_boundary_classes=False,
@@ -68,6 +70,11 @@ class LabelInfo:
         self.use_boundary_classes = use_boundary_classes
         self.add_unknown_phoneme = add_unknown_phoneme
 
+        if state_tying == 'cart':
+            assert state_tying_file is not None, 'for cart state tying you need a file'
+            assert n_cart_labels is not None, 'for cart you need to set number of cart labels'
+            self.n_cart_labels = n_cart_labels
+            self.state_tying_file = state_tying_file
 
     def get_n_of_dense_classes(self):
         n_contexts = self.n_contexts
@@ -76,6 +83,9 @@ class LabelInfo:
         return self.n_states_per_phone * (n_contexts**3) * (1 + int(self.use_word_end_classes))
 
     def get_n_state_classes(self):
+        if self.state_tying == 'cart':
+            assert self.n_cart_labels is not None
+            return self.n_cart_labels
         return self.n_states_per_phone * self.n_contexts * (1 + int(self.use_word_end_classes))
 
 
@@ -94,6 +104,7 @@ class PipelineStages:
             "di-delta": f"di-delta-from-{align_k}",
             "tri": f"tri-from-{align_k}",
             "tri-delta": f"tridelta-from-{align_k}",
+            "cart": f"cart-from-{align_k}"
         }
 
     def get_name(self, alignment_key, context_type):
