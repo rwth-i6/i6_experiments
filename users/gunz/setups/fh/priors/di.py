@@ -11,8 +11,8 @@ import numpy as np
 from sisyphus import tk, Job, Task
 
 import i6_core.returnn as returnn
-from ..factored import LabelInfo
 
+from ..factored import LabelInfo
 from .mono import MonophoneTensorMap
 from .util import EstimatePriorsJob
 

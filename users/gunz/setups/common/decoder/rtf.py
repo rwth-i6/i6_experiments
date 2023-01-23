@@ -1,7 +1,6 @@
 __all__ = ["ExtractSearchStatisticsJob"]
 
 import collections
-from datetime import timedelta
 import gzip
 import typing
 import xml.etree.ElementTree as ET
