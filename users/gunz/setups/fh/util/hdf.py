@@ -67,7 +67,7 @@ class SprintFeatureToHdf(Job):
                     "seq_names", data=[s.encode() for s in seq_names], dtype=string_dt
                 )
 
-            target = self.hdf_files[task_id - 1].get_path()
+            target = self.out_hdf_files[task_id - 1].get_path()
             logging.info(f"moving {out_file} to its target {target}")
 
             shutil.move(out_file, target)
