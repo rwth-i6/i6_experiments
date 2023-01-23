@@ -447,8 +447,6 @@ class FactoredHybridSystem(NnSystem):
                 "no-tying-dense"  # for correct tree of dependency
             )
 
-        crp.acoustic_model_config.state_tying.label_order = self.label_info.label_order
-
         if self.label_info.use_word_end_classes:
             crp.acoustic_model_config.state_tying.use_word_end_classes = (
                 self.label_info.use_word_end_classes
