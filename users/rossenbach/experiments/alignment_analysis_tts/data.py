@@ -13,7 +13,13 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio imp
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.vocabulary import LabelDatastream
 from i6_experiments.users.rossenbach.common_setups.returnn import datasets
 
-from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech_tts_segments, get_ls_train_clean_100_tts_silencepreprocessed
+from i6_experiments.users.rossenbach.datasets.librispeech import (
+    get_librispeech_tts_segments,
+    get_ls_train_clean_100_tts_silencepreprocessed,
+    get_ls_train_clean_360_tts_silencepreprocessed,
+)
+
+
 from i6_experiments.users.rossenbach.setups.tts.preprocessing import (
     process_corpus_text_with_extended_lexicon,
     extend_lexicon_with_tts_lemmas,
@@ -34,10 +40,23 @@ def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
     return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
 
 
+def get_tts_extended_bliss(ls_corpus_key) -> tk.Path:
+    """
+    get a modified ls corpus using the TTS processing
+    :return:
+    """
+    ls_bliss = get_bliss_corpus_dict(audio_format="ogg")[ls_corpus_key]
+    tts_ls_bliss = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=ls_bliss,
+        lexicon=get_librispeech_lexicon(corpus_key=ls_corpus_key))
+
+    return tts_ls_bliss
+
+
 @lru_cache
 def get_ls100_silence_preprocessed_bliss() -> tk.Path:
     """
-    Get the modified ls100 corpus for the TTS task
+    Get the modified ls100 corpus for the TTS task with silence preprocessing
     :return: Bliss xml file
     """
     # this is the FFmpeg silence preprocessed version of LibriSpeech train-clean-100
@@ -47,6 +66,34 @@ def get_ls100_silence_preprocessed_bliss() -> tk.Path:
     sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
         bliss_corpus=sil_pp_train_clean_100_co.corpus_file,
         lexicon=get_librispeech_lexicon())
+
+    return sil_pp_train_clean_100_tts
+
+
+@lru_cache
+def get_ls460_silence_preprocessed_bliss() -> tk.Path:
+    """
+    Get the modified ls100 corpus for the TTS task
+    :return: Bliss xml file
+    """
+    # this is the FFmpeg silence preprocessed version of LibriSpeech train-clean-100
+    sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed()
+
+    from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
+    spp_460_corpus = MergeCorporaJob(
+        bliss_corpora=[
+            sil_pp_train_clean_100_co.corpus_file,
+            sil_pp_train_clean_360_co.corpus_file,
+        ],
+        merge_strategy=MergeStrategy.FLAT,
+        name="train-clean-460"
+    ).out_merged_corpus
+
+    # convert the corpus transcriptions into phoneme and marker representation
+    sil_pp_train_clean_100_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=spp_460_corpus,
+        lexicon=get_librispeech_lexicon("train-clean-460"))
 
     return sil_pp_train_clean_100_tts
 
@@ -90,6 +137,50 @@ def get_ls100_silence_preprocess_ogg_zip() -> tk.Path:
     ).out_ogg_zip
 
     return zip_dataset
+
+
+@lru_cache
+def get_ls460_silence_preprocess_ogg_zip() -> tk.Path:
+    """
+    :return: Returnn OggZip .zip file
+    """
+
+    sil_pp_train_clean_460_tts = get_ls460_silence_preprocessed_bliss()
+
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=sil_pp_train_clean_460_tts,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_DATA_ROOT,
+    ).out_ogg_zip
+
+    return zip_dataset
+
+
+def get_bliss_and_zip(ls_corpus_key, silence_preprocessed=True):
+    """
+    :param ls_corpus_key: e.g. train-clean-100, see LibriSpeech data definition
+    :param silence_preprocessed:
+    :return:
+    """
+    if silence_preprocessed:
+        if ls_corpus_key == "train-clean-100":
+            bliss_dataset = get_ls100_silence_preprocessed_bliss()
+        elif ls_corpus_key == "train-clean-460":
+            bliss_dataset = get_ls460_silence_preprocessed_bliss()
+        else:
+            assert "invalid key"
+    else:
+        bliss_dataset = get_tts_extended_bliss(ls_corpus_key=ls_corpus_key)
+
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=bliss_dataset,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_DATA_ROOT,
+    ).out_ogg_zip
+
+    return bliss_dataset, zip_dataset
 
 
 def make_meta_dataset(audio_dataset, speaker_dataset):
@@ -204,13 +295,13 @@ def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100") -> tk.Pa
 
 
 
-def get_vocab_datastream(with_blank: bool = False) -> LabelDatastream:
+def get_vocab_datastream(with_blank: bool = False, corpus_key="train-clean-100") -> LabelDatastream:
     """
     Default VocabularyDatastream for LibriSpeech (uppercase ARPA phoneme symbols)
 
     :param with_blank: datastream for CTC training
     """
-    lexicon = get_lexicon(with_blank)
+    lexicon = get_lexicon(with_blank, corpus_key=corpus_key)
     blacklist =  {"[SILENCE]"}
     returnn_vocab_job = ReturnnVocabFromPhonemeInventory(lexicon, blacklist=blacklist)
     name = "returnn_vocab_from_lexicon_with_blank" if with_blank else "returnn_vocab_from_lexicon"

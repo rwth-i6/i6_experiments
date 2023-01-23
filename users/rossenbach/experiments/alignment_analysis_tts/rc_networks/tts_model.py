@@ -105,14 +105,14 @@ class Decoder(nn.Module):
             allow_broadcast=True,
         )
 
-        dec_lstm_fw, _ = self.dec_lstm_fw_1(cat, axis=time_dim, direction=1)
-        dec_lstm_bw, _ = self.dec_lstm_bw_1(cat, axis=time_dim, direction=-1)
+        dec_lstm_fw, _ = self.dec_lstm_fw_1(cat, spatial_dim=time_dim, direction=1)
+        dec_lstm_bw, _ = self.dec_lstm_bw_1(cat, spatial_dim=time_dim, direction=-1)
 
         cat = nn.concat_features(dec_lstm_fw, dec_lstm_bw)
         dec_drop = nn.dropout(cat, axis=cat.feature_dim, dropout=self.dropout)
 
-        dec_lstm_fw, _ = self.dec_lstm_fw_2(dec_drop, axis=time_dim, direction=1)
-        dec_lstm_bw, _ = self.dec_lstm_bw_2(dec_drop, axis=time_dim, direction=-1)
+        dec_lstm_fw, _ = self.dec_lstm_fw_2(dec_drop, spatial_dim=time_dim, direction=1)
+        dec_lstm_bw, _ = self.dec_lstm_bw_2(dec_drop, spatial_dim=time_dim, direction=-1)
 
         cat = nn.concat_features(dec_lstm_fw, dec_lstm_bw)
         dec_drop = nn.dropout(cat, axis=cat.feature_dim, dropout=self.dropout)
@@ -401,18 +401,17 @@ class NARTTSModel(nn.Module):
         # layers
         self.embedding = nn.Linear(in_dim=label_in_dim, out_dim=self.embedding_dim)
         self.speaker_embedding = nn.Linear(in_dim=speaker_in_dim, out_dim=self.speaker_embedding_dim)
-        self.conv_stack = ConvStack(in_dim=self.embedding_dim, num_layers=3, filter_sizes=[3,3,3], dropout=[dropout, dropout, dropout])
+        self.conv_stack = ConvStack(in_dim=self.embedding_dim, dim_sizes=[embedding_size] * 3, num_layers=3, filter_sizes=[3,3,3], dropout=[dropout, dropout, dropout])
         self.enc_lstm_fw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
         self.enc_lstm_bw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
         self.decoder = Decoder(in_dim=2*self.enc_lstm_dim + self.speaker_embedding_dim, dec_lstm_size_1=dec_lstm_size, dropout=dropout)
         if self.gauss_up:
             # only import here to reduce serializer imports and not import for every model that doesn't use it
-            from i6_experiments.users.hilmes.modules.gaussian_upsampling import (
+            from .gaussian_upsampling import (
                 GaussianUpsampling,
-                VarianceNetwork,
+                LstmVarianceNetwork,
             )
-
-            self.variance_net = VarianceNetwork()
+            self.variance_net = LstmVarianceNetwork(in_dim=2*self.enc_lstm_dim)
             self.upsamling = GaussianUpsampling()
         else:
             self.variance_net = None
@@ -564,8 +563,8 @@ class NARTTSModel(nn.Module):
         conv = self.conv_stack(emb, time_dim=phon_time_dim)
 
         # lstm encoder
-        enc_lstm_fw, _ = self.enc_lstm_fw(conv, axis=phon_time_dim, direction=1)
-        enc_lstm_bw, _ = self.enc_lstm_bw(conv, axis=phon_time_dim, direction=-1)
+        enc_lstm_fw, _ = self.enc_lstm_fw(conv, spatial_dim=phon_time_dim, direction=1)
+        enc_lstm_bw, _ = self.enc_lstm_bw(conv, spatial_dim=phon_time_dim, direction=-1)
         cat, _  = nn.concat(
             (enc_lstm_fw, enc_lstm_fw.feature_dim),
             (enc_lstm_bw, enc_lstm_bw.feature_dim),

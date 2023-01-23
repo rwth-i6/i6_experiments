@@ -18,7 +18,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data impor
 )
 
 
-def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternData, training: bool, **kwargs) -> Collection:
+def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternData, training: bool, debug=False, **kwargs) -> Collection:
 
     rc_recursionlimit = PythonEnlargeStackWorkaroundNonhashedCode
     model_type = kwargs.pop("model_type")
@@ -55,7 +55,7 @@ def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternD
             rc_network,
         ],
         returnn_common_root=returnn_common_root,
-        make_local_package_copy=True,
+        make_local_package_copy=not debug,
         packages={
             "i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.rc_networks",
         },
@@ -65,7 +65,7 @@ def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternD
 
 
 def get_training_config(
-        returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, **kwargs
+        returnn_common_root: tk.Path, training_datasets: TTSTrainingDatasets, batch_size = 18000, debug=False, **kwargs
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_model
@@ -119,6 +119,7 @@ def get_training_config(
         returnn_common_root=returnn_common_root,
         rc_extern_data=rc_extern_data,
         training=True,
+        debug=debug,
         **kwargs
     )
 

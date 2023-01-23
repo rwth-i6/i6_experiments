@@ -43,7 +43,7 @@ def get_baseline_ctc_alignment():
     )
 
 
-def get_baseline_ctc_alignment_v2():
+def get_baseline_ctc_alignment_v2(silence_preprocessed=True):
     """
     Baseline for the ctc aligner in returnn_common with serialization
 
@@ -55,7 +55,51 @@ def get_baseline_ctc_alignment_v2():
 
     name = "experiments/alignment_analysis_tts/ctc_aligner_v2/baseline"
 
-    training_datasets = build_training_dataset()
+    if silence_preprocessed:
+        name += "_spp"
+    else:
+        name += "_nospp"
+
+    training_datasets = build_training_dataset(silence_preprocessed=silence_preprocessed)
+
+    aligner_config = get_training_config(
+        returnn_common_root=RETURNN_COMMON, training_datasets=training_datasets, use_v2=True,
+    )  # implicit reconstruction loss
+    forward_config = get_forward_config(
+        returnn_common_root=RETURNN_COMMON,
+        forward_dataset=training_datasets.joint,
+        datastreams=training_datasets.datastreams,
+        use_v2=True,
+    )
+    train_job = ctc_training(
+        config=aligner_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name,
+    )
+    duration_hdf = ctc_forward(
+        checkpoint=train_job.out_checkpoints[100],
+        config=forward_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name
+    )
+    return duration_hdf
+
+
+def get_ls460_ctc_alignment_v2():
+    """
+    Baseline for the ctc aligner in returnn_common with serialization
+
+    Uses updated RETURNN_COMMON
+
+    :return: durations_hdf
+    """
+
+
+    name = "experiments/alignment_analysis_tts/ctc_aligner_v2/ls460"
+
+    training_datasets = build_training_dataset(ls_corpus_key="train-clean-460")
 
 
     aligner_config = get_training_config(
