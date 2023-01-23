@@ -1062,7 +1062,7 @@ class FactoredHybridSystem(NnSystem):
         }
 
         infer_graph = compile_tf_graph_from_returnn_config(
-            config, python_prolog, python_epilog, returnn_root=self.returnn_root
+            config, python_prolog=python_prolog, python_epilog=python_epilog, returnn_root=self.returnn_root
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
