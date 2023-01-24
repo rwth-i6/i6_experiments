@@ -1,4 +1,9 @@
-__all__ = ["ContextEnum", "ContextMapper", "PipelineStages", "LabelInfo", "SprintFeatureToHdf"]
+__all__ = ["ContextEnum",
+           "ContextMapper",
+           "PipelineStages",
+           "LabelInfo",
+           "RasrFeatureToHDF",
+           "RasrFeatureAndAlignmentToHDF"]
 
 from sisyphus import *
 from i6_core.lib.rasr_cache import FileArchive, FileArchiveBundle
@@ -117,7 +122,7 @@ class PipelineStages:
 
 
 
-class SprintFeatureToHdf(Job):
+class RasrFeatureToHDF(Job):
 
   def __init__(self, feature_caches):
     self.feature_caches = feature_caches
@@ -156,3 +161,75 @@ class SprintFeatureToHdf(Job):
       feature_data.create_dataset(seq_names[-1].replace('/', '\\'), data=features)
 
     out.create_dataset('seq_names', data=[s.encode() for s in seq_names], dtype=string_dt)
+
+
+class RasrFeatureAndAlignmentToHDF(Job):
+    def __init__(self, feature_caches, alignment_caches, allophones, state_tying):
+        self.feature_caches = feature_caches
+        self.alignment_caches = alignment_caches
+        self.allophones = allophones
+        self.state_tying = state_tying
+        self.hdf_files = [self.output_path('data.hdf.%d' % d, cached=False) for d in range(len(feature_caches))]
+        self.rqmt = {'cpu': 1, 'mem': 8, 'time': 0.5}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt, args=range(1, (len(self.feature_caches) + 1)))
+
+    def run(self, task_id):
+        num_classes = 0
+        for line in open(tk.uncached_path(self.state_tying), 'rt'):
+            if not line.startswith('#'):
+                num_classes = max(num_classes, int(line.strip().split()[1]))
+
+        string_dt = h5py.special_dtype(vlen=str)
+        state_tying = dict(
+            (k, int(v)) for l in open(tk.uncached_path(self.state_tying)) for k, v in [l.strip().split()[0:2]])
+
+        feature_cache = FileArchive(tk.uncached_path(self.feature_caches[task_id - 1]))
+        alignment_cache = FileArchive(
+            tk.uncached_path(self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)]))
+        alignment_cache.setAllophones(tk.uncached_path(self.allophones))
+
+        seq_names = []
+        out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
+
+        # root
+        streams_group = out.create_group('streams')
+
+        # first level
+        feature_group = streams_group.create_group('features')
+        feature_group.attrs['parser'] = 'feature_sequence'
+
+        alignment_group = streams_group.create_group('alignment')
+        alignment_group.attrs['parser'] = 'sparse'
+        alignment_group.create_dataset('feature_names', data=[b'label_%d' % l for l in range(num_classes + 1)],
+                                       dtype=string_dt)
+
+        # second level
+        feature_data = feature_group.create_group('data')
+        alignment_data = alignment_group.create_group('data')
+
+        for file in feature_cache.ft:
+            info = feature_cache.ft[file]
+            if info.name.endswith('.attribs'):
+                continue
+
+            seq_names.append(info.name)
+
+            # features
+            times, features = feature_cache.read(file, 'feat')
+            feature_data.create_dataset(seq_names[-1].replace('/', '\\'), data=features)
+
+            # alignment
+            alignment = alignment_cache.read(file, 'align')
+
+            targets = []
+            alignmentNoState = []
+            alignmentStates = ['%s.%d' % (alignment_cache.allophones[t[1]], t[2]) for t in alignment]
+
+            for allophone in alignmentStates:
+                targets.append(state_tying[allophone])
+
+            alignment_data.create_dataset(seq_names[-1].replace('/', '\\'), data=targets)
+
+        out.create_dataset('seq_names', data=[s.encode() for s in seq_names], dtype=string_dt)

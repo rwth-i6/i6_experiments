@@ -24,6 +24,7 @@ import i6_core.returnn as returnn
 import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
+from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
 
 from i6_experiments.common.setups.rasr.nn_system import (
@@ -61,7 +62,8 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextMapper,
     LabelInfo,
     PipelineStages,
-    SprintFeatureToHdf
+    RasrFeatureToHDF,
+    RasrFeatureAndAlignmentToHDF
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
@@ -626,7 +628,7 @@ class UkrainianHybridSystem(NnSystem):
             else:
                 crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
         else:
-            crp.acoustic_model_config.state_tying = 'cart'
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
             assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
             crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
 
@@ -897,11 +899,23 @@ class UkrainianHybridSystem(NnSystem):
 
         return self.hdfs[self.train_key]
 
-    def create_hdf(self):
+    def create_hdf(self, with_alignment=False):
         gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
         feature_caches = [gammaton_features_paths[i].get_path() for i in
                           range(1, len(gammaton_features_paths.keys()) + 1)]
-        hdfJob = SprintFeatureToHdf(feature_caches)
+        if with_alignment:
+            alignment_paths = self.alignments[self.train_key].hidden_paths
+            alignment_caches = [alignment_paths[i].get_path() for i in
+                          range(1, len(gammaton_features_paths.keys()) + 1)]
+            store_allophones = allophones.StoreAllophonesJob(s.crp[self.train_key])
+            dump_statetying   = allophones.DumpStateTyingJob(s.crp[self.train_key])
+
+            hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
+                                                  alignment_caches=alignment_caches,
+                                                  allophones=store_allophones.allophone_file,
+                                                  state_tying=dum_statetying.state_tying)
+        else:
+            hdfJob = RasrFeatureToHDF(feature_caches)
         self.hdfs[self.train_key] = hdfJob.hdf_files
 
         hdfJob.add_alias(f"hdf/{self.train_key}")
