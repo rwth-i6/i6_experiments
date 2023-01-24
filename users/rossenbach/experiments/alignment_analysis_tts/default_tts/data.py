@@ -20,8 +20,7 @@ from i6_experiments.users.hilmes.tools.tts.speaker_embeddings import (
 
 from ..data import (
     get_tts_log_mel_datastream,
-    get_ls100_silence_preprocess_ogg_zip,
-    get_ls100_silence_preprocessed_bliss,
+    get_bliss_and_zip,
     get_vocab_datastream,
     get_lexicon,
     process_corpus_text_with_extended_lexicon
@@ -50,20 +49,19 @@ class TTSForwardData:
     datastreams: Dict[str, Datastream]
 
 
-def get_tts_data_from_ctc_align(alignment_hdf):
+def get_tts_data_from_ctc_align(alignment_hdf, ls_corpus_key="train-clean-100", silence_preprocessed=True):
     """
     Build the datastreams for TTS training
     :param tk.Path alignment_hdf: alignment hdf
     :return:
     """
-    bliss_dataset = get_ls100_silence_preprocessed_bliss()
-    zip_dataset = get_ls100_silence_preprocess_ogg_zip()
+    bliss_dataset, zip_dataset = get_bliss_and_zip(ls_corpus_key=ls_corpus_key, silence_preprocessed=silence_preprocessed)
 
     # segments for train-clean-100-tts-train and train-clean-100-tts-dev
     # (1004 segments for dev, 4 segments for each of the 251 speakers)
-    train_segments, cv_segments = get_librispeech_tts_segments()
+    train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=ls_corpus_key)
 
-    vocab_datastream = get_vocab_datastream()
+    vocab_datastream = get_vocab_datastream(corpus_key=ls_corpus_key)
     log_mel_datastream = get_tts_log_mel_datastream(center=False)  # CTC setup is with window/frame centering
 
     speaker_label_job = SpeakerLabelHDFFromBlissJob(
@@ -128,6 +126,53 @@ def get_tts_forward_data_legacy(librispeech_subcorpus, speaker_embedding_hdf, se
     vocab_datastream = get_vocab_datastream()
 
     bliss_corpus = get_bliss_corpus_dict(audio_format="ogg")[librispeech_subcorpus]
+    bliss_corpus_tts_format = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=bliss_corpus,
+        lexicon=get_lexicon(corpus_key="train-other-960")  # use full lexicon
+    )
+    speaker_bliss_corpus = get_bliss_corpus_dict()["train-clean-100"]
+
+    zip_dataset = BlissToOggZipJob(
+        bliss_corpus=bliss_corpus_tts_format,
+        no_audio=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+    ).out_ogg_zip
+
+
+    inference_ogg_zip = OggZipDataset(
+        path=zip_dataset,
+        audio_options=None,
+        target_options=vocab_datastream.as_returnn_targets_opts(),
+        segment_file=segment_file,
+        partition_epoch=1,
+        seq_ordering="sorted_reverse",
+    )
+
+    mapping_pkl = RandomSpeakerAssignmentJob(bliss_corpus=bliss_corpus, speaker_bliss_corpus=speaker_bliss_corpus, shuffle=True).out_mapping
+    if speaker_embedding_hdf:
+        speaker_embedding_hdf = SingularizeHDFPerSpeakerJob(hdf_file=speaker_embedding_hdf, speaker_bliss=speaker_bliss_corpus).out_hdf
+        speaker_hdf = DistributeHDFByMappingJob(hdf_file=speaker_embedding_hdf, mapping=mapping_pkl).out_hdf
+        speaker_hdf_dataset = HDFDataset(files=[speaker_hdf])
+    else:
+        speaker_hdf_dataset = None
+
+    inference_dataset = _make_inference_meta_dataset(
+        inference_ogg_zip, speaker_hdf_dataset, duration_dataset=None
+    )
+
+    datastreams = {
+        "phon_labels": vocab_datastream,
+    }
+    datastreams["speaker_labels"] = FeatureDatastream(
+        available_for_inference=True, feature_size=speaker_embedding_size)
+
+    return TTSForwardData(dataset=inference_dataset, datastreams=datastreams)
+
+
+def get_tts_forward_data_legacy_v2(bliss_corpus, speaker_embedding_hdf, segment_file = None, speaker_embedding_size=256):
+    vocab_datastream = get_vocab_datastream()
+
     bliss_corpus_tts_format = process_corpus_text_with_extended_lexicon(
         bliss_corpus=bliss_corpus,
         lexicon=get_lexicon(corpus_key="train-other-960")  # use full lexicon

@@ -10,8 +10,6 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech
 from i6_experiments.users.rossenbach.setups.tts.preprocessing import process_corpus_text_with_extended_lexicon
 from i6_experiments.users.rossenbach.tts.speaker_embedding import SpeakerLabelHDFFromBliss
 
-from i6_core.corpus.
-
 
 from ..data import (
     get_tts_log_mel_datastream,

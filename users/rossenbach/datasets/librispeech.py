@@ -133,16 +133,16 @@ class GenerateBalancedSpeakerDevSegmentFileJob(Job):
 
 
 @lru_cache()
-def get_librispeech_tts_segments():
+def get_librispeech_tts_segments(ls_corpus_key="train-clean-100"):
     """
     Generate the fixed train and dev segments for fixed speaker TTS training
 
     :return:
     """
     bliss_corpus_dict = get_bliss_corpus_dict()
-    ls100_segments = SegmentCorpusJob(bliss_corpus_dict['train-clean-100'], 1).out_single_segment_files[1]
+    segments = SegmentCorpusJob(bliss_corpus_dict[ls_corpus_key], 1).out_single_segment_files[1]
     generate_tts_segments_job = GenerateBalancedSpeakerDevSegmentFileJob(
-        segment_file=ls100_segments,
+        segment_file=segments,
         dev_segments_per_speaker=4
     )
     return generate_tts_segments_job.out_train_segments, generate_tts_segments_job.out_dev_segments
@@ -180,6 +180,33 @@ def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
     processed_corpus.audio_dir = train_100_corpus.audio_dir
     processed_corpus.corpus_file = ffmpeg_silence_remove(
         train_100_corpus.corpus_file,
+        stop_threshold = -50,
+        stop_duration = 0,
+        force_output_format = 'ogg',
+        # the pipeline uses n4.1.4, but we assume that it is safe to user other versions of FFMPEG as well
+        # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
+        ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
+
+    return copy.deepcopy(processed_corpus)
+
+
+def get_ls_train_clean_360_tts_silencepreprocessed(alias_path=""):
+    """
+    This returns the silence-preprocessed version of LibriSpeech train-clean-100 with
+    FFmpeg silence preprocessing using a threshold of -50dB for silence
+    :return:
+    """
+    corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+    train_360_corpus = corpus_object_dict['train-clean-360']
+
+    processed_corpus = CorpusObject()
+    processed_corpus.audio_format = "ogg"
+    # this is not the true duration, but because it is unknown we just copy
+    # this as no further implications to the pipeline except for the RTF settings to estimate SGE usage
+    processed_corpus.duration = train_360_corpus.duration
+    processed_corpus.audio_dir = train_360_corpus.audio_dir
+    processed_corpus.corpus_file = ffmpeg_silence_remove(
+        train_360_corpus.corpus_file,
         stop_threshold = -50,
         stop_duration = 0,
         force_output_format = 'ogg',

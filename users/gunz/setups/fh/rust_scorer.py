@@ -1,6 +1,6 @@
 __all__ = ["RecompileTfGraphJob"]
 
-import path
+from os import path
 import typing
 
 from sisyphus import tk, Task

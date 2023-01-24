@@ -4,8 +4,8 @@ __all__ = [
     "TriphoneTensorMap",
 ]
 
-from datetime import datetime
 import itertools
+import logging
 import pickle
 import time
 import typing
@@ -15,11 +15,8 @@ import numpy as np
 from sisyphus import tk, Job, Task
 
 import i6_core.returnn as returnn
-from i6_private.users.gunz.setups.fh_ls.common.helpers.pipeline_data import (
-    LabelInfo,
-    LabelOrder,
-)
 
+from ..factored import LabelInfo
 from .di import DiphoneTensorMap
 from .util import chunks, EstimatePriorsJob
 
@@ -118,7 +115,7 @@ class EstimateTriphoneForwardPriorsJob(EstimatePriorsJob):
         return range(1, len(self.dataset_indices) * self.num_splits + 1)
 
     def get_encoder_output(self, session, feature_vector: np.ndarray):
-        print(f"{datetime.now()}: Computing encoder-output from data", flush=True)
+        logging.info(f"Computing encoder-output from data", flush=True)
 
         b, t = feature_vector.shape
         return session.run(
@@ -160,10 +157,6 @@ class EstimateTriphoneForwardPriorsJob(EstimatePriorsJob):
         assert (
             we_class is None or bd_class is None
         ), "can't have both word-end and boundary classes"
-        assert self.label_info.label_order in [
-            LabelOrder.classic,
-            LabelOrder.dense_center,
-        ], f"unimplemented label order {self.label_info.label_order}"
 
         we_bd_factor = 2 if we_class is not None else 4 if bd_class is not None else 1
         we_bd_add = (
@@ -179,19 +172,14 @@ class EstimateTriphoneForwardPriorsJob(EstimatePriorsJob):
         result *= self.label_info.n_states_per_phone
         result += state_id
 
-        if self.label_info.label_order == LabelOrder.dense_center:
-            result *= we_bd_factor
-            result += we_bd_add
+        result *= we_bd_factor
+        result += we_bd_add
 
         result *= self.label_info.n_contexts
         result += past_label
 
         result *= self.label_info.n_contexts
         result += future_label
-
-        if self.label_info.label_order == LabelOrder.classic:
-            result *= we_bd_factor
-            result += we_bd_add
 
         return result
 
@@ -224,7 +212,7 @@ class EstimateTriphoneForwardPriorsJob(EstimatePriorsJob):
         for i, batch in enumerate(batches):
             now = time.monotonic()
             if now - last_print > 60:
-                print(f"{datetime.now()}: {max(i - 1, 0)} batches done")
+                logging.info(f"{max(i - 1, 0)} batches done")
                 last_print = now
 
             batch_size = len(batch)
@@ -232,7 +220,7 @@ class EstimateTriphoneForwardPriorsJob(EstimatePriorsJob):
 
             encoder_output, *_ = self.get_encoder_output(session, batch)
 
-            print(f"{datetime.now()}: encoder output computed, computing posteriors...")
+            logging.info(f"encoder output computed, computing posteriors...")
 
             mean_left_context_posteriors = self.get_mean_posteriors(
                 session,

@@ -1,4 +1,9 @@
+from dataclasses import dataclass
 from sisyphus import tk
+from typing import Dict, Any
+import os
+
+
 from i6_core.returnn import ReturnnTrainingJob
 from i6_core.returnn.forward import ReturnnForwardJob
 #  from i6_core.tools.graph import MultiJobCleanupJob
@@ -12,8 +17,20 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_corpus_obje
 
 from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.evaluation.asr_swer_evaluation import asr_evaluation
 
-from .config import get_forward_config, get_speaker_extraction_config
-from .data import TTSForwardData
+from .config import get_forward_config, get_speaker_extraction_config, get_training_config
+from .data import TTSForwardData, get_tts_forward_data_legacy_v2
+
+from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT, RETURNN_COMMON
+from ..synthetic_storage import add_ogg_zip
+from ..gl_vocoder.default_vocoder import LJSpeechMiniGLVocoder
+
+
+@dataclass(frozen=True)
+class TTSInferenceSystem:
+    network_args: Dict[str, Any]
+    train_job: ReturnnTrainingJob
+    speaker_hdf: tk.Path
+    vocoder: LJSpeechMiniGLVocoder
 
 
 def tts_training(config, returnn_exe, returnn_root, prefix, num_epochs=200, mem=16):
@@ -109,6 +126,7 @@ def synthesize_with_splits(
         vocoder,
         batch_size: int = 4000,
         peak_normalization: bool = True,
+        force_name=False,
 ):
     """
 
@@ -176,6 +194,9 @@ def synthesize_with_splits(
     for verfication in verifications:
         merge_job.add_input(verfication)
 
+    if force_name:
+        reference_corpus = MergeCorporaJob([reference_corpus], name=corpus_name, merge_strategy=MergeStrategy.FLAT).out_merged_corpus
+
     cv_synth_corpus = CorpusReplaceOrthFromReferenceCorpus(
         bliss_corpus=merge_job.out_merged_corpus,
         reference_bliss_corpus=reference_corpus,
@@ -235,3 +256,107 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
     )
+
+
+def create_tts(
+        name: str,
+        training_config,
+        network_args: Dict[str, Any],
+        training_datasets,
+        vocoder: LJSpeechMiniGLVocoder,
+        debug=False,
+):
+
+    forward_config = get_forward_config(
+        returnn_common_root=RETURNN_COMMON,
+        forward_dataset=TTSForwardData(
+            dataset=training_datasets.cv, datastreams=training_datasets.datastreams
+        ),
+        **network_args
+    )
+
+    train_job = tts_training(
+        config=training_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name,
+        num_epochs=200,
+    )
+    forward_job = tts_forward(
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        prefix=name
+    )
+    tk.register_output(os.path.join(name, "test.hdf"), forward_job.out_default_hdf)
+    gl_swer(
+        name=name,
+        vocoder=vocoder,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+        returnn_root=RETURNN_RC_ROOT,
+        returnn_exe=RETURNN_EXE
+    )
+    speaker_hdf = extract_speaker_embedding_hdf(
+        train_job.out_checkpoints[200],
+        returnn_common_root=RETURNN_COMMON,
+        returnn_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+        datasets=training_datasets,
+        prefix=name,
+        network_args=network_args
+    )
+
+    return TTSInferenceSystem(
+        network_args=network_args,
+        train_job=train_job,
+        speaker_hdf=speaker_hdf,
+        vocoder=vocoder
+    )
+
+
+
+
+def synthesize_arbitrary_corpus(
+        prefix_name: str,
+        export_name: str,
+        random_corpus: tk.Path,
+        tts_model: TTSInferenceSystem,
+        splits=20,
+        batch_size=4000,
+):
+    forward_data = get_tts_forward_data_legacy_v2(
+        bliss_corpus=random_corpus,
+        speaker_embedding_hdf=tts_model.speaker_hdf,
+        segment_file=None
+    )
+
+    synth_xml = synthesize_with_splits(
+        name=prefix_name,
+        reference_corpus=random_corpus,
+        corpus_name="random-clean-460",
+        job_splits=splits,
+        datasets=forward_data,
+        returnn_root=RETURNN_RC_ROOT,
+        returnn_exe=RETURNN_EXE,
+        returnn_common_root=RETURNN_COMMON,
+        checkpoint=tts_model.train_job.out_checkpoints[200],
+        tts_model_kwargs=tts_model.network_args,
+        vocoder=tts_model.vocoder,
+        peak_normalization=False,
+        force_name=True,
+        batch_size=batch_size,
+    )
+
+    from i6_core.returnn.oggzip import BlissToOggZipJob
+    ogg_zip = BlissToOggZipJob(
+        bliss_corpus=synth_xml,
+        segments=None,
+        no_conversion=True,
+        returnn_python_exe=RETURNN_EXE,
+        returnn_root=RETURNN_RC_ROOT,
+    ).out_ogg_zip
+
+    tk.register_output(prefix_name + "synth.ogg.zip", ogg_zip)
+    add_ogg_zip(export_name, ogg_zip)

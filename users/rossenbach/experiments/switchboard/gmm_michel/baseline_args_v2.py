@@ -15,7 +15,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
 
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
-from i6_experiments.common.datasets.switchboard import get_hub5_00
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 
 from .data import cart_phonemes, cart_steps
 
@@ -80,12 +80,12 @@ def get_init_args():
         },
     }
 
-    _, stm, glm = get_hub5_00()
+    hub5e_01 = get_hub5e00()
 
     scorer_args = {
         "sctk_binary_path": SCTK_BINARY_PATH,
-        "stm_files": {"hub5e00": stm},
-        "glm_files": {"hub5e00": glm},
+        "stm_files": {"hub5e00": hub5e_01.stm},
+        "glm_files": {"hub5e00": hub5e_01.glm},
     }
 
     return util.RasrInitArgs(

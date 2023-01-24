@@ -19,9 +19,10 @@ class LstmVarianceNetwork(nn.Module):
 
     def __init__(self, in_dim: nn.Dim, dimension=512):
         super().__init__()
+        self.duration_dim = nn.FeatureDim("dur", 1)
         self.lstm_dim = nn.FeatureDim("lstm_dim", dimension)
-        self.lstm_1_fw = nn.LSTM(in_dim=in_dim + 1, out_dim=self.lstm_dim)
-        self.lstm_1_bw = nn.LSTM(in_dim=in_dim + 1, out_dim=self.lstm_dim)
+        self.lstm_1_fw = nn.LSTM(in_dim=in_dim + self.duration_dim, out_dim=self.lstm_dim)
+        self.lstm_1_bw = nn.LSTM(in_dim=in_dim + self.duration_dim, out_dim=self.lstm_dim)
         self.lstm_2_fw = nn.LSTM(in_dim=2*self.lstm_dim, out_dim=self.lstm_dim)
         self.lstm_2_bw = nn.LSTM(in_dim=2*self.lstm_dim, out_dim=self.lstm_dim)
         self.linear = nn.Linear(in_dim=2*self.lstm_dim, out_dim=nn.FeatureDim("gauss_variance", 1))
@@ -33,16 +34,16 @@ class LstmVarianceNetwork(nn.Module):
         :param durations: d, [B, N]
         :return: variance [B, N]
         """
-        durations = nn.expand_dim(durations, dim=nn.FeatureDim("dur", 1))
+        durations = nn.expand_dim(durations, dim=self.duration_dim)
         durations = nn.cast(durations, dtype="float32")
         cat, _ = nn.concat((inp, inp.feature_dim), (durations, durations.feature_dim))
 
-        fw_1, _ = self.lstm_1_fw(cat, axis=time_dim, direction=1)
-        bw_1, _ = self.lstm_1_bw(cat, axis=time_dim, direction=-1)
+        fw_1, _ = self.lstm_1_fw(cat, spatial_dim=time_dim, direction=1)
+        bw_1, _ = self.lstm_1_bw(cat, spatial_dim=time_dim, direction=-1)
         cat, _ = nn.concat((fw_1, fw_1.feature_dim), (bw_1, bw_1.feature_dim))
 
-        fw_2, _ = self.lstm_2_fw(cat, axis=time_dim, direction=1)
-        bw_2, _ = self.lstm_2_bw(cat, axis=time_dim, direction=-1)
+        fw_2, _ = self.lstm_2_fw(cat, spatial_dim=time_dim, direction=1)
+        bw_2, _ = self.lstm_2_bw(cat, spatial_dim=time_dim, direction=-1)
         cat, _ = nn.concat((fw_2, fw_2.feature_dim), (bw_2, bw_2.feature_dim))
 
         lin = self.linear(cat)

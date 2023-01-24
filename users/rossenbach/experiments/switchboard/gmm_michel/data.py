@@ -5,7 +5,17 @@ from sisyphus import tk
 from dataclasses import dataclass
 from typing import Dict
 
-from i6_experiments.common.datasets.switchboard import get_train_corpus_object_i6_legacy, get_bliss_lexicon, get_hub5_00, get_train_corpus_object_ldc
+from i6_experiments.users.rossenbach.datasets.switchboard.lexicon import get_bliss_lexicon
+from i6_experiments.users.rossenbach.datasets.switchboard.eval import (
+    get_hub5e00,
+    get_hub5e01,
+    get_rt03s,
+    get_hub5e00_corpus_object,
+    get_hub5e01_corpus_object,
+    get_rt03s_corpus_object
+)
+from i6_experiments.users.rossenbach.datasets.switchboard.train import get_train_corpus_object_ldc, \
+    get_train_corpus_object_i6_legacy
 
 from i6_experiments.common.setups.rasr import RasrDataInput
 
@@ -75,20 +85,41 @@ def get_corpus_data_inputs(use_legacy=True, use_legacy_lexicon=False, normalize_
     )
 
 
-    from i6_core.meta.system import CorpusObject
-    hub5e00_corpus_object = CorpusObject()
-    hub5e00_corpus_object.corpus_file = get_hub5_00()[0]
-    hub5e00_corpus_object.audio_format = "wav"
-    hub5e00_corpus_object.audio_dir = None
-    hub5e00_corpus_object.duration = 3.65
+    hub5e00 = get_hub5e00()
+    hub5e00_corpus_object = get_hub5e00_corpus_object()
+
+    hub5e01 = get_hub5e01()
+    hub5e01_corpus_object = get_hub5e01_corpus_object()
+
+    rt03s = get_rt03s()
+    rt03s_corpus_object = get_rt03s_corpus_object()
 
     dev_data_inputs["hub5e00"] = RasrDataInput(
         corpus_object=hub5e00_corpus_object,
         lexicon=lexicon,
         lm=temporary_lm,
         concurrent=10,
+        stm=hub5e00.stm,
+        glm=hub5e00.glm,
     )
 
+    test_data_inputs["hub5e01"] = RasrDataInput(
+        corpus_object=hub5e01_corpus_object,
+        lexicon=lexicon,
+        lm=temporary_lm,
+        concurrent=10,
+        stm=hub5e01.stm,
+        glm=hub5e01.glm,
+    )
+
+    test_data_inputs["rt03s"] = RasrDataInput(
+        corpus_object=rt03s_corpus_object,
+        lexicon=lexicon,
+        lm=temporary_lm,
+        concurrent=10,
+        stm=rt03s.stm,
+        glm=rt03s.glm,
+    )
     # for dev_key in ["dev-clean", "dev-other"]:
     #     dev_data_inputs[dev_key] = RasrDataInput(
     #         corpus_object=corpus_object_dict[dev_key],

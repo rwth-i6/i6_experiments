@@ -1,6 +1,8 @@
 from sisyphus import tk
 from typing import Any, Dict, Optional
 
+from i6_core.lm.vocabulary import LmIndexVocabulary
+
 from i6_experiments.users.rossenbach.setups.returnn_standalone.data.bpe import (
     BPESettings,
 )
@@ -57,6 +59,24 @@ class LabelDatastream(Datastream):
         :rtype: dict[str]
         """
         return {"vocab_file": self.vocab, "unknown_label": self.unk_label, **kwargs}
+
+
+class LmLabelDatastream(LabelDatastream):
+    """
+    Same as LabelDatastream but uses LmIndexVocabulary objects as input
+    """
+    def __init__(self, available_for_inference:bool, lm_index_vocab: LmIndexVocabulary):
+        """
+
+        :param available_for_inference:
+        :param lm:
+        """
+        super().__init__(
+            available_for_inference=available_for_inference,
+            vocab=lm_index_vocab.vocab,
+            vocab_size=lm_index_vocab.vocab_size,
+            unk_label=lm_index_vocab.unknown_token
+        )
 
 
 class BpeDatastream(LabelDatastream):

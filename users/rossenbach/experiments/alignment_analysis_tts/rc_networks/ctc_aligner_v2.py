@@ -161,12 +161,12 @@ class TTSDecoder(nn.Module):
             (speaker_embedding, speaker_embedding.feature_dim),
             allow_broadcast=True,
         )
-        lstm_fw, _ = self.lstm_1_fw(cat, axis=audio_time, direction=1)
-        lstm_bw, _ = self.lstm_1_bw(cat, axis=audio_time, direction=-1)
+        lstm_fw, _ = self.lstm_1_fw(cat, spatial_dim=audio_time, direction=1)
+        lstm_bw, _ = self.lstm_1_bw(cat, spatial_dim=audio_time, direction=-1)
         # TODO maybe dropout?
         cat, _  = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
-        lstm_fw, _ = self.lstm_2_fw(cat, axis=audio_time, direction=1)
-        lstm_bw, _ = self.lstm_2_bw(cat, axis=audio_time, direction=-1)
+        lstm_fw, _ = self.lstm_2_fw(cat, spatial_dim=audio_time, direction=1)
+        lstm_bw, _ = self.lstm_2_bw(cat, spatial_dim=audio_time, direction=-1)
         cat, _ = nn.concat((lstm_fw, lstm_fw.feature_dim), (lstm_bw, lstm_bw.feature_dim))
         return cat
 
@@ -255,8 +255,8 @@ class CTCAligner(nn.Module):
             allow_broadcast=True,
         )
         enc_conv = self.enc_conv_stack(cat, time_dim=audio_time)
-        enc_fw, _ = self.enc_lstm_fw(enc_conv, axis=audio_time, direction=1)
-        enc_bw, _ = self.enc_lstm_bw(enc_conv, axis=audio_time, direction=-1)
+        enc_fw, _ = self.enc_lstm_fw(enc_conv, spatial_dim=audio_time, direction=1)
+        enc_bw, _ = self.enc_lstm_bw(enc_conv, spatial_dim=audio_time, direction=-1)
         cat, _ = nn.concat((enc_fw, enc_fw.feature_dim), (enc_bw, enc_bw.feature_dim))
 
         # spectogram loss
