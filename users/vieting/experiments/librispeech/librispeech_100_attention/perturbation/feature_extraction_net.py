@@ -1,6 +1,7 @@
 """
 Contains RETURNN network dicts for feature extraction.
 """
+import copy
 import numpy as np
 from i6_core.returnn.config import CodeWrapper
 
@@ -63,6 +64,12 @@ fft_bins_dim = FeatureDim("fft_bins", dimension={fft_size // 2 + 1})
 center_freqs_range_dim = FeatureDim("center_freqs_range", dimension={nr_of_filters + 2})                                                  
 center_freqs_dim = center_freqs_range_dim - 2
 """
+dim_tags_batch = f"""
+from returnn.tf.util.data import FeatureDim, batch_dim
+fft_bins_dim = FeatureDim("fft_bins", dimension={fft_size // 2 + 1})
+center_freqs_range_dim = FeatureDim("center_freqs_range", dimension={nr_of_filters + 2})
+center_freqs_dim = center_freqs_range_dim - 2
+"""
 fft_bins_dim = CodeWrapper("fft_bins_dim")
 center_freqs_dim = CodeWrapper("center_freqs_dim")
 center_freqs_range_dim = CodeWrapper("center_freqs_range_dim")
@@ -98,7 +105,7 @@ log10_net_10ms = {
                     "center_freqs": {
                         "class": "subnetwork",
                         "subnetwork": {
-                            "linear_range" : {
+                            "linear_range": {
                                 "class": "range",
                                 "limit": nr_of_filters + 2,
                                 "dtype": "float32",
@@ -111,8 +118,10 @@ log10_net_10ms = {
                                     f"source(0) * {((mel_scale(f_max) - mel_scale(f_min)) / (nr_of_filters + 1))}"),
                                 "from": "linear_range"
                             },
-                            "inv_mel": {"class": "eval", "eval": "700.0 * (tf.exp(source(0) / 1125) - 1)", "from": "fmin_fmax"},
-                            "output": {"class": "eval", "eval": f"source(0) * {fft_size} / {sampling_rate}", "from": "inv_mel"}
+                            "inv_mel": {
+                                "class": "eval", "eval": "700.0 * (tf.exp(source(0) / 1125) - 1)", "from": "fmin_fmax"},
+                            "output": {
+                                "class": "eval", "eval": f"source(0) * {fft_size} / {sampling_rate}", "from": "inv_mel"}
                         },
                     },
                     "center_freqs_diff": {
@@ -221,6 +230,111 @@ log10_net_10ms = {
                 "from": "log_mel_features",
             },
         },
+    },
+}
+
+# Version 2 of the base network that does the inverse Mel transformation later to allow applying modifications uniformly
+# in Mel scale. Also, fix the previously wrong assignment `_l` and `_r` for left and right boundary of the filters.
+log10_net_10ms_v2 = copy.deepcopy(log10_net_10ms)
+mel_to_fft_bin_str = f"700.0 * (tf.exp(source(0) / 1125) - 1) * {fft_size} / {sampling_rate}"
+log10_net_10ms_v2["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = {
+    "fft_bins": {
+        "class": "range_in_axis",
+        "axis": "F",
+        "dtype": "float32",
+        "from": "base:power",
+    },
+    "center_freqs": {
+        "class": "subnetwork",
+        "subnetwork": {
+            "linear_range": {
+                "class": "range",
+                "limit": nr_of_filters + 2,
+                "dtype": "float32",
+                "out_spatial_dim": center_freqs_range_dim,
+            },
+            "output": {
+                "class": "eval",
+                "eval": (
+                    f"{mel_scale(f_min)} + "
+                    f"source(0) * {((mel_scale(f_max) - mel_scale(f_min)) / (nr_of_filters + 1))}"),
+                "from": "linear_range"
+            },
+        },
+    },
+    "center_freqs_l": {
+        "class": "slice",
+        "axis": "F",
+        "slice_end": -2,
+        "from": "center_freqs",
+        "out_dim": center_freqs_dim,
+    },
+    "center_freqs_r": {
+        "class": "slice",
+        "axis": "F",
+        "slice_start": 2,
+        "from": "center_freqs",
+        "out_dim": center_freqs_dim,
+    },
+    "center_freqs_c": {
+        "class": "slice",
+        "axis": "F",
+        "slice_start": 1,
+        "slice_end": -1,
+        "from": "center_freqs",
+        "out_dim": center_freqs_dim,
+    },
+    "center_freqs_l_fft": {"class": "eval", "eval": mel_to_fft_bin_str, "from": "center_freqs_l"},
+    "center_freqs_r_fft": {"class": "eval", "eval": mel_to_fft_bin_str, "from": "center_freqs_r"},
+    "center_freqs_c_fft": {"class": "eval", "eval": mel_to_fft_bin_str, "from": "center_freqs_c"},
+    "center_freqs_diff_l": {
+        "class": "combine",
+        "kind": "sub",
+        "from": ["center_freqs_c_fft", "center_freqs_l_fft"],
+    },
+    "center_freqs_diff_r": {
+        "class": "combine",
+        "kind": "sub",
+        "from": ["center_freqs_r_fft", "center_freqs_c_fft"],
+    },
+    "mel_filterbank_num": {
+        "class": "combine",
+        "kind": "sub",
+        "from": ["center_freqs_c_fft", "fft_bins"],
+        "out_shape": mel_filterbank_out_shape,
+    },
+    "mel_filterbank_div_l": {
+        "class": "combine",
+        "kind": "truediv",
+        "out_shape": mel_filterbank_out_shape,
+        "from": ["mel_filterbank_num", "center_freqs_diff_l"],
+    },
+    "mel_filterbank_div_r": {
+        "class": "combine",
+        "kind": "truediv",
+        "out_shape": mel_filterbank_out_shape,
+        "from": ["mel_filterbank_num", "center_freqs_diff_r"],
+    },
+    "mel_filterbank_l": {
+        "class": "eval",
+        "eval": "-source(0) + 1",
+        "from": "mel_filterbank_div_l",
+    },
+    "mel_filterbank_r": {
+        "class": "eval",
+        "eval": "source(0) + 1",
+        "from": "mel_filterbank_div_r",
+    },
+    "mel_filterbank_lr": {
+        "class": "combine",
+        "kind": "minimum",
+        "from": ["mel_filterbank_l", "mel_filterbank_r"],
+    },
+    "zero": {"class": "constant", "value": 0.},
+    "output": {
+        "class": "combine",
+        "kind": "maximum",
+        "from": ["mel_filterbank_lr", "zero"],
     },
 }
 
