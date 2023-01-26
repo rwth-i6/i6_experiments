@@ -249,7 +249,7 @@ def conformer_tf_features():
 
   # filter width perturbation
   args_tmp = copy.deepcopy(args_base)
-  for stddev in [0.1, 1.0, 2.0]:
+  for stddev in [0.1, 0.5, 1.0]:  # 2.0 diverges
     name_tmp = exp_prefix + "/" + f"raw_log10_pert_fw{stddev}"
     feat_net = copy.deepcopy(log10_net_10ms)
     subnet = feat_net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
