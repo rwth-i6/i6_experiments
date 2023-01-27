@@ -26,7 +26,7 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
   net_perturbations import (
   add_center_freq_perturb_const,
   utterance_level_filterbanks,
-  add_center_freq_perturb_vtlp_piecewise_linear,
+  add_center_freq_perturb_vtlp,
 )
 
 
@@ -192,26 +192,31 @@ def conformer_tf_features():
     train_args=args_base))
 
   # center frequency perturbation
-  for level, type, scale, prob in [
+  for level, kind, scale, prob in [
     ("batch", "const", 10.0, 0.5), ("utterance", "const", 10.0, 0.5),  # probability 1.0 does not converge
-    ("utterance", "vtlppwl", 0.2, 0.5), ("utterance", "vtlppwl", 0.4, 0.5),
+    ("utterance", "vtlppwl", 0.2, 0.5), ("utterance", "vtlppwl", 0.2, 0.3), ("utterance", "vtlppwl", 0.4, 0.3),
+    ("utterance", "vtlppwl", 0.1, 0.2), ("utterance", "vtlppwl", 0.1, 0.1),
+    ("utterance", "vtlpbil", 0.2, 0.5),
   ]:
     args_tmp = copy.deepcopy(args_base)
-    name_tmp = exp_prefix + "/" + f"raw_log10_lvl{level}_cf_{type}{scale}({prob})"
+    name_tmp = exp_prefix + "/" + f"raw_log10_lvl{level}_cf_{kind}{scale}({prob})"
     feat_net = copy.deepcopy(log10_net_10ms_v2)
     if level == "utterance":
       feat_net = utterance_level_filterbanks(feat_net)
     # add perturbation
-    if type == "const":
+    if kind == "const":
       feat_net = add_center_freq_perturb_const(feat_net, scale, level=level, probability=prob)
-    elif type == "vtlppwl":
-      feat_net, func = add_center_freq_perturb_vtlp_piecewise_linear(feat_net, scale, probability=prob)
+    elif kind == "vtlppwl":
+      feat_net, func = add_center_freq_perturb_vtlp(feat_net, "piecewise_linear", scale, probability=prob)
+      args_tmp["python_prolog"] = [func]
+    elif kind == "vtlpbil":
+      feat_net, func = add_center_freq_perturb_vtlp(feat_net, "bilinear", scale, probability=prob)
       args_tmp["python_prolog"] = [func]
     else:
       raise NotImplementedError
     report_list.append(run_exp_v2(
       name_tmp, feat_net, search_extraction_net=log10_net_10ms_v2, datasets=training_datasets,
-      train_args=args_tmp, report_args={"center_freq": f"{type}{scale}({prob})", "level": level}))
+      train_args=args_tmp, report_args={"center_freq": f"{kind}{scale}({prob})", "level": level}))
 
   report = Report.merge_reports(report_list)
   tk.register_report(

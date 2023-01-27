@@ -73,6 +73,15 @@ def add_center_freq_perturb_const(
 
 
 def vtlp_piecewise_linear(x, alpha_range, probability):
+  """
+  Apply piecewise linear VTLP to given center frequencies x.
+
+  alpha_range specifies the range around 1.0 from which to sample alpha. E.g. alpha_rang=0.2 means, alpha is uniformly
+  distributed between 0.9 and 1.1.
+
+  probability denotes with which probability the perturbation is applied. E.g. probability=0.4 means, the perturbation
+  is applied to 40% of the utterances.
+  """
   import tensorflow as tf
   f_hi = 256 * 4800 / 8000  # 4800 Hz is taken from Hinton paper
   if x.shape.rank == 1:  # batch-level random factor
@@ -80,47 +89,66 @@ def vtlp_piecewise_linear(x, alpha_range, probability):
   else:  # utterance-level random factor, so add batch dim
     alpha_shape = (tf.shape(x)[0], 1)
   alpha = (tf.random.uniform(alpha_shape) - 0.5) * alpha_range + 1
+  alpha = tf.where(tf.random.uniform(alpha_shape) < probability, alpha, 1.0)  # only keep percentage of alphas != 1
   x_1 = alpha * x
   x_2 = 256 - (256 - f_hi * tf.minimum(alpha, 1)) / \
     (256 - f_hi * tf.minimum(alpha, 1) / alpha) * (256 - x)
-  x_vtlp = tf.where(alpha < 1, tf.maximum(x_1, x_2), tf.minimum(x_1, x_2))
-  x = tf.where(tf.random.uniform((1,)) < probability, x_vtlp, x)
+  x = tf.where(alpha < 1, tf.maximum(x_1, x_2), tf.minimum(x_1, x_2))
   return x
 
 
-def add_center_freq_perturb_vtlp_piecewise_linear(net: Dict[str, Dict], alpha_range, probability):
+def vtlp_bilinear(x, alpha_range, probability):
+  """
+  Apply bilinear VTLP to given center frequencies x.
+
+  alpha_range specifies the range around 1.0 from which to sample alpha. E.g. alpha_rang=0.2 means, alpha is uniformly
+  distributed between 0.9 and 1.1.
+
+  probability denotes with which probability the perturbation is applied. E.g. probability=0.4 means, the perturbation
+  is applied to 40% of the utterances.
+  """
+  import numpy as np
+  import tensorflow as tf
+  if x.shape.rank == 1:  # batch-level random factor
+    alpha_shape = (1,)
+  else:  # utterance-level random factor, so add batch dim
+    alpha_shape = (tf.shape(x)[0], 1)
+  alpha = (tf.random.uniform(alpha_shape) - 0.5) * alpha_range + 1
+  alpha = tf.where(tf.random.uniform(alpha_shape) < probability, alpha, 1.0)  # only keep percentage of alphas != 1
+  x = x * np.pi / 256
+  x = x + 2 * tf.math.atan(((1 - alpha) * tf.math.sin(x)) / (1 - (1 - alpha) * tf.math.cos(x)))
+  x = x / np.pi * 256
+  return x
+
+
+def add_center_freq_perturb_vtlp(net: Dict[str, Dict], warping: str, alpha_range: float, probability: float):
+  """
+  Add a center frequency perturbation using VTLP to a network.
+
+  The warping can be piecewise_linear or bilinear, see
+  Zhan, P., & Waibel, A. (1997). Vocal tract length normalization for large vocabulary continuous speech recognition.
+  https://apps.dtic.mil/sti/pdfs/ADA333514.pdf
+
+  alpha_range specifies the range around 1.0 from which to sample alpha. E.g. alpha_rang=0.2 means, alpha is uniformly
+  distributed between 0.9 and 1.1.
+
+  probability denotes with which probability the perturbation is applied. E.g. probability=0.4 means, the perturbation
+  is applied to 40% of the utterances.
+  """
   net = copy.deepcopy(net)
   subnet = net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
   for layer in ["center_freqs_l_fft", "center_freqs_r_fft", "center_freqs_c_fft"]:
     subnet[layer + "_raw"] = copy.deepcopy(subnet[layer])
     subnet[layer] = {
       "class": "eval",
-      # "eval": CodeWrapper(f"partial(vtlp_piecewise_linear, alpha_range={alpha_range}, probability={probability})"),
       "eval": (
-        f"self.network.get_config().typed_value('vtlp_piecewise_linear')"
+        f"self.network.get_config().typed_value('vtlp_{warping}')"
         f"(source(0), alpha_range={alpha_range}, probability={probability})"),
       "from": layer + "_raw",
     }
   net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
-  return net, vtlp_piecewise_linear
-
-
-def add_center_freq_perturb_vtlp_bilinear(net: Dict[str, Dict], alpha):
-  def vtlp_bilinear(self, source, alpha):
-    x = source(0) * np.pi / 256
-    x = x + 2 * tf.math.atan(((1 - alpha) * tf.math.sin(x)) / (1 - (1 - alpha) * tf.math.cos(x)))
-    x = x / np.pi * 256
-    return x
-
-  net = copy.deepcopy(net)
-  # perturb after mel scale is applied
-  subnet = net["mel_filterbank_weights"]["subnetwork"]
-  for layer in ["center_freqs_l_fft", "center_freqs_r_fft", "center_freqs_c_fft"]:
-    subnet[layer + "_raw"] = copy.deepcopy(subnet[layer])
-    subnet[layer] = {
-      "class": "eval",
-      "eval": partial(vtlp_bilinear, alpha=alpha),
-      "from": layer + "_raw",
-    }
-  net["mel_filterbank_weights"]["subnetwork"] = subnet
-  return net
+  tf_func = {
+    "piecewise_linear": vtlp_piecewise_linear,
+    "bilinear": vtlp_bilinear,
+  }
+  return net, tf_func[warping]
