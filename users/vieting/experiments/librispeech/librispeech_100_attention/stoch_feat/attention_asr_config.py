@@ -373,7 +373,7 @@ def create_config(
         decouple_constraints_factor=0.025, extra_str=None, preload_from_files=None, min_lr_factor=50,
         gradient_clip=0.0, specaug_str_func_opts=None,
         recursion_limit=3000, use_data_pipeline=False, feature_extraction_net=None,
-        config_override=None, network_prolog="",
+        config_override=None, network_prolog="", python_prolog=None,
 ):
 
     exp_config = copy.deepcopy(config)  # type: dict
@@ -504,11 +504,13 @@ def create_config(
             exp_config['preload_from_files'] = {}
         exp_config['preload_from_files'].update(preload_from_files)
 
+    python_prolog = python_prolog or []
+    assert isinstance(python_prolog, list)
     if specaug_str_func_opts:
-        python_prolog = specaugment.specaug_wo_transform.get_funcs()
+        python_prolog += specaugment.specaug_wo_transform.get_funcs()
         extra_python_code += '\n' + specaug_transform_func.format(**specaug_str_func_opts)
     else:
-        python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
+        python_prolog += specaugment.specaug_tf2.get_funcs()  # type: list
 
     if speed_pert:
         python_prolog += [data_aug.speed_pert]

@@ -72,26 +72,37 @@ def add_center_freq_perturb_const(
   return net
 
 
-def add_center_freq_perturb_vtlp_piecewise_linear(net: Dict[str, Dict], alpha_range):
-  def vtlp_piecewise_linear(self, source, alpha_range):
-    f_hi = 256 * 4800 / 8000  # 4800 Hz is taken from Hinton paper
-    alpha = (tf.random.uniform((1,)) - 0.5) * alpha_range + 1
-    x_1 = alpha * source(0)
-    x_2 = 256 - (256 - f_hi * min(alpha, 1)) / (256 - f_hi * min(alpha, 1) / alpha) * (256 - source(0))
-    x = tf.where(alpha < 1, tf.maximum(x_1, x_2), tf.minimum(x_1, x_2))
-    return x
+def vtlp_piecewise_linear(x, alpha_range, probability):
+  import tensorflow as tf
+  f_hi = 256 * 4800 / 8000  # 4800 Hz is taken from Hinton paper
+  if x.shape.rank == 1:  # batch-level random factor
+    alpha_shape = (1,)
+  else:  # utterance-level random factor, so add batch dim
+    alpha_shape = (tf.shape(x)[0], 1)
+  alpha = (tf.random.uniform(alpha_shape) - 0.5) * alpha_range + 1
+  x_1 = alpha * x
+  x_2 = 256 - (256 - f_hi * tf.minimum(alpha, 1)) / \
+    (256 - f_hi * tf.minimum(alpha, 1) / alpha) * (256 - x)
+  x_vtlp = tf.where(alpha < 1, tf.maximum(x_1, x_2), tf.minimum(x_1, x_2))
+  x = tf.where(tf.random.uniform((1,)) < probability, x_vtlp, x)
+  return x
 
+
+def add_center_freq_perturb_vtlp_piecewise_linear(net: Dict[str, Dict], alpha_range, probability):
   net = copy.deepcopy(net)
-  subnet = net["mel_filterbank_weights"]["subnetwork"]
+  subnet = net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
   for layer in ["center_freqs_l_fft", "center_freqs_r_fft", "center_freqs_c_fft"]:
     subnet[layer + "_raw"] = copy.deepcopy(subnet[layer])
     subnet[layer] = {
       "class": "eval",
-      "eval": partial(vtlp_piecewise_linear, alpha_range=alpha_range),
+      # "eval": CodeWrapper(f"partial(vtlp_piecewise_linear, alpha_range={alpha_range}, probability={probability})"),
+      "eval": (
+        f"self.network.get_config().typed_value('vtlp_piecewise_linear')"
+        f"(source(0), alpha_range={alpha_range}, probability={probability})"),
       "from": layer + "_raw",
     }
-  net["mel_filterbank_weights"]["subnetwork"] = subnet
-  return net
+  net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
+  return net, vtlp_piecewise_linear
 
 
 def add_center_freq_perturb_vtlp_bilinear(net: Dict[str, Dict], alpha):
