@@ -20,15 +20,17 @@ from sisyphus import tk
 
 import i6_core.features as features
 import i6_core.cart as cart
+import i6_core.corpus as corpus_recipe
 import i6_core.rasr as rasr
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
+from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 from i6_experiments.common.datasets.librispeech.cart import (
     CartQuestionsWithoutStress,
     CartQuestionsWithStress,
 )
-from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
+from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 # -------------------- helpers --------------------
 # -------------------- functions --------------------
@@ -657,11 +659,48 @@ def get_vtln_sat_args(
 
 
 def get_align_dev_args() -> rasr_util.ForcedAlignmentArgs:
+    use_stress_marker = False
+    use_g2p_training = True
+    alias_path = "g2p_forced_alignment"
+
+    kernel_lexicon = lbs_dataset.get_bliss_lexicon(
+        use_stress_marker=use_stress_marker,
+        add_unknown_phoneme_and_mapping=not use_g2p_training,
+    )
+
+    dev_clean_other_corpus = corpus_recipe.MergeCorporaJob(
+        [
+            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)[
+                "dev-clean"
+            ],
+            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)[
+                "dev-other"
+            ],
+        ],
+        name="dev-clean-other",
+        merge_strategy=corpus_recipe.MergeStrategy.FLAT,
+    ).out_merged_corpus
+
+    g2p_augmenter = G2PBasedOovAugmenter(
+        original_bliss_lexicon=kernel_lexicon,
+        train_lexicon=kernel_lexicon,
+    )
+    forced_align_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
+        bliss_corpus=dev_clean_other_corpus,
+        corpus_name="dev-clean-other",
+        alias_path=alias_path,
+    )
+
     return rasr_util.ForcedAlignmentArgs(
-        name="align_dev-other",
-        target_corpus_keys=["dev-other"],
+        name="align_dev-clean-other",
+        target_corpus_keys=["dev-clean", "dev-other"],
         flow="uncached_mfcc+context+lda+vtln+cmllr",
         feature_scorer="train_vtln+sat",
+        bliss_lexicon={
+            "filename": forced_align_lexicon,
+            "normalize_pronunciation": False,
+        },
+        rtf=5.0,
     )
 
 
@@ -671,6 +710,8 @@ def get_final_output():
     output_args.define_corpus_type("train-other-960", "train")
     # output_args.define_corpus_type("dev-clean", "dev")
     output_args.define_corpus_type("dev-other", "dev")
+    output_args.define_corpus_type("dev-clean_forced-align", "dev")
+    output_args.define_corpus_type("dev-other_forced-align", "dev")
     # output_args.define_corpus_type("test-clean", "test")
     # output_args.define_corpus_type("test-other", "test")
 
