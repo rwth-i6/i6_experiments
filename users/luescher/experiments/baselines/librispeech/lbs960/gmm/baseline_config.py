@@ -10,13 +10,13 @@ import i6_core.rasr as rasr
 
 import i6_experiments.common.setups.rasr.gmm_system as gmm_system
 import i6_experiments.common.setups.rasr.util as rasr_util
-import i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.common_baseline_args as lbs_gmm_setups
+import i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.baseline_args as lbs_gmm_setups
 
 from i6_experiments.common.baselines.librispeech.data import get_corpus_data_inputs
 from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
 
 
-def run_librispeech_960_common_baseline():
+def run_librispeech_960_gmm_baseline():
     # ******************** Settings ********************
 
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
