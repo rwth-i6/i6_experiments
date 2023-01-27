@@ -24,16 +24,13 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
   feature_extraction_net import log10_net_10ms_ref, log10_net_10ms, dim_tags, pre_emphasis
 
 
-# sisyphus related
-gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0]
-
-
 def conformer_tf_features():
   returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
                         hash_overwrite="GENERIC_RETURNN_LAUNCHER")
   returnn_root_datasets = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                                 commit="c2b31983bfc1049c7ce1549d7ffed153c9d4a443").out_repository
-  prefix_name = "experiments/librispeech/librispeech_100_attention/conformer_2022"
+  prefix_name = "experiments/librispeech/librispeech_100_attention/stoch_feat/"
+  prefix_name +=  os.path.splitext(os.path.basename(__file__))[0]
 
   # build the training datasets object containing train, cv, dev-train and the extern_data dict
   training_datasets_speedperturbed = build_training_datasets(returnn_exe, returnn_root_datasets, prefix_name,
@@ -53,7 +50,7 @@ def conformer_tf_features():
                                                       returnn_root=returnn_root_datasets, output_path=prefix_name,
                                                       use_raw_features=True)
 
-  # ------------------------------------------------------------------------------------------------------------------- #
+  # ------------------------------------------------------------------------------------------------------------------ #
 
   conformer_enc_args = ConformerEncoderArgs(
     num_blocks=12, input_layer='lstm-6', att_num_heads=8, ff_dim=2048, enc_key_dim=512, conv_kernel_size=32,
@@ -297,6 +294,6 @@ def conformer_tf_features():
 
   report = Report.merge_reports(report_list)
   tk.register_report(
-    f"{gs.ALIAS_AND_OUTPUT_SUBDIR}/{exp_prefix}/report.csv",
+    f"{exp_prefix}/report.csv",
     values=report.get_values(),
     template=report.get_template())
