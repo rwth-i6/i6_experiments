@@ -24,9 +24,10 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
   feature_extraction_net import log10_net_10ms_v2, dim_tags_batch, pre_emphasis
 from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.stoch_feat.\
   net_perturbations import (
-  add_center_freq_perturb_const,
   utterance_level_filterbanks,
+  add_center_freq_perturb_const,
   add_center_freq_perturb_vtlp,
+  add_filter_width_perturb_const,
 )
 
 
@@ -217,6 +218,25 @@ def conformer_tf_features():
     report_list.append(run_exp_v2(
       name_tmp, feat_net, search_extraction_net=log10_net_10ms_v2, datasets=training_datasets,
       train_args=args_tmp, report_args={"center_freq": f"{kind}{scale}({prob})", "level": level}))
+
+  # filter width perturbation
+  for level, kind, min_noise, max_noise, prob in [
+    ("utterance", "const", -18, 18, 0.5), ("utterance", "const", -10, 10, 0.3), ("utterance", "const", -5, 5, 0.1),
+  ]:
+    args_tmp = copy.deepcopy(args_base)
+    name_tmp = exp_prefix + "/" + f"raw_log10_lvl{level}_fw_{kind}{min_noise}-{max_noise}({prob})"
+    feat_net = copy.deepcopy(log10_net_10ms_v2)
+    if level == "utterance":
+      feat_net = utterance_level_filterbanks(feat_net)
+    # add perturbation
+    if kind == "const":
+      feat_net, func = add_filter_width_perturb_const(feat_net, min_noise, max_noise, probability=prob)
+      args_tmp["python_prolog"] = [func]
+    else:
+      raise NotImplementedError
+    report_list.append(run_exp_v2(
+      name_tmp, feat_net, search_extraction_net=log10_net_10ms_v2, datasets=training_datasets,
+      train_args=args_tmp, report_args={"filter_width": f"{kind}{min_noise}-{max_noise}({prob})", "level": level}))
 
   report = Report.merge_reports(report_list)
   tk.register_report(

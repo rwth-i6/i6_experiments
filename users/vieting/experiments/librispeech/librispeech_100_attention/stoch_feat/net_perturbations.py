@@ -152,3 +152,57 @@ def add_center_freq_perturb_vtlp(net: Dict[str, Dict], warping: str, alpha_range
     "bilinear": vtlp_bilinear,
   }
   return net, tf_func[warping]
+
+
+def filter_width_perturb_const(x, min_noise, max_noise, probability):
+  """
+  Apply constant noise to all filter width. Constant in the sense that all filters are perturbed in the same way for a
+  given utterance.
+
+  min_noise is the minimum noise value. Negative numbers make the window narrower.
+  For reference: with -1 * mel_scale(f_max) / (nr_of_filters + 1), only a very sharp peak at the center freq is left
+  assuming f_min = 0. This would be -35 with standard settings of 80 filters and f_max=8kHz. With half of that, the
+  filters just start not overlapping anymore.
+
+  max_noise is the maximum noise value. Positive numbers make the window wider.
+  For reference: with mel_scale(f_max) / (7 + 1) * 0.5, the filters start overlapping with one more filter assuming
+  f_min = 0. This would be 17.5 with standard settings.
+
+  probability denotes with which probability the perturbation is applied. E.g. probability=0.4 means, the perturbation
+  is applied to 40% of the utterances.
+  """
+  import tensorflow as tf
+
+  if x.shape.rank == 1:
+    noise_shape = (1,)
+  else:
+    noise_shape = (tf.shape(x)[0], 1)
+  noise = tf.random.uniform(noise_shape) * (max_noise - min_noise) + min_noise
+  noise = tf.where(tf.random.uniform(noise_shape) < probability, noise, 0.0)  # only keep percentage of noise != 0
+  noise = noise * tf.ones(tf.shape(x))
+  return noise
+
+def add_filter_width_perturb_const(
+    net: Dict[str, Dict], min_noise: float, max_noise: float, level="utterance", probability=1.0,
+) -> Dict[str, Dict]:
+  """
+  Perturb center frequencies by adding the same offset to all center frequencies in Mel domain.
+  """
+  net = copy.deepcopy(net)
+  subnet = net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"]
+  subnet["filter_width_noise"] = {
+    "class": "eval",
+    "eval": (
+      f"self.network.get_config().typed_value('filter_width_perturb_const')"
+      f"(source(0), min_noise={min_noise}, max_noise={max_noise}, probability={probability})"),
+    "from": "center_freqs_c",
+  }
+  subnet["center_freqs_l_clean"] = copy.deepcopy(subnet["center_freqs_l"])
+  subnet["center_freqs_l"] = {
+    "class": "combine", "kind": "sub", "from": ["center_freqs_l_clean", "filter_width_noise"]}
+  subnet["center_freqs_r_clean"] = copy.deepcopy(subnet["center_freqs_r"])
+  subnet["center_freqs_r"] = {
+    "class": "combine", "kind": "add", "from": ["center_freqs_r_clean", "filter_width_noise"]}
+  net["log_mel_features"]["subnetwork"]["mel_filterbank_weights"]["subnetwork"] = subnet
+  return net, filter_width_perturb_const
+
