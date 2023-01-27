@@ -1,11 +1,12 @@
 __all__ = ["BaseDecoder"]
 
 import copy
-from typing import Dict, Optional, Type, Union
+from typing import Dict, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedFormat
 
+import i6_core.features as features
 import i6_core.rasr as rasr
 import i6_core.recognition as recog
 
@@ -53,6 +54,11 @@ class BaseDecoder:
         self.stm_paths = {}
         self.feature_flows = {}
 
+        self.feature_name_job_mapping = {
+                "gt": features.GammatoneJob,
+                "mfcc": features.MfccJob,
+        }
+
         self.alias_output_prefix = alias_output_prefix
 
     def init_base_crp(
@@ -87,9 +93,15 @@ class BaseDecoder:
         eval_datasets: Dict[str, CorpusObject],
         corpus_durations: Dict[str, float],
         concurrency: Dict[str, int],
-        feature_flows: Dict[str, rasr.FlowNetwork],
-        stm_args: StmArgs,
+        *,
+        feature_flows: Optional[Dict[str, rasr.FlowNetwork]] = None,
+        feature_extraction: Optional[Tuple[str, Dict]] = None,
+        stm_args: Optional[StmArgs] = None,
+        stm_paths: Optional[Dict[str, tk.Path]] = None,
     ):
+        assert (feature_flows is not None) ^ (feature_extraction is not None)
+        assert (stm_args is not None) ^ (stm_paths is not None)
+
         self.eval_corpora.extend(list(eval_datasets.keys()))
         for corpus_key, corpus_object in eval_datasets.items():
             self.crp[corpus_key] = rasr.CommonRasrParameters(
@@ -101,10 +113,27 @@ class BaseDecoder:
             self.crp[corpus_key].segment_path = SegmentCorpusJob(
                 self.crp[corpus_key].corpus_config.file, concurrency[corpus_key]
             ).out_segment_path
-            self.stm_paths[corpus_key] = CorpusToStmJob(
-                self.crp[corpus_key].corpus_config.file, **stm_args
-            ).out_stm_path
-            self.feature_flows[corpus_key] = feature_flows[corpus_key]
+
+            if stm_paths is not None:
+                self.stm_paths[corpus_key] = stm_paths[corpus_key]
+            else:
+                self.stm_paths[corpus_key] = CorpusToStmJob(
+                    self.crp[corpus_key].corpus_config.file, **stm_args
+                ).out_stm_path
+
+            if feature_flows is not None:
+                self.feature_flows[corpus_key] = feature_flows[corpus_key]
+            else:
+                name = feature_extraction[0]
+                feature_job = self.feature_name_job_mapping[name](self.crp[corpus_key], **feature_extraction[1])
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "task_dependent": feature_job.out_feature_path[name],
+                        "bundle": feature_job.out_feature_bundle[name],
+                    },
+                )
+                self.feature_flows[corpus_key] = features.basic_cache_flow(feature_path)
 
     @staticmethod
     def _get_scales_string(
