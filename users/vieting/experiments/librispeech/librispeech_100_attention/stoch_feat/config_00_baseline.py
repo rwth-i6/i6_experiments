@@ -13,14 +13,14 @@ from sisyphus import tk, gs
 from i6_core.tools import CloneGitRepositoryJob
 from i6_core.report import Report
 from i6_core.returnn import CodeWrapper
-from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.pipeline import (
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.stoch_feat.pipeline import (
     build_training_datasets, build_test_dataset, training, search, search_single, get_average_checkpoint_v2
 )
-from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.stoch_feat.\
   attention_asr_config import create_config, ConformerEncoderArgs, RNNDecoderArgs
-from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.stoch_feat.\
   base_config import get_lm_opts, apply_fairseq_init_to_conformer_encoder
-from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.perturbation.\
+from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attention.stoch_feat.\
   feature_extraction_net import log10_net_10ms_ref, log10_net_10ms, dim_tags, pre_emphasis
 
 
