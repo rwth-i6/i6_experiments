@@ -8,10 +8,6 @@ from i6_core.features.filterbank import filter_width_from_channels
 from i6_core import cart
 
 from i6_experiments.common.setups.rasr import util
-from i6_experiments.common.datasets.librispeech.cart import (
-    CartQuestionsWithStress,
-    CartQuestionsWithoutStress,
-)
 
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
