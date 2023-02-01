@@ -13,13 +13,13 @@ def conformer_baseline():
 
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     train_data = build_training_datasets(
-        bpe_size=1000,
+        bpe_size=500,
         use_raw_features=True,
         link_speed_perturbation=True
     )
 
     test_data, eval_object = build_test_datasets(
-        bpe_size=1000,
+        bpe_size=500,
         use_raw_features=True,
     )
 

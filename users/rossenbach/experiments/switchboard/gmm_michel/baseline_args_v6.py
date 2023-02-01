@@ -9,18 +9,10 @@ from i6_core import cart
 from i6_core.rasr.config import RasrConfig
 
 from i6_experiments.common.setups.rasr import util
-from i6_experiments.common.datasets.librispeech.cart import (
-    CartQuestionsWithStress,
-    CartQuestionsWithoutStress,
-)
 
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 from .data import cart_phonemes, cart_steps
-
-
-align_extra_config = RasrConfig()
-align_extra_config.acoustic_model_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions
 
 
 def get_init_args():

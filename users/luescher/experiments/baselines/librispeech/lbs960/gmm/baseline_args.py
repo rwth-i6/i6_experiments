@@ -10,7 +10,7 @@ __all__ = [
     "get_data_inputs",
 ]
 
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -658,7 +658,10 @@ def get_vtln_sat_args(
     )
 
 
-def get_align_dev_args() -> rasr_util.ForcedAlignmentArgs:
+def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Optional[List[str]] = None) -> rasr_util.ForcedAlignmentArgs:
+    if target_corpus_keys is None:
+        target_corpus_keys = ["dev-clean", "dev-other"]
+
     use_stress_marker = False
     use_g2p_training = True
     alias_path = "g2p_forced_alignment"
@@ -692,15 +695,15 @@ def get_align_dev_args() -> rasr_util.ForcedAlignmentArgs:
     )
 
     return rasr_util.ForcedAlignmentArgs(
-        name="align_dev-clean-other",
-        target_corpus_keys=["dev-clean", "dev-other"],
+        name=name,
+        target_corpus_keys=target_corpus_keys,
         flow="uncached_mfcc+context+lda+vtln+cmllr",
         feature_scorer="train_vtln+sat",
         bliss_lexicon={
             "filename": forced_align_lexicon,
             "normalize_pronunciation": False,
         },
-        rtf=5.0,
+        rtf=10.0,
     )
 
 
