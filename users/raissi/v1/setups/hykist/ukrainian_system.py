@@ -100,7 +100,11 @@ from i6_experiments.users.raissi.setups.librispeech.search.factored_hybrid_searc
 
 Path = tk.setup_path(__package__)
 
+<<<<<<< HEAD:users/raissi/v1/setups/hykist/ukrainian_system.py
 
+=======
+# -------------------- Systems --------------------
+>>>>>>> 28871cd2 (hykist-ukr last changes):users/raissi/setups/hykist/ukrainian_system.py
 class UkrainianHybridSystem(NnSystem):
     """
     this class supports both cart and factored hybrid
@@ -458,6 +462,10 @@ class UkrainianHybridSystem(NnSystem):
                 self.label_info.set_sil_ids(crp)
             else:
                 crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
+<<<<<<< HEAD:users/raissi/v1/setups/hykist/ukrainian_system.py
+=======
+
+>>>>>>> 28871cd2 (hykist-ukr last changes):users/raissi/setups/hykist/ukrainian_system.py
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
         crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
@@ -740,7 +748,10 @@ class UkrainianHybridSystem(NnSystem):
             dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
             tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
             tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
+<<<<<<< HEAD:users/raissi/v1/setups/hykist/ukrainian_system.py
             
+=======
+>>>>>>> 28871cd2 (hykist-ukr last changes):users/raissi/setups/hykist/ukrainian_system.py
 
             hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
                                                   alignment_caches=alignment_caches,
@@ -1099,6 +1110,8 @@ class UkrainianHybridSystem(NnSystem):
                 self.run_input_step(step_args)
 
 
+
+
 class UkrainianGMMSystem(GmmSystem):
     def run(self, steps: Union[List, Tuple] = ("all",)):
         if "init" in steps:
@@ -1281,5 +1294,8 @@ class UkrainianGMMSystem(GmmSystem):
                     corpus=trn_c,
                     **self.vtln_sat_args.sdm_args,
                 )
+
+
+
 
 
