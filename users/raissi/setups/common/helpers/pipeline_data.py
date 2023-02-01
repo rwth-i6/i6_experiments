@@ -7,7 +7,6 @@ __all__ = ["ContextEnum",
 
 from sisyphus import *
 from i6_core.lib.rasr_cache import FileArchive, FileArchiveBundle
-from i6_experiments.users.raissi.utils.statistics import CalculateSilenceStateLabel
 
 import h5py
 import itertools as it
@@ -61,12 +60,14 @@ class LabelInfo:
         state_tying,
         state_tying_file=None,
         n_cart_labels=None,
+        sil_id=None,
         use_word_end_classes=True,
         use_boundary_classes=False,
         add_unknown_phoneme=True,
     ):
         self.n_states_per_phone = n_states_per_phone
         self.n_contexts = n_contexts
+        self.sil_id = sil_id
         self.ph_emb_size = ph_emb_size
         self.st_emb_size = st_emb_size
         self.state_tying = state_tying
@@ -80,15 +81,11 @@ class LabelInfo:
             self.n_cart_labels = n_cart_labels
             self.state_tying_file = state_tying_file
 
-    def set_sil_ids(self, train_crp):
-        sil_job_cal = CalculateSilenceStateLabel(train_crp)
-        self.silence_state_id = sil_job_cal.silence_state_id
-
     def get_n_of_dense_classes(self):
-            n_contexts = self.n_contexts
-            if not self.add_unknown_phoneme:
-                n_contexts+=1
-            return self.n_states_per_phone * (n_contexts**3) * (1 + int(self.use_word_end_classes))
+        n_contexts = self.n_contexts
+        if not self.add_unknown_phoneme:
+            n_contexts+=1
+        return self.n_states_per_phone * (n_contexts**3) * (1 + int(self.use_word_end_classes))
 
     def get_n_state_classes(self):
         if self.state_tying == 'cart':
@@ -120,8 +117,6 @@ class PipelineStages:
 
 
 
-
-
 class RasrFeatureToHDF(Job):
 
   def __init__(self, feature_caches):
@@ -137,7 +132,7 @@ class RasrFeatureToHDF(Job):
     seq_names = []
     string_dt = h5py.special_dtype(vlen=str)
 
-    feature_cache = FileArchive(tk.uncached_path(self.feature_caches[task_id - 1]))
+    feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
     out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
 
     # root
@@ -177,18 +172,18 @@ class RasrFeatureAndAlignmentToHDF(Job):
 
     def run(self, task_id):
         num_classes = 0
-        for line in open(tk.uncached_path(self.state_tying), 'rt'):
+        for line in open(self.state_tying.get_path(), 'rt'):
             if not line.startswith('#'):
                 num_classes = max(num_classes, int(line.strip().split()[1]))
 
         string_dt = h5py.special_dtype(vlen=str)
         state_tying = dict(
-            (k, int(v)) for l in open(tk.uncached_path(self.state_tying)) for k, v in [l.strip().split()[0:2]])
+            (k, int(v)) for l in open(self.state_tying.get_path()) for k, v in [l.strip().split()[0:2]])
 
-        feature_cache = FileArchive(tk.uncached_path(self.feature_caches[task_id - 1]))
+        feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
         alignment_cache = FileArchive(
-            tk.uncached_path(self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)]))
-        alignment_cache.setAllophones(tk.uncached_path(self.allophones))
+            self.alignment_caches[min(task_id - 1, len(self.alignment_caches) - 1)].get_path())
+        alignment_cache.setAllophones(self.allophones.get_path())
 
         seq_names = []
         out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
@@ -224,7 +219,7 @@ class RasrFeatureAndAlignmentToHDF(Job):
             alignment = alignment_cache.read(file, 'align')
 
             targets = []
-            alignmentNoState = []
+
             alignmentStates = ['%s.%d' % (alignment_cache.allophones[t[1]], t[2]) for t in alignment]
 
             for allophone in alignmentStates:

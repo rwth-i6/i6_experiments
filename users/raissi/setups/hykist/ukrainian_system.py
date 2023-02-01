@@ -102,192 +102,7 @@ from i6_experiments.users.raissi.setups.librispeech.search.factored_hybrid_searc
 
 Path = tk.setup_path(__package__)
 
-# -------------------- System --------------------
-
-class UkrainianGMMSystem(GmmSystem):
-    def run(self, steps: Union[List, Tuple] = ("all",)):
-        if "init" in steps:
-            print(
-                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
-            )
-            sys.exit(-1)
-
-        for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
-            costa_args = copy.deepcopy(self.rasr_init_args.costa_args)
-            if self.crp[all_c].language_model_config is None:
-                costa_args["eval_lm"] = False
-            self.costa(all_c, prefix="costa/", **costa_args)
-            if costa_args["eval_lm"]:
-                self.jobs[all_c]["costa"].update_rqmt("run", {"mem": 24, "time": 24})
-
-        for trn_c in self.train_corpora:
-            self.store_allophones(trn_c)
-
-        for eval_c in self.dev_corpora + self.test_corpora:
-            self.create_stm_from_corpus(eval_c)
-            self.set_sclite_scorer(eval_c)
-
-        if "extract" in steps:
-            self.extract_features(
-                feat_args=self.rasr_init_args.feature_extraction_args
-            )
-
-        # ---------- Monophone ----------
-        if "mono" in steps:
-            for trn_c in self.train_corpora:
-                self.monophone_training(
-                    corpus=trn_c,
-                    linear_alignment_args=self.monophone_args.linear_alignment_args,
-                    **self.monophone_args.training_args,
-                )
-
-                for dev_c in self.dev_corpora:
-                    feature_scorer = (
-                        trn_c,
-                        f"train_{self.monophone_args.training_args['name']}",
-                    )
-
-                    self.recognition(
-                        f"{self.monophone_args.training_args['name']}-{trn_c}-{dev_c}",
-                        corpus=dev_c,
-                        feature_scorer=feature_scorer,
-                        **self.monophone_args.recognition_args,
-                    )
-
-                for tst_c in self.test_corpora:
-                    pass
-
-        # ---------- CaRT ----------
-        if "cart" in steps:
-            for trn_c in self.train_corpora:
-                self.cart_and_lda(
-                    corpus=trn_c,
-                    **self.triphone_args.cart_lda_args,
-                )
-
-        # ---------- Triphone ----------
-        if "tri" in steps:
-            for trn_c in self.train_corpora:
-                self.triphone_training(
-                    corpus=trn_c,
-                    **self.triphone_args.training_args,
-                )
-
-                for dev_c in self.dev_corpora:
-                    feature_scorer = (
-                        trn_c,
-                        f"train_{self.triphone_args.training_args['name']}",
-                    )
-
-                    self.recognition(
-                        f"{self.triphone_args.training_args['name']}-{trn_c}-{dev_c}",
-                        corpus=dev_c,
-                        feature_scorer=feature_scorer,
-                        **self.triphone_args.recognition_args,
-                    )
-
-                for c in self.test_corpora:
-                    pass
-
-                # ---------- SDM Tri ----------
-                self.single_density_mixtures(
-                    corpus=trn_c,
-                    **self.triphone_args.sdm_args,
-                )
-
-        # ---------- VTLN ----------
-        if "vtln" in steps:
-            for trn_c in self.train_corpora:
-                self.vtln_feature_flow(
-                    train_corpora=trn_c,
-                    corpora=[trn_c] + self.dev_corpora + self.test_corpora,
-                    **self.vtln_args.training_args["feature_flow"],
-                )
-
-                self.vtln_warping_mixtures(
-                    corpus=trn_c,
-                    feature_flow=self.vtln_args.training_args["feature_flow"]["name"],
-                    **self.vtln_args.training_args["warp_mix"],
-                )
-
-                self.extract_vtln_features(
-                    name=self.triphone_args.training_args["feature_flow"],
-                    train_corpus=trn_c,
-                    eval_corpus=self.dev_corpora + self.test_corpora,
-                    raw_feature_flow=self.vtln_args.training_args["feature_flow"][
-                        "name"
-                    ],
-                    vtln_files=self.vtln_args.training_args["warp_mix"]["name"],
-                )
-
-                self.vtln_training(
-                    corpus=trn_c,
-                    **self.vtln_args.training_args["train"],
-                )
-
-                for dev_c in self.dev_corpora:
-                    feature_scorer = (
-                        trn_c,
-                        f"train_{self.vtln_args.training_args['train']['name']}",
-                    )
-
-                    self.recognition(
-                        f"{self.vtln_args.training_args['train']['name']}-{trn_c}-{dev_c}",
-                        corpus=dev_c,
-                        feature_scorer=feature_scorer,
-                        **self.vtln_args.recognition_args,
-                    )
-
-                for tst_c in self.test_corpora:
-                    pass
-
-                # ---------- SDM VTLN ----------
-                self.single_density_mixtures(
-                    corpus=trn_c,
-                    **self.vtln_args.sdm_args,
-                )
-
-        # ---------- SAT ----------
-        if "sat" in steps:
-            for trn_c in self.train_corpora:
-                self.sat_training(
-                    corpus=trn_c,
-                    **self.sat_args.training_args,
-                )
-
-                for dev_c in self.dev_corpora:
-                    pass
-
-                for tst_c in self.test_corpora:
-                    pass
-
-                # ---------- SDM Sat ----------
-                self.single_density_mixtures(
-                    corpus=trn_c,
-                    **self.sat_args.sdm_args,
-                )
-
-        # ---------- VTLN+SAT ----------
-        if "vtln+sat" in steps:
-            for trn_c in self.train_corpora:
-                self.sat_training(
-                    corpus=trn_c,
-                    **self.vtln_sat_args.training_args,
-                )
-
-                for dev_c in self.dev_corpora:
-                    pass
-
-                for tst_c in self.test_corpora:
-                    pass
-
-                # ---------- SDM VTLN+SAT ----------
-                self.single_density_mixtures(
-                    corpus=trn_c,
-                    **self.vtln_sat_args.sdm_args,
-                )
-
-
+# -------------------- Systems --------------------
 class UkrainianHybridSystem(NnSystem):
     """
     this class supports both cart and factored hybrid
@@ -388,10 +203,23 @@ class UkrainianHybridSystem(NnSystem):
         self.crp_names = dict()
         for k in all_names:
             if 'train' in k:
-                self.crp_names[k] = f'{self.train_key}.{k}'
-
+                crp_n = f'{self.train_key}.{k}'
+                self.crp_names[k]  = crp_n
+                self.add_feature_and_alignment_for_crp_with_existing_crp(
+                    existing_crp_key=self.train_key,
+                    new_crp_key=crp_n
+                )
         self.crp_names['dev']  = dev_key
         self.crp_names['test'] = test_key
+
+    def add_feature_and_alignment_for_crp_with_existing_crp(self, existing_crp_key, new_crp_key):
+        assert self.alignments[existing_crp_key] is not None, f'you need to set the alignment for {existing_crp_key} first'
+        #assuming feature flows, caches and buundles are all set similarly
+        assert self.feature_flows[existing_crp_key][self.nn_feature_type] is not None, f'you need to set the features for {existing_crp_key} first'
+        self.alignments[new_crp_key]      = self.alignments[existing_crp_key]
+        self.feature_caches[new_crp_key]  = {self.nn_feature_type: self.feature_caches[existing_crp_key][self.nn_feature_type]}
+        self.feature_bundles[new_crp_key] = {self.nn_feature_type: self.feature_bundles[existing_crp_key][self.nn_feature_type]}
+        self.feature_flows[new_crp_key]   = {self.nn_feature_type: self.feature_flows[existing_crp_key][self.nn_feature_type]}
 
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
         name = self.stage.get_name(alignment, context)
@@ -613,11 +441,16 @@ class UkrainianHybridSystem(NnSystem):
             sys.exit()
 
         crp = self.crp[crp_key]
+        print(crp_key)
         for ind, ele in enumerate(tdp_pattern):
             for type in ["*", "silence"]:
                 crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
 
-        if self.label_info.state_tying != 'cart':
+        if self.label_info.state_tying == 'cart':
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+            assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
+            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
+        else:
             if self.label_info.use_word_end_classes:
                 crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
             crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
@@ -627,10 +460,6 @@ class UkrainianHybridSystem(NnSystem):
                 self.label_info.set_sil_ids(crp)
             else:
                 crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
-        else:
-            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-            assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
-            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
 
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
@@ -649,6 +478,7 @@ class UkrainianHybridSystem(NnSystem):
                     types[t] = (types[t], 'threepartite')
                 else:
                     types[t] = (types[t], 'monostate')
+
 
         for crp_k in self.crp_names.keys():
             if 'train' in crp_k:
@@ -895,31 +725,34 @@ class UkrainianHybridSystem(NnSystem):
             return self.hdfs[hdf_key]
 
         if self.train_key not in self.hdfs.keys():
-            self.create_hdf()
+            self.create_hdf(crp_name=self.train_key)
 
         return self.hdfs[self.train_key]
 
-    def create_hdf(self, with_alignment=False):
-        gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
-        feature_caches = [gammaton_features_paths[i].get_path() for i in
+    def create_hdf(self, with_alignment=False, crp_name=None):
+        crp_name = self.crp_names['train'] if crp_name is None else crp_name
+        gammaton_features_paths = self.feature_caches[crp_name]['gt'].hidden_paths
+        feature_caches = [gammaton_features_paths[i] for i in
                           range(1, len(gammaton_features_paths.keys()) + 1)]
         if with_alignment:
-            alignment_paths = self.alignments[self.train_key].hidden_paths
-            alignment_caches = [alignment_paths[i].get_path() for i in
+            alignment_paths = self.alignments[crp_name].get_path().split('.bundle')[0]
+            alignment_caches = [tk.Path(f"{alignment_paths}.{i}") for i in
                           range(1, len(gammaton_features_paths.keys()) + 1)]
-            store_allophones = allophones.StoreAllophonesJob(s.crp[self.train_key])
-            dump_statetying   = allophones.DumpStateTyingJob(s.crp[self.train_key])
+            store_allophones = StoreAllophonesJob(self.crp[crp_name])
+            dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
+            tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
+            tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
 
             hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
                                                   alignment_caches=alignment_caches,
-                                                  allophones=store_allophones.allophone_file,
-                                                  state_tying=dum_statetying.state_tying)
+                                                  allophones=store_allophones.out_allophone_file,
+                                                  state_tying=dump_statetying.out_state_tying)
         else:
             hdfJob = RasrFeatureToHDF(feature_caches)
-        self.hdfs[self.train_key] = hdfJob.hdf_files
+        self.hdfs[crp_name] = hdfJob.hdf_files
 
-        hdfJob.add_alias(f"hdf/{self.train_key}")
-        tk.register_output(f"hdf/{self.train_key}.hdf.1", self.hdfs[self.train_key][0])
+        hdfJob.add_alias(f"hdf/{crp_name}")
+        tk.register_output(f"hdf/{crp_name}.hdf.1", self.hdfs[crp_name][0])
 
     def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
         if nStateClasses is None:
@@ -1147,8 +980,6 @@ class UkrainianHybridSystem(NnSystem):
                 step_args[self.nn_feature_type]['prefix'] = 'features/'
                 for all_c in (
                         self.train_corpora
-                        + self.cv_corpora
-                        + self.devtrain_corpora
                         + self.dev_corpora
                         + self.test_corpora
                 ):
@@ -1169,4 +1000,190 @@ class UkrainianHybridSystem(NnSystem):
                     add_feature_to_extract(self.nn_feature_type)
 
                 self.run_input_step(step_args)
+
+class UkrainianGMMSystem(GmmSystem):
+    def run(self, steps: Union[List, Tuple] = ("all",)):
+        if "init" in steps:
+            print(
+                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
+            )
+            sys.exit(-1)
+
+        for all_c in self.train_corpora + self.dev_corpora + self.test_corpora:
+            costa_args = copy.deepcopy(self.rasr_init_args.costa_args)
+            if self.crp[all_c].language_model_config is None:
+                costa_args["eval_lm"] = False
+            self.costa(all_c, prefix="costa/", **costa_args)
+            if costa_args["eval_lm"]:
+                self.jobs[all_c]["costa"].update_rqmt("run", {"mem": 24, "time": 24})
+
+        for trn_c in self.train_corpora:
+            self.store_allophones(trn_c)
+
+        for eval_c in self.dev_corpora + self.test_corpora:
+            self.create_stm_from_corpus(eval_c)
+            self.set_sclite_scorer(eval_c)
+
+        if "extract" in steps:
+            self.extract_features(
+                feat_args=self.rasr_init_args.feature_extraction_args
+            )
+
+        # ---------- Monophone ----------
+        if "mono" in steps:
+            for trn_c in self.train_corpora:
+                self.monophone_training(
+                    corpus=trn_c,
+                    linear_alignment_args=self.monophone_args.linear_alignment_args,
+                    **self.monophone_args.training_args,
+                )
+
+                for dev_c in self.dev_corpora:
+                    feature_scorer = (
+                        trn_c,
+                        f"train_{self.monophone_args.training_args['name']}",
+                    )
+
+                    self.recognition(
+                        f"{self.monophone_args.training_args['name']}-{trn_c}-{dev_c}",
+                        corpus=dev_c,
+                        feature_scorer=feature_scorer,
+                        **self.monophone_args.recognition_args,
+                    )
+
+                for tst_c in self.test_corpora:
+                    pass
+
+        # ---------- CaRT ----------
+        if "cart" in steps:
+            for trn_c in self.train_corpora:
+                self.cart_and_lda(
+                    corpus=trn_c,
+                    **self.triphone_args.cart_lda_args,
+                )
+
+        # ---------- Triphone ----------
+        if "tri" in steps:
+            for trn_c in self.train_corpora:
+                self.triphone_training(
+                    corpus=trn_c,
+                    **self.triphone_args.training_args,
+                )
+
+                for dev_c in self.dev_corpora:
+                    feature_scorer = (
+                        trn_c,
+                        f"train_{self.triphone_args.training_args['name']}",
+                    )
+
+                    self.recognition(
+                        f"{self.triphone_args.training_args['name']}-{trn_c}-{dev_c}",
+                        corpus=dev_c,
+                        feature_scorer=feature_scorer,
+                        **self.triphone_args.recognition_args,
+                    )
+
+                for c in self.test_corpora:
+                    pass
+
+                # ---------- SDM Tri ----------
+                self.single_density_mixtures(
+                    corpus=trn_c,
+                    **self.triphone_args.sdm_args,
+                )
+
+        # ---------- VTLN ----------
+        if "vtln" in steps:
+            for trn_c in self.train_corpora:
+                self.vtln_feature_flow(
+                    train_corpora=trn_c,
+                    corpora=[trn_c] + self.dev_corpora + self.test_corpora,
+                    **self.vtln_args.training_args["feature_flow"],
+                )
+
+                self.vtln_warping_mixtures(
+                    corpus=trn_c,
+                    feature_flow=self.vtln_args.training_args["feature_flow"]["name"],
+                    **self.vtln_args.training_args["warp_mix"],
+                )
+
+                self.extract_vtln_features(
+                    name=self.triphone_args.training_args["feature_flow"],
+                    train_corpus=trn_c,
+                    eval_corpus=self.dev_corpora + self.test_corpora,
+                    raw_feature_flow=self.vtln_args.training_args["feature_flow"][
+                        "name"
+                    ],
+                    vtln_files=self.vtln_args.training_args["warp_mix"]["name"],
+                )
+
+                self.vtln_training(
+                    corpus=trn_c,
+                    **self.vtln_args.training_args["train"],
+                )
+
+                for dev_c in self.dev_corpora:
+                    feature_scorer = (
+                        trn_c,
+                        f"train_{self.vtln_args.training_args['train']['name']}",
+                    )
+
+                    self.recognition(
+                        f"{self.vtln_args.training_args['train']['name']}-{trn_c}-{dev_c}",
+                        corpus=dev_c,
+                        feature_scorer=feature_scorer,
+                        **self.vtln_args.recognition_args,
+                    )
+
+                for tst_c in self.test_corpora:
+                    pass
+
+                # ---------- SDM VTLN ----------
+                self.single_density_mixtures(
+                    corpus=trn_c,
+                    **self.vtln_args.sdm_args,
+                )
+
+        # ---------- SAT ----------
+        if "sat" in steps:
+            for trn_c in self.train_corpora:
+                self.sat_training(
+                    corpus=trn_c,
+                    **self.sat_args.training_args,
+                )
+
+                for dev_c in self.dev_corpora:
+                    pass
+
+                for tst_c in self.test_corpora:
+                    pass
+
+                # ---------- SDM Sat ----------
+                self.single_density_mixtures(
+                    corpus=trn_c,
+                    **self.sat_args.sdm_args,
+                )
+
+        # ---------- VTLN+SAT ----------
+        if "vtln+sat" in steps:
+            for trn_c in self.train_corpora:
+                self.sat_training(
+                    corpus=trn_c,
+                    **self.vtln_sat_args.training_args,
+                )
+
+                for dev_c in self.dev_corpora:
+                    pass
+
+                for tst_c in self.test_corpora:
+                    pass
+
+                # ---------- SDM VTLN+SAT ----------
+                self.single_density_mixtures(
+                    corpus=trn_c,
+                    **self.vtln_sat_args.sdm_args,
+                )
+
+
+
 
