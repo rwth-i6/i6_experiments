@@ -109,7 +109,7 @@ class PipelineStages:
             "di-delta": f"di-delta-from-{align_k}",
             "tri": f"tri-from-{align_k}",
             "tri-delta": f"tridelta-from-{align_k}",
-            "cart": f"cart-from-{align_k}"
+            "cart": f"cart-from-{align_k}",
         }
 
     def get_name(self, alignment_key, context_type):
@@ -131,7 +131,6 @@ class RasrFeatureToHDF(Job):
 
     seq_names = []
     string_dt = h5py.special_dtype(vlen=str)
-
     feature_path = self.feature_caches[task_id - 1]
     if isinstance(feature_path, tk.Path):
         feature_path = feature_path.get_path()
