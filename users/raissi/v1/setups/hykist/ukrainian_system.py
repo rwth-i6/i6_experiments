@@ -748,10 +748,6 @@ class UkrainianHybridSystem(NnSystem):
             dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
             tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
             tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
-<<<<<<< HEAD:users/raissi/v1/setups/hykist/ukrainian_system.py
-            
-=======
->>>>>>> 28871cd2 (hykist-ukr last changes):users/raissi/setups/hykist/ukrainian_system.py
 
             hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
                                                   alignment_caches=alignment_caches,
