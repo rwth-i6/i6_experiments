@@ -106,9 +106,8 @@ class FactoredHybridSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-            rasr_binary_path: Optional[str] = None, #tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
+            rasr_binary_path: Optional[str] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
             rasr_init_args: RasrInitArgs = None,
-            rasr_hash_override: Optional[str] = "FH-DEFAULT",
             train_data: Dict[str, RasrDataInput] = None,
             dev_data: Dict[str, RasrDataInput] = None,
             test_data: Dict[str, RasrDataInput] = None,
@@ -758,7 +757,9 @@ class FactoredHybridSystem(NnSystem):
     def create_hdf(self):
         gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
         feature_caches = [gammaton_features_paths[i].get_path() for i in range(1, len(gammaton_features_paths.keys())+1)]
+
         hdfJob = RasrFeatureToHDF(feature_caches)
+
         self.hdfs[self.train_key] = hdfJob.hdf_files
 
         hdfJob.add_alias(f"hdf/{self.train_key}")
