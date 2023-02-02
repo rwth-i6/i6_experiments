@@ -265,6 +265,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         rasr_corpus=None,
         rasr_segment_prefix="",
         rasr_segment_postfix="",
+        pad_label=None,
         **kwargs,
     ):
         """
@@ -272,13 +273,16 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         :param Optional[str] rasr_corpus: RASR corpus file for reading segment start and end times for padding
         :param str rasr_segment_prefix: prefix to map SMS-WSJ segment name to RASR segment name
         :param str rasr_segment_postfix: postfix to map SMS-WSJ segment name to RASR segment name
+        :param Optional[int] pad_label: target label assigned to padded areas
         :param kwargs:
         """
         super(SmsWsjBaseWithRasrClasses, self).__init__(**kwargs)
 
         # self.data_types = {"target_signals": {"dim": 2, "shape": (None, 2)}}
         self._rasr_classes_hdf = None
+        self.pad_label = pad_label
         if rasr_classes_hdf is not None:
+            assert pad_label is not None, "Label for padding is needed"
             self._rasr_classes_hdf = HDFDataset(
                 [rasr_classes_hdf], use_cache_manager=True
             )
@@ -331,9 +335,9 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
                     pad_end = 0
                 rasr_targets[speaker_idx] = np.concatenate(
                     [
-                        9000 * np.ones(pad_start),
+                        self.pad_label * np.ones(pad_start),
                         rasr_targets[speaker_idx],
-                        9000 * np.ones(pad_end),
+                        self.pad_label * np.ones(pad_end),
                     ]
                 )
             d["target_rasr"] = np.stack(rasr_targets).T
@@ -475,6 +479,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         rasr_segment_postfix="",
         rasr_classes_hdf=None,
         rasr_corpus=None,
+        pad_label=None,
         zip_cache=None,
         **kwargs,
     ):
@@ -487,6 +492,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         :param str rasr_segment_postfix: postfix to map SMS-WSJ segment name to RASR segment name
         :param str rasr_classes_hdf: hdf file with dumped RASR class labels
         :param str rasr_corpus: RASR corpus file for reading segment start and end times for padding
+        :param Optional[int] pad_label: target label assigned to padded areas
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         """
         sms_wsj_base = SmsWsjBaseWithRasrClasses(
@@ -498,6 +504,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             rasr_corpus=rasr_corpus,
             rasr_segment_prefix=rasr_segment_prefix,
             rasr_segment_postfix=rasr_segment_postfix,
+            pad_label=pad_label,
             zip_cache=zip_cache,
         )
         super(SmsWsjMixtureEarlyAlignmentDataset, self).__init__(
