@@ -43,9 +43,6 @@ from i6_experiments.common.setups.rasr.util import (
     RasrSteps,
 )
 
-from i6_experiments.common.datasets.librispeech.constants import (
-num_segments
-)
 
 
 #get_recog_ctx_args*() functions are imported here

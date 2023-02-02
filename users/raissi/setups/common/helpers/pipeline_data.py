@@ -132,7 +132,10 @@ class RasrFeatureToHDF(Job):
     seq_names = []
     string_dt = h5py.special_dtype(vlen=str)
 
-    feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
+    feature_path = self.feature_caches[task_id - 1]
+    if isinstance(feature_path, tk.Path):
+        feature_path = feature_path.get_path()
+    feature_cache = FileArchive(feature_path)
     out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
 
     # root
