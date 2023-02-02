@@ -566,14 +566,13 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
             **kwargs,
         )
         from returnn.datasets.util.vocabulary import BytePairEncoding
+
         self.bpe = BytePairEncoding(**bpe)
         self.text_proc = text_proc or (lambda x: x)
         if num_outputs is not None:
             self.num_outputs = num_outputs
         else:
-            assert (
-                bpe is not None
-            ), "either num_outputs or bpe has to be given"
+            assert bpe is not None, "either num_outputs or bpe has to be given"
             self.num_outputs["target_bpe"] = [
                 self.bpe.num_labels,
                 1,
@@ -586,6 +585,10 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
         """
         return_dict = SmsWsjMixtureEarlyDataset._pre_batch_transform(inputs)
         for speaker, orth in enumerate(inputs["kaldi_transcription"]):
-            return_dict[f"target_bpe_{speaker}"] = np.array(self.bpe.get_seq(self.text_proc(orth)), dtype="int32")
-            return_dict[f"target_bpe_{speaker}_len"] = np.array(return_dict[f"target_bpe_{speaker}"].size)
+            return_dict[f"target_bpe_{speaker}"] = np.array(
+                self.bpe.get_seq(self.text_proc(orth)), dtype="int32"
+            )
+            return_dict[f"target_bpe_{speaker}_len"] = np.array(
+                return_dict[f"target_bpe_{speaker}"].size
+            )
         return return_dict
