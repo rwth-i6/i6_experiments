@@ -525,3 +525,67 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
                 rasr_num_outputs,
                 1,
             ]  # target alignments are sparse with the given dim
+
+
+class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
+    """
+    Dataset with audio mixture, target early signals and target BPE labels.
+    """
+
+    def __init__(
+        self,
+        dataset_name,
+        json_path,
+        bpe,
+        text_proc=None,
+        num_outputs=None,
+        zip_cache=None,
+        **kwargs,
+    ):
+        """
+        :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
+        :param str json_path: path to SMS-WSJ json file
+        :param Dict[str] bpe: opts for :class:`BytePairEncoding`
+        :param Optional[Callable] text_proc: function to preprocess the transcriptions before applying BPE
+        :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
+        :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
+        """
+        sms_wsj_base = SmsWsjBase(
+            dataset_name=dataset_name,
+            json_path=json_path,
+            pre_batch_transform=self._pre_batch_transform,
+            scenario_map_args={"add_speech_reverberation_early": True},
+            zip_cache=zip_cache,
+        )
+        super(SmsWsjMixtureEarlyBpeDataset, self).__init__(
+            dataset_name,
+            json_path,
+            num_outputs=num_outputs,
+            zip_cache=zip_cache,
+            sms_wsj_base=sms_wsj_base,
+            **kwargs,
+        )
+        from returnn.datasets.util.vocabulary import BytePairEncoding
+        self.bpe = BytePairEncoding(**bpe)
+        self.text_proc = text_proc or (lambda x: x)
+        if num_outputs is not None:
+            self.num_outputs = num_outputs
+        else:
+            assert (
+                bpe is not None
+            ), "either num_outputs or bpe has to be given"
+            self.num_outputs["target_bpe"] = [
+                self.bpe.num_labels,
+                1,
+            ]  # target BPE labels are sparse with the given dim
+
+    def _pre_batch_transform(self, inputs: Dict[str, Any]) -> Dict[str, np.array]:
+        """
+        Used to process raw SMS-WSJ data
+        :param inputs: input as coming from SMS-WSJ
+        """
+        return_dict = SmsWsjMixtureEarlyDataset._pre_batch_transform(inputs)
+        for speaker, orth in enumerate(inputs["kaldi_transcription"]):
+            return_dict[f"target_bpe_{speaker}"] = np.array(self.bpe.get_seq(self.text_proc(orth)), dtype="int32")
+            return_dict[f"target_bpe_{speaker}_len"] = np.array(return_dict[f"target_bpe_{speaker}"].size)
+        return return_dict
