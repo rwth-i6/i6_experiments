@@ -106,8 +106,9 @@ class FactoredHybridSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-            rasr_binary_path: Optional[str] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
+            rasr_binary_path: Optional[str] = None, #tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
             rasr_init_args: RasrInitArgs = None,
+            rasr_hash_override: Optional[str] = "FH-DEFAULT",
             train_data: Dict[str, RasrDataInput] = None,
             dev_data: Dict[str, RasrDataInput] = None,
             test_data: Dict[str, RasrDataInput] = None,
