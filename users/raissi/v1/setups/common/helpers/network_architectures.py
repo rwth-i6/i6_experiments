@@ -702,6 +702,7 @@ def get_bw_params_for_cartfree(csp, returnn_config, output_names, loss_wrt_to_ac
 
 
 def get_bw_params_for_monophone (crp, returnn_config, loss_wrt_to_act_in=False,
+<<<<<<< HEAD:users/raissi/v1/setups/common/helpers/network_architectures.py
                                 am_scale=1.0, prior_scale=1.0, tdp_scale=1.0,
                                 import_model=None, exp_average=0.001,
                                 out='center-output', fix_tdp_bug=False, fixed_prior=None, normalize_lemma_scores=True,
@@ -832,7 +833,7 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
                                                     'from': inputs,
                                                     'tdp_scale': tdp_scale}
         returnn_config.config['network']["fast_bw"]['sprint_opts'] = {
-            "sprintExecPath": RasrCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
+            "sprintExecPath": RasrCommand.select_exe(crp.nn_trainer_exe, 'nn-trainer'),
             "sprintConfigStr": "--config=fastbw.config",
             "sprintControlConfig": {"verbose": True},
             "usePythonSegmentOrder": False,
@@ -858,6 +859,7 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
                'acoustic_model': [
                    'neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model']
                }
+
     config, post_config = sp.build_config_from_mapping(csp, mapping)
 
     post_config['*'].output_channel.file = 'fastbw.log'
@@ -959,7 +961,6 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
     # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
     config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
     config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
 
     # additional config
     config._update(extra_config)
@@ -969,11 +970,6 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
     additional_sprint_post_config_files = {'fastbw': post_config}
 
     return returnn_config, additional_sprint_config_files, additional_sprint_post_config_files
-
-
-
-
-
 
 
 

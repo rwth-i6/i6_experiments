@@ -39,11 +39,7 @@ from i6_experiments.common.setups.rasr.util import (
 )
 
 from i6_experiments.common.datasets.librispeech.constants import (
-<<<<<<< HEAD:users/raissi/v1/setups/librispeech/factored_hybrid_system.py
     num_segments
-=======
-num_segments
->>>>>>> 16e2410b (getting all important changes from full-sum and hykist-ukr):users/raissi/setups/librispeech/factored_hybrid_system.py
 )
 
 
@@ -61,11 +57,7 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextMapper,
     LabelInfo,
     PipelineStages,
-<<<<<<< HEAD:users/raissi/v1/setups/librispeech/factored_hybrid_system.py
     RasrFeatureToHDF
-=======
-    SprintFeatureToHdf
->>>>>>> 16e2410b (getting all important changes from full-sum and hykist-ukr):users/raissi/setups/librispeech/factored_hybrid_system.py
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
@@ -114,14 +106,10 @@ class FactoredHybridSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[str] = None, #tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-<<<<<<< HEAD:users/raissi/v1/setups/librispeech/factored_hybrid_system.py
             rasr_binary_path: Optional[str] = None, #tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
             rasr_init_args: RasrInitArgs = None,
             rasr_hash_override: Optional[str] = "FH-DEFAULT",
-=======
-            rasr_binary_path: Optional[str] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
-            rasr_init_args: RasrInitArgs = None,
->>>>>>> 16e2410b (getting all important changes from full-sum and hykist-ukr):users/raissi/setups/librispeech/factored_hybrid_system.py
+
             train_data: Dict[str, RasrDataInput] = None,
             dev_data: Dict[str, RasrDataInput] = None,
             test_data: Dict[str, RasrDataInput] = None,
@@ -771,7 +759,6 @@ class FactoredHybridSystem(NnSystem):
     def create_hdf(self):
         gammaton_features_paths = self.feature_caches[self.train_key]['gt'].hidden_paths
         feature_caches = [gammaton_features_paths[i].get_path() for i in range(1, len(gammaton_features_paths.keys())+1)]
-<<<<<<< HEAD:users/raissi/v1/setups/librispeech/factored_hybrid_system.py
 
         hdfJob = RasrFeatureToHDF(feature_caches)
 
@@ -780,14 +767,6 @@ class FactoredHybridSystem(NnSystem):
         hdfJob.add_alias(f"hdf/{self.train_key}")
         tk.register_output(f"hdf/{self.train_key}.hdf.1",  self.hdfs[self.train_key][0])
 
-=======
-        hdfJob = SprintFeatureToHdf(feature_caches)
-        self.hdfs[self.train_key] = hdfJob.hdf_files
-
-        hdfJob.add_alias(f"hdf/{self.train_key}")
-        tk.register_output(f"hdf/{self.train_key}.hdf.1",  self.hdfs[self.train_key][0])
-
->>>>>>> 16e2410b (getting all important changes from full-sum and hykist-ukr):users/raissi/setups/librispeech/factored_hybrid_system.py
     def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
         if nStateClasses is None:
             nStateClasses = self.label_info.get_n_state_classes()

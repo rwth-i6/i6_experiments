@@ -201,5 +201,3 @@ class FactoredHybridFeatureScorerV2(rasr.FeatureScorer):
         self.config.loader = fs_tf_config.loader
         self.config.input_map = fs_tf_config.input_map
         self.config.output_map = fs_tf_config.output_map
-
->>>>>>> 16e2410b (getting all important changes from full-sum and hykist-ukr)
