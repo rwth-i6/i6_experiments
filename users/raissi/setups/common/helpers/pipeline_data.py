@@ -64,6 +64,7 @@ class LabelInfo:
         use_word_end_classes=True,
         use_boundary_classes=False,
         add_unknown_phoneme=True,
+        use_minimum_duration=False,
     ):
         self.n_states_per_phone = n_states_per_phone
         self.n_contexts = n_contexts
@@ -74,6 +75,7 @@ class LabelInfo:
         self.use_word_end_classes = use_word_end_classes
         self.use_boundary_classes = use_boundary_classes
         self.add_unknown_phoneme = add_unknown_phoneme
+        self.use_minimum_duration = use_minimum_duration
 
         if state_tying == 'cart':
             assert state_tying_file is not None, 'for cart state tying you need a file'

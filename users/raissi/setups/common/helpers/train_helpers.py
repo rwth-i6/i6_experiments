@@ -2,7 +2,8 @@ import i6_core.rasr as rasr
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextEnum,
-    ContextMapper
+    ContextMapper,
+    LabelInfo,
 )
 from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
     make_config
@@ -65,15 +66,17 @@ def warmup_lrates(initial=0.0001, final=0.001, epochs=20):
     return lrates
 
 
-def get_monophone_returnn_config(num_classes, ph_emb_size, st_emb_size,
-                                 use_multi_task=True, add_mlps=True, mlp_l2=0.01,
+def get_monophone_returnn_config(label_info=None, use_multi_task=True, add_mlps=True, mlp_l2=0.01,
                                  focal_loss_factor=2.0, label_smoothing=0.2,
                                  final_context_type=None, eval_dense_label=False, shared_delta_encoder=False, **returnn_args):
+    assert label_info is not None and isinstance(label_info,
+                                                 LabelInfo), 'you are using old implementation, pass label_info'
     ctxMapper = ContextMapper()
     contextType = ContextEnum(ctxMapper.get_enum(1))
     final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
 
     mono_returnn_config = make_config(context_type=contextType,
+                                      label_info=label_info,
                                       add_mlps=add_mlps,
                                       use_multi_task=use_multi_task,
                                       final_context_type=final_context_type,
@@ -85,31 +88,26 @@ def get_monophone_returnn_config(num_classes, ph_emb_size, st_emb_size,
                                       mlp_l2=mlp_l2,
                                       shared_delta_encoder=shared_delta_encoder,
                                       **returnn_args)
-    """ 
-    if use_multi_task:
-        mono_returnn_config.config["network"]["left-output"]["target"] = "pastLabel"
-        mono_returnn_config.config["network"]["right-output"]["target"] = "futureLabel"
-        mono_returnn_config.config["network"]["center-output"]["target"] = "centerState"
-    else:
-        mono_returnn_config.config["network"]["center-output"]["target"] = "classes"""
+
     mono_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
-                                                 "classes": [num_classes, 1]}
+                                                 "classes": [label_info.get_n_of_dense_classes(), 1]}
 
     return mono_returnn_config
 
-def get_diphone_returnn_config(num_classes, ph_emb_size, st_emb_size, mlp_l2=0.01, use_multi_task=True,
-                                 focal_loss_factor=2.0, label_smoothing=0.2,
-                                 final_context_type=None, shared_delta_encoder=False, **returnn_args):
+def get_diphone_returnn_config(label_info=None, mlp_l2=0.01, use_multi_task=True,
+                               focal_loss_factor=2.0, label_smoothing=0.2,
+                               final_context_type=None, shared_delta_encoder=False, **returnn_args):
+    assert label_info is not None and isinstance(label_info, LabelInfo), 'you are using old implementation, pass label_info'
+
     ctxMapper = ContextMapper()
     contextType = ContextEnum(ctxMapper.get_enum(2))
     final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
 
     diphone_returnn_config = make_config(context_type=contextType,
+                                         label_info=label_info,
                                          add_mlps=True,
                                          use_multi_task=use_multi_task,
                                          final_context_type=final_context_type,
-                                         ph_emb_size=ph_emb_size,
-                                         st_emb_size=st_emb_size,
                                          focal_loss_factor=focal_loss_factor,
                                          label_smoothing=label_smoothing,
                                          eval_dense_label=True,
@@ -120,21 +118,25 @@ def get_diphone_returnn_config(num_classes, ph_emb_size, st_emb_size, mlp_l2=0.0
     del diphone_returnn_config.config["network"]["center-output"]["loss_opts"]["label_smoothing"]
 
     diphone_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
-                                                 "classes": [num_classes, 1]}
+                                                    "classes": [label_info.get_n_of_dense_classes(), 1]}
 
     return diphone_returnn_config
 
 
+#ToDo:
+#get triphone
+#di_from_mono
+#tri_from_mono
+#tri_from_di
 
 
-
-def get_monophone_for_bw_returnn_config(num_classes=126, addMLPs=False, mlpL2=0.0001,
+def get_monophone_for_bw_returnn_config(label_info=None, addMLPs=False, mlpL2=0.0001,
                                         finalContextType=None, **returnn_args):
     ctxMapper = ContextMapper()
     contextType = ContextEnum(ctxMapper.get_enum(1))
     finalContextType = finalContextType if finalContextType is not None else ContextEnum(ctxMapper.get_enum(4))
 
-    monoCrnnConfig = make_config(contextType,
+    mono_returnn_config = make_config(contextType,
                                  ctxMapper,
                                  addMLPs=addMLPs,
                                  finalContextType=finalContextType,
@@ -144,8 +146,8 @@ def get_monophone_for_bw_returnn_config(num_classes=126, addMLPs=False, mlpL2=0.
 
 
     for attribute in ['loss', 'loss_opts', 'target']:
-        del monoCrnnConfig.config["network"]["center-output"][attribute]
-    monoCrnnConfig.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
-                                            "classes": [num_classes, 1]}
+        del mono_returnn_config.config["network"]["center-output"][attribute]
+    mono_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
+                                            "classes": [label_info.get_n_of_dense_classes(), 1]}
 
-    return monoCrnnConfig
+    return mono_returnn_config

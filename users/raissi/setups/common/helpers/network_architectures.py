@@ -10,7 +10,8 @@ from i6_core.rasr.command import RasrCommand
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextEnum,
-    ContextMapper
+    ContextMapper,
+    LabelInfo,
 )
 
 context_mapper = ContextMapper()
@@ -192,37 +193,40 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
     return acousticNet
 
 
-def make_config(context_type, partition_epochs,
+def make_config(context_type, partition_epochs, label_info=None,
                 python_prolog=None, python_epilog="",
-                n_states_per_phone=3, n_contexts=47,
-                use_boundary_classes=False, is_min_duration=False, use_word_end_classes=False,
-                layers=6 * [500], l2=0.01, mlp_l2=0.01, dropout=0.1,
-                ph_emb_size=64, st_emb_size=256, focal_loss_factor=2.0, label_smoothing=0.0,
+                layers=6 * [500], l2=0.01, mlp_l2=0.01, dropout=0.1, focal_loss_factor=2.0, label_smoothing=0.0,
                 add_mlps=False, use_multi_task=True, final_context_type=None, eval_dense_label=False,
                 unit_type="nativelstm2", specaugment=False, shared_delta_encoder=False, **kwargs):
+    assert label_info is not None, 'you are using old implementation, pass label info please'
     if eval_dense_label:
         shared_network = get_common_subnetwork_for_targets_with_blstm(layers,
-                                                                     dropout,
-                                                                     l2,
-                                                                     use_boundary_classes=use_boundary_classes,
-                                                                     n_contexts=n_contexts,
-                                                                     n_states_per_phone=n_states_per_phone,
-                                                                     unit_type=unit_type,
-                                                                     specaugment=specaugment,
-                                                                     is_min_duration=is_min_duration,
-                                                                     use_word_end_classes=use_word_end_classes)
+                                                                      dropout,
+                                                                      l2,
+                                                                      use_boundary_classes=label_info.use_boundary_classes,
+                                                                      n_contexts=label_info.n_contexts,
+                                                                      n_states_per_phone=label_info.n_states_per_phone,
+                                                                      unit_type=unit_type,
+                                                                      specaugment=specaugment,
+                                                                      is_min_duration=label_info.use_minimum_duration,
+                                                                      use_word_end_classes=label_info.use_word_end_classes)
     else:
         shared_network = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
-    
-    config = get_config_for_context_type(context_type, partition_epochs,shared_network,
+
+    config = get_config_for_context_type(context_type, partition_epochs, shared_network,
                                          use_multi_task=use_multi_task, add_mlps=add_mlps,
-                                         final_context_type=final_context_type, shared_delta_encoder=shared_delta_encoder,
-                                         st_emb_size=st_emb_size, ph_emb_size=ph_emb_size,
+                                         final_context_type=final_context_type,
+                                         shared_delta_encoder=shared_delta_encoder,
+                                         st_emb_size=label_info.st_emb_size, ph_emb_size=label_info.ph_emb_size,
                                          focal_loss_factor=focal_loss_factor, label_smoothing=label_smoothing,
                                          l2=mlp_l2, **kwargs)
-    
+
+    for k in vars(label_info).keys():
+        if k in config.keys():
+            config.pop(k)
+
     returnnConfig = returnn.ReturnnConfig(config, python_prolog=python_prolog, python_epilog=python_epilog)
-    
+
     return returnnConfig
 
 
@@ -256,7 +260,7 @@ def get_config_for_context_type(context_type, partition_epochs, shared_network,
                                 ph_emb_size=64, st_emb_size=256,
                                 focal_loss_factor=2.0, label_smoothing=0.2, l2=0.01, **kwargs):
     ###
-    # This function is the entry point for strating the training, which means for context-dependent models
+    # This function is the entry point for starting the training, which means for context-dependent models
     # separate functions for the multi-stage training
     ###
 
