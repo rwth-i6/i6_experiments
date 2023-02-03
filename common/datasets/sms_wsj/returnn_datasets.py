@@ -39,6 +39,7 @@ class SmsWsjBase(MapDatasetBase):
         dataset_name,
         json_path,
         pre_batch_transform,
+        data_types,
         buffer=True,
         zip_cache=None,
         scenario_map_args=None,
@@ -48,11 +49,14 @@ class SmsWsjBase(MapDatasetBase):
         :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
         :param str json_path: path to SMS-WSJ json file
         :param function pre_batch_transform: function which processes raw SMS-WSJ data
+        :param Dict[str] data_types: data types for RETURNN, e.g. {"target_signals": {"dim": 2, "shape": (None, 2)}}
         :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
         """
         super(SmsWsjBase, self).__init__(**kwargs)
+
+        self.data_types = data_types
 
         if zip_cache is not None:
             self._cache_zipped_audio(zip_cache, json_path, dataset_name)
@@ -278,7 +282,6 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         """
         super(SmsWsjBaseWithRasrClasses, self).__init__(**kwargs)
 
-        # self.data_types = {"target_signals": {"dim": 2, "shape": (None, 2)}}
         self._rasr_classes_hdf = None
         self.pad_label = pad_label
         if rasr_classes_hdf is not None:
@@ -286,7 +289,6 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
             self._rasr_classes_hdf = HDFDataset(
                 [rasr_classes_hdf], use_cache_manager=True
             )
-            # self.data_types["target_rasr"] = {"sparse": True, "dim": 9001, "shape": (None, 2)}
         self._rasr_segment_start_end = {}  # type: Dict[str, Tuple[float, float]]
         if rasr_corpus is not None:
             from i6_core.lib.corpus import Corpus
@@ -439,6 +441,7 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
                 pre_batch_transform=self._pre_batch_transform,
                 scenario_map_args={"add_speech_reverberation_early": True},
                 zip_cache=zip_cache,
+                data_types={"target_signals": {"dim": 2, "shape": (None, 2)}},
             )
         super(SmsWsjMixtureEarlyDataset, self).__init__(sms_wsj_base, **kwargs)
         # typically data is raw waveform so 1-D and dense, target signals are 2-D (one for each speaker) and dense
@@ -495,6 +498,14 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         :param Optional[int] pad_label: target label assigned to padded areas
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         """
+        data_types = {
+            "target_signals": {"dim": 2, "shape": (None, 2)},
+            "target_rasr": {
+                "sparse": True,
+                "dim": rasr_num_outputs,
+                "shape": (None, 2),
+            },
+        }
         sms_wsj_base = SmsWsjBaseWithRasrClasses(
             dataset_name=dataset_name,
             json_path=json_path,
@@ -506,6 +517,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             rasr_segment_postfix=rasr_segment_postfix,
             pad_label=pad_label,
             zip_cache=zip_cache,
+            data_types=data_types,
         )
         super(SmsWsjMixtureEarlyAlignmentDataset, self).__init__(
             dataset_name,
