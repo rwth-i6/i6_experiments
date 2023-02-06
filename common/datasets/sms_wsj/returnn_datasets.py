@@ -19,6 +19,9 @@ from returnn.datasets.hdf import HDFDataset
 from returnn.datasets.map import MapDatasetBase, MapDatasetWrapper
 
 # noinspection PyUnresolvedReferences
+from returnn.datasets.util.vocabulary import BytePairEncoding
+
+# noinspection PyUnresolvedReferences
 from returnn.log import log
 
 # noinspection PyUnresolvedReferences
@@ -404,8 +407,8 @@ class SmsWsjWrapper(MapDatasetWrapper):
 
     def init_seq_order(self, epoch: Optional[int] = None, **kwargs) -> bool:
         """
-        Override this in order to update the buffer. get_seq_length is often called before _collect_single_seq, therefore
-        the buffer does not contain the initial indices when continuing the training from an epoch > 0.
+        Override this in order to update the buffer. get_seq_length is often called before _collect_single_seq,
+        therefore the buffer does not contain the initial indices when continuing the training from an epoch > 0.
         """
         out = super(SmsWsjWrapper, self).init_seq_order(epoch=epoch, **kwargs)
         buffer_index = ((epoch or 1) - 1) * self.num_seqs % len(self._dataset)
@@ -562,12 +565,22 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         """
+        self.bpe = BytePairEncoding(**bpe)
+        data_types = {
+            "target_signals": {"dim": 2, "shape": (None, 2)},
+            "target_bpe": {
+                "sparse": True,
+                "dim": self.bpe.num_labels,
+                "shape": (None, 2),
+            },
+        }
         sms_wsj_base = SmsWsjBase(
             dataset_name=dataset_name,
             json_path=json_path,
             pre_batch_transform=self._pre_batch_transform,
             scenario_map_args={"add_speech_reverberation_early": True},
             zip_cache=zip_cache,
+            data_types=data_types,
         )
         super(SmsWsjMixtureEarlyBpeDataset, self).__init__(
             dataset_name,
@@ -577,9 +590,7 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
             sms_wsj_base=sms_wsj_base,
             **kwargs,
         )
-        from returnn.datasets.util.vocabulary import BytePairEncoding
 
-        self.bpe = BytePairEncoding(**bpe)
         self.text_proc = text_proc or (lambda x: x)
         if num_outputs is not None:
             self.num_outputs = num_outputs
