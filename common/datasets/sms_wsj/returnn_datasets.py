@@ -283,9 +283,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         """
         super(SmsWsjBaseWithRasrClasses, self).__init__(**kwargs)
 
-        self._rasr_classes_hdf = HDFDataset(
-            [rasr_classes_hdf], use_cache_manager=True
-        )
+        self._rasr_classes_hdf = HDFDataset([rasr_classes_hdf], use_cache_manager=True)
         self._segment_to_rasr = segment_to_rasr
         self._pad_label = pad_label
         self._hdf_data_key = hdf_data_key
@@ -293,20 +291,17 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
     def __getitem__(self, seq_idx: int) -> Dict[str, np.array]:
         d = self._get_seq_by_idx(seq_idx)
         rasr_seq_tags = self._segment_to_rasr(d["seq_tag"])
-        assert len(rasr_seq_tags) == d["target_signals"].shape[1], (
-            f"got {len(rasr_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals")
+        assert (
+            len(rasr_seq_tags) == d["target_signals"].shape[1]
+        ), f"got {len(rasr_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals"
         rasr_targets = [
             self._rasr_classes_hdf.get_data_by_seq_tag(rasr_seq_tag, self._hdf_data_key)
             for rasr_seq_tag in rasr_seq_tags
         ]
-        padded_len = max(
-            rasr_target.shape[0] for rasr_target in rasr_targets
-        )
+        padded_len = max(rasr_target.shape[0] for rasr_target in rasr_targets)
         for speaker_idx in range(len(rasr_targets)):
             pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
-            pad_end = (
-                padded_len - rasr_targets[speaker_idx].shape[0] - pad_start
-            )
+            pad_end = padded_len - rasr_targets[speaker_idx].shape[0] - pad_start
             if pad_end < 0:
                 pad_start += pad_end
                 assert pad_start >= 0
