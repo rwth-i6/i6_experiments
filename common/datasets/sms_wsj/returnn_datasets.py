@@ -268,85 +268,60 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
 
     def __init__(
         self,
-        rasr_classes_hdf=None,
-        rasr_corpus=None,
-        rasr_segment_prefix="",
-        rasr_segment_postfix="",
+        rasr_classes_hdf,
+        segment_to_rasr,
         pad_label=None,
+        hdf_data_key="classes",
         **kwargs,
     ):
         """
-        :param Optional[str] rasr_classes_hdf: hdf file with dumped RASR class labels
-        :param Optional[str] rasr_corpus: RASR corpus file for reading segment start and end times for padding
-        :param str rasr_segment_prefix: prefix to map SMS-WSJ segment name to RASR segment name
-        :param str rasr_segment_postfix: postfix to map SMS-WSJ segment name to RASR segment name
+        :param str rasr_classes_hdf: hdf file with dumped RASR class labels
+        :param Callable segment_to_rasr: function that maps SMS-WSJ seg. name into list of corresponding RASR seg. names
         :param Optional[int] pad_label: target label assigned to padded areas
+        :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         :param kwargs:
         """
         super(SmsWsjBaseWithRasrClasses, self).__init__(**kwargs)
 
-        self._rasr_classes_hdf = None
-        self.pad_label = pad_label
-        if rasr_classes_hdf is not None:
-            assert pad_label is not None, "Label for padding is needed"
-            self._rasr_classes_hdf = HDFDataset(
-                [rasr_classes_hdf], use_cache_manager=True
-            )
-        self._rasr_segment_start_end = {}  # type: Dict[str, Tuple[float, float]]
-        if rasr_corpus is not None:
-            from i6_core.lib.corpus import Corpus
-
-            corpus = Corpus()
-            corpus.load(rasr_corpus)
-            for seg in corpus.segments():
-                self._rasr_segment_start_end[seg.fullname()] = (seg.start, seg.end)
-        self.rasr_segment_prefix = rasr_segment_prefix
-        self.rasr_segment_postfix = rasr_segment_postfix
+        self._rasr_classes_hdf = HDFDataset(
+            [rasr_classes_hdf], use_cache_manager=True
+        )
+        self._segment_to_rasr = segment_to_rasr
+        self._pad_label = pad_label
+        self._hdf_data_key = hdf_data_key
 
     def __getitem__(self, seq_idx: int) -> Dict[str, np.array]:
         d = self._get_seq_by_idx(seq_idx)
-        if self._rasr_classes_hdf is not None:
-            rasr_seq_tags = [
-                f"{self.rasr_segment_prefix}{d['seq_tag']}_{speaker}{self.rasr_segment_postfix}"
-                for speaker in range(d["target_signals"].shape[1])
-            ]
-            rasr_targets = []
-            for idx, rasr_seq_tag in enumerate(rasr_seq_tags):
-                rasr_targets.append(
-                    self._rasr_classes_hdf.get_data_by_seq_tag(rasr_seq_tag, "classes")
-                )
-            start_end_times = [
-                self._rasr_segment_start_end.get(rasr_seq_tag, (0, 0))
-                for rasr_seq_tag in rasr_seq_tags
-            ]
-            padded_len_sec = max(start_end[1] for start_end in start_end_times)
-            padded_len_frames = max(
-                rasr_target.shape[0] for rasr_target in rasr_targets
+        rasr_seq_tags = self._segment_to_rasr(d["seq_tag"])
+        assert len(rasr_seq_tags) == d["target_signals"].shape[1], (
+            f"got {len(rasr_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals")
+        rasr_targets = [
+            self._rasr_classes_hdf.get_data_by_seq_tag(rasr_seq_tag, self._hdf_data_key)
+            for rasr_seq_tag in rasr_seq_tags
+        ]
+        padded_len = max(
+            rasr_target.shape[0] for rasr_target in rasr_targets
+        )
+        for speaker_idx in range(len(rasr_targets)):
+            pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
+            pad_end = (
+                padded_len - rasr_targets[speaker_idx].shape[0] - pad_start
             )
-            for speaker_idx in range(len(rasr_targets)):
-                pad_start = 0
-                if padded_len_sec > 0:
-                    pad_start = round(
-                        start_end_times[speaker_idx][0]
-                        / padded_len_sec
-                        * padded_len_frames
-                    )
-                pad_end = (
-                    padded_len_frames - rasr_targets[speaker_idx].shape[0] - pad_start
-                )
-                if pad_end < 0:
-                    pad_start += pad_end
-                    assert pad_start >= 0
-                    pad_end = 0
-                rasr_targets[speaker_idx] = np.concatenate(
-                    [
-                        self.pad_label * np.ones(pad_start),
-                        rasr_targets[speaker_idx],
-                        self.pad_label * np.ones(pad_end),
-                    ]
-                )
-            d["target_rasr"] = np.stack(rasr_targets).T
-            d["target_rasr_len"] = np.array(padded_len_frames)
+            if pad_end < 0:
+                pad_start += pad_end
+                assert pad_start >= 0
+                pad_end = 0
+            if pad_start or pad_end:
+                assert self._pad_label is not None, "Label for padding is needed"
+            rasr_targets[speaker_idx] = np.concatenate(
+                [
+                    self._pad_label * np.ones(pad_start),
+                    rasr_targets[speaker_idx],
+                    self._pad_label * np.ones(pad_end),
+                ]
+            )
+        d["target_rasr"] = np.stack(rasr_targets).T
+        d["target_rasr_len"] = np.array(padded_len)
         return d
 
     def get_seq_length_for_keys(self, seq_idx: int) -> NumbersDict:
@@ -481,12 +456,11 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         json_path,
         num_outputs=None,
         rasr_num_outputs=None,
-        rasr_segment_prefix="",
-        rasr_segment_postfix="",
-        rasr_classes_hdf=None,
-        rasr_corpus=None,
-        pad_label=None,
         zip_cache=None,
+        rasr_classes_hdf=None,
+        segment_to_rasr=None,
+        pad_label=None,
+        hdf_data_key="classes",
         **kwargs,
     ):
         """
@@ -494,12 +468,11 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         :param str json_path: path to SMS-WSJ json file
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         :param Optional[int] rasr_num_outputs: number of output labels for RASR alignment, e.g. 9001 for that CART size
-        :param str rasr_segment_prefix: prefix to map SMS-WSJ segment name to RASR segment name
-        :param str rasr_segment_postfix: postfix to map SMS-WSJ segment name to RASR segment name
-        :param str rasr_classes_hdf: hdf file with dumped RASR class labels
-        :param str rasr_corpus: RASR corpus file for reading segment start and end times for padding
-        :param Optional[int] pad_label: target label assigned to padded areas
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
+        :param str rasr_classes_hdf: hdf file with dumped RASR class labels
+        :param Callable segment_to_rasr: function that maps SMS-WSJ seg. name into list of corresponding RASR seg. names
+        :param Optional[int] pad_label: target label assigned to padded areas
+        :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         """
         data_types = {
             "target_signals": {"dim": 2, "shape": (None, 2)},
@@ -514,13 +487,12 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             json_path=json_path,
             pre_batch_transform=self._pre_batch_transform,
             scenario_map_args={"add_speech_reverberation_early": True},
-            rasr_classes_hdf=rasr_classes_hdf,
-            rasr_corpus=rasr_corpus,
-            rasr_segment_prefix=rasr_segment_prefix,
-            rasr_segment_postfix=rasr_segment_postfix,
-            pad_label=pad_label,
-            zip_cache=zip_cache,
             data_types=data_types,
+            zip_cache=zip_cache,
+            rasr_classes_hdf=rasr_classes_hdf,
+            segment_to_rasr=segment_to_rasr,
+            pad_label=pad_label,
+            hdf_data_key=hdf_data_key,
         )
         super(SmsWsjMixtureEarlyAlignmentDataset, self).__init__(
             dataset_name,
@@ -540,6 +512,17 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
                 rasr_num_outputs,
                 1,
             ]  # target alignments are sparse with the given dim
+
+    @staticmethod
+    def _pre_batch_transform(inputs: Dict[str, Any]) -> Dict[str, np.array]:
+        """
+        Used to process raw SMS-WSJ data
+        :param inputs: input as coming from SMS-WSJ
+        """
+        return_dict = SmsWsjMixtureEarlyDataset._pre_batch_transform(inputs)
+        # we need the padding information here
+        return_dict["offset"] = np.array(inputs["offset"], dtype="int")
+        return return_dict
 
 
 class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
