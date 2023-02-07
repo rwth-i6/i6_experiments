@@ -115,10 +115,11 @@ class SmsWsjBase(MapDatasetBase):
         """
         Returns length of the sequence of the given index
         """
-        if "seq_len" in self._get_seq_by_idx(seq_idx):
+        try:
             return int(self._get_seq_by_idx(seq_idx)["seq_len"])
-        else:
+        except KeyError:
             raise OptionalNotImplementedError
+            
 
     def get_seq_length_for_keys(self, seq_idx: int) -> NumbersDict:
         """
