@@ -109,10 +109,7 @@ class SmsWsjBase(MapDatasetBase):
         """
         Returns tag for the sequence of the given index, default is 'seq-{seq_idx}'.
         """
-        if "seq_tag" in self._get_seq_by_idx(seq_idx):
-            return str(self._get_seq_by_idx(seq_idx)["seq_tag"])
-        else:
-            return "seq-%i" % seq_idx
+        return str(self._get_seq_by_idx(seq_idx).get("seq_tag", f"seq-{seq_idx}"))
 
     def get_seq_len(self, seq_idx: int) -> int:
         """
