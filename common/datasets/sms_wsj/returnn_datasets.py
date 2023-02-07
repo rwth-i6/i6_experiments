@@ -76,7 +76,7 @@ class SmsWsjBase(MapDatasetBase):
             **(scenario_map_args or {}),
         }
         ds = ds.map(functools.partial(scenario_map_fn, **scenario_map_args))
-        ds = ds.map(functools.partial(pre_batch_transform))
+        ds = ds.map(pre_batch_transform)
 
         self._ds = ds
         self._ds_iterator = iter(self._ds)
