@@ -85,7 +85,9 @@ class SmsWsjBase(MapDatasetBase):
 
         self._use_buffer = buffer
         if self._use_buffer:
-            self._ds = self._ds.prefetch(prefetch_num_workers, prefetch_buffer_size).copy(freeze=True)
+            self._ds = self._ds.prefetch(
+                prefetch_num_workers, prefetch_buffer_size
+            ).copy(freeze=True)
         self._buffer = {}  # type Dict[int,[Dict[str,np.array]]]
         self._buffer_size = prefetch_buffer_size
 
@@ -121,7 +123,6 @@ class SmsWsjBase(MapDatasetBase):
             return int(self._get_seq_by_idx(seq_idx)["seq_len"])
         except KeyError:
             raise OptionalNotImplementedError
-            
 
     def get_seq_length_for_keys(self, seq_idx: int) -> NumbersDict:
         """
