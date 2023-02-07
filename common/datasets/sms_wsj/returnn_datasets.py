@@ -128,7 +128,7 @@ class SmsWsjBase(MapDatasetBase):
         data = self[seq_idx]
         d = {k: v.size for k, v in data.items()}
         for update_key in ["data", "target_signals"]:
-            if update_key in d.keys() and "seq_len" in data:
+            if update_key in d and "seq_len" in data:
                 d[update_key] = int(data["seq_len"])
         return NumbersDict(d)
 
