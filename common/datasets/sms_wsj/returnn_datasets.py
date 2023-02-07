@@ -414,7 +414,7 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
                 zip_cache=zip_cache,
                 data_types={"target_signals": {"dim": 2, "shape": (None, 2)}},
             )
-        super(SmsWsjMixtureEarlyDataset, self).__init__(sms_wsj_base, **kwargs)
+        super().__init__(sms_wsj_base, **kwargs)
         # typically data is raw waveform so 1-D and dense, target signals are 2-D (one for each speaker) and dense
         self.num_outputs = num_outputs or {"data": [1, 2], "target_signals": [2, 2]}
 
