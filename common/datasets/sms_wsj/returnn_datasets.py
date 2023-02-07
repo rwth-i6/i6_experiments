@@ -487,7 +487,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             pad_label=pad_label,
             hdf_data_key=hdf_data_key,
         )
-        super(SmsWsjMixtureEarlyAlignmentDataset, self).__init__(
+        super().__init__(
             dataset_name,
             json_path,
             num_outputs=num_outputs,
