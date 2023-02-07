@@ -46,6 +46,8 @@ class SmsWsjBase(MapDatasetBase):
         buffer=True,
         zip_cache=None,
         scenario_map_args=None,
+        prefetch_num_workers=4,
+        prefetch_buffer_size=40,
         **kwargs,
     ):
         """
@@ -83,9 +85,9 @@ class SmsWsjBase(MapDatasetBase):
 
         self._use_buffer = buffer
         if self._use_buffer:
-            self._ds = self._ds.prefetch(4, 8).copy(freeze=True)
+            self._ds = self._ds.prefetch(prefetch_num_workers, prefetch_buffer_size).copy(freeze=True)
         self._buffer = {}  # type Dict[int,[Dict[str,np.array]]]
-        self._buffer_size = 40
+        self._buffer_size = prefetch_buffer_size
 
     def __len__(self) -> int:
         return len(self._ds)
@@ -571,7 +573,6 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
         if num_outputs is not None:
             self.num_outputs = num_outputs
         else:
-            assert bpe is not None, "either num_outputs or bpe has to be given"
             self.num_outputs["target_bpe"] = [
                 self.bpe.num_labels,
                 1,
