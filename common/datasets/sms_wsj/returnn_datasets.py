@@ -558,7 +558,7 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
             zip_cache=zip_cache,
             data_types=data_types,
         )
-        super(SmsWsjMixtureEarlyBpeDataset, self).__init__(
+        super().__init__(
             dataset_name,
             json_path,
             num_outputs=num_outputs,
