@@ -1,4 +1,6 @@
 from typing import Dict, Union, Optional, List
+from i6_core.returnn.config import CodeWrapper
+import returnn_common.asr.specaugment as rc_specaug
 
 
 def add_specaug_layer(
@@ -16,6 +18,20 @@ def add_specaug_layer(
         "class": "eval",
         "from": from_list,
         "eval": f'self.network.get_config().typed_value("transform")(source(0, as_data=True), max_time_num={max_time_num}, max_time={max_time}, max_feature_num={max_feature_num}, max_feature={max_feature}, network=self.network)',
+    }
+
+    return [name]
+
+
+def add_specaug_layer_v2(
+    network: Dict,
+    name: str = "specaug",
+    from_list: Optional[Union[str, List[str]]] = "data",
+) -> List[str]:
+    network[name] = {
+        "class": "eval",
+        "from": from_list,
+        "eval": CodeWrapper(rc_specaug.specaugment_eval_func.__name__),
     }
 
     return [name]
@@ -150,5 +166,9 @@ def transform(data, max_time_num, max_time, max_feature_num, max_feature, networ
     return x
 
 
-def get_specaug_funcs():
+def get_specaug_funcs() -> list:
     return [_mask, random_mask, transform]
+
+
+def get_specaug_func_v2() -> list:
+    return [rc_specaug._mask, rc_specaug.random_mask, rc_specaug.specaugment_eval_func]

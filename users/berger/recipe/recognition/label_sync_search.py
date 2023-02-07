@@ -233,7 +233,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         sprint_exe=None,  # allow separat executable than default settings
         lm_gc_job=None,
         lm_gc_job_local=False,
-        lm_gc_job_mem=2,
+        lm_gc_job_mem=6,
         lm_gc_job_default_search=False,
     ):  # TODO set this to true later
         self.set_vis_name("Label Synchronized Search")
@@ -323,7 +323,7 @@ class LabelSyncSearchJob(rasr.RasrCommand, Job):
         sprint_exe=None,
         lm_gc_job=None,
         lm_gc_job_local=True,
-        lm_gc_job_mem=16,
+        lm_gc_job_mem=6,
         lm_gc_job_default_search=False,
         **kwargs
     ):

@@ -1,6 +1,10 @@
 from typing import Tuple, List, Dict, Optional
+from i6_core.rasr.config import RasrConfig
+from i6_experiments.users.berger.network.helpers.rnnt_loss import (
+    add_rnnt_loss,
+    add_rnnt_loss_compressed,
+)
 
-from matplotlib.style import context
 from i6_experiments.users.berger.network.helpers.specaug import (
     add_specaug_layer,
     get_specaug_funcs,
@@ -16,8 +20,6 @@ import i6_experiments.users.berger.network.helpers.label_context as label_contex
 
 def make_context_1_blstm_transducer_blank(
     num_outputs: int,
-    context_transformation_func: Optional[str] = None,
-    context_label_dim: Optional[int] = None,
     blank_index: int = 0,
     loss_boost_scale: float = 5.0,
     encoder_loss: bool = False,
@@ -51,20 +53,10 @@ def make_context_1_blstm_transducer_blank(
             name="encoder_output",
             num_outputs=num_outputs,
             target="classes",
-            focal_loss=1.0,
+            focal_loss_factor=1.0,
         )
 
     base_labels = "data:classes"
-    if context_transformation_func:
-        assert context_label_dim
-        network["transformed_classes"] = {
-            "class": "eval",
-            "from": base_labels,
-            "eval": context_transformation_func,
-            "out_type": {"dim": context_label_dim},
-        }
-        base_labels = "transformed_classes"
-
     context_labels, mask_non_blank = label_context.add_context_label_sequence_blank(
         network,
         base_labels=base_labels,
@@ -102,8 +94,6 @@ def make_context_1_blstm_transducer_blank(
 def make_context_1_blstm_transducer_noblank(
     num_outputs: int,
     nonword_labels: Optional[List[int]] = None,
-    context_transformation_func: Optional[str] = None,
-    context_label_dim: Optional[int] = None,
     loss_boost_scale: float = 5.0,
     blstm_args: Dict = {},
     decoder_args: Dict = {},
@@ -123,15 +113,6 @@ def make_context_1_blstm_transducer_noblank(
     network["encoder"] = {"class": "copy", "from": from_list}
 
     base_labels = "data:classes"
-    if context_transformation_func:
-        assert context_label_dim
-        network["base_labels"] = {
-            "class": "eval",
-            "from": base_labels,
-            "eval": context_transformation_func,
-            "out_type": {"dim": context_label_dim},
-        }
-        base_labels = "base_labels"
 
     context_labels, mask_first_label = label_context.add_context_label_sequence_noblank(
         network,
@@ -171,10 +152,75 @@ def make_context_1_blstm_transducer_noblank(
     return network, python_code
 
 
+def make_context_1_blstm_transducer_fullsum(
+    num_outputs: int,
+    blank_index: int = 0,
+    compress_joint_input: bool = True,
+    specaug_args: Dict = {},
+    blstm_args: Dict = {},
+    decoder_args: Dict = {},
+) -> Tuple[Dict, List]:
+
+    network = {}
+    python_code = []
+
+    from_list = ["data"]
+
+    from_list = add_specaug_layer(network, **specaug_args)
+    python_code += get_specaug_funcs()
+
+    from_list = add_blstm_stack(network, from_list, **blstm_args)
+
+    network["encoder"] = {
+        "class": "copy",
+        "from": from_list,
+    }
+
+    base_labels = "data:classes"
+
+    context_labels, _ = label_context.add_context_label_sequence_blank(
+        network,
+        base_labels=base_labels,
+        blank_index=blank_index,
+    )
+
+    (
+        joint_output,
+        decoder_unit,
+        decoder_python,
+    ) = label_context.add_context_1_decoder_fullsum(
+        network,
+        context_labels=context_labels,
+        encoder="encoder",
+        compress_joint_input=compress_joint_input,
+        **decoder_args,
+    )
+    python_code += decoder_python
+
+    if compress_joint_input:
+        python_code += add_rnnt_loss_compressed(
+            decoder_unit,
+            encoder="base:base:encoder",
+            joint_output=joint_output,
+            targets=f"base:base:{context_labels}",
+            num_classes=num_outputs,
+            blank_index=blank_index,
+        )
+    else:
+        python_code += add_rnnt_loss(
+            decoder_unit,
+            encoder="base:base:encoder",
+            joint_output=joint_output,
+            targets=f"base:base:{context_labels}",
+            num_classes=num_outputs,
+            blank_index=blank_index,
+        )
+
+    return network, python_code
+
+
 def make_context_1_blstm_transducer_recog(
     num_outputs: int,
-    context_transformation_func: Optional[str] = None,
-    context_label_dim: Optional[int] = None,
     blstm_args: Dict = {},
     decoder_args: Dict = {},
 ) -> Tuple[Dict, List]:
@@ -192,8 +238,6 @@ def make_context_1_blstm_transducer_recog(
         network,
         num_outputs=num_outputs,
         encoder="encoder",
-        context_transformation_func=context_transformation_func,
-        context_label_dim=context_label_dim,
         **decoder_args,
     )
 
@@ -205,3 +249,76 @@ def make_context_1_blstm_transducer_recog(
     }
 
     return network, python_code
+
+
+def get_viterbi_transducer_alignment_config(reduction_factor: int) -> RasrConfig:
+    alignment_config = RasrConfig()
+    alignment_config.neural_network_trainer["*"].force_single_state = True
+    alignment_config.neural_network_trainer[
+        "*"
+    ].reduce_alignment_factor = reduction_factor
+    alignment_config.neural_network_trainer["*"].peaky_alignment = True
+    alignment_config.neural_network_trainer["*"].peak_position = 1.0
+
+    return alignment_config
+
+
+def pretrain_construction_algo(idx, net_dict):
+    num_layers = idx + 1
+    remaining_reduction = 1
+
+    enc_layer_idx = 0
+    while "fwd_lstm_%i" % (enc_layer_idx + 1) in net_dict:
+        enc_layer_idx += 1
+        if enc_layer_idx > num_layers:
+            del net_dict["fwd_lstm_%i" % enc_layer_idx]
+            del net_dict["bwd_lstm_%i" % enc_layer_idx]
+        if enc_layer_idx >= num_layers and "max_pool_%i" % enc_layer_idx in net_dict:
+            remaining_reduction *= net_dict["max_pool_%i" % enc_layer_idx]["pool_size"][
+                0
+            ]
+            del net_dict["max_pool_%i" % enc_layer_idx]
+
+    if num_layers <= enc_layer_idx:
+        # only encoder
+        fromList = ["fwd_lstm_%i" % num_layers, "bwd_lstm_%i" % num_layers]
+        if remaining_reduction > 1:
+            net_dict["max_pool_lstm_%i" % num_layers] = {
+                "class": "pool",
+                "mode": "max",
+                "padding": "same",
+                "pool_size": (remaining_reduction,),
+                "from": fromList,
+                "trainable": False,
+            }
+            fromList = ["max_pool_lstm_%i" % num_layers]
+
+        net_dict["encoder"]["from"] = fromList
+        # add encoder ce loss
+        net_dict["encoder_output"] = {
+            "class": "softmax",
+            "from": "encoder",
+            "loss": "ce",
+        }
+
+        # remove decoder
+        del net_dict["output"]
+
+    else:
+        num_dec_layers = num_layers - enc_layer_idx
+
+        dec_layer_idx = 0
+        while "dec_ff_%i" % (dec_layer_idx + 1) in net_dict["output"]["unit"]:
+            dec_layer_idx += 1
+            if dec_layer_idx > num_dec_layers:
+                del net_dict["output"]["unit"]["dec_ff_%i" % dec_layer_idx]
+
+        if num_dec_layers <= dec_layer_idx:
+            # partial decoder
+            net_dict["output"]["unit"]["decoder"]["from"] = [
+                "dec_ff_%i" % num_dec_layers
+            ]
+        else:  # full encoder and full decoder -> finished pre-training
+            return None
+
+    return net_dict

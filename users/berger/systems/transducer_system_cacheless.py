@@ -222,7 +222,7 @@ class TransducerSystem(NnSystem):
                 and train_returnn_config
                 and checkpoint
             ), "Must provide arguments for prior computation"
-            prior_file = self.returnn_rasr_compute_priors(
+            prior_file = self.returnn_compute_priors(
                 name=f"{name}-ep{epoch}",
                 returnn_config=train_returnn_config,
                 train_corpus_key=train_corpus_key,
@@ -340,70 +340,6 @@ class TransducerSystem(NnSystem):
         # ensure cache_mode as base feature net
         tf_feature_flow.add_flags(feature_flow.flags)
         return tf_feature_flow
-
-    def get_feature_flow_for_corpus(self, corpus_key: str) -> FlowNetwork:
-        if corpus_key in self.feature_flows:
-            return self.feature_flows[corpus_key]
-        data = self.input_data[corpus_key]
-
-        feature_flow = self.make_feature_flow_for_data(data)
-        self.feature_flows[corpus_key] = feature_flow
-        return feature_flow
-
-    @staticmethod
-    def make_feature_flow_for_data(data: ReturnnRasrDataInput) -> FlowNetwork:
-        if data.feature_flow is not None:
-            feature_flow = data.feature_flow
-        else:
-            if isinstance(data.features, rasr.FlagDependentFlowAttribute):
-                feature_path = data.features
-            elif isinstance(data.features, (MultiPath, MultiOutputPath)):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "task_dependent": data.features,
-                    },
-                )
-            elif isinstance(data.features, tk.Path):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "bundle": data.features,
-                    },
-                )
-            else:
-                raise NotImplementedError
-
-            feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(data.features, tk.Path):
-                feature_flow.flags = {"cache_mode": "bundle"}
-
-        return feature_flow
-
-    def get_alignments_for_corpus(self, corpus_key: str) -> FlowNetwork:
-        if corpus_key in self.alignments:
-            return self.alignments[corpus_key]
-        data = self.input_data[corpus_key]
-
-        alignments = self.make_alignments_for_data(data)
-        self.alignments[corpus_key] = alignments
-        return alignments
-
-    @staticmethod
-    def make_alignments_for_data(data: ReturnnRasrDataInput) -> Union[tk.Path, None]:
-        if isinstance(data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(data.alignments, tk.Path):
-            alignments = data.alignments
-        else:
-            return None
-
-        return alignments
 
     def _add_output_alias_for_train_job(
         self,
@@ -728,7 +664,9 @@ class TransducerSystem(NnSystem):
                 SearchTypes.ReturnnSearch: self.returnn_nn_recognition,
             }[search_type](**kwargs)
         except KeyError as ke:
-            raise NotImplementedError(f"Search type {search_type} is not supported.") from ke
+            raise NotImplementedError(
+                f"Search type {search_type} is not supported."
+            ) from ke
 
     def returnn_nn_recognition(
         self,
@@ -1346,12 +1284,6 @@ class TransducerSystem(NnSystem):
             self.store_allophones(trn_c)
             tk.register_output(
                 f"allophones/{trn_c}/allophones", self.allophone_files["base"]
-            )
-
-            state_tying_job = DumpStateTyingJob(self.crp[trn_c])
-            tk.register_output(
-                f"state_tying/{trn_c}/state_tying",
-                state_tying_job.out_state_tying,
             )
 
         for eval_c in self.dev_corpora + self.test_corpora:

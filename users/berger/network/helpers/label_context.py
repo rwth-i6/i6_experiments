@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
+from i6_experiments.users.berger.network.helpers.compressed_input import compressed_add_code, compressed_concat_code, compressed_multiply_code
 
 
 def add_context_label_sequence_blank(
@@ -141,19 +142,12 @@ def add_context_label_sequence_noblank(
     return "pred_labels_padded", "mask_first_label"
 
 
-def add_context_1_decoder(
-    network: Dict,
+def add_dec_ffnn_stack(
+    output_unit: dict,
     context_labels: str,
-    mask_non_blank: str,
-    encoder: str = "encoder",
-    embedding_size: int = 128,
-    dec_mlp_args: Dict = {},
-    joint_mlp_args: Dict = {},
-    combination_mode: Optional[str] = "add",
-) -> Tuple[List[str], Dict]:
-
-    output_unit = {}
-
+    embedding_size: int,
+    dec_mlp_args: dict,
+) -> str:
     output_unit["context_embedding"] = {
         "class": "linear",
         "from": f"base:{context_labels}",
@@ -173,6 +167,26 @@ def add_context_1_decoder(
 
     decoder_ff = add_feed_forward_stack(
         output_unit, from_list="context_embedding_padded", name="dec_ff", **dec_mlp_args
+    )
+
+    return decoder_ff
+
+
+def add_context_1_decoder(
+    network: Dict,
+    context_labels: str,
+    mask_non_blank: str,
+    encoder: str = "encoder",
+    embedding_size: int = 128,
+    dec_mlp_args: Dict = {},
+    joint_mlp_args: Dict = {},
+    combination_mode: Optional[str] = "add",
+) -> Tuple[List[str], Dict]:
+
+    output_unit = {}
+
+    decoder_ff = add_dec_ffnn_stack(
+        output_unit, context_labels, embedding_size, dec_mlp_args
     )
 
     output_unit["mask_non_blank_shifted"] = {
@@ -236,8 +250,6 @@ def add_context_1_decoder_recog(
     num_outputs: int,
     encoder: str = "encoder",
     embedding_size: int = 128,
-    context_transformation_func: Optional[str] = None,
-    context_label_dim: Optional[int] = None,
     dec_mlp_args: Dict = {},
     joint_mlp_args: Dict = {},
     combination_mode: Optional[str] = "add",
@@ -254,16 +266,6 @@ def add_context_1_decoder_recog(
         "initial_output": num_outputs,
     }
     context_label = "output_choice"
-
-    if context_transformation_func:
-        output_unit["context_transformed"] = {
-            "class": "eval",
-            "from": context_label,
-            "eval": context_transformation_func,
-            "out_type": {"dim": context_label_dim + 1},
-            "initial_output": context_label_dim,
-        }
-        context_label = "context_transformed"
 
     output_unit["context_embedding"] = {
         "class": "linear",
@@ -310,3 +312,83 @@ def add_context_1_decoder_recog(
     }
 
     return joint_output, output_unit
+
+
+def add_context_1_decoder_fullsum(
+    network: Dict,
+    context_labels: str,
+    encoder: str = "encoder",
+    embedding_size: int = 128,
+    dec_mlp_args: Dict = {},
+    joint_mlp_args: Dict = {},
+    combination_mode: Optional[str] = "add",
+    compress_joint_input: bool = True,
+) -> Tuple[List[str], Dict, List]:
+
+    output_unit = {}
+    extra_python = []
+
+    decoder_ff = add_dec_ffnn_stack(
+        output_unit, f"base:{context_labels}", embedding_size, dec_mlp_args
+    )
+
+    output_unit["decoder"] = {
+        "class": "copy",
+        "from": decoder_ff,
+    }
+
+    joint_input = [f"base:base:{encoder}", "decoder"]
+    if compress_joint_input:
+        if combination_mode == "concat":
+            output_unit["joint_input"] = {
+                "class": "compressed_concat",
+                "from": joint_input,
+            }
+            extra_python.append(compressed_concat_code)
+        elif combination_mode == "add":
+            output_unit["joint_input"] = {
+                "class": "compressed_add",
+                "from": joint_input,
+            }
+            extra_python.append(compressed_add_code)
+        elif combination_mode == "multiply":
+            output_unit["joint_input"] = {
+                "class": "compressed_multiply",
+                "from": joint_input,
+            }
+            extra_python.append(compressed_multiply_code)
+    else:
+        if combination_mode is None or combination_mode == "concat":
+            output_unit["joint_input"] = {
+                "class": "copy",
+                "from": joint_input,
+            }
+        else:
+            output_unit["joint_input"] = {
+                "class": "combine",
+                "from": joint_input,
+                "kind": combination_mode,
+            }
+
+    joint_output = add_feed_forward_stack(
+        output_unit, from_list="joint_input", name="joint_ff", **joint_mlp_args
+    )
+
+    # Match name scope from viterbi model to enable initializing from one
+    network["output"] = {
+        "class": "subnetwork",
+        "from": encoder,
+        "subnetwork": {
+            "output": {
+                "class": "copy",
+                "from": "rec",
+            },
+            "rec": {
+                "class": "subnetwork",
+                "from": "data",
+                "subnetwork": output_unit,
+            },
+        },
+    }
+
+    return joint_output, output_unit, extra_python

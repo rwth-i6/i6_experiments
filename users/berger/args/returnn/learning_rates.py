@@ -5,11 +5,20 @@ from i6_core.returnn.config import CodeWrapper
 
 class LearningRateSchedules(Enum):
     Newbob = auto()
+    NewbobAbs = auto()
     OCLR = auto()
+    CONST_DECAY = auto()
+
+
+class Optimizers(Enum):
+    Nadam = auto()
+    SGD = auto()
 
 
 def get_learning_rate_config(
-    schedule: LearningRateSchedules = LearningRateSchedules.Newbob, **kwargs
+    schedule: LearningRateSchedules = LearningRateSchedules.Newbob,
+    optimizer: Optimizers = Optimizers.Nadam,
+    **kwargs,
 ) -> Tuple[Dict, List]:
 
     config = {}
@@ -17,11 +26,20 @@ def get_learning_rate_config(
 
     if schedule == LearningRateSchedules.Newbob:
         config.update(get_newbob_config(**kwargs))
+    elif schedule == LearningRateSchedules.NewbobAbs:
+        config.update(get_newbob_abs_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR:
         extra_python.append(get_oclr_function(**kwargs))
+    elif schedule == LearningRateSchedules.CONST_DECAY:
+        extra_python.append(get_const_decay_function(**kwargs))
     else:
         raise NotImplementedError
-    config.update(get_nadam_config(**kwargs))
+    if optimizer == Optimizers.Nadam:
+        config.update(get_nadam_config(**kwargs))
+    elif optimizer == Optimizers.SGD:
+        pass
+    else:
+        raise NotImplementedError
 
     return config, extra_python
 
@@ -59,16 +77,37 @@ def get_newbob_config(
     return result
 
 
+def get_newbob_abs_config(
+    learning_rate: float = 1e-3,
+    decay: float = 0.9,
+    multi_num_epochs: int = 6,
+    error_measure: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    result = {
+        "learning_rate": learning_rate,
+        "learning_rate_control": "newbob_abs",
+        "learning_rate_control_relative_error_relative_lr": True,
+        "newbob_learning_rate_decay": decay,
+        "newbob_relative_error_threshold": 0,
+        "newbob_multi_num_epochs": multi_num_epochs,
+        "newbob_multi_update_interval": 1,
+    }
+    if error_measure:
+        result["learning_rate_control_error_measure"] = error_measure
+    return result
+
+
 def get_oclr_function(
     num_epochs: int,
     n_steps_per_epoch: int,
-    peak_lr: float = 1e-3,
+    peak_lr: float = 1e-03,
     initial_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
     **kwargs,
 ) -> Callable:
     initial_lr = initial_lr or peak_lr / 10
-    final_lr = final_lr or 1e-06
+    final_lr = final_lr or initial_lr / 5
     cycle_epoch = (num_epochs * 9) // 20  # 45% of the training
 
     return f"""
@@ -96,4 +135,45 @@ def dynamic_learning_rate(*,
     return tf.where(global_train_step <= steps, initial_lr + step_size * n,
                tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
                    tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))
+"""
+
+
+def get_const_decay_function(
+    num_epochs: int,
+    n_steps_per_epoch: int,
+    const_lr: float = 1e-03,
+    decay_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> Callable:
+    # Adapted OCLR by replacing the increase-part with a const-part
+    decay_lr = decay_lr or const_lr / 5
+    final_lr = final_lr or const_lr / 50
+    cycle_epoch = (num_epochs * 9) // 20  # 45% of the training
+
+    return f"""
+def dynamic_learning_rate(*,
+        global_train_step,
+        **kwargs):
+    # Keep const_lr over the first cycle_epoch epochs
+    # Decrease linearly from const_lr to decay_lr over the next cycle_epoch epochs
+    # Decrease linearly from decay_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
+    const_lr = {const_lr}
+    decay_lr = {decay_lr}
+    final_lr = {final_lr}
+    cycle_epoch = {cycle_epoch}
+    total_epochs = {num_epochs}
+    n_steps_per_epoch = {n_steps_per_epoch}
+
+    # -- derived -- #
+    steps = cycle_epoch * n_steps_per_epoch
+    step_size = (const_lr - decay_lr) / steps
+    steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
+    step_size_final = (decay_lr - final_lr) / steps_final
+
+    import tensorflow as tf
+    n = tf.cast(global_train_step, tf.float32)
+    return tf.where(global_train_step <= steps, const_lr,
+               tf.where(global_train_step <= 2*steps, const_lr - step_size * (n - steps), 
+                   tf.maximum(decay_lr - step_size_final * (n - 2*steps), final_lr)))
 """

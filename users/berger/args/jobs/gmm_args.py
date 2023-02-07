@@ -63,13 +63,6 @@ def get_monophone_args(
         "use_gpu": False,
     }
 
-    monophone_test_recognition_args = None
-    # {
-    #    "optimize_am_lm_scale": False,
-    #    "pronunciation_scales": [1.0],
-    #    "lm_scales": [11.0],
-    # }
-
     if allow_zero_weights:
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
@@ -95,7 +88,6 @@ def get_monophone_args(
         linear_alignment_args=linear_alignment_args,
         training_args=monophone_training_args,
         recognition_args=monophone_recognition_args,
-        test_recognition_args=monophone_test_recognition_args,
         sdm_args=sdm_args,
     )
 
