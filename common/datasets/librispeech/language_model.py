@@ -41,3 +41,20 @@ def get_arpa_lm_dict(output_prefix="datasets"):
     )
 
     return lm_dict
+
+
+@lru_cache
+def get_librispeech_normalized_lm_data(output_prefix="datasets") -> tk.Path:
+    """
+    Download the official normalized LM data for LibriSpeech
+
+    :param output_prefix:
+    :return: gzipped text file containing the LM training data
+    """
+    download_job = DownloadJob(
+        url="https://www.openslr.org/resources/11/librispeech-lm-norm.txt.gz"
+    )
+    download_job.add_alias(
+        os.path.join(output_prefix, "LibriSpeech", "lm", "download_lm_data")
+    )
+    return download_job.out_file

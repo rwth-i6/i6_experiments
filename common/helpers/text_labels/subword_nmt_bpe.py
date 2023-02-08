@@ -24,6 +24,7 @@ class BPESettings:
 
     bpe_codes: tk.Path
     bpe_vocab: tk.Path
+    bpe_count_vocab: tk.Path
     bpe_vocab_size: tk.Variable
     unk_label: typing.Optional[str]
 
@@ -98,6 +99,7 @@ def get_bpe_settings(
     return BPESettings(
         train_bpe_job.out_bpe_codes,
         train_bpe_job.out_bpe_vocab,
+        train_bpe_job.out_bpe_dummy_count_vocab,
         train_bpe_job.out_vocab_size,
         unk_label,
     )

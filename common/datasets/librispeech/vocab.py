@@ -1,7 +1,8 @@
 import os
 from functools import lru_cache
 
-from i6_core.tools.download import DownloadJob
+from i6_core.corpus.convert import CorpusToTxtJob
+from i6_core.lm.vocabulary import LmIndexVocabularyFromLexiconJob, LmIndexVocabulary
 
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import (
     get_returnn_subword_nmt as _get_returnn_subword_nmt,
@@ -10,24 +11,27 @@ from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import (
 )
 
 from .corpus import get_bliss_corpus_dict
+from .lexicon import get_bliss_lexicon
 
 
 @lru_cache()
-def get_lm_vocab(output_prefix="datasets"):
+def get_lm_vocab(output_prefix) -> LmIndexVocabulary:
     """
     :param str output_prefix:
     :return: Path to LibriSpeech vocab file (one word per line)
-    :rtype: Path
     """
-    download_lm_vocab_job = DownloadJob(
-        url="https://www.openslr.org/resources/11/librispeech-vocab.txt",
-        target_filename="librispeech-vocab.txt",
-        checksum="3014e72dffff09cb1a9657f31cfe2e04c1301610a6127a807d1d708b986b5474",
+    ls960_text_job = CorpusToTxtJob(
+        bliss_corpus=get_bliss_corpus_dict()["train-other-960"], gzip=True
     )
-    download_lm_vocab_job.add_alias(
-        os.path.join(output_prefix, "LibriSpeech", "download_lm_vocab_job")
+    ls960_text_job.add_alias(os.path.join(output_prefix, "ls960_to_text_job"))
+    index_vocab_job = LmIndexVocabularyFromLexiconJob(
+        bliss_lexicon=get_bliss_lexicon(add_unknown_phoneme_and_mapping=False),
+        count_ordering_text=ls960_text_job.out_txt,
     )
-    return download_lm_vocab_job.out_file
+    index_vocab_job.add_alias(
+        os.path.join(output_prefix, "lm_index_vocab_from_lexicon_job")
+    )
+    return index_vocab_job.out_vocabulary_object
 
 
 @lru_cache()
