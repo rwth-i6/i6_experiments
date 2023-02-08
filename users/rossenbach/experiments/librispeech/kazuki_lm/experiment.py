@@ -26,6 +26,8 @@ def train(config, num_epochs=20):
 def test_train_lm():
 
 
+    export_lm_train_jobs = {}
+
     exp_prefix = "experiments/librispeech/librispeech_100/lm/24_bs3000_5ep_2kbpe"
     training_data = build_training_data(output_prefix=exp_prefix, partition_epoch=20)
     
@@ -48,6 +50,7 @@ def test_train_lm():
     train_job.add_alias(exp_prefix + "/training")
     tk.register_output(exp_prefix + "/learning_rates", train_job.out_learning_rates)
 
+    export_lm_train_jobs["24_bs3000_5ep_10kbpe"] = train_job
 
 
     exp_prefix = "experiments/librispeech/librispeech_960/lm/24_bs3000_5ep_5kbpe"
@@ -61,6 +64,7 @@ def test_train_lm():
     tk.register_output(exp_prefix + "/learning_rates", train_job.out_learning_rates)
 
 
+    export_lm_train_jobs["24_bs3000_5ep_5kbpe"] = train_job
 
     exp_prefix = "experiments/librispeech/librispeech_960/lm/24_bs3000_5ep_1kbpe"
     training_data = build_training_data(corpus_key="train-other-960", bpe_size=1000, output_prefix=exp_prefix, partition_epoch=20)
@@ -72,3 +76,6 @@ def test_train_lm():
     train_job.add_alias(exp_prefix + "/training")
     tk.register_output(exp_prefix + "/learning_rates", train_job.out_learning_rates)
 
+    export_lm_train_jobs["24_bs3000_5ep_1kbpe"] = train_job
+
+    return export_lm_train_jobs
