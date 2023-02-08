@@ -7,7 +7,7 @@ RETURNN_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh
 # RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="45fad83c785a45fa4abfeebfed2e731dd96f960c").out_repository
 
 # run with LM vocab fix
-RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="186775e1a8746442bc64bc15e08dd55a31988bcd").out_repository
+RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="9e7b7f24b090f4a4909c9be3e276194f026a6932").out_repository
 RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
 

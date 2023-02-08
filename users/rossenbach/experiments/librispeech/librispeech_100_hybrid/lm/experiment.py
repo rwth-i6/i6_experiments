@@ -25,15 +25,6 @@ def train(config, num_epochs=50):
 
 def test_train_lm():
 
-    exp_prefix = "experiments/librispeech/librispeech_100_hybrid/lm/kazuki_lstm_2x4k_samp16k"
-    training_data = build_training_data(output_prefix=exp_prefix)
-
-    config = get_training_config(training_data)
-    train_job = train(config)
-    train_job.add_alias(exp_prefix + "/training")
-    tk.register_output(exp_prefix + "/learning_rates", train_job.out_learning_rates)
-
-
     exp_prefix = "experiments/librispeech/librispeech_100_hybrid/lm/kazuki_lstm_2x4k_samp16k_v2"
     training_data = build_training_data(output_prefix=exp_prefix)
 
