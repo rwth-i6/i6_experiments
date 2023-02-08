@@ -5,8 +5,8 @@ from sisyphus import tk
 from dataclasses import dataclass
 from typing import Dict
 
-from i6_experiments.users.rossenbach.datasets.switchboard.lexicon import get_bliss_lexicon
-from i6_experiments.users.rossenbach.datasets.switchboard.eval import (
+from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
+from i6_experiments.common.datasets.switchboard.corpus_eval import (
     get_hub5e00,
     get_hub5e01,
     get_rt03s,
@@ -14,7 +14,7 @@ from i6_experiments.users.rossenbach.datasets.switchboard.eval import (
     get_hub5e01_corpus_object,
     get_rt03s_corpus_object
 )
-from i6_experiments.users.rossenbach.datasets.switchboard.train import get_train_corpus_object_ldc, \
+from i6_experiments.common.datasets.switchboard.corpus_train import get_train_corpus_object_ldc, \
     get_train_corpus_object_i6_legacy
 
 from i6_experiments.common.setups.rasr import RasrDataInput

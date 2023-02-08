@@ -1,7 +1,8 @@
 from i6_core import corpus as corpus_recipe
 from i6_core import text
 
-from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, get_hub5e01
+#from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, get_hub5e01
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00, get_hub5e01
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
 
 

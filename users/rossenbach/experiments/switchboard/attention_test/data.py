@@ -6,10 +6,10 @@ from typing import Dict, Any, Tuple
 
 from i6_core.returnn import CodeWrapper
 
-from i6_experiments.users.rossenbach.datasets.switchboard import get_train_bliss_corpus_ldc, \
+from i6_experiments.common.datasets.switchboard import get_train_bliss_corpus_ldc, \
     get_bliss_lexicon
-from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, SwitchboardEvalDataset
-from i6_experiments.users.rossenbach.datasets.switchboard.bpe import get_subword_nmt_bpe
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00, SwitchboardEvalDataset
+from i6_experiments.common.datasets.switchboard.bpe import get_subword_nmt_bpe
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import AudioRawDatastream, \
     ReturnnAudioRawOptions
