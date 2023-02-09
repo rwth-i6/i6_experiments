@@ -374,13 +374,10 @@ def add_initial_conv(
     name: str,
     from_list: Union[str, List[str]],
     linear_size: int = 384,
-    conv_sizes: List[Tuple[int, ...]] = [
-        (32, 3, 1),
-        (64, 3, 1),
-        (64, 3, 1),
-        (32, 3, 3),
-    ],
-    max_pool: List[int] = [2],
+    conv_outputs: List[int] = [32, 64, 64, 32],
+    conv_filters: List[Tuple[int, ...]] = [(3, 3), (3, 3), (3, 3), (3, 3)],
+    conv_strides: List[Tuple[int, ...]] = [(1, 1), (1, 1), (1, 1), (3, 1)],
+    max_pool: List[Tuple[int, ...]] = [(1, 2)],
     reuse_from_name: Optional[str] = None,
     dropout: float = 0.1,
     **kwargs,
@@ -393,13 +390,15 @@ def add_initial_conv(
         "axis": "F",
     }
 
-    for idx, (n_out, filter_size, stride) in enumerate(conv_sizes, start=1):
+    for idx, (n_out, filter, stride) in enumerate(
+        zip(conv_outputs, conv_filters, conv_strides), start=1
+    ):
         network[f"{name}_conv_{idx}"] = {
             "class": "conv",
             "from": from_name,
             "n_out": n_out,
-            "filter_size": (filter_size, filter_size),
-            "strides": (stride, 1),
+            "filter_size": filter,
+            "strides": stride,
             "with_bias": True,
             "padding": "same",
             "forward_weights_init": get_variance_scaling_init(),
@@ -418,7 +417,7 @@ def add_initial_conv(
                 "class": "pool",
                 "from": from_name,
                 "mode": "max",
-                "pool_size": (1, max_pool[idx - 1]),
+                "pool_size": max_pool[idx - 1],
                 "padding": "same",
             }
             from_name = f"{name}_pool_{idx}"
@@ -449,7 +448,7 @@ def add_initial_conv(
     }
 
     if reuse_from_name:
-        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_sizes) + 1)] + [
+        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + [
             "_linear"
         ]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix

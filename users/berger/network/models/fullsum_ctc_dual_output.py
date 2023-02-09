@@ -68,20 +68,20 @@ def make_blstm_fullsum_ctc_dual_output_model(
 
         assert total_01_pool == total_mix_pool
 
-    from_0 = add_blstm_stack(
+    from_0, _ = add_blstm_stack(
         network,
         from_list=from_0,
         name="lstm_0",
         **blstm_01_args,
     )
-    from_1 = add_blstm_stack(
+    from_1, _ = add_blstm_stack(
         network,
         from_list=from_1,
         name="lstm_1",
         reuse_from_name="lstm_0",
         **blstm_01_args,
     )
-    from_mix = add_blstm_stack(
+    from_mix, _ = add_blstm_stack(
         network,
         from_list=from_mix,
         name="lstm_mix",
@@ -94,14 +94,14 @@ def make_blstm_fullsum_ctc_dual_output_model(
         from_0 += from_mix
         from_1 += from_mix
 
-        from_0 = add_blstm_stack(
+        from_0, _ = add_blstm_stack(
             network,
             from_list=from_0,
             name="lstm_0+mix",
             **blstm_01_mix_args,
         )
 
-        from_1 = add_blstm_stack(
+        from_1, _ = add_blstm_stack(
             network,
             from_list=from_1,
             name="lstm_1+mix",

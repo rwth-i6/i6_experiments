@@ -13,6 +13,7 @@ from i6_experiments.users.berger.network.helpers.conformer import (
 )
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
+from returnn.tf.util.data import FeatureDim
 
 
 def make_conformer_hybrid_dual_output_model(
@@ -43,6 +44,14 @@ def make_conformer_hybrid_dual_output_model(
 
     output_args.setdefault("initializer", get_variance_scaling_init())
 
+    init_conv_args.setdefault("max_pool", [(1, 1, 2)])
+    init_conv_args.setdefault(
+        "conv_filters", [(3, 1, 3), (3, 1, 3), (3, 1, 3), (3, 1, 3)]
+    )
+    init_conv_args.setdefault(
+        "conv_strides", [(1, 1, 1), (1, 1, 1), (1, 1, 1), (3, 1, 1)]
+    )
+
     network = {}
     python_code = []
 
@@ -67,6 +76,17 @@ def make_conformer_hybrid_dual_output_model(
     from_list = add_initial_conv(
         network, "vgg_conv_01", from_list=sep_features, **init_conv_args
     )
+
+    dim_tags["vgg_conv_01_feature"] = FeatureDim("vgg_conv_01_feature_dim", None)
+
+    network["vgg_conv_01_split_speaker"] = {
+        "class": "split_dims",
+        "from": "vgg_conv_01_merge_dims",
+        "axis": "F",
+        "dims": (dim_tags["speaker"], dim_tags["vgg_conv_01_feature"]),
+    }
+
+    network["vgg_conv_01_linear"]["from"] = "vgg_conv_01_split_speaker"
 
     enc_01, blocks = add_conformer_stack(
         network, from_list=from_list, name="conformer_01", **conformer_01_args
@@ -123,11 +143,15 @@ def make_conformer_hybrid_dual_output_model(
                 "from": [f"encoder_{speaker_idx}", enc_mix],
             }
 
+        dim_tags["enc_01_mix_input_feature"] = FeatureDim(
+            "enc_01_mix_input_feature_dim", None
+        )
+
         network["encoder_01+mix_input"] = {
             "class": "split_dims",
             "from": ["encoder_0+mix_input", "encoder_1+mix_input"],
             "axis": "F",
-            "dims": (dim_tags["speaker"], -1),
+            "dims": (dim_tags["speaker"], dim_tags["enc_01_mix_input_feature"]),
         }
 
         enc_01, blocks = add_conformer_stack(
@@ -136,6 +160,13 @@ def make_conformer_hybrid_dual_output_model(
             name="conformer_01+mix",
             **conformer_01_mix_args,
         )
+
+        network["vgg_conv_01_mix_split_speaker"] = {
+            "class": "split_dims",
+            "from": "vgg_conv_01_merge_dims",
+            "axis": "F",
+            "dims": (dim_tags["speaker"], dim_tags["vgg_conv_01_feature"]),
+        }
 
         for block, scale in aux_loss_01_mix_blocks:
             transp_conv = add_transposed_conv(

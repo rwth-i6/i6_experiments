@@ -37,7 +37,7 @@ def add_gt_feature_extraction(
 
     filterbank_size = filterbank_size or sample_rate // 25
 
-    gt_net = gt.get_net_dict(
+    gt_net = gt.get_net_dict_v1(
         num_channels=channels,
         sample_rate=sample_rate,
         gt_filterbank_size=filterbank_size,

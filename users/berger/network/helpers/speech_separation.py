@@ -1,11 +1,12 @@
-from typing import Dict, List, Union
-from returnn.tf.util.data import FeatureDim, SpatialDim
+from typing import Dict, List, Tuple, Union
+from returnn.tf.util.data import Dim, FeatureDim, SpatialDim
 from i6_core.returnn.config import CodeWrapper
 
 
 def get_speech_separator(
     from_list: str = "data",
     frame_size: int = 512,
+    trainable: bool = True,
 ) -> Dict[str, Dict]:
     dim_tags = {
         "speaker": FeatureDim("speaker_dim", 2),
@@ -34,7 +35,7 @@ def get_speech_separator(
             "from": "PermutationInvariantTrainingModel_Cast_unnamed_const",
             "dtype": "float32",
         },
-        "PermutationIvariantTrainingModel_add": {
+        "PermutationInvariantTrainingModel_add": {
             "class": "combine",
             "from": ["dropout_input", "PermutationInvariantTrainingModel_Cast"],
             "kind": "add",
@@ -139,7 +140,7 @@ def get_speech_separator(
             "class": "split_dims",
             "from": "output_activation",
             "axis": "F",
-            "dims": {dim_tags["speaker"], dim_tags["stft_feature"]},
+            "dims": (dim_tags["speaker"], dim_tags["stft_feature"]),
         },
         "PermutationInvariantTrainingModel_Transpose": {
             "class": "copy",
@@ -221,6 +222,11 @@ def get_speech_separator(
         },
     }
 
+    if not trainable:
+        for layer in ["blstm", "linear1", "linear2"]:
+            net[layer]["trainable"] = False
+        
+
     return net, dim_tags
 
 
@@ -229,8 +235,11 @@ def add_speech_separation(
     from_list: Union[str, List[str]] = "data",
     frame_size: int = 512,
     frame_shift: int = 128,
-):
-    sep_net, sep_dim_tags = get_speech_separator(frame_size=frame_size)
+    trainable: bool = True,
+) -> Tuple[str, List[Dim]]:
+    sep_net, sep_dim_tags = get_speech_separator(
+        frame_size=frame_size, trainable=trainable
+    )
     dim_tags = {
         "waveform_time": SpatialDim("waveform_time_dim"),
         "waveform_feature": FeatureDim("waveform_feature_dim", 1),

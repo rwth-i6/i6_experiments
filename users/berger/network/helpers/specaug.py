@@ -31,10 +31,10 @@ def add_specaug_layer_v2(
     network[name] = {
         "class": "eval",
         "from": from_list,
-        "eval": CodeWrapper(rc_specaug.specaugment_eval_func.__name__),
+        "eval": CodeWrapper(rc_specaug.specaugment_v1_eval_func.__name__),
     }
 
-    return [name]
+    return [name], get_specaug_func_v2()
 
 
 def _mask(x, batch_axis, axis, pos, max_amount):
@@ -171,4 +171,8 @@ def get_specaug_funcs() -> list:
 
 
 def get_specaug_func_v2() -> list:
-    return [rc_specaug._mask, rc_specaug.random_mask, rc_specaug.specaugment_eval_func]
+    return [
+        rc_specaug._mask_v1,
+        rc_specaug.random_mask_v1,
+        rc_specaug.specaugment_v1_eval_func,
+    ]

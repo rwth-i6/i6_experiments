@@ -37,7 +37,7 @@ def make_context_1_blstm_transducer_blank(
     from_list = add_specaug_layer(network, **specaug_args)
     python_code += get_specaug_funcs()
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {
         "class": "reinterpret_data",
@@ -108,7 +108,7 @@ def make_context_1_blstm_transducer_noblank(
     from_list = add_specaug_layer(network)
     python_code += get_specaug_funcs()
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 
@@ -169,7 +169,7 @@ def make_context_1_blstm_transducer_fullsum(
     from_list = add_specaug_layer(network, **specaug_args)
     python_code += get_specaug_funcs()
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {
         "class": "copy",
@@ -230,7 +230,7 @@ def make_context_1_blstm_transducer_recog(
 
     from_list = ["data"]
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 

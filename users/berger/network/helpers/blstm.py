@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Union, List
+from typing import Optional, Dict, Tuple, Union, List
 import copy
 
 
@@ -57,7 +57,9 @@ def add_blstm_stack(
     max_pool: Optional[List[int]] = None,
     reuse_from_name: Optional[str] = None,
     **kwargs,
-) -> List[str]:
+) -> Tuple[List[str], List[List[str]]]:
+
+    layers = []
 
     for layer_idx in range(num_layers):
         pool = None
@@ -75,5 +77,6 @@ def add_blstm_stack(
             reuse_from_name=layer_reuse_name,
             **kwargs,
         )
+        layers.append(from_list)
 
-    return from_list
+    return from_list, layers

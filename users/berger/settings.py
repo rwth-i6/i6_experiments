@@ -80,8 +80,10 @@ RASR_ARCH = "linux-x86_64-standard"
 
 # tf 2.3.4
 RETURNN_ROOT = "/u/berger/returnn_new"
-RETURNN_PYTHON_EXE = "/u/berger/util/returnn_tf2.3.4_mkl_launcher.sh"
+# RETURNN_PYTHON_EXE = "/u/berger/util/returnn_tf2.3.4_mkl_launcher.sh"
 # RETURNN_PYTHON_HOME = "/work/tools/asr/python/3.8.0_tf_2.3.4-generic+cuda10.1+mkl"
+RETURNN_PYTHON_HOME = "/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1"
+RETURNN_PYTHON_EXE = "/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python3.8"
 # RETURNN_ROOT = "/u/berger/returnn"
 # RETURNN_PYTHON_EXE = "/u/berger/software/python/3.6.1/bin/python3.6"
 # RETURNN_PYTHON_HOME = "/u/berger/software/python/3.6.1"

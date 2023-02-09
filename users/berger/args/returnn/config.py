@@ -65,8 +65,7 @@ def get_returnn_config(
     hash_full_python_code: bool = True,
     **kwargs,
 ) -> returnn.ReturnnConfig:
-    python_prolog = python_prolog or []
-    python_prolog.append("import numpy as np")
+    python_prolog = python_prolog or ["import numpy as np"]
     extra_python = extra_python or []
     config_dict = {
         "num_inputs": num_inputs,
