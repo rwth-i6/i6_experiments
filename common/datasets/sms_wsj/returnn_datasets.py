@@ -276,62 +276,62 @@ class SmsWsjBase(MapDatasetBase):
         return json_path_cached_mod
 
 
-class SmsWsjBaseWithRasrClasses(SmsWsjBase):
+class SmsWsjBaseWithHdfClasses(SmsWsjBase):
     """
-    Base class to wrap the SMS-WSJ dataset and combine it with RASR alignments in an hdf dataset.
+    Base class to wrap the SMS-WSJ dataset and combine it with alignments from an HDF dataset.
     """
 
     def __init__(
         self,
-        rasr_classes_hdf,
-        segment_to_rasr,
+        hdf_file,
+        segment_mapping_fn,
         pad_label=None,
         hdf_data_key="classes",
         **kwargs,
     ):
         """
-        :param str rasr_classes_hdf: hdf file with dumped RASR class labels
-        :param Callable segment_to_rasr: function that maps SMS-WSJ seg. name into list of corresponding RASR seg. names
+        :param str hdf_file: hdf file with dumped class labels (compatible with RETURNN HDFDataset)
+        :param Callable segment_mapping_fn: function that maps SMS-WSJ seg. name into list of corresp. seg. names in HDF
         :param Optional[int] pad_label: target label assigned to padded areas
         :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         :param kwargs:
         """
         super().__init__(**kwargs)
 
-        self._rasr_classes_hdf = HDFDataset([rasr_classes_hdf], use_cache_manager=True)
-        self._segment_to_rasr = segment_to_rasr
+        self._hdf_dataset = HDFDataset([hdf_file], use_cache_manager=True)
+        self._segment_mapping_fn = segment_mapping_fn
         self._pad_label = pad_label
         self._hdf_data_key = hdf_data_key
 
     def __getitem__(self, seq_idx: int) -> Dict[str, np.array]:
         d = self._get_seq_by_idx(seq_idx)
-        rasr_seq_tags = self._segment_to_rasr(str(d["seq_tag"]))
+        hdf_seq_tags = self._segment_mapping_fn(str(d["seq_tag"]))
         assert (
-            len(rasr_seq_tags) == d["target_signals"].shape[1]
-        ), f"got {len(rasr_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals"
-        rasr_targets = [
-            self._rasr_classes_hdf.get_data_by_seq_tag(rasr_seq_tag, self._hdf_data_key)
-            for rasr_seq_tag in rasr_seq_tags
+            len(hdf_seq_tags) == d["target_signals"].shape[1]
+        ), f"got {len(hdf_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals"
+        hdf_classes = [
+            self._hdf_dataset.get_data_by_seq_tag(hdf_seq_tag, self._hdf_data_key)
+            for hdf_seq_tag in hdf_seq_tags
         ]
-        padded_len = max(rasr_target.shape[0] for rasr_target in rasr_targets)
-        for speaker_idx in range(len(rasr_targets)):
+        padded_len = max(hdf_classes_.shape[0] for hdf_classes_ in hdf_classes)
+        for speaker_idx in range(len(hdf_classes)):
             pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
-            pad_end = padded_len - rasr_targets[speaker_idx].shape[0] - pad_start
+            pad_end = padded_len - hdf_classes[speaker_idx].shape[0] - pad_start
             if pad_end < 0:
                 pad_start += pad_end
                 assert pad_start >= 0
                 pad_end = 0
             if pad_start or pad_end:
                 assert self._pad_label is not None, "Label for padding is needed"
-            rasr_targets[speaker_idx] = np.concatenate(
+            hdf_classes[speaker_idx] = np.concatenate(
                 [
                     self._pad_label * np.ones(pad_start),
-                    rasr_targets[speaker_idx],
+                    hdf_classes[speaker_idx],
                     self._pad_label * np.ones(pad_end),
                 ]
             )
-        d["target_rasr"] = np.stack(rasr_targets).T
-        d["target_rasr_len"] = np.array(padded_len)
+        d["target_classes"] = np.stack(hdf_classes).T
+        d["target_classes_len"] = np.array(padded_len)
         return d
 
     def get_seq_length_for_keys(self, seq_idx: int) -> NumbersDict:
@@ -340,7 +340,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         """
         d = super().get_seq_length_for_keys(seq_idx)
         data = self[seq_idx]
-        d["target_rasr"] = int(data["target_rasr_len"])
+        d["target_classes"] = int(data["target_classes_len"])
         return NumbersDict(d)
 
 
@@ -457,7 +457,7 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
 
 class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
     """
-    Dataset with audio mixture, target early signals and target RASR alignments.
+    Dataset with audio mixture, target early signals and target alignments.
     """
 
     def __init__(
@@ -465,10 +465,10 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         dataset_name,
         json_path,
         num_outputs=None,
-        rasr_num_outputs=None,
+        classes_num_outputs=None,
         zip_cache=None,
-        rasr_classes_hdf=None,
-        segment_to_rasr=None,
+        hdf_file=None,
+        segment_mapping_fn=None,
         pad_label=None,
         hdf_data_key="classes",
         **kwargs,
@@ -477,30 +477,30 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
         :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
         :param str json_path: path to SMS-WSJ json file
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
-        :param Optional[int] rasr_num_outputs: number of output labels for RASR alignment, e.g. 9001 for that CART size
+        :param Optional[int] classes_num_outputs: number of output labels for alignment, e.g. 9001 for that CART size
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
-        :param str rasr_classes_hdf: hdf file with dumped RASR class labels
-        :param Callable segment_to_rasr: function that maps SMS-WSJ seg. name into list of corresponding RASR seg. names
+        :param str hdf_file: hdf file with dumped class labels (compatible with RETURNN HDFDataset)
+        :param Callable segment_mapping_fn: function that maps SMS-WSJ seg. name into list of corresp. seg. names in HDF
         :param Optional[int] pad_label: target label assigned to padded areas
         :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         """
         data_types = {
             "target_signals": {"dim": 2, "shape": (None, 2)},
-            "target_rasr": {
+            "target_classes": {
                 "sparse": True,
-                "dim": rasr_num_outputs,
+                "dim": classes_num_outputs,
                 "shape": (None, 2),
             },
         }
-        sms_wsj_base = SmsWsjBaseWithRasrClasses(
+        sms_wsj_base = SmsWsjBaseWithHdfClasses(
             dataset_name=dataset_name,
             json_path=json_path,
             pre_batch_transform=self._pre_batch_transform,
             scenario_map_args={"add_speech_reverberation_early": True},
             data_types=data_types,
             zip_cache=zip_cache,
-            rasr_classes_hdf=rasr_classes_hdf,
-            segment_to_rasr=segment_to_rasr,
+            hdf_file=hdf_file,
+            segment_mapping_fn=segment_mapping_fn,
             pad_label=pad_label,
             hdf_data_key=hdf_data_key,
         )
@@ -516,10 +516,10 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             self.num_outputs = num_outputs
         else:
             assert (
-                rasr_num_outputs is not None
-            ), "either num_outputs or rasr_num_outputs has to be given"
-            self.num_outputs["target_rasr"] = [
-                rasr_num_outputs,
+                    classes_num_outputs is not None
+            ), "either num_outputs or classes_num_outputs has to be given"
+            self.num_outputs["target_classes"] = [
+                classes_num_outputs,
                 1,
             ]  # target alignments are sparse with the given dim
 
