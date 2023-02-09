@@ -56,7 +56,7 @@ class SmsWsjBase(MapDatasetBase):
         # noinspection PyUnresolvedReferences
         from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
 
-        super(SmsWsjBase, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.data_types = data_types
 
@@ -300,7 +300,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         :param kwargs:
         """
-        super(SmsWsjBaseWithRasrClasses, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self._rasr_classes_hdf = HDFDataset([rasr_classes_hdf], use_cache_manager=True)
         self._segment_to_rasr = segment_to_rasr
@@ -342,7 +342,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
         """
         Returns sequence length for all data/target keys.
         """
-        d = super(SmsWsjBaseWithRasrClasses, self).get_seq_length_for_keys(seq_idx)
+        d = super().get_seq_length_for_keys(seq_idx)
         data = self[seq_idx]
         d["target_rasr"] = int(data["target_rasr_len"])
         return NumbersDict(d)
@@ -359,7 +359,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         """
         if "seq_ordering" not in kwargs:
             print("Warning: no shuffling is enabled by default", file=log.v)
-        super(SmsWsjWrapper, self).__init__(sms_wsj_base, **kwargs)
+        super().__init__(sms_wsj_base, **kwargs)
         # self.num_outputs = ...  # needs to be set in derived classes
 
         def _get_seq_length(seq_idx: int) -> NumbersDict:
@@ -399,7 +399,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         Override this in order to update the buffer. get_seq_length is often called before _collect_single_seq,
         therefore the buffer does not contain the initial indices when continuing the training from an epoch > 0.
         """
-        out = super(SmsWsjWrapper, self).init_seq_order(epoch=epoch, **kwargs)
+        out = super().init_seq_order(epoch=epoch, **kwargs)
         buffer_index = ((epoch or 1) - 1) * self.num_seqs % len(self._dataset)
         self._dataset.update_buffer(buffer_index, pop_seqs=False)
         return out
