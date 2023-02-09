@@ -291,7 +291,7 @@ class SmsWsjBaseWithRasrClasses(SmsWsjBase):
 
     def __getitem__(self, seq_idx: int) -> Dict[str, np.array]:
         d = self._get_seq_by_idx(seq_idx)
-        rasr_seq_tags = self._segment_to_rasr(d["seq_tag"])
+        rasr_seq_tags = self._segment_to_rasr(str(d["seq_tag"]))
         assert (
             len(rasr_seq_tags) == d["target_signals"].shape[1]
         ), f"got {len(rasr_seq_tags)} segment names, but there are {d['target_signals'].shape[1]} target signals"
