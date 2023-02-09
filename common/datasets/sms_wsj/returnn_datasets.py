@@ -64,7 +64,7 @@ class SmsWsjBase(MapDatasetBase):
         self.data_types = data_types
 
         if zip_cache is not None:
-            self._cache_zipped_audio(zip_cache, json_path, dataset_name)
+            json_path = self._cache_zipped_audio(zip_cache, json_path, dataset_name)
 
         db = SmsWsj(json_path=json_path)
         ds = db.get_dataset(dataset_name)
@@ -207,59 +207,79 @@ class SmsWsjBase(MapDatasetBase):
         """
         print(f"Cache and unzip SMS-WSJ data from {zip_cache}")
 
-        # cache and unzip
+        # cache file
         try:
             zip_cache_cached = sp.check_output(["cf", zip_cache]).strip().decode("utf8")
             assert (
                 zip_cache_cached != zip_cache
             ), "cached and original file have the same path"
             local_unzipped_dir = os.path.dirname(zip_cache_cached)
-            sp.check_call(
-                ["unzip", "-q", "-n", zip_cache_cached, "-d", local_unzipped_dir]
-            )
+            json_path_cached = sp.check_output(["cf", json_path]).strip().decode("utf8")
+            assert (
+                json_path_cached != json_path
+            ), "cached and original file have the same path"
         except sp.CalledProcessError:
             print(
                 f"Cache manager: Error occurred when caching and unzipping {zip_cache}"
             )
             raise
 
-        # modify json and check if all data is available
-        with open(json_path, "r") as f:
-            json_dict = json.loads(f.read())
-        original_dir = next(iter(json_dict["datasets"][dataset_name].values()))[
-            "audio_path"
-        ]["original_source"][0]
-        while (
-            not original_dir.endswith(os.path.basename(local_unzipped_dir))
-            and len(original_dir) > 1
-        ):
-            original_dir = os.path.dirname(original_dir)
-        for seq in json_dict["datasets"][dataset_name]:
-            for audio_key in ["original_source", "rir"]:
-                for seq_idx in range(
-                    len(
-                        json_dict["datasets"][dataset_name][seq]["audio_path"][
+        # unzip if folder does not yet exist
+        if not os.path.exists(local_unzipped_dir):
+            sp.check_call(
+                ["unzip", "-q", "-n", zip_cache_cached, "-d", local_unzipped_dir]
+            )
+        else:
+            print(f"Unzipped audio already exists in {local_unzipped_dir}")
+
+
+        json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
+        original_dir = None
+        if not os.path.exists(json_path_cached_mod):
+            with open(json_path_cached, "r") as f:
+                json_dict = json.loads(f.read())
+            # get original dir
+            original_dir = next(iter(json_dict["datasets"][dataset_name].values()))[
+                "audio_path"
+            ]["original_source"][0]
+            while (
+                not original_dir.endswith(os.path.basename(local_unzipped_dir))
+                and len(original_dir) > 1
+            ):
+                original_dir = os.path.dirname(original_dir)
+        else:
+            with open(json_path_cached_mod, "r") as f:
+                json_dict = json.loads(f.read())
+        # check if all data is available and create modified json if it does not yet exist
+        for dataset_name in json_dict["datasets"]:
+            for seq in json_dict["datasets"][dataset_name]:
+                for audio_key in ["original_source", "rir"]:
+                    for seq_idx in range(
+                        len(
+                            json_dict["datasets"][dataset_name][seq]["audio_path"][
+                                audio_key
+                            ]
+                        )
+                    ):
+                        path = json_dict["datasets"][dataset_name][seq]["audio_path"][
                             audio_key
-                        ]
-                    )
-                ):
-                    path = json_dict["datasets"][dataset_name][seq]["audio_path"][
-                        audio_key
-                    ][seq_idx]
-                    path = path.replace(original_dir, local_unzipped_dir)
-                    json_dict["datasets"][dataset_name][seq]["audio_path"][audio_key][
-                        seq_idx
-                    ] = path
-                    assert path.startswith(
-                        local_unzipped_dir
-                    ), f"Audio file {path} was expected to start with {local_unzipped_dir}"
-                    assert os.path.exists(path), f"Audio file {path} does not exist"
+                        ][seq_idx]
+                        if not os.path.exists(json_path_cached_mod):
+                            path = path.replace(original_dir, local_unzipped_dir)
+                            json_dict["datasets"][dataset_name][seq]["audio_path"][audio_key][
+                                seq_idx
+                            ] = path
+                        assert path.startswith(
+                            local_unzipped_dir
+                        ), f"Audio file {path} was expected to start with {local_unzipped_dir}"
+                        assert os.path.exists(path), f"Audio file {path} does not exist"
 
-        json_path = os.path.join(local_unzipped_dir, "sms_wsj.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(json_dict, f, ensure_ascii=False, indent=4)
+        if not os.path.exists(json_path_cached_mod):
+            with open(json_path_cached_mod, "w", encoding="utf-8") as f:
+                json.dump(json_dict, f, ensure_ascii=False, indent=4)
 
-        print(f"Finished preparation of zip cache data, use json in {json_path}")
+        print(f"Finished preparation of zip cache data, use json in {json_path_cached_mod}")
+        return json_path_cached_mod
 
 
 class SmsWsjBaseWithRasrClasses(SmsWsjBase):
