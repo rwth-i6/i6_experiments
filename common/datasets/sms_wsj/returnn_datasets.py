@@ -144,7 +144,8 @@ class SmsWsjBase(MapDatasetBase):
         keys = list(self._buffer.keys()) or [0]
         if not (min(keys) <= seq_idx <= max(keys)):
             print(
-                f"WARNING: seq_idx {seq_idx} outside range of keys: {self._buffer.keys()}"
+                f"WARNING: seq_idx {seq_idx} outside range of keys: {self._buffer.keys()}",
+                file=log.v5
             )
 
         # add sequences
@@ -152,7 +153,7 @@ class SmsWsjBase(MapDatasetBase):
             if idx not in self._buffer:
                 self._buffer[idx] = next(self._ds_iterator)
             if idx == len(self) - 1 and 0 not in self._buffer:
-                print(f"Reached end of dataset, reset iterator")
+                print(f"Reached end of dataset, reset iterator", file=log.v4)
                 try:
                     next(self._ds_iterator)
                 except StopIteration:
@@ -160,15 +161,17 @@ class SmsWsjBase(MapDatasetBase):
                 else:
                     print(
                         "WARNING: reached final index of dataset, but iterator has more sequences. "
-                        "Maybe the training was restarted from an epoch > 1?"
+                        "Maybe the training was restarted from an epoch > 1?",
+                        file=log.v3
                     )
-                print(f"Current buffer indices: {self._buffer.keys()}")
+                print(f"Current buffer indices: {self._buffer.keys()}", file=log.v5)
                 self._ds_iterator = iter(self._ds)
                 for idx_ in range(min(self._buffer_size // 2, len(self))):
                     if idx_ not in self._buffer:
                         self._buffer[idx_] = next(self._ds_iterator)
                 print(
-                    f"After adding start of dataset to buffer indices: {self._buffer.keys()}"
+                    f"After adding start of dataset to buffer indices: {self._buffer.keys()}",
+                    file=log.v5
                 )
 
         # remove sequences
@@ -193,7 +196,7 @@ class SmsWsjBase(MapDatasetBase):
         Caches and unzips a given archive with SMS-WSJ data which will then be used as data dir.
         This is done because caching of the single files takes extremely long.
         """
-        print(f"Cache and unzip SMS-WSJ data from {zip_cache}")
+        print(f"Cache and unzip SMS-WSJ data from {zip_cache}", file=log.v4)
 
         # cache file
         try:
@@ -208,7 +211,8 @@ class SmsWsjBase(MapDatasetBase):
             ), "cached and original file have the same path"
         except sp.CalledProcessError:
             print(
-                f"Cache manager: Error occurred when caching and unzipping {zip_cache}"
+                f"Cache manager: Error occurred when caching and unzipping {zip_cache}",
+                file=log.v2
             )
             raise
 
@@ -218,7 +222,7 @@ class SmsWsjBase(MapDatasetBase):
                 ["unzip", "-q", "-n", zip_cache_cached, "-d", local_unzipped_dir]
             )
         else:
-            print(f"Unzipped audio already exists in {local_unzipped_dir}")
+            print(f"Unzipped audio already exists in {local_unzipped_dir}", file=log.v4)
 
         json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
         original_dir = None
@@ -266,7 +270,8 @@ class SmsWsjBase(MapDatasetBase):
                 json.dump(json_dict, f, ensure_ascii=False, indent=4)
 
         print(
-            f"Finished preparation of zip cache data, use json in {json_path_cached_mod}"
+            f"Finished preparation of zip cache data, use json in {json_path_cached_mod}",
+            file=log.v4
         )
         return json_path_cached_mod
 
@@ -349,7 +354,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         :param Optional[SmsWsjBase] sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
         """
         if "seq_ordering" not in kwargs:
-            print("Warning: no shuffling is enabled by default", file=log.v)
+            print("Warning: no shuffling is enabled by default", file=log.v2)
         super().__init__(sms_wsj_base, **kwargs)
         # self.num_outputs = ...  # needs to be set in derived classes
 
