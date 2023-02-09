@@ -149,17 +149,8 @@ class SmsWsjBase(MapDatasetBase):
 
         # add sequences
         for idx in range(seq_idx, min(seq_idx + self._buffer_size // 2, len(self))):
-            if idx not in self._buffer and idx < len(self):
-                try:
-                    self._buffer[idx] = next(self._ds_iterator)
-                except StopIteration:
-                    print(f"StopIteration for seq_idx {seq_idx}")
-                    print(f"Dataset: {self} with SMS-WSJ {self._ds} of len {len(self)}")
-                    print(f"Indices in buffer: {self._buffer.keys()}")
-                    # raise
-                    print(f"WARNING: Ignoring this, reset iterator and continue")
-                    self._ds_iterator = iter(self._ds)
-                    self._buffer[idx] = next(self._ds_iterator)
+            if idx not in self._buffer:
+                self._buffer[idx] = next(self._ds_iterator)
             if idx == len(self) - 1 and 0 not in self._buffer:
                 print(f"Reached end of dataset, reset iterator")
                 try:
@@ -173,8 +164,8 @@ class SmsWsjBase(MapDatasetBase):
                     )
                 print(f"Current buffer indices: {self._buffer.keys()}")
                 self._ds_iterator = iter(self._ds)
-                for idx_ in range(self._buffer_size // 2):
-                    if idx_ not in self._buffer and idx_ < len(self):
+                for idx_ in range(min(self._buffer_size // 2, len(self))):
+                    if idx_ not in self._buffer:
                         self._buffer[idx_] = next(self._ds_iterator)
                 print(
                     f"After adding start of dataset to buffer indices: {self._buffer.keys()}"
