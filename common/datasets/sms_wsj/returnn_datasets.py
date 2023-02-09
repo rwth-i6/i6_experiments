@@ -314,13 +314,13 @@ class SmsWsjBaseWithHdfClasses(SmsWsjBase):
             for hdf_seq_tag in hdf_seq_tags
         ]
         padded_len = max(hdf_classes_.shape[0] for hdf_classes_ in hdf_classes)
-        for speaker_idx in range(len(hdf_classes)):
-            pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
-            pad_end = padded_len - hdf_classes[speaker_idx].shape[0] - pad_start
-            if pad_end < 0:
-                pad_start += pad_end
-                assert pad_start >= 0
-                pad_end = 0
+        for speaker_idx, rasr_target in enumerate(hdf_classes):
+            total_pad_frames = padded_len - rasr_target.shape[0]
+            if total_pad_frames == 0:
+                continue
+            pad_start = round(d["offset"][speaker_idx] / d["seq_len"] * padded_len)
+            pad_start = min(pad_start, total_pad_frames)
+            pad_end = total_pad_frames - pad_start
             if pad_start or pad_end:
                 assert self._pad_label is not None, "Label for padding is needed"
             hdf_classes[speaker_idx] = np.concatenate(
