@@ -229,7 +229,6 @@ class SmsWsjBase(MapDatasetBase):
         else:
             print(f"Unzipped audio already exists in {local_unzipped_dir}")
 
-
         json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
         original_dir = None
         if not os.path.exists(json_path_cached_mod):
@@ -263,9 +262,9 @@ class SmsWsjBase(MapDatasetBase):
                         ][seq_idx]
                         if not os.path.exists(json_path_cached_mod):
                             path = path.replace(original_dir, local_unzipped_dir)
-                            json_dict["datasets"][dataset_name][seq]["audio_path"][audio_key][
-                                seq_idx
-                            ] = path
+                            json_dict["datasets"][dataset_name][seq]["audio_path"][
+                                audio_key
+                            ][seq_idx] = path
                         assert path.startswith(
                             local_unzipped_dir
                         ), f"Audio file {path} was expected to start with {local_unzipped_dir}"
@@ -275,7 +274,9 @@ class SmsWsjBase(MapDatasetBase):
             with open(json_path_cached_mod, "w", encoding="utf-8") as f:
                 json.dump(json_dict, f, ensure_ascii=False, indent=4)
 
-        print(f"Finished preparation of zip cache data, use json in {json_path_cached_mod}")
+        print(
+            f"Finished preparation of zip cache data, use json in {json_path_cached_mod}"
+        )
         return json_path_cached_mod
 
 
