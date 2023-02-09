@@ -19,16 +19,10 @@ from returnn.datasets.hdf import HDFDataset
 from returnn.datasets.map import MapDatasetBase, MapDatasetWrapper
 
 # noinspection PyUnresolvedReferences
-from returnn.datasets.util.vocabulary import BytePairEncoding
-
-# noinspection PyUnresolvedReferences
 from returnn.log import log
 
 # noinspection PyUnresolvedReferences
 from returnn.util.basic import OptionalNotImplementedError, NumbersDict
-
-# noinspection PyUnresolvedReferences
-from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
 
 
 class SmsWsjBase(MapDatasetBase):
@@ -59,6 +53,9 @@ class SmsWsjBase(MapDatasetBase):
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
         """
+        # noinspection PyUnresolvedReferences
+        from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
+
         super(SmsWsjBase, self).__init__(**kwargs)
 
         self.data_types = data_types
@@ -564,6 +561,8 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         """
+        from returnn.datasets.util.vocabulary import BytePairEncoding
+
         self.bpe = BytePairEncoding(**bpe)
         data_types = {
             "target_signals": {"dim": 2, "shape": (None, 2)},
