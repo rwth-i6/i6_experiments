@@ -204,7 +204,7 @@ class SmsWsjBase(MapDatasetBase):
             assert (
                 zip_cache_cached != zip_cache
             ), "cached and original file have the same path"
-            local_unzipped_dir = os.path.dirname(zip_cache_cached)
+            local_base_dir = os.path.dirname(zip_cache_cached)
             json_path_cached = sp.check_output(["cf", json_path]).strip().decode("utf8")
             assert (
                 json_path_cached != json_path
@@ -216,13 +216,11 @@ class SmsWsjBase(MapDatasetBase):
             )
             raise
 
-        # unzip if folder does not yet exist
-        if not os.path.exists(local_unzipped_dir):
-            sp.check_call(
-                ["unzip", "-q", "-n", zip_cache_cached, "-d", local_unzipped_dir]
-            )
-        else:
-            print(f"Unzipped audio already exists in {local_unzipped_dir}", file=log.v4)
+        # unzip
+        sp.check_call(
+            ["unzip", "-q", "-n", zip_cache_cached, "-d", local_base_dir]
+        )
+        sp.check_call(["chmod", "-R", "o+w", local_base_dir])
 
         json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
         original_dir = None
@@ -234,7 +232,7 @@ class SmsWsjBase(MapDatasetBase):
                 "audio_path"
             ]["original_source"][0]
             while (
-                not original_dir.endswith(os.path.basename(local_unzipped_dir))
+                not original_dir.endswith(os.path.basename(local_base_dir))
                 and len(original_dir) > 1
             ):
                 original_dir = os.path.dirname(original_dir)
@@ -256,13 +254,13 @@ class SmsWsjBase(MapDatasetBase):
                             audio_key
                         ][seq_idx]
                         if not os.path.exists(json_path_cached_mod):
-                            path = path.replace(original_dir, local_unzipped_dir)
+                            path = path.replace(original_dir, local_base_dir)
                             json_dict["datasets"][dataset_name][seq]["audio_path"][
                                 audio_key
                             ][seq_idx] = path
                         assert path.startswith(
-                            local_unzipped_dir
-                        ), f"Audio file {path} was expected to start with {local_unzipped_dir}"
+                            local_base_dir
+                        ), f"Audio file {path} was expected to start with {local_base_dir}"
                         assert os.path.exists(path), f"Audio file {path} does not exist"
 
         if not os.path.exists(json_path_cached_mod):
