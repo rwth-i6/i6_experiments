@@ -29,6 +29,7 @@ class SequenceBuffer(dict):
     """
     Helper class to represent a buffer of sequences
     """
+
     def __init__(self, max_size: int):
         super().__init__()
         self._max_size = max_size
@@ -102,9 +103,9 @@ class SmsWsjBase(MapDatasetBase):
 
         self._use_buffer = buffer
         if self._use_buffer:
-            self._ds = self._ds.prefetch(
-                prefetch_num_workers, buffer_size
-            ).copy(freeze=True)
+            self._ds = self._ds.prefetch(prefetch_num_workers, buffer_size).copy(
+                freeze=True
+            )
         self._buffer = SequenceBuffer(buffer_size)
 
     def __len__(self) -> int:
@@ -164,7 +165,7 @@ class SmsWsjBase(MapDatasetBase):
         if not (min(keys) <= seq_idx <= max(keys)):
             print(
                 f"WARNING: seq_idx {seq_idx} outside range of keys: {self._buffer.keys()}",
-                file=returnn_log.v5
+                file=returnn_log.v5,
             )
 
         # add sequences
@@ -181,16 +182,19 @@ class SmsWsjBase(MapDatasetBase):
                     print(
                         "WARNING: reached final index of dataset, but iterator has more sequences. "
                         "Maybe the training was restarted from an epoch > 1?",
-                        file=returnn_log.v3
+                        file=returnn_log.v3,
                     )
-                print(f"Current buffer indices: {self._buffer.keys()}", file=returnn_log.v5)
+                print(
+                    f"Current buffer indices: {self._buffer.keys()}",
+                    file=returnn_log.v5,
+                )
                 self._ds_iterator = iter(self._ds)
                 for idx_ in range(min(self._buffer.max_size // 2, len(self))):
                     if idx_ not in self._buffer:
                         self._buffer[idx_] = next(self._ds_iterator)
                 print(
                     f"After adding start of dataset to buffer indices: {self._buffer.keys()}",
-                    file=returnn_log.v5
+                    file=returnn_log.v5,
                 )
 
     @staticmethod
@@ -215,7 +219,7 @@ class SmsWsjBase(MapDatasetBase):
         except sp.CalledProcessError:
             print(
                 f"Cache manager: Error occurred when caching and unzipping {zip_cache}",
-                file=returnn_log.v2
+                file=returnn_log.v2,
             )
             raise
 
@@ -273,7 +277,7 @@ class SmsWsjBase(MapDatasetBase):
 
         print(
             f"Finished preparation of zip cache data, use json in {json_path_cached_mod}",
-            file=returnn_log.v4
+            file=returnn_log.v4,
         )
         return json_path_cached_mod
 
@@ -518,7 +522,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
             self.num_outputs = num_outputs
         else:
             assert (
-                    classes_num_outputs is not None
+                classes_num_outputs is not None
             ), "either num_outputs or classes_num_outputs has to be given"
             self.num_outputs["target_classes"] = [
                 classes_num_outputs,
