@@ -316,7 +316,7 @@ class SmsWsjBaseWithHdfClasses(SmsWsjBase):
             total_pad_frames = padded_len - rasr_target.shape[0]
             if total_pad_frames == 0:
                 continue
-            pad_start = round(d["offset"][speaker_idx] / d["seq_len"] * padded_len)
+            pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
             pad_start = min(pad_start, total_pad_frames)
             pad_end = total_pad_frames - pad_start
             if pad_start or pad_end:
