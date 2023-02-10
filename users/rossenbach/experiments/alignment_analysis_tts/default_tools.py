@@ -12,7 +12,7 @@ RETURNN_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh
 RETURNN_DATA_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                           commit="37ba06ab2697e7af4de96037565fdf4f78acdb80").out_repository
 
-RETURNN_RC_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="803d41ea192563be193a09e60d6e8de8a58770a5").out_repository
+RETURNN_RC_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="f7c2c00e7a2b6c58c2bd5c1ef0fba711f9078de1").out_repository
 RETURNN_RC_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_RC_ROOT"
 
 RETURNN_COMMON = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="1204f5d377399da6267fcd45e41c21985c73aa14", checkout_folder_name="returnn_common").out_repository

@@ -21,7 +21,7 @@ from .config import get_forward_config, get_speaker_extraction_config, get_train
 from .data import TTSForwardData, get_tts_forward_data_legacy_v2
 
 from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT, RETURNN_COMMON
-from ..synthetic_storage import add_ogg_zip
+from ..storage import add_ogg_zip
 from ..gl_vocoder.default_vocoder import LJSpeechMiniGLVocoder
 
 
@@ -92,9 +92,9 @@ def extract_speaker_embedding_hdf(checkpoint, returnn_common_root, returnn_exe, 
     :param train_job:
     :return:
     """
-
+    network_args = network_args.copy()
     extraction_config = get_speaker_extraction_config(
-        speaker_embedding_size=256,
+        speaker_embedding_size=network_args.pop("speaker_embedding_size", 256),
         returnn_common_root=returnn_common_root,
         forward_dataset=TTSForwardData(
             dataset=datasets.cv, datastreams=datasets.datastreams  # cv is fine here cause we assume all speakers in cv

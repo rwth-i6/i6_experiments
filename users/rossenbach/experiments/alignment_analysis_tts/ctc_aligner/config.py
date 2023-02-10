@@ -26,7 +26,7 @@ datastream_to_nn_data_mapping = {
 }
 
 
-def get_training_config(returnn_common_root, training_datasets, use_v2=False, **kwargs):
+def get_training_config(returnn_common_root, training_datasets, use_v2=False, net_args={}):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for the ctc_aligner
     :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
@@ -77,7 +77,7 @@ def get_training_config(returnn_common_root, training_datasets, use_v2=False, **
         returnn_common_root=returnn_common_root,
         datastreams=training_datasets.datastreams,
         use_v2=use_v2,
-        **kwargs
+        net_args=net_args,
     )
     returnn_config = ReturnnConfig(
         config=config, post_config=post_config, python_epilog=[serializer]
@@ -86,7 +86,7 @@ def get_training_config(returnn_common_root, training_datasets, use_v2=False, **
 
 
 def get_forward_config(
-        returnn_common_root, forward_dataset: GenericDataset, datastreams, use_v2=False, **kwargs
+        returnn_common_root, forward_dataset: GenericDataset, datastreams, use_v2=False, net_args={}
 ):
     """
     Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
@@ -110,13 +110,13 @@ def get_forward_config(
         returnn_common_root=returnn_common_root,
         datastreams=datastreams,
         use_v2=use_v2,
-        **kwargs
+        net_args=net_args,
     )
     returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
     return returnn_config
 
 
-def get_network_serializer(training: bool, returnn_common_root: tk.Path, datastreams: Dict[str, Datastream], use_v2: bool = False, **kwargs) -> Collection:
+def get_network_serializer(training: bool, returnn_common_root: tk.Path, datastreams: Dict[str, Datastream], use_v2: bool = False, net_args={}) -> Collection:
     """
 
     :param training
@@ -141,7 +141,7 @@ def get_network_serializer(training: bool, returnn_common_root: tk.Path, datastr
         rc_model = Import(rc_package + ".ctc_aligner.CTCAligner")
     rc_construction_code = Import(rc_package + ".ctc_aligner.construct_network")
 
-    d = copy.deepcopy(kwargs)
+    d = copy.deepcopy(net_args)
     if training is False:
         d["training"] = False
 
@@ -151,7 +151,7 @@ def get_network_serializer(training: bool, returnn_common_root: tk.Path, datastr
             "net_module": rc_model.object_name,
             **datastream_to_nn_data_mapping,
         },
-        net_kwargs={**d},
+        net_kwargs=d,
     )
 
     serializer = Collection(

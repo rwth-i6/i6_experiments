@@ -11,7 +11,7 @@ from ..ctc_aligner.experiments import get_baseline_ctc_alignment_v2
 
 from ..gl_vocoder.default_vocoder import get_default_vocoder
 
-from ..synthetic_storage import add_ogg_zip
+from ..storage import add_ogg_zip
 
 
 
