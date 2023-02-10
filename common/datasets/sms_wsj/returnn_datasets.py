@@ -25,6 +25,24 @@ from returnn.log import log as returnn_log
 from returnn.util.basic import OptionalNotImplementedError, NumbersDict
 
 
+class SequenceBuffer(dict):
+    """
+    Helper class to represent a buffer of sequences
+    """
+    def __init__(self, max_size: int):
+        super().__init__()
+        self._max_size = max_size
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if len(self) > self._max_size:
+            self.pop(next(iter(self)))
+
+    @property
+    def max_size(self):
+        return self._max_size
+
+
 class SmsWsjBase(MapDatasetBase):
     """
     Base class to wrap the SMS-WSJ dataset. This is not the dataset that is used in the RETURNN config, see
@@ -37,11 +55,11 @@ class SmsWsjBase(MapDatasetBase):
         json_path,
         pre_batch_transform,
         data_types,
-        buffer=True,
         zip_cache=None,
         scenario_map_args=None,
+        buffer=True,
+        buffer_size=40,
         prefetch_num_workers=4,
-        prefetch_buffer_size=40,
         **kwargs,
     ):
         """
@@ -49,9 +67,11 @@ class SmsWsjBase(MapDatasetBase):
         :param str json_path: path to SMS-WSJ json file
         :param function pre_batch_transform: function which processes raw SMS-WSJ data
         :param Dict[str] data_types: data types for RETURNN, e.g. {"target_signals": {"dim": 2, "shape": (None, 2)}}
-        :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
+        :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
+        :param int buffer_size: buffer size
+        :param int prefetch_num_workers: number of workers for prefetching
         """
         # noinspection PyUnresolvedReferences
         from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
@@ -83,10 +103,9 @@ class SmsWsjBase(MapDatasetBase):
         self._use_buffer = buffer
         if self._use_buffer:
             self._ds = self._ds.prefetch(
-                prefetch_num_workers, prefetch_buffer_size
+                prefetch_num_workers, buffer_size
             ).copy(freeze=True)
-        self._buffer = {}  # type Dict[int,[Dict[str,np.array]]]
-        self._buffer_size = prefetch_buffer_size
+        self._buffer = SequenceBuffer(buffer_size)
 
     def __len__(self) -> int:
         return len(self._ds)
@@ -149,7 +168,7 @@ class SmsWsjBase(MapDatasetBase):
             )
 
         # add sequences
-        for idx in range(seq_idx, min(seq_idx + self._buffer_size // 2, len(self))):
+        for idx in range(seq_idx, min(seq_idx + self._buffer.max_size // 2, len(self))):
             if idx not in self._buffer:
                 self._buffer[idx] = next(self._ds_iterator)
             if idx == len(self) - 1 and 0 not in self._buffer:
@@ -166,29 +185,13 @@ class SmsWsjBase(MapDatasetBase):
                     )
                 print(f"Current buffer indices: {self._buffer.keys()}", file=returnn_log.v5)
                 self._ds_iterator = iter(self._ds)
-                for idx_ in range(min(self._buffer_size // 2, len(self))):
+                for idx_ in range(min(self._buffer.max_size // 2, len(self))):
                     if idx_ not in self._buffer:
                         self._buffer[idx_] = next(self._ds_iterator)
                 print(
                     f"After adding start of dataset to buffer indices: {self._buffer.keys()}",
                     file=returnn_log.v5
                 )
-
-        # remove sequences
-        if pop_seqs:
-            for idx in list(self._buffer):
-                if not (
-                    seq_idx - self._buffer_size // 2
-                    <= idx
-                    <= seq_idx + self._buffer_size // 2
-                ):
-                    if (
-                        max(self._buffer.keys()) == len(self) - 1
-                        and idx < self._buffer_size // 2
-                    ):
-                        # newly added sequences starting from 0
-                        continue
-                    self._buffer.pop(idx)
 
     @staticmethod
     def _cache_zipped_audio(zip_cache: str, json_path: str, dataset_name: str):
