@@ -313,8 +313,8 @@ class SmsWsjBaseWithHdfClasses(SmsWsjBase):
             for hdf_seq_tag in hdf_seq_tags
         ]
         padded_len = max(hdf_classes_.shape[0] for hdf_classes_ in hdf_classes)
-        for speaker_idx, rasr_target in enumerate(hdf_classes):
-            total_pad_frames = padded_len - rasr_target.shape[0]
+        for speaker_idx, hdf_classes_speaker in enumerate(hdf_classes):
+            total_pad_frames = padded_len - hdf_classes_speaker.shape[0]
             if total_pad_frames == 0:
                 continue
             pad_start = int(round(d["offset"][speaker_idx] / d["seq_len"] * padded_len))
