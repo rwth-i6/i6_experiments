@@ -187,6 +187,7 @@ class ConformerDecoder:
     glu_act = self.subnet_unit.add_gating_layer('{}_glu'.format(prefix_name), pointwise_conv1)
 
     # Pad to make causal conv
+    # TODO: This currently does not work inside a recurrent subnetwork. Need to be fixed.
     depthwise_conv_input_padded = self.subnet_unit.add_pad_layer(
       '{}_depthwise_conv_input_padded'.format(prefix_name),
       glu_act, axes='T', padding=(self.conv_kernel_size - 1, 0)
