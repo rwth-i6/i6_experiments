@@ -331,6 +331,7 @@ class ForcedAlignmentArgs(TypedDict):
     """
     parameters for forced alignment on the target corpus
     """
+
     name: str
     target_corpus_keys: List[str]
     flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute]
