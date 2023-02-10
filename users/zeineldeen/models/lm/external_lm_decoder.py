@@ -101,16 +101,35 @@ class TransformerILMDecoder(ILMDecoder):
     prior_type = self.prior_lm_opts.get('type', None)
     assert prior_type is not None, 'prior_type not defined'
 
+    if self.prior_lm_opts.get('use_dec_state', False):
+      ilm_inp = 'prev:' + self.prior_lm_opts.get('target_embed_name', 'target_embed')
+    else:
+      ilm_inp = 's'
+
     if prior_type == 'mini_lstm':
       # add mini lstm layers
       subnet_unit.add_rec_layer(
-        'mini_att_lstm', 'prev:' + self.prior_lm_opts.get('target_embed_name', 'target_embed'),
+        'mini_att_lstm', ilm_inp,
         n_out=self.prior_lm_opts.get('mini_lstm_dim', 50), l2=self.prior_lm_opts.get('l2', 0.0))
       prior_att_input = subnet_unit.add_linear_layer(
         'mini_att', 'mini_att_lstm', activation=None, n_out=512, l2=0.0001)
+
+    elif prior_type == 'ffn':
+      x = ilm_inp
+      num_ffn_layers = self.prior_lm_opts['num_ffn_layers']
+      ffn_dims = self.prior_lm_opts['ffn_dims']
+      acts = self.prior_lm_opts['activations']
+      for l in range(num_ffn_layers):
+        x = subnet_unit.add_linear_layer(
+          'mini_ffn_%02i' % (l+1), ilm_inp, n_out=ffn_dims[l],
+          activation=acts[l] if acts and l < len(acts) else None,
+        )
+      prior_att_input = subnet_unit.add_linear_layer('mini_att', x, activation=None, n_out=512)
+
     elif prior_type == 'zero':
       prior_att_input = subnet_unit.add_eval_layer(
         'zero_att', 'transformer_decoder_01_att', eval='tf.zeros_like(source(0))')
+
     else:
       raise ValueError()
 

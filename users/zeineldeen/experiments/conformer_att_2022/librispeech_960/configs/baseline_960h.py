@@ -17,6 +17,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 from i6_experiments.users.zeineldeen.models.lm import generic_lm
 from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960 import ilm_helpers
+from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experiment import test_train_lm
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -36,6 +37,19 @@ trafo_lm_opts = {
     'lm_subnet': trafo_lm_net.network.get_net(),
     'load_on_init_opts': {
         'filename': '/work/asr3/irie/experiments/lm/librispeech/2018-03-05--lmbpe-zeyer/data-train/transfo_24_d00.4096_1024.sgd.lr1.8_heads/bk-net-model/network.023',
+        'params_prefix': '',
+        'load_if_prefix': 'lm_output/',
+    },
+    'name': 'trafo'
+}
+
+# TODO: also allow exporting LM fusion network
+export_lm_train_jobs = test_train_lm()
+
+trafo_5k_lm_opts = {
+    'lm_subnet': None,  # TODO: tbd
+    'load_on_init_opts': {
+        'filename': get_best_checkpoint(export_lm_train_jobs['24_bs3000_5ep_5kbpe'], key='dev_score_output/output'),
         'params_prefix': '',
         'load_if_prefix': 'lm_output/',
     },
@@ -168,6 +182,8 @@ def conformer_baseline():
                         search_args['decoder_args'].create_ilm_decoder = True
                         search_args['decoder_args'].ilm_type = prior_type
 
+                    ilm_opts.update(kwargs.get('ilm_train_opts', {}))  # example for FFN, etc
+
                     search_args['prior_lm_opts'] = ilm_opts
                     search_args['preload_from_files'] = {
                         'prior_lm': {
@@ -175,7 +191,7 @@ def conformer_baseline():
                             'prefix': 'prior_'
                         }
                     }
-                    if prior_type == 'mini_lstm':
+                    if prior_type == 'mini_lstm' or prior_type == 'ffn':
                         assert mini_lstm_ckpt, 'Mini-LSTM checkpoint not set.'
                         search_args['preload_from_files'].update(
                             {
@@ -288,12 +304,15 @@ def conformer_baseline():
 
     def train_mini_lstm(
         exp_name, checkpoint, args, num_epochs=20, lr=8e-4, time_rqmt=4, l2=1e-4, name='mini_lstm',
-        w_drop=False, **kwargs
+        w_drop=False, use_dec_state=False, use_ffn=False, ffn_opts=None, **kwargs
     ):
         if not w_drop:
             params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str()
         else:
-            params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
+            if use_ffn:
+                params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(ffn_opts['num_ffn_layers'])
+            else:
+                params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
 
         mini_lstm_args = copy.deepcopy(args)
         mini_lstm_args['batch_size'] = 20000 * 160
@@ -326,14 +345,33 @@ def conformer_baseline():
             feature_extraction_net=log10_net_10ms,
         )
 
-        returnn_config.config['network']['output']['unit']['att_lstm'] = {
-            "class": "rec", "unit": "nativelstm2", "from": 'prev:target_embed', "n_out": 50,
-        }
+        inp = 's' if use_dec_state else 'prev:target_embed'
 
-        returnn_config.config['network']['output']['unit']['att'] = {
-            "class": "linear", "from": "att_lstm", "activation": None,
-            "n_out": mini_lstm_args['encoder_args'].enc_key_dim, "L2": l2,
-        }
+        if use_ffn:
+            x = inp
+            activations = ffn_opts['activations']
+            for l in range(ffn_opts['num_ffn_layers']):
+                returnn_config.config['network']['output']['unit']['ffn_%02i' % (l+1)] = {
+                    "class": "linear", "n_out": ffn_opts['ffn_dims'][l], "L2": l2,
+                    "from": inp, "activation": activations[l] if activations and l < len(activations) else None,
+                }
+                x = 'ffn_%02i' % (l+1)
+
+            returnn_config.config['network']['output']['unit']['att'] = {
+                "class": "linear", "from": x, "activation": None,
+                "n_out": mini_lstm_args['encoder_args'].enc_key_dim, "L2": l2,
+            }
+        else:
+            # Mini-LSTM + FF
+
+            returnn_config.config['network']['output']['unit']['att_lstm'] = {
+                "class": "rec", "unit": "nativelstm2", "from": inp, "n_out": 50,
+            }
+
+            returnn_config.config['network']['output']['unit']['att'] = {
+                "class": "linear", "from": "att_lstm", "activation": None,
+                "n_out": mini_lstm_args['encoder_args'].enc_key_dim, "L2": l2,
+            }
 
         train_job = training(
             exp_prefix, returnn_config, RETURNN_CPU_EXE, RETURNN_ROOT, num_epochs=num_epochs, time_rqmt=time_rqmt)
@@ -764,22 +802,34 @@ def conformer_baseline():
                             checkpoint=train_job_avg_ckpt[_name],
                             args=args, num_epochs=80, w_drop=True
                         )
+
+                        ffn_ilm = train_mini_lstm(
+                            exp_name=_name,
+                            name='ffn_ilm',
+                            checkpoint=train_job_avg_ckpt[_name],
+                            args=args, num_epochs=40, w_drop=True,
+                            use_dec_state=True, use_ffn=True, ffn_opts={
+                                'num_ffn_layers': 2, 'ffn_dims': [512, 512], 'activations': ['relu', 'relu']
+                            }
+                        )
+
                         for lm_type in ['lstm', 'trafo']:
-                            for beam_size in [32, 40, 45, 50]:
-                                run_lm_fusion(
-                                    lm_type=lm_type, exp_name=_name, epoch='avg',
-                                    test_set_names=['dev-clean', 'dev-other'],
-                                    lm_scales=[0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48,
-                                               0.5, 0.52],
-                                    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                                    beam_size=beam_size,
-                                )
+                            for beam_size in [32, 40, 45, 50, 55, 60, 65, 70, 75]:
+                                if beam_size < 60:
+                                    run_lm_fusion(
+                                        lm_type=lm_type, exp_name=_name, epoch='avg',
+                                        test_set_names=['dev-clean', 'dev-other'],
+                                        lm_scales=[0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48,
+                                                   0.5, 0.52],
+                                        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
+                                        beam_size=beam_size,
+                                    )
                                 # with ILM
                                 run_lm_fusion(
                                     lm_type=lm_type, exp_name=_name, epoch='avg',
                                     test_set_names=['dev-other'],
-                                    lm_scales=[0.46, 0.48, 0.5, 0.52, 0.54, 0.56, 0.58, 0.6],
-                                    prior_scales=[0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42],
+                                    lm_scales=[0.46, 0.48, 0.5, 0.52, 0.54],
+                                    prior_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4],
                                     prior_type='mini_lstm',
                                     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
                                     prior_type_name='mini_lstm_best',
@@ -787,9 +837,20 @@ def conformer_baseline():
                                     beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
                                 )
 
-                        # for lm_type, lm_scale, prior_scale, beam_size in [
-                        #     ('trafo', 0.52, 0.36, 45), ('trafo', 0.5, 0.36, 50)
-                        # ]:
+                        for lm_type, lm_scale, prior_scale, beam_size in [
+                            ('trafo', 0.53, 0.38, 45), ('trafo', 0.5, 0.36, 50), ('trafo', 0.48, 0.34, 60)
+                        ]:
+                            run_lm_fusion(
+                                lm_type=lm_type, exp_name=_name, epoch='avg',
+                                test_set_names=['test-other'],
+                                lm_scales=[lm_scale],
+                                prior_scales=[prior_scale],
+                                prior_type='mini_lstm',
+                                mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
+                                prior_type_name='mini_lstm_best',
+                                train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
+                                beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+                            )
 
 
                 # TODO: retrain with OCLR
