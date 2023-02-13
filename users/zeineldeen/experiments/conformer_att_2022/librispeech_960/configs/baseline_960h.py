@@ -696,19 +696,30 @@ def conformer_baseline():
     }
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args['encoder_args'].use_sqrd_relu = True
-    run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU", train_args=oclr_args, num_epochs=435)
+    train_j, train_data = run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU", train_args=oclr_args, num_epochs=435)
 
     #run_exp('base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k', train_args=oclr_args, num_epochs=435, bpe_size=1000)
-    train_j, train_data = run_exp('base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_5K)
+    bpe5k_train_j, bpe5k_train_data = run_exp(
+        'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_5K)
 
     # TODO: testing
-    run_lm_fusion(
-        lm_type='trafo', exp_name='base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', epoch='avg',
-        test_set_names=['dev-other'],
-        lm_scales=[0.3],
-        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-        beam_size=12, bpe_size=BPE_5K,
-    )
+    for beam_size in [12, 32]:
+        run_lm_fusion(
+            lm_type='trafo', exp_name='base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', epoch='avg',
+            test_set_names=['dev-other'],
+            lm_scales=[0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5],
+            train_job=bpe5k_train_data, train_data=bpe5k_train_data, feature_net=log10_net_10ms, args=oclr_args,
+            beam_size=beam_size, bpe_size=BPE_5K,
+        )
+
+        run_lm_fusion(
+            lm_type='trafo', exp_name='base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU', epoch='avg',
+            test_set_names=['dev-other'],
+            lm_scales=[0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5],
+            train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+            beam_size=beam_size, bpe_size=BPE_10K,
+        )
+
 
     # TODO: pretrain font-end?
 

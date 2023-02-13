@@ -151,7 +151,9 @@ def conformer_baseline():
 
     if lm_type == 'trafo':
       search_args['batch_size'] = 4000 * 160 if beam_size <= 32 else 2000 * 160
-      time_rqmt = 1
+      time_rqmt = 2
+      if beam_size > 50:
+        time_rqmt = 3
 
     search_args['beam_size'] = beam_size
     if kwargs.get('batch_size', None):
@@ -522,15 +524,22 @@ def conformer_baseline():
 
   oclr_args = copy.deepcopy(lstm_dec_exp_args)
   oclr_args["oclr_opts"] = {
-    "peak_lr": 8e-4,
+    "peak_lr": 9e-4,
     "final_lr": 1e-6,
-    "cycle_ep": 195,
-    "total_ep": 435,  # 20 epochs
+    "cycle_ep": 915,
+    "total_ep": 2035,  # 20 epochs
     "n_step": 1350,
     "learning_rates": [8e-5] * 35
   }
   oclr_args["encoder_args"].input_layer = "conv-6"
   oclr_args['encoder_args'].use_sqrd_relu = True
+
+  run_exp(
+    "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_bpe5k",
+    train_args=oclr_args,
+    num_epochs=2035,
+    bpe_size=BPE_5K,
+  )
 
   # Wo LM:
   #
@@ -539,14 +548,8 @@ def conformer_baseline():
   # test-clean  2.48
   # test-other  5.71
 
-  args = copy.deepcopy(oclr_args)
-  args['oclr_opts']['cycle_ep'] = 915
-  args['oclr_opts']['total_ep'] = 2035
-  args['oclr_opts']['peak_lr'] = 9e-4
   name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
-  train_j, train_data = run_exp(name, train_args=args, num_epochs=2035)
-
-  # TODO: retrain
+  train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
 
   # TODO: LM + ILM
   for beam_size in [12, 24, 32, 64]:
@@ -557,3 +560,67 @@ def conformer_baseline():
       train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
       beam_size=beam_size, bpe_size=BPE_10K,
     )
+
+  mini_lstm_j = train_mini_lstm(
+    exp_name=name,
+    checkpoint=train_job_avg_ckpt[name],
+    args=oclr_args, num_epochs=80, w_drop=True
+  )
+
+  for beam_size in [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]:  # TODO: try larger
+    for lm_scale in [0.54, 0.56, 0.58, 0.6, 0.62, 0.64]:
+      for prior_scale in [0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48]:
+
+        run_lm_fusion(
+            lm_type='trafo', exp_name=name, epoch='avg',
+            test_set_names=['dev-other'],
+            lm_scales=[lm_scale],
+            prior_scales=[prior_scale],
+            prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+            train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+            beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+            bpe_size=BPE_10K,
+        )
+
+  # lm-scale-0.6-prior-0.4-mini_lstm-beam-45/dev-other/wer
+  # 3.77
+  for cov_scale in [0.08, 0.1, 0.11, 0.13, 0.14, 0.15, 0.16]:
+    for cov_thre in [0.06, 0.08, 0.1, 0.12, 0.14, 0.16]:
+      run_lm_fusion(
+        lm_type='trafo', exp_name=name, epoch='avg',
+        test_set_names=['dev-other'],
+        lm_scales=[0.6],
+        prior_scales=[0.4],
+        prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+        beam_size=45, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+        bpe_size=BPE_10K,
+        coverage_scale=cov_scale, coverage_threshold=cov_thre,
+      )
+
+  run_lm_fusion(
+    lm_type='trafo', exp_name=name, epoch='avg',
+    test_set_names=['test-other'],
+    lm_scales=[0.42],
+    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+    beam_size=12, batch_size=2000 * 160,
+    bpe_size=BPE_10K,
+  )
+
+  run_lm_fusion(
+    lm_type='trafo', exp_name=name, epoch='avg',
+    test_set_names=['test-other'],
+    lm_scales=[0.6],
+    prior_scales=[0.4],
+    prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+    beam_size=45, batch_size=1000 * 160,
+    bpe_size=BPE_10K,
+  )
+
+  # TODO: retrain
+  retrain_args = copy.deepcopy(oclr_args)
+  retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
+  retrain_args['learning_rates_list'] = [5e-4] * 20 + list(numpy.linspace(5e-4, 1e-6, 580))
+  retrain_args['lr_decay'] = 0.95
+  run_exp(exp_name=name + '_retrain1_const20_linDecay580_0.0005', train_args=retrain_args, num_epochs=600)
