@@ -226,9 +226,10 @@ class SmsWsjBase(MapDatasetBase):
         # unzip
         unzip_cmd = ["unzip", "-q", "-n", zip_cache_cached, "-d", local_base_dir]
         print(" ".join(unzip_cmd), file=returnn_log.v4)
-        sp.check_call(unzip_cmd)
+        sp.check_output(unzip_cmd)
         print("Finished unzipping", file=returnn_log.v4)
-        sp.check_call(["chmod", "-R", "-f", "o+w", local_base_dir])
+        # force exit code 0 for the case that the path does not belong to the user so permissions cannot be changed
+        sp.check_output(["chmod", "-R", "-f", "o+w", local_base_dir, "||", "true"])
 
         json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
         original_dir = None
