@@ -24,6 +24,9 @@ from returnn.log import log as returnn_log
 # noinspection PyUnresolvedReferences
 from returnn.util.basic import OptionalNotImplementedError, NumbersDict
 
+# noinspection PyUnresolvedReferences
+from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
+
 
 class SequenceBuffer(dict):
     """
@@ -44,6 +47,49 @@ class SequenceBuffer(dict):
         return self._max_size
 
 
+class ZipAudioReader(AudioReader):
+    """
+    Reads the audio data of an example from a zip file.
+    """
+    def __init__(
+            self,
+            zip_path=None,
+            zip_prefix="",
+            **kwargs
+    ):
+        """
+        :param Optional[str] zip_path: zip archive with SMS-WSJ data
+        :param str zip_prefix: prefix of filename that needs to be removed for the lookup in the zip archive
+        """
+        import zipfile
+
+        super().__init__(**kwargs)
+        self._zip = zipfile.ZipFile(zip_path, "r") if zip_path is not None else None
+        self._zip_prefix = zip_prefix
+
+    def _rec_audio_read(self, file):
+        """
+        Read audio from file
+
+        :param Union[tuple, list, dict, str] file: filename
+        """
+        import io
+        import soundfile
+
+        if isinstance(file, (tuple, list)):
+            return np.array([self._rec_audio_read(f) for f in file])
+        elif isinstance(file, dict):
+            return {k: self._rec_audio_read(v) for k, v in file.items()}
+        else:
+            if self._zip is not None:
+                assert file.startswith(self._zip_prefix)
+                file_zip = file[len(self._zip_prefix):]
+                data, sample_rate = soundfile.read(io.BytesIO(self._zip.read(file_zip)))
+            else:
+                data, sample_rate = soundfile.read(file)
+            return data.T
+
+
 class SmsWsjBase(MapDatasetBase):
     """
     Base class to wrap the SMS-WSJ dataset. This is not the dataset that is used in the RETURNN config, see
@@ -57,6 +103,7 @@ class SmsWsjBase(MapDatasetBase):
         pre_batch_transform,
         data_types,
         zip_cache=None,
+        zip_prefix="",
         scenario_map_args=None,
         buffer=True,
         buffer_size=40,
@@ -69,24 +116,35 @@ class SmsWsjBase(MapDatasetBase):
         :param function pre_batch_transform: function which processes raw SMS-WSJ data
         :param Dict[str] data_types: data types for RETURNN, e.g. {"target_signals": {"dim": 2, "shape": (None, 2)}}
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
+        :param str zip_prefix: prefix of filename that needs to be removed for the lookup in the zip archive
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
         :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
         :param int buffer_size: buffer size
         :param int prefetch_num_workers: number of workers for prefetching
         """
-        # noinspection PyUnresolvedReferences
-        from sms_wsj.database import SmsWsj, AudioReader, scenario_map_fn
 
         super().__init__(**kwargs)
 
         self.data_types = data_types
 
         if zip_cache is not None:
-            json_path = self._cache_zipped_audio(zip_cache, json_path, dataset_name)
+            zip_cache_cached = sp.check_output(["cf", zip_cache]).strip().decode("utf8")
+            assert (
+                zip_cache_cached != zip_cache
+            ), "cached and original file have the same path"
+            json_path_cached = sp.check_output(["cf", json_path]).strip().decode("utf8")
+            assert (
+                json_path_cached != json_path
+            ), "cached and original file have the same path"
+            json_path = json_path_cached
+            audio_reader = ZipAudioReader(
+                zip_path=zip_cache_cached, zip_prefix=zip_prefix, keys=("original_source", "rir"))
+        else:
+            audio_reader = AudioReader(keys=("original_source", "rir"))
 
         db = SmsWsj(json_path=json_path)
         ds = db.get_dataset(dataset_name)
-        ds = ds.map(AudioReader(("original_source", "rir")))
+        ds = ds.map(audio_reader)
 
         scenario_map_args = {
             "add_speech_image": False,
@@ -196,91 +254,6 @@ class SmsWsjBase(MapDatasetBase):
                     f"After adding start of dataset to buffer indices: {self._buffer.keys()}",
                     file=returnn_log.v5,
                 )
-
-    @staticmethod
-    def _cache_zipped_audio(zip_cache: str, json_path: str, dataset_name: str):
-        """
-        Caches and unzips a given archive with SMS-WSJ data which will then be used as data dir.
-        This is done because caching of the single files takes extremely long.
-        """
-        print(f"Cache and unzip SMS-WSJ data from {zip_cache}", file=returnn_log.v4)
-
-        # cache file
-        try:
-            zip_cache_cached = sp.check_output(["cf", zip_cache]).strip().decode("utf8")
-            assert (
-                zip_cache_cached != zip_cache
-            ), "cached and original file have the same path"
-            local_base_dir = os.path.dirname(zip_cache_cached)
-            json_path_cached = sp.check_output(["cf", json_path]).strip().decode("utf8")
-            assert (
-                json_path_cached != json_path
-            ), "cached and original file have the same path"
-        except sp.CalledProcessError:
-            print(
-                f"Cache manager: Error occurred when caching and unzipping {zip_cache}",
-                file=returnn_log.v2,
-            )
-            raise
-
-        # unzip
-        unzip_cmd = ["unzip", "-q", "-n", zip_cache_cached, "-d", local_base_dir]
-        print(" ".join(unzip_cmd), file=returnn_log.v4)
-        sp.check_output(unzip_cmd)
-        print("Finished unzipping", file=returnn_log.v4)
-        # force exit code 0 for the case that the path does not belong to the user so permissions cannot be changed
-        sp.check_output(["chmod", "-R", "-f", "o+w", local_base_dir, "||", "true"])
-
-        json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
-        original_dir = None
-        if not os.path.exists(json_path_cached_mod):
-            with open(json_path_cached, "r") as f:
-                json_dict = json.loads(f.read())
-            # get original dir
-            original_dir = next(iter(json_dict["datasets"][dataset_name].values()))[
-                "audio_path"
-            ]["original_source"][0]
-            while (
-                not original_dir.endswith(os.path.basename(local_base_dir))
-                and len(original_dir) > 1
-            ):
-                original_dir = os.path.dirname(original_dir)
-        else:
-            with open(json_path_cached_mod, "r") as f:
-                json_dict = json.loads(f.read())
-        # check if all data is available and create modified json if it does not yet exist
-        for dataset_name in json_dict["datasets"]:
-            for seq in json_dict["datasets"][dataset_name]:
-                for audio_key in ["original_source", "rir"]:
-                    for seq_idx in range(
-                        len(
-                            json_dict["datasets"][dataset_name][seq]["audio_path"][
-                                audio_key
-                            ]
-                        )
-                    ):
-                        path = json_dict["datasets"][dataset_name][seq]["audio_path"][
-                            audio_key
-                        ][seq_idx]
-                        if not os.path.exists(json_path_cached_mod):
-                            path = path.replace(original_dir, local_base_dir)
-                            json_dict["datasets"][dataset_name][seq]["audio_path"][
-                                audio_key
-                            ][seq_idx] = path
-                        assert path.startswith(
-                            local_base_dir
-                        ), f"Audio file {path} was expected to start with {local_base_dir}"
-                        assert os.path.exists(path), f"Audio file {path} does not exist"
-
-        if not os.path.exists(json_path_cached_mod):
-            with open(json_path_cached_mod, "w", encoding="utf-8") as f:
-                json.dump(json_dict, f, ensure_ascii=False, indent=4)
-
-        print(
-            f"Finished preparation of zip cache data, use json in {json_path_cached_mod}",
-            file=returnn_log.v4,
-        )
-        return json_path_cached_mod
 
 
 class SmsWsjBaseWithHdfClasses(SmsWsjBase):
