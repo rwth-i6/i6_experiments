@@ -19,6 +19,7 @@ from i6_core.datasets.switchboard import (
     DownloadSwitchboardSpeakersStatsJob,
     CreateSwitchboardSpeakersListJob,
     CreateLDCSwitchboardSpeakerListJob,
+    CreateSwitchboardSpokenFormBlissCorpusJob,
 )
 
 from i6_experiments.common.datasets.util import CorpusObject
@@ -90,6 +91,29 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     corpus.add_alias(os.path.join(subdir_prefix, "create_ldc_train_corpus_job"))
 
     return corpus.out_corpus
+
+
+def get_spoken_form_train_bliss_corpus_ldc(
+    subdir_prefix: str = SUBDIR_PREFIX,
+) -> tk.Path:
+    """
+    Switchboard-1 training corpus based on the original LDC files.
+    Uses the special processing mapping files with number to spoken form conversion
+    for subword based training.
+
+    :param subdir_prefix:
+    :return: Path to bliss xml for the LDC Switchboard-1
+    """
+    swbd_bliss = get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix)
+
+    create_swbd_subword_bliss = CreateSwitchboardSpokenFormBlissCorpusJob(
+        switchboard_bliss_corpus=swbd_bliss
+    )
+    create_swbd_subword_bliss.add_alias(
+        os.path.join(subdir_prefix, "create_ldf_subword_train_corpus_job")
+    )
+
+    return create_swbd_subword_bliss.out_e2e_corpus
 
 
 def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
