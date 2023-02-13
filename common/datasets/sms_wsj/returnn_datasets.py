@@ -52,12 +52,8 @@ class ZipAudioReader(AudioReader):
     """
     Reads the audio data of an example from a zip file.
     """
-    def __init__(
-            self,
-            zip_path=None,
-            zip_prefix="",
-            **kwargs
-    ):
+
+    def __init__(self, zip_path=None, zip_prefix="", **kwargs):
         """
         :param Optional[str] zip_path: zip archive with SMS-WSJ data
         :param str zip_prefix: prefix of filename that needs to be removed for the lookup in the zip archive
@@ -84,7 +80,7 @@ class ZipAudioReader(AudioReader):
         else:
             if self._zip is not None:
                 assert file.startswith(self._zip_prefix)
-                file_zip = file[len(self._zip_prefix):]
+                file_zip = file[len(self._zip_prefix) :]
                 data, sample_rate = soundfile.read(io.BytesIO(self._zip.read(file_zip)))
             else:
                 data, sample_rate = soundfile.read(file)
@@ -139,7 +135,10 @@ class SmsWsjBase(MapDatasetBase):
             ), "cached and original file have the same path"
             json_path = json_path_cached
             audio_reader = ZipAudioReader(
-                zip_path=zip_cache_cached, zip_prefix=zip_prefix, keys=("original_source", "rir"))
+                zip_path=zip_cache_cached,
+                zip_prefix=zip_prefix,
+                keys=("original_source", "rir"),
+            )
         else:
             audio_reader = AudioReader(keys=("original_source", "rir"))
 
@@ -399,7 +398,9 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         """
         if sms_wsj_base is None:
-            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
+            assert (
+                sms_wsj_kwargs is not None
+            ), "either sms_wsj_base or sms_wsj_kwargs need to be given"
             sms_wsj_base = SmsWsjBase(
                 pre_batch_transform=self._pre_batch_transform,
                 scenario_map_args={"add_speech_reverberation_early": True},
@@ -458,7 +459,9 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
                     "shape": (None, 2),
                 },
             }
-            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
+            assert (
+                sms_wsj_kwargs is not None
+            ), "either sms_wsj_base or sms_wsj_kwargs need to be given"
             sms_wsj_base = SmsWsjBaseWithHdfClasses(
                 pre_batch_transform=self._pre_batch_transform,
                 scenario_map_args={"add_speech_reverberation_early": True},
@@ -526,7 +529,9 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
                     "shape": (None, 2),
                 },
             }
-            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
+            assert (
+                sms_wsj_kwargs is not None
+            ), "either sms_wsj_base or sms_wsj_kwargs need to be given"
             sms_wsj_base = SmsWsjBase(
                 pre_batch_transform=self._pre_batch_transform,
                 scenario_map_args={"add_speech_reverberation_early": True},
