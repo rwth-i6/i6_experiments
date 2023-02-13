@@ -3,11 +3,9 @@ Dataset wrapper to allow using the SMS-WSJ dataset in RETURNN.
 """
 
 import functools
-import json
 import numpy as np
-import os.path
 import subprocess as sp
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Union, Any, Optional
 
 # noinspection PyUnresolvedReferences
 from returnn.datasets.basic import DatasetSeq
@@ -34,6 +32,9 @@ class SequenceBuffer(dict):
     """
 
     def __init__(self, max_size: int):
+        """
+        :param int max_size: maximum number of sequences in buffer
+        """
         super().__init__()
         self._max_size = max_size
 
@@ -210,10 +211,9 @@ class SmsWsjBase(MapDatasetBase):
                 d[update_key] = int(data["seq_len"])
         return NumbersDict(d)
 
-    def update_buffer(self, seq_idx: int, pop_seqs: bool = True):
+    def update_buffer(self, seq_idx: int):
         """
         :param int seq_idx:
-        :param bool pop_seqs: if True, pop sequences from buffer that are outside buffer range
         """
         if not self._use_buffer:
             return
@@ -331,7 +331,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
 
     def __init__(self, sms_wsj_base, **kwargs):
         """
-        :param Optional[SmsWsjBase] sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
+        :param SmsWsjBase sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
         """
         if "seq_ordering" not in kwargs:
             print("Warning: no shuffling is enabled by default", file=returnn_log.v2)
@@ -351,7 +351,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
     def _pre_batch_transform(inputs: Dict[str, Any]) -> Dict[str, np.array]:
         """
         Used to process raw SMS-WSJ data
-        :param  inputs: input as coming from SMS-WSJ
+        :param Dict[str, Any] inputs: input as coming from SMS-WSJ
         """
         return_dict = {
             "seq_tag": np.array(inputs["example_id"], dtype=object),
@@ -377,7 +377,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         """
         out = super().init_seq_order(epoch=epoch, **kwargs)
         buffer_index = ((epoch or 1) - 1) * self.num_seqs % len(self._dataset)
-        self._dataset.update_buffer(buffer_index, pop_seqs=False)
+        self._dataset.update_buffer(buffer_index)
         return out
 
 
@@ -388,28 +388,23 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
 
     def __init__(
         self,
-        dataset_name,
-        json_path,
-        num_outputs=None,
-        zip_cache=None,
         sms_wsj_base=None,
+        sms_wsj_kwargs=None,
+        num_outputs=None,
         **kwargs,
     ):
         """
-        :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
-        :param str json_path: path to SMS-WSJ json file
-        :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
-        :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         :param Optional[SmsWsjBase] sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
+        :param Optional[Dict[str, Any]] sms_wsj_args: kwargs to create SMS-WSJ base class if sms_wsj_base is not given
+        :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         """
         if sms_wsj_base is None:
+            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
             sms_wsj_base = SmsWsjBase(
-                dataset_name=dataset_name,
-                json_path=json_path,
                 pre_batch_transform=self._pre_batch_transform,
                 scenario_map_args={"add_speech_reverberation_early": True},
-                zip_cache=zip_cache,
                 data_types={"target_signals": {"dim": 2, "shape": (None, 2)}},
+                **sms_wsj_kwargs,
             )
         super().__init__(sms_wsj_base, **kwargs)
         # typically data is raw waveform so 1-D and dense, target signals are 2-D (one for each speaker) and dense
@@ -419,7 +414,7 @@ class SmsWsjMixtureEarlyDataset(SmsWsjWrapper):
     def _pre_batch_transform(inputs: Dict[str, Any]) -> Dict[str, np.array]:
         """
         Used to process raw SMS-WSJ data
-        :param inputs: input as coming from SMS-WSJ
+        :param Dict[str, Any] inputs: input as coming from SMS-WSJ
         """
         return_dict = SmsWsjWrapper._pre_batch_transform(inputs)
         return_dict.update(
@@ -442,53 +437,36 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
 
     def __init__(
         self,
-        dataset_name,
-        json_path,
+        sms_wsj_base=None,
+        sms_wsj_kwargs=None,
         num_outputs=None,
         classes_num_outputs=None,
-        zip_cache=None,
-        hdf_file=None,
-        segment_mapping_fn=None,
-        pad_label=None,
-        hdf_data_key="classes",
         **kwargs,
     ):
         """
-        :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
-        :param str json_path: path to SMS-WSJ json file
+        :param Optional[SmsWsjBase] sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
+        :param Optional[Dict[str, Any]] sms_wsj_args: kwargs to create SMS-WSJ base class if sms_wsj_base is not given
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
         :param Optional[int] classes_num_outputs: number of output labels for alignment, e.g. 9001 for that CART size
-        :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
-        :param str hdf_file: hdf file with dumped class labels (compatible with RETURNN HDFDataset)
-        :param Callable segment_mapping_fn: function that maps SMS-WSJ seg. name into list of corresp. seg. names in HDF
-        :param Optional[int] pad_label: target label assigned to padded areas
-        :param str hdf_data_key: data key under which the alignment is stored in the hdf, usually "classes" or "data"
         """
-        data_types = {
-            "target_signals": {"dim": 2, "shape": (None, 2)},
-            "target_classes": {
-                "sparse": True,
-                "dim": classes_num_outputs,
-                "shape": (None, 2),
-            },
-        }
-        sms_wsj_base = SmsWsjBaseWithHdfClasses(
-            dataset_name=dataset_name,
-            json_path=json_path,
-            pre_batch_transform=self._pre_batch_transform,
-            scenario_map_args={"add_speech_reverberation_early": True},
-            data_types=data_types,
-            zip_cache=zip_cache,
-            hdf_file=hdf_file,
-            segment_mapping_fn=segment_mapping_fn,
-            pad_label=pad_label,
-            hdf_data_key=hdf_data_key,
-        )
+        if sms_wsj_base is None:
+            data_types = {
+                "target_signals": {"dim": 2, "shape": (None, 2)},
+                "target_classes": {
+                    "sparse": True,
+                    "dim": classes_num_outputs,
+                    "shape": (None, 2),
+                },
+            }
+            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
+            sms_wsj_base = SmsWsjBaseWithHdfClasses(
+                pre_batch_transform=self._pre_batch_transform,
+                scenario_map_args={"add_speech_reverberation_early": True},
+                data_types=data_types,
+                **sms_wsj_kwargs,
+            )
         super().__init__(
-            dataset_name,
-            json_path,
             num_outputs=num_outputs,
-            zip_cache=zip_cache,
             sms_wsj_base=sms_wsj_base,
             **kwargs,
         )
@@ -507,7 +485,7 @@ class SmsWsjMixtureEarlyAlignmentDataset(SmsWsjMixtureEarlyDataset):
     def _pre_batch_transform(inputs: Dict[str, Any]) -> Dict[str, np.array]:
         """
         Used to process raw SMS-WSJ data
-        :param inputs: input as coming from SMS-WSJ
+        :param Dict[str, Any] inputs: input as coming from SMS-WSJ
         """
         return_dict = SmsWsjMixtureEarlyDataset._pre_batch_transform(inputs)
         # we need the padding information here
@@ -522,46 +500,41 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
 
     def __init__(
         self,
-        dataset_name,
-        json_path,
         bpe,
+        sms_wsj_base=None,
+        sms_wsj_kwargs=None,
         text_proc=None,
         num_outputs=None,
-        zip_cache=None,
         **kwargs,
     ):
         """
-        :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
-        :param str json_path: path to SMS-WSJ json file
         :param Dict[str] bpe: opts for :class:`BytePairEncoding`
+        :param Optional[SmsWsjBase] sms_wsj_base: SMS-WSJ base class to allow inherited classes to modify this
+        :param Optional[Dict[str, Any]] sms_wsj_args: kwargs to create SMS-WSJ base class if sms_wsj_base is not given
         :param Optional[Callable] text_proc: function to preprocess the transcriptions before applying BPE
         :param Optional[Dict[str, List[int]]] num_outputs: num_outputs for RETURNN dataset
-        :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         """
         from returnn.datasets.util.vocabulary import BytePairEncoding
 
         self.bpe = BytePairEncoding(**bpe)
-        data_types = {
-            "target_signals": {"dim": 2, "shape": (None, 2)},
-            "target_bpe": {
-                "sparse": True,
-                "dim": self.bpe.num_labels,
-                "shape": (None, 2),
-            },
-        }
-        sms_wsj_base = SmsWsjBase(
-            dataset_name=dataset_name,
-            json_path=json_path,
-            pre_batch_transform=self._pre_batch_transform,
-            scenario_map_args={"add_speech_reverberation_early": True},
-            zip_cache=zip_cache,
-            data_types=data_types,
-        )
+        if sms_wsj_base is None:
+            data_types = {
+                "target_signals": {"dim": 2, "shape": (None, 2)},
+                "target_bpe": {
+                    "sparse": True,
+                    "dim": self.bpe.num_labels,
+                    "shape": (None, 2),
+                },
+            }
+            assert sms_wsj_kwargs is not None, "either sms_wsj_base or sms_wsj_kwargs need to be given"
+            sms_wsj_base = SmsWsjBase(
+                pre_batch_transform=self._pre_batch_transform,
+                scenario_map_args={"add_speech_reverberation_early": True},
+                data_types=data_types,
+                **sms_wsj_kwargs,
+            )
         super().__init__(
-            dataset_name,
-            json_path,
             num_outputs=num_outputs,
-            zip_cache=zip_cache,
             sms_wsj_base=sms_wsj_base,
             **kwargs,
         )
@@ -578,7 +551,7 @@ class SmsWsjMixtureEarlyBpeDataset(SmsWsjMixtureEarlyDataset):
     def _pre_batch_transform(self, inputs: Dict[str, Any]) -> Dict[str, np.array]:
         """
         Used to process raw SMS-WSJ data
-        :param inputs: input as coming from SMS-WSJ
+        :param Dict[str, Any] inputs: input as coming from SMS-WSJ
         """
         return_dict = SmsWsjMixtureEarlyDataset._pre_batch_transform(inputs)
         for speaker, orth in enumerate(inputs["kaldi_transcription"]):
