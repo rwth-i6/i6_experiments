@@ -1,5 +1,5 @@
 from i6_experiments.common.datasets.switchboard.corpus_train import (
-    get_train_bliss_corpus_ldc,
+    get_spoken_form_train_bliss_corpus_ldc,
 )
 from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import (
     get_returnn_subword_nmt,
@@ -21,7 +21,7 @@ def get_subword_nmt_bpe(
     :param subdir_prefix:
     """
     subword_nmt_repo = get_returnn_subword_nmt(output_prefix=subdir_prefix)
-    train_corpus = get_train_bliss_corpus_ldc()
+    train_corpus = get_spoken_form_train_bliss_corpus_ldc()
     bpe_settings = get_bpe_settings(
         train_corpus,
         bpe_size=bpe_size,
