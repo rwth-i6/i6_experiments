@@ -71,7 +71,8 @@ def _export_train_bliss_corpus(subdir_prefix: str = SUBDIR_PREFIX):
         os.path.join(subdir_prefix, "train.corpus.gz"), train_bliss_corpus_ldc
     )
     tk.register_output(
-        os.path.join(subdir_prefix, "train.subword_processed.corpus.gz"), train_bliss_corpus_ldc_subword
+        os.path.join(subdir_prefix, "train.subword_processed.corpus.gz"),
+        train_bliss_corpus_ldc_subword,
     )
     tk.register_output(
         os.path.join(subdir_prefix, "Switchboard-i6-legacy", "train.corpus.gz"),
