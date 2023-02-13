@@ -228,7 +228,7 @@ class SmsWsjBase(MapDatasetBase):
         print(" ".join(unzip_cmd), file=returnn_log.v4)
         sp.check_call(unzip_cmd)
         print("Finished unzipping", file=returnn_log.v4)
-        sp.check_call(["chmod", "-R", "o+w", local_base_dir])
+        sp.check_call(["chmod", "-R", "-f", "o+w", local_base_dir])
 
         json_path_cached_mod = json_path_cached.replace(".json", ".mod.json")
         original_dir = None
