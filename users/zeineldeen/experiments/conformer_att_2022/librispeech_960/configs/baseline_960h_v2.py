@@ -584,19 +584,20 @@ def conformer_baseline():
 
   # lm-scale-0.6-prior-0.4-mini_lstm-beam-45/dev-other/wer
   # 3.77
-  for cov_scale in [0.08, 0.1, 0.11, 0.13, 0.14, 0.15, 0.16]:
-    for cov_thre in [0.06, 0.08, 0.1, 0.12, 0.14, 0.16]:
-      run_lm_fusion(
-        lm_type='trafo', exp_name=name, epoch='avg',
-        test_set_names=['dev-other'],
-        lm_scales=[0.6],
-        prior_scales=[0.4],
-        prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
-        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-        beam_size=45, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-        bpe_size=BPE_10K,
-        coverage_scale=cov_scale, coverage_threshold=cov_thre,
-      )
+  for beam_size in [50, 55, 60, 65]:
+    for cov_scale in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]:
+      for cov_thre in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.1]:
+        run_lm_fusion(
+          lm_type='trafo', exp_name=name, epoch='avg',
+          test_set_names=['dev-other'],
+          lm_scales=[0.6],
+          prior_scales=[0.4],
+          prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+          train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+          beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+          bpe_size=BPE_10K,
+          coverage_scale=cov_scale, coverage_threshold=cov_thre,
+        )
 
   run_lm_fusion(
     lm_type='trafo', exp_name=name, epoch='avg',
