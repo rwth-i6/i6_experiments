@@ -11,6 +11,7 @@ from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
 from i6_experiments.common.datasets.switchboard.corpus_train import (
     get_train_bliss_corpus_ldc,
     get_train_bliss_corpus_i6_legacy,
+    get_train_bliss_corpus_ldc_subwords,
 )
 
 
@@ -65,8 +66,12 @@ def _export_train_bliss_corpus(subdir_prefix: str = SUBDIR_PREFIX):
     """
     train_bliss_corpus_ldc = get_train_bliss_corpus_ldc()
     train_bliss_corpus_legacy = get_train_bliss_corpus_i6_legacy()
+    train_bliss_corpus_ldc_subword = get_train_bliss_corpus_ldc_subwords()
     tk.register_output(
         os.path.join(subdir_prefix, "train.corpus.gz"), train_bliss_corpus_ldc
+    )
+    tk.register_output(
+        os.path.join(subdir_prefix, "train.subword_processed.corpus.gz"), train_bliss_corpus_ldc_subword
     )
     tk.register_output(
         os.path.join(subdir_prefix, "Switchboard-i6-legacy", "train.corpus.gz"),
