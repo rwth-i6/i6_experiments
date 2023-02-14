@@ -102,6 +102,7 @@ class SmsWsjBase(MapDatasetBase):
         zip_cache=None,
         zip_prefix="",
         scenario_map_args=None,
+        shuffle=False,
         buffer=True,
         buffer_size=40,
         prefetch_num_workers=4,
@@ -115,6 +116,7 @@ class SmsWsjBase(MapDatasetBase):
         :param Optional[str] zip_cache: zip archive with SMS-WSJ data which can be cached, unzipped and used as data dir
         :param str zip_prefix: prefix of filename that needs to be removed for the lookup in the zip archive
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
+        :param bool shuffle: shuffle data in SMS-WSJ dataset
         :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
         :param int buffer_size: buffer size, should always be larger than 2 * number of sequences in a batch
         :param int prefetch_num_workers: number of workers for prefetching
@@ -154,16 +156,16 @@ class SmsWsjBase(MapDatasetBase):
         }
         ds = ds.map(functools.partial(scenario_map_fn, **scenario_map_args))
         ds = ds.map(pre_batch_transform)
-
-        self._ds = ds
-        self._ds_iterator = iter(self._ds)
-
+        if shuffle:
+            ds = ds.shuffle(reshuffle=True)
         self._use_buffer = buffer
         if self._use_buffer:
-            self._ds = self._ds.prefetch(prefetch_num_workers, prefetch_buffer_size).copy(
-                freeze=True
-            )
+            ds = ds.prefetch(prefetch_num_workers, prefetch_buffer_size)
         self._buffer = SequenceBuffer(buffer_size)
+
+        self._ds = ds
+        self._ds_copy = ds.copy(freeze=True)
+        self._ds_iterator = iter(self._ds_copy)
 
     def __len__(self) -> int:
         return len(self._ds)
@@ -181,7 +183,7 @@ class SmsWsjBase(MapDatasetBase):
             ), f"seq_idx {seq_idx} not in buffer. Available keys are {self._buffer.keys()}"
             return self._buffer[seq_idx]
         else:
-            return self._ds[seq_idx]
+            return self._ds_copy[seq_idx]
 
     def get_seq_tag(self, seq_idx: int) -> str:
         """
@@ -238,8 +240,15 @@ class SmsWsjBase(MapDatasetBase):
                         f"Maybe the training was restarted from an epoch > 1?",
                         file=returnn_log.v3,
                     )
-                self._ds_iterator = iter(self._ds)
+                self._ds_iterator = iter(self._ds.copy(freeze=True))
                 self._buffer[0] = next(self._ds_iterator)
+
+    def update_dataset_copy(self):
+        """
+        Update the copy of the internal SMS-WSJ dataset. The copy is used because it can be indexed. It is updated in
+        order to obtain different shuffling for different epochs.
+        """
+        self._ds_copy = self._ds.copy(freeze=True)
 
 
 class SmsWsjBaseWithHdfClasses(SmsWsjBase):
@@ -362,6 +371,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         therefore the buffer does not contain the initial indices when continuing the training from an epoch > 0.
         """
         out = super().init_seq_order(epoch=epoch, **kwargs)
+        self._dataset.update_dataset_copy()
         buffer_index = self.get_corpus_seq_idx(0)
         self._dataset.update_buffer(buffer_index)
         return out
