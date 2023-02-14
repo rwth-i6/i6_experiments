@@ -229,7 +229,7 @@ def ctc_baseline(basic_experiments=False):
       dec_lstm_size=int(1024 * model_scale),
       hidden_dim=int(256 * model_scale),
       variance_dim=int(512 * model_scale),
-      batch_size=12000 if model_scale < 2.1 else 6000,
+      batch_size=12000 if model_scale < 1.9 else 6000,
     )
     train_config.config["learning_rates"] = [0.0001, 0.001]
 
@@ -1227,7 +1227,7 @@ def ctc_loss_scale():
             dec_lstm_size=int(1024 * model_scale),
             hidden_dim=int(256 * model_scale),
             variance_dim=int(512 * model_scale),
-            batch_size=12000 if model_scale < 2.1 else 6000,
+            batch_size=12000 if model_scale < 1.9 else 6000,
             )
           train_config.config["learning_rates"] = [0.0001, 0.001]
 

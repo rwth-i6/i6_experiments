@@ -14,7 +14,7 @@ class CalculateVarianceFromFeaturesJob(Job):
     self.durations = duration_hdf
     self.corpus = bliss
     self.segments = segments
-    self.rqmt = {"time": 2, "mem": mem}
+    self.rqmt = {"time": 4, "mem": mem}
 
     self.out_csv = self.output_path("stats.csv")
     self.out_variance = self.output_var("variance")
