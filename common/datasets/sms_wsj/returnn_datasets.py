@@ -116,7 +116,7 @@ class SmsWsjBase(MapDatasetBase):
         :param str zip_prefix: prefix of filename that needs to be removed for the lookup in the zip archive
         :param Optional[Dict] scenario_map_args: optional kwargs for sms_wsj scenario_map_fn
         :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
-        :param int buffer_size: buffer size
+        :param int buffer_size: buffer size, should always be larger than 2 * number of sequences in a batch
         :param int prefetch_num_workers: number of workers for prefetching
         """
 
@@ -226,33 +226,21 @@ class SmsWsjBase(MapDatasetBase):
             )
 
         # add sequences
-        for idx in range(seq_idx, min(seq_idx + self._buffer.max_size // 2, len(self))):
-            if idx not in self._buffer:
-                self._buffer[idx] = next(self._ds_iterator)
+        for idx in range(seq_idx, seq_idx + self._buffer.max_size // 2):
+            buffer_idx = idx % len(self)
+            if buffer_idx not in self._buffer:
+                self._buffer[buffer_idx] = next(self._ds_iterator)
             if idx == len(self) - 1 and 0 not in self._buffer:
                 print(f"Reached end of dataset, reset iterator", file=returnn_log.v4)
-                try:
-                    next(self._ds_iterator)
-                except StopIteration:
-                    pass
-                else:
+                rest = list(self._ds_iterator)
+                if len(rest) > 0:
                     print(
-                        "WARNING: reached final index of dataset, but iterator has more sequences. "
-                        "Maybe the training was restarted from an epoch > 1?",
+                        f"WARNING: reached final index of dataset, but iterator has {len(rest)} more sequences. "
+                        f"Maybe the training was restarted from an epoch > 1?",
                         file=returnn_log.v3,
                     )
-                print(
-                    f"Current buffer indices: {self._buffer.keys()}",
-                    file=returnn_log.v5,
-                )
                 self._ds_iterator = iter(self._ds)
-                for idx_ in range(min(self._buffer.max_size // 2, len(self))):
-                    if idx_ not in self._buffer:
-                        self._buffer[idx_] = next(self._ds_iterator)
-                print(
-                    f"After adding start of dataset to buffer indices: {self._buffer.keys()}",
-                    file=returnn_log.v5,
-                )
+                self._buffer[0] = next(self._ds_iterator)
 
 
 class SmsWsjBaseWithHdfClasses(SmsWsjBase):
