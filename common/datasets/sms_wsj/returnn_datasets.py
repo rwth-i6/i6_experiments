@@ -105,6 +105,7 @@ class SmsWsjBase(MapDatasetBase):
         buffer=True,
         buffer_size=40,
         prefetch_num_workers=4,
+        prefetch_buffer_size=8,
     ):
         """
         :param str dataset_name: "train_si284", "cv_dev93" or "test_eval92"
@@ -117,6 +118,7 @@ class SmsWsjBase(MapDatasetBase):
         :param bool buffer: if True, use SMS-WSJ dataset prefetching and store sequences in buffer
         :param int buffer_size: buffer size, should always be larger than 2 * number of sequences in a batch
         :param int prefetch_num_workers: number of workers for prefetching
+        :param int prefetch_buffer_size: buffer size for prefetching
         """
 
         super().__init__(data_types=num_outputs)
@@ -158,7 +160,7 @@ class SmsWsjBase(MapDatasetBase):
 
         self._use_buffer = buffer
         if self._use_buffer:
-            self._ds = self._ds.prefetch(prefetch_num_workers, buffer_size).copy(
+            self._ds = self._ds.prefetch(prefetch_num_workers, prefetch_buffer_size).copy(
                 freeze=True
             )
         self._buffer = SequenceBuffer(buffer_size)
