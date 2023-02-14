@@ -362,7 +362,7 @@ class SmsWsjWrapper(MapDatasetWrapper):
         therefore the buffer does not contain the initial indices when continuing the training from an epoch > 0.
         """
         out = super().init_seq_order(epoch=epoch, **kwargs)
-        buffer_index = ((epoch or 1) - 1) * self.num_seqs % len(self._dataset)
+        buffer_index = self.get_corpus_seq_idx(0)
         self._dataset.update_buffer(buffer_index)
         return out
 
