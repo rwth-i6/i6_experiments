@@ -21,6 +21,7 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.tts.tts_pi
   build_speaker_embedding_dataset,
   build_vae_speaker_prior_dataset,
   tts_forward,
+  calculate_feature_variance
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.networks.default_vocoder import (
   get_default_vocoder,
@@ -59,6 +60,14 @@ def ctc_baseline(basic_experiments=False):
   returnn_common_root = CloneGitRepositoryJob(
     "https://github.com/rwth-i6/returnn_common",
     commit="79876b18552f61a3af7c21c670475fee51ef3991",
+    checkout_folder_name="returnn_common",
+  ).out_repository
+  returnn_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+  ).out_repository
+  returnn_common_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn_common",
+    commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
     checkout_folder_name="returnn_common",
   ).out_repository
   name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/ctc_baseline"
@@ -184,6 +193,137 @@ def ctc_baseline(basic_experiments=False):
         use_true_durations=(duration == "cheat"),
       )
       synthetic_data_dict[f"ctc_{upsampling}_{duration}"] = synth_corpus
+      calculate_feature_variance(
+          train_job=train_job,
+          corpus=corpus,
+          returnn_root=returnn_root_local,
+          returnn_exe=returnn_exe,
+          returnn_common_root=returnn_common_root_local,
+          prefix=exp_name + f"/{duration}",
+          training_datasets=training_datasets,
+          gauss_up=(upsampling == "gauss"),
+          embedding_size=256,
+          speaker_embedding_size=256,
+          use_true_durations=(duration == "cheat"),
+          durations=durations if duration == "cheat" else None,
+          original_durations=durations,
+      )
+  for model_scale in [2]:
+    exp_name = name + "_big_model" + f"/gauss"
+    returnn_root_loc = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn",
+      commit="45fad83c785a45fa4abfeebfed2e731dd96f960c",
+    ).out_repository
+    returnn_common_root_loc = CloneGitRepositoryJob(
+      "https://github.com/rwth-i6/returnn_common",
+      commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+      checkout_folder_name="returnn_common",
+    ).out_repository
+    train_config = get_training_config(
+      returnn_common_root=returnn_common_root_loc,
+      training_datasets=training_datasets,
+      embedding_size=int(256 * model_scale),
+      speaker_embedding_size=int(256 * model_scale),
+      gauss_up=True,
+      enc_lstm_size=int(256 * model_scale),
+      dec_lstm_size=int(1024 * model_scale),
+      hidden_dim=int(256 * model_scale),
+      variance_dim=int(512 * model_scale),
+      batch_size=12000 if model_scale < 2.1 else 6000,
+    )
+    train_config.config["learning_rates"] = [0.0001, 0.001]
+
+    train_job = tts_training(
+      config=train_config,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root_loc,
+      prefix=exp_name,
+      num_epochs=200,
+    )
+
+    forward_config = get_forward_config(
+      returnn_common_root=returnn_common_root_loc,
+      forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+      embedding_size=int(256 * model_scale),
+      speaker_embedding_size=int(256 * model_scale),
+      enc_lstm_size=int(256 * model_scale),
+      dec_lstm_size=int(1024 * model_scale),
+      hidden_dim=int(256 * model_scale),
+      variance_dim=int(512 * model_scale),
+      calc_speaker_embedding=True,
+      gauss_up=True,
+    )
+
+    gl_swer(
+      name=exp_name + "/gl_swer",
+      vocoder=default_vocoder,
+      returnn_root=returnn_root_loc,
+      returnn_exe=returnn_exe,
+      checkpoint=train_job.out_checkpoints[200],
+      config=forward_config,
+    )
+
+    speaker_embedding_hdf = build_speaker_embedding_dataset(
+      returnn_common_root=returnn_common_root_loc,
+      returnn_exe=returnn_exe,
+      returnn_root=returnn_root_loc,
+      datasets=training_datasets,
+      prefix=exp_name,
+      train_job=train_job,
+      speaker_embedding_size=int(256 * model_scale)
+    )
+    for dur_pred in ["pred", "cheat"]:
+      synth_dataset = get_inference_dataset(
+        corpus,
+        returnn_root=returnn_root_loc,
+        returnn_exe=returnn_exe,
+        datastreams=training_datasets.datastreams,
+        speaker_embedding_hdf=speaker_embedding_hdf,
+        durations=durations if dur_pred == "cheat" else None,
+        process_corpus=False,
+        speaker_embedding_size=int(256 * model_scale)
+      )
+
+      synth_corpus = synthesize_with_splits(
+        name=exp_name + f"/{dur_pred}",
+        reference_corpus=reference_corpus.corpus_file,
+        corpus_name="train-clean-100",
+        job_splits=job_splits,
+        datasets=synth_dataset,
+        returnn_root=returnn_root_loc,
+        returnn_exe=returnn_exe,
+        returnn_common_root=returnn_common_root_loc,
+        checkpoint=train_job.out_checkpoints[200],
+        vocoder=default_vocoder,
+        embedding_size=int(256 * model_scale),
+        speaker_embedding_size=int(256 * model_scale),
+        gauss_up=True,
+        enc_lstm_size=int(256 * model_scale),
+        dec_lstm_size=int(1024 * model_scale),
+        hidden_dim=int(256 * model_scale),
+        variance_dim=int(512 * model_scale),
+        use_true_durations=(dur_pred == "cheat"),
+      )
+      synthetic_data_dict[f"ctc_0_5_{model_scale}_{upsampling}_{dur_pred}"] = synth_corpus
+      calculate_feature_variance(
+        train_job=train_job,
+        corpus=corpus,
+        returnn_root=returnn_root_loc,
+        returnn_exe=returnn_exe,
+        returnn_common_root=returnn_common_root_loc,
+        prefix=exp_name + f"/{dur_pred}",
+        training_datasets=training_datasets,
+        embedding_size=int(256 * model_scale),
+        speaker_embedding_size=int(256 * model_scale),
+        gauss_up=True,
+        enc_lstm_size=int(256 * model_scale),
+        dec_lstm_size=int(1024 * model_scale),
+        hidden_dim=int(256 * model_scale),
+        variance_dim=int(512 * model_scale),
+        use_true_durations=(dur_pred == "cheat"),
+        durations=durations if dur_pred == "cheat" else None,
+        original_durations=durations,
+      )
   if basic_experiments:
     return synthetic_data_dict
   returnn_common_root = CloneGitRepositoryJob(
@@ -908,6 +1048,14 @@ def ctc_loss_scale():
     commit="79876b18552f61a3af7c21c670475fee51ef3991",
     checkout_folder_name="returnn_common",
   ).out_repository
+  returnn_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+  ).out_repository
+  returnn_common_root_local = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn_common",
+    commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+    checkout_folder_name="returnn_common",
+  ).out_repository
   name = "experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/loss_scale"
   reference_corpus = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")["train-clean-100"]
   default_vocoder = get_default_vocoder(name=name)
@@ -924,7 +1072,8 @@ def ctc_loss_scale():
       alignment=alignment,
     )
     for upsampling in ["repeat", "gauss"]:
-      if upsampling == "gauss" and float(scale) not in [0, 0.25, 0.75, 1.0]:
+      #if upsampling == "gauss" and float(scale) not in [0, 0.25, 0.75, 1.0]: # Removed due to Space
+      if upsampling == "repeat" or float(scale) not in [0, 1.0]:
         continue
       exp_name = name + f"_{upsampling}"
 
@@ -1012,6 +1161,7 @@ def ctc_loss_scale():
           )
           forward_hdf = forward_job.out_hdf_files["output.hdf"]
           tk.register_output(exp_name + "/dump_dur/durations.hdf", forward_hdf)
+        # for dur_pred in ["pred", "cheat"]:, Removed due to Space
         for dur_pred in ["pred", "cheat"]:
           synth_dataset = get_inference_dataset_old(
             corpus,
@@ -1029,9 +1179,9 @@ def ctc_loss_scale():
             corpus_name="train-clean-100",
             job_splits=job_splits,
             datasets=synth_dataset,
-            returnn_root=returnn_root,
+            returnn_root=returnn_root_local,
             returnn_exe=returnn_exe,
-            returnn_common_root=returnn_common_root,
+            returnn_common_root=returnn_common_root_local,
             checkpoint=train_job.out_checkpoints[200],
             vocoder=default_vocoder,
             embedding_size=256,
@@ -1040,12 +1190,146 @@ def ctc_loss_scale():
             use_true_durations=(dur_pred == "cheat"),
           )
           synthetic_data_dict[f"ctc_{scale}_{upsampling}_{dur_pred}"] = synth_corpus
+          calculate_feature_variance(
+            train_job=train_job,
+            corpus=corpus,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            returnn_common_root=returnn_common_root_local,
+            prefix=exp_name + f"/{dur_pred}",
+            training_datasets=training_datasets,
+            gauss_up=(upsampling == "gauss"),
+            embedding_size=256,
+            speaker_embedding_size=256,
+            use_true_durations=(dur_pred == "cheat"),
+            durations=durations if dur_pred == "cheat" else None,
+            original_durations=durations,
+          )
+      if float(scale) in [0]:
+        for model_scale in [2]:
+          exp_name = exp_name + "_big"
+          returnn_root_loc = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn",
+            commit="45fad83c785a45fa4abfeebfed2e731dd96f960c",
+          ).out_repository
+          returnn_common_root_loc = CloneGitRepositoryJob(
+            "https://github.com/rwth-i6/returnn_common",
+            commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
+            checkout_folder_name="returnn_common",
+          ).out_repository
+          train_config = get_training_config(
+            returnn_common_root=returnn_common_root_loc,
+            training_datasets=training_datasets,
+            embedding_size=int(256 * model_scale),
+            speaker_embedding_size=int(256 * model_scale),
+            gauss_up=(upsampling == "gauss"),
+            enc_lstm_size=int(256 * model_scale),
+            dec_lstm_size=int(1024 * model_scale),
+            hidden_dim=int(256 * model_scale),
+            variance_dim=int(512 * model_scale),
+            batch_size=12000 if model_scale < 2.1 else 6000,
+            )
+          train_config.config["learning_rates"] = [0.0001, 0.001]
+
+          train_job = tts_training(
+            config=train_config,
+            returnn_exe=returnn_exe,
+            returnn_root=returnn_root_loc,
+            prefix=exp_name,
+            num_epochs=200,
+          )
+
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root_loc,
+            forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+            embedding_size=int(256 * model_scale),
+            speaker_embedding_size=int(256 * model_scale),
+            enc_lstm_size=int(256 * model_scale),
+            dec_lstm_size=int(1024 * model_scale),
+            hidden_dim=int(256 * model_scale),
+            variance_dim=int(512 * model_scale),
+            calc_speaker_embedding=True,
+            gauss_up=(upsampling == "gauss"),
+          )
+
+          gl_swer(
+            name=exp_name + "/gl_swer",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root_loc,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
+
+          speaker_embedding_hdf = build_speaker_embedding_dataset(
+            returnn_common_root=returnn_common_root_loc,
+            returnn_exe=returnn_exe,
+            returnn_root=returnn_root_loc,
+            datasets=training_datasets,
+            prefix=exp_name,
+            train_job=train_job,
+            speaker_embedding_size=int(256 * model_scale)
+          )
+          for dur_pred in ["pred", "cheat"]:
+            synth_dataset = get_inference_dataset(
+              corpus,
+              returnn_root=returnn_root_loc,
+              returnn_exe=returnn_exe,
+              datastreams=training_datasets.datastreams,
+              speaker_embedding_hdf=speaker_embedding_hdf,
+              durations=durations if dur_pred == "cheat" else None,
+              process_corpus=False,
+              speaker_embedding_size=int(256 * model_scale)
+
+            )
+
+            synth_corpus = synthesize_with_splits(
+              name=exp_name + f"/{dur_pred}",
+              reference_corpus=reference_corpus.corpus_file,
+              corpus_name="train-clean-100",
+              job_splits=job_splits,
+              datasets=synth_dataset,
+              returnn_root=returnn_root_loc,
+              returnn_exe=returnn_exe,
+              returnn_common_root=returnn_common_root_loc,
+              checkpoint=train_job.out_checkpoints[200],
+              vocoder=default_vocoder,
+              embedding_size=int(256 * model_scale),
+              speaker_embedding_size=int(256 * model_scale),
+              gauss_up=(upsampling == "gauss"),
+              enc_lstm_size=int(256 * model_scale),
+              dec_lstm_size=int(1024 * model_scale),
+              hidden_dim=int(256 * model_scale),
+              variance_dim=int(512 * model_scale),
+              use_true_durations=(dur_pred == "cheat"),
+            )
+            synthetic_data_dict[f"ctc_{scale}_{model_scale}_{upsampling}_{dur_pred}"] = synth_corpus
+            calculate_feature_variance(
+              train_job=train_job,
+              corpus=corpus,
+              returnn_root=returnn_root_loc,
+              returnn_exe=returnn_exe,
+              returnn_common_root=returnn_common_root_loc,
+              prefix=exp_name + f"/{dur_pred}",
+              training_datasets=training_datasets,
+              embedding_size=int(256 * model_scale),
+              speaker_embedding_size=int(256 * model_scale),
+              gauss_up=(upsampling == "gauss"),
+              enc_lstm_size=int(256 * model_scale),
+              dec_lstm_size=int(1024 * model_scale),
+              hidden_dim=int(256 * model_scale),
+              variance_dim=int(512 * model_scale),
+              use_true_durations=(dur_pred == "cheat"),
+              durations=durations if dur_pred == "cheat" else None,
+              original_durations=durations,
+            )
   return synthetic_data_dict
 
 
-def synthesize_ls_100_features(silence_prep=True, add_speaker_tags=False):
+def synthesize_ls_100_features(silence_prep=True, add_speaker_tags=False, rasr_alignment=None, rasr_allophones=None):
   from i6_core.tools.git import CloneGitRepositoryJob
-  from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_ls_100_features
+  from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import get_ls_100_features, \
+    get_ls_100_real_feature_variance, get_ls_100_real_synth_feature_variance
 
   returnn_exe = tk.Path(
     "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
@@ -1070,5 +1354,29 @@ def synthesize_ls_100_features(silence_prep=True, add_speaker_tags=False):
     silence_prep=silence_prep,
     add_speaker_tags=add_speaker_tags,
   )
+  if rasr_alignment is not None and rasr_allophones is not None:
+    get_ls_100_real_feature_variance(
+      name=f"experiments/librispeech/nar_tts_2022/tts/tts_baseline_experiments/real_data_silence_prep_{silence_prep}",
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+      silence_prep=silence_prep,
+      rasr_alignment=rasr_alignment,
+      rasr_allophones=rasr_allophones)
+    feature_corpus = get_ls_100_features(
+      vocoder=default_vocoder,
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+      prefix=name + "_no_center",
+      silence_prep=silence_prep,
+      add_speaker_tags=add_speaker_tags,
+      center=False,
+    )
+    get_ls_100_real_synth_feature_variance(
+      name=name + "_no_center",
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+      rasr_alignment=rasr_alignment,
+      rasr_allophones=rasr_allophones,
+      corpus_bliss=corpus)
 
   return corpus

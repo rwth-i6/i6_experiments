@@ -45,6 +45,8 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
   ).out_repository
   pref_name = "experiments/librispeech/nar_tts_2022/conformer_training/synthetic/"
   for synth_name, synthethic_corpus in synthethic_corpus_dict.items():
+    if "f0_gauss_pred" in synth_name or ("mono" in synth_name and "xvec" in synth_name):
+        continue
     # build the training datasets object containing train, cv, dev-train and the extern_data dict
     prefix_name = pref_name + synth_name + "/"
     training_datasets_speedperturbed = build_training_datasets(
@@ -57,6 +59,7 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
       synthetic_bliss=synthethic_corpus,
       synthetic_scale=1,
       original_scale=0,
+      partition_epoch=3 if not ("1000" in synth_name or "860" in synth_name) else 30,
     )
     # retrain dataset has curriculum options disabled
     training_datasets_speedperturbed_retrain = build_training_datasets(
@@ -70,6 +73,7 @@ def train_conformer_with_synthetic_data(synthethic_corpus_dict):
       synthetic_bliss=synthethic_corpus,
       synthetic_scale=1,
       original_scale=0,
+      partition_epoch=3 if not ("1000" in synth_name or "860" in synth_name) else 30,
     )
 
     test_dataset_tuples = {}

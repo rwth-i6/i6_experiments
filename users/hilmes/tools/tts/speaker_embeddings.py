@@ -231,7 +231,7 @@ class RandomSpeakerAssignmentJob(Job):
     """
     Depending on input either randomizes speaker indices within corpus or uses speaker names from different corpus
     """
-    __sis_hash_exclude__ = {"shuffle": True}
+    __sis_hash_exclude__ = {"shuffle": True, "seed": None}
 
     def __init__(
         self,
@@ -239,6 +239,7 @@ class RandomSpeakerAssignmentJob(Job):
         speaker_bliss_corpus: Optional[tk.Path] = None,
         keep_ratio: bool = True,
         shuffle: bool = True,
+        seed: Optional[int] = None,
     ):
         """
 
@@ -253,6 +254,7 @@ class RandomSpeakerAssignmentJob(Job):
         )
         self.keep_ratio = keep_ratio
         self.shuffle = shuffle
+        self.seed = seed
 
         self.out_mapping = self.output_path("out_mapping.pkl")
 
@@ -272,6 +274,8 @@ class RandomSpeakerAssignmentJob(Job):
         if not self.keep_ratio:
             speakers = list(set(speakers))
         if self.shuffle:
+            if self.seed is not None:
+                random.seed(self.seed)
             random.shuffle(speakers)
 
         mapping = {}
@@ -374,7 +378,7 @@ class SingularizeHDFPerSpeakerJob(Job):
         offset = 0
         dim = inputs[0 : lengths[0][0]][0].shape[-1]
         for tag, length in zip(raw_tags, lengths):
-            tag_to_value[tag] = inputs[offset : offset + length[0]]
+            tag_to_value[tag if isinstance(tag, str) else tag.decode()] = inputs[offset : offset + length[0]]
             offset += length[0]
 
         index_to_value = {}
