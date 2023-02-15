@@ -541,6 +541,24 @@ def conformer_baseline():
     bpe_size=BPE_5K,
   )
 
+  args = copy.deepcopy(oclr_args)
+  args['max_seq_length'] = 82
+  run_exp(
+    "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_bpe5k_maxSeqLen-82",
+    train_args=args,
+    num_epochs=2035,
+    bpe_size=BPE_5K,
+  )
+
+  args = copy.deepcopy(oclr_args)
+  args['max_seq_length'] = 109
+  run_exp(
+    "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_bpe1k_maxSeqLen-109",
+    train_args=args,
+    num_epochs=2035,
+    bpe_size=BPE_1K,
+  )
+
   # Wo LM:
   #
   # dev-clean  2.28
@@ -611,13 +629,31 @@ def conformer_baseline():
   run_lm_fusion(
     lm_type='trafo', exp_name=name, epoch='avg',
     test_set_names=['test-other'],
-    lm_scales=[0.6],
-    prior_scales=[0.4],
+    lm_scales=[0.56],
+    prior_scales=[0.38],
     prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
     train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-    beam_size=45, batch_size=1000 * 160,
+    beam_size=85, batch_size=1000 * 160,
     bpe_size=BPE_10K,
   )
+
+  # TODO: without length norm
+  for lm_scale in [0.62, 0.64, 0.66, 0.68, 0.7, 0.72]:
+    for prior_scale in [0.5, 0.52, 0.54, 0.56]:
+      run_lm_fusion(
+        lm_type='trafo', exp_name=name, epoch='avg',
+        test_set_names=['dev-other'],
+        lm_scales=[lm_scale],
+        prior_scales=[prior_scale],
+        prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+        beam_size=45, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+        bpe_size=BPE_10K,
+        length_norm=False,
+      )
+
+  # TODO: with length reward
+
 
   # TODO: retrain
   retrain_args = copy.deepcopy(oclr_args)

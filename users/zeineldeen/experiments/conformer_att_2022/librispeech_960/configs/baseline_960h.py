@@ -51,20 +51,25 @@ trafo_10k_lm_opts = {
     'name': 'trafo'
 }
 
-bpe5k_lm = get_lm('ls960_trafo24_bs3000_5ep_5kbpe')  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    'lm_subnet': bpe5k_lm.combination_network,
-    'load_on_init_opts': {
-        'filename': get_best_checkpoint(bpe5k_lm.train_job, key='dev_score_output/output'),
-        'params_prefix': '',
-        'load_if_prefix': 'lm_output/',
-    },
-    'name': 'trafo'
-}
+def get_trafo_lm_opts(bpe_lm_name, lm_ckpt=None):
+    bpe_lm = get_lm(bpe_lm_name)  # type: ZeineldeenLM
+    if lm_ckpt is None:
+        lm_ckpt = get_best_checkpoint(bpe_lm.train_job, key='dev_score_output/output')
+    trafo_lm_opts = {
+        'lm_subnet': bpe_lm.combination_network,
+        'load_on_init_opts': {
+            'filename': lm_ckpt,
+            'params_prefix': '',
+            'load_if_prefix': 'lm_output/',
+        },
+        'name': 'trafo'
+    }
+    return trafo_lm_opts
 
 trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
+    BPE_5K: get_trafo_lm_opts('ls960_trafo24_bs3000_5ep_5kbpe'),
+    BPE_1K: get_trafo_lm_opts('ls960_trafo24_bs3000_5ep_1kbpe'),
 }
 
 # ----------------------------------------------------------- #
@@ -698,9 +703,22 @@ def conformer_baseline():
     oclr_args['encoder_args'].use_sqrd_relu = True
     train_j, train_data = run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU", train_args=oclr_args, num_epochs=435)
 
-    #run_exp('base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k', train_args=oclr_args, num_epochs=435, bpe_size=1000)
+    run_exp('base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_1K)
+    args = copy.deepcopy(oclr_args)
+    args['max_seq_length'] = 109
+    run_exp(
+        'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k_maxSeqLen-109', train_args=args, num_epochs=435, bpe_size=BPE_1K)
+
     bpe5k_train_j, bpe5k_train_data = run_exp(
         'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_5K)
+
+    args = copy.deepcopy(oclr_args)
+    args['max_seq_length'] = 82  # drop 0.0003% of data similar for 10k with 75 max-seq-len
+    run_exp(
+        'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k_maxSeqLen-82',
+        train_args=args, num_epochs=435, bpe_size=BPE_5K
+    )
+
 
     # TODO: testing
     for beam_size in [12, 32]:
