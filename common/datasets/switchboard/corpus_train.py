@@ -113,7 +113,7 @@ def get_spoken_form_train_bliss_corpus_ldc(
         os.path.join(subdir_prefix, "create_ldf_subword_train_corpus_job")
     )
 
-    return create_swbd_subword_bliss.out_e2e_corpus
+    return create_swbd_subword_bliss.out_spoken_form_corpus
 
 
 def get_train_corpus_object_ldc(subdir_prefix: str = SUBDIR_PREFIX):
