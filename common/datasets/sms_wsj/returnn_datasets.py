@@ -81,7 +81,18 @@ class ZipAudioReader(AudioReader):
             if self._zip is not None:
                 assert file.startswith(self._zip_prefix)
                 file_zip = file[len(self._zip_prefix) :]
-                data, sample_rate = soundfile.read(io.BytesIO(self._zip.read(file_zip)))
+                data = None
+                for _ in range(5):
+                    try:
+                        data, sample_rate = soundfile.read(io.BytesIO(self._zip.read(file_zip)))
+                    except:
+                        print(
+                            f"data could not be read: {file_zip} from {self._zip.filename}, retry...",
+                            file=returnn_log.v4,
+                        )
+                    else:
+                        break
+                assert data is not None, f"data could not be read: {file_zip} from {self._zip.filename}, abort now"
             else:
                 data, sample_rate = soundfile.read(file)
             return data.T
