@@ -3,12 +3,13 @@ Model, based on Mohammads code.
 """
 
 
+from __future__ import annotations
+from typing import Optional, Callable
+
+from returnn.tf.util.data import Dim, SpatialDim, FeatureDim
+
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
-from i6_experiments.users.zeineldeen.modules.attention import (
-    ConvLocAwareness,
-    AdditiveLocAwareness,
-)
 
 
 class AttentionMechanism(AbsModule):
@@ -27,6 +28,7 @@ class AttentionMechanism(AbsModule):
     ):
         super().__init__()
         self.enc_key_dim = enc_key_dim
+        assert isinstance(att_num_heads, Dim)
         self.att_num_heads = att_num_heads
 
         self.att_dropout = att_dropout
@@ -35,6 +37,9 @@ class AttentionMechanism(AbsModule):
         self.loc_filter_size = loc_filter_size
         self.loc_num_channels = loc_num_channels
 
+        self.select_base_enc: Optional[Callable[[str], str]] = None
+        self.enc_time_dim = None
+
     def create(self):
         out_net = ReturnnNetwork()
 
@@ -42,25 +47,12 @@ class AttentionMechanism(AbsModule):
             "s_transformed", "s", n_out=self.enc_key_dim, with_bias=False, l2=self.l2
         )  # project query
 
-        if self.loc_num_channels is not None:
-            assert self.loc_filter_size is not None
-            weight_feedback = ConvLocAwareness(
-                enc_key_dim=self.enc_key_dim,
-                filter_size=self.loc_filter_size,
-                num_channels=self.loc_num_channels,
-                l2=self.l2,
-            )
-        else:
-            # additive
-            weight_feedback = AdditiveLocAwareness(
-                enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads
-            )
-
-        out_net.update(weight_feedback.create())  # add att weight feedback
-
+        enc_ctx = "base:enc_ctx"
+        if self.select_base_enc:
+            enc_ctx = self.select_base_enc(enc_ctx)
         out_net.add_combine_layer(
             "energy_in",
-            ["base:enc_ctx", weight_feedback.name, "s_transformed"],
+            [enc_ctx, "s_transformed"],
             kind="add",
             n_out=self.enc_key_dim,
         )
@@ -70,14 +62,18 @@ class AttentionMechanism(AbsModule):
         energy = out_net.add_linear_layer(
             "energy",
             "energy_tanh",
-            n_out=self.att_num_heads,
+            n_out=self.att_num_heads.dimension,
+            out_dim=self.att_num_heads,
             with_bias=False,
             l2=self.l2,
         )
 
+        att_sm_opts = {}
+        if self.enc_time_dim:
+            att_sm_opts["axis"] = self.enc_time_dim
         if self.att_dropout:
             att_weights0 = out_net.add_softmax_over_spatial_layer(
-                "att_weights0", energy
+                "att_weights0", energy, **att_sm_opts
             )
             att_weights = out_net.add_dropout_layer(
                 "att_weights",
@@ -86,12 +82,26 @@ class AttentionMechanism(AbsModule):
                 dropout_noise_shape={"*": None},
             )
         else:
-            att_weights = out_net.add_softmax_over_spatial_layer("att_weights", energy)
+            att_weights = out_net.add_softmax_over_spatial_layer(
+                "att_weights", energy, **att_sm_opts
+            )
 
-        att0 = out_net.add_generic_att_layer(
-            "att0", weights=att_weights, base="base:enc_value"
-        )
-        self.name = out_net.add_merge_dims_layer("att", att0, axes="except_batch")
+        enc_value = "base:enc_value"
+        if self.select_base_enc:
+            enc_value = self.select_base_enc(enc_value)
+        if self.enc_time_dim:
+            att0 = out_net.add_dot_layer(
+                "att0",
+                [att_weights, enc_value],
+                reduce=self.enc_time_dim,
+                var1="auto",
+                var2="auto",
+            )
+        else:
+            att0 = out_net.add_generic_att_layer(
+                "att0", weights=att_weights, base=enc_value
+            )
+        self.name = out_net.add_merge_dims_layer("att", att0, axes="static")
 
         return out_net.get_net()
 
@@ -136,6 +146,9 @@ class RNNDecoder:
         length_normalization=True,
         coverage_threshold=None,
         coverage_scale=None,
+        enc_chunks_dim: Optional[Dim] = None,
+        enc_time_dim: Optional[Dim] = None,
+        eos_id=0,
     ):
         """
         :param base_model: base/encoder model instance
@@ -161,6 +174,9 @@ class RNNDecoder:
         :param int|None loc_conv_att_num_channels:
         :param bool reduceout: if set to True, maxout layer is used
         :param int att_num_heads: number of attention heads
+        :param enc_chunks_dim:
+        :param enc_time_dim:
+        :param int eos_id: end of sentence id. or end-of-chunk if chunking is used
         """
 
         self.base_model = base_model
@@ -173,6 +189,9 @@ class RNNDecoder:
 
         self.enc_key_dim = enc_key_dim
         self.enc_value_dim = base_model.enc_value_dim
+        if isinstance(att_num_heads, int):
+            att_num_heads = SpatialDim("dec-att-num-heads", att_num_heads)
+        assert isinstance(att_num_heads, Dim)
         self.att_num_heads = att_num_heads
 
         self.target = target
@@ -210,6 +229,10 @@ class RNNDecoder:
         self.coverage_threshold = coverage_threshold
         self.coverage_scale = coverage_scale
 
+        self.enc_chunks_dim = enc_chunks_dim
+        self.enc_time_dim = enc_time_dim
+        self.eos_id = eos_id
+
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
         self.dec_output = None
@@ -217,9 +240,35 @@ class RNNDecoder:
 
     def add_decoder_subnetwork(self, subnet_unit: ReturnnNetwork):
 
-        subnet_unit.add_compare_layer(
-            "end", source="output", value=0
-        )  # sentence end token
+        if self.enc_chunks_dim:  # use chunking
+            subnet_unit["chunk_idx"] = {
+                "class": "eval",
+                "from": ["output", "prev:chunk_idx"],
+                "eval": f"tf.where(tf.equal(source(0), {self.eos_id}), source(1) + 1, source(1))",
+                "out_type": {
+                    "dtype": "int32",
+                    "dim": None,
+                    "sparse_dim": self.enc_chunks_dim,
+                },
+                "initial_output": 0,
+            }
+
+            subnet_unit["num_chunks"] = {
+                "class": "length",
+                "from": "base:encoder",
+                "axis": self.enc_chunks_dim,
+            }
+
+            subnet_unit["end"] = {
+                "class": "compare",
+                "from": ["chunk_idx", "num_chunks"],
+                "kind": "greater_equal",
+            }
+
+        else:  # no chunking
+            subnet_unit.add_compare_layer(
+                "end", source="output", value=self.eos_id
+            )  # sentence end token
 
         # target embedding
         subnet_unit.add_linear_layer(
@@ -248,6 +297,26 @@ class RNNDecoder:
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
         )
+        if self.enc_chunks_dim:
+
+            def _gather_chunk(source: str) -> str:
+                name = source.replace("base:", "")
+                subnet_unit[name + "_gather"] = {
+                    "class": "gather",
+                    "from": source,
+                    "position": "chunk_idx",
+                    "axis": self.enc_chunks_dim,
+                }
+                subnet_unit[name + "_set_time"] = {
+                    "class": "reinterpret_data",
+                    "from": name + "_gather",
+                    "set_axes": {"T": self.enc_time_dim},
+                }
+                return name + "_set_time"
+
+            assert self.enc_time_dim
+            att.select_base_enc = _gather_chunk
+            att.enc_time_dim = self.enc_time_dim
         subnet_unit.update(att.create())
 
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
@@ -345,7 +414,7 @@ class RNNDecoder:
 
         if self.coverage_scale and self.coverage_threshold:
             assert (
-                self.att_num_heads == 1
+                self.att_num_heads.dimension == 1
             ), "Not supported for multi-head attention."  # TODO: just average the heads?
             accum_w = self.subnet_unit.add_eval_layer(
                 "accum_w",
@@ -413,7 +482,12 @@ class RNNDecoder:
             self.base_model.network.add_split_dim_layer(
                 "enc_value",
                 "encoder_proj",
-                dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads),
+                dims=(
+                    self.att_num_heads,
+                    FeatureDim(
+                        "val", self.enc_value_dim // self.att_num_heads.dimension
+                    ),
+                ),
             )
         else:
             self.base_model.network.add_linear_layer(
@@ -426,7 +500,12 @@ class RNNDecoder:
             self.base_model.network.add_split_dim_layer(
                 "enc_value",
                 "encoder",
-                dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads),
+                dims=(
+                    self.att_num_heads,
+                    FeatureDim(
+                        "val", self.enc_value_dim // self.att_num_heads.dimension
+                    ),
+                ),
             )
 
         self.base_model.network.add_linear_layer(

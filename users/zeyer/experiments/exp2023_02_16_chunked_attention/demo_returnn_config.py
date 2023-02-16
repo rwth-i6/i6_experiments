@@ -10,15 +10,22 @@ This is assumed to be run within RETURNN.
 import copy
 
 from returnn.config import get_global_config
+from returnn.tf.util.data import SpatialDim
 
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
 )
-from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
+from .model import RNNDecoder
 
 
 config = get_global_config()
+
+# These options can be configured via command line.
 task = config.value("task", "train")
+chunk_size = config.int("chunk_size", 20)
+chunk_step = config.int("chunk_step", chunk_size * 3 // 4)
+
+
 use_tensorflow = True
 
 
@@ -40,7 +47,7 @@ extern_data = {
 }
 
 
-batch_size = 10000
+batch_size = 1000
 optimizer = {"class": "adam", "epsilon": 1e-8}
 learning_rate = 0.01
 num_epochs = 100
@@ -49,6 +56,7 @@ num_epochs = 100
 conformer_encoder = ConformerEncoder(
     target=target,
     input_layer=None,
+    output_layer_name="encoder_full_seq",
     num_blocks=1,
     specaug=False,
     ff_dim=64,
@@ -59,6 +67,16 @@ conformer_encoder = ConformerEncoder(
     dropout_in=0.0,
 )
 conformer_encoder.create_network()
+chunk_size_dim = SpatialDim("chunk-size", chunk_size)
+chunked_time_dim = SpatialDim("chunked-time")
+conformer_encoder.network["encoder"] = {
+    "class": "window",
+    "from": "encoder_full_seq",
+    "window_dim": chunk_size_dim,
+    "stride": chunk_step,
+    "out_spatial_dim": chunked_time_dim,
+}
+
 
 transformer_decoder = RNNDecoder(
     base_model=conformer_encoder,
@@ -75,6 +93,8 @@ transformer_decoder = RNNDecoder(
     softmax_dropout=0.0,
     rec_weight_dropout=0.0,
     label_smoothing=0.0,
+    enc_chunks_dim=chunked_time_dim,
+    enc_time_dim=chunk_size_dim,
 )
 transformer_decoder.create_network()
 
