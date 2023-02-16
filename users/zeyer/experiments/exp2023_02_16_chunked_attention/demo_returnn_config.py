@@ -29,6 +29,10 @@ def _create_config():
         specaug=False,
         ff_dim=64,
         enc_key_dim=32,
+        att_num_heads=1,
+        dropout=0.0,
+        att_dropout=0.0,
+        dropout_in=0.0,
     )
     conformer_encoder.create_network()
 
@@ -37,9 +41,16 @@ def _create_config():
         target=target,
         embed_dim=32,
         lstm_num_units=32,
-        output_num_units=32,
+        output_num_units=64,
         enc_key_dim=32,
         lstm_lm_proj_dim=32,
+        dropout=0.0,
+        att_dropout=0.0,
+        att_num_heads=1,
+        embed_dropout=0.0,
+        softmax_dropout=0.0,
+        rec_weight_dropout=0.0,
+        label_smoothing=0.0,
     )
     transformer_decoder.create_network()
 
@@ -61,10 +72,7 @@ use_tensorflow = True
 
 
 train = {
-    "class": "TaskNumberBaseConvertDataset",
-    "input_base": 3,
-    "output_base": 15,
-    "max_input_seq_len": 100,
+    "class": "Task12AXDataset",
     "num_seqs": 1000,
 }
 dev = copy.deepcopy(train)
@@ -76,13 +84,14 @@ dev.update(
 )
 target = "classes"
 extern_data = {
-    "data": {"dim": 3, "sparse": True},
-    "classes": {"dim": 15, "sparse": True},
+    "data": {"dim": 9},
+    "classes": {"dim": 2, "sparse": True},
 }
 
 globals().update(_create_config())
 
 
-batch_size = 1000
-max_seq_length = {target: 100}
+batch_size = 10000
 optimizer = {"class": "adam", "epsilon": 1e-8}
+learning_rate = 0.01
+num_epochs = 100
