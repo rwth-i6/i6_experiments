@@ -1,7 +1,7 @@
 #!rnn.py
 
 """
-Demo config for the RETURNN training of the chunked attention model.
+Demo config for the RETURNN training.
 
 This is assumed to be run within RETURNN.
 """
