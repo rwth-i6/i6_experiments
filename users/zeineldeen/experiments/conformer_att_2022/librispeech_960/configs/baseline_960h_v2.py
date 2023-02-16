@@ -585,13 +585,12 @@ def conformer_baseline():
     args=oclr_args, num_epochs=80, w_drop=True
   )
 
-  for beam_size in [40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]:  # TODO: try larger
-    for lm_scale in [0.54, 0.56, 0.58, 0.6, 0.62, 0.64]:
-      for prior_scale in [0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48]:
-
+  for beam_size in [32, 40, 45, 50, 55, 60]:
+    for lm_scale in [0.5, 0.52, 0.54, 0.56, 0.58, 0.6, 0.62, 0.64]:
+      for prior_scale in [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48]:
         run_lm_fusion(
             lm_type='trafo', exp_name=name, epoch='avg',
-            test_set_names=['dev-other'],
+            test_set_names=['dev-clean'],
             lm_scales=[lm_scale],
             prior_scales=[prior_scale],
             prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
@@ -600,44 +599,7 @@ def conformer_baseline():
             bpe_size=BPE_10K,
         )
 
-  # lm-scale-0.6-prior-0.4-mini_lstm-beam-45/dev-other/wer
-  # 3.77
-  for beam_size in [50, 55, 60, 65]:
-    for cov_scale in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1]:
-      for cov_thre in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.1]:
-        run_lm_fusion(
-          lm_type='trafo', exp_name=name, epoch='avg',
-          test_set_names=['dev-other'],
-          lm_scales=[0.6],
-          prior_scales=[0.4],
-          prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
-          train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-          beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-          bpe_size=BPE_10K,
-          coverage_scale=cov_scale, coverage_threshold=cov_thre,
-        )
-
-  run_lm_fusion(
-    lm_type='trafo', exp_name=name, epoch='avg',
-    test_set_names=['test-other'],
-    lm_scales=[0.42],
-    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-    beam_size=12, batch_size=2000 * 160,
-    bpe_size=BPE_10K,
-  )
-
-  run_lm_fusion(
-    lm_type='trafo', exp_name=name, epoch='avg',
-    test_set_names=['test-other'],
-    lm_scales=[0.56],
-    prior_scales=[0.38],
-    prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
-    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-    beam_size=85, batch_size=1000 * 160,
-    bpe_size=BPE_10K,
-  )
-
-  # TODO: without length norm
+  # TODO: without length norm -> only 0.1 worse
   for lm_scale in [0.62, 0.64, 0.66, 0.68, 0.7, 0.72]:
     for prior_scale in [0.5, 0.52, 0.54, 0.56]:
       run_lm_fusion(
@@ -656,8 +618,15 @@ def conformer_baseline():
 
 
   # TODO: retrain
+  for lr in [5e-4, 3e-4, 1e-4]:
+    retrain_args = copy.deepcopy(oclr_args)
+    retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
+    retrain_args['learning_rates_list'] = [lr] * 20 + list(numpy.linspace(lr, 1e-6, 580))
+    retrain_args['lr_decay'] = 0.95
+    run_exp(exp_name=name + f'_retrain1_const20_linDecay580_{lr}', train_args=retrain_args, num_epochs=600)
+
   retrain_args = copy.deepcopy(oclr_args)
   retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
-  retrain_args['learning_rates_list'] = [5e-4] * 20 + list(numpy.linspace(5e-4, 1e-6, 580))
+  retrain_args['learning_rates_list'] = list(numpy.linspace(1e-4, 1e-6, 580))
   retrain_args['lr_decay'] = 0.95
-  run_exp(exp_name=name + '_retrain1_const20_linDecay580_0.0005', train_args=retrain_args, num_epochs=600)
+  run_exp(exp_name=name + f'_retrain1_linDecay600_0.0001', train_args=retrain_args, num_epochs=600)
