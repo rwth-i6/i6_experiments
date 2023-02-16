@@ -103,3 +103,14 @@ search_output_layer = transformer_decoder.decision_layer_name
 # add full network
 network = conformer_encoder.network.get_net()  # type: dict
 network.update(transformer_decoder.network.get_net())
+
+
+def wrap_tf_session(session):
+    """Wrap a TF session to add some debugging functionality."""
+    import tensorflow as tf
+    from tensorflow.python import debug as tf_debug
+
+    # tf.debugging.experimental.enable_dump_debug_info("/tmp/my-tfdbg-dumps")
+    # session = tf_debug.DumpingDebugWrapperSession(session, "/tmp/my-tfdbg-dumps")
+
+    return session
