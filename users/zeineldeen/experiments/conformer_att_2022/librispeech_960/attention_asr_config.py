@@ -127,7 +127,7 @@ def pretrain_layers_and_dims(
     variant,
     reduce_dims=True,
     initial_dim_factor=0.5,
-    initial_batch_size=20000,
+    initial_batch_size=None,
     initial_batch_size_idx=3,
     second_bs=None,
     second_bs_idx=None,
@@ -168,12 +168,13 @@ def pretrain_layers_and_dims(
     extra_net_dict = dict()
     extra_net_dict["#config"] = {}
 
-    if idx < initial_batch_size_idx:
-        extra_net_dict["#config"]["batch_size"] = initial_batch_size
-    elif second_bs:
-        assert second_bs_idx is not None
-        if idx < second_bs_idx:
-            extra_net_dict["#config"]["batch_size"] = second_bs
+    if initial_batch_size:
+        if idx < initial_batch_size_idx:
+            extra_net_dict["#config"]["batch_size"] = initial_batch_size
+        elif second_bs:
+            assert second_bs_idx is not None
+            if idx < second_bs_idx:
+                extra_net_dict["#config"]["batch_size"] = second_bs
 
     if repeat_first:
         idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...

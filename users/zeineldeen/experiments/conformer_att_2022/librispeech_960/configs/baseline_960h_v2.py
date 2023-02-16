@@ -585,9 +585,9 @@ def conformer_baseline():
     args=oclr_args, num_epochs=80, w_drop=True
   )
 
-  for beam_size in [32, 40, 45, 50, 55, 60]:
-    for lm_scale in [0.5, 0.52, 0.54, 0.56, 0.58, 0.6, 0.62, 0.64]:
-      for prior_scale in [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48]:
+  for beam_size in [32, 40, 45, 50]:
+    for lm_scale in [0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52]:
+      for prior_scale in [0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44]:
         run_lm_fusion(
             lm_type='trafo', exp_name=name, epoch='avg',
             test_set_names=['dev-clean'],
