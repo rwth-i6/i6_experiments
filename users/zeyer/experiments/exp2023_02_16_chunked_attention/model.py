@@ -306,6 +306,7 @@ class RNNDecoder:
                     "from": source,
                     "position": "chunk_idx",
                     "axis": self.enc_chunks_dim,
+                    "clip_to_valid": True,
                 }
                 subnet_unit[name + "_set_time"] = {
                     "class": "reinterpret_data",
