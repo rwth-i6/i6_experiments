@@ -513,6 +513,13 @@ class RNNDecoder:
             }
             self.output_prob = "output_prob_filter_eoc"
 
+            subnet_unit["output_prob_loss"] = {
+                "class": "copy",
+                "from": "output_prob",
+                "target": "layer:output",
+                **loss_ext,
+            }
+
         if self.coverage_scale and self.coverage_threshold:
             assert (
                 self.att_num_heads.dimension == 1
