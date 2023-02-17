@@ -28,6 +28,7 @@ device = "cpu"
 task = config.value("task", "train")
 chunk_size = config.int("chunk_size", 20)
 chunk_step = config.int("chunk_step", chunk_size * 3 // 4)
+search_type = config.value("search_type", {"train": "end-of-chunk"}.get(task, None))
 
 
 use_tensorflow = True
@@ -106,7 +107,7 @@ transformer_decoder = RNNDecoder(
     enc_chunks_dim=chunked_time_dim,
     enc_time_dim=chunk_size_dim,
     eos_id=eoc_idx,
-    search_type="end-of-chunk",
+    search_type=search_type,
 )
 transformer_decoder.create_network()
 
