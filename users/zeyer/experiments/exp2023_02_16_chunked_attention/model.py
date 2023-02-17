@@ -646,6 +646,34 @@ class RNNDecoder:
             with_bias=False,
         )
 
+        self.base_model.network["out_best"] = {
+            "class": "decide",
+            "from": self.dec_output,
+        }
+
+        self.base_model.network["enc_seq_len"] = {"class": "length", "from": "encoder"}
+        self.base_model.network["targets_seq_len"] = {
+            "class": "length",
+            "from": f"data:{self.target}",
+        }
+        self.base_model.network["out_best_seq_len"] = {
+            "class": "length",
+            "from": "out_best",
+        }
+        for name in [
+            "enc_seq_len",
+            "out_best",
+            "out_best_seq_len",
+            f"data:{self.target}",
+            "targets_seq_len",
+        ]:
+            name_ = name.replace("data:", "")
+            self.base_model.network[f"debug_print_{name_}"] = {
+                "class": "print",
+                "from": name,
+                "is_output_layer": True,
+            }
+
         # TODO fix this
         # decision_layer_name = self.base_model.network.add_decide_layer(
         #    "decision", self.dec_output, target=self.target
