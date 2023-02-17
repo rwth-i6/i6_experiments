@@ -687,10 +687,29 @@ class RNNDecoder:
                     "is_output_layer": True,
                 }
 
-        # TODO fix this
-        # decision_layer_name = self.base_model.network.add_decide_layer(
-        #    "decision", self.dec_output, target=self.target
-        # )
-        self.decision_layer_name = "decision"  # decision_layer_name
+        # Filter blank / EOS / EOC
+
+        self.base_model.network["out_best_non_blank_mask"] = {
+            "class": "compare",
+            "from": "out_best",
+            "value": self.eos_id,
+            "kind": "not_equal",
+        }
+
+        self.base_model.network["out_best_wo_blank"] = {
+            "class": "masked_computation",
+            "mask": "out_best_non_blank_mask",
+            "from": "out_best",
+            "unit": {"class": "copy"},
+        }
+        self.decision_layer_name = "out_best_wo_blank"
+
+        self.base_model.network["edit_distance"] = {
+            "class": "copy",
+            "from": "out_best_wo_blank",
+            "only_on_search": True,
+            "loss": "edit_distance",
+            "target": self.target,
+        }
 
         return self.dec_output
