@@ -20,6 +20,10 @@ from .model import RNNDecoder
 
 config = get_global_config()
 
+# This demo model is so small that CPU is actually faster.
+# But also, currently on Mac M1, I get strange hangs. https://github.com/tensorflow/tensorflow/issues/59722
+device = "cpu"
+
 # These options can be configured via command line.
 task = config.value("task", "train")
 chunk_size = config.int("chunk_size", 20)
