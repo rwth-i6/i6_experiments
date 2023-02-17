@@ -646,9 +646,10 @@ class RNNDecoder:
             with_bias=False,
         )
 
-        decision_layer_name = self.base_model.network.add_decide_layer(
-            "decision", self.dec_output, target=self.target
-        )
-        self.decision_layer_name = decision_layer_name
+        # TODO fix this
+        # decision_layer_name = self.base_model.network.add_decide_layer(
+        #    "decision", self.dec_output, target=self.target
+        # )
+        self.decision_layer_name = "decision"  # decision_layer_name
 
         return self.dec_output
