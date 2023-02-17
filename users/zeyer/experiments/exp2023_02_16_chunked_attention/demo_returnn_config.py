@@ -67,15 +67,20 @@ conformer_encoder = ConformerEncoder(
     dropout_in=0.0,
 )
 conformer_encoder.create_network()
-chunk_size_dim = SpatialDim("chunk-size", chunk_size)
-chunked_time_dim = SpatialDim("chunked-time")
-conformer_encoder.network["encoder"] = {
-    "class": "window",
-    "from": "encoder_full_seq",
-    "window_dim": chunk_size_dim,
-    "stride": chunk_step,
-    "out_spatial_dim": chunked_time_dim,
-}
+if chunk_size > 0:
+    chunk_size_dim = SpatialDim("chunk-size", chunk_size)
+    chunked_time_dim = SpatialDim("chunked-time")
+    conformer_encoder.network["encoder"] = {
+        "class": "window",
+        "from": "encoder_full_seq",
+        "window_dim": chunk_size_dim,
+        "stride": chunk_step,
+        "out_spatial_dim": chunked_time_dim,
+    }
+else:
+    chunk_size_dim = None
+    chunked_time_dim = None
+    conformer_encoder.network.add_copy_layer("encoder", "encoder_full_seq")
 
 
 transformer_decoder = RNNDecoder(
@@ -103,14 +108,3 @@ search_output_layer = transformer_decoder.decision_layer_name
 # add full network
 network = conformer_encoder.network.get_net()  # type: dict
 network.update(transformer_decoder.network.get_net())
-
-
-def wrap_tf_session(session):
-    """Wrap a TF session to add some debugging functionality."""
-    import tensorflow as tf
-    from tensorflow.python import debug as tf_debug
-
-    # tf.debugging.experimental.enable_dump_debug_info("/tmp/my-tfdbg-dumps")
-    # session = tf_debug.DumpingDebugWrapperSession(session, "/tmp/my-tfdbg-dumps")
-
-    return session
