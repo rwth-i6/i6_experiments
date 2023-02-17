@@ -44,7 +44,8 @@ dev.update(
         "fixed_random_seed": 42,
     }
 )
-target = "classes"
+target = "targets_with_eoc"  # see below
+eoc_idx = 2
 extern_data = {
     "data": {"dim": 9},
     "classes": {"dim": 2, "sparse": True},
@@ -104,6 +105,7 @@ transformer_decoder = RNNDecoder(
     label_smoothing=0.0,
     enc_chunks_dim=chunked_time_dim,
     enc_time_dim=chunk_size_dim,
+    eos_id=eoc_idx,
     search_type="end-of-chunk",
 )
 transformer_decoder.create_network()
@@ -113,3 +115,11 @@ search_output_layer = transformer_decoder.decision_layer_name
 # add full network
 network = conformer_encoder.network.get_net()  # type: dict
 network.update(transformer_decoder.network.get_net())
+
+# Just because this dummy dataset does not have any blank/EOS/EOC.
+network["_targets_with_eoc"] = {
+    "class": "reinterpret_data",
+    "from": f"data:classes",
+    "increase_sparse_dim": 1,
+    "register_as_extern_data": "targets_with_eoc",
+}
