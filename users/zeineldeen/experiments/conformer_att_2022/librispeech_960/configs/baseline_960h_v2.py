@@ -599,6 +599,17 @@ def conformer_baseline():
             bpe_size=BPE_10K,
         )
 
+  run_lm_fusion(
+    lm_type='trafo', exp_name=name, epoch='avg',
+    test_set_names=['test-clean'],
+    lm_scales=[0.44],
+    prior_scales=[0.32],
+    prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
+    train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+    beam_size=42, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+    bpe_size=BPE_10K,
+  )
+
   # TODO: without length norm -> only 0.1 worse
   for lm_scale in [0.62, 0.64, 0.66, 0.68, 0.7, 0.72]:
     for prior_scale in [0.5, 0.52, 0.54, 0.56]:
