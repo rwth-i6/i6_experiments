@@ -149,6 +149,7 @@ class RNNDecoder:
         enc_chunks_dim: Optional[Dim] = None,
         enc_time_dim: Optional[Dim] = None,
         eos_id=0,
+        search_type: Optional[str] = None,
     ):
         """
         :param base_model: base/encoder model instance
@@ -177,6 +178,9 @@ class RNNDecoder:
         :param enc_chunks_dim:
         :param enc_time_dim:
         :param int eos_id: end of sentence id. or end-of-chunk if chunking is used
+        :param search_type:
+            None -> use RETURNN default handling via search flag (i.e. disabled in training, enabled in search mode).
+            "end-of-chunk" -> assume given targets without EOC, and search for EOC.
         """
 
         self.base_model = base_model
@@ -232,6 +236,7 @@ class RNNDecoder:
         self.enc_chunks_dim = enc_chunks_dim
         self.enc_time_dim = enc_time_dim
         self.eos_id = eos_id
+        self.search_type = search_type
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -241,9 +246,55 @@ class RNNDecoder:
     def add_decoder_subnetwork(self, subnet_unit: ReturnnNetwork):
 
         if self.enc_chunks_dim:  # use chunking
-            subnet_unit["chunk_idx"] = {
+            subnet_unit["new_label_pos"] = {
                 "class": "eval",
-                "from": ["output", "prev:chunk_idx"],
+                "from": ["output", "prev:new_label_pos"],
+                "eval": f"tf.where(tf.equal(source(0), {self.eos_id}), source(1), source(1) + 1)",
+                "out_type": {
+                    "dtype": "int32",
+                    "dim": None,
+                    "sparse_dim": self.enc_chunks_dim,
+                },
+                "initial_output": 0,
+            }
+
+            subnet_unit["label_pos"] = {"class": "copy", "from": "prev:new_label_pos"}
+
+            subnet_unit["label_pos_reached_end"] = {
+                "class": "compare",
+                "from": ["label_pos", "ground_truth_label_seq_len"],
+                "kind": "greater_equal",
+            }
+
+            subnet_unit["label_pos_reached_last"] = {
+                "class": "compare",
+                "from": ["label_pos", "ground_truth_last_label_pos"],
+                "kind": "equal",
+            }
+
+            subnet_unit["ground_truth_label"] = {
+                "class": "gather",
+                "from": f"base:data:{self.target}",
+                "axis": "T",
+                "position": "label_pos",
+                "clip_to_valid": True,
+            }
+
+            subnet_unit["ground_truth_label_seq_len"] = {
+                "class": "length",
+                "from": f"base:data:{self.target}",
+                "axis": "T",
+            }
+
+            subnet_unit["ground_truth_last_label_pos"] = {
+                "class": "eval",
+                "from": "ground_truth_label_seq_len",
+                "eval": "source(0) - 1",
+            }
+
+            subnet_unit["new_chunk_idx"] = {
+                "class": "eval",
+                "from": ["output", "prev:new_chunk_idx"],
                 "eval": f"tf.where(tf.equal(source(0), {self.eos_id}), source(1) + 1, source(1))",
                 "out_type": {
                     "dtype": "int32",
@@ -253,6 +304,8 @@ class RNNDecoder:
                 "initial_output": 0,
             }
 
+            subnet_unit["chunk_idx"] = {"class": "copy", "from": "prev:new_chunk_idx"}
+
             subnet_unit["num_chunks"] = {
                 "class": "length",
                 "from": "base:encoder",
@@ -261,7 +314,7 @@ class RNNDecoder:
 
             subnet_unit["end"] = {
                 "class": "compare",
-                "from": ["chunk_idx", "num_chunks"],
+                "from": ["new_chunk_idx", "num_chunks"],
                 "kind": "greater_equal",
             }
 
@@ -403,15 +456,62 @@ class RNNDecoder:
         else:
             subnet_unit.add_copy_layer("readout", "readout_in")
 
+        out_prob_opts = {}
+        loss_ext = dict(
+            loss="ce",
+            loss_opts={"label_smoothing": self.label_smoothing},
+        )
+        if not self.search_type:
+            out_prob_opts.update(loss_ext)
         self.output_prob = subnet_unit.add_softmax_layer(
             "output_prob",
             "readout",
             l2=self.l2,
-            loss="ce",
-            loss_opts={"label_smoothing": self.label_smoothing},
             target=self.target,
             dropout=self.softmax_dropout,
+            **out_prob_opts,
         )
+        if self.search_type == "end-of-chunk":
+            subnet_unit["_label_indices"] = {
+                "class": "range_in_axis",
+                "from": f"base:data:{self.target}",
+                "axis": "sparse_dim",
+            }
+            subnet_unit["_label_indices_eq_eoc"] = {
+                "class": "compare",
+                "from": "_label_indices",
+                "value": self.eos_id,
+                "kind": "equal",
+            }
+            subnet_unit["_label_indices_eq_eoc_"] = {
+                "class": "switch",
+                "condition": "label_pos_reached_last",
+                "true_from": False,
+                "false_from": "_label_indices_eq_eoc",
+            }
+            subnet_unit["_label_indices_eq_true_label"] = {
+                "class": "compare",
+                "from": ["_label_indices", "ground_truth_label"],
+                "kind": "equal",
+            }
+            subnet_unit["_label_indices_eq_true_label_"] = {
+                "class": "switch",
+                "condition": "label_pos_reached_end",
+                "true_from": False,
+                "false_from": "_label_indices_eq_true_label",
+            }
+            subnet_unit["eoc_label_mask"] = {
+                "class": "combine",
+                "kind": "logical_or",
+                "from": ["_label_indices_eq_eoc_", "_label_indices_eq_true_label_"],
+            }
+            subnet_unit["output_prob_filter_eoc"] = {
+                "class": "switch",
+                "condition": "eoc_label_mask",
+                "true_from": "output_prob",
+                "false_from": 1e-20,
+            }
+            self.output_prob = "output_prob_filter_eoc"
 
         if self.coverage_scale and self.coverage_threshold:
             assert (
@@ -448,27 +548,34 @@ class RNNDecoder:
                 eval=f"source(0) * (source(1) ** {self.coverage_scale})",
             )
 
-        if self.length_normalization:
-            subnet_unit.add_choice_layer(
-                "output",
-                self.output_prob,
-                target=self.target,
-                beam_size=self.beam_size,
-                initial_output=0,
-            )
+        choice_opts = {}
+        if not self.length_normalization:
+            choice_opts["length_normalization"] = False
+        if not self.search_type:
+            pass
+        elif self.search_type == "end-of-chunk":
+            choice_opts["search"] = True
         else:
-            subnet_unit.add_choice_layer(
-                "output",
-                self.output_prob,
-                target=self.target,
-                beam_size=self.beam_size,
-                initial_output=0,
-                length_normalization=False,
-            )
+            raise ValueError(f"Unknown search type: {self.search_type!r}")
+        subnet_unit.add_choice_layer(
+            "output",
+            self.output_prob,
+            target=self.target,
+            beam_size=self.beam_size,
+            initial_output=0,
+            **choice_opts,
+        )
 
         # recurrent subnetwork
+        rec_opts = dict(target=self.target)
+        if self.search_type == "end-of-chunk":
+            # search_flag is False in training, but we anyway want to search, and we don't want the seq len
+            # from the ground truth labels (without EOC labels), so we must not use the target here.
+            rec_opts["target"] = None
+        if self.enc_chunks_dim:
+            rec_opts["include_eos"] = True
         dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), target=self.target, source=self.source
+            "output", unit=subnet_unit.get_net(), source=self.source, **rec_opts
         )
 
         return dec_output

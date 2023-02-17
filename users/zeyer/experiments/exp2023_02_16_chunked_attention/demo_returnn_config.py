@@ -104,6 +104,7 @@ transformer_decoder = RNNDecoder(
     label_smoothing=0.0,
     enc_chunks_dim=chunked_time_dim,
     enc_time_dim=chunk_size_dim,
+    search_type="end-of-chunk",
 )
 transformer_decoder.create_network()
 
