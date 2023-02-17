@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional, Callable
 
 from returnn.util.basic import NotSpecified
-from returnn.tf.util.data import Dim, SpatialDim, FeatureDim
+from returnn.tf.util.data import Data, Dim, SpatialDim, FeatureDim
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
@@ -624,17 +624,17 @@ class RNNDecoder:
     def create_network(self):
 
         self.dec_output = self.add_decoder_subnetwork(self.subnet_unit)
+        target = self.target
         if self.search_type == "end-of-chunk":
             self.base_model.network["_02_alignment_on_the_fly"] = {
                 "class": "copy",
                 "from": "out_best",
                 "register_as_extern_data": "alignment_on_the_fly",
             }
+            target = "alignment_on_the_fly"
             # Add another output layer for potential training.
             subnet_unit = ReturnnNetwork()
-            self.add_decoder_subnetwork(
-                subnet_unit, search_type=None, target="alignment_on_the_fly"
-            )
+            self.add_decoder_subnetwork(subnet_unit, search_type=None, target=target)
 
         # Add to Base/Encoder network
 
@@ -730,5 +730,45 @@ class RNNDecoder:
             "loss": "edit_distance",
             "target": self.target,
         }
+
+        if self.enc_chunks_dim:
+            # noinspection PyShadowingNames
+            def _check_alignment(source, self, **kwargs):
+                import tensorflow as tf
+
+                out_wo_blank = source(0, as_data=True)
+                assert isinstance(out_wo_blank, Data)
+                targets = self.network.get_layer(f"data:{target}").output
+                assert isinstance(targets, Data)
+                encoder = self.network.get_layer("encoder").output
+                assert isinstance(encoder, Data)
+                num_chunks = encoder.get_sequence_lengths()
+                num_labels_wo_blank = out_wo_blank.get_sequence_lengths()
+                num_labels_w_blank = targets.get_sequence_lengths()
+                deps = [
+                    tf.Assert(
+                        tf.reduce_all(
+                            tf.equal(
+                                num_labels_wo_blank + num_chunks, num_labels_w_blank
+                            )
+                        ),
+                        [
+                            "num labels wo blank, num chunks, with blank:",
+                            num_labels_wo_blank,
+                            num_chunks,
+                            num_labels_w_blank,
+                        ],
+                    ),
+                ]
+                self.network.register_post_control_dependencies(deps)
+                with tf.control_dependencies(deps):
+                    return tf.identity(out_wo_blank.placeholder)
+
+            self.base_model.network["_check_alignment"] = {
+                "class": "eval",
+                "from": self.decision_layer_name,
+                "eval": _check_alignment,
+                "is_output_layer": True,
+            }
 
         return self.dec_output
