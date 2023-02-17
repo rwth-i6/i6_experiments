@@ -6,6 +6,7 @@ Model, based on Mohammads code.
 from __future__ import annotations
 from typing import Optional, Callable
 
+from returnn.util.basic import NotSpecified
 from returnn.tf.util.data import Dim, SpatialDim, FeatureDim
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
@@ -243,7 +244,26 @@ class RNNDecoder:
         self.dec_output = None
         self.output_prob = None
 
-    def add_decoder_subnetwork(self, subnet_unit: ReturnnNetwork):
+    def add_decoder_subnetwork(
+        self,
+        subnet_unit: ReturnnNetwork,
+        target: str = NotSpecified,
+        search_type: Optional[str] = NotSpecified,
+        rec_layer_name: Optional[str] = None,
+        rec_layer_opts: Optional[dict] = None,
+    ):
+        if target is NotSpecified:
+            target = self.target
+        if search_type is NotSpecified:
+            search_type = self.search_type
+        if rec_layer_opts is None:
+            rec_layer_opts = {}
+        if not rec_layer_name:
+            if search_type == "end-of-chunk":
+                rec_layer_name = "output_align"
+                rec_layer_opts.setdefault("name_scope", "output/rec")
+            else:
+                rec_layer_name = "output"
 
         if self.enc_chunks_dim:  # use chunking
             subnet_unit["new_label_pos"] = {
@@ -280,7 +300,7 @@ class RNNDecoder:
 
             subnet_unit["ground_truth_label"] = {
                 "class": "gather",
-                "from": f"base:data:{self.target}",
+                "from": f"base:data:{target}",
                 "axis": "T",
                 "position": "label_pos",
                 "clip_to_valid": True,
@@ -288,7 +308,7 @@ class RNNDecoder:
 
             subnet_unit["ground_truth_label_seq_len"] = {
                 "class": "length",
-                "from": f"base:data:{self.target}",
+                "from": f"base:data:{target}",
                 "axis": "T",
             }
 
@@ -469,26 +489,27 @@ class RNNDecoder:
             subnet_unit.add_copy_layer("readout", "readout_in")
 
         out_prob_opts = {}
-        loss_ext = dict(
-            loss="ce",
-            loss_opts={"label_smoothing": self.label_smoothing},
-        )
-        if not self.search_type:
-            out_prob_opts.update(loss_ext)
+        if not search_type:
+            out_prob_opts.update(
+                dict(
+                    loss="ce",
+                    loss_opts={"label_smoothing": self.label_smoothing},
+                )
+            )
         self.output_prob = subnet_unit.add_softmax_layer(
             "output_prob",
             "readout",
             l2=self.l2,
-            target=f"layer:base:data:{self.target}"
-            if self.search_type == "end-of-chunk"
-            else self.target,
+            target=f"layer:base:data:{target}"
+            if search_type == "end-of-chunk"
+            else target,
             dropout=self.softmax_dropout,
             **out_prob_opts,
         )
-        if self.search_type == "end-of-chunk":
+        if search_type == "end-of-chunk":
             subnet_unit["_label_indices"] = {
                 "class": "range_in_axis",
-                "from": f"base:data:{self.target}",
+                "from": f"base:data:{target}",
                 "axis": "sparse_dim",
             }
             subnet_unit["_label_indices_eq_eoc"] = {
@@ -527,22 +548,6 @@ class RNNDecoder:
             }
             self.output_prob = "output_prob_filter_eoc"
 
-            subnet_unit["output_logits"] = {
-                "class": "eval",
-                "from": "output_prob",
-                "collocate_with": "output_prob",
-                "eval": "source(0, as_layer=True).output_before_activation.x",
-            }
-            loss_ext["loss_opts"]["input_type"] = "logits"
-            subnet_unit["output_prob_loss"] = {
-                "class": "copy",
-                "from": "output_logits",
-                "target": "layer:output",
-                "extra_deps": "output",
-                "collocate_with": "output",
-                **loss_ext,
-            }
-
         if self.coverage_scale and self.coverage_threshold:
             assert (
                 self.att_num_heads.dimension == 1
@@ -578,16 +583,16 @@ class RNNDecoder:
                 eval=f"source(0) * (source(1) ** {self.coverage_scale})",
             )
 
-        choice_opts = dict(target=self.target)
+        choice_opts = dict(target=target)
         if not self.length_normalization:
             choice_opts["length_normalization"] = False
-        if not self.search_type:
+        if not search_type:
             pass
-        elif self.search_type == "end-of-chunk":
+        elif search_type == "end-of-chunk":
             choice_opts["search"] = True
             choice_opts["target"] = None
         else:
-            raise ValueError(f"Unknown search type: {self.search_type!r}")
+            raise ValueError(f"Unknown search type: {search_type!r}")
         subnet_unit.add_choice_layer(
             "output",
             self.output_prob,
@@ -597,8 +602,8 @@ class RNNDecoder:
         )
 
         # recurrent subnetwork
-        rec_opts = dict(target=self.target)
-        if self.search_type == "end-of-chunk":
+        rec_opts = dict(target=target)
+        if search_type == "end-of-chunk":
             # search_flag is False in training, but we anyway want to search, and we don't want the seq len
             # from the ground truth labels (without EOC labels), so we must not use the target here.
             rec_opts["target"] = None
@@ -608,14 +613,28 @@ class RNNDecoder:
             rec_opts[
                 "max_seq_len"
             ] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
+        if rec_layer_opts:
+            rec_opts.update(rec_layer_opts)
         dec_output = self.network.add_subnet_rec_layer(
-            "output", unit=subnet_unit.get_net(), source=self.source, **rec_opts
+            rec_layer_name, unit=subnet_unit.get_net(), source=self.source, **rec_opts
         )
 
         return dec_output
 
     def create_network(self):
+
         self.dec_output = self.add_decoder_subnetwork(self.subnet_unit)
+        if self.search_type == "end-of-chunk":
+            self.base_model.network["_02_alignment_on_the_fly"] = {
+                "class": "copy",
+                "from": "out_best",
+                "register_as_extern_data": "alignment_on_the_fly",
+            }
+            # Add another output layer for potential training.
+            subnet_unit = ReturnnNetwork()
+            self.add_decoder_subnetwork(
+                subnet_unit, search_type=None, target="alignment_on_the_fly"
+            )
 
         # Add to Base/Encoder network
 

@@ -118,7 +118,7 @@ network = conformer_encoder.network.get_net()  # type: dict
 network.update(transformer_decoder.network.get_net())
 
 # Just because this dummy dataset does not have any blank/EOS/EOC.
-network["_targets_with_eoc"] = {
+network["_01_targets_with_eoc"] = {
     "class": "reinterpret_data",
     "from": f"data:classes",
     "increase_sparse_dim": 1,
