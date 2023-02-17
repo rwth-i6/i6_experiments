@@ -467,7 +467,9 @@ class RNNDecoder:
             "output_prob",
             "readout",
             l2=self.l2,
-            target=self.target,
+            target=f"layer:base:data:{self.target}"
+            if self.search_type == "end-of-chunk"
+            else self.target,
             dropout=self.softmax_dropout,
             **out_prob_opts,
         )
@@ -513,10 +515,19 @@ class RNNDecoder:
             }
             self.output_prob = "output_prob_filter_eoc"
 
+            subnet_unit["output_logits"] = {
+                "class": "eval",
+                "from": "output_prob",
+                "collocate_with": "output_prob",
+                "eval": "source(0, as_layer=True).output_before_activation.x",
+            }
+            loss_ext["loss_opts"]["input_type"] = "logits"
             subnet_unit["output_prob_loss"] = {
                 "class": "copy",
-                "from": "output_prob",
+                "from": "output_logits",
                 "target": "layer:output",
+                "extra_deps": "output",
+                "collocate_with": "output",
                 **loss_ext,
             }
 
@@ -555,19 +566,19 @@ class RNNDecoder:
                 eval=f"source(0) * (source(1) ** {self.coverage_scale})",
             )
 
-        choice_opts = {}
+        choice_opts = dict(target=self.target)
         if not self.length_normalization:
             choice_opts["length_normalization"] = False
         if not self.search_type:
             pass
         elif self.search_type == "end-of-chunk":
             choice_opts["search"] = True
+            choice_opts["target"] = None
         else:
             raise ValueError(f"Unknown search type: {self.search_type!r}")
         subnet_unit.add_choice_layer(
             "output",
             self.output_prob,
-            target=self.target,
             beam_size=self.beam_size,
             initial_output=0,
             **choice_opts,
@@ -580,7 +591,11 @@ class RNNDecoder:
             # from the ground truth labels (without EOC labels), so we must not use the target here.
             rec_opts["target"] = None
         if self.enc_chunks_dim:
+            assert self.enc_time_dim and self.enc_time_dim.dimension is not None
             rec_opts["include_eos"] = True
+            rec_opts[
+                "max_seq_len"
+            ] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
         dec_output = self.network.add_subnet_rec_layer(
             "output", unit=subnet_unit.get_net(), source=self.source, **rec_opts
         )
