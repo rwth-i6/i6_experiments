@@ -266,10 +266,16 @@ class RNNDecoder:
                 "kind": "greater_equal",
             }
 
-            subnet_unit["label_pos_reached_last"] = {
+            subnet_unit["chunk_idx_reached_last"] = {
                 "class": "compare",
-                "from": ["label_pos", "ground_truth_last_label_pos"],
+                "from": ["chunk_idx", "last_chunk_idx"],
                 "kind": "equal",
+            }
+
+            subnet_unit["chunk_idx_can_be_finished"] = {
+                "class": "eval",
+                "from": ["chunk_idx_reached_last", "label_pos_reached_end"],
+                "eval": "tf.logical_or(tf.logical_and(source(0), source(1)), tf.logical_not(source(0)))",
             }
 
             subnet_unit["ground_truth_label"] = {
@@ -310,6 +316,12 @@ class RNNDecoder:
                 "class": "length",
                 "from": "base:encoder",
                 "axis": self.enc_chunks_dim,
+            }
+
+            subnet_unit["last_chunk_idx"] = {
+                "class": "eval",
+                "from": "num_chunks",
+                "eval": "source(0) - 1",
             }
 
             subnet_unit["end"] = {
@@ -487,9 +499,9 @@ class RNNDecoder:
             }
             subnet_unit["_label_indices_eq_eoc_"] = {
                 "class": "switch",
-                "condition": "label_pos_reached_last",
-                "true_from": False,
-                "false_from": "_label_indices_eq_eoc",
+                "condition": "chunk_idx_can_be_finished",
+                "true_from": "_label_indices_eq_eoc",
+                "false_from": False,
             }
             subnet_unit["_label_indices_eq_true_label"] = {
                 "class": "compare",
@@ -660,19 +672,20 @@ class RNNDecoder:
             "class": "length",
             "from": "out_best",
         }
-        for name in [
-            "enc_seq_len",
-            "out_best",
-            "out_best_seq_len",
-            f"data:{self.target}",
-            "targets_seq_len",
-        ]:
-            name_ = name.replace("data:", "")
-            self.base_model.network[f"debug_print_{name_}"] = {
-                "class": "print",
-                "from": name,
-                "is_output_layer": True,
-            }
+        if False:
+            for name in [
+                "enc_seq_len",
+                "out_best",
+                "out_best_seq_len",
+                f"data:{self.target}",
+                "targets_seq_len",
+            ]:
+                name_ = name.replace("data:", "")
+                self.base_model.network[f"debug_print_{name_}"] = {
+                    "class": "print",
+                    "from": name,
+                    "is_output_layer": True,
+                }
 
         # TODO fix this
         # decision_layer_name = self.base_model.network.add_decide_layer(
