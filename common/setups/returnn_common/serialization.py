@@ -295,6 +295,7 @@ class Network(SerializerObject):
     """
     Serializes a `get_network` function into the config, which calls
     a defined network construction function and defines the parameters to it.
+    This is for returnn_common networks.
 
     Note that the network constructor function always needs "epoch" as first defined parameter,
     and should return an `nn.Module` object.
