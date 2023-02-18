@@ -21,8 +21,12 @@ def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
     config = deepcopy(config)
     dim_tag_proxy = ReturnnDimTagsProxy()
     config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.config)
-    config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.post_config)
-    config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(config.staged_network_dict)
+    config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(
+        config.post_config
+    )
+    config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(
+        config.staged_network_dict
+    )
 
     if not dim_tag_proxy.dim_refs_by_name:
         # No dim tags found, just return as-is.
@@ -37,7 +41,9 @@ def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
         if config.python_epilog and code not in config.python_epilog:
             python_epilog_ext.append(code)
     config_update = ReturnnConfig(
-        {}, python_epilog=python_epilog_ext, hash_full_python_code=config.hash_full_python_code
+        {},
+        python_epilog=python_epilog_ext,
+        hash_full_python_code=config.hash_full_python_code,
     )
     config.update(config_update)
 
