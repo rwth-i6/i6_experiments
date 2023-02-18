@@ -732,43 +732,43 @@ class RNNDecoder:
         }
 
         if self.enc_chunks_dim:
-            # noinspection PyShadowingNames
-            def _check_alignment(source, self, **kwargs):
-                import tensorflow as tf
-
-                out_wo_blank = source(0, as_data=True)
-                assert isinstance(out_wo_blank, Data)
-                targets = self.network.get_layer(f"data:{target}").output
-                assert isinstance(targets, Data)
-                encoder = self.network.get_layer("encoder").output
-                assert isinstance(encoder, Data)
-                num_chunks = encoder.get_sequence_lengths()
-                num_labels_wo_blank = out_wo_blank.get_sequence_lengths()
-                num_labels_w_blank = targets.get_sequence_lengths()
-                deps = [
-                    tf.Assert(
-                        tf.reduce_all(
-                            tf.equal(
-                                num_labels_wo_blank + num_chunks, num_labels_w_blank
-                            )
-                        ),
-                        [
-                            "num labels wo blank, num chunks, with blank:",
-                            num_labels_wo_blank,
-                            num_chunks,
-                            num_labels_w_blank,
-                        ],
-                    ),
-                ]
-                self.network.register_post_control_dependencies(deps)
-                with tf.control_dependencies(deps):
-                    return tf.identity(out_wo_blank.placeholder)
-
             self.base_model.network["_check_alignment"] = {
                 "class": "eval",
                 "from": self.decision_layer_name,
                 "eval": _check_alignment,
+                "eval_locals": {"target": target},
                 "is_output_layer": True,
             }
 
         return self.dec_output
+
+
+# noinspection PyShadowingNames
+def _check_alignment(source, self, target, **kwargs):
+    import tensorflow as tf
+
+    out_wo_blank = source(0, as_data=True)
+    assert isinstance(out_wo_blank, Data)
+    targets = self.network.get_layer(f"data:{target}").output
+    assert isinstance(targets, Data)
+    encoder = self.network.get_layer("encoder").output
+    assert isinstance(encoder, Data)
+    num_chunks = encoder.get_sequence_lengths()
+    num_labels_wo_blank = out_wo_blank.get_sequence_lengths()
+    num_labels_w_blank = targets.get_sequence_lengths()
+    deps = [
+        tf.Assert(
+            tf.reduce_all(
+                tf.equal(num_labels_wo_blank + num_chunks, num_labels_w_blank)
+            ),
+            [
+                "num labels wo blank, num chunks, with blank:",
+                num_labels_wo_blank,
+                num_chunks,
+                num_labels_w_blank,
+            ],
+        ),
+    ]
+    self.network.register_post_control_dependencies(deps)
+    with tf.control_dependencies(deps):
+        return tf.identity(out_wo_blank.placeholder)
