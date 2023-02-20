@@ -35,14 +35,14 @@ def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
     # Prepare object to use config.update(),
     # because config.update() does reasonable logic for python_epilog code merging,
     # including handling of python_epilog_hash.
-    python_epilog_ext = []
+    python_prolog_ext = []
     dim_tag_def_code = dim_tag_proxy.py_code_str()
     for code in [ReturnnConfigSerializer.ImportPyCodeStr, dim_tag_def_code]:
-        if config.python_epilog and code not in config.python_epilog:
-            python_epilog_ext.append(code)
+        if not config.python_prolog or code not in config.python_prolog:
+            python_prolog_ext.append(code)
     config_update = ReturnnConfig(
         {},
-        python_epilog=python_epilog_ext,
+        python_prolog=python_prolog_ext,
         hash_full_python_code=config.hash_full_python_code,
     )
     config.update(config_update)
