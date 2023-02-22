@@ -202,7 +202,7 @@ def get_bliss_and_zip(ls_corpus_key, silence_preprocessed=True):
         elif ls_corpus_key == "train-other-960":
             bliss_dataset = get_ls960_silence_preprocessed_bliss()
         else:
-            assert "invalid key"
+            assert False, "invalid key %s" % ls_corpus_key
     else:
         bliss_dataset = get_tts_extended_bliss(ls_corpus_key=ls_corpus_key)
 

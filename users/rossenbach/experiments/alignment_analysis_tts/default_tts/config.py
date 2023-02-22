@@ -12,10 +12,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     Network,
     PythonEnlargeStackWorkaroundNonhashedCode,
 )
-from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
-    TTSTrainingDatasets,
-    TTSForwardData,
-)
+from .data import TTSForwardData, TTSTrainingDatasets
 
 
 def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternData, training: bool, debug=False, **kwargs) -> Collection:

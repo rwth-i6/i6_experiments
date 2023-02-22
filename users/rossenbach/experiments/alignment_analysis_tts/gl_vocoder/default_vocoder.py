@@ -391,6 +391,7 @@ def get_default_vocoder(name, corpus_key="train-clean-100"):
   partition_epoch = {
     "train-clean-100": 4,
     "train-clean-460": 18,
+    "train-other-960": 38,
   }
 
   mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, RETURNN_RC_ROOT, partition_epoch=partition_epoch[corpus_key])
