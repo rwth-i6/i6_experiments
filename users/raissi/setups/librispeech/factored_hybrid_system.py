@@ -7,7 +7,6 @@ import sys
 from dataclasses import asdict
 from IPython import embed
 from typing import Dict, List, Optional, Tuple, Union
-
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
@@ -25,7 +24,6 @@ import i6_core.text as text
 
 from i6_core.util import MultiPath, MultiOutputPath
 
-
 from i6_experiments.common.setups.rasr.nn_system import (
     NnSystem
 )
@@ -42,14 +40,11 @@ from i6_experiments.common.datasets.librispeech.constants import (
     num_segments
 )
 
-
-#get_recog_ctx_args*() functions are imported here
-from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import *
 from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
 
 
 from i6_experiments.users.raissi.returnn.rasr_returnn_bw import (
-ReturnnRasrTrainingBWJob
+    ReturnnRasrTrainingBWJob
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
@@ -58,6 +53,13 @@ from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     LabelInfo,
     PipelineStages,
     RasrFeatureToHDF
+)
+
+from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
+    get_label_info,
+    get_alignment_keys,
+    get_lexicon_args,
+    get_tdp_values,
 )
 
 from i6_experiments.users.raissi.setups.common.helpers.network_architectures import (
@@ -80,11 +82,10 @@ from i6_experiments.users.raissi.setups.common.util.rasr import (
     SystemInput,
 )
 
-from i6_experiments.users.raissi.setups.librispeech.util.pipeline_helpers import (
-    get_label_info,
-    get_alignment_keys,
-    get_lexicon_args,
-    get_tdp_values,
+from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import (
+    get_recog_mono_args,
+    get_recog_diphone_args,
+    get_recog_triphone_args
 )
 
 from i6_experiments.users.raissi.setups.librispeech.search.factored_hybrid_search import(
@@ -185,6 +186,7 @@ class FactoredHybridSystem(NnSystem):
         self.stage = PipelineStages(get_alignment_keys())
         self.contexts = {'mono': ContextEnum(self.context_mapper.get_enum(1)),
                          'di': ContextEnum(self.context_mapper.get_enum(2)),
+                         'tri': ContextEnum(self.context_mapper.get_enum(4)),
                          }
         
         self.trainers    = None #ToDo external trainer class
@@ -468,9 +470,10 @@ class FactoredHybridSystem(NnSystem):
         else:
             spec_augment_epilog = None
         return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
-                                            n_contexts=self.label_info.n_contexts,
-                                            n_states=self.label_info.n_states_per_phone,
-                                            specaugment=spec_augment_epilog)
+                                           n_contexts=self.label_info.n_contexts,
+                                           n_states=self.label_info.n_states_per_phone,
+                                           use_word_end_classes=self.label_info.use_word_end_classes,
+                                           specaugment=spec_augment_epilog)
 
 
     def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
@@ -819,7 +822,6 @@ class FactoredHybridSystem(NnSystem):
             self.experiments[key]["train_job"], epoch
         )
         graph = self.experiments[key]["graph"]["inference"]
-
         hdf_paths = self.get_hdf_path(hdf_key)
 
         estimateJob = EstimateRasrDiphoneAndContextPriors(graphPath=graph,
@@ -850,6 +852,94 @@ class FactoredHybridSystem(NnSystem):
             xmlName = "diphone-priors"
         tk.register_output(xmlName, priorFiles[0])
         self.experiments[key]["priors"] = priorFiles
+
+    def set_triphone_priors(self, key, epoch, tf_library=None, nStateClasses=None, nContexts=None,
+                            dNum=3, sNum=20, step=200, dataOffset=10, segmentOffset=20,
+                            gpu=1, time=20, hdf_key=None):
+        if not tf_library:
+            tf_library = self.tf_library
+
+        if nStateClasses is None:
+            nStateClasses = self.label_info.get_n_state_classes()
+        if nContexts is None:
+            nContexts = self.label_info.n_contexts
+
+        if tf_library is None:
+            tf_library = self.tf_library
+
+        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
+        model_checkpoint = self._get_model_checkpoint(
+            self.experiments[key]["train_job"], epoch
+        )
+        graph = self.experiments[key]["graph"]["inference"]
+        hdf_paths = self.get_hdf_path(hdf_key)
+
+        triphoneFiles = []
+        diphoneFiles = []
+        contextFiles = []
+        numSegments = []
+
+        for i in range(2, dNum + 2):
+            startInd = i * dataOffset
+            endInd = (i + 1) * dataOffset
+            for j in range(sNum):
+                startSegInd = j * segmentOffset
+                endSegInd = (j + 1) * segmentOffset
+                if endSegInd > 2000: endSegInd = 2000
+
+                datasetIndices = list(range(startInd, endInd))
+                estimateJob = EstimateSprintTriphonePriorsForwardV2(graphPath=self.experiments[key]["graph"]["inference"],
+                                                                    model=model_checkpoint,
+                                                                    dataPaths=hdf_paths,
+                                                                    datasetIndices=datasetIndices,
+                                                                    startIndSegment=startSegInd,
+                                                                    endIndSegment=endSegInd,
+                                                                    libraryPath=tf_library,
+                                                                    nContexts=nContexts,
+                                                                    nStateClasses=nStateClasses,
+                                                                    nBatch=12000,
+                                                                    cpu=2,
+                                                                    gpu=gpu,
+                                                                    time=time)
+                if name is not None:
+                    estimateJob.add_alias(f"priors/{name}-startind{startSegInd}")
+                triphoneFiles.extend(estimateJob.triphoneFiles)
+                diphoneFiles.extend(estimateJob.diphoneFiles)
+                contextFiles.extend(estimateJob.contextFiles)
+                numSegments.extend(estimateJob.numSegments)
+
+        comJobs = []
+        for spliter in range(0, len(triphoneFiles), step):
+            start = spliter
+            end = spliter + step
+            if end > len(triphoneFiles):
+                end = triphoneFiles
+            comJobs.append(CombineMeansForTriphoneForwardV2(triphoneFiles[start:end],
+                                                           diphoneFiles[start:end],
+                                                           contextFiles[start:end],
+                                                           numSegments[start:end],
+                                                           nContexts=nContexts,
+                                                           nStateClasses=nStateClasses,
+                                                          ))
+
+        combTriphoneFiles = [c.triphoneFilesOut for c in comJobs]
+        combDiphoneFiles = [c.diphoneFilesOut for c in comJobs]
+        combContextFiles = [c.contextFilesOut for c in comJobs]
+        combNumSegs = [c.numSegmentsOut for c in comJobs]
+        xmlJob = DumpXmlForTriphoneForwardV2(combTriphoneFiles,
+                                             combDiphoneFiles,
+                                             combContextFiles,
+                                             combNumSegs,
+                                             nContexts=nContexts,
+                                             nStateClasses=nStateClasses)
+
+        priorFilesTriphone = [xmlJob.triphoneXml, xmlJob.diphoneXml, xmlJob.contextXml]
+        xmlName = f"priors/{name}"
+        tk.register_output(xmlName, priorFilesTriphone[0])
+
+        self.experiments[key]["priors"]["right-context"] = priorFilesTriphone[0]
+        self.experiments[key]["priors"]["center-state"] = priorFilesTriphone[1]
+        self.experiments[key]["priors"]["left-context"] = priorFilesTriphone[2]
 
 
 
@@ -920,7 +1010,7 @@ class FactoredHybridSystem(NnSystem):
             self.context_mapper.get_enum(2),
             self.context_mapper.get_enum(8)
         ]:
-            recog_args = get_recog_diphone_fromGmm_specAug_args()
+            recog_args = get_recog_diphone_args()
             scales = recog_args["shared_args"]["priorScales"]
             del recog_args["shared_args"]["priorScales"]
             p_info['center-state-prior']['scale'] = scales['center-state']
@@ -929,8 +1019,16 @@ class FactoredHybridSystem(NnSystem):
             p_info['left-context-prior']['file'] = self.experiments[key]['priors'][1]
             recog_args["shared_args"]["priorInfo"] = p_info
         else:
-            print("implement other contexts")
-            assert (False)
+            recog_args = get_recog_triphone_args()
+            scales = recog_args["shared_args"]["priorScales"]
+            del recog_args["shared_args"]["priorScales"]
+            p_info['right-context-prior']['scale'] = scales['right-context']
+            p_info['center-state-prior']['scale']  = scales['center-state']
+            p_info['left-context-prior']['scale']  = scales['left-context']
+            p_info['right-context-prior']['file']  = self.experiments[key]['priors'][0]
+            p_info['center-state-prior']['file']   = self.experiments[key]['priors'][1]
+            p_info['left-context-prior']['file']   = self.experiments[key]['priors'][2]
+            recog_args["shared_args"]["priorInfo"] = p_info
 
         recog_args["use_word_end_classes"] = self.label_info.use_word_end_classes
         recog_args["n_states_per_phone"]   = self.label_info.n_states_per_phone
@@ -948,7 +1046,7 @@ class FactoredHybridSystem(NnSystem):
 
         if dummy_mixtures is None:
             dummy_mixtures = mm.CreateDummyMixturesJob(self.label_info.get_n_of_dense_classes(),
-                                                   self.initial_nn_args["num_input"]).out_mixtures  # gammatones
+                                                       self.initial_nn_args["num_input"]).out_mixtures  # gammatones
 
         assert (self.label_info.sil_id is not None)
 
@@ -957,6 +1055,7 @@ class FactoredHybridSystem(NnSystem):
             search_crp=self.crp[crp_corpus],
             context_type=context_type,
             context_mapper=self.context_mapper,
+            label_info=self.label_info,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,
             graph=self.experiments[key]["graph"]["inference"],

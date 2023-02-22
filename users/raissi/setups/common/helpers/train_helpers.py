@@ -123,6 +123,35 @@ def get_diphone_returnn_config(label_info=None, mlp_l2=0.01, use_multi_task=True
     return diphone_returnn_config
 
 
+def get_triphone_returnn_config(label_info=None, mlp_l2=0.01, use_multi_task=True,
+                               focal_loss_factor=2.0, label_smoothing=0.2,
+                               final_context_type=None, shared_delta_encoder=False, **returnn_args):
+    assert label_info is not None and isinstance(label_info, LabelInfo), 'you are using old implementation, pass label_info'
+
+    ctxMapper = ContextMapper()
+    contextType = ContextEnum(ctxMapper.get_enum(4))
+    final_context_type = final_context_type if final_context_type is not None else ContextEnum(ctxMapper.get_enum(4))
+
+    triphone_returnn_config = make_config(context_type=contextType,
+                                         label_info=label_info,
+                                         add_mlps=True,
+                                         use_multi_task=use_multi_task,
+                                         final_context_type=final_context_type,
+                                         focal_loss_factor=focal_loss_factor,
+                                         label_smoothing=label_smoothing,
+                                         eval_dense_label=True,
+                                         mlp_l2=mlp_l2,
+                                         shared_delta_encoder=shared_delta_encoder,
+                                         **returnn_args)
+
+    del triphone_returnn_config.config["network"]["center-output"]["loss_opts"]["label_smoothing"]
+
+    triphone_returnn_config.config["num_outputs"] = {"data": [returnn_args['num_input'], 2],
+                                                    "classes": [label_info.get_n_of_dense_classes(), 1]}
+
+    return triphone_returnn_config
+
+
 #ToDo:
 #get triphone
 #di_from_mono

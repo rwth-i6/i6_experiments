@@ -166,7 +166,8 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
                                                  unit_type="nativelstm2",
                                                  specaugment=False, is_min_duration=False, use_word_end_classes=False):
 
-    #toDo: boundary class and minimum duration
+    #toDo: boundary class and minimum duration in case you want to go to monophone level
+    n_stateclasses = n_contexts * n_states_per_phone * (int(use_word_end_classes)+1)
     acousticNet = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
 
 
@@ -177,7 +178,7 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
 
     acousticNet["popFutureLabel"] = {"class": "eval", "from": "data:classes",
                                      "eval": f"tf.math.floordiv(source(0), {n_contexts})",
-                                     "out_type": {'dim': (n_contexts ** 2 * n_states_per_phone), 'dtype': 'int32', 'sparse': True}}
+                                     "out_type": {'dim': n_contexts * n_stateclasses, 'dtype': 'int32', 'sparse': True}}
 
     acousticNet["pastLabel"] = {"class": "eval", "from": "popFutureLabel",
                                 "eval": f"tf.math.floormod(source(0), {n_contexts})",
@@ -186,8 +187,8 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
 
     acousticNet["centerState"] = {"class": "eval", "from": "popFutureLabel",
                                    "eval": f"tf.math.floordiv(source(0), {n_contexts})",
-                                   "out_type": {'dim':  n_contexts * n_states_per_phone * (int(use_word_end_classes)+1), 'dtype': 'int32',
-                                                'sparse': True}}
+                                   "out_type": {'dim':  n_stateclasses, 'dtype': 'int32','sparse': True},
+                                  "register_as_extern_data": "centerState"}
 
 
     return acousticNet

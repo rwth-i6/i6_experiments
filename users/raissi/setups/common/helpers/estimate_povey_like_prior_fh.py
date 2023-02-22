@@ -1,4 +1,11 @@
-__all__ = ["EstimateMonophonePriors_", "DumpXmlForMonophone", "EstimateRasrDiphoneAndContextPriors", "DumpXmlRasrForDiphone"]
+__all__ = ["EstimateMonophonePriors_",
+           "DumpXmlForMonophone",
+           "EstimateRasrDiphoneAndContextPriorsV2",
+           "DumpXmlRasrForDiphone",
+           "EstimateSprintTriphonePriorsForwardV2",
+           "CombineMeansForTriphoneForwardV2",
+           "DumpXmlForTriphoneForwardV2"
+           ]
 
 
 import h5py
@@ -19,11 +26,6 @@ from i6_core.lib.rasr_cache import FileArchive
 
 Path = setup_path(__package__)
 
-
-###################################
-# Monophone
-###################################
-
 def get_batch_from_segments(segments, batchSize=10000):
     index = 0
     while True:
@@ -32,7 +34,396 @@ def get_batch_from_segments(segments, batchSize=10000):
             index += 1
         except IndexError:
             index = 0
+###################################
+# Triphone with new tying
+###################################
+class EstimateSprintTriphonePriorsForwardV2(Job):
+    tm = {"triphone": "triphone", "diphone": "diphone", "context": "context"}
+    __sis_hash_exclude__ = {"tensorMap": tm, "isMultiEncoder": False}
 
+    def __init__(self, graphPath, model, dataPaths, datasetIndices,
+                 startIndSegment, endIndSegment, libraryPath,
+                 nStateClasses=282, nContexts=47, nBatch=10000, cpu=2, gpu=1, time=10, tensorMap=tm, isMultiEncoder=False):
+        self.graphPath = graphPath
+        self.model = model
+        self.dataPaths = dataPaths
+        self.datasetIndices = datasetIndices
+        self.segmentSlice = (startIndSegment, endIndSegment)
+        self.additionalLibrary = libraryPath
+        self.triphoneMeans, self.diphoneMeans = createTriAndDiDictsWithZeros(nContexts, nStateClasses)
+        self.contextMeans = np.zeros(nContexts)
+        self.numSegments = [
+            self.output_path('segmentLength.%d.%d-%d' % (index, startIndSegment, endIndSegment), cached=False) for index
+            in self.datasetIndices]
+        self.triphoneFiles = [
+            self.output_path('triphoneMeans.%d.%d-%d' % (index, startIndSegment, endIndSegment), cached=False) for index
+            in self.datasetIndices]
+        self.diphoneFiles = [
+            self.output_path('diphoneMeans.%d.%d-%d' % (index, startIndSegment, endIndSegment), cached=False) for index
+            in self.datasetIndices]
+        self.contextFiles = [
+            self.output_path('contextMeans.%d.%d-%d' % (index, startIndSegment, endIndSegment), cached=False) for index
+            in self.datasetIndices]
+        self.nContexts = nContexts
+        self.nStateClasses = nStateClasses
+        self.nBatch = nBatch
+        self.tensorMap = tensorMap
+        self.isMultiEncoder = isMultiEncoder
+        self.rqmt = {'cpu': cpu, 'gpu': gpu, 'mem': 2, 'time': float(time)}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt, args=range(1, (len(self.datasetIndices) + 1)))
+
+    def get_dense_label(self, pastLabel, centerState, futureLabel=0):
+        return (((centerState * self.nContexts) + pastLabel) * self.nContexts) + futureLabel
+
+    def getSegmentFeaturesFromHdf(self, dataIndex):
+        hf = h5py.File(tk.uncached_path(self.dataPaths[dataIndex]))
+        segmentNames = list(hf['streams']['features']['data'])
+        segments = []
+        for name in segmentNames:
+            segments.append(hf['streams']['features']['data'][name])
+        return np.vstack(segments[self.segmentSlice[0]:self.segmentSlice[1]])
+
+    def getEncoderOutput(self, session, featureVector):
+        return session.run(['encoder-output/output_batch_major:0'],
+                           feed_dict={'extern_data/placeholders/data/data:0':
+                                          featureVector.reshape(1, featureVector.shape[0], featureVector.shape[1]),
+                                      'extern_data/placeholders/data/data_dim0_size:0': [featureVector.shape[0]]})
+
+    def getPosteriorsOfOutputsWithEncoderOutput(self, session, featureVector, classLabelVector):
+        return session.run([("-").join([self.tensorMap['triphone'], 'output/output_batch_major:0']),
+                            ("-").join([self.tensorMap['diphone'], 'output/output_batch_major:0']),
+                            ("-").join([self.tensorMap['context'], 'output/output_batch_major:0'])],
+                           feed_dict={'concat_fwd_6_bwd_6/concat_sources/concat:0':
+                                          featureVector.reshape(featureVector.shape[1], 1, featureVector.shape[2]),
+                                      'extern_data/placeholders/classes/classes:0': [
+                                          [classLabelVector] * featureVector.shape[1]]})
+
+    def getTwoEncoderOutputs(self, session, featureVector):
+        return session.run(['encoder-output/output_batch_major:0', 'deltaEncoder-output/output_batch_major:0'],
+                           feed_dict={'extern_data/placeholders/data/data:0':
+                                          featureVector.reshape(1, featureVector.shape[0], featureVector.shape[1]),
+                                      'extern_data/placeholders/data/data_dim0_size:0': [featureVector.shape[0]]})
+
+    def getPosteriorsOfOutputsWithTwoEncoderOutputs(self, session, featureVector, featureVectorDelta, classLabelVector):
+        return session.run([("-").join([self.tensorMap['triphone'], 'output/output_batch_major:0']),
+                            ("-").join([self.tensorMap['diphone'], 'output/output_batch_major:0']),
+                            ("-").join([self.tensorMap['context'], 'output/output_batch_major:0'])],
+                           feed_dict={'concat_fwd_6_bwd_6/concat_sources/concat:0':
+                                          featureVector.reshape(featureVector.shape[1], 1, featureVector.shape[2]),
+                                      'concat_fwd_delta_bwd_delta/concat_sources/concat:0':
+                                          featureVector.reshape(featureVectorDelta.shape[1], 1,
+                                                                featureVectorDelta.shape[2]),
+                                      'extern_data/placeholders/classes/classes:0': [
+                                          [classLabelVector] * featureVector.shape[1]]})
+
+    def calculateMeanPosteriors(self, session, taskId):
+        sampleCount = 0
+        segments = self.getSegmentFeaturesFromHdf(self.datasetIndices[taskId - 1])
+
+        for batch in get_batch_from_segments(segments, self.nBatch):
+            bSize = len(batch)
+            denom = sampleCount + bSize
+            if (len(batch) == 0):
+                break
+            if not self.isMultiEncoder:
+                encoderOutput = self.getEncoderOutput(session, batch)
+            else:
+                encoderOutput = self.getTwoEncoderOutputs(session, batch)
+            for pastContextId in range(self.nContexts):
+                for currentState in range(self.nStateClasses):
+                    denselabel = self.get_dense_label(
+                        pastLabel=pastContextId,
+                        centerState=currentState)
+                    if not self.isMultiEncoder:
+                        p = self.getPosteriorsOfOutputsWithEncoderOutput(session, encoderOutput[0], denselabel)
+                    else:
+                        p = self.getPosteriorsOfOutputsWithTwoEncoderOutputs(session, encoderOutput[0],
+                                                                             encoderOutput[1], denselabel)
+                    # triphone is calculates for each center and left context
+                    tri = (sampleCount * self.triphoneMeans[pastContextId][currentState]) + (
+                                bSize * np.mean(p[0][0], axis=0))
+                    self.triphoneMeans[pastContextId][currentState] = np.divide(tri, denom)
+                    # diphone is calculated for each context with centerstate 0
+                    if not currentState:
+                        di = (sampleCount * self.diphoneMeans[pastContextId]) + (bSize * np.mean(p[1][0], axis=0))
+                        self.diphoneMeans[pastContextId] = np.divide(di, denom)
+                        # context is not label dependent
+                        if not pastContextId:
+                            ctx = (sampleCount * self.contextMeans) + (bSize * np.mean(p[2][0], axis=0))
+                            self.contextMeans = np.divide(ctx, denom)
+            sampleCount += bSize
+
+        with open(tk.uncached_path(self.numSegments[taskId - 1]), "wb") as fp:
+            pickle.dump(sampleCount, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def dumpMeans(self, taskId):
+        with open(tk.uncached_path(self.triphoneFiles[taskId - 1]), "wb") as f1:
+            pickle.dump(self.triphoneMeans, f1, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(tk.uncached_path(self.diphoneFiles[taskId - 1]), "wb") as f2:
+            pickle.dump(self.diphoneMeans, f2, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(tk.uncached_path(self.contextFiles[taskId - 1]), "wb") as f3:
+            pickle.dump(self.contextMeans, f3, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def run(self, taskId):
+        graphPath = tk.uncached_path(self.graphPath)
+        modelPath = tk.uncached_path(self.model.ckpt_path)
+        tf.load_op_library(self.additionalLibrary)
+        mg = tf.MetaGraphDef()
+        mg.ParseFromString(open(graphPath, 'rb').read())
+        tf.import_graph_def(mg.graph_def, name='')
+        # session
+        s = tf.Session()
+        returnValue = s.run(['save/restore_all'], feed_dict={'save/Const:0': modelPath})
+
+        self.calculateMeanPosteriors(s, taskId)
+        self.dumpMeans(taskId)
+
+class CombineMeansForTriphoneForwardV2(Job):
+    def __init__(self, triphoneFiles, diphoneFiles, contextFiles, numSegmentFiles, nContexts=47, nStateClasses=282):
+        self.triphoneFiles = triphoneFiles
+        self.diphoneFiles = diphoneFiles
+        self.contextFiles = contextFiles
+        self.numSegmentFiles = numSegmentFiles
+        self.numSegments = []
+        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStates=nStateClasses)
+        self.contextMeans = []
+        self.numSegmentsOut = self.output_path('segmentLength', cached=False)
+        self.triphoneFilesOut = self.output_path('triphoneMeans', cached=False)
+        self.diphoneFilesOut = self.output_path('diphoneMeans', cached=False)
+        self.contextFilesOut = self.output_path('contextMeans', cached=False)
+        self.nContexts = nContexts
+        self.nStateClasses = nStateClasses
+        self.rqmt = {'cpu': 2, 'mem': 2, 'time': 0.5}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt)
+
+    def readNumSegments(self):
+        for filename in self.numSegmentFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                self.numSegments.append(pickle.load(f))
+
+    def calculateWeightedAverages(self):
+        coeffs = [self.numSegments[i] / np.sum(self.numSegments) for i in range(len(self.numSegmentFiles))]
+        for filename in self.triphoneFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                triphoneDict = pickle.load(f)
+                for i in range(self.nContexts):
+                    for j in range(self.nStateClasses):
+                        self.triphoneMeans[i][j].append(
+                            np.dot(coeffs[self.triphoneFiles.index(filename)], triphoneDict[i][j]))
+        for filename in self.diphoneFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                diphoneDict = pickle.load(f)
+                for i in range(self.nContexts):
+                    self.diphoneMeans[i].append(np.dot(coeffs[self.diphoneFiles.index(filename)], diphoneDict[i]))
+        for filename in self.contextFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                means = pickle.load(f)
+                self.contextMeans.append(np.dot(coeffs[self.contextFiles.index(filename)], means))
+        for i in range(self.nContexts):
+            self.diphoneMeans[i] = np.sum(self.diphoneMeans[i], axis=0)
+            for j in range(self.nStateClasses):
+                self.triphoneMeans[i][j] = np.sum(self.triphoneMeans[i][j], axis=0)
+        self.contextMeans = np.sum(self.contextMeans, axis=0)
+
+    def dumpMeans(self):
+        with open(tk.uncached_path(self.triphoneFilesOut), "wb") as f1:
+            pickle.dump(self.triphoneMeans, f1, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(tk.uncached_path(self.diphoneFilesOut), "wb") as f2:
+            pickle.dump(self.diphoneMeans, f2, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(tk.uncached_path(self.contextFilesOut), "wb") as f3:
+            pickle.dump(self.contextMeans, f3, protocol=pickle.HIGHEST_PROTOCOL)
+        sumSegNums = np.sum(self.numSegments)
+        with open(tk.uncached_path(self.numSegmentsOut), "wb") as f4:
+            pickle.dump(sumSegNums, f4, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def run(self):
+        self.readNumSegments()
+        self.calculateWeightedAverages()
+        self.dumpMeans()
+
+class DumpXmlForTriphoneForwardV2(Job):
+    def __init__(self, triphoneFiles, diphoneFiles, contextFiles, numSegmentFiles, nContexts=47, nStateClasses=282):
+        self.triphoneFiles = triphoneFiles
+        self.diphoneFiles = diphoneFiles
+        self.contextFiles = contextFiles
+        self.numSegmentFiles = numSegmentFiles
+        self.numSegments = []
+        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStates=nStateClasses)
+        self.contextMeans = []
+        self.triphoneXml = self.output_path('triphoneScores.xml', cached=False)
+        self.diphoneXml = self.output_path('diphoneScores.xml', cached=False)
+        self.contextXml = self.output_path('contextScores.xml', cached=False)
+        self.nContexts = nContexts
+        self.nStateClasses = nStateClasses
+        self.rqmt = {'cpu': 2, 'mem': 8, 'time': 0.5}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt)
+
+    def readNumSegments(self):
+        for filename in self.numSegmentFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                self.numSegments.append(pickle.load(f))
+
+    def calculateWeightedAverages(self):
+        coeffs = [self.numSegments[i] / np.sum(self.numSegments) for i in range(len(self.numSegmentFiles))]
+        for filename in self.triphoneFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                triphoneDict = pickle.load(f)
+                for i in range(self.nContexts):
+                    for j in range(self.nStateClasses):
+                        self.triphoneMeans[i][j].append(
+                            np.dot(coeffs[self.triphoneFiles.index(filename)], triphoneDict[i][j]))
+        for filename in self.diphoneFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                diphoneDict = pickle.load(f)
+                for i in range(self.nContexts):
+                    self.diphoneMeans[i].append(np.dot(coeffs[self.diphoneFiles.index(filename)], diphoneDict[i]))
+        for filename in self.contextFiles:
+            with open(tk.uncached_path(filename), 'rb') as f:
+                means = pickle.load(f)
+                self.contextMeans.append(np.dot(coeffs[self.contextFiles.index(filename)], means))
+        for i in range(self.nContexts):
+            self.diphoneMeans[i] = np.sum(self.diphoneMeans[i], axis=0)
+            for j in range(self.nStateClasses):
+                self.triphoneMeans[i][j] = np.sum(self.triphoneMeans[i][j], axis=0)
+        self.contextMeans = np.sum(self.contextMeans, axis=0)
+
+    def dumpXml(self):
+        with open(tk.uncached_path(self.triphoneXml), 'wt') as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<matrix-f32 nRows="%d" nColumns="%d">\n' % (
+            self.nContexts * self.nStateClasses, self.nContexts))
+            for pastId in range(self.nContexts):
+                for currentstateId in range(self.nStateClasses):
+                    for i, s in enumerate(self.triphoneMeans[pastId][currentstateId]):
+                        if s == 0:
+                            self.triphoneMeans[pastId][currentstateId][i] += 1e-5
+                    f.write(' '.join('%.20e' % math.log(s) for s in self.triphoneMeans[pastId][currentstateId]) + '\n')
+            f.write('</matrix-f32>')
+        with open(tk.uncached_path(self.diphoneXml), 'wt') as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<matrix-f32 nRows="%d" nColumns="%d">\n' % (
+            self.nContexts, self.nStateClasses))
+            for i in range(self.nContexts):
+                f.write(' '.join('%.20e' % math.log(s) for s in self.diphoneMeans[i]) + '\n')
+            f.write('</matrix-f32>')
+        with open(tk.uncached_path(self.contextXml), 'wt') as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="%d">\n' % (self.nContexts))
+            f.write(' '.join('%.20e' % math.log(s) for s in np.nditer(self.contextMeans)) + '\n')
+            f.write('</vector-f32>')
+
+    def run(self):
+        self.readNumSegments()
+        print("number of segments read")
+        self.calculateWeightedAverages()
+        self.dumpXml()
+
+###################################
+# Diphone with new tying
+###################################
+class EstimateRasrDiphoneAndContextPriorsV2(Job):
+    tm = {"diphone": "diphone", "context": "context"}
+    __sis_hash_exclude__ = {"tensorMap": {"diphone": "center", "context": "context"}}
+
+    def __init__(self, graphPath, model, dataPaths, datasetIndices, libraryPath,
+                 nBatch=15000, nStateClasses=282, nContexts=47, gpu=1, mem=8, time=1,
+                 tensorMap=tm):
+        self.graphPath = graphPath
+        self.model = model
+        self.dataPaths = dataPaths
+        self.datasetIndices = datasetIndices
+        self.additionalLibrary = libraryPath
+        self.diphoneMeans = dict(zip(range(nContexts), [np.zeros(nStateClasses) for _ in range(nContexts)]))
+        self.contextMeans = np.zeros(nContexts)
+        self.numSegments = [self.output_path('segmentLength.%d' % index, cached=False) for index in self.datasetIndices]
+        self.diphoneFiles = [self.output_path('diphoneMeans.%d' % index, cached=False) for index in self.datasetIndices]
+        self.contextFiles = [self.output_path('contextMeans.%d' % index, cached=False) for index in self.datasetIndices]
+        self.nContexts = nContexts
+        self.nBatch = nBatch
+        self.tensorMap = tensorMap
+        if not gpu: time *= 4
+        self.rqmt = {'cpu': 2, 'gpu': gpu, 'mem': mem, 'time': float(time)}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt, args=range(1, (len(self.datasetIndices) + 1)))
+
+    def getSegmentFeaturesFromHdf(self, dataIndex):
+        hf = h5py.File(tk.uncached_path(self.dataPaths[dataIndex]))
+        print(self.dataPaths[dataIndex])
+        segmentNames = list(hf['streams']['features']['data'])
+        segments = []
+        for name in segmentNames:
+            segments.append(hf['streams']['features']['data'][name])
+        return np.vstack(segments)
+
+    def getEncoderOutput(self, session, featureVector):
+        return session.run(['encoder-output/output_batch_major:0'],
+                           feed_dict={'extern_data/placeholders/data/data:0':
+                                          featureVector.reshape(1, featureVector.shape[0], featureVector.shape[1]),
+                                      'extern_data/placeholders/data/data_dim0_size:0': [featureVector.shape[0]]})
+
+    def getPosteriorsOfBothOutputsWithEncoded(self, session, featureVector, classLabelVector):
+        return session.run([("-").join([self.tensorMap['diphone'], 'output/output_batch_major:0']),
+                            ("-").join([self.tensorMap['context'], 'output/output_batch_major:0'])],
+                           feed_dict={'concat_fwd_6_bwd_6/concat_sources/concat:0':
+                                          featureVector.reshape(featureVector.shape[1], 1, featureVector.shape[2]),
+                                      'extern_data/placeholders/classes/classes:0': [
+                                          [classLabelVector] * featureVector.shape[1]]})
+
+    def get_dense_label(self, pastLabel, centerState=10, futureLabel=0):
+        return (((centerState * self.nContexts) + pastLabel) * self.nContexts) + futureLabel
+
+    def calculateMeanPosteriors(self, session, taskId):
+        sampleCount = 0
+        segments = self.getSegmentFeaturesFromHdf(self.datasetIndices[taskId - 1])
+
+        for batch in get_batch_from_segments(segments, self.nBatch):
+            bSize = len(batch)
+            denom = sampleCount + bSize
+            if (len(batch) == 0):
+                break
+
+            encoderOutput = self.getEncoderOutput(session, batch)
+            for pastContextId in range(self.nContexts):
+                p = self.getPosteriorsOfBothOutputsWithEncoded(session, encoderOutput[0],
+                                                               self.get_dense_label(pastContextId))
+
+                di = (sampleCount * self.diphoneMeans[pastContextId]) + (bSize * np.mean(p[0][0], axis=0))
+                self.diphoneMeans[pastContextId] = np.divide(di, denom)
+                # context is not label dependent
+                if not pastContextId:
+                    ctx = (sampleCount * self.contextMeans) + (bSize * np.mean(p[1][0], axis=0))
+                    self.contextMeans = np.divide(ctx, denom)
+            sampleCount += bSize
+
+        with open(tk.uncached_path(self.numSegments[taskId - 1]), "wb") as fp:
+            pickle.dump(sampleCount, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def dumpMeans(self, taskId):
+        with open(tk.uncached_path(self.diphoneFiles[taskId - 1]), "wb") as fp:
+            pickle.dump(self.diphoneMeans, fp, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(tk.uncached_path(self.contextFiles[taskId - 1]), "wb") as fp:
+            pickle.dump(self.contextMeans, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def run(self, taskId):
+        graphPath = tk.uncached_path(self.graphPath)
+        modelPath = tk.uncached_path(self.model.ckpt_path)
+        tf.load_op_library(self.additionalLibrary)
+        mg = tf.MetaGraphDef()
+        mg.ParseFromString(open(graphPath, 'rb').read())
+        tf.import_graph_def(mg.graph_def, name='')
+        # session
+        s = tf.Session()
+        returnValue = s.run(['save/restore_all'], feed_dict={'save/Const:0': modelPath})
+
+        self.calculateMeanPosteriors(s, taskId)
+        self.dumpMeans(taskId)
+###################################
+# Monophone
+###################################
 class EstimateMonophonePriors_(Job):
     tm = {"diphone": "diphone"}
     __sis_hash_exclude__ = {"tensorMap": {"diphone": "center", "context": "context"}}

@@ -16,7 +16,8 @@ import i6_core.corpus as corpus_recipes
 
 from i6_experiments.users.raissi.setups.common.helpers.pipeline_data import (
     ContextEnum,
-    ContextMapper
+    ContextMapper,
+    LabelInfo,
 )
 
 from i6_experiments.users.raissi.setups.common.decoder.rtf import (
@@ -75,45 +76,6 @@ def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtur
     )
 
 
-"""
-def get_feature_scorer(context_type, context_mapper, featureScorerConfig, mixtures,
-    prior_info, silence_id, posterior_scales=None, num_label_contexts=47, num_states_per_phone=3, num_encoder_output=1024,
-    loop_scale=1.0, forward_scale=1.0, silence_loop_penalty=0.0, silence_forward_penalty=0.0,
-    use_estimated_tdps=False, state_dependent_tdp_file=None,
-    is_min_duration=False, use_word_end_classes=False, use_boundary_classes=False, is_multi_encoder_output=False):
-
-    if context_type.value in [context_mapper.get_enum(i) for i in [1, 7]]:
-        assert prior_info['center-state-prior']['file'] is not None
-        if not prior_info['center-state-prior']['scale']:
-            print('You are setting prior scale equale to zero, are you sure?')
-
-        return FactoredHybridFeatureScorer(
-            featureScorerConfig,
-            prior_mixtures=mixtures,
-            context_type=context_type.value,
-            prior_info=prior_info,
-            num_states_per_phone=num_states_per_phone,
-            num_label_contexts=num_label_contexts,
-            silence_id=silence_id,
-            num_encoder_output=num_encoder_output,
-            posterior_scales=posterior_scales,
-            is_multi_encoder_output=is_multi_encoder_output,
-            loop_scale=loop_scale,
-            forward_scale=forward_scale,
-            silence_loop_penalty=silence_loop_penalty,
-            silence_forward_penalty=silence_forward_penalty,
-            use_estimated_tdps=use_estimated_tdps,
-            state_dependent_tdp_file=state_dependent_tdp_file,
-            is_min_duration=is_min_duration,
-            use_word_end_classes=use_word_end_classes,
-            use_boundary_classes=use_boundary_classes
-        )
-    else:
-        print("Not Implemented")
-        assert(False)
-"""
-
-
 class FHDecoder:
     default_tm = {"right": "right", "center": "center", "left": "left"}
 
@@ -123,6 +85,7 @@ class FHDecoder:
         search_crp,
         context_type,
         context_mapper,
+        label_info,
         feature_path,
         model_path,
         graph,
@@ -135,11 +98,13 @@ class FHDecoder:
         is_multi_encoder_output=False,
         silence_id=40,
     ):
+        assert label_info is not None and isinstance(label_info, LabelInfo)
 
         self.name = name
         self.search_crp = copy.deepcopy(search_crp)  # s.crp["dev_magic"]
         self.context_type = context_type  # contextEnum.value
         self.context_mapper = context_mapper
+        self.label_info = label_info
         self.model_path = model_path
         self.graph = graph
         self.mixtures = (
@@ -572,15 +537,12 @@ class FHDecoder:
 
         self.tfrnn_lms["kazuki_full"] = rnn_lm_config
 
-    def recognize_count_lm(self, priorInfo, lmScale, posteriorScales=None, n_contexts=42, n_states_per_phone=3,
-                           num_encoder_output=1024, is_min_duration=False, use_word_end_classes=False, transitionScales=None, silencePenalties=None,
-                           useEstimatedTdps=False, forwardProbfile=None,
-                           addAllAllos=True,
+    def recognize_count_lm(self, priorInfo, lmScale, posteriorScales=None,
+                           num_encoder_output=1024, transitionScales=None, silencePenalties=None, useEstimatedTdps=False, forwardProbfile=None,
                            tdpScale=1.0, tdpExit=0.0, tdpNonword=20.0, silExit=20.0, tdpSkip=30.0, spLoop=3.0, spFwd=0.0, silLoop=0.0, silFwd=3.0,
                            beam=20.0, beamLimit=400000, wePruning=0.5, wePruningLimit=10000, pronScale=3.0, altas=None,
-                           use_boundary_classes=False, onlyLmOpt=True, calculateStat=False, keep_value=12,
+                           addAllAllos=True, onlyLmOpt=True, calculateStat=False, keep_value=12,
     ):
-
         if posteriorScales is None:
             posteriorScales = dict(zip([f'{k}-scale' for k in ['left-context', 'center-state', 'right-context' ]], [1.0] * 3))
         loopScale = forwardScale = 1.0
@@ -622,7 +584,7 @@ class FHDecoder:
 
         searchCrp.acoustic_model_config = am.acoustic_model_config(
             state_tying=state_tying,
-            states_per_phone=n_states_per_phone,
+            states_per_phone=self.label_info.n_states_per_phone,
             state_repetitions=1,
             across_word_model=True,
             early_recombination=False,
@@ -642,7 +604,8 @@ class FHDecoder:
                 "use-boundary-classes"
             ] = use_boundary_classes
 
-        if use_word_end_classes:
+
+        if self.label_info.use_word_end_classes:
             searchCrp.acoustic_model_config["state-tying"]["use-word-end-classes"] = True
 
         # lm config update
@@ -668,16 +631,19 @@ class FHDecoder:
             adv_search_extra_config = None
 
         self.feature_scorer = featureScorer = get_feature_scorer(context_type=self.context_type, context_mapper=self.context_mapper,
-                                           featureScorerConfig=self.featureScorerConfig,
-                                           mixtures=self.mixtures, silence_id=self.silence_id,
-                                           prior_info=priorInfo,
-                                           posterior_scales=posteriorScales, num_label_contexts=n_contexts, num_states_per_phone=n_states_per_phone,
-                                           num_encoder_output=num_encoder_output,
-                                           loop_scale=loopScale, forward_scale=forwardScale,
-                                           silence_loop_penalty=silLoopPenalty, silence_forward_penalty=silFwdPenalty,
-                                           use_estimated_tdps=useEstimatedTdps, state_dependent_tdp_file=forwardProbfile,
-                                           is_min_duration=is_min_duration, use_word_end_classes=use_word_end_classes,
-                                           use_boundary_classes=use_boundary_classes, is_multi_encoder_output=self.is_multi_encoder_output)
+                                                                 featureScorerConfig=self.featureScorerConfig,
+                                                                 mixtures=self.mixtures, silence_id=self.silence_id,
+                                                                 prior_info=priorInfo,
+                                                                 posterior_scales=posteriorScales,
+                                                                 num_label_contexts=self.label_info.n_contexts, num_states_per_phone=self.label_info.n_states_per_phone,
+                                                                 is_min_duration=self.label_info.use_minimum_duration,
+                                                                 use_word_end_classes=self.label_info.use_word_end_classes,
+                                                                 use_boundary_classes=self.label_info.use_boundary_classes,
+                                                                 num_encoder_output=num_encoder_output,
+                                                                 loop_scale=loopScale, forward_scale=forwardScale,
+                                                                 silence_loop_penalty=silLoopPenalty, silence_forward_penalty=silFwdPenalty,
+                                                                 use_estimated_tdps=useEstimatedTdps, state_dependent_tdp_file=forwardProbfile,
+                                                                 is_multi_encoder_output=self.is_multi_encoder_output)
 
         if altas is not None:
             prepath = 'decoding-gridsearch/'

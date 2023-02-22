@@ -1,5 +1,6 @@
 #based on https://arxiv.org/abs/2004.00960
 def get_specaugment_epilog(t_num=3, t=10, f_num=5, f=4):
+    assert (f==5), 'lbs Gammatones are 50, pass f=5'
     code = f"""
 def _mask(x, batch_axis, axis, pos, max_amount):
   import tensorflow as tf
