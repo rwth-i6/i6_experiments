@@ -273,7 +273,7 @@ def conformer_baseline():
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
-      default_recog_epochs = [80 * i for i in range(1, int(num_epochs / 80) + 1)]
+      default_recog_epochs = [20, 40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
       if num_epochs % 80 != 0:
         default_recog_epochs += [num_epochs]
     else:
@@ -625,9 +625,6 @@ def conformer_baseline():
         length_norm=False,
       )
 
-  # TODO: with length reward
-
-
   # TODO: retrain
   for lr in [5e-4, 3e-4, 1e-4]:
     retrain_args = copy.deepcopy(oclr_args)
@@ -636,8 +633,44 @@ def conformer_baseline():
     retrain_args['lr_decay'] = 0.95
     run_exp(exp_name=name + f'_retrain1_const20_linDecay580_{lr}', train_args=retrain_args, num_epochs=600)
 
+    if lr == 1e-4:
+      mini_lstm_j = train_mini_lstm(
+        exp_name=name + f'_retrain1_const20_linDecay580_{lr}',
+        checkpoint=train_job_avg_ckpt[name], args=retrain_args, num_epochs=40, w_drop=True)
+
+      for beam_size in [50]:
+        for lm_scale in [0.56, 0.58, 0.6]:
+          for prior_scale in [0.36, 0.38, 0.4]:
+            run_lm_fusion(
+              lm_type='trafo', exp_name=name, epoch='avg',
+              test_set_names=['dev-other'],
+              lm_scales=[lm_scale],
+              prior_scales=[prior_scale],
+              prior_type='mini_lstm', mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
+              train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+              beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+              bpe_size=BPE_10K,
+            )
+
   retrain_args = copy.deepcopy(oclr_args)
   retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
   retrain_args['learning_rates_list'] = list(numpy.linspace(1e-4, 1e-6, 580))
   retrain_args['lr_decay'] = 0.95
   run_exp(exp_name=name + f'_retrain1_linDecay600_0.0001', train_args=retrain_args, num_epochs=600)
+
+  # TODO: retraining as comparison to chunk-wise attention
+  retrain_args = copy.deepcopy(oclr_args)
+  retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
+  retrain_args['learning_rates_list'] = list(numpy.linspace(1e-4, 1e-6, 580))
+
+  for total_epochs in [2 * 20, 3 * 20, 5 * 20]:
+    for start_lr in [1e-5, 1e-4]:
+      for decay_pt in [3/4, 1/2] if start_lr <= 1e-5 else [1/2, 1/3]:
+        end_lr = 1e-6
+
+        retrain_args = copy.deepcopy(oclr_args)
+        retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
+        start_decay_pt = int(total_epochs * decay_pt)
+        retrain_args['learning_rates_list'] = [start_lr] * start_decay_pt + list(numpy.linspace(start_lr, end_lr, total_epochs - start_decay_pt))
+        run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}', train_args=retrain_args, num_epochs=total_epochs)
+
