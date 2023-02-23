@@ -522,13 +522,17 @@ def create_config(
         chunk_step=None,
         eoc_idx=0,
         search_type=None,
-        dump_alignments_dataset=False,
+        dump_alignments_dataset=None,  # train, dev, etc
         dump_ctc=False,
+        dump_ctc_dataset=None,  # train, dev, etc
 ):
   exp_config = copy.deepcopy(config)  # type: dict
   exp_post_config = copy.deepcopy(post_config)
 
   exp_config["extern_data"] = training_datasets.extern_data
+
+  assert dump_alignments_dataset is None or dump_ctc_dataset is None, (
+      "dump_alignments_dataset and dump_ctc_dataset are mutually exclusive")
 
   if not is_recog:
     if not dump_alignments_dataset and not dump_ctc:      # ignore devtrain when dumping alignments
@@ -543,12 +547,13 @@ def create_config(
           "train": training_datasets.train.as_returnn_opts(),
           "dev": training_datasets.cv.as_returnn_opts(),
         }
-      if dump_alignments_dataset:
-        if dump_alignments_dataset == 'train':
+      if dump_alignments_dataset or dump_ctc_dataset:
+        dump_data = dump_alignments_dataset if dump_alignments_dataset else dump_ctc_dataset
+        if dump_data == 'train':
           exp_config["eval_datasets"] = {
             "train": training_datasets.train.as_returnn_opts(),
           }
-        elif dump_alignments_dataset == 'dev':
+        elif dump_data == 'dev':
           exp_config["eval_datasets"] = {
             "dev": training_datasets.cv.as_returnn_opts(),
           }
@@ -743,6 +748,17 @@ def create_config(
       "is_output_layer": True,
     }
     exp_config['load'] = retrain_checkpoint
+
+  if dump_ctc_dataset:
+    exp_config['network']['ctc_forced_align'] = {
+      'class': 'forced_align', 'from': "ctc", "input_type": "prob", "align_target": "data:bpe_labels",
+      'topology': 'rna'
+    }
+    exp_config["network"]["ctc_forced_align_dump"] = {
+      "class": "hdf_dump", "from": "ctc_forced_align",
+      f"filename": "alignments-{dump_ctc_dataset}.hdf",
+      "is_output_layer": True,
+    }
 
   # TODO: fix search bug
   if is_recog:

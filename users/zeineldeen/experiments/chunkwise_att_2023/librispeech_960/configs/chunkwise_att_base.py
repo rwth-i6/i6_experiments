@@ -117,9 +117,11 @@ def baseline():
     abs_name = os.path.abspath(__file__)
     prefix_name = os.path.basename(abs_name)[: -len(".py")]
 
-    def get_test_dataset_tuples(bpe_size):
+    def get_test_dataset_tuples(bpe_size, ignored_data=None):
         test_dataset_tuples = {}
         for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
+            if ignored_data and testset in ignored_data:
+                continue
             test_dataset_tuples[testset] = build_test_dataset(
                 testset,
                 use_raw_features=True,
@@ -394,7 +396,8 @@ def baseline():
         else:
             default_recog_epochs = recog_epochs
 
-        test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
+        test_dataset_tuples = get_test_dataset_tuples(
+            bpe_size=bpe_size, ignored_data=kwargs.get("ignored_data", None))
 
         for ep in default_recog_epochs:
             search(
@@ -491,29 +494,45 @@ def baseline():
         hdf_layers,
         feature_extraction_net=log10_net_10ms,
         bpe_size=10000,
-        time_rqmt=24,
+        time_rqmt=12,
+        mem_rqmt=15,
+        override_returnn_config=None,
         **kwargs,
     ):
 
         # build train, dev, and devtrain
+        # - No speed pert
+        # - Partition epoch 1
+        # - No curr. learning
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
             partition_epoch=1,
             epoch_wise_filter=None,
-            link_speed_perturbation=train_args.get("speed_pert", True),
+            link_speed_perturbation=False,
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
 
-        dump_dataset = train_args['dump_alignments_dataset']
+        if train_args.get('dump_alignments_dataset', None):
+            dump_dataset = train_args['dump_alignments_dataset']
+        elif train_args.get('dump_ctc_dataset', None):
+            dump_dataset = train_args['dump_ctc_dataset']
+        else:
+            raise Exception("No dump dataset specified.")
+
         assert dump_dataset in ['train', 'dev']
 
         exp_prefix = os.path.join(prefix_name, exp_name)
-        returnn_config = create_config(
-          training_datasets=train_data,
-          **train_args,
-          feature_extraction_net=feature_extraction_net,
-        )
+
+        if override_returnn_config:
+            returnn_config = copy.deepcopy(override_returnn_config)
+        else:
+            returnn_config = create_config(
+              training_datasets=train_data,
+              **train_args,
+              feature_extraction_net=feature_extraction_net,
+            )
 
         forward_j = ReturnnForwardJob(
             model_checkpoint=Checkpoint(index_path=tk.Path(model_ckpt + '.index')),
@@ -522,12 +541,15 @@ def baseline():
             returnn_python_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             time_rqmt=time_rqmt,
+            mem_rqmt=mem_rqmt,
             eval_mode=True,
         )
 
+        forward_j.add_alias(exp_prefix + '/forward_hdf/' + dump_dataset)
+
         for layer in hdf_layers:
             tk.register_output(
-                os.path.join(exp_prefix, 'hdfs', train_args['dump_alignments_dataset']),
+                os.path.join(exp_prefix, 'hdfs', dump_dataset),
                 forward_j.out_hdf_files[layer])
 
 
@@ -804,19 +826,32 @@ def baseline():
         run_exp(f'base_chunkwise_att_chunk-20_step-15_startLR-{start_lr}_endLR-{end_lr}',
                 train_args=args, num_epochs=60, epoch_wise_filter=None)
 
+    # --------------------------- Dumping Global Att Alignments --------------------------- #
+
     # TODO: dump alignment
-    for dataset in ['dev']:
-        for chunk_size in [20]: # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+    for dataset in ['train', 'dev']:
+        for chunk_size in [1, 10, 20, 30, 40]: # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
             args = copy.deepcopy(default_args)
             args['dump_alignments_dataset'] = dataset
             args['chunk_size'] = chunk_size
-            chunk_step = chunk_size * 3 // 4
+            chunk_step = max(1, chunk_size * 3 // 4)
             args['chunk_step'] = chunk_step
             run_forward(
                 f'dump_alignments_chunk-{chunk_size}_step-{chunk_step}',
                 train_args=args, model_ckpt=global_att_best_ckpt,
                 hdf_layers=[f'alignments-{dataset}.hdf'],
             )
+
+    # --------------------------- Dumping CTC Alignments --------------------------- #
+
+    for dataset in ['train', 'dev']:
+        args = copy.deepcopy(default_args)
+        args['dump_ctc_dataset'] = dataset
+        run_forward(
+            f'dump_ctc_chunk-{20}_step-{15}',
+            train_args=args, model_ckpt=global_att_best_ckpt,
+            hdf_layers=[f'alignments-{dataset}.hdf'],
+        )
 
     args = copy.deepcopy(default_args)
     args['dump_ctc'] = True
@@ -827,27 +862,34 @@ def baseline():
         returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_CPU_EXE).out_files
     tk.register_output("bla-align-train", alignments["ctc_forced_align_dump"]["train"])
 
-    returnn_config = ReturnnConfig({
-        "eval_datasets": {
-            name: {"class": "HDFDataset", "files": [alignments[name]]}
-            for name in alignments
-        },
-        "network": {
-            "chunked_align": {
-                "class": "eval", "eval": tools._get_chunked_align, "out_type": tools._get_chunked_align_out_type,
-                "from": "data"
+    def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments):
+        from i6_experiments.common.setups.returnn import serialization
+        config = ReturnnConfig({
+            "eval_datasets": {
+                name: {"class": "HDFDataset", "files": [ctc_alignments[name]]}
+                for name in ctc_alignments
             },
-            "output": {
-                "class": "hdf_dump", "from": "chunked_align",
-                "filename": "alignments-{dataset_name}.hdf",
-                "dump_per_run": True,
+            "network": {
+                "chunked_align": {
+                    "class": "eval", "eval": tools._get_chunked_align, "out_type": tools._get_chunked_align_out_type,
+                    "from": "data"
+                },
+                "output": {
+                    "class": "hdf_dump", "from": "chunked_align",
+                    "filename": f"alignments-{dataset_name}.hdf",
+                }
             }
-        }
-    })
+        })
+        return serialization.get_serializable_config(config)
 
-    #args['dump_alignments_dataset'] = 'dev'
-    # ctc_chunksync_alignment = run_forward(
-    #     'ctc_chunk_sync_align', train_args=args,
-    #     model_ckpt="/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029",
-    #
-    # )
+    # TODO: dump train also
+    for dump_dataset in ['dev']:
+        args['dump_alignments_dataset'] = dump_dataset
+        run_forward(
+            exp_name='ctc_chunk_sync_align', train_args=args, model_ckpt=global_att_best_ckpt,
+            hdf_layers=f'alignments-{dump_dataset}.hdf',
+            override_returnn_config=get_ctc_chunksyn_align_config(
+                dump_dataset, ctc_alignments=alignments["ctc_forced_align_dump"]),
+        )
+
+    # ------------------------------------------------------ #
