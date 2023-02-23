@@ -53,6 +53,10 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
 
 from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023 import tools
 
+from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.training import Checkpoint
+from i6_core.returnn.forward import ReturnnForwardJob
+
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
 train_job_best_epoch = {}
@@ -487,44 +491,44 @@ def baseline():
         hdf_layers,
         feature_extraction_net=log10_net_10ms,
         bpe_size=10000,
-        partition_epoch=20,
         time_rqmt=24,
         **kwargs,
     ):
-        if train_args.get("retrain_checkpoint", None):
-            assert (
-                kwargs.get("epoch_wise_filter", None) is None
-            ), "epoch_wise_filter should be disabled for retraining."
 
         # build train, dev, and devtrain
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
-            partition_epoch=partition_epoch,
-            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
+            partition_epoch=1,
+            epoch_wise_filter=None,
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
 
+        dump_dataset = train_args['dump_alignments_dataset']
+        assert dump_dataset in ['train', 'dev']
+
         exp_prefix = os.path.join(prefix_name, exp_name)
         returnn_config = create_config(
           training_datasets=train_data,
-          **train_args,  # uses dump_alignments_dataset
+          **train_args,
           feature_extraction_net=feature_extraction_net,
         )
 
-        from i6_core.returnn import ReturnnForwardJob
-
         forward_j = ReturnnForwardJob(
-            model_checkpoint=model_ckpt,
+            model_checkpoint=Checkpoint(index_path=tk.Path(model_ckpt + '.index')),
+            hdf_outputs=hdf_layers,
             returnn_config=returnn_config,
             returnn_python_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             time_rqmt=time_rqmt,
+            eval_mode=True,
         )
 
         for layer in hdf_layers:
-            tk.register_output(exp_prefix, forward_j.out_hdf_files[layer])
+            tk.register_output(
+                os.path.join(exp_prefix, 'hdfs', train_args['dump_alignments_dataset']),
+                forward_j.out_hdf_files[layer])
 
 
     def train_mini_lstm(
@@ -753,6 +757,8 @@ def baseline():
     # test-clean  2.48
     # test-other  5.71
 
+    global_att_best_ckpt = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029"
+
     # from Albert:
     # with task=“train” and search_type=“end-of-chunk”, it would align on-the-fly
     # with task=“eval”, add a hdf-dump-layer, and search_type=“end-of-chunk”, you can dump it
@@ -760,12 +766,12 @@ def baseline():
 
     default_args = copy.deepcopy(lstm_dec_exp_args)
     default_args['learning_rates_list'] = list(numpy.linspace(8e-4, 1e-5, 60))
-    default_args['retrain_checkpoint'] = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029"
+    default_args['retrain_checkpoint'] = global_att_best_ckpt
     default_args['chunk_size'] = 20
     default_args['chunk_step'] = 20 * 3 // 4
     default_args['search_type'] = 'end-of-chunk'  # align on-the-fly
 
-    # train and align on the fly
+    # TODO: train and align on the fly
     for chunk_size in [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
         args = copy.deepcopy(default_args)
         args['chunk_size'] = chunk_size
@@ -774,7 +780,24 @@ def baseline():
         train_j, train_data = run_exp(f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}',
                 train_args=args, num_epochs=60, epoch_wise_filter=None)
 
-    # tune LR
+    # TODO: tune LR with const + decay
+    for total_epochs in [2 * 20]:
+        for start_lr in [1e-5, 1e-4]:
+            for decay_pt in [3 / 4, 1 / 2] if start_lr <= 1e-5 else [1 / 2, 1 / 3]:
+                end_lr = 1e-6
+                args = copy.deepcopy(default_args)
+                args['chunk_size'] = 20
+                chunk_step = chunk_size * 3 // 4
+                args['chunk_step'] = 15
+                start_decay_pt = int(total_epochs * decay_pt)
+                args['learning_rates_list'] = [start_lr] * start_decay_pt + list(
+                    numpy.linspace(start_lr, end_lr, total_epochs - start_decay_pt))
+                run_exp(
+                    exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}',
+                    train_args=args, num_epochs=total_epochs
+                )
+
+    # TODO: tune LR
     for start_lr, end_lr in [(1e-5, 1e-6), (1e-5, 1e-5)]:
         args = copy.deepcopy(default_args)
         args['learning_rates_list'] = list(numpy.linspace(start_lr, end_lr, 60))
@@ -782,26 +805,25 @@ def baseline():
                 train_args=args, num_epochs=60, epoch_wise_filter=None)
 
     # TODO: dump alignment
-    for dataset in ['train', 'dev']:
+    for dataset in ['dev']:
         for chunk_size in [20]: # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
             args = copy.deepcopy(default_args)
             args['dump_alignments_dataset'] = dataset
             args['chunk_size'] = chunk_size
             chunk_step = chunk_size * 3 // 4
             args['chunk_step'] = chunk_step
-            run_exp(
+            run_forward(
                 f'dump_alignments_chunk-{chunk_size}_step-{chunk_step}',
-                train_args=args, num_epochs=60, epoch_wise_filter=None, partition_epoch=1, time_rqmt=24,
+                train_args=args, model_ckpt=global_att_best_ckpt,
+                hdf_layers=[f'alignments-{dataset}.hdf'],
             )
 
-    # TODO: train with dumped align
     args = copy.deepcopy(default_args)
-    args['task'] = 'eval'
     args['dump_ctc'] = True
-    create_config(training_datasets=train_data, **args, feature_extraction_net=log10_net_10ms)
+    returnn_config = create_config(training_datasets=train_data, **args, feature_extraction_net=log10_net_10ms)
     # time-sync alignments
     alignments = tools.DumpReturnnLayerJob(
-        returnn_config=returnn, rqmt={'gpu': 1, 'mem': 15, 'time': 24},
+        returnn_config=returnn_config, rqmt={'gpu': 1, 'mem': 15, 'time': 24},
         returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_CPU_EXE).out_files
     tk.register_output("bla-align-train", alignments["ctc_forced_align_dump"]["train"])
 
@@ -822,4 +844,10 @@ def baseline():
             }
         }
     })
-    #ctc_chunksync_alignment =
+
+    #args['dump_alignments_dataset'] = 'dev'
+    # ctc_chunksync_alignment = run_forward(
+    #     'ctc_chunk_sync_align', train_args=args,
+    #     model_ckpt="/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029",
+    #
+    # )

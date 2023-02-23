@@ -523,7 +523,6 @@ def create_config(
         eoc_idx=0,
         search_type=None,
         dump_alignments_dataset=False,
-        task=None,
         dump_ctc=False,
 ):
   exp_config = copy.deepcopy(config)  # type: dict
@@ -730,7 +729,6 @@ def create_config(
       "filename": f"alignments-{dump_alignments_dataset}.hdf",
       "is_output_layer": True,
     }
-    del exp_config['task']  # needed for ReturnnForwardJob
     #exp_config['load'] = retrain_checkpoint
 
   if dump_ctc:
@@ -745,9 +743,6 @@ def create_config(
       "is_output_layer": True,
     }
     exp_config['load'] = retrain_checkpoint
-
-  if task:
-    exp_config['task'] = task
 
   # TODO: fix search bug
   if is_recog:
