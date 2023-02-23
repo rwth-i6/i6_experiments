@@ -659,42 +659,6 @@ def create_config(
     exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
-        if feature_extraction_net_global_norm:
-            # TODO: just for experimenting!
-            exp_config[
-                "a_global_mean_logmel80"
-            ] = "/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.mean.txt"
-            exp_config[
-                "a_global_stddev_logmel80"
-            ] = "/u/zeineldeen/setups/librispeech/2020-08-31--att-phon/feat-stats/stats-logmelfb.std_dev.txt"
-
-            exp_config["a_global_mean_var"] = CodeWrapper(
-                "numpy.loadtxt(a_global_mean_logmel80)"
-            )
-            exp_config["a_global_stddev_var"] = CodeWrapper(
-                "numpy.loadtxt(a_global_stddev_logmel80)"
-            )
-
-            feature_extraction_net = copy.deepcopy(feature_extraction_net)
-
-            feature_extraction_net["a_global_mean"] = {
-                "class": "constant",
-                "value": CodeWrapper("a_global_mean_var"),
-            }
-            feature_extraction_net["a_global_stddev"] = {
-                "class": "constant",
-                "value": CodeWrapper("a_global_stddev_var"),
-            }
-
-            # TODO: does it broadcast automatically?
-            feature_extraction_net["log10_norm"] = {
-                "class": "eval",
-                "from": ["log10", "a_global_mean", "a_global_stddev"],
-                "eval": "(source(0) - source(1)) / source(2)",
-            }
-
-            feature_extraction_net["log_mel_features"]["from"] = "log10_norm"
-
         exp_config["network"].update(feature_extraction_net)
 
     # -------------------------- end network -------------------------- #
