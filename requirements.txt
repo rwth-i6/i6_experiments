@@ -1,1 +1,1 @@
-sequitur-g2p==1.0.1668.7
+sequitur-g2p==1.0.1668.23
