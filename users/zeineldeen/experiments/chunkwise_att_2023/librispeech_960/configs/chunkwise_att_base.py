@@ -17,13 +17,11 @@ from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_
 
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
-    apply_fairseq_init_to_transformer_decoder,
-    reset_params_init,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.data import (
+from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_960.data import (
     build_training_datasets,
     build_test_dataset,
-    TrainingDatasets,
+    build_chunkwise_training_datasets,
 )
 from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.default_tools import (
     RETURNN_EXE,
@@ -32,7 +30,6 @@ from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.default_tool
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
-    log10_net_10ms_long_bn,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.pipeline import (
     training,
@@ -446,20 +443,32 @@ def baseline():
         bpe_size=10000,
         partition_epoch=20,
         time_rqmt=168,
+        train_fixed_alignment=None,
+        cv_fixed_alignment=None,
         **kwargs,
     ):
-        if train_args.get("retrain_checkpoint", None):
-            assert (
-                kwargs.get("epoch_wise_filter", None) is None
-            ), "epoch_wise_filter should be disabled for retraining."
-        train_data = build_training_datasets(
-            bpe_size=bpe_size,
-            use_raw_features=True,
-            partition_epoch=partition_epoch,
-            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
-            link_speed_perturbation=train_args.get("speed_pert", True),
-            seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
-        )
+
+        if train_fixed_alignment:
+            assert cv_fixed_alignment, 'cv alignment is not set.'
+            train_data = build_chunkwise_training_datasets(
+                train_fixed_alignment=train_fixed_alignment,
+                cv_fixed_alignment=cv_fixed_alignment,
+                bpe_size=bpe_size,
+                use_raw_features=True,
+                partition_epoch=partition_epoch,
+                epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
+                link_speed_perturbation=train_args.get("speed_pert", True),
+                seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+            )
+        else:
+            train_data = build_training_datasets(
+                bpe_size=bpe_size,
+                use_raw_features=True,
+                partition_epoch=partition_epoch,
+                epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
+                link_speed_perturbation=train_args.get("speed_pert", True),
+                seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+            )
 
         train_job = run_train(
             exp_name,
@@ -551,6 +560,8 @@ def baseline():
             tk.register_output(
                 os.path.join(exp_prefix, 'hdfs', dump_dataset),
                 forward_j.out_hdf_files[layer])
+
+        return forward_j.out_hdf_files
 
 
     def train_mini_lstm(
@@ -829,24 +840,55 @@ def baseline():
     # --------------------------- Dumping Global Att Alignments --------------------------- #
 
     # TODO: dump alignment
-    for dataset in ['train', 'dev']:
-        for chunk_size in [1, 10, 20, 30, 40]: # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-            args = copy.deepcopy(default_args)
-            args['dump_alignments_dataset'] = dataset
-            args['chunk_size'] = chunk_size
-            chunk_step = max(1, chunk_size * 3 // 4)
-            args['chunk_step'] = chunk_step
-            run_forward(
-                f'dump_alignments_chunk-{chunk_size}_step-{chunk_step}',
-                train_args=args, model_ckpt=global_att_best_ckpt,
-                hdf_layers=[f'alignments-{dataset}.hdf'],
-            )
+
+    # dumped_align_map = {'train': {}, 'dev': {}}
+    #
+    # for dataset in ['train', 'dev']:
+    #     for chunk_size in [1, 10, 20, 30, 40, 50]: # [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+    #         for chunk_step_factor in [1 / 2, 3 / 4, chunk_size]:
+    #             args = copy.deepcopy(default_args)
+    #             args['dump_alignments_dataset'] = dataset
+    #             args['chunk_size'] = chunk_size
+    #             chunk_step = max(1, int(chunk_size * chunk_step_factor))
+    #             args['chunk_step'] = chunk_step
+    #             res = run_forward(
+    #                 f'dump_alignments_chunk-{chunk_size}_step-{chunk_step}',
+    #                 train_args=args, model_ckpt=global_att_best_ckpt,
+    #                 hdf_layers=[f'alignments-{dataset}.hdf'],
+    #             )
+    #             dumped_align_map[dataset][f'{chunk_size}_{chunk_step}'] = res[f'alignments-{dataset}.hdf']
+    #
+    # # TODO: without CTC
+    # # TODO: without speed pert
+    #
+    # # train with fixed alignment
+    # args = copy.deepcopy(default_args)
+    # args['search_type'] = None
+    # decay_pt = 60 * 1 // 3
+    # args['learning_rates_list'] = [1e-5] * decay_pt + list(numpy.linspace(1e-5, 1e-6, 60 - decay_pt))
+    # run_exp(
+    #     exp_name=f'base_chunkwise_att_chunk-{20}_step-{15}_linDecay{40}_{1e-5}_decayPt{1/3}_fixed_align',
+    #     train_args=args, num_epochs=60, train_fixed_alignment=dumped_align_map['train']['20_15'],
+    #     cv_fixed_alignment=dumped_align_map['dev']['20_15'], epoch_wise_filter=None,
+    # )
+    # args['encoder_args'].with_ctc = False
+    # run_exp(
+    #     exp_name=f'base_chunkwise_att_chunk-{20}_step-{15}_linDecay{40}_{1e-5}_decayPt{1 / 3}_fixed_align_noCTC',
+    #     train_args=args, num_epochs=60, train_fixed_alignment=dumped_align_map['train']['20_15'],
+    #     cv_fixed_alignment=dumped_align_map['dev']['20_15'], epoch_wise_filter=None,
+    # )
+    # run_exp(
+    #     exp_name=f'base_chunkwise_att_chunk-{20}_step-{15}_linDecay{40}_{1e-5}_decayPt{1 / 3}_fixed_align_noSpeedPert',
+    #     train_args=args, num_epochs=60, train_fixed_alignment=dumped_align_map['train']['20_15'],
+    #     cv_fixed_alignment=dumped_align_map['dev']['20_15'], epoch_wise_filter=None, speed_perturb=False,
+    # )
 
     # --------------------------- Dumping CTC Alignments --------------------------- #
 
     for dataset in ['train', 'dev']:
         args = copy.deepcopy(default_args)
         args['dump_ctc_dataset'] = dataset
+        args['batch_size'] *= 2
         run_forward(
             f'dump_ctc_chunk-{20}_step-{15}',
             train_args=args, model_ckpt=global_att_best_ckpt,
@@ -862,9 +904,18 @@ def baseline():
         returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_CPU_EXE).out_files
     tk.register_output("bla-align-train", alignments["ctc_forced_align_dump"]["train"])
 
+    # TODO: add chunk_step param
     def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments):
         from i6_experiments.common.setups.returnn import serialization
         config = ReturnnConfig({
+            'extern_data': {
+                "bpe_labels": {
+                    "available_for_inference": False,
+                    "dim": 10026,
+                    "shape": (None,),
+                    "sparse": True,
+                },
+            },
             "eval_datasets": {
                 name: {"class": "HDFDataset", "files": [ctc_alignments[name]]}
                 for name in ctc_alignments
@@ -872,7 +923,7 @@ def baseline():
             "network": {
                 "chunked_align": {
                     "class": "eval", "eval": tools._get_chunked_align, "out_type": tools._get_chunked_align_out_type,
-                    "from": "data"
+                    "from": "data:bpe_labels",
                 },
                 "output": {
                     "class": "hdf_dump", "from": "chunked_align",

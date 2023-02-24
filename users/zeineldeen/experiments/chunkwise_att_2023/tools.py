@@ -239,7 +239,7 @@ class DumpReturnnLayerJob(Job):
     return tools.sis_hash(parsed_args["returnn_config"])
 
 
-def _get_chunked_align(source, self, **_kwargs):
+def _get_chunked_align(source, self, chunk_step=15, eoc_idx=0, **_kwargs):
   import tensorflow as tf
   data = source(0, as_data=True)
   blank_idx = data.dim - 1
@@ -286,4 +286,5 @@ def _get_chunked_align_out_type(sources, **_kwargs):
   dim = sources[0].output.sparse_dim
   dim = FeatureDim("out", dim.dimension - 1)
   out_time_dim = SpatialDim("out-time")
+  out_time_dim.dyn_size_ext = Data("out-time:size", dim_tags=[batch_dim], dtype="int32")
   return Data("out", dim_tags=[batch_dim, out_time_dim], sparse_dim=dim)

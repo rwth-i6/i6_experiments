@@ -535,12 +535,13 @@ def create_config(
       "dump_alignments_dataset and dump_ctc_dataset are mutually exclusive")
 
   if not is_recog:
-    if not dump_alignments_dataset and not dump_ctc:      # ignore devtrain when dumping alignments
+    if not dump_alignments_dataset and not dump_ctc and not dump_ctc_dataset:
       exp_config["train"] = training_datasets.train.as_returnn_opts()
       exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-      exp_config["eval_datasets"] = {
-        "devtrain": training_datasets.devtrain.as_returnn_opts()
-      }
+      if training_datasets.devtrain:
+        exp_config["eval_datasets"] = {
+          "devtrain": training_datasets.devtrain.as_returnn_opts()
+        }
     else:
       if dump_ctc:
         exp_config["eval_datasets"] = {
@@ -697,7 +698,8 @@ def create_config(
   decoder_args['search_type'] = search_type
 
   transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
-  transformer_decoder.create_network()
+  if not dump_ctc_dataset:
+    transformer_decoder.create_network()
 
   decision_layer_name = transformer_decoder.decision_layer_name
   exp_config["search_output_layer"] = decision_layer_name
@@ -715,7 +717,10 @@ def create_config(
 
   # add full network
   exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
-  exp_config["network"].update(transformer_decoder.network.get_net())
+
+  # do not add decoder when dumping with CTC
+  if not dump_ctc_dataset:
+    exp_config["network"].update(transformer_decoder.network.get_net())
 
   if feature_extraction_net:
     exp_config["network"].update(feature_extraction_net)
@@ -756,9 +761,11 @@ def create_config(
     }
     exp_config["network"]["ctc_forced_align_dump"] = {
       "class": "hdf_dump", "from": "ctc_forced_align",
-      f"filename": "alignments-{dump_ctc_dataset}.hdf",
+      f"filename": f"alignments-{dump_ctc_dataset}.hdf",
       "is_output_layer": True,
     }
+    hyperparams['max_seq_length'] = None  # remove max seq len filtering
+
 
   # TODO: fix search bug
   if is_recog:
