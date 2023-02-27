@@ -895,26 +895,22 @@ def baseline():
         config = ReturnnConfig({
             'extern_data': {
                 "bpe_labels": {
-                    "available_for_inference": True,
-                    "dim": 10026,
+                    "available_for_inference": False,
+                    "dim": 10026,  # from CTC so +1 for blank
                     "shape": (None,),
                     "sparse": True,
                 },
-                "bpe_labels_wo_blank": {
-                    "available_for_inference": False,
-                    "dim": 10025,  # without blank
-                    "shape": (None,),
-                    "sparse": True,
-                }
             },
-            "eval": {
-                "class": "MetaDataset", "data_map": {"bpe_labels": ("hdf_dataset", "data")},
-                    "datasets": {
-                        "hdf_dataset": {
-                            "class": "HDFDataset", "files": [ctc_alignments]
+            "eval_datasets": {
+                dataset_name: {
+                    "class": "MetaDataset", "data_map": {"bpe_labels": ("hdf_dataset", "data")},
+                        "datasets": {
+                            "hdf_dataset": {
+                                "class": "HDFDataset", "files": [ctc_alignments]
+                            },
                         },
-                    },
-                "seq_order_control_dataset": "hdf_dataset",
+                    "seq_order_control_dataset": "hdf_dataset",
+                },
             },
             "network": {
                 "chunked_align": {
@@ -924,8 +920,8 @@ def baseline():
                     "eval_locals": {"chunk_step": chunk_step, "eoc_idx": eoc_idx},
                 },
                 "output": {
-                    "class": "copy", "from": "chunked_align",
-                    "target": "bpe_labels_wo_blank",
+                    "class": "hdf_dump", "from": "chunked_align",
+                    "filename": f"alignments-{dataset_name}.hdf",
                 }
             },
             'batch_size': 5000,
@@ -951,57 +947,94 @@ def baseline():
         )
 
         # convert w.r.t different chunk sizes and chunk steps
-        for chunk_size in [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-            for chunk_step_factor in [1 / 2, 3 / 4, 1]:
+        for chunk_size in [1, 2, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 100]:
+            for chunk_step_factor in [1 / 2, 3 / 4, 1]:  # 1 = no overlap
 
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
                 ctc_chunk_sync_align = run_forward(
                     exp_name=f'ctc_chunk_sync_align_wo_speedPert_{chunk_size}-{chunk_step}',
                     train_args=args, model_ckpt=global_att_best_ckpt,
-                    #hdf_layers=[f'alignments-{dataset}.hdf'],
+                    hdf_layers=[f'alignments-{dataset}.hdf'],
                     override_returnn_config=get_ctc_chunksyn_align_config(
                         dataset, ctc_alignments=j[f'alignments-{dataset}.hdf'], chunk_step=chunk_step),
                     device='cpu',
-                    do_eval=False,
                 )
-                ctc_align_wo_speed_pert[dataset][f'{chunk_size}_{chunk_step}'] = ctc_chunk_sync_align['output.hdf']
+
+                ctc_align_wo_speed_pert[dataset][f'{chunk_size}_{chunk_step}'] = ctc_chunk_sync_align[f'alignments-{dataset}.hdf']
 
 
     # train with ctc chunk-sync alignment
-    for total_epochs in [40]:
-        for chunk_size in [1, 10, 20, 30, 40, 50]:
+    for total_epochs in [40, 60, 100]:
+        for chunk_size in [2, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 100]:
             for chunk_step_factor in [1 / 2, 3 / 4, 1]:
+                for start_lr in [1e-4]:
+                    for decay_pt_factor in [1 / 3]:
 
-                train_args = copy.deepcopy(default_args)
-                train_args['speed_pert'] = False  # no speed pert
-                train_args['search_type'] = None  # fixed alignment
+                        train_args = copy.deepcopy(default_args)
+                        train_args['speed_pert'] = False  # no speed pert
+                        train_args['search_type'] = None  # fixed alignment
 
-                decay_pt = total_epochs * 1 // 3
+                        decay_pt = int(total_epochs * decay_pt_factor)
 
-                train_args['chunk_size'] = chunk_size
+                        train_args['chunk_size'] = chunk_size
 
-                chunk_step = max(1, int(chunk_size * chunk_step_factor))
-                train_args['chunk_step'] = chunk_step
+                        chunk_step = max(1, int(chunk_size * chunk_step_factor))
+                        train_args['chunk_step'] = chunk_step
 
-                train_args['learning_rates_list'] = [1e-4] * decay_pt + list(numpy.linspace(1e-4, 1e-6, 40 - decay_pt))
+                        train_args['learning_rates_list'] = [start_lr] * decay_pt + list(
+                            numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt))
 
-                run_exp(
-                    exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{1e-4}_decayPt{1/3}_fixed_align',
-                    train_args=train_args, num_epochs=total_epochs,
-                    train_fixed_alignment=ctc_align_wo_speed_pert['train'][f'{chunk_size}_{chunk_step}'],
-                    cv_fixed_alignment=ctc_align_wo_speed_pert['dev'][f'{chunk_size}_{chunk_step}'],
-                    epoch_wise_filter=None, time_rqmt=72,
-                )
+                        run_exp(
+                            exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align',
+                            train_args=train_args, num_epochs=total_epochs,
+                            train_fixed_alignment=ctc_align_wo_speed_pert['train'][f'{chunk_size}_{chunk_step}'],
+                            cv_fixed_alignment=ctc_align_wo_speed_pert['dev'][f'{chunk_size}_{chunk_step}'],
+                            epoch_wise_filter=None, time_rqmt=72,
+                        )
 
-                # check without CTC only for 1 exp
-                if chunk_size == 20 and chunk_step == 3 / 4:
-                    train_args['encoder_args'].with_ctc = False
-                    run_exp(
-                        exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{1e-4}_decayPt{1/3}_fixed_align_noCTC',
-                        train_args=train_args, num_epochs=total_epochs,
-                        train_fixed_alignment=ctc_align_wo_speed_pert['train'][f'{chunk_size}_{chunk_step}'],
-                        cv_fixed_alignment=ctc_align_wo_speed_pert['dev'][f'{chunk_size}_{chunk_step}'],
-                        epoch_wise_filter=None, time_rqmt=72,
-                    )
+                        # check without CTC only for 1 exp
+                        if chunk_size == 20 and chunk_step_factor == (3 / 4):
+                            train_args['encoder_args'].with_ctc = False
+                            run_exp(
+                                exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align_noCTC',
+                                train_args=train_args, num_epochs=total_epochs,
+                                train_fixed_alignment=ctc_align_wo_speed_pert['train'][f'{chunk_size}_{chunk_step}'],
+                                cv_fixed_alignment=ctc_align_wo_speed_pert['dev'][f'{chunk_size}_{chunk_step}'],
+                                epoch_wise_filter=None, time_rqmt=72,
+                            )
+
+                    # with OCLR
+
+    # TODO: tune for chunk size 1
+    for total_epochs in [40, 60, 100]:
+        for chunk_size in [1]:
+            for chunk_step_factor in [1]:
+                for start_lr in [8e-4, 5e-5, 3e-5, 1e-5]:
+                    for decay_pt_factor in [3 / 4, 1 / 3]:
+
+                        train_args = copy.deepcopy(default_args)
+                        train_args['speed_pert'] = False  # no speed pert
+                        train_args['search_type'] = None  # fixed alignment
+
+                        decay_pt = int(total_epochs * decay_pt_factor)
+
+                        train_args['chunk_size'] = chunk_size
+
+                        chunk_step = max(1, int(chunk_size * chunk_step_factor))
+                        train_args['chunk_step'] = chunk_step
+
+                        train_args['learning_rates_list'] = [start_lr] * decay_pt + list(
+                            numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt))
+
+                        run_exp(
+                            exp_name=f'base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align',
+                            train_args=train_args, num_epochs=total_epochs,
+                            train_fixed_alignment=ctc_align_wo_speed_pert['train'][f'{chunk_size}_{chunk_step}'],
+                            cv_fixed_alignment=ctc_align_wo_speed_pert['dev'][f'{chunk_size}_{chunk_step}'],
+                            epoch_wise_filter=None, time_rqmt=72,
+                        )
+
+
+
 
