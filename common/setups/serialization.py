@@ -3,13 +3,13 @@ Helper code for serializing any data, e.g. for ReturnnConfig.
 """
 
 from __future__ import annotations
-from typing import Any, Union, Optional
+from typing import Any, Union, Optional, List
 from types import FunctionType
 import sys
 import textwrap
 
 from sisyphus import tk
-from sisyphus.hash import sis_hash_helper
+from sisyphus.hash import sis_hash_helper, short_hash
 from sisyphus.delayed_ops import DelayedBase
 
 from i6_core.util import uopen
@@ -17,7 +17,7 @@ from i6_core.util import uopen
 
 class SerializerObject(DelayedBase):
     """
-    Base class for objects that can be passed to :class:`Collection`
+    Base class for objects that can be passed to :class:`Collection` or :class:`returnn_common.Collection`.
     """
 
     use_for_hash = True
@@ -25,6 +25,40 @@ class SerializerObject(DelayedBase):
     def __init__(self):
         # suppress init warning
         super().__init__(None)
+
+    def get(self) -> str:
+        """get"""
+        raise NotImplementedError
+
+
+class Collection(DelayedBase):
+    """
+    Collection of a list of :class:`SerializerObject`
+    """
+
+    def __init__(
+        self,
+        serializer_objects: List[SerializerObject],
+    ):
+        """
+        :param serializer_objects: all serializer objects which are serialized into a string in order.
+            For the hash, it will ignore those with use_for_hash=False.
+        """
+        super().__init__(None)
+        self.serializer_objects = serializer_objects
+
+    def get(self) -> str:
+        """get"""
+        content = [obj.get() for obj in self.serializer_objects]
+        return "".join(content)
+
+    def _sis_hash(self) -> bytes:
+        h = {
+            "delayed_objects": [
+                obj for obj in self.serializer_objects if obj.use_for_hash
+            ],
+        }
+        return sis_hash_helper(h)
 
 
 class Import(SerializerObject):
@@ -82,6 +116,58 @@ class Import(SerializerObject):
         return sis_hash_helper(self.code_object)
 
 
+class CodeFromFunction(SerializerObject):
+    """
+    Insert code from function.
+    """
+
+    def __init__(
+        self, name: str, func: FunctionType, *, hash_full_python_code: bool = False
+    ):
+        """
+        :param name: name of the function as exposed in the config
+        :param func:
+        :param hash_full_python_code: if True, the full python code of the function is hashed,
+            otherwise only the module name and function qualname are hashed.
+        """
+        super().__init__()
+        self.name = name
+        self.func = func
+        self.hash_full_python_code = hash_full_python_code
+
+        # Similar as ReturnnConfig.
+        import inspect
+
+        self._func_code = inspect.getsource(self.func)
+        code_hash = short_hash(self._func_code)
+        if self.func.__name__ == self.name:
+            self._code = self._func_code
+        else:
+            # Wrap the code inside a function to be sure we do not conflict with other names.
+            self._code = "".join(
+                [
+                    f"def _{self.name}_{code_hash}():\n",
+                    textwrap.indent(self._func_code, "    "),
+                    "\n",
+                    f"    return {self.func.__name__}\n",
+                    f"{self.name} = _{self.name}_{code_hash}()\n",
+                ]
+            )
+
+    def get(self):
+        """get"""
+        return self._code
+
+    def _sis_hash(self):
+        if self.hash_full_python_code:
+            return sis_hash_helper((self.name, self._func_code))
+        else:
+            return sis_hash_helper(
+                (self.name, f"{self.func.__module__}.{self.func.__qualname__}")
+            )
+
+
+# noinspection PyAbstractClass
 class _NonhashedSerializerObject(SerializerObject):
     """
     Any serializer object which is not used for the hash.
@@ -90,7 +176,7 @@ class _NonhashedSerializerObject(SerializerObject):
     use_for_hash = False
 
     def _sis_hash(self):
-        raise Exception(f"({self.__class__.__name__}) must not be hashed")
+        raise Exception(f"{self.__class__.__name__} must not be hashed")
 
 
 class NonhashedCode(_NonhashedSerializerObject):
