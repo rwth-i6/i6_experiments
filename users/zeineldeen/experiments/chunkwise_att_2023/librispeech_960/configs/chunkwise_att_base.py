@@ -872,25 +872,7 @@ def baseline():
         )
 
         # convert w.r.t different chunk sizes and chunk steps
-        for chunk_size in [
-            1,
-            2,
-            5,
-            8,
-            10,
-            15,
-            20,
-            25,
-            30,
-            35,
-            40,
-            45,
-            50,
-            60,
-            70,
-            80,
-            100,
-        ]:
+        for chunk_size in [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]:
             for chunk_step_factor in [1 / 2, 3 / 4, 1, 0.9]:  # 1 = no overlap
 
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
@@ -915,13 +897,8 @@ def baseline():
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
-        for chunk_size in [
-            1,
-            2,
-            10,
-            30,
-            50,
-        ]:  # [1, 2, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50]: #60, 70, 80, 100]:  # TODO: OOM with chunk size > 50?
+        for chunk_size in [1, 2, 10, 30, 50]:
+            # [1, 2, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50]: #60, 70, 80, 100]:  # TODO: OOM with chunk size > 50?
             for chunk_step_factor in [0.9]:  # [1 / 2, 3 / 4, 1]:
                 for start_lr in [1e-4]:
                     for decay_pt_factor in [1 / 3]:
