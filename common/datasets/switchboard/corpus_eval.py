@@ -38,9 +38,7 @@ def get_hub5e00() -> SwitchboardEvalDataset:
     """
     :return: hub5e00 eval dataset
     """
-    hub5e00_wav_audio = SwitchboardSphereToWaveJob(
-        sph_audio_folder=HUB5E00_SPH_PATH
-    ).out_wave_audio_folder
+    hub5e00_wav_audio = SwitchboardSphereToWaveJob(sph_audio_folder=HUB5E00_SPH_PATH).out_wave_audio_folder
     hub5e00_job = CreateHub5e00CorpusJob(
         wav_audio_folder=hub5e00_wav_audio,
         hub5_transcription_folder=HUB5E00_TRANSCRIPT_PATH,
@@ -70,16 +68,10 @@ def get_hub5e01() -> SwitchboardEvalDataset:
     """
     :return: hub5e_01 eval dataset
     """
-    hub5e01_wav_audio = SwitchboardSphereToWaveJob(
-        sph_audio_folder=HUB5E01_PATH
-    ).out_wave_audio_folder
-    hub5e01_job = CreateHub5e01CorpusJob(
-        wav_audio_folder=hub5e01_wav_audio, hub5e01_folder=HUB5E01_PATH
-    )
+    hub5e01_wav_audio = SwitchboardSphereToWaveJob(sph_audio_folder=HUB5E01_PATH).out_wave_audio_folder
+    hub5e01_job = CreateHub5e01CorpusJob(wav_audio_folder=hub5e01_wav_audio, hub5e01_folder=HUB5E01_PATH)
     glm = get_hub5e00().glm  # same glm as for hub5e_00
-    return SwitchboardEvalDataset(
-        bliss_corpus=hub5e01_job.out_bliss_corpus, stm=hub5e01_job.out_stm, glm=glm
-    )
+    return SwitchboardEvalDataset(bliss_corpus=hub5e01_job.out_bliss_corpus, stm=hub5e01_job.out_stm, glm=glm)
 
 
 @lru_cache()
@@ -122,6 +114,4 @@ def get_rt03s_corpus_object() -> CorpusObject:
     :return: rt03s corpus object
     """
     rt03s = get_rt03s()
-    return CorpusObject(
-        corpus_file=rt03s.bliss_corpus, audio_format="wav", duration=durations["rt03s"]
-    )
+    return CorpusObject(corpus_file=rt03s.bliss_corpus, audio_format="wav", duration=durations["rt03s"])

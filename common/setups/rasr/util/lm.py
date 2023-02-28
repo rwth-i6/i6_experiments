@@ -25,9 +25,7 @@ Path = tk.setup_path(__package__)
 # -------------------- LM Rasr Config --------------------
 
 
-def get_arpa_lm_rasr_config(
-    lm_path: tk.Path, scale: float, image: Optional[tk.Path] = None
-):
+def get_arpa_lm_rasr_config(lm_path: tk.Path, scale: float, image: Optional[tk.Path] = None):
     """
     :param lm_path: path to ARPA LM
     :param scale: LM scale
@@ -92,9 +90,7 @@ def get_nnlm_rasr_config(
         tf_graph_args["returnn_python_exe"] = returnn_python_exe
     if not hasattr(tf_graph_args, "returnn_root"):
         tf_graph_args["returnn_root"] = returnn_root
-    meta_graph_path = returnn.CompileTFGraphJob(
-        returnn_lm_inference_config, **tf_graph_args
-    ).out_graph
+    meta_graph_path = returnn.CompileTFGraphJob(returnn_lm_inference_config, **tf_graph_args).out_graph
 
     if native_op_args is None:
         native_op_args = {}
@@ -166,6 +162,4 @@ def add_lm_rasr_config_to_crp(
     if lm_lookahead_args is not None:
         if crp.recognizer_config is None:
             crp.recognizer_config = rasr.RasrConfig()
-        crp.recognizer_config.lm_lookahead = get_arpa_lm_rasr_config(
-            **lm_lookahead_args
-        )
+        crp.recognizer_config.lm_lookahead = get_arpa_lm_rasr_config(**lm_lookahead_args)

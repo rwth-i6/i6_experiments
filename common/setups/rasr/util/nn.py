@@ -32,9 +32,7 @@ class ReturnnRasrDataInput:
         name: str,
         crp: Optional[rasr.CommonRasrParameters] = None,
         alignments: Optional[RasrCacheTypes] = None,
-        feature_flow: Optional[
-            Union[rasr.FlowNetwork, Dict[str, rasr.FlowNetwork]]
-        ] = None,
+        feature_flow: Optional[Union[rasr.FlowNetwork, Dict[str, rasr.FlowNetwork]]] = None,
         features: Optional[Union[RasrCacheTypes, Dict[str, RasrCacheTypes]]] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
@@ -86,14 +84,10 @@ class ReturnnRasrDataInput:
 
         crp.lexicon_config = rasr.RasrConfig()
         crp.lexicon_config.file = lexicon_args["filename"]
-        crp.lexicon_config.normalize_pronunciation = lexicon_args[
-            "normalize_pronunciation"
-        ]
+        crp.lexicon_config.normalize_pronunciation = lexicon_args["normalize_pronunciation"]
 
         if "add_from_lexicon" in lexicon_args:
-            crp.acoustic_model_config.allophones.add_from_lexicon = lexicon_args[
-                "add_from_lexicon"
-            ]
+            crp.acoustic_model_config.allophones.add_from_lexicon = lexicon_args["add_from_lexicon"]
         if "add_all" in lexicon_args:
             crp.acoustic_model_config.allophones.add_all = lexicon_args["add_all"]
 

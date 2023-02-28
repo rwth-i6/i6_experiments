@@ -55,9 +55,7 @@ class NnSystem(RasrSystem):
     ):
         super().__init__(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
-        self.returnn_root = returnn_root or (
-            gs.RETURNN_ROOT if hasattr(gs, "RETURNN_ROOT") else None
-        )
+        self.returnn_root = returnn_root or (gs.RETURNN_ROOT if hasattr(gs, "RETURNN_ROOT") else None)
         self.returnn_python_home = returnn_python_home or (
             gs.RETURNN_PYTHON_HOME if hasattr(gs, "RETURNN_PYTHON_HOME") else None
         )

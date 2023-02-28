@@ -8,9 +8,7 @@ from i6_experiments.common.helpers.text_labels.subword_nmt_bpe import (
 )
 
 
-def get_subword_nmt_bpe(
-    bpe_size: int, unk_label: str = "<unk>", subdir_prefix: str = ""
-) -> BPESettings:
+def get_subword_nmt_bpe(bpe_size: int, unk_label: str = "<unk>", subdir_prefix: str = "") -> BPESettings:
     """
     Get the BPE tokens via the Returnn subword-nmt for a Switchboard setup.
 

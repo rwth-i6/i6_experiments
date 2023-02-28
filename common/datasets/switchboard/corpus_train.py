@@ -40,9 +40,7 @@ def get_train_bliss_corpus_i6_legacy(
     :return: Path to bliss xml for the i6-legacy Switchboard-1
     """
     swb_trans_and_dict = DownloadSwitchboardTranscriptionAndDictJob()
-    swb_trans_and_dict.add_alias(
-        os.path.join(subdir_prefix, "download_trans_and_dict_job")
-    )
+    swb_trans_and_dict.add_alias(os.path.join(subdir_prefix, "download_trans_and_dict_job"))
 
     speakers_list = get_speakers_list_legacy(subdir_prefix=subdir_prefix)
     corpus = CreateSwitchboardBlissCorpusJob(
@@ -71,9 +69,7 @@ def get_train_bliss_corpus_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     :return: Path to bliss xml for the LDC Switchboard-1
     """
     swb_trans_and_dict = DownloadSwitchboardTranscriptionAndDictJob()
-    swb_trans_and_dict.add_alias(
-        os.path.join(subdir_prefix, "download_trans_and_dict_job")
-    )
+    swb_trans_and_dict.add_alias(os.path.join(subdir_prefix, "download_trans_and_dict_job"))
 
     audio_dir = SwitchboardSphereToWaveJob(
         sph_audio_folder=SWITCHBOARD1_PATH,
@@ -106,12 +102,8 @@ def get_spoken_form_train_bliss_corpus_ldc(
     """
     swbd_bliss = get_train_bliss_corpus_ldc(subdir_prefix=subdir_prefix)
 
-    create_swbd_subword_bliss = CreateSwitchboardSpokenFormBlissCorpusJob(
-        switchboard_bliss_corpus=swbd_bliss
-    )
-    create_swbd_subword_bliss.add_alias(
-        os.path.join(subdir_prefix, "create_ldf_subword_train_corpus_job")
-    )
+    create_swbd_subword_bliss = CreateSwitchboardSpokenFormBlissCorpusJob(switchboard_bliss_corpus=swbd_bliss)
+    create_swbd_subword_bliss.add_alias(os.path.join(subdir_prefix, "create_ldf_subword_train_corpus_job"))
 
     return create_swbd_subword_bliss.out_spoken_form_corpus
 
@@ -183,8 +175,6 @@ def get_speakers_list_ldc(subdir_prefix: str = SUBDIR_PREFIX) -> tk.Path:
     conv_tab = conv_tab_job.out_file
     conv_tab.hash_overwrite = "LDC-swbd1-release2-conv_tab.csv"
 
-    speaker_list_job = CreateLDCSwitchboardSpeakerListJob(
-        caller_tab_file=caller_tab, conv_tab_file=conv_tab
-    )
+    speaker_list_job = CreateLDCSwitchboardSpeakerListJob(caller_tab_file=caller_tab, conv_tab_file=conv_tab)
     speaker_list_job.add_alias(os.path.join(subdir_prefix, "create_ldc_speaker_list"))
     return speaker_list_job.out_speakers_list

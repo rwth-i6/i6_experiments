@@ -45,9 +45,7 @@ def run_librispeech_100_common_baseline(
     steps.add_step("vtln+sat", vtln_sat_args)
     steps.add_step("output", final_output_args)
 
-    corpus_data = get_corpus_data_inputs(
-        corpus_key="train-clean-100", use_g2p_training=True, use_stress_marker=False
-    )
+    corpus_data = get_corpus_data_inputs(corpus_key="train-clean-100", use_g2p_training=True, use_stress_marker=False)
 
     system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
     system.init_system(

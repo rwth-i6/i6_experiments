@@ -30,9 +30,9 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../../"))
 
-#import generateapi
+# import generateapi
 #
-#generateapi.generate()
+# generateapi.generate()
 
 # -- Project information -----------------------------------------------------
 
@@ -53,9 +53,7 @@ extensions = [
     "sphinx.ext.intersphinx",  # link other projects
 ]
 
-intersphinx_mapping = {
-    "sisyphus": ("https://sisyphus-workflow-manager.readthedocs.io/en/latest/", None)
-}
+intersphinx_mapping = {"sisyphus": ("https://sisyphus-workflow-manager.readthedocs.io/en/latest/", None)}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

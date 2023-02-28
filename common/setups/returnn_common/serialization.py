@@ -173,20 +173,14 @@ class Collection(DelayedBase):
                 else:
                     assert False, "invalid type for packages"
                 target_package_path = os.path.join(out_dir, package_path)
-                pathlib.Path(os.path.dirname(target_package_path)).mkdir(
-                    parents=True, exist_ok=True
-                )
-                shutil.copytree(
-                    os.path.join(self.root_path, package_path), target_package_path
-                )
+                pathlib.Path(os.path.dirname(target_package_path)).mkdir(parents=True, exist_ok=True)
+                shutil.copytree(os.path.join(self.root_path, package_path), target_package_path)
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
 
         # Make sure Sisyphus can be imported, as many recipes usually import it.
-        content.append(
-            f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n"
-        )
+        content.append(f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n")
 
         if self.returnn_common_root is None:
             # Note that this here depends on a proper sys.path setup.
@@ -200,8 +194,7 @@ class Collection(DelayedBase):
                 # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
                 # order here and always chooses the package from recipe/ first...
             content.append(
-                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
-                "from returnn_common import nn\n\n"
+                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n' "from returnn_common import nn\n\n"
             )
 
         content += [obj.get() for obj in self.serializer_objects]
@@ -209,9 +202,7 @@ class Collection(DelayedBase):
 
     def _sis_hash(self) -> bytes:
         h = {
-            "delayed_objects": [
-                obj for obj in self.serializer_objects if obj.use_for_hash
-            ],
+            "delayed_objects": [obj for obj in self.serializer_objects if obj.use_for_hash],
         }
         if self.returnn_common_root:
             h["returnn_common_root"] = self.returnn_common_root
@@ -246,9 +237,7 @@ class ExternData(SerializerObject):
         if data.sparse_dim is not None:
             content.append(f"    sparse_dim={data.sparse_dim.name},")
         content.append(f"    available_for_inference={data.available_for_inference},")
-        if (
-            data.dtype != "float32"
-        ):  # RETURNN default is float32 so we only append it otherwise
+        if data.dtype != "float32":  # RETURNN default is float32 so we only append it otherwise
             content.append(f'    dtype="{data.dtype}",')
         content.append(")\n")
         return content
@@ -277,16 +266,12 @@ class ExternData(SerializerObject):
         # RETURNN does not allow for "name" in the args, as this is set via the dict key
         # thus, we need to explicitly remove it for now
         for constructor_data in self.extern_data:
-            content.append(
-                f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n"
-            )
+            content.append(f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n")
             content.append(f'{constructor_data.name}_args.pop("name")\n')
 
         content.append("\nextern_data={\n")
         for constructor_data in self.extern_data:
-            content.append(
-                f'    "{constructor_data.name}": {constructor_data.name}_args,\n'
-            )
+            content.append(f'    "{constructor_data.name}": {constructor_data.name}_args,\n')
         content.append("}\n")
         return "".join(content)
 

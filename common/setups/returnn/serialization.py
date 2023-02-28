@@ -27,18 +27,12 @@ def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
     config = deepcopy(config)
     dim_tag_proxy = ReturnnDimTagsProxy()
     config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.config)
-    config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(
-        config.post_config
-    )
-    config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(
-        config.staged_network_dict
-    )
+    config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.post_config)
+    config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(config.staged_network_dict)
     proxy = _ProxyHandler()
     config.config = proxy.collect_objs_and_transform_config(config.config)
     config.post_config = proxy.collect_objs_and_transform_config(config.post_config)
-    config.staged_network_dict = proxy.collect_objs_and_transform_config(
-        config.staged_network_dict
-    )
+    config.staged_network_dict = proxy.collect_objs_and_transform_config(config.staged_network_dict)
 
     if not dim_tag_proxy.dim_refs_by_name and not proxy.obj_refs_by_name:
         # No dim tags or other special objects found, just return as-is.
@@ -121,10 +115,7 @@ class _ProxyHandler:
         return "\n".join(
             [
                 f"<{self.__class__.__name__}:",
-                *(
-                    f"  {value.py_id_name()} = {value!r}"
-                    for key, value in self.obj_refs_by_name.items()
-                ),
+                *(f"  {value.py_id_name()} = {value!r}" for key, value in self.obj_refs_by_name.items()),
                 ">",
             ]
         )
@@ -177,20 +168,15 @@ class _ProxyHandler:
                 return ref
             if isinstance(value, dict):
                 return {
-                    _map(path + (key, "key"), key): _map(path + (key, "value"), value_)
-                    for key, value_ in value.items()
+                    _map(path + (key, "key"), key): _map(path + (key, "value"), value_) for key, value_ in value.items()
                 }
             if isinstance(value, list):
                 return [_map(path + (i,), value_) for i, value_ in enumerate(value)]
             if isinstance(value, tuple) and type(value) is tuple:
-                return tuple(
-                    _map(path + (i,), value_) for i, value_ in enumerate(value)
-                )
+                return tuple(_map(path + (i,), value_) for i, value_ in enumerate(value))
             if isinstance(value, tuple) and type(value) is not tuple:
                 # noinspection PyProtectedMember,PyUnresolvedReferences,PyArgumentList
-                return type(value)(
-                    *(_map(path + (key,), getattr(value, key)) for key in value._fields)
-                )
+                return type(value)(*(_map(path + (key,), getattr(value, key)) for key in value._fields))
             if isinstance(value, set):
                 values = [_map(path + (value,), value_) for value_ in value]
                 return set(values)

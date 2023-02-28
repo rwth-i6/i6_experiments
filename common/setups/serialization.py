@@ -54,9 +54,7 @@ class Collection(DelayedBase):
 
     def _sis_hash(self) -> bytes:
         h = {
-            "delayed_objects": [
-                obj for obj in self.serializer_objects if obj.use_for_hash
-            ],
+            "delayed_objects": [obj for obj in self.serializer_objects if obj.use_for_hash],
         }
         return sis_hash_helper(h)
 
@@ -85,9 +83,7 @@ class Import(SerializerObject):
         """
         super().__init__()
         if not isinstance(code_object_path, str):
-            assert getattr(code_object_path, "__qualname__", None) and getattr(
-                code_object_path, "__module__", None
-            )
+            assert getattr(code_object_path, "__qualname__", None) and getattr(code_object_path, "__module__", None)
             mod_name = code_object_path.__module__
             qual_name = code_object_path.__qualname__
             assert "." not in qual_name
@@ -110,9 +106,7 @@ class Import(SerializerObject):
 
     def _sis_hash(self):
         if self.import_as and not self.ignore_import_as_for_hash:
-            return sis_hash_helper(
-                {"code_object": self.code_object, "import_as": self.import_as}
-            )
+            return sis_hash_helper({"code_object": self.code_object, "import_as": self.import_as})
         return sis_hash_helper(self.code_object)
 
 
@@ -121,9 +115,7 @@ class CodeFromFunction(SerializerObject):
     Insert code from function.
     """
 
-    def __init__(
-        self, name: str, func: FunctionType, *, hash_full_python_code: bool = False
-    ):
+    def __init__(self, name: str, func: FunctionType, *, hash_full_python_code: bool = False):
         """
         :param name: name of the function as exposed in the config
         :param func:
@@ -162,9 +154,7 @@ class CodeFromFunction(SerializerObject):
         if self.hash_full_python_code:
             return sis_hash_helper((self.name, self._func_code))
         else:
-            return sis_hash_helper(
-                (self.name, f"{self.func.__module__}.{self.func.__qualname__}")
-            )
+            return sis_hash_helper((self.name, f"{self.func.__module__}.{self.func.__qualname__}"))
 
 
 # noinspection PyAbstractClass

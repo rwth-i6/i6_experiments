@@ -30,12 +30,8 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
             eval=[[]],
         )
     )
-    lex.add_lemma(
-        lexicon.Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin")
-    )
-    lex.add_lemma(
-        lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end")
-    )
+    lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-BEGIN]"], synt=["<s>"], special="sentence-begin"))
+    lex.add_lemma(lexicon.Lemma(orth=["[SENTENCE-END]"], synt=["</s>"], special="sentence-end"))
     if add_unknown_phoneme_and_mapping:
         lex.add_lemma(
             lexicon.Lemma(
@@ -86,20 +82,14 @@ def _get_raw_bliss_lexicon(
     if not use_stress_marker:
         from i6_core.text import PipelineJob
 
-        eliminate_stress_job = PipelineJob(
-            text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True
-        )
+        eliminate_stress_job = PipelineJob(text_lexicon, ["sed 's/[0-9]//g'"], zip_output=False, mini_task=True)
         eliminate_stress_job.add_alias(os.path.join(alias_path, "remove_stress_marker"))
         text_lexicon = eliminate_stress_job.out
 
-    convert_lexicon_job = LexiconFromTextFileJob(
-        text_file=text_lexicon, compressed=True
-    )
+    convert_lexicon_job = LexiconFromTextFileJob(text_file=text_lexicon, compressed=True)
 
     download_lexicon_job.add_alias(os.path.join(alias_path, "download_lexicon_job"))
-    convert_lexicon_job.add_alias(
-        os.path.join(alias_path, "convert_text_to_bliss_lexicon_job")
-    )
+    convert_lexicon_job.add_alias(os.path.join(alias_path, "convert_text_to_bliss_lexicon_job"))
 
     return convert_lexicon_job.out_bliss_lexicon
 
@@ -137,16 +127,10 @@ def get_bliss_lexicon(
         ),
     )
 
-    static_lexicon = _get_special_lemma_lexicon(
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
-    )
-    static_lexicon_job = WriteLexiconJob(
-        static_lexicon, sort_phonemes=True, sort_lemmata=False
-    )
+    static_lexicon = _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+    static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
 
-    raw_librispeech_lexicon = _get_raw_bliss_lexicon(
-        use_stress_marker=use_stress_marker, alias_path=alias_path
-    )
+    raw_librispeech_lexicon = _get_raw_bliss_lexicon(use_stress_marker=use_stress_marker, alias_path=alias_path)
 
     merge_lexicon_job = MergeLexiconJob(
         bliss_lexica=[

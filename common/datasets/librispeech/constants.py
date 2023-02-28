@@ -30,23 +30,11 @@ concurrent = {
     "test-other": 10,
 }
 
-durations["train-clean-460"] = (
-    durations["train-clean-100"] + durations["train-clean-360"]
-)
-durations["train-other-960"] = (
-    durations["train-clean-460"] + durations["train-other-500"]
-)
+durations["train-clean-460"] = durations["train-clean-100"] + durations["train-clean-360"]
+durations["train-other-960"] = durations["train-clean-460"] + durations["train-other-500"]
 
-num_segments["train-clean-460"] = (
-    num_segments["train-clean-100"] + num_segments["train-clean-360"]
-)
-num_segments["train-other-960"] = (
-    num_segments["train-clean-460"] + num_segments["train-other-500"]
-)
+num_segments["train-clean-460"] = num_segments["train-clean-100"] + num_segments["train-clean-360"]
+num_segments["train-other-960"] = num_segments["train-clean-460"] + num_segments["train-other-500"]
 
-concurrent["train-clean-460"] = (
-    concurrent["train-clean-100"] + concurrent["train-clean-360"]
-)
-concurrent["train-other-960"] = (
-    concurrent["train-clean-460"] + concurrent["train-other-500"]
-)
+concurrent["train-clean-460"] = concurrent["train-clean-100"] + concurrent["train-clean-360"]
+concurrent["train-other-960"] = concurrent["train-clean-460"] + concurrent["train-other-500"]

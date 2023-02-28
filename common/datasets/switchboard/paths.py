@@ -10,9 +10,7 @@ SWITCHBOARD1_PATH = tk.Path(
 )
 
 # provide path to a folder containing the LDC2002S09 contents
-HUB5E00_SPH_PATH = tk.Path(
-    "/u/corpora/speech/switchboard_ldc/hub5e_00", hash_overwrite="LDC2002S09"
-)
+HUB5E00_SPH_PATH = tk.Path("/u/corpora/speech/switchboard_ldc/hub5e_00", hash_overwrite="LDC2002S09")
 
 # provide path to a folder containing the LDC2002T43 contents
 HUB5E00_TRANSCRIPT_PATH = tk.Path(
@@ -21,16 +19,10 @@ HUB5E00_TRANSCRIPT_PATH = tk.Path(
 )
 
 # provide path to a folder containing the LDC2002S13 contents
-HUB5E01_PATH = tk.Path(
-    "/u/corpora/speech/switchboard_ldc/hub5e_01", hash_overwrite="LDC2002S13"
-)
+HUB5E01_PATH = tk.Path("/u/corpora/speech/switchboard_ldc/hub5e_01", hash_overwrite="LDC2002S13")
 
 # provide path to a folder containing the LDC2007S10 contents
-RT03S_PATH = tk.Path(
-    "/u/corpora/speech/switchboard_ldc/rt03s", hash_overwrite="LDC2007S10"
-)
+RT03S_PATH = tk.Path("/u/corpora/speech/switchboard_ldc/rt03s", hash_overwrite="LDC2007S10")
 
 # do not edit, only for i6 internal usage
-SWITCHBOARD1_LEGACY_PATH = tk.Path(
-    "/u/corpora/speech/switchboard-1/audio", hash_overwrite="Switchboard-i6"
-)
+SWITCHBOARD1_LEGACY_PATH = tk.Path("/u/corpora/speech/switchboard-1/audio", hash_overwrite="Switchboard-i6")

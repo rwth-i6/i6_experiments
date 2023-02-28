@@ -56,21 +56,15 @@ class G2PBasedOovAugmenter:
         }
         """
         self.original_bliss_lexicon = original_bliss_lexicon
-        self.train_lexicon = (
-            original_bliss_lexicon if train_lexicon is None else train_lexicon
-        )
+        self.train_lexicon = original_bliss_lexicon if train_lexicon is None else train_lexicon
         self.g2p_model_path = g2p_model_path
         self.train_args = train_args if train_args else {}
         self.apply_args = apply_args if apply_args else {}
 
     def _train_and_set_g2p_model(self, alias_path: str):
         g2p_lexicon_job = BlissLexiconToG2PLexiconJob(bliss_lexicon=self.train_lexicon)
-        g2p_train_job = TrainG2PModelJob(
-            g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon, **self.train_args
-        )
-        g2p_lexicon_job.add_alias(
-            os.path.join(alias_path, "convert_bliss_lexicon_to_g2p_lexicon")
-        )
+        g2p_train_job = TrainG2PModelJob(g2p_lexicon=g2p_lexicon_job.out_g2p_lexicon, **self.train_args)
+        g2p_lexicon_job.add_alias(os.path.join(alias_path, "convert_bliss_lexicon_to_g2p_lexicon"))
         g2p_train_job.add_alias(os.path.join(alias_path, "train_g2p_model"))
         self.g2p_model_path = g2p_train_job.out_best_model
 
@@ -86,9 +80,7 @@ class G2PBasedOovAugmenter:
             bliss_lexicon=self.original_bliss_lexicon,
             casing=casing,
         )
-        extract_oov_job.add_alias(
-            os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name))
-        )
+        extract_oov_job.add_alias(os.path.join(alias_path, "extract-oov-from-{}".format(corpus_name)))
 
         if self.g2p_model_path is None:
             self._train_and_set_g2p_model(alias_path)
@@ -98,16 +90,12 @@ class G2PBasedOovAugmenter:
             word_list_file=extract_oov_job.out_oov_words,
             **self.apply_args,
         )
-        g2p_apply_job.add_alias(
-            os.path.join(alias_path, "apply-g2p-for-{}".format(corpus_name))
-        )
+        g2p_apply_job.add_alias(os.path.join(alias_path, "apply-g2p-for-{}".format(corpus_name)))
 
         g2p_final_lex_job = G2POutputToBlissLexiconJob(
             iv_bliss_lexicon=self.original_bliss_lexicon,
             g2p_lexicon=g2p_apply_job.out_g2p_lexicon,
         )
-        g2p_final_lex_job.add_alias(
-            os.path.join(alias_path, "g2p-output-to-bliss-{}".format(corpus_name))
-        )
+        g2p_final_lex_job.add_alias(os.path.join(alias_path, "g2p-output-to-bliss-{}".format(corpus_name)))
 
         return g2p_final_lex_job.out_oov_lexicon

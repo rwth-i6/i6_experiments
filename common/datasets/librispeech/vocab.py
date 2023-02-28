@@ -20,17 +20,13 @@ def get_lm_vocab(output_prefix) -> LmIndexVocabulary:
     :param str output_prefix:
     :return: Path to LibriSpeech vocab file (one word per line)
     """
-    ls960_text_job = CorpusToTxtJob(
-        bliss_corpus=get_bliss_corpus_dict()["train-other-960"], gzip=True
-    )
+    ls960_text_job = CorpusToTxtJob(bliss_corpus=get_bliss_corpus_dict()["train-other-960"], gzip=True)
     ls960_text_job.add_alias(os.path.join(output_prefix, "ls960_to_text_job"))
     index_vocab_job = LmIndexVocabularyFromLexiconJob(
         bliss_lexicon=get_bliss_lexicon(add_unknown_phoneme_and_mapping=False),
         count_ordering_text=ls960_text_job.out_txt,
     )
-    index_vocab_job.add_alias(
-        os.path.join(output_prefix, "lm_index_vocab_from_lexicon_job")
-    )
+    index_vocab_job.add_alias(os.path.join(output_prefix, "lm_index_vocab_from_lexicon_job"))
     return index_vocab_job.out_vocabulary_object
 
 
@@ -47,9 +43,7 @@ def get_subword_nmt_bpe(corpus_key, bpe_size, unk_label="<unk>", output_prefix="
     :rtype: BPESettings
     """
     if output_prefix:
-        output_prefix = os.path.join(
-            output_prefix, "librispeech_%s_bpe_%i" % (corpus_key, bpe_size)
-        )
+        output_prefix = os.path.join(output_prefix, "librispeech_%s_bpe_%i" % (corpus_key, bpe_size))
 
     subword_nmt_repo = _get_returnn_subword_nmt(output_prefix=output_prefix)
     train_corpus = get_bliss_corpus_dict("flac", "corpora")[corpus_key]
