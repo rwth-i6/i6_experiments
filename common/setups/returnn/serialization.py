@@ -5,7 +5,7 @@ Serialization helpers for RETURNN, such as ReturnnConfig
 
 from __future__ import annotations
 
-from typing import TypeVar, Any, Tuple, Dict
+from typing import TypeVar, Any, Optional, Set, Dict
 from copy import deepcopy
 from types import FunctionType
 from i6_core.returnn.config import ReturnnConfig
@@ -14,22 +14,42 @@ from i6_core.returnn.config import ReturnnConfig
 # However, we internally make use of some helper code from returnn_common.
 from returnn_common.nn.naming import ReturnnDimTagsProxy, ReturnnConfigSerializer
 
+from .. import serialization as base_serialization
+
 
 T = TypeVar("T")
 
 
-def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
+def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: bool = False) -> ReturnnConfig:
     """
     Takes the config, goes through the config (e.g. network dict)
     and replaces some non-serializable objects (e.g. dim tags) with serializable ones.
     (Currently, it is all about dim tags.)
+
+    :param config: the existing config
+    :param hash_full_python_code: if True, the full python code is used for hashing via :class:`CodeFromFunction`,
+        otherwise it uses only the module name and function qualname for the hash of functions
+    :return: either config itself if no change needed, or otherwise new adapted config
     """
     config = deepcopy(config)
-    dim_tag_proxy = ReturnnDimTagsProxy()
+
+    # Collect taken Python variable names (or function names).
+    # See if there are already some existing functions in the prolog.
+    reserved_names = set()
+    dim_tag_proxy = ReturnnDimTagsProxy(reserved_names=reserved_names)
+    proxy = _ProxyHandler(reserved_names=reserved_names)
+    if isinstance(config.python_prolog, (list, tuple)):
+        for obj in config.python_prolog:
+            if isinstance(obj, base_serialization.CodeFromFunction):
+                proxy.register_obj(obj.name, obj.func, serializer_obj=obj)
+
+    # Collect all dim tags.
     config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.config)
     config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(config.post_config)
     config.staged_network_dict = dim_tag_proxy.collect_dim_tags_and_transform_config(config.staged_network_dict)
-    proxy = _ProxyHandler()
+
+    # Collect some other objects (currently only functions).
+    proxy.obj_refs_by_name.clear()  # reset such that we only have the new ones in here
     config.config = proxy.collect_objs_and_transform_config(config.config)
     config.post_config = proxy.collect_objs_and_transform_config(config.post_config)
     config.staged_network_dict = proxy.collect_objs_and_transform_config(config.staged_network_dict)
@@ -38,22 +58,29 @@ def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
         # No dim tags or other special objects found, just return as-is.
         return config
 
+    if proxy.obj_refs_by_name:
+        assert not config.hash_full_python_code, (
+            f"For extended serialization ({proxy}), you must not use hash_full_python_code=True in the ReturnnConfig."
+            " We use the python_prolog with DelayedObjects to serialize the code."
+        )
+
     # Prepare object to use config.update(),
     # because config.update() does reasonable logic for python_epilog code merging,
     # including handling of python_epilog_hash.
     python_prolog_ext = []
     dim_tag_def_code = dim_tag_proxy.py_code_str()
-    obj_def_code = proxy.py_code_str()
     for code in [
         ReturnnConfigSerializer.ImportPyCodeStr,
         dim_tag_def_code,
-        obj_def_code,
     ]:
         if not code:
             continue
         if config.python_prolog and code in config.python_prolog:
             continue
         python_prolog_ext.append(code)
+    if proxy.obj_refs_by_name:
+        for obj in proxy.obj_refs_by_name.values():
+            python_prolog_ext.append(obj.get_serializer_obj(hash_full_python_code=hash_full_python_code))
     config_update = ReturnnConfig(
         {},
         python_prolog=python_prolog_ext,
@@ -78,10 +105,18 @@ class _ProxyHandler:
         This will be a reference to the global functions.
         """
 
-        def __init__(self, *, name: str, path: Tuple[Any, ...], obj: Any):
+        def __init__(
+            self,
+            *,
+            name: str,
+            obj: Any,
+            # Currently the only type we handle is CodeFromFunction.
+            # If we need sth else, we probably should create some base class.
+            serializer_obj: Optional[base_serialization.CodeFromFunction] = None,
+        ):
             self.name = name  # Python identifier
-            self.path = path
             self.obj = obj
+            self.serializer_obj = serializer_obj
 
         def __repr__(self):
             return self.py_id_name()
@@ -93,41 +128,22 @@ class _ProxyHandler:
             assert self.name
             return self.name
 
-        def py_code(self):
+        def get_serializer_obj(self, *, hash_full_python_code: bool) -> base_serialization.CodeFromFunction:
             """
-            :return: Python code
+            :param hash_full_python_code:
+            :return: SerializerObject
             """
-            import inspect
+            if self.serializer_obj is None:
+                assert isinstance(self.obj, FunctionType)  # only case implemented here
+                self.serializer_obj = base_serialization.CodeFromFunction(
+                    name=self.name, func=self.obj, hash_full_python_code=hash_full_python_code
+                )
+            return self.serializer_obj
 
-            if isinstance(self.obj, FunctionType):
-                # Similar as ReturnnConfig.
-                s = inspect.getsource(self.obj)
-                if self.obj.__name__ == self.name:
-                    return s
-                return f"{s}\n{self.py_id_name()} = {self.obj.__name__}"
-            return f"{self.py_id_name()} = {self.obj!r}"
-
-    def __init__(self):
+    def __init__(self, *, reserved_names: Set[str]):
         self.obj_refs_by_name = {}  # type: Dict[str, _ProxyHandler.Proxy]
         self.obj_refs_by_id = {}  # type: Dict[int, _ProxyHandler.Proxy]
-
-    def __repr__(self):
-        return "\n".join(
-            [
-                f"<{self.__class__.__name__}:",
-                *(f"  {value.py_id_name()} = {value!r}" for key, value in self.obj_refs_by_name.items()),
-                ">",
-            ]
-        )
-
-    def py_code_str(self):
-        """
-        :return: Python code
-        """
-        lines = []
-        for _, value in self.obj_refs_by_name.items():
-            lines.append(f"{value.py_code()}\n")
-        return "".join(lines)
+        self.reserved_names = reserved_names
 
     def _sis_hash(self):
         raise Exception("unexpected")
@@ -146,12 +162,12 @@ class _ProxyHandler:
             name_ = re.sub(r"[^a-zA-Z0-9_]", "_", name_)
             if not name_ or name_[:1].isdigit():
                 name_ = "_" + name_
-            if name_ not in self.obj_refs_by_name:
+            if name_ not in self.reserved_names:
                 return name_
             i = 0
             while True:
                 name__ = f"{name_}_{i}"
-                if name__ not in self.obj_refs_by_name:
+                if name__ not in self.reserved_names:
                     return name__
                 i += 1
 
@@ -161,11 +177,7 @@ class _ProxyHandler:
                 if id(value) in self.obj_refs_by_id:
                     return self.obj_refs_by_id[id(value)]
                 name = _unique_name(value)
-                assert name not in self.obj_refs_by_name
-                ref = _ProxyHandler.Proxy(name=name, path=path, obj=value)
-                self.obj_refs_by_name[name] = ref
-                self.obj_refs_by_id[id(value)] = ref
-                return ref
+                return self.register_obj(name=name, obj=value)
             if isinstance(value, dict):
                 return {
                     _map(path + (key, "key"), key): _map(path + (key, "value"), value_) for key, value_ in value.items()
@@ -184,3 +196,21 @@ class _ProxyHandler:
 
         config = _map((), config)
         return config
+
+    def register_obj(
+        self, name: str, obj: Any, *, serializer_obj: Optional[base_serialization.CodeFromFunction] = None
+    ) -> _ProxyHandler.Proxy:
+        """
+        :param name:
+        :param obj:
+        :param serializer_obj:
+        """
+        assert name not in self.reserved_names
+        assert name not in self.obj_refs_by_name
+        assert id(obj) not in self.obj_refs_by_id
+        assert isinstance(obj, self._HandledTypes)
+        ref = _ProxyHandler.Proxy(name=name, obj=obj, serializer_obj=serializer_obj)
+        self.obj_refs_by_name[name] = ref
+        self.obj_refs_by_id[id(obj)] = ref
+        self.reserved_names.add(name)
+        return ref

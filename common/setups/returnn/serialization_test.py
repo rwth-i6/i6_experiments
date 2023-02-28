@@ -24,7 +24,6 @@ def test_get_serializable_config_dims():
         }
     )
     config = get_serializable_config(config)
-    print(dir(config))
     print(config._ReturnnConfig__parse_python(config.python_prolog))
     print(config.config)
     print(config._ReturnnConfig__parse_python(config.python_epilog))
