@@ -135,8 +135,7 @@ def search(
     returnn_exe,
     returnn_root,
     mem_rqmt=8,
-    time_rqmt=4,
-    
+    time_rqmt=1,
 ):
     """
 
