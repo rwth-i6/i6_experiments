@@ -1,8 +1,8 @@
 """
 Builds Chunkwise AED Config
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 import numpy
 import copy
@@ -31,11 +31,10 @@ from i6_experiments.users.zeineldeen import data_aug
 from i6_experiments.users.zeineldeen.data_aug import specaugment
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
-from copy import deepcopy
 
 # The code here does not need the user to use returnn_common.
 # However, we internally make use of some helper code from returnn_common.
-from returnn_common.nn.naming import ReturnnDimTagsProxy, ReturnnConfigSerializer
+from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 
 # -------------------------- Base Config -------------------------- #
 
@@ -239,15 +238,12 @@ def pretrain_layers_and_dims(
     DecoderAttNumHeads = decoder_args_copy["att_num_heads"]
 
     if reduce_dims:
-        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (
-            final_num_blocks - StartNumLayers
-        )
+        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
             encoder_args_copy[key] = (
-                int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads))
-                * EncoderAttNumHeads
+                int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
 
         if decoder_type == TransformerDecoder or decoder_type == ConformerDecoder:
@@ -269,8 +265,7 @@ def pretrain_layers_and_dims(
 
             for key in decoder_keys:
                 decoder_args_copy[key] = (
-                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads))
-                    * DecoderAttNumHeads
+                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
         else:
             dim_frac_dec = 1
@@ -554,9 +549,7 @@ def create_config(
             exp_config["train"] = training_datasets.train.as_returnn_opts()
             exp_config["dev"] = training_datasets.cv.as_returnn_opts()
             if training_datasets.devtrain:
-                exp_config["eval_datasets"] = {
-                    "devtrain": training_datasets.devtrain.as_returnn_opts()
-                }
+                exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
         else:
             if dump_ctc:
                 exp_config["eval_datasets"] = {
@@ -564,11 +557,7 @@ def create_config(
                     "dev": training_datasets.cv.as_returnn_opts(),
                 }
             if dump_alignments_dataset or dump_ctc_dataset:
-                dump_data = (
-                    dump_alignments_dataset
-                    if dump_alignments_dataset
-                    else dump_ctc_dataset
-                )
+                dump_data = dump_alignments_dataset if dump_alignments_dataset else dump_ctc_dataset
                 if dump_data == "train":
                     exp_config["eval_datasets"] = {
                         "train": training_datasets.train.as_returnn_opts(),
@@ -626,9 +615,7 @@ def create_config(
         exp_config["learning_rate_control"] = "constant"
         oclr_peak_lr = oclr_opts["peak_lr"]
         oclr_initial_lr = oclr_peak_lr / 10
-        extra_python_code += "\n" + oclr_str.format(
-            **oclr_opts, initial_lr=oclr_initial_lr
-        )
+        extra_python_code += "\n" + oclr_str.format(**oclr_opts, initial_lr=oclr_initial_lr)
     else:  # newbob
         if learning_rates_list:
             learning_rates = learning_rates_list
@@ -640,24 +627,18 @@ def create_config(
             elif not allow_lr_scheduling:
                 learning_rates = None
             elif isinstance(const_lr, int):
-                learning_rates = [wup_start_lr] * const_lr + list(
-                    numpy.linspace(wup_start_lr, lr, num=wup)
-                )
+                learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
             elif isinstance(const_lr, list):
                 assert len(const_lr) == 2
                 learning_rates = (
-                    [wup_start_lr] * const_lr[0]
-                    + list(numpy.linspace(wup_start_lr, lr, num=wup))
-                    + [lr] * const_lr[1]
+                    [wup_start_lr] * const_lr[0] + list(numpy.linspace(wup_start_lr, lr, num=wup)) + [lr] * const_lr[1]
                 )
             else:
                 raise ValueError("unknown const_lr format")
 
         exp_config["learning_rate"] = lr
         exp_config["learning_rates"] = learning_rates
-        exp_config["min_learning_rate"] = (
-            lr / min_lr_factor if min_lr is None else min_lr
-        )
+        exp_config["min_learning_rate"] = lr / min_lr_factor if min_lr is None else min_lr
         exp_config["learning_rate_control"] = "newbob_multi_epoch"
         exp_config["learning_rate_control_relative_error_relative_lr"] = True
         exp_config["learning_rate_control_min_num_epochs_per_new_lr"] = 3
@@ -811,9 +792,7 @@ def create_config(
     if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
         if "preload_from_files" not in exp_config:
             exp_config["preload_from_files"] = {}
-        exp_config["preload_from_files"].update(
-            copy.deepcopy(ext_lm_opts["preload_from_files"])
-        )
+        exp_config["preload_from_files"].update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
 
     if preload_from_files:
         if "preload_from_files" not in exp_config:
@@ -822,9 +801,7 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += "\n" + specaug_transform_func.format(
-            **specaug_str_func_opts
-        )
+        extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
     else:
         python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
 
@@ -836,12 +813,7 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if (
-        with_pretrain
-        and ext_lm_opts is None
-        and retrain_checkpoint is None
-        and is_recog is False
-    ):
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0
@@ -885,9 +857,7 @@ def create_config(
                 pretrain_networks.append(net)
                 idx += 1
 
-            exp_config["pretrain_nets_lookup"] = {
-                k: v for k, v in enumerate(pretrain_networks)
-            }
+            exp_config["pretrain_nets_lookup"] = {k: v for k, v in enumerate(pretrain_networks)}
 
             exp_config["pretrain"] = {
                 "repetitions": pretrain_reps,
@@ -896,8 +866,7 @@ def create_config(
             }
 
             pretrain_algo_str = (
-                "def custom_construction_algo(idx, net_dict):\n"
-                "\treturn pretrain_nets_lookup.get(idx, None)"
+                "def custom_construction_algo(idx, net_dict):\n" "\treturn pretrain_nets_lookup.get(idx, None)"
             )
             python_prolog += [pretrain_algo_str]
 
@@ -926,47 +895,6 @@ def create_config(
         hash_full_python_code=True,
         pprint_kwargs={"sort_dicts": False},
     )
-
-    def get_serializable_config(config: ReturnnConfig) -> ReturnnConfig:
-        """
-        Takes the config, goes through the config (e.g. network dict)
-        and replaces some non-serializable objects (e.g. dim tags) with serializable ones.
-        (Currently, it is all about dim tags.)
-        """
-        config = deepcopy(config)
-        dim_tag_proxy = ReturnnDimTagsProxy()
-        config.config = dim_tag_proxy.collect_dim_tags_and_transform_config(
-            config.config
-        )
-        config.post_config = dim_tag_proxy.collect_dim_tags_and_transform_config(
-            config.post_config
-        )
-        config.staged_network_dict = (
-            dim_tag_proxy.collect_dim_tags_and_transform_config(
-                config.staged_network_dict
-            )
-        )
-
-        if not dim_tag_proxy.dim_refs_by_name:
-            # No dim tags found, just return as-is.
-            return config
-
-        # Prepare object to use config.update(),
-        # because config.update() does reasonable logic for python_epilog code merging,
-        # including handling of python_epilog_hash.
-        python_prolog_ext = []
-        dim_tag_def_code = dim_tag_proxy.py_code_str()
-        for code in [ReturnnConfigSerializer.ImportPyCodeStr, dim_tag_def_code]:
-            if not config.python_prolog or code not in config.python_prolog:
-                python_prolog_ext.append(code)
-        config_update = ReturnnConfig(
-            {},
-            python_prolog=python_prolog_ext,
-            hash_full_python_code=config.hash_full_python_code,
-        )
-        config.update(config_update)
-
-        return config
 
     serialized_config = get_serializable_config(returnn_config)
 
