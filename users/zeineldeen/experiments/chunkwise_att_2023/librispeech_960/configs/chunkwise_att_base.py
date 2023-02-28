@@ -78,9 +78,7 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(
-    source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True
-)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
 trafo_lm_net.create_network()
 trafo_10k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
@@ -96,9 +94,7 @@ bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
 trafo_5k_lm_opts = {
     "lm_subnet": bpe5k_lm.combination_network,
     "load_on_init_opts": {
-        "filename": get_best_checkpoint(
-            bpe5k_lm.train_job, key="dev_score_output/output"
-        ),
+        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
@@ -230,14 +226,10 @@ def run_lm_fusion(
     elif epoch == "best":
         search_checkpoint = train_job_best_epoch[exp_name]
     else:
-        assert isinstance(
-            epoch, int
-        ), "epoch must be either a defined integer or a string in {avg, best}."
+        assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
         search_checkpoint = train_job.out_checkpoints[epoch]
 
-    ext_lm_opts = (
-        lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
-    )
+    ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
 
     time_rqmt = 1.0
 
@@ -287,9 +279,7 @@ def run_lm_fusion(
                 ilm_opts = {
                     "scale": prior_scale,
                     "type": prior_type,
-                    "ctx_dim": search_args[
-                        "encoder_args"
-                    ].enc_key_dim,  # this is needed for mini-lstm
+                    "ctx_dim": search_args["encoder_args"].enc_key_dim,  # this is needed for mini-lstm
                 }
                 # this is needed for mini-self-att
                 if hasattr(search_args["decoder_args"], "num_layers"):
@@ -297,9 +287,7 @@ def run_lm_fusion(
                     search_args["decoder_args"].create_ilm_decoder = True
                     search_args["decoder_args"].ilm_type = prior_type
 
-                ilm_opts.update(
-                    kwargs.get("ilm_train_opts", {})
-                )  # example for FFN, etc
+                ilm_opts.update(kwargs.get("ilm_train_opts", {}))  # example for FFN, etc
 
                 search_args["prior_lm_opts"] = ilm_opts
                 search_args["preload_from_files"] = {
@@ -391,9 +379,7 @@ def run_search(
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
-        default_recog_epochs = [10, 20, 40] + [
-            80 * i for i in range(1, int(num_epochs / 80) + 1)
-        ]
+        default_recog_epochs = [10, 20, 40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
         if num_epochs % 80 != 0:
             default_recog_epochs += [num_epochs]
     else:
@@ -600,9 +586,7 @@ def train_mini_lstm(
         params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str()
     else:
         if use_ffn:
-            params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(
-                ffn_opts["num_ffn_layers"]
-            )
+            params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(ffn_opts["num_ffn_layers"])
         else:
             params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
 
@@ -648,9 +632,7 @@ def train_mini_lstm(
                 "n_out": ffn_opts["ffn_dims"][l],
                 "L2": l2,
                 "from": inp,
-                "activation": activations[l]
-                if activations and l < len(activations)
-                else None,
+                "activation": activations[l] if activations and l < len(activations) else None,
             }
             x = "ffn_%02i" % (l + 1)
 
@@ -710,9 +692,7 @@ def train_mini_self_att(
     with masked self-attention models.
     """
 
-    params_freeze_str = ilm_helpers.get_mini_self_att_params_freeze_str_w_drop(
-        args["decoder_args"].num_layers
-    )
+    params_freeze_str = ilm_helpers.get_mini_self_att_params_freeze_str_w_drop(args["decoder_args"].num_layers)
 
     mini_self_att = copy.deepcopy(args)
     mini_self_att["batch_size"] = 20000 * 160  # TODO: does this fit now?
@@ -929,9 +909,9 @@ def baseline():
                     device="cpu",
                 )
 
-                ctc_align_wo_speed_pert[dataset][
-                    f"{chunk_size}_{chunk_step}"
-                ] = ctc_chunk_sync_align[f"alignments-{dataset}.hdf"]
+                ctc_align_wo_speed_pert[dataset][f"{chunk_size}_{chunk_step}"] = ctc_chunk_sync_align[
+                    f"alignments-{dataset}.hdf"
+                ]
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
@@ -961,9 +941,7 @@ def baseline():
                         chunk_step = max(1, int(chunk_size * chunk_step_factor))
                         train_args["chunk_step"] = chunk_step
 
-                        train_args["learning_rates_list"] = [
-                            start_lr
-                        ] * decay_pt + list(
+                        train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
                             numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
                         )
 
@@ -972,12 +950,8 @@ def baseline():
                             exp_name=f"base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align",
                             train_args=train_args,
                             num_epochs=total_epochs,
-                            train_fixed_alignment=ctc_align_wo_speed_pert["train"][
-                                f"{chunk_size}_{chunk_step}"
-                            ],
-                            cv_fixed_alignment=ctc_align_wo_speed_pert["dev"][
-                                f"{chunk_size}_{chunk_step}"
-                            ],
+                            train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
+                            cv_fixed_alignment=ctc_align_wo_speed_pert["dev"][f"{chunk_size}_{chunk_step}"],
                             epoch_wise_filter=None,
                             time_rqmt=72,
                             selected_datasets=["dev-other"],
