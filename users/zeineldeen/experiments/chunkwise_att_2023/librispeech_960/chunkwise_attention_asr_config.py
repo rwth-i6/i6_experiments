@@ -892,7 +892,6 @@ def create_config(
         post_config=exp_post_config,
         python_prolog=python_prolog,
         python_epilog=extra_python_code,
-        hash_full_python_code=True,
         pprint_kwargs={"sort_dicts": False},
     )
 
