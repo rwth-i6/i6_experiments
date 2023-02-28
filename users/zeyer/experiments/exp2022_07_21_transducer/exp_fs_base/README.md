@@ -88,9 +88,14 @@ Tracks:
   - Check LR schedules, one-cycle, cosine, etc -> `oclr` and others
   - Chunking in some way, either using fixed alignment + framewise CE, or direct somehow.
   - Label smoothing variant for RNN-T
-  - More on time-warping, speed/tempo perturbation
+  - More on time-warping, speed/tempo perturbation. See also ESPnet code
   - "Sequence noise injected training for end-to-end speech recognition"
   - Switchout on label context -> `decswitchout0F` experiments
+  - Check https://github.com/lucidrains/x-transformers for tricks
+  - Check Tim Schupps work, ConvNeXt, ContextNet things, SE-block
+  - Check E-Branchformer
+  - Check https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_conformer10_hop_length160.yaml
+  - Check RWKV is a RNN (https://github.com/BlinkDL/RWKV-LM, https://www.reddit.com/r/MachineLearning/comments/umq908/r_rwkvv2rnn_a_parallelizable_rnn_with/), Attention Free Transformer (https://arxiv.org/abs/2105.14103)
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
