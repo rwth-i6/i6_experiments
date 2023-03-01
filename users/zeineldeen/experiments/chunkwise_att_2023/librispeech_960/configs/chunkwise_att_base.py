@@ -810,7 +810,7 @@ default_args["search_type"] = "end-of-chunk"  # align on-the-fly
 
 
 def get_ctc_chunksyn_align_config(
-    dataset_name, ctc_alignments, chunk_step, eoc_idx=0, hash_full_python_code=False, use_old_eval_funcs=False
+    dataset_name, ctc_alignments, chunk_step, eoc_idx=0, hash_full_python_code=False,
 ):
     from i6_experiments.common.setups.returnn import serialization
 
@@ -840,12 +840,8 @@ def get_ctc_chunksyn_align_config(
             "network": {
                 "chunked_align": {
                     "class": "eval",
-                    "eval": tools_eval_funcs.get_chunked_align
-                    if not use_old_eval_funcs
-                    else tools_eval_funcs_old.get_chunked_align,
-                    "out_type": tools_eval_funcs.get_chunked_align_out_type
-                    if not use_old_eval_funcs
-                    else tools_eval_funcs_old.get_chunked_align_out_type,
+                    "eval": tools_eval_funcs.get_chunked_align,
+                    "out_type": tools_eval_funcs.get_chunked_align_out_type,
                     "from": "data:bpe_labels",
                     "eval_locals": {"chunk_step": chunk_step, "eoc_idx": eoc_idx},
                 },
@@ -858,11 +854,6 @@ def get_ctc_chunksyn_align_config(
             "batch_size": 5000,
         }
     )
-    if use_old_eval_funcs:
-        from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023 import old_serialization
-
-        return old_serialization.get_serializable_config(config)
-
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
@@ -889,7 +880,7 @@ def baseline():
 
         # convert w.r.t different chunk sizes and chunk steps
         for chunk_size in [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]:
-            for chunk_step_factor in [1 / 2, 3 / 4, 1, 0.9]:  # 1 = no overlap
+            for chunk_step_factor in [1 / 2, 3 / 4, 1]:  # 1 = no overlap
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
                 ctc_chunk_sync_align = run_forward(
@@ -902,8 +893,6 @@ def baseline():
                         dataset,
                         ctc_alignments=j[f"alignments-{dataset}.hdf"],
                         chunk_step=chunk_step,
-                        hash_full_python_code=True,  # keep old hashes
-                        use_old_eval_funcs=True,  # keep old hashes
                     ),
                     device="cpu",
                 )
@@ -914,8 +903,8 @@ def baseline():
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
-        for chunk_size in [1, 2, 10, 30, 50]:
-            for chunk_step_factor in [0.5, 0.75, 0.9, 1]:  # [1 / 2, 3 / 4, 1]:
+        for chunk_size in [1, 2, 5, 8, 10, 20, 30, 40, 50]:
+            for chunk_step_factor in [1 / 2, 3 / 4, 1]:  # [1 / 2, 3 / 4, 1]:
                 for start_lr in [1e-4]:
                     for decay_pt_factor in [1 / 3]:
                         train_args = copy.deepcopy(default_args)

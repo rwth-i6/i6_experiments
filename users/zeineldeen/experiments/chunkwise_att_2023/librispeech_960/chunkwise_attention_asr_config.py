@@ -686,6 +686,15 @@ def create_config(
             "stride": chunk_step,
             "out_spatial_dim": chunked_time_dim,
         }
+
+        if not dump_ctc_dataset:  # to not break hashes for CTC dumping
+            if chunk_size == chunk_step:
+                conformer_encoder.network["encoder"]['window_left'] = 0
+                conformer_encoder.network["encoder"]['window_right'] = chunk_size - 1
+            else:
+                # formula works also for chunk_size == chunk_step but used separate to not break hashes because window_right is set
+                conformer_encoder.network["encoder"]['window_left'] = (chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)
+
     else:
         chunk_size_dim = None
         chunked_time_dim = None
