@@ -870,7 +870,7 @@ def baseline():
         # CTC alignment with blank.
         j = run_forward(
             prefix_name=prefix_name,
-            exp_name=f"dump_ctc_alignment_wo_speedPert",
+            exp_name=f"TEST_dump_ctc_alignment_wo_speedPert",
             train_args=args,
             model_ckpt=global_att_best_ckpt,
             hdf_layers=[f"alignments-{dataset}.hdf"],

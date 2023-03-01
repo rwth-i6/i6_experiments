@@ -896,6 +896,7 @@ def create_config(
         python_prolog=python_prolog,
         python_epilog=extra_python_code,
         pprint_kwargs={"sort_dicts": False},
+        hash_full_python_code=True if dump_ctc_dataset else False,  # to avoid hash changes for CTC alignment dump
     )
 
     serialized_config = get_serializable_config(returnn_config)
