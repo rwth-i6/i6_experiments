@@ -781,8 +781,8 @@ def create_config(
     if is_recog:
         exp_config["network"]["out_best_wo_blank"]["target"] = "bpe_labels"
 
-        tmp = copy.deepcopy(exp_config['network']['output']['max_seq_len'])
-        exp_config['network']['output']['max_seq_len'] = tmp + ' * 2'
+        tmp = copy.deepcopy(exp_config["network"]["output"]["max_seq_len"])
+        exp_config["network"]["output"]["max_seq_len"] = tmp + " * 2"
 
     # -------------------------- end network -------------------------- #
 
@@ -896,7 +896,7 @@ def create_config(
         python_prolog=python_prolog,
         python_epilog=extra_python_code,
         pprint_kwargs={"sort_dicts": False},
-        hash_full_python_code=True if dump_ctc_dataset else False,  # to avoid hash changes for CTC alignment dump
+        hash_full_python_code=True,  # True if dump_ctc_dataset else False,  # to avoid hash changes for CTC alignment dump
     )
 
     serialized_config = get_serializable_config(returnn_config)

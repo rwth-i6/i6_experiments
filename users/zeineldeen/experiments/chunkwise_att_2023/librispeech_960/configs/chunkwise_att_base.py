@@ -52,6 +52,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
 
 from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023 import (
     tools_eval_funcs,
+    tools_eval_funcs_old,
 )
 
 from i6_core.returnn.config import ReturnnConfig
@@ -808,7 +809,9 @@ default_args["chunk_step"] = 20 * 3 // 4
 default_args["search_type"] = "end-of-chunk"  # align on-the-fly
 
 
-def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments, chunk_step, eoc_idx=0):
+def get_ctc_chunksyn_align_config(
+    dataset_name, ctc_alignments, chunk_step, eoc_idx=0, hash_full_python_code=False, use_old_eval_funcs=False
+):
     from i6_experiments.common.setups.returnn import serialization
 
     config = ReturnnConfig(
@@ -837,8 +840,12 @@ def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments, chunk_step, eoc_
             "network": {
                 "chunked_align": {
                     "class": "eval",
-                    "eval": tools_eval_funcs.get_chunked_align,
-                    "out_type": tools_eval_funcs.get_chunked_align_out_type,
+                    "eval": tools_eval_funcs.get_chunked_align
+                    if not use_old_eval_funcs
+                    else tools_eval_funcs_old.get_chunked_align,
+                    "out_type": tools_eval_funcs.get_chunked_align_out_type
+                    if not use_old_eval_funcs
+                    else tools_eval_funcs_old.get_chunked_align_out_type,
                     "from": "data:bpe_labels",
                     "eval_locals": {"chunk_step": chunk_step, "eoc_idx": eoc_idx},
                 },
@@ -851,7 +858,12 @@ def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments, chunk_step, eoc_
             "batch_size": 5000,
         }
     )
-    return serialization.get_serializable_config(config)
+    if use_old_eval_funcs:
+        from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023 import old_serialization
+
+        return old_serialization.get_serializable_config(config)
+
+    return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
 def baseline():
@@ -890,6 +902,8 @@ def baseline():
                         dataset,
                         ctc_alignments=j[f"alignments-{dataset}.hdf"],
                         chunk_step=chunk_step,
+                        hash_full_python_code=True,  # keep old hashes
+                        use_old_eval_funcs=True,  # keep old hashes
                     ),
                     device="cpu",
                 )
