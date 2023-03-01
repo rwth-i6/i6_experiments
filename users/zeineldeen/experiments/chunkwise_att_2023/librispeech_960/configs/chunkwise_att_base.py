@@ -371,12 +371,12 @@ def run_search(
         returnn_exe=RETURNN_CPU_EXE,
         returnn_root=RETURNN_ROOT,
         num_average=num_avg,
-        key=kwargs.get('key', 'dev_score_output/output_prob'),
+        key=kwargs.get("key", "dev_score_output/output_prob"),
     )
     if num_avg == 4:  # TODO: just for now to not break hashes
         train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-    best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get('key', 'dev_score_output/output_prob'))
+    best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get("key", "dev_score_output/output_prob"))
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
@@ -855,7 +855,6 @@ def get_ctc_chunksyn_align_config(dataset_name, ctc_alignments, chunk_step, eoc_
 
 
 def baseline():
-
     # save time-sync -> chunk-sync converted alignments.
     ctc_align_wo_speed_pert = {
         "train": {},
@@ -879,7 +878,6 @@ def baseline():
         # convert w.r.t different chunk sizes and chunk steps
         for chunk_size in [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]:
             for chunk_step_factor in [1 / 2, 3 / 4, 1, 0.9]:  # 1 = no overlap
-
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
                 ctc_chunk_sync_align = run_forward(
@@ -906,7 +904,6 @@ def baseline():
             for chunk_step_factor in [0.5, 0.75, 0.9, 1]:  # [1 / 2, 3 / 4, 1]:
                 for start_lr in [1e-4]:
                     for decay_pt_factor in [1 / 3]:
-
                         train_args = copy.deepcopy(default_args)
                         train_args["speed_pert"] = False  # no speed pert
                         train_args["search_type"] = None  # fixed alignment
@@ -936,6 +933,6 @@ def baseline():
                             epoch_wise_filter=None,
                             time_rqmt=72,
                             selected_datasets=["dev-other"],
-                            key='dev_score',
+                            key="dev_score",
                             use_sclite=True,
                         )
