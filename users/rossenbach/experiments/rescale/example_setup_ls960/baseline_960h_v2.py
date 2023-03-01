@@ -21,13 +21,13 @@ BPE_10K = 10000
 
 
 def run_conformer_baseline():
-    prefix_name = "experiments/librispeech/librispeech_960_attention/zeineldeen_3090_test/"
+    prefix_name = "experiments/rescale/example_setup_ls960/"
 
     def get_test_dataset_tuples(bpe_size):
         test_dataset_tuples = {}
         for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
             test_dataset_tuples[testset] = build_test_dataset(
-                testset, use_raw_features=True, bpe_size=bpe_size,
+                testset, bpe_size=bpe_size,
             )
         return test_dataset_tuples
 
@@ -66,8 +66,8 @@ def run_conformer_baseline():
         )
 
     def run_search(
-            exp_name, train_args, train_data, train_job, feature_extraction_net, num_epochs, search_args, recog_epochs,
-            bpe_size, **kwargs):
+            exp_name, train_args, train_data, train_job,  num_epochs, search_args, recog_epochs,
+            bpe_size, feature_extraction_net=log10_net_10ms, **kwargs):
 
         exp_prefix = os.path.join(prefix_name, exp_name)
 
@@ -124,7 +124,6 @@ def run_conformer_baseline():
             assert kwargs.get('epoch_wise_filter', None) is None, 'epoch_wise_filter should be disabled for retraining.'
         train_data = build_training_datasets(
             bpe_size=bpe_size,
-            use_raw_features=True,
             epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
@@ -133,8 +132,8 @@ def run_conformer_baseline():
         train_jobs_map[exp_name] = train_job
 
         run_search(
-            exp_name, train_args, train_data, train_job, feature_extraction_net, num_epochs, search_args, recog_epochs,
-            bpe_size=bpe_size, **kwargs
+            exp_name, train_args, train_data, train_job, num_epochs, search_args, recog_epochs,
+            bpe_size=bpe_size, feature_extraction_net=feature_extraction_net, **kwargs
         )
         return train_job, train_data
 
@@ -221,25 +220,17 @@ def run_conformer_baseline():
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args['encoder_args'].use_sqrd_relu = True
 
-    # Old Wo LM:
-    #
-    # dev-clean  2.28
-    # dev-other  5.63
-    # test-clean  2.48
-    # test-other  5.71
 
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
     train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
 
-    # TODO: retrain
-
     # TODO: LM + ILM
-    for beam_size in [12]:
-        run_lm_fusion(
-            lm_type='trafo', exp_name=name, epoch='avg',
-            test_set_names=['dev-clean', 'dev-other'],
-            lm_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52],
-            train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-            beam_size=beam_size, bpe_size=BPE_10K,
-        )
+    #for beam_size in [12]:
+    #    run_lm_fusion(
+    #        lm_type='trafo', exp_name=name, epoch='avg',
+    #        test_set_names=['dev-clean', 'dev-other'],
+    #        lm_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52],
+    #        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+    #        beam_size=beam_size, bpe_size=BPE_10K,
+    #   )
 
