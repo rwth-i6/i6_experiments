@@ -83,10 +83,12 @@ def search_single(
     checkpoint,
     recognition_dataset,
     recognition_reference,
+    recognition_bliss_corpus,
     returnn_exe,
     returnn_root,
     mem_rqmt,
     time_rqmt,
+    use_sclite=False,
 ):
     """
     Run search for a specific test dataset
@@ -120,6 +122,25 @@ def search_single(
     search_words = SearchBPEtoWordsJob(
         search_job.out_search_file
     ).out_word_search_results
+
+    if use_sclite:
+        from i6_core.returnn.search import SearchWordsToCTMJob
+        search_ctm = SearchWordsToCTMJob(
+            recog_words_file=search_words,
+            bliss_corpus=recognition_bliss_corpus,
+        ).out_ctm_file
+
+        from i6_core.corpus.convert import CorpusToStmJob
+        stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+        from i6_core.recognition.scoring import ScliteJob
+        sclite_job = ScliteJob(
+            ref=stm_file,
+            hyp=search_ctm,
+        )
+        tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
+        tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+
     wer = ReturnnComputeWERJob(search_words, recognition_reference)
 
     tk.register_output(prefix_name + "/search_out_words.py", search_words)
@@ -136,6 +157,7 @@ def search(
     returnn_root,
     mem_rqmt=8,
     time_rqmt=1,
+    use_sclite=False,
 ):
     """
 
@@ -149,17 +171,19 @@ def search(
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
     wers = {}
-    for key, (test_dataset, test_dataset_reference) in test_dataset_tuples.items():
+    for key, (test_dataset, test_dataset_reference, test_bliss_corpus) in test_dataset_tuples.items():
         wers[key] = search_single(
             prefix_name + "/%s" % key,
             returnn_config,
             checkpoint,
             test_dataset,
             test_dataset_reference,
+            test_bliss_corpus,
             returnn_exe,
             returnn_root,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
+            use_sclite=use_sclite,
         )
 
     from i6_core.report import GenerateReportStringJob, MailJob

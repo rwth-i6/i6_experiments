@@ -371,11 +371,12 @@ def run_search(
         returnn_exe=RETURNN_CPU_EXE,
         returnn_root=RETURNN_ROOT,
         num_average=num_avg,
+        key=kwargs.get('key', 'dev_score_output/output_prob'),
     )
     if num_avg == 4:  # TODO: just for now to not break hashes
         train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-    best_checkpoint = get_best_checkpoint(train_job)
+    best_checkpoint = get_best_checkpoint(train_job, key=kwargs.get('key', 'dev_score_output/output_prob'))
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
@@ -397,6 +398,7 @@ def run_search(
             test_dataset_tuples,
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
+            use_sclite=kwargs.get("use_sclite", False),
         )
 
     search(
@@ -406,6 +408,7 @@ def run_search(
         test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
+        use_sclite=kwargs.get("use_sclite", False),
     )
 
     search(
@@ -415,6 +418,7 @@ def run_search(
         test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
+        use_sclite=kwargs.get("use_sclite", False),
     )
 
     search(
@@ -424,6 +428,7 @@ def run_search(
         test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
+        use_sclite=kwargs.get("use_sclite", False),
     )
 
 
@@ -898,8 +903,7 @@ def baseline():
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
         for chunk_size in [1, 2, 10, 30, 50]:
-            # [1, 2, 5, 8, 10, 15, 20, 25, 30, 35, 40, 45, 50]: #60, 70, 80, 100]:  # TODO: OOM with chunk size > 50?
-            for chunk_step_factor in [0.9]:  # [1 / 2, 3 / 4, 1]:
+            for chunk_step_factor in [0.5, 0.75, 0.9, 1]:  # [1 / 2, 3 / 4, 1]:
                 for start_lr in [1e-4]:
                     for decay_pt_factor in [1 / 3]:
 
@@ -932,4 +936,6 @@ def baseline():
                             epoch_wise_filter=None,
                             time_rqmt=72,
                             selected_datasets=["dev-other"],
+                            key='dev_score',
+                            use_sclite=True,
                         )

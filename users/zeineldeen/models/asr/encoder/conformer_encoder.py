@@ -17,7 +17,7 @@ class ConformerEncoder:
                ff_init=None, rel_pos_clipping=16, dropout_in=0.1, batch_norm_opts=None,
                use_ln=False, pooling_str=None, self_att_l2=0.0, sandwich_conv=False,
                add_to_prefix_name=None, output_layer_name='encoder', create_only_blocks=False,
-               no_mhsa_module=False, proj_input=False, use_sqrd_relu=False):
+               no_mhsa_module=False, proj_input=False, use_sqrd_relu=False, use_causal_layers=False):
     """
     :param str input: input layer name
     :param str input_layer: type of input layer which does subsampling
@@ -142,6 +142,8 @@ class ConformerEncoder:
 
     self.use_sqrd_relu = use_sqrd_relu
 
+    self.use_causal_layers = use_causal_layers
+
   def _create_ff_module(self, prefix_name, i, source, layer_index):
     """
     Add Feed Forward Module:
@@ -208,7 +210,9 @@ class ConformerEncoder:
     mhsa = self.network.add_self_att_layer(
       '{}'.format(prefix_name), ln, n_out=self.enc_value_dim, num_heads=self.att_num_heads,
       total_key_dim=self.enc_key_dim, att_dropout=self.att_dropout, forward_weights_init=self.mhsa_init,
-      key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None, l2=self.self_att_l2)
+      key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None, l2=self.self_att_l2,
+      attention_left_only=self.use_causal_layers,
+    )
 
     mhsa_linear = self.network.add_linear_layer(
       '{}_linear'.format(prefix_name), mhsa, n_out=self.enc_key_dim, l2=self.l2, forward_weights_init=self.mhsa_out_init,

@@ -203,7 +203,7 @@ class ReturnnNetwork:
     return name
 
   def add_self_att_layer(self, name, source, n_out, num_heads, total_key_dim, att_dropout=0., key_shift=None,
-                         forward_weights_init=None, l2=0.0, **kwargs):
+                         forward_weights_init=None, l2=0.0, attention_left_only=False, **kwargs):
     d = {
       'class': 'self_attention', 'from': source, 'n_out': n_out, 'num_heads': num_heads, 'total_key_dim': total_key_dim
     }
@@ -215,6 +215,8 @@ class ReturnnNetwork:
       d['forward_weights_init'] = forward_weights_init
     if l2:
       d['L2'] = l2
+    if attention_left_only:
+      d['attention_left_only'] = attention_left_only
     d.update(kwargs)
     self._net[name] = d
     return name

@@ -781,6 +781,9 @@ def create_config(
     if is_recog:
         exp_config["network"]["out_best_wo_blank"]["target"] = "bpe_labels"
 
+        tmp = copy.deepcopy(exp_config['network']['output']['max_seq_len'])
+        exp_config['network']['output']['max_seq_len'] = tmp + ' * 2'
+
     # -------------------------- end network -------------------------- #
 
     # add hyperparmas
