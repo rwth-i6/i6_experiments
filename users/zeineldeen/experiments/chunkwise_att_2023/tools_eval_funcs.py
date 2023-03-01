@@ -1,4 +1,16 @@
+"""
+Functions used directly in the RETURNN network,
+handled via get_serializable_config.
+"""
+
+
 def get_chunked_align(source, self, chunk_step, eoc_idx, **_kwargs):
+    """
+    Gets a time-sync RNA alignment of length T, including L labels
+    and blank otherwise.
+    It generates a chunked alignment with eoc_idx as chunk separator.
+    The output length is K + L, where K is the number of chunks, K = T // chunk_step.
+    """
     import tensorflow as tf
 
     data = source(0, as_data=True)
@@ -27,14 +39,14 @@ def get_chunked_align(source, self, chunk_step, eoc_idx, **_kwargs):
             batched_ta = batched_ta.write(b, ta.stack())  # [i]
             batched_ta_seq_lens = batched_ta_seq_lens.write(b, i + 1)
 
-        seq_lens = batched_ta_seq_lens.stack()
+        seq_lens_ = batched_ta_seq_lens.stack()
         # stack batched_ta using padding
-        max_len = tf.reduce_max(seq_lens)
+        max_len = tf.reduce_max(seq_lens_)
         batched_ta_ = tf.TensorArray(dtype=tf.int32, size=batch_size, element_shape=[None])
         for b in tf.range(batch_size):
             x = batched_ta.read(b)
             batched_ta_ = batched_ta_.write(b, tf.pad(x, [[0, max_len - tf.shape(x)[0]]]))
-        return batched_ta_.stack(), seq_lens
+        return batched_ta_.stack(), seq_lens_
 
     y, seq_lens = _f(data.placeholder, data.get_sequence_lengths())
     out = self.output
@@ -43,6 +55,9 @@ def get_chunked_align(source, self, chunk_step, eoc_idx, **_kwargs):
 
 
 def get_chunked_align_out_type(sources, **_kwargs):
+    """
+    For :func:`get_chunked_align`
+    """
     from returnn.tf.util.data import Data, batch_dim, SpatialDim, FeatureDim
 
     dim = sources[0].output.sparse_dim
