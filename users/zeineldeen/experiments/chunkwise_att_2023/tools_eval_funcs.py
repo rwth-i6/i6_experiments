@@ -4,7 +4,7 @@ handled via get_serializable_config.
 """
 
 
-def get_chunked_align(source, self, chunk_step, eoc_idx, **_kwargs):
+def get_chunked_align(source, self, chunk_step, eoc_idx, ignore_indices=None, **_kwargs):
     """
     Gets a time-sync RNA alignment of length T, including L labels
     and blank otherwise.
@@ -32,6 +32,9 @@ def get_chunked_align(source, self, chunk_step, eoc_idx, **_kwargs):
                     i += 1
                 if tf.equal(x[t], blank_idx):
                     continue
+                if ignore_indices:
+                    if tf.reduce_any([tf.equal(x[t], idx) for idx in ignore_indices]):
+                        continue
                 ta = ta.write(i, x[t])
                 i += 1
 

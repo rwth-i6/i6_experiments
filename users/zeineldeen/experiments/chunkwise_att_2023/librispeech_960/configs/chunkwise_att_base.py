@@ -817,6 +817,7 @@ def get_ctc_chunksyn_align_config(
     chunk_step,
     eoc_idx=0,
     hash_full_python_code=False,
+    ignore_eoc_in_input=False,
 ):
     from i6_experiments.common.setups.returnn import serialization
 
@@ -860,6 +861,8 @@ def get_ctc_chunksyn_align_config(
             "batch_size": 5000,
         }
     )
+    if ignore_eoc_in_input:
+        config.config["network"]["chunked_align"]["eval_locals"].setdefault("ignore_indices", []).append(eoc_idx)
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
