@@ -68,10 +68,14 @@ def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: boo
     # because config.update() does reasonable logic for python_epilog code merging,
     # including handling of python_epilog_hash.
     python_prolog_ext = []
-    dim_tag_def_code = dim_tag_proxy.py_code_str()
     for code in [
+        # Probably we should use base_serialization.NonhashedCode for this here...
         _ImportPyCodeStr,
-        dim_tag_def_code,
+        # Also this should probably be split for each individual dim tag definition,
+        # and those wrapped in some own code wrappers,
+        # such that we have control over the hash and can make sure it will stay stable,
+        # even with code changes.
+        dim_tag_proxy.py_code_str(),
     ]:
         if not code:
             continue
