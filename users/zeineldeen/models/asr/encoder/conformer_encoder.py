@@ -327,15 +327,35 @@ class ConformerEncoder:
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
 
-        depthwise_conv = self.network.add_conv_layer(
-            "{}_depthwise_conv2".format(prefix_name),
-            glu_act,
-            n_out=self.enc_key_dim,
-            filter_size=(self.conv_kernel_size,),
-            groups=self.enc_key_dim,
-            l2=self.l2,
-            forward_weights_init=self.conv_module_init,
-        )
+        if self.use_causal_layers:
+            # pad to the left to make it causal
+            depthwise_conv_input_padded = self.network.add_pad_layer(
+                "{}_depthwise_conv_input_padded".format(prefix_name),
+                glu_act,
+                axes="T",
+                padding=(self.conv_kernel_size - 1, 0),
+            )
+
+            depthwise_conv = self.network.add_conv_layer(
+                "{}_depthwise_conv2".format(prefix_name),
+                depthwise_conv_input_padded,
+                n_out=self.enc_key_dim,
+                filter_size=(self.conv_kernel_size,),
+                groups=self.enc_key_dim,
+                l2=self.l2,
+                forward_weights_init=self.conv_module_init,
+                padding="valid",
+            )
+        else:
+            depthwise_conv = self.network.add_conv_layer(
+                "{}_depthwise_conv2".format(prefix_name),
+                glu_act,
+                n_out=self.enc_key_dim,
+                filter_size=(self.conv_kernel_size,),
+                groups=self.enc_key_dim,
+                l2=self.l2,
+                forward_weights_init=self.conv_module_init,
+            )
 
         if self.use_ln:
             bn = self.network.add_layer_norm_layer("{}_layer_norm".format(prefix_name), depthwise_conv)
