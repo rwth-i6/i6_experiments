@@ -10,12 +10,14 @@ from .chunkwise_att_base import get_ctc_rna_based_chunk_alignments, prefix_name,
 
 def sis_config_main():
     """sis config function"""
-    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
+    chunk_size = 20
+    chunk_step_factor = 0.9
+    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
+        fixed_ctc_rna_align_without_eos=True, chunk_sizes=[chunk_size], chunk_step_factors=[chunk_step_factor]
+    )
 
     # train with ctc chunk-sync alignment
     total_epochs = 40
-    chunk_size = 20
-    chunk_step_factor = 0.9
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
 
