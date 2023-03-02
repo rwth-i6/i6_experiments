@@ -669,14 +669,25 @@ def create_config(
 
     encoder_args["output_layer_name"] = "encoder_full_seq"
 
-    conformer_encoder = encoder_type(**encoder_args)
-    conformer_encoder.create_network()
-
     if chunk_size > 0:
         from returnn.tf.util.data import SpatialDim
 
         chunk_size_dim = SpatialDim("chunk-size", chunk_size)
         chunked_time_dim = SpatialDim("chunked-time")
+
+        input_ = encoder_args["input"]
+        input_chunk_size_dim = None
+        in_chunk_size = None
+        input_chunked_time_dim = None
+        if chunk_level == "input":
+            encoder_args["input"] = "input_chunked"
+            assert encoder_args["input_layer"] in ["lstm-6", "conv-6"]  # hardcoded factor 6 below
+            input_chunk_size_dim = chunk_size_dim * 6
+            in_chunk_size = input_chunk_size_dim.dimension
+            input_chunked_time_dim = SpatialDim("input-chunked-time")
+
+        conformer_encoder = encoder_type(**encoder_args)
+        conformer_encoder.create_network()
 
         if chunk_level == "encoder":
 
@@ -699,7 +710,24 @@ def create_config(
                         (chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)
                     )
 
+        elif chunk_level == "input":
+
+            conformer_encoder.network["input_chunked"] = {
+                "class": "window",
+                "from": input_,
+                "window_dim": input_chunk_size_dim,
+                "stride": chunk_step,
+                "out_spatial_dim": input_chunked_time_dim,
+                "window_left": (in_chunk_size // 2 - 1) * (in_chunk_size - chunk_step) // (in_chunk_size - 1),
+            }
+
+        else:
+            raise ValueError(f"invalid chunk_level: {chunk_level!r}")
+
     else:
+        conformer_encoder = encoder_type(**encoder_args)
+        conformer_encoder.create_network()
+
         chunk_size_dim = None
         chunked_time_dim = None
         conformer_encoder.network.add_copy_layer("encoder", "encoder_full_seq")
