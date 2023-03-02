@@ -810,7 +810,11 @@ default_args["search_type"] = "end-of-chunk"  # align on-the-fly
 
 
 def get_ctc_chunksyn_align_config(
-    dataset_name, ctc_alignments, chunk_step, eoc_idx=0, hash_full_python_code=False,
+    dataset_name,
+    ctc_alignments,
+    chunk_step,
+    eoc_idx=0,
+    hash_full_python_code=False,
 ):
     from i6_experiments.common.setups.returnn import serialization
 
@@ -857,7 +861,7 @@ def get_ctc_chunksyn_align_config(
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
-def baseline():
+def get_ctc_alignments():
     # save time-sync -> chunk-sync converted alignments.
     ctc_align_wo_speed_pert = {
         "train": {},
@@ -900,6 +904,12 @@ def baseline():
                 ctc_align_wo_speed_pert[dataset][f"{chunk_size}_{chunk_step}"] = ctc_chunk_sync_align[
                     f"alignments-{dataset}.hdf"
                 ]
+
+    return ctc_align_wo_speed_pert
+
+
+def baseline():
+    ctc_align_wo_speed_pert = get_ctc_alignments()
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
