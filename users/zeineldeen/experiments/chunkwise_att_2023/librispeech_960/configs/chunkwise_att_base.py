@@ -4,7 +4,7 @@ users/zeineldeen/experiments/conformer_att_2022/librispeech_960/configs/baseline
 """
 
 from __future__ import annotations
-from typing import Union, List
+from typing import Optional, Union, List
 import copy
 import os
 
@@ -861,7 +861,12 @@ def get_ctc_chunksyn_align_config(
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
-def get_ctc_rna_based_chunk_alignments():
+def get_ctc_rna_based_chunk_alignments(
+    *,
+    fixed_ctc_rna_align_without_eos: bool,
+    chunk_sizes: Optional[List[int]] = None,
+    chunk_step_factors: Optional[List[Union[int, float]]] = None,
+):
     # save time-sync -> chunk-sync converted alignments.
     ctc_align_wo_speed_pert = {
         "train": {},
@@ -874,6 +879,8 @@ def get_ctc_rna_based_chunk_alignments():
         args["batch_size"] *= 2
 
         # CTC alignment with blank.
+        if fixed_ctc_rna_align_without_eos:
+            raise NotImplementedError  # TODO
         j = run_forward(
             prefix_name=prefix_name,
             exp_name=f"dump_ctc_alignment_wo_speedPert",
@@ -883,8 +890,12 @@ def get_ctc_rna_based_chunk_alignments():
         )
 
         # convert w.r.t different chunk sizes and chunk steps
-        for chunk_size in [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]:
-            for chunk_step_factor in [1 / 2, 3 / 4, 0.9, 1]:  # 1 = no overlap
+        if not chunk_sizes:
+            chunk_sizes = [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]
+        for chunk_size in chunk_sizes:
+            if not chunk_step_factors:
+                chunk_step_factors = [1 / 2, 3 / 4, 0.9, 1]  # 1 = no overlap
+            for chunk_step_factor in chunk_step_factors:
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
                 ctc_chunk_sync_align = run_forward(
@@ -909,7 +920,7 @@ def get_ctc_rna_based_chunk_alignments():
 
 
 def baseline():
-    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments()
+    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=False)
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
