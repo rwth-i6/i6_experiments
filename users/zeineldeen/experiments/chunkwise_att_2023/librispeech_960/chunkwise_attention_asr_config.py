@@ -534,6 +534,7 @@ def create_config(
     dump_alignments_dataset=None,  # train, dev, etc
     dump_ctc=False,
     dump_ctc_dataset=None,  # train, dev, etc
+    enable_check_align=True,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -710,6 +711,7 @@ def create_config(
     decoder_args["enc_time_dim"] = chunk_size_dim
     decoder_args["eos_id"] = eoc_idx
     decoder_args["search_type"] = search_type
+    decoder_args["enable_check_align"] = enable_check_align
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:

@@ -944,6 +944,7 @@ def baseline():
                         train_args["max_seq_length"] = None  # no filtering!
 
                         train_args["encoder_args"].with_ctc = False  # No CTC
+                        train_args["enable_check_align"] = False  # to not break hashes
 
                         decay_pt = int(total_epochs * decay_pt_factor)
 
