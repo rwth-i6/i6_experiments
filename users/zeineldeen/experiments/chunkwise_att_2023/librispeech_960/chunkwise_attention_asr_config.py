@@ -676,7 +676,7 @@ def create_config(
         chunk_size_dim = SpatialDim("chunk-size", chunk_size)
 
         input_ = encoder_args["input"]
-        specaug_ = encoder_args["specaug"]
+        specaug_ = encoder_args.get("specaug", True)
         input_chunk_size_dim = None
         in_chunk_size = None
         in_chunk_step = None
