@@ -15,14 +15,7 @@ def sis_config_main():
     decay_pt_factor = 1 / 3
 
     for chunk_level in ["encoder", "input"]:
-        for chunk_size in (
-            [20]
-            if chunk_level == "encoder"
-            else [
-                20,
-                50,
-            ]
-        ):
+        for chunk_size in [20, 50]:
             chunk_step_factor = 0.9
 
             ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
