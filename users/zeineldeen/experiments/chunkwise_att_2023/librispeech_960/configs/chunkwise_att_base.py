@@ -936,17 +936,19 @@ def get_ctc_rna_based_chunk_alignments(
     return ctc_align_wo_speed_pert
 
 
-def baseline():
-    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
-        fixed_ctc_rna_align_without_eos=False,
-        chunk_sizes=[1, 2, 5, 8, 10, 20, 30, 40, 50],
-        chunk_step_factors=[1, 1 / 2, 3 / 4],  # do not run for 0.9 for that but with fixed alignment
-    )
-
+def run_chunkwise_train(ctc_chunksync_align, total_epochs=None, chunk_sizes=None, chunk_step_factors=None, suffix=""):
     # train with ctc chunk-sync alignment
-    for total_epochs in [40, 60, 100]:
-        for chunk_size in [1, 2, 5, 8, 10, 20, 30, 40, 50]:
-            for chunk_step_factor in [1 / 2, 3 / 4, 1]:  # [1 / 2, 3 / 4, 1]:
+
+    if total_epochs is None:
+        total_epochs = [40, 60, 100]
+    if chunk_sizes is None:
+        chunk_sizes = [1, 2, 5, 8, 10, 20, 30, 40, 50]
+    if chunk_step_factors is None:
+        chunk_step_factors = [1 / 2, 3 / 4, 0.9, 1]
+
+    for total_epochs in total_epochs:
+        for chunk_size in chunk_sizes:
+            for chunk_step_factor in chunk_step_factors:
                 for start_lr in [1e-4]:
                     for decay_pt_factor in [1 / 3]:
                         train_args = copy.deepcopy(default_args)
@@ -969,13 +971,17 @@ def baseline():
                             numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
                         )
 
+                        exp_name = f"base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align"
+                        if suffix:
+                            exp_name += suffix
+
                         run_exp(
                             prefix_name=prefix_name,
-                            exp_name=f"base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align",
+                            exp_name=exp_name,
                             train_args=train_args,
                             num_epochs=total_epochs,
-                            train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
-                            cv_fixed_alignment=ctc_align_wo_speed_pert["dev"][f"{chunk_size}_{chunk_step}"],
+                            train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
+                            cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
                             epoch_wise_filter=None,
                             time_rqmt=72,
                             selected_datasets=["dev-other"],
@@ -983,7 +989,18 @@ def baseline():
                             use_sclite=True,
                         )
 
-        # imported from `/work/asr4/zeyer/setups-data/combined/2021-05-31/work`
-        fixed_ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
 
-        # TODO: run exps with fixed align
+def baseline():
+    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
+        fixed_ctc_rna_align_without_eos=False,
+        chunk_sizes=[1, 2, 5, 8, 10, 20, 30, 40, 50],
+        chunk_step_factors=[1, 1 / 2, 3 / 4],  # do not run for 0.9 for that but with fixed alignment
+    )
+
+    run_chunkwise_train(ctc_align_wo_speed_pert, chunk_step_factors=[1, 1 / 2, 3 / 4])
+
+    # imported from `/work/asr4/zeyer/setups-data/combined/2021-05-31/work`
+    fixed_ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
+
+    # TODO: run exps with fixed align
+    run_chunkwise_train(fixed_ctc_align_wo_speed_pert, suffix="_wo_eos")
