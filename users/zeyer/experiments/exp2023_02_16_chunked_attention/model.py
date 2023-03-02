@@ -601,6 +601,8 @@ class RNNDecoder:
         if self.enc_chunks_dim:
             assert self.enc_time_dim and self.enc_time_dim.dimension is not None
             rec_opts["include_eos"] = True
+            # TODO warning this is wrong, needs to be larger,
+            #   but we can't easily change it now because it changes the hash
             rec_opts["max_seq_len"] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
         if rec_layer_opts:
             rec_opts.update(rec_layer_opts)
