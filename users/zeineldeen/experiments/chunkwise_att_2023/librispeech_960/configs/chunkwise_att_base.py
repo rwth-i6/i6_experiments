@@ -510,6 +510,7 @@ def run_forward(
     time_rqmt=12,
     mem_rqmt=15,
     override_returnn_config=None,
+    seq_postfix=0,
     **kwargs,
 ):
     # build train, dev, and devtrain
@@ -523,6 +524,7 @@ def run_forward(
         partition_epoch=1,
         epoch_wise_filter=None,
         link_speed_perturbation=False,
+        seq_postfix=seq_postfix,
         seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
     )
 
@@ -879,14 +881,13 @@ def get_ctc_rna_based_chunk_alignments(
         args["batch_size"] *= 2
 
         # CTC alignment with blank.
-        if fixed_ctc_rna_align_without_eos:
-            raise NotImplementedError  # TODO
         j = run_forward(
             prefix_name=prefix_name,
             exp_name=f"dump_ctc_alignment_wo_speedPert",
             train_args=args,
             model_ckpt=global_att_best_ckpt,
             hdf_layers=[f"alignments-{dataset}.hdf"],
+            seq_postfix=None if fixed_ctc_rna_align_without_eos else 0,
         )
 
         # convert w.r.t different chunk sizes and chunk steps
