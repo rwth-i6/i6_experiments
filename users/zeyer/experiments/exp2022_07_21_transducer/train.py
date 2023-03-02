@@ -12,25 +12,33 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.returnn_common import serialization
 from returnn_common import nn
 
-from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoints, Checkpoint, AlignmentCollection, \
-    ModelT, ModelDef, TrainDef, FramewiseTrainDef
+from i6_experiments.users.zeyer.model_interfaces import (
+    ModelWithCheckpoints,
+    Checkpoint,
+    AlignmentCollection,
+    ModelT,
+    ModelDef,
+    TrainDef,
+    FramewiseTrainDef,
+)
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
 
 
-def train(prefix_name: str,
-          *,
-          task: Task,
-          config: Dict[str, Any],
-          post_config: Optional[Dict[str, Any]] = None,
-          epilog: Sequence[serialization.SerializerObject] = (),
-          alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
-          model_def: ModelDef[ModelT],
-          train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
-          init_params: Optional[Checkpoint] = None,
-          extra_hash: Any = None,
-          **kwargs
-          ) -> ModelWithCheckpoints:
+def train(
+    prefix_name: str,
+    *,
+    task: Task,
+    config: Dict[str, Any],
+    post_config: Optional[Dict[str, Any]] = None,
+    epilog: Sequence[serialization.SerializerObject] = (),
+    alignment: Optional[AlignmentCollection] = None,  # TODO... metadataset...
+    model_def: ModelDef[ModelT],
+    train_def: Union[TrainDef[ModelT], FramewiseTrainDef[ModelT]],
+    init_params: Optional[Checkpoint] = None,
+    extra_hash: Any = None,
+    **kwargs,
+) -> ModelWithCheckpoints:
     """
     train
 
@@ -42,17 +50,14 @@ def train(prefix_name: str,
     returnn_train_config_dict = dict(
         use_tensorflow=True,
         behavior_version=model_def.behavior_version,
-
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
         train=task.train_dataset.get_train_dataset(),
         eval_datasets=task.train_dataset.get_eval_datasets(),
-
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=task.train_epoch_split,
-
-        **config
+        **config,
     )
 
     max_seq_length_default_target = returnn_train_config_dict.pop("max_seq_length_default_target", None)
@@ -66,6 +71,7 @@ def train(prefix_name: str,
         # dummy for now, just insert them into the dict, to get the dependency
         returnn_train_config_dict["_alignment_train_TODO"] = alignment.alignments["train"].hdf_files
         from sisyphus import tk
+
         returnn_train_config_dict["_alignment_train_TODO2"] = tk.Path("<non-existing-file>")
 
     if init_params:
@@ -73,27 +79,34 @@ def train(prefix_name: str,
 
     returnn_train_config = ReturnnConfig(
         returnn_train_config_dict,
-        python_epilog=[serialization.Collection(
-            [
-                serialization.NonhashedCode(
-                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
-                        task.train_dataset.get_extern_data())),
-                serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
-                serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
-                serialization.ExplicitHash({
-                    # Increase the version whenever some incompatible change is made in this train() function,
-                    # which influences the outcome, but would otherwise not influence the hash.
-                    "version": 1,
-                    # Whatever the caller provides. This could also include another version,
-                    # but this is up to the caller.
-                    "extra": extra_hash
-                }),
-                serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                serialization.PythonCacheManagerFunctionNonhashedCode,
-                serialization.PythonModelineNonhashedCode,
-            ] + list(epilog)
-        )],
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
+                            task.train_dataset.get_extern_data()
+                        )
+                    ),
+                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                    serialization.ExplicitHash(
+                        {
+                            # Increase the version whenever some incompatible change is made in this train() function,
+                            # which influences the outcome, but would otherwise not influence the hash.
+                            "version": 1,
+                            # Whatever the caller provides. This could also include another version,
+                            # but this is up to the caller.
+                            "extra": extra_hash,
+                        }
+                    ),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+                + list(epilog)
+            )
+        ],
         post_config=dict(  # not hashed
             log_batch_size=True,
             tf_log_memory_usage=True,
@@ -116,21 +129,18 @@ def train(prefix_name: str,
         returnn_train_config.post_config[k] = v
 
     kwargs = kwargs.copy()
-    for k, v in dict(
-            log_verbosity=5, num_epochs=150,
-            time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
+    for k, v in dict(log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
         kwargs.setdefault(k, v)
     returnn_train_job = ReturnnTrainingJob(returnn_train_config, **kwargs)
     returnn_train_job.add_alias(prefix_name + "/train")
 
-    return ModelWithCheckpoints.from_training_job(
-        definition=model_def,
-        training_job=returnn_train_job)
+    return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
 
 
 def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     """called from the RETURNN config"""
     from returnn.config import get_global_config
+
     nn.reset_default_root_name_ctx()
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
@@ -151,7 +161,10 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     train_def = config.typed_value("_train_def")
     train_def(
         model=model,
-        data=data, data_spatial_dim=data_spatial_dim,
-        targets=targets, targets_spatial_dim=targets_spatial_dim)
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+    )
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
     return net_dict
