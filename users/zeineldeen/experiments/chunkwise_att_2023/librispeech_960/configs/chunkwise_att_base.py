@@ -884,7 +884,7 @@ def get_ctc_rna_based_chunk_alignments():
 
         # convert w.r.t different chunk sizes and chunk steps
         for chunk_size in [1, 2, 5, 8] + list(range(10, 55, 5)) + [60, 70, 80, 100]:
-            for chunk_step_factor in [1 / 2, 3 / 4, 1]:  # 1 = no overlap
+            for chunk_step_factor in [1 / 2, 3 / 4, 0.9, 1]:  # 1 = no overlap
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
                 ctc_chunk_sync_align = run_forward(
