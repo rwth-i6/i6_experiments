@@ -672,19 +672,19 @@ def create_config(
     if chunk_size > 0:
         from returnn.tf.util.data import SpatialDim
 
-        chunk_size_dim = SpatialDim("chunk-size", chunk_size)
         chunked_time_dim = SpatialDim("chunked-time")
+        chunk_size_dim = SpatialDim("chunk-size", chunk_size)
 
         input_ = encoder_args["input"]
         input_chunk_size_dim = None
         in_chunk_size = None
-        input_chunked_time_dim = None
+        in_chunk_step = None
         if chunk_level == "input":
             encoder_args["input"] = "input_chunked"
             assert encoder_args["input_layer"] in ["lstm-6", "conv-6"]  # hardcoded factor 6 below
-            input_chunk_size_dim = chunk_size_dim * 6
-            in_chunk_size = input_chunk_size_dim.dimension
-            input_chunked_time_dim = SpatialDim("input-chunked-time")
+            in_chunk_size = chunk_size * 6
+            in_chunk_step = chunk_step * 6
+            input_chunk_size_dim = SpatialDim("input-chunk-size", in_chunk_size)
 
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
@@ -712,13 +712,30 @@ def create_config(
 
         elif chunk_level == "input":
 
-            conformer_encoder.network["input_chunked"] = {
+            conformer_encoder.network["_input_chunked"] = {
                 "class": "window",
                 "from": input_,
                 "window_dim": input_chunk_size_dim,
-                "stride": chunk_step,
-                "out_spatial_dim": input_chunked_time_dim,
-                "window_left": (in_chunk_size // 2 - 1) * (in_chunk_size - chunk_step) // (in_chunk_size - 1),
+                "stride": in_chunk_step,
+                "out_spatial_dim": chunked_time_dim,
+                "window_left": (in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1),
+            }
+            conformer_encoder.network["input_chunked"] = {
+                "class": "merge_dims",
+                "from": "_input_chunked",
+                "axes": ["B", chunked_time_dim],
+                "keep_order": True,
+            }
+
+            conformer_encoder.network["_encoder"] = {
+                "class": "reinterpret_data",
+                "from": "encoder_full_seq",
+                "set_dim_tags": {"T": chunk_size_dim},
+            }
+            conformer_encoder.network["encoder"] = {
+                "class": "split_batch_time",
+                "from": "_encoder",
+                "base": "_input_chunked",
             }
 
         else:
