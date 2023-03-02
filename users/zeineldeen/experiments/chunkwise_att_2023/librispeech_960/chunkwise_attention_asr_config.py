@@ -676,6 +676,7 @@ def create_config(
         chunk_size_dim = SpatialDim("chunk-size", chunk_size)
 
         input_ = encoder_args["input"]
+        specaug_ = encoder_args["specaug"]
         input_chunk_size_dim = None
         in_chunk_size = None
         in_chunk_step = None
@@ -685,6 +686,7 @@ def create_config(
             in_chunk_size = chunk_size * 6
             in_chunk_step = chunk_step * 6
             input_chunk_size_dim = SpatialDim("input-chunk-size", in_chunk_size)
+            encoder_args["specaug"] = False  # need to do it before
 
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
@@ -712,6 +714,14 @@ def create_config(
 
         elif chunk_level == "input":
 
+            if specaug_:
+                input_ = conformer_encoder.network.add_eval_layer(
+                    "source",
+                    input_,
+                    eval="self.network.get_config().typed_value('transform')"
+                    "(source(0, as_data=True), network=self.network)",
+                )
+
             conformer_encoder.network["_input_chunked"] = {
                 "class": "window",
                 "from": input_,
@@ -720,11 +730,16 @@ def create_config(
                 "out_spatial_dim": chunked_time_dim,
                 "window_left": (in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1),
             }
-            conformer_encoder.network["input_chunked"] = {
+            conformer_encoder.network["__input_chunked"] = {
                 "class": "merge_dims",
                 "from": "_input_chunked",
                 "axes": ["B", chunked_time_dim],
                 "keep_order": True,
+            }
+            conformer_encoder.network["input_chunked"] = {
+                "class": "reinterpret_data",
+                "from": "__input_chunked",
+                "set_axes": {"T": input_chunk_size_dim},
             }
 
             conformer_encoder.network["_encoder"] = {
