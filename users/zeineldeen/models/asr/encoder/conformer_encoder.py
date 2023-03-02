@@ -348,6 +348,13 @@ class ConformerEncoder:
                 forward_weights_init=self.conv_module_init,
                 padding="valid",
             )
+
+            # Fix time dim, match with the original input
+            depthwise_conv = self.network.add_reinterpret_data_layer(
+                "{}_depthwise_conv2_".format(prefix_name),
+                depthwise_conv,
+                size_base=glu_act,
+            )
         else:
             depthwise_conv = self.network.add_conv_layer(
                 "{}_depthwise_conv2".format(prefix_name),
