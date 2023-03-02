@@ -56,6 +56,7 @@ class TrainingDatasets:
 
 
 def build_training_datasets(
+    *,
     bpe_size=10000,
     partition_epoch=20,
     epoch_wise_filter=None,
@@ -63,6 +64,7 @@ def build_training_datasets(
     link_speed_perturbation=False,
     use_raw_features=False,
     preemphasis=None,  # TODO: by default is None, but we want to experiment
+    seq_postfix=0,
 ):
     """
 
@@ -79,7 +81,7 @@ def build_training_datasets(
     dev_clean_ogg = ogg_zip_dict["dev-clean"]
     dev_other_ogg = ogg_zip_dict["dev-other"]
 
-    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
+    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False, seq_postfix=seq_postfix)
 
     if use_raw_features:
         audio_datastream = get_audio_raw_datastream(preemphasis)
