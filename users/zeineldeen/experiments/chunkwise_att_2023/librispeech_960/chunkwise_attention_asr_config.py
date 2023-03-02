@@ -650,15 +650,11 @@ def create_config(
         exp_config["newbob_learning_rate_decay"] = lr_decay
 
     # -------------------------- network -------------------------- #
-    encoder_type = None
-    if isinstance(encoder_args, ConformerEncoderArgs):
-        encoder_type = ConformerEncoder
+    assert isinstance(encoder_args, ConformerEncoderArgs)
 
-    if isinstance(decoder_args, RNNDecoderArgs):
-        decoder_type = ChunkwiseRNNDecoder
-        dec_type = "lstm"
-    else:
-        assert False, "invalid decoder_args type"
+    assert isinstance(decoder_args, RNNDecoderArgs)
+    decoder_type = ChunkwiseRNNDecoder
+    dec_type = "lstm"
 
     encoder_args = asdict(encoder_args)
     if feature_extraction_net:
@@ -672,7 +668,7 @@ def create_config(
 
     encoder_args["output_layer_name"] = "encoder_full_seq"
 
-    conformer_encoder = encoder_type(**encoder_args)
+    conformer_encoder = ConformerEncoder(**encoder_args)
     conformer_encoder.create_network()
 
     if chunk_size > 0:
