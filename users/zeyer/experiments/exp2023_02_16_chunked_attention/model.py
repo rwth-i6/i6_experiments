@@ -736,6 +736,9 @@ def _check_alignment(source, self, target, **kwargs):
 
     out_wo_blank = source(0, as_data=True)
     assert isinstance(out_wo_blank, Data)
+    if not self.network.eval_flag:
+        # Targets are not available during recognition.
+        return out_wo_blank.placeholder
     out_with_blank = self.network.get_layer(f"data:{target}").output
     assert isinstance(out_with_blank, Data)
     encoder = self.network.get_layer("encoder").output
