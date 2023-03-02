@@ -70,6 +70,7 @@ class TrainingDatasets:
 
 def build_training_datasets(
         returnn_python_exe, returnn_root, output_path,
+        ls_corpus_key="train-clean-100",
         bpe_size=2000,
         partition_epoch=3,
         use_curicculum=True,
@@ -91,7 +92,7 @@ def build_training_datasets(
     :return:
     """
     ogg_zip_dict = get_ogg_zip_dict("corpora")
-    train_clean_100_ogg = ogg_zip_dict['train-clean-100']
+    train_clean_100_ogg = ogg_zip_dict[ls_corpus_key]
     dev_clean_ogg = ogg_zip_dict['dev-clean']
     dev_other_ogg = ogg_zip_dict['dev-other']
 

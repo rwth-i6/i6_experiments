@@ -24,7 +24,8 @@ post_config = {
     'log_batch_size': True,
     'debug_print_layer_output_template': True,
     'debug_mode': False,
-    'batching': 'random'
+    'batching': 'random',
+    "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}}
 }
 
 # -------------------------- LR Scheduling -------------------------- #
@@ -432,9 +433,13 @@ def create_config(
         else:
             raise ValueError('unknown const_lr format')
 
-        exp_config['learning_rate'] = lr
-        exp_config['learning_rates'] = learning_rates
-        exp_config['min_learning_rate'] = lr / min_lr_factor
+        if isinstance(lr, list):
+            exp_config['learning_rate'] = lr[-1]
+            exp_config['learning_rates'] = lr
+        else:
+            exp_config['learning_rate'] = lr
+            exp_config['learning_rates'] = learning_rates
+            exp_config['min_learning_rate'] = lr / min_lr_factor
         exp_config['learning_rate_control'] = "newbob_multi_epoch"
         exp_config['learning_rate_control_relative_error_relative_lr'] = True
         exp_config['learning_rate_control_min_num_epochs_per_new_lr'] = 3
