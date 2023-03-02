@@ -40,7 +40,10 @@ def sis_config_main():
 
     run_exp(
         prefix_name=prefix_name,
-        exp_name=f"base_chunkwise_att_chunk-{chunk_size}_step-{chunk_step}_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}_fixed_align",
+        exp_name=f"base_chunkwise_att"
+        f"_chunk-{chunk_size}_step-{chunk_step}"
+        f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
+        f"_fixed_align",
         train_args=train_args,
         num_epochs=total_epochs,
         train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
