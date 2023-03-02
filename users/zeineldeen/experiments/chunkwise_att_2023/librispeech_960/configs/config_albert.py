@@ -15,6 +15,7 @@ def sis_config_main():
         chunk_step_factor = 0.9
         ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
             fixed_ctc_rna_align_without_eos=fixed_ctc_rna_align_without_eos,
+            ignore_eoc_in_input=not fixed_ctc_rna_align_without_eos,
             chunk_sizes=[chunk_size],
             chunk_step_factors=[chunk_step_factor],
         )

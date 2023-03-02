@@ -817,7 +817,7 @@ def get_ctc_chunksyn_align_config(
     chunk_step,
     eoc_idx=0,
     hash_full_python_code=False,
-    ignore_eoc_in_input=False,
+    ignore_eoc_in_input=False,  # workaround for broken CTC/RNA alignments which include EOS (=EOC)
 ):
     from i6_experiments.common.setups.returnn import serialization
 
@@ -869,6 +869,7 @@ def get_ctc_chunksyn_align_config(
 def get_ctc_rna_based_chunk_alignments(
     *,
     fixed_ctc_rna_align_without_eos: bool,
+    ignore_eoc_in_input: bool = False,
     chunk_sizes: Optional[List[int]] = None,
     chunk_step_factors: Optional[List[Union[int, float]]] = None,
 ):
@@ -877,6 +878,9 @@ def get_ctc_rna_based_chunk_alignments(
         "train": {},
         "dev": {},
     }
+
+    if fixed_ctc_rna_align_without_eos:
+        assert not ignore_eoc_in_input  # should not be needed then
 
     for dataset in ["train", "dev"]:
         args = copy.deepcopy(default_args)
@@ -912,6 +916,7 @@ def get_ctc_rna_based_chunk_alignments(
                         dataset,
                         ctc_alignments=j[f"alignments-{dataset}.hdf"],
                         chunk_step=chunk_step,
+                        ignore_eoc_in_input=ignore_eoc_in_input,
                     ),
                     device="cpu",
                 )
