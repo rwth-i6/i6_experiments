@@ -10,9 +10,14 @@ from .chunkwise_att_base import get_ctc_rna_based_chunk_alignments, prefix_name,
 
 def sis_config_main():
     """sis config function"""
+    chunk_size = 20
+    chunk_step_factor = 0.9
+
+    total_epochs = 40
+    start_lr = 1e-4
+    decay_pt_factor = 1 / 3
+
     for fixed_ctc_rna_align_without_eos in [True, False]:
-        chunk_size = 20
-        chunk_step_factor = 0.9
         ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
             fixed_ctc_rna_align_without_eos=fixed_ctc_rna_align_without_eos,
             ignore_eoc_in_input=not fixed_ctc_rna_align_without_eos,
@@ -21,10 +26,6 @@ def sis_config_main():
         )
 
         # train with ctc chunk-sync alignment
-        total_epochs = 40
-        start_lr = 1e-4
-        decay_pt_factor = 1 / 3
-
         train_args = copy.deepcopy(default_args)
         train_args["speed_pert"] = False  # no speed pert
         train_args["search_type"] = None  # fixed alignment
