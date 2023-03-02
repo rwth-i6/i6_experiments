@@ -651,6 +651,7 @@ def create_config(
 
     # -------------------------- network -------------------------- #
     assert isinstance(encoder_args, ConformerEncoderArgs)
+    encoder_type = ConformerEncoder
 
     assert isinstance(decoder_args, RNNDecoderArgs)
     decoder_type = ChunkwiseRNNDecoder
@@ -668,7 +669,7 @@ def create_config(
 
     encoder_args["output_layer_name"] = "encoder_full_seq"
 
-    conformer_encoder = ConformerEncoder(**encoder_args)
+    conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
 
     if chunk_size > 0:
