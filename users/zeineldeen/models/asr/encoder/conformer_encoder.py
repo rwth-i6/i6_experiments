@@ -60,6 +60,7 @@ class ConformerEncoder:
         proj_input=False,
         use_sqrd_relu=False,
         use_causal_layers=False,
+        fix_merge_dims=False,
     ):
         """
         :param str input: input layer name
@@ -186,6 +187,7 @@ class ConformerEncoder:
         self.use_sqrd_relu = use_sqrd_relu
 
         self.use_causal_layers = use_causal_layers
+        self.fix_merge_dims = fix_merge_dims
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -492,6 +494,7 @@ class ConformerEncoder:
                 use_striding=True,
                 split_input=False,
                 prefix_name="subsample_",
+                merge_out_fixed=self.fix_merge_dims,
             )
         elif self.input_layer == "conv-6":
             conv_input = self.network.add_conv_block(
@@ -514,6 +517,7 @@ class ConformerEncoder:
                 use_striding=True,
                 split_input=False,
                 prefix_name="subsample_",
+                merge_out_fixed=self.fix_merge_dims,
             )
 
         assert subsampled_input is not None

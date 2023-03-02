@@ -381,6 +381,8 @@ class ReturnnNetwork:
         use_striding=False,
         split_input=True,
         merge_out=True,
+        merge_out_fixed=False,
+        spatial_dims=None,
         prefix_name=None,
     ):
         if split_input:
@@ -389,8 +391,22 @@ class ReturnnNetwork:
             src = source
         if prefix_name is None:
             prefix_name = ""
+        out_dim = None
         for idx, hwpc in enumerate(hwpc_sizes):
             filter_size, pool_size, n_out = hwpc
+            extra_conv_opts = {}
+            if spatial_dims:
+                extra_conv_opts["in_spatial_dims"] = spatial_dims
+            if spatial_dims or merge_out_fixed:
+                from returnn.tensor import Dim
+
+                spatial_dims = [Dim(None, name=f"{prefix_name}conv{idx}.{i}") for i in range(len(filter_size))]
+                extra_conv_opts["out_spatial_dims"] = spatial_dims
+            if merge_out_fixed:
+                from returnn.tensor import Dim
+
+                out_dim = Dim(n_out, name=f"{prefix_name}conv{idx}.out")
+                extra_conv_opts["out_dim"] = out_dim
             src = self.add_conv_layer(
                 f"{prefix_name}conv%i" % idx,
                 src,
@@ -400,13 +416,18 @@ class ReturnnNetwork:
                 activation=activation,
                 forward_weights_init=init,
                 strides=pool_size if use_striding else None,
+                **extra_conv_opts,
             )
             if pool_size and not use_striding:
                 src = self.add_pool_layer(f"{prefix_name}conv%ip" % idx, src, pool_size=pool_size, padding="same")
         if dropout:
             src = self.add_dropout_layer(f"{prefix_name}conv_dropout", src, dropout=dropout)
         if merge_out:
-            return self.add_merge_dims_layer(name, src)
+            if merge_out_fixed:
+                assert spatial_dims and out_dim
+                return self.add_merge_dims_layer(name, src, axes=spatial_dims[1:] + [out_dim])
+            else:
+                return self.add_merge_dims_layer(name, src)
         return self.add_copy_layer(name, src)
 
     def add_lstm_layers(self, input, num_layers, lstm_dim, dropout, l2, rec_weight_dropout, pool_sizes, bidirectional):
