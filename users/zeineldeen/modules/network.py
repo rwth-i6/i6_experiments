@@ -425,7 +425,7 @@ class ReturnnNetwork:
         if merge_out:
             if merge_out_fixed:
                 assert spatial_dims and out_dim
-                return self.add_merge_dims_layer(name, src, axes=spatial_dims[1:] + [out_dim])
+                return self.add_merge_dims_layer(name, src, axes=spatial_dims[1:] + [out_dim], keep_order=True)
             else:
                 return self.add_merge_dims_layer(name, src)
         return self.add_copy_layer(name, src)
