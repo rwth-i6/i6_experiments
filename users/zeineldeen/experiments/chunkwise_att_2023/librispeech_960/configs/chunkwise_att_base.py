@@ -882,6 +882,10 @@ def get_ctc_rna_based_chunk_alignments(
     if fixed_ctc_rna_align_without_eos:
         assert not ignore_eoc_in_input  # should not be needed then
 
+    ctc_dump_exp_name = "dump_ctc_alignment_wo_speedPert"
+    if fixed_ctc_rna_align_without_eos:
+        ctc_dump_exp_name += "_wo_eos"
+
     for dataset in ["train", "dev"]:
         args = copy.deepcopy(default_args)
         args["dump_ctc_dataset"] = dataset
@@ -890,7 +894,7 @@ def get_ctc_rna_based_chunk_alignments(
         # CTC alignment with blank.
         j = run_forward(
             prefix_name=prefix_name,
-            exp_name=f"dump_ctc_alignment_wo_speedPert",
+            exp_name=ctc_dump_exp_name,
             train_args=args,
             model_ckpt=global_att_best_ckpt,
             hdf_layers=[f"alignments-{dataset}.hdf"],
@@ -929,7 +933,10 @@ def get_ctc_rna_based_chunk_alignments(
 
 
 def baseline():
-    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=False)
+    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
+        fixed_ctc_rna_align_without_eos=False,
+        chunk_step_factors=[1, 1 / 2, 3 / 4],  # do not run for 0.9 for that but with fixed alignment
+    )
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
@@ -970,3 +977,8 @@ def baseline():
                             key="dev_score",
                             use_sclite=True,
                         )
+
+        # imported from `/work/asr4/zeyer/setups-data/combined/2021-05-31/work`
+        fixed_ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
+
+        # TODO: run exps with fixed align
