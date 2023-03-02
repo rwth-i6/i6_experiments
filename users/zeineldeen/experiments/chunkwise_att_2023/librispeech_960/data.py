@@ -33,8 +33,9 @@ def get_bpe_datastream(bpe_size, is_recog, seq_postfix=0):
     """
     # build dataset
     bpe_settings = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=bpe_size, unk_label="<unk>")
-    bpe_targets = BpeDatastream(available_for_inference=False, bpe_settings=bpe_settings, use_unk_label=is_recog)
-    bpe_targets.seq_postfix = seq_postfix
+    bpe_targets = BpeDatastream(
+        available_for_inference=False, bpe_settings=bpe_settings, use_unk_label=is_recog, seq_postfix=seq_postfix
+    )
     return bpe_targets
 
 
