@@ -910,9 +910,13 @@ def get_ctc_rna_based_chunk_alignments(
             for chunk_step_factor in chunk_step_factors:
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
+                ctc_chunk_sync_align_exp_name = f"ctc_chunk_sync_align_wo_speedPert_{chunk_size}-{chunk_step}"
+                if fixed_ctc_rna_align_without_eos:
+                    ctc_chunk_sync_align_exp_name += "_wo_eos"
+
                 ctc_chunk_sync_align = run_forward(
                     prefix_name=prefix_name,
-                    exp_name=f"ctc_chunk_sync_align_wo_speedPert_{chunk_size}-{chunk_step}",
+                    exp_name=ctc_chunk_sync_align_exp_name,
                     train_args=args,
                     model_ckpt=global_att_best_ckpt,
                     hdf_layers=[f"alignments-{dataset}.hdf"],
@@ -935,6 +939,7 @@ def get_ctc_rna_based_chunk_alignments(
 def baseline():
     ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
         fixed_ctc_rna_align_without_eos=False,
+        chunk_sizes=[1, 2, 5, 8, 10, 20, 30, 40, 50],
         chunk_step_factors=[1, 1 / 2, 3 / 4],  # do not run for 0.9 for that but with fixed alignment
     )
 
