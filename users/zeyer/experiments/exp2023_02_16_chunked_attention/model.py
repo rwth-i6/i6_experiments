@@ -145,7 +145,7 @@ class RNNDecoder:
         enc_time_dim: Optional[Dim] = None,
         eos_id=0,
         search_type: Optional[str] = None,
-        enable_check_align=False,
+        enable_check_align=True,
     ):
         """
         :param base_model: base/encoder model instance
