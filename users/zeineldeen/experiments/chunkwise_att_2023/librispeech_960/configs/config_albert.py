@@ -17,10 +17,8 @@ def sis_config_main():
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
 
-    for fixed_ctc_rna_align_without_eos in [True, False]:
+    for chunk_level in ["encoder", "input"]:
         ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
-            fixed_ctc_rna_align_without_eos=fixed_ctc_rna_align_without_eos,
-            ignore_eoc_in_input=not fixed_ctc_rna_align_without_eos,
             chunk_sizes=[chunk_size],
             chunk_step_factors=[chunk_step_factor],
         )
@@ -41,16 +39,18 @@ def sis_config_main():
         chunk_step = max(1, int(chunk_size * chunk_step_factor))
         train_args["chunk_step"] = chunk_step
 
+        train_args["chunk_level"] = chunk_level
+
         train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
             numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
         )
 
         run_exp(
             prefix_name=prefix_name,
-            exp_name=f"base_chunkwise_att"
+            exp_name=f"chunk{chunk_level}_att"
             f"_chunk-{chunk_size}_step-{chunk_step}"
             f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
-            f"_fixed_align{int(fixed_ctc_rna_align_without_eos)}",
+            f"_fixed_align",
             train_args=train_args,
             num_epochs=total_epochs,
             train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
