@@ -861,7 +861,7 @@ def get_ctc_chunksyn_align_config(
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
 
 
-def get_ctc_alignments():
+def get_ctc_rna_based_chunk_alignments():
     # save time-sync -> chunk-sync converted alignments.
     ctc_align_wo_speed_pert = {
         "train": {},
@@ -909,7 +909,7 @@ def get_ctc_alignments():
 
 
 def baseline():
-    ctc_align_wo_speed_pert = get_ctc_alignments()
+    ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments()
 
     # train with ctc chunk-sync alignment
     for total_epochs in [40, 60, 100]:
