@@ -868,7 +868,7 @@ def get_ctc_chunksyn_align_config(
 
 def get_ctc_rna_based_chunk_alignments(
     *,
-    fixed_ctc_rna_align_without_eos: bool,
+    fixed_ctc_rna_align_without_eos: bool = True,
     ignore_eoc_in_input: bool = False,
     chunk_sizes: Optional[List[int]] = None,
     chunk_step_factors: Optional[List[Union[int, float]]] = None,
