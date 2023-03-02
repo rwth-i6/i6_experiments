@@ -744,14 +744,14 @@ def create_config(
             }
 
             conformer_encoder.network["_encoder"] = {
-                "class": "reinterpret_data",
+                "class": "split_batch_time",
                 "from": "encoder_full_seq",
-                "set_dim_tags": {"T": chunk_size_dim},
+                "base": "_input_chunked",
             }
             conformer_encoder.network["encoder"] = {
-                "class": "split_batch_time",
+                "class": "reinterpret_data",
                 "from": "_encoder",
-                "base": "_input_chunked",
+                "set_dim_tags": {"T": chunked_time_dim},
             }
 
         else:
