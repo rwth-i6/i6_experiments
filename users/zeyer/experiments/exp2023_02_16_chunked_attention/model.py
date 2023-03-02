@@ -747,7 +747,11 @@ def _check_alignment(source, self, target, **kwargs):
                 num_labels_wo_blank,
                 num_chunks,
                 num_labels_w_blank,
+                "labels wo blank, with blank:",
+                out_wo_blank.placeholder,
+                targets.placeholder,
             ],
+            summarize=100,
         ),
     ]
     self.network.register_post_control_dependencies(deps)
