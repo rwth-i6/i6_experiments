@@ -14,7 +14,7 @@ def sis_config_main():
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
 
-    for chunk_level in ["encoder", "input"]:
+    for enc_stream_type in ["chunked", "causal", "global"]:
         for chunk_size in [20, 50]:
             chunk_step_factor = 0.9
 
@@ -32,6 +32,9 @@ def sis_config_main():
 
             train_args["encoder_args"].with_ctc = False  # No CTC
 
+            if enc_stream_type == "causal":
+                train_args["encoder_args"].use_causal_layers = True
+
             decay_pt = int(total_epochs * decay_pt_factor)
 
             train_args["chunk_size"] = chunk_size
@@ -39,6 +42,7 @@ def sis_config_main():
             chunk_step = max(1, int(chunk_size * chunk_step_factor))
             train_args["chunk_step"] = chunk_step
 
+            chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
             train_args["chunk_level"] = chunk_level
 
             train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
@@ -47,8 +51,9 @@ def sis_config_main():
 
             run_exp(
                 prefix_name=prefix_name,
-                exp_name=f"chunk{chunk_level}_att"
+                exp_name=f"chunk_att"
                 f"_chunk-{chunk_size}_step-{chunk_step}"
+                f"_enc-{enc_stream_type}-conf"
                 f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
                 f"_fixed_align",
                 train_args=train_args,

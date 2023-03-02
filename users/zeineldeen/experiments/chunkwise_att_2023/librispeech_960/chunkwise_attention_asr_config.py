@@ -331,6 +331,7 @@ class ConformerEncoderArgs(EncoderArgs):
 
     sandwich_conv: bool = False
     subsample: Optional[str] = None
+    use_causal_layers: bool = False
 
     # ctc
     with_ctc: bool = True
