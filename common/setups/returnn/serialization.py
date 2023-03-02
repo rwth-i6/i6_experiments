@@ -12,7 +12,7 @@ from i6_core.returnn.config import ReturnnConfig
 
 # The code here does not need the user to use returnn_common.
 # However, we internally make use of some helper code from returnn_common.
-from returnn_common.nn.naming import ReturnnDimTagsProxy, ReturnnConfigSerializer
+from returnn_common.nn.naming import ReturnnDimTagsProxy
 
 from .. import serialization as base_serialization
 
