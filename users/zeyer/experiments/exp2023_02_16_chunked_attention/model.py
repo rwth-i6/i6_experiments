@@ -73,9 +73,7 @@ class AttentionMechanism(AbsModule):
         if self.enc_time_dim:
             att_sm_opts["axis"] = self.enc_time_dim
         if self.att_dropout:
-            att_weights0 = out_net.add_softmax_over_spatial_layer(
-                "att_weights0", energy, **att_sm_opts
-            )
+            att_weights0 = out_net.add_softmax_over_spatial_layer("att_weights0", energy, **att_sm_opts)
             att_weights = out_net.add_dropout_layer(
                 "att_weights",
                 att_weights0,
@@ -83,9 +81,7 @@ class AttentionMechanism(AbsModule):
                 dropout_noise_shape={"*": None},
             )
         else:
-            att_weights = out_net.add_softmax_over_spatial_layer(
-                "att_weights", energy, **att_sm_opts
-            )
+            att_weights = out_net.add_softmax_over_spatial_layer("att_weights", energy, **att_sm_opts)
 
         enc_value = "base:enc_value"
         if self.select_base_enc:
@@ -99,9 +95,7 @@ class AttentionMechanism(AbsModule):
                 var2="auto",
             )
         else:
-            att0 = out_net.add_generic_att_layer(
-                "att0", weights=att_weights, base=enc_value
-            )
+            att0 = out_net.add_generic_att_layer("att0", weights=att_weights, base=enc_value)
         self.name = out_net.add_merge_dims_layer("att", att0, axes="static")
 
         return out_net.get_net()
@@ -351,9 +345,7 @@ class RNNDecoder:
             }
 
         else:  # no chunking
-            subnet_unit.add_compare_layer(
-                "end", source="output", value=self.eos_id
-            )  # sentence end token
+            subnet_unit.add_compare_layer("end", source="output", value=self.eos_id)  # sentence end token
 
         # target embedding
         subnet_unit.add_linear_layer(
@@ -479,9 +471,7 @@ class RNNDecoder:
         else:
             readout_in_src = [s_name, "prev:target_embed", "att"]
 
-        subnet_unit.add_linear_layer(
-            "readout_in", readout_in_src, n_out=self.dec_output_num_units, l2=self.l2
-        )
+        subnet_unit.add_linear_layer("readout_in", readout_in_src, n_out=self.dec_output_num_units, l2=self.l2)
 
         if self.reduceout:
             subnet_unit.add_reduceout_layer("readout", "readout_in")
@@ -500,9 +490,7 @@ class RNNDecoder:
             "output_prob",
             "readout",
             l2=self.l2,
-            target=f"layer:base:data:{target}"
-            if search_type == "end-of-chunk"
-            else target,
+            target=f"layer:base:data:{target}" if search_type == "end-of-chunk" else target,
             dropout=self.softmax_dropout,
             **out_prob_opts,
         )
@@ -610,9 +598,7 @@ class RNNDecoder:
         if self.enc_chunks_dim:
             assert self.enc_time_dim and self.enc_time_dim.dimension is not None
             rec_opts["include_eos"] = True
-            rec_opts[
-                "max_seq_len"
-            ] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
+            rec_opts["max_seq_len"] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
         if rec_layer_opts:
             rec_opts.update(rec_layer_opts)
         dec_output = self.network.add_subnet_rec_layer(
@@ -645,9 +631,7 @@ class RNNDecoder:
                 "encoder_proj",
                 dims=(
                     self.att_num_heads,
-                    FeatureDim(
-                        "val", self.enc_value_dim // self.att_num_heads.dimension
-                    ),
+                    FeatureDim("val", self.enc_value_dim // self.att_num_heads.dimension),
                 ),
             )
         else:
@@ -663,9 +647,7 @@ class RNNDecoder:
                 "encoder",
                 dims=(
                     self.att_num_heads,
-                    FeatureDim(
-                        "val", self.enc_value_dim // self.att_num_heads.dimension
-                    ),
+                    FeatureDim("val", self.enc_value_dim // self.att_num_heads.dimension),
                 ),
             )
 
@@ -746,6 +728,7 @@ class RNNDecoder:
 # noinspection PyShadowingNames
 def _check_alignment(source, self, target, **kwargs):
     import tensorflow as tf
+    from returnn.tf.util.data import Data
 
     out_wo_blank = source(0, as_data=True)
     assert isinstance(out_wo_blank, Data)
@@ -758,9 +741,7 @@ def _check_alignment(source, self, target, **kwargs):
     num_labels_w_blank = targets.get_sequence_lengths()
     deps = [
         tf.Assert(
-            tf.reduce_all(
-                tf.equal(num_labels_wo_blank + num_chunks, num_labels_w_blank)
-            ),
+            tf.reduce_all(tf.equal(num_labels_wo_blank + num_chunks, num_labels_w_blank)),
             [
                 "num labels wo blank, num chunks, with blank:",
                 num_labels_wo_blank,
