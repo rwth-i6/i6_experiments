@@ -716,7 +716,7 @@ class RNNDecoder:
         if self.enc_chunks_dim:
             self.base_model.network["_check_alignment"] = {
                 "class": "eval",
-                "from": self.decision_layer_name,
+                "from": "out_best_wo_blank",
                 "eval": _check_alignment,
                 "eval_locals": {"target": target},
                 "is_output_layer": True,
