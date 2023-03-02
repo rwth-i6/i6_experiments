@@ -730,16 +730,17 @@ class RNNDecoder:
 # noinspection PyShadowingNames
 def _check_alignment(source, self, target, **kwargs):
     import tensorflow as tf
+    from returnn.tf.util.data import Data
 
     out_wo_blank = source(0, as_data=True)
     assert isinstance(out_wo_blank, Data)
-    targets = self.network.get_layer(f"data:{target}").output
-    assert isinstance(targets, Data)
+    out_with_blank = self.network.get_layer(f"data:{target}").output
+    assert isinstance(out_with_blank, Data)
     encoder = self.network.get_layer("encoder").output
     assert isinstance(encoder, Data)
     num_chunks = encoder.get_sequence_lengths()
     num_labels_wo_blank = out_wo_blank.get_sequence_lengths()
-    num_labels_w_blank = targets.get_sequence_lengths()
+    num_labels_w_blank = out_with_blank.get_sequence_lengths()
     deps = [
         tf.Assert(
             tf.reduce_all(tf.equal(num_labels_wo_blank + num_chunks, num_labels_w_blank)),
@@ -748,7 +749,11 @@ def _check_alignment(source, self, target, **kwargs):
                 num_labels_wo_blank,
                 num_chunks,
                 num_labels_w_blank,
+                "labels wo blank, with blank:",
+                out_wo_blank.placeholder,
+                out_with_blank.placeholder,
             ],
+            summarize=100,
         ),
     ]
     self.network.register_post_control_dependencies(deps)
