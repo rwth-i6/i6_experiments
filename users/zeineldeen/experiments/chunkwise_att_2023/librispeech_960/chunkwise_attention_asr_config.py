@@ -687,6 +687,7 @@ def create_config(
             in_chunk_step = chunk_step * 6
             input_chunk_size_dim = SpatialDim("input-chunk-size", in_chunk_size)
             encoder_args["specaug"] = False  # need to do it before
+            encoder_args["fix_merge_dims"] = True  # broken otherwise
 
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
