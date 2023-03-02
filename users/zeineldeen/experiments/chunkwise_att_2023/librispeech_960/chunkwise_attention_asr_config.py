@@ -529,6 +529,7 @@ def create_config(
     min_lr=None,
     chunk_size=20,
     chunk_step=None,
+    chunk_level="encoder",  # or "input"
     eoc_idx=0,
     search_type=None,
     dump_alignments_dataset=None,  # train, dev, etc
@@ -680,24 +681,26 @@ def create_config(
         chunk_size_dim = SpatialDim("chunk-size", chunk_size)
         chunked_time_dim = SpatialDim("chunked-time")
 
-        conformer_encoder.network["encoder"] = {
-            "class": "window",
-            "from": "encoder_full_seq",
-            "window_dim": chunk_size_dim,
-            "stride": chunk_step,
-            "out_spatial_dim": chunked_time_dim,
-        }
+        if chunk_level == "encoder":
 
-        if not dump_ctc_dataset:  # to not break hashes for CTC dumping
-            if chunk_size == chunk_step:
-                conformer_encoder.network["encoder"]["window_left"] = 0
-                conformer_encoder.network["encoder"]["window_right"] = chunk_size - 1
-            else:
-                # formula works also for chunk_size == chunk_step
-                # but used separate to not break hashes because window_right is set
-                conformer_encoder.network["encoder"]["window_left"] = (
-                    (chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)
-                )
+            conformer_encoder.network["encoder"] = {
+                "class": "window",
+                "from": "encoder_full_seq",
+                "window_dim": chunk_size_dim,
+                "stride": chunk_step,
+                "out_spatial_dim": chunked_time_dim,
+            }
+
+            if not dump_ctc_dataset:  # to not break hashes for CTC dumping
+                if chunk_size == chunk_step:
+                    conformer_encoder.network["encoder"]["window_left"] = 0
+                    conformer_encoder.network["encoder"]["window_right"] = chunk_size - 1
+                else:
+                    # formula works also for chunk_size == chunk_step
+                    # but used separate to not break hashes because window_right is set
+                    conformer_encoder.network["encoder"]["window_left"] = (
+                        (chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)
+                    )
 
     else:
         chunk_size_dim = None
