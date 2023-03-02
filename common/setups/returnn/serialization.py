@@ -70,7 +70,7 @@ def get_serializable_config(config: ReturnnConfig, *, hash_full_python_code: boo
     python_prolog_ext = []
     dim_tag_def_code = dim_tag_proxy.py_code_str()
     for code in [
-        ReturnnConfigSerializer.ImportPyCodeStr,
+        _ImportPyCodeStr,
         dim_tag_def_code,
     ]:
         if not code:
@@ -214,3 +214,14 @@ class _ProxyHandler:
         self.obj_refs_by_id[id(obj)] = ref
         self.reserved_names.add(name)
         return ref
+
+
+# This is like returnn-common ReturnnConfigSerializer.ImportPyCodeStr.
+# We copy it here because in the current implementation of get_serializable_config,
+# any change in here will also change the config hash,
+# but in returnn-common, we do not guarantee that this code will not change.
+_ImportPyCodeStr = (
+    "from returnn.tf.util.data import (\n"
+    "  Dim, batch_dim, single_step_dim,"
+    " SpatialDim, FeatureDim, ImplicitDynSizeDim, ImplicitSparseDim)\n\n"
+)
