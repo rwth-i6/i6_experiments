@@ -49,7 +49,7 @@ def sis_config_main():
                 # For some reason, it needs more memory?
                 # Maybe because chunk size is actually larger than many sequences?
                 train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
-                train_args["accum_grad"] = int(train_args["accum_grad"] * 1.5)
+                train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
 
             train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
                 numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
