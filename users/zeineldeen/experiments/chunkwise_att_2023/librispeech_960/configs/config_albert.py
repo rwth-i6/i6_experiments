@@ -46,9 +46,9 @@ def sis_config_main():
             train_args["chunk_level"] = chunk_level
 
             if chunk_level == "input":
-                # For some reason, it needs more memory?
-                # Maybe because chunk size is actually larger than many sequences?
-                # Or just many small seqs in one batch? We could also put a lower limit on num seqs.
+                # It needs more memory because there are mini batches
+                # where the chunk size is larger than the sequences,
+                # thus increasing the overall memory consumption of the whole encoder.
                 train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
                 train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
 
