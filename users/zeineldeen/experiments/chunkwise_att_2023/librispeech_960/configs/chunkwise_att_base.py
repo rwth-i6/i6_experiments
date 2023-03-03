@@ -381,7 +381,7 @@ def run_search(
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
-        default_recog_epochs = [10, 20, 40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
+        default_recog_epochs = [40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
         if num_epochs % 80 != 0:
             default_recog_epochs += [num_epochs]
     else:
