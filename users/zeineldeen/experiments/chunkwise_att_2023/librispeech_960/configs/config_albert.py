@@ -45,7 +45,7 @@ def sis_config_main():
             chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
             train_args["chunk_level"] = chunk_level
 
-            if chunk_level == "input":
+            if chunk_level == "input" and chunk_size >= 50:
                 # For some reason, it needs more memory?
                 # Maybe because chunk size is actually larger than many sequences?
                 train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
