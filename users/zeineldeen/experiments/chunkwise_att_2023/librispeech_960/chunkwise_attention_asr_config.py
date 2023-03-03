@@ -711,7 +711,7 @@ def create_config(
                     # formula works also for chunk_size == chunk_step
                     # but used separate to not break hashes because window_right is set
                     conformer_encoder.network["encoder"]["window_left"] = (
-                        (chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)
+                        ((chunk_size // 2 - 1) * (chunk_size - chunk_step) // (chunk_size - 1)) if chunk_size > 1 else 0
                     )
 
         elif chunk_level == "input":
@@ -730,7 +730,9 @@ def create_config(
                 "window_dim": input_chunk_size_dim,
                 "stride": in_chunk_step,
                 "out_spatial_dim": chunked_time_dim,
-                "window_left": (in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1),
+                "window_left": ((in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1))
+                if in_chunk_size > 1
+                else 0,
             }
             conformer_encoder.network["__input_chunked"] = {
                 "class": "merge_dims",
