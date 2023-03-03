@@ -47,6 +47,7 @@ def sis_config_main():
 
             if chunk_level == "input":
                 # For some reason, it needs more memory?
+                # Maybe because chunk size is actually larger than many sequences?
                 train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
                 train_args["accum_grad"] = int(train_args["accum_grad"] * 1.5)
 
