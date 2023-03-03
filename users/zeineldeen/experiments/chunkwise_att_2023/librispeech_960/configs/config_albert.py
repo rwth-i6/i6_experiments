@@ -48,6 +48,7 @@ def sis_config_main():
             if chunk_level == "input" and chunk_size >= 50:
                 # For some reason, it needs more memory?
                 # Maybe because chunk size is actually larger than many sequences?
+                # Or just many small seqs in one batch? We could also put a lower limit on num seqs.
                 train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
                 train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
 
