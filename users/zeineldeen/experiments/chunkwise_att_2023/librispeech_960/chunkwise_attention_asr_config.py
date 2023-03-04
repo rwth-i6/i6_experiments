@@ -782,7 +782,7 @@ def create_config(
     decoder_args["enc_time_dim"] = chunk_size_dim
     decoder_args["eos_id"] = eoc_idx
     decoder_args["search_type"] = search_type
-    decoder_args["enable_check_align"] = enable_check_align
+    decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
