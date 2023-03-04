@@ -13,6 +13,7 @@ def _run_exp_baseline_v1(
     *,
     enc_stream_type: Optional[str],
     total_epochs: int,
+    with_ctc: bool = True,
 ):
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
@@ -23,6 +24,8 @@ def _run_exp_baseline_v1(
     train_args["search_type"] = None  # fixed alignment
 
     train_args["max_seq_length"] = None  # no filtering!
+
+    train_args["encoder_args"].with_ctc = with_ctc
 
     train_args["chunk_size"] = None  # no chunking in decoder
 
@@ -151,6 +154,7 @@ def _run_exp_chunked_v1(
 def sis_config_main():
     """sis config function"""
     _run_exp_baseline_v1(enc_stream_type="global", total_epochs=40)
+    _run_exp_baseline_v1(enc_stream_type="global", total_epochs=40, with_ctc=False)
     _run_exp_baseline_v1(enc_stream_type="causal", total_epochs=40)
     _run_exp_baseline_v1(enc_stream_type="causal-reset-conv", total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
