@@ -32,7 +32,7 @@ def _run_exp_baseline_v1(
             train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
             train_args.setdefault("retrain_checkpoint_opts", {}).setdefault("ignore_params_prefixes", []).extend(
                 [
-                    "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % i
+                    "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
                     for i in range(train_args["encoder_args"].num_blocks)
                 ]
             )
@@ -99,7 +99,7 @@ def _run_exp_chunked_v1(
             train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
             train_args.setdefault("retrain_checkpoint_opts", {}).setdefault("ignore_params_prefixes", []).extend(
                 [
-                    "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % i
+                    "conformer_block_%02i_conv_mod_depthwise_conv2_causal/" % (i + 1)
                     for i in range(train_args["encoder_args"].num_blocks)
                 ]
             )
