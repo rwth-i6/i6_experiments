@@ -32,8 +32,10 @@ def _run_exp_v1(
 
     train_args["encoder_args"].with_ctc = False  # No CTC
 
-    if enc_stream_type == "causal":
+    if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
         train_args["encoder_args"].use_causal_layers = True
+        if enc_stream_type == "causal-reset-conv":
+            train_args["encoder_args"].conv_alternative_name = "depthwise_conv2_causal"
 
     decay_pt = int(total_epochs * decay_pt_factor)
 
@@ -79,6 +81,7 @@ def sis_config_main():
     """sis config function"""
     _run_exp_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
+    _run_exp_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_v1(enc_stream_type="chunked", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_v1(enc_stream_type="causal", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
