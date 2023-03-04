@@ -147,6 +147,7 @@ def _run_exp_chunked_v1(
 def sis_config_main():
     """sis config function"""
     _run_exp_baseline_v1(enc_stream_type="causal", total_epochs=40)
+    _run_exp_baseline_v1(enc_stream_type="causal-reset-conv", total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
