@@ -2,6 +2,8 @@
 Conformer encoder
 """
 
+from __future__ import annotations
+from typing import Optional
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
 
@@ -60,6 +62,7 @@ class ConformerEncoder:
         proj_input=False,
         use_sqrd_relu=False,
         use_causal_layers=False,
+        conv_alternative_name: Optional[str] = None,
         fix_merge_dims=False,
     ):
         """
@@ -187,6 +190,7 @@ class ConformerEncoder:
         self.use_sqrd_relu = use_sqrd_relu
 
         self.use_causal_layers = use_causal_layers
+        self.conv_alternative_name = conv_alternative_name
         self.fix_merge_dims = fix_merge_dims
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
@@ -339,7 +343,7 @@ class ConformerEncoder:
             )
 
             depthwise_conv = self.network.add_conv_layer(
-                "{}_depthwise_conv2".format(prefix_name),
+                prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
                 depthwise_conv_input_padded,
                 n_out=self.enc_key_dim,
                 filter_size=(self.conv_kernel_size,),
@@ -357,7 +361,7 @@ class ConformerEncoder:
             )
         else:
             depthwise_conv = self.network.add_conv_layer(
-                "{}_depthwise_conv2".format(prefix_name),
+                prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
                 glu_act,
                 n_out=self.enc_key_dim,
                 filter_size=(self.conv_kernel_size,),
