@@ -877,14 +877,10 @@ def create_config(
         exp_config["import_model_train_epoch1"] = retrain_checkpoint
 
     if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
-        if "preload_from_files" not in exp_config:
-            exp_config["preload_from_files"] = {}
-        exp_config["preload_from_files"].update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
+        exp_config.setdefault("preload_from_files", {}).update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
 
     if preload_from_files:
-        if "preload_from_files" not in exp_config:
-            exp_config["preload_from_files"] = {}
-        exp_config["preload_from_files"].update(preload_from_files)
+        exp_config.setdefault("preload_from_files", {}).update(preload_from_files)
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
