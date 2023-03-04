@@ -515,6 +515,7 @@ def create_config(
     gradient_noise=0.0,
     adamw=False,
     retrain_checkpoint=None,
+    retrain_checkpoint_opts=None,
     decouple_constraints_factor=0.025,
     extra_str=None,
     preload_from_files=None,
@@ -874,7 +875,16 @@ def create_config(
     exp_config.update(hyperparams)
 
     if retrain_checkpoint is not None:
-        exp_config["import_model_train_epoch1"] = retrain_checkpoint
+        if retrain_checkpoint_opts:
+            # Use the preload_from_files mechanism, which can do the same as import_model_train_epoch1,
+            # but also allows for further options.
+            exp_config.setdefault("preload_from_files", {})["_01_retrain_checkpoint"] = {
+                "filename": retrain_checkpoint,
+                "init_for_train": True,  # like import_model_train_epoch1
+                **retrain_checkpoint_opts,  # for example ignore_missing, ignore_params, var_name_mapping, ...
+            }
+        else:
+            exp_config["import_model_train_epoch1"] = retrain_checkpoint
 
     if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
         exp_config.setdefault("preload_from_files", {}).update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
