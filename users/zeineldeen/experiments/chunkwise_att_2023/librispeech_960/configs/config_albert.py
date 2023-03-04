@@ -157,6 +157,7 @@ def sis_config_main():
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
+    _run_exp_chunked_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.5, total_epochs=40)
 
