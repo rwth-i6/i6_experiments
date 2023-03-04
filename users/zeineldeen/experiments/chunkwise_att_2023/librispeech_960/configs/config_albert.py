@@ -26,6 +26,10 @@ def _run_exp_baseline_v1(
 
     train_args["chunk_size"] = None  # no chunking in decoder
 
+    # Strange, I got OOM?
+    train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
+    train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
+
     if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
         train_args["encoder_args"].use_causal_layers = True
         if enc_stream_type == "causal-reset-conv":
