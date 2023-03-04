@@ -24,6 +24,8 @@ def _run_exp_baseline_v1(
 
     train_args["max_seq_length"] = None  # no filtering!
 
+    train_args["chunk_size"] = None  # no chunking in decoder
+
     if enc_stream_type == "causal" or enc_stream_type.startswith("causal-"):
         train_args["encoder_args"].use_causal_layers = True
         if enc_stream_type == "causal-reset-conv":

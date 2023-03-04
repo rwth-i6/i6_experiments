@@ -672,7 +672,7 @@ def create_config(
 
     encoder_args["output_layer_name"] = "encoder_full_seq"
 
-    if chunk_size > 0:
+    if chunk_size and chunk_size > 0:
         from returnn.tf.util.data import SpatialDim
 
         chunked_time_dim = SpatialDim("chunked-time")
