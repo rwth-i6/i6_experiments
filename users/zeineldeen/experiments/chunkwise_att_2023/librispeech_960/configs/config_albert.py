@@ -113,6 +113,7 @@ def _run_exp_chunked_v1(
     chunk_step_factor: float,
     total_epochs: int,
     align_model_ckpt: Optional[Checkpoint] = None,
+    extra_align_name: str = "",
 ):
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
@@ -170,7 +171,7 @@ def _run_exp_chunked_v1(
         f"_chunk-{chunk_size}_step-{chunk_step}"
         f"_enc-{enc_stream_type}-conf"
         f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
-        f"_fixed_align",
+        f"_fixed_align{extra_align_name}",
         train_args=train_args,
         num_epochs=total_epochs,
         train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
@@ -200,6 +201,7 @@ def sis_config_main():
         chunk_step_factor=0.9,
         total_epochs=40,
         align_model_ckpt=causal_align_ckpt,
+        extra_align_name="-causal",
     )
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
