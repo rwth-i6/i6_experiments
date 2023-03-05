@@ -179,4 +179,4 @@ def build_test_dataset(dataset_key, bpe_size=10000, use_raw_features=False, pree
         seq_order_control_dataset="zip_dataset"
     )
 
-    return test_dataset, test_reference_dict_file
+    return test_dataset, test_reference_dict_file, bliss_dict[dataset_key]

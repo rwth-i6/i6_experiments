@@ -95,7 +95,7 @@ def conformer_baseline():
 
   def run_single_search(
           exp_name, train_data, search_args, checkpoint, feature_extraction_net, recog_dataset, recog_ref,
-          mem_rqmt=8, time_rqmt=4, **kwargs):
+          recog_bliss, mem_rqmt=8, time_rqmt=4, **kwargs):
 
     exp_prefix = os.path.join(prefix_name, exp_name)
     returnn_search_config = create_config(
@@ -110,6 +110,7 @@ def conformer_baseline():
       checkpoint,
       recognition_dataset=recog_dataset,
       recognition_reference=recog_ref,
+      recognition_bliss_corpus=recog_bliss,
       returnn_exe=RETURNN_CPU_EXE,
       returnn_root=RETURNN_ROOT,
       mem_rqmt=mem_rqmt,
@@ -244,6 +245,7 @@ def conformer_baseline():
           feature_extraction_net=feature_net,
           recog_dataset=test_dataset_tuples[test_set][0],
           recog_ref=test_dataset_tuples[test_set][1],
+          recog_bliss=test_dataset_tuples[test_set][2],
           time_rqmt=kwargs.get('time_rqmt', time_rqmt),
         )
 
@@ -273,7 +275,11 @@ def conformer_baseline():
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
-      default_recog_epochs = [20, 40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
+      if num_epochs <= 100:
+        default_recog_epochs = [20, 40]
+      else:
+        default_recog_epochs = []
+      default_recog_epochs += [80 * i for i in range(1, int(num_epochs / 80) + 1)]
       if num_epochs % 80 != 0:
         default_recog_epochs += [num_epochs]
     else:
@@ -610,39 +616,26 @@ def conformer_baseline():
     bpe_size=BPE_10K,
   )
 
-  # TODO: without length norm -> only 0.1 worse
-  for lm_scale in [0.62, 0.64, 0.66, 0.68, 0.7, 0.72]:
-    for prior_scale in [0.5, 0.52, 0.54, 0.56]:
-      run_lm_fusion(
-        lm_type='trafo', exp_name=name, epoch='avg',
-        test_set_names=['dev-other'],
-        lm_scales=[lm_scale],
-        prior_scales=[prior_scale],
-        prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_j.out_checkpoints[29],
-        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
-        beam_size=45, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-        bpe_size=BPE_10K,
-        length_norm=False,
-      )
-
   # TODO: retrain
   for lr in [5e-4, 3e-4, 1e-4]:
     retrain_args = copy.deepcopy(oclr_args)
     retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
     retrain_args['learning_rates_list'] = [lr] * 20 + list(numpy.linspace(lr, 1e-6, 580))
     retrain_args['lr_decay'] = 0.95
-    run_exp(exp_name=name + f'_retrain1_const20_linDecay580_{lr}', train_args=retrain_args, num_epochs=600)
+    train_j, train_data = run_exp(
+      exp_name=name + f'_retrain1_const20_linDecay580_{lr}', train_args=retrain_args, num_epochs=600)
 
     if lr == 1e-4:
       mini_lstm_j = train_mini_lstm(
         exp_name=name + f'_retrain1_const20_linDecay580_{lr}',
-        checkpoint=train_job_avg_ckpt[name], args=retrain_args, num_epochs=40, w_drop=True)
+        checkpoint=train_job_avg_ckpt[name + f'_retrain1_const20_linDecay580_{lr}'],
+        args=oclr_args, num_epochs=40, w_drop=True)
 
       for beam_size in [50]:
         for lm_scale in [0.56, 0.58, 0.6]:
           for prior_scale in [0.36, 0.38, 0.4]:
             run_lm_fusion(
-              lm_type='trafo', exp_name=name, epoch='avg',
+              lm_type='trafo', exp_name=name + f'_retrain1_const20_linDecay580_{lr}', epoch='avg',
               test_set_names=['dev-other'],
               lm_scales=[lm_scale],
               prior_scales=[prior_scale],
@@ -651,6 +644,17 @@ def conformer_baseline():
               beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
               bpe_size=BPE_10K,
             )
+
+      run_lm_fusion(
+        lm_type='trafo', exp_name=name + f'_retrain1_const20_linDecay580_{lr}', epoch='avg',
+        test_set_names=['test-other'],
+        lm_scales=[0.58],
+        prior_scales=[0.4],
+        prior_type='mini_lstm', mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
+        train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=oclr_args,
+        beam_size=50, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+        bpe_size=BPE_10K,
+      )
 
   retrain_args = copy.deepcopy(oclr_args)
   retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
@@ -674,3 +678,34 @@ def conformer_baseline():
         retrain_args['learning_rates_list'] = [start_lr] * start_decay_pt + list(numpy.linspace(start_lr, end_lr, total_epochs - start_decay_pt))
         run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}', train_args=retrain_args, num_epochs=total_epochs)
 
+      # # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay40_1e-05_decayPt0.5                         2.27         5.66          2.49          5.76       40
+      # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay60_1e-05_decayPt0.75                        2.28         5.64          2.48          5.74       60
+      # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay100_0.0001_decayPt0.5                        2.28         5.63          2.47          5.68      100
+
+        # if total_epochs == 40 and start_lr == 1e-5 and decay_pt == (1 / 2):
+        #   retrain_args['speed_pert'] = False
+        #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
+        #           train_args=retrain_args, num_epochs=total_epochs)
+        #
+        # if total_epochs == 60 and start_lr == 1e-5 and decay_pt == (3 / 4):
+        #   retrain_args['speed_pert'] = False
+        #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
+        #           train_args=retrain_args, num_epochs=total_epochs)
+        #
+        # if total_epochs == 100 and start_lr == 1e-4 and decay_pt == (1 / 2):
+        #   retrain_args['speed_pert'] = False
+        #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
+        #           train_args=retrain_args, num_epochs=total_epochs)
+
+    # baseline with causal layers
+  for total_epochs in [40, 100]:
+      decay_pt = int(total_epochs * 0.5)
+      causal_args = copy.deepcopy(oclr_args)
+      causal_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
+      causal_args['learning_rates_list'] = [1e-4] * decay_pt + list(numpy.linspace(1e-4, 1e-6, total_epochs - decay_pt))
+      causal_args['encoder_args'].use_causal_layers = True
+      causal_args['speed_pert'] = False
+      run_exp(
+        exp_name=name + f'_retrain1_linDecay{total_epochs}_0.0001_{decay_pt}_causal',
+        train_args=causal_args, num_epochs=100, epoch_wise_filter=None
+      )

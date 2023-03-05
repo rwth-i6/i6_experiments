@@ -100,7 +100,7 @@ def conformer_baseline():
 
     def run_single_search(
             exp_name, train_data, search_args, checkpoint, feature_extraction_net, recog_dataset, recog_ref,
-            mem_rqmt=8, time_rqmt=4, **kwargs):
+            recog_bliss, mem_rqmt=8, time_rqmt=4, **kwargs):
 
         exp_prefix = os.path.join(prefix_name, exp_name)
         returnn_search_config = create_config(
@@ -247,6 +247,7 @@ def conformer_baseline():
                     feature_extraction_net=feature_net,
                     recog_dataset=test_dataset_tuples[test_set][0],
                     recog_ref=test_dataset_tuples[test_set][1],
+                    recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get('time_rqmt', time_rqmt),
                 )
 
@@ -540,14 +541,18 @@ def conformer_baseline():
     }
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args['encoder_args'].use_sqrd_relu = True
+
+    # baseline 435 subepochs
     train_j, train_data = run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU", train_args=oclr_args, num_epochs=435)
 
+    # BPE 1k
     run_exp('base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_1K)
     args = copy.deepcopy(oclr_args)
     args['max_seq_length'] = 109
     run_exp(
         'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe1k_maxSeqLen-109', train_args=args, num_epochs=435, bpe_size=BPE_1K)
 
+    # BPE 5k
     bpe5k_train_j, bpe5k_train_data = run_exp(
         'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_bpe5k', train_args=oclr_args, num_epochs=435, bpe_size=BPE_5K)
 
@@ -558,27 +563,10 @@ def conformer_baseline():
         train_args=args, num_epochs=435, bpe_size=BPE_5K
     )
 
-    # TODO: longer training + more regularization
-    for peak_lr in [9e-4]:
-        for drop_val in [0.1, 0.2]:
-            for num_epochs in [1035, 1635, 2035]:
-                args = copy.deepcopy(oclr_args)
-                cyc_ep = int(0.45 * num_epochs)
-                args['oclr_opts']['peak_lr'] = peak_lr
-                args['oclr_opts']['cycle_ep'] = cyc_ep
-                args['oclr_opts']['total_ep'] = num_epochs
-                args['decoder_args'].att_dropout = drop_val
-                args['decoder_args'].dropout = drop_val
-                train_j, train_data = run_exp(
-                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cyc_ep}_ep{num_epochs}_peakLR{peak_lr}-drop{drop_val}-attDrop-{drop_val}",
-                    train_args=args, num_epochs=num_epochs)
-
     # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc465_ep1035_peakLR0.0009   2.4/6.0/2.6/6.0
 
     for num_epochs in [635, 1035]:
-        for peak_lr in [8e-4, 9e-4, 1e-3]:
-            if peak_lr == 8e-4 and num_epochs == 635:
-                continue  # already trained
+        for peak_lr in [8e-4, 9e-4]:
             args = copy.deepcopy(oclr_args)
             cyc_ep = int(0.45 * num_epochs)
             args['oclr_opts']['peak_lr'] = peak_lr
@@ -588,161 +576,20 @@ def conformer_baseline():
                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cyc_ep}_ep{num_epochs}_peakLR{peak_lr}",
                 train_args=args, num_epochs=num_epochs)
 
-            if peak_lr == 9e-4 and num_epochs == 1035:
-                name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cyc_ep}_ep{num_epochs}_peakLR{peak_lr}"
-                mini_lstm_j = train_mini_lstm(
-                    exp_name=name,
-                    checkpoint=train_job_avg_ckpt[name],
-                    args=args, num_epochs=80, w_drop=True
-                )
-
                 # Without LM:
                 # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc465_ep1035_peakLR0.0009   2.4/6.0/2.6/6.0
 
-                # for lm_type in ['lstm', 'trafo']:
-                #     for beam_size in [32, 40, 45, 50]:
-                #         run_lm_fusion(
-                #             lm_type=lm_type, exp_name=name, epoch='avg',
-                #             test_set_names=['dev-clean', 'dev-other'],
-                #             lm_scales=[0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52],
-                #             train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                #             beam_size=beam_size, bpe_size=BPE_10K,
-                #         )
-                #         # with ILM
-                #         run_lm_fusion(
-                #             lm_type=lm_type, exp_name=name, epoch='avg',
-                #             test_set_names=['dev-clean'],
-                #             lm_scales=[0.38, 0.4, 0.42, 0.44, 0.46, 0.48],
-                #             prior_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42],
-                #             prior_type='mini_lstm', mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
-                #             prior_type_name='mini_lstm_best',
-                #             train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                #             beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-                #             bpe_size=BPE_10K,
-                #         )
-                    # if lm_type == 'trafo':
-                    #     for coverage_scale in [0.2, 0.3, 0.4]:
-                    #         for coverage_thre in [0.2]:
-                    #             run_lm_fusion(
-                    #                 lm_type=lm_type, exp_name=name, epoch='avg',
-                    #                 test_set_names=['dev-other'],
-                    #                 lm_scales=[0.5, 0.52, 0.54],
-                    #                 prior_scales=[0.34, 0.36, 0.38],
-                    #                 prior_type='mini_lstm', mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
-                    #                 prior_type_name='mini_lstm_best',
-                    #                 train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                    #                 beam_size=45, batch_size=1000 * 160, time_rqmt=2,
-                    #                 coverage_scale=coverage_scale, coverage_threshold=coverage_thre,
-                    #             )
-
-                # lstm dev-clean 0.3 beam 40 -> 2.09
-                # trafo dev-clean 0.29 beam 45 -> 2.01
-
-                # test
-                #('trafo', 0.36, 'test-other'), ('trafo', 0.32, 'test-clean'),
-                # ('lstm', 0.32, 'test-other'), ('lstm', 0.29, 'test-clean')
-                # for lm_type, lm_scale, prior_scale, beam_size in [
-                #     ('trafo', 0.52, 0.36, 45), ('lstm', 0.58, 0.4, 45)
-                # ]:
-                #     run_lm_fusion(
-                #         lm_type=lm_type, exp_name=name, epoch='avg',
-                #         test_set_names=['test-other'],
-                #         lm_scales=[lm_scale],
-                #         prior_scales=[prior_scale],
-                #         prior_type='mini_lstm', prior_type_name='mini_lstm_best',
-                #         mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
-                #         train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                #         beam_size=beam_size, time_rqmt=4,
-                #         bpe_size=BPE_10K,
-                #     )
-
-                # TODO: retrain
-                retrain_args = copy.deepcopy(args)
-                retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[name]
-                retrain_args['lr_decay'] = 0.95
-
-                # linear decay from 5e-4
-                for lr in [9e-4, 5e-4]:
-                    retrain_v1 = copy.deepcopy(retrain_args)
-                    retrain_v1['learning_rates_list'] = list(numpy.linspace(lr, 1e-6, 600))
-                    train_j, train_data = run_exp(exp_name=name + f'_retrain1_linDecay400_{lr}', train_args=retrain_v1, num_epochs=600)
-
-                    # if lr == 5e-4:
-                    #     _name = name + f'_retrain1_linDecay400_{lr}'
-                    #     # TODO: train less
-                    #     # TODO: start with smaller LR
-                    #     mini_lstm_j = train_mini_lstm(
-                    #         exp_name=_name,
-                    #         checkpoint=train_job_avg_ckpt[_name],
-                    #         args=args, num_epochs=80, w_drop=True
-                    #     )
-                    #
-                    #     ffn_ilm = train_mini_lstm(
-                    #         exp_name=_name,
-                    #         name='ffn_ilm',
-                    #         checkpoint=train_job_avg_ckpt[_name],
-                    #         args=args, num_epochs=40, w_drop=True,
-                    #         use_dec_state=True, use_ffn=True, ffn_opts={
-                    #             'num_ffn_layers': 2, 'ffn_dims': [512, 512], 'activations': ['relu', 'relu']
-                    #         }
-                    #     )
-                    #
-                    #     for lm_type in ['lstm', 'trafo']:
-                    #         for beam_size in [32, 40, 45, 50, 55, 60, 65, 70, 75]:
-                    #             if beam_size < 60:
-                    #                 run_lm_fusion(
-                    #                     lm_type=lm_type, exp_name=_name, epoch='avg',
-                    #                     test_set_names=['dev-clean', 'dev-other'],
-                    #                     lm_scales=[0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48,
-                    #                                0.5, 0.52],
-                    #                     train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                    #                     beam_size=beam_size,
-                    #                     bpe_size=BPE_10K,
-                    #                 )
-                    #             # with ILM
-                    #             run_lm_fusion(
-                    #                 lm_type=lm_type, exp_name=_name, epoch='avg',
-                    #                 test_set_names=['dev-other'],
-                    #                 lm_scales=[0.46, 0.48, 0.5, 0.52, 0.54],
-                    #                 prior_scales=[0.3, 0.32, 0.34, 0.36, 0.38, 0.4],
-                    #                 prior_type='mini_lstm',
-                    #                 mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
-                    #                 prior_type_name='mini_lstm_best',
-                    #                 train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                    #                 beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-                    #                 bpe_size=BPE_10K,
-                    #             )
-                    #
-                    #     for lm_type, lm_scale, prior_scale, beam_size in [
-                    #         ('trafo', 0.53, 0.38, 45), ('trafo', 0.5, 0.36, 50), ('trafo', 0.48, 0.34, 60)
-                    #     ]:
-                    #         run_lm_fusion(
-                    #             lm_type=lm_type, exp_name=_name, epoch='avg',
-                    #             test_set_names=['test-other'],
-                    #             lm_scales=[lm_scale],
-                    #             prior_scales=[prior_scale],
-                    #             prior_type='mini_lstm',
-                    #             mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key='dev_score'),
-                    #             prior_type_name='mini_lstm_best',
-                    #             train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args,
-                    #             beam_size=beam_size, batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-                    #             bpe_size=BPE_10K,
-                    #         )
-
     # ------------------------------------------------------- #
 
-    args = copy.deepcopy(oclr_args)
-    args['oclr_opts']['cycle_ep'] = 915
-    args['oclr_opts']['total_ep'] = 2035
-    run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035", train_args=args, num_epochs=2035)
-
-    for peak_lr in [9e-4, 1e-3]:
+    # best basleine with lr 9e-4. used in config.baseline_960_v2
+    for peak_lr in [9e-4]:
         args = copy.deepcopy(oclr_args)
         args['oclr_opts']['cycle_ep'] = 915
         args['oclr_opts']['total_ep'] = 2035
         args['oclr_opts']['peak_lr'] = peak_lr
         run_exp(f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak{peak_lr}", train_args=args, num_epochs=2035)
 
+    # baseline with 635 epochs
     args = copy.deepcopy(oclr_args)
     args['oclr_opts']['cycle_ep'] = 285
     args['oclr_opts']['total_ep'] = 635
@@ -756,136 +603,4 @@ def conformer_baseline():
         "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1",
         train_args=retrain_args, num_epochs=435, epoch_wise_filter=None)
 
-    # for lm_type in ['lstm', 'trafo']:
-    #     run_lm_fusion(
-    #         lm_type=lm_type, exp_name="base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1", epoch='avg',
-    #         test_set_names=['dev-clean', 'dev-other'],
-    #         lm_scales=[0.0, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46],
-    #         train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args, beam_size=32,
-    #     )
-    #     mini_lstm_j = train_mini_lstm(
-    #         exp_name='base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1',
-    #         checkpoint=train_job_avg_ckpt['base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1'],
-    #         args=args, num_epochs=40, w_drop=True)
-    #     mini_lstm_best_ckpt = get_best_checkpoint(mini_lstm_j, key='dev_score')
-    #     # lstm other: 0.56, 0.38
-    #     # lstm clean: 0.48, 0.38 | 0.48, 0.42 | 0.48, 0.4 | 0.5, 0.4
-    #     # trafo other: 0.52, 0.44 | 0.52, 0.4 | 0.54, 0.42 | 0.54, 0.44 | 0.5, 0.42 | 0.5, 0.4
-    #     # trafo clean: 0.48, 0.44
-    #
-    #     # beam size 40 seems the best.
-    #     for beam_size in [40, 42, 44, 46, 48]:
-    #         run_lm_fusion(
-    #             lm_type='trafo', exp_name="base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1", epoch='avg',
-    #             test_set_names=['dev-clean', 'dev-other'],
-    #             lm_scales=[0.54, 0.56, 0.58],
-    #             prior_scales=[0.42, 0.44, 0.46],
-    #             prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_best_ckpt,
-    #             train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args, beam_size=beam_size,
-    #         )
-    #
-    #     run_lm_fusion(
-    #         lm_type='trafo', exp_name="base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1", epoch='avg',
-    #         test_set_names=['test-other'],
-    #         lm_scales=[0.56],
-    #         prior_scales=[0.44],
-    #         prior_type='mini_lstm', mini_lstm_ckpt=mini_lstm_best_ckpt,
-    #         train_job=train_j, train_data=train_data, feature_net=log10_net_10ms, args=args, beam_size=40,
-    #     )
-
-    # TODO: more retraining
-    # for lr in [8e-4, 5e-4, 3e-4]:
-    #     for lr_decay in [0.9, 0.95]:
-    #         for min_lr in [None, 1e-6, 1e-5]:
-    #             for const in [5]:
-    #                 retrain_args = copy.deepcopy(args)
-    #                 retrain_args['lr_decay'] = lr_decay
-    #                 retrain_args['min_lr'] = min_lr
-    #                 retrain_args['lr'] = lr
-    #                 if const:
-    #                     retrain_args['learning_rates_list'] = [lr] * (const * 20)
-    #                 retrain_args["retrain_checkpoint"] = train_job_avg_ckpt['base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635']
-    #                 name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1_lr{lr}_decay{lr_decay}_const{const}"
-    #                 if min_lr:
-    #                     name += f'_minLR{min_lr}'
-    #                 run_exp(name, train_args=retrain_args, num_epochs=400, epoch_wise_filter=None)
-
-
     # ------------------------------------------------------- #
-
-    # TODO: Uncomment!
-
-    # args = copy.deepcopy(oclr_args)
-    # args['decoder_args'].dropout = 0.1
-    # args['decoder_args'].att_dropout = 0.1
-    # run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1", train_args=args, num_epochs=435)
-    #
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt['base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1']
-    # run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1_retrain1",
-    #     train_args=retrain_args, num_epochs=435, epoch_wise_filter=None)
-    #
-    # args = copy.deepcopy(oclr_args)
-    # args['decoder_args'].dropout = 0.1
-    # args['decoder_args'].att_dropout = 0.1
-    # args['decoder_args'].att_num_heads = 8
-    # run_exp("base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1_AttH-8", train_args=args, num_epochs=435)
-    #
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt['base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1_AttH-8']
-    # run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_drop-0.1_attDrop-0.1_AttH-8_retrain1",
-    #     train_args=retrain_args, num_epochs=435, epoch_wise_filter=None)
-    #
-    # args = copy.deepcopy(oclr_args)
-    # args['oclr_opts']['cycle_ep'] = 285
-    # args['oclr_opts']['total_ep'] = 635
-    # args['encoder_args'].use_sqrd_relu = True
-    # args['decoder_args'].att_dropout = 0.1
-    # args['decoder_args'].dropout = 0.1
-    # run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_OCLR_cyc285_635_drop-0.1_attDrop-0.1", train_args=args, num_epochs=635)
-    #
-    # # TODO: retrain base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009
-    # for lr in [8e-4, 5e-4]:
-    #     retrain_args = copy.deepcopy(oclr_args)
-    #     retrain_args['lr'] = lr
-    #     retrain_args['lr_decay'] = 0.95
-    #     retrain_args['retrain_checkpoint'] = train_job_avg_ckpt['base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009']
-    #     run_exp(
-    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009_retrain1_lr{lr}_decay0.95",
-    #         train_args=retrain_args, num_epochs=400)
-    #
-    # retrain_args = copy.deepcopy(oclr_args)
-    # retrain_args['learning_rates_list'] = [8e-4] * 100 + list(numpy.linspace(8e-4, 1e-6, 300))
-    # retrain_args['lr_decay'] = 0.95
-    # retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[
-    #     'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009']
-    # run_exp(
-    #     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009_retrain1_const100_linDecay300-1e-6_decay0.95",
-    #     train_args=retrain_args, num_epochs=400)
-    #
-    # for lr in [8e-4, 5e-4]:
-    #     retrain_args = copy.deepcopy(oclr_args)
-    #     retrain_args['learning_rates_list'] = list(numpy.linspace(lr, 1e-6, 400))
-    #     retrain_args['lr_decay'] = 0.95
-    #     retrain_args['retrain_checkpoint'] = train_job_avg_ckpt[
-    #         'base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009']
-    #     run_exp(
-    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peakLR0.0009_retrain1_lr{lr}_linDecay400-1e-6_decay0.95",
-    #         train_args=retrain_args, num_epochs=400)
-    #
-    #
-    # oclr_args = copy.deepcopy(conformer_dec_exp_args)
-    # oclr_args["oclr_opts"] = {
-    #     "peak_lr": 8e-4,
-    #     "final_lr": 1e-6,
-    #     "cycle_ep": 195,
-    #     "total_ep": 435,  # 20 epochs
-    #     "n_step": 1700,
-    # }
-    # args = copy.deepcopy(oclr_args)
-    # args['encoder_args'].input_layer = 'conv-6'
-    # args['encoder_args'].use_sqrd_relu = True
-    # args['decoder_args'].use_sqrd_relu = True
-    #run_exp('base_conf_12l_conf_6l_OCLR_sqrdReLU_cyc195_ep435', train_args=args, num_epochs=435)

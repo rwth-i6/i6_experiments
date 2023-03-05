@@ -582,3 +582,5 @@ def conformer_baseline():
         args['oclr_opts']['peak_lr'] = peak_lr
         name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{peak_lr}_bs{bs}_bpe500_reps{reps}_accum{accum}_curr"
         run_exp(name, train_args=args, num_epochs=300, bpe_size=BPE_500, epoch_wise_filter=[(1, 3, 200), (4, 6, 300)])
+
+
