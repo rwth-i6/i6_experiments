@@ -122,6 +122,7 @@ def _run_exp_chunked_v1(
         chunk_sizes=[chunk_size],
         chunk_step_factors=[chunk_step_factor],
         model_ckpt=align_model_ckpt,
+        ctc_dump_exp_name=f"dump_ctc{extra_align_name}" if extra_align_name else None,
     )
 
     # train with ctc chunk-sync alignment
