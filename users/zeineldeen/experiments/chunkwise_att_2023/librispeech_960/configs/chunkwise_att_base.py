@@ -548,8 +548,15 @@ def run_forward(
             feature_extraction_net=feature_extraction_net,
         )
 
+    if isinstance(model_ckpt, str):
+        model_ckpt_index_path = tk.Path(model_ckpt + ".index")
+        model_ckpt = Checkpoint(index_path=model_ckpt_index_path)
+    elif isinstance(model_ckpt, Checkpoint):
+        pass
+    else:
+        raise TypeError(f"model_ckpt must be str or Checkpoint, got {type(model_ckpt)}")
     forward_j = ReturnnForwardJob(
-        model_checkpoint=Checkpoint(index_path=tk.Path(model_ckpt + ".index")),
+        model_checkpoint=model_ckpt,
         hdf_outputs=hdf_layers,
         returnn_config=returnn_config,
         returnn_python_exe=RETURNN_CPU_EXE,
@@ -874,6 +881,7 @@ def get_ctc_rna_based_chunk_alignments(
     ignore_eoc_in_input: bool = False,
     chunk_sizes: Optional[List[int]] = None,
     chunk_step_factors: Optional[List[Union[int, float]]] = None,
+    model_ckpt: Optional[Union[str, Checkpoint]] = None,
 ):
     """
     Get CTC/RNA based chunk alignments for train/dev datasets.
@@ -883,6 +891,9 @@ def get_ctc_rna_based_chunk_alignments(
         "train": {},
         "dev": {},
     }
+
+    if model_ckpt is None:
+        model_ckpt = global_att_best_ckpt
 
     if fixed_ctc_rna_align_without_eos:
         assert not ignore_eoc_in_input  # should not be needed then
@@ -902,7 +913,7 @@ def get_ctc_rna_based_chunk_alignments(
             prefix_name=prefix_name,
             exp_name=ctc_dump_exp_name,
             train_args=args,
-            model_ckpt=global_att_best_ckpt,
+            model_ckpt=model_ckpt,
             hdf_layers=[f"alignments-{dataset}.hdf"],
             seq_postfix=None if fixed_ctc_rna_align_without_eos else 0,
         )
@@ -924,7 +935,7 @@ def get_ctc_rna_based_chunk_alignments(
                     prefix_name=prefix_name,
                     exp_name=ctc_chunk_sync_align_exp_name,
                     train_args=args,
-                    model_ckpt=global_att_best_ckpt,
+                    model_ckpt=model_ckpt,
                     hdf_layers=[f"alignments-{dataset}.hdf"],
                     override_returnn_config=get_ctc_chunksyn_align_config(
                         dataset,

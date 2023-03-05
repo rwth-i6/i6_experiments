@@ -7,6 +7,7 @@ from typing import Optional
 import numpy
 import copy
 from .chunkwise_att_base import get_ctc_rna_based_chunk_alignments, prefix_name, default_args, run_exp
+from i6_core.returnn.training import Checkpoint
 
 
 def _run_exp_baseline_v1(
@@ -17,8 +18,40 @@ def _run_exp_baseline_v1(
 ):
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
+    train_args = _get_baseline_train_args(
+        start_lr=start_lr,
+        decay_pt_factor=decay_pt_factor,
+        enc_stream_type=enc_stream_type,
+        total_epochs=total_epochs,
+        with_ctc=with_ctc,
+    )
 
-    # train with ctc chunk-sync alignment
+    train_job, _ = run_exp(
+        prefix_name=prefix_name,
+        exp_name=f"baseline"
+        f"_enc-{enc_stream_type}-conf"
+        f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
+        f"_ctx{with_ctc}",
+        train_args=train_args,
+        num_epochs=total_epochs,
+        epoch_wise_filter=None,
+        time_rqmt=72,
+        selected_datasets=["dev-other"],
+        key="dev_score",
+        use_sclite=True,
+    )
+
+    return train_job.out_checkpoints[max(train_job.out_checkpoints.keys())]
+
+
+def _get_baseline_train_args(
+    *,
+    start_lr: float,
+    decay_pt_factor: float,
+    enc_stream_type: Optional[str],
+    total_epochs: int,
+    with_ctc: bool = True,
+):
     train_args = copy.deepcopy(default_args)
     train_args["speed_pert"] = False  # no speed pert
     train_args["search_type"] = None  # fixed alignment
@@ -48,32 +81,29 @@ def _run_exp_baseline_v1(
 
     if enc_stream_type == "chunked":
         train_args["chunk_level"] = "input-encoder-only"  # TODO...
-
-        # It needs more memory because there are mini batches
-        # where the chunk size is larger than the sequences,
-        # thus increasing the overall memory consumption of the whole encoder.
-        train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
-        train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
         raise NotImplementedError  # TODO
 
     train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
         numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
     )
 
-    run_exp(
-        prefix_name=prefix_name,
-        exp_name=f"baseline"
-        f"_enc-{enc_stream_type}-conf"
-        f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
-        f"_ctx{with_ctc}",
-        train_args=train_args,
-        num_epochs=total_epochs,
-        epoch_wise_filter=None,
-        time_rqmt=72,
-        selected_datasets=["dev-other"],
-        key="dev_score",
-        use_sclite=True,
+    return train_args
+
+
+def _get_baseline_train_args_for_forward(
+    *,
+    enc_stream_type: Optional[str],
+):
+    args = _get_baseline_train_args(
+        enc_stream_type=enc_stream_type,
+        with_ctc=True,
+        # Those are all not really relevant.
+        start_lr=1.0,
+        decay_pt_factor=0.0,
+        total_epochs=1,
     )
+    args.pop("learning_rates_list")
+    return args
 
 
 def _run_exp_chunked_v1(
@@ -82,6 +112,7 @@ def _run_exp_chunked_v1(
     chunk_size: int,
     chunk_step_factor: float,
     total_epochs: int,
+    align_model_ckpt: Optional[Checkpoint] = None,
 ):
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
@@ -89,6 +120,7 @@ def _run_exp_chunked_v1(
     ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
         chunk_sizes=[chunk_size],
         chunk_step_factors=[chunk_step_factor],
+        model_ckpt=align_model_ckpt,
     )
 
     # train with ctc chunk-sync alignment
@@ -153,13 +185,22 @@ def _run_exp_chunked_v1(
 
 def sis_config_main():
     """sis config function"""
+
     _run_exp_baseline_v1(enc_stream_type="global", total_epochs=40)
     _run_exp_baseline_v1(enc_stream_type="global", total_epochs=40, with_ctc=False)
     _run_exp_baseline_v1(enc_stream_type="causal", total_epochs=40)
-    _run_exp_baseline_v1(enc_stream_type="causal-reset-conv", total_epochs=40)
+    causal_align_ckpt = _run_exp_baseline_v1(enc_stream_type="causal-reset-conv", total_epochs=40)
+
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
+    _run_exp_chunked_v1(
+        enc_stream_type="causal-reset-conv",
+        chunk_size=20,
+        chunk_step_factor=0.9,
+        total_epochs=40,
+        align_model_ckpt=causal_align_ckpt,
+    )
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
