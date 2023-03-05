@@ -902,6 +902,9 @@ def get_ctc_rna_based_chunk_alignments(
         ctc_dump_exp_name = "dump_ctc_alignment_wo_speedPert"
         if fixed_ctc_rna_align_without_eos:
             ctc_dump_exp_name += "_wo_eos"
+        have_custom_exp_name = False
+    else:
+        have_custom_exp_name = True
 
     for dataset in ["train", "dev"]:
         args = copy.deepcopy(base_model_train_args or default_args)
@@ -927,9 +930,12 @@ def get_ctc_rna_based_chunk_alignments(
             for chunk_step_factor in chunk_step_factors:
                 chunk_step = max(1, int(chunk_size * chunk_step_factor))
 
-                ctc_chunk_sync_align_exp_name = f"ctc_chunk_sync_align_wo_speedPert_{chunk_size}-{chunk_step}"
-                if fixed_ctc_rna_align_without_eos:
-                    ctc_chunk_sync_align_exp_name += "_wo_eos"
+                if have_custom_exp_name:
+                    ctc_chunk_sync_align_exp_name = f"{ctc_dump_exp_name}_chunk{chunk_size}-{chunk_step}"
+                else:
+                    ctc_chunk_sync_align_exp_name = f"ctc_chunk_sync_align_wo_speedPert_{chunk_size}-{chunk_step}"
+                    if fixed_ctc_rna_align_without_eos:
+                        ctc_chunk_sync_align_exp_name += "_wo_eos"
 
                 ctc_chunk_sync_align = run_forward(
                     prefix_name=prefix_name,
