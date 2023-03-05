@@ -37,7 +37,7 @@ def _run_exp_baseline_v1(
         epoch_wise_filter=None,
         time_rqmt=72,
         selected_datasets=["dev-other"],
-        key="dev_score",
+        key="dev_score_output/output_prob" if with_ctc else "dev_score",
         use_sclite=True,
     )
 
