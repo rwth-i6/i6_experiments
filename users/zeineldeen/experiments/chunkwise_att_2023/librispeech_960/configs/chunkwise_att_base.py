@@ -868,11 +868,16 @@ def get_ctc_chunksyn_align_config(
 
 def get_ctc_rna_based_chunk_alignments(
     *,
+    base_model_train_args: Optional[dict] = None,
+    ctc_dump_exp_name: Optional[str] = None,
     fixed_ctc_rna_align_without_eos: bool = True,
     ignore_eoc_in_input: bool = False,
     chunk_sizes: Optional[List[int]] = None,
     chunk_step_factors: Optional[List[Union[int, float]]] = None,
 ):
+    """
+    Get CTC/RNA based chunk alignments for train/dev datasets.
+    """
     # save time-sync -> chunk-sync converted alignments.
     ctc_align_wo_speed_pert = {
         "train": {},
@@ -882,12 +887,13 @@ def get_ctc_rna_based_chunk_alignments(
     if fixed_ctc_rna_align_without_eos:
         assert not ignore_eoc_in_input  # should not be needed then
 
-    ctc_dump_exp_name = "dump_ctc_alignment_wo_speedPert"
-    if fixed_ctc_rna_align_without_eos:
-        ctc_dump_exp_name += "_wo_eos"
+    if not ctc_dump_exp_name:
+        ctc_dump_exp_name = "dump_ctc_alignment_wo_speedPert"
+        if fixed_ctc_rna_align_without_eos:
+            ctc_dump_exp_name += "_wo_eos"
 
     for dataset in ["train", "dev"]:
-        args = copy.deepcopy(default_args)
+        args = copy.deepcopy(base_model_train_args or default_args)
         args["dump_ctc_dataset"] = dataset
         args["batch_size"] *= 2
 
