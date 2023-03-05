@@ -113,6 +113,7 @@ def _run_exp_chunked_v1(
     chunk_step_factor: float,
     total_epochs: int,
     align_model_ckpt: Optional[Checkpoint] = None,
+    align_model_args: Optional[dict] = None,
     extra_align_name: str = "",
 ):
     start_lr = 1e-4
@@ -121,6 +122,7 @@ def _run_exp_chunked_v1(
     ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(
         chunk_sizes=[chunk_size],
         chunk_step_factors=[chunk_step_factor],
+        base_model_train_args=align_model_args,
         model_ckpt=align_model_ckpt,
         ctc_dump_exp_name=f"dump_ctc{extra_align_name}" if extra_align_name else None,
     )
@@ -202,6 +204,7 @@ def sis_config_main():
         chunk_step_factor=0.9,
         total_epochs=40,
         align_model_ckpt=causal_align_ckpt,
+        align_model_args=_get_baseline_train_args_for_forward(enc_stream_type="causal-reset-conv"),
         extra_align_name="-causal",
     )
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
