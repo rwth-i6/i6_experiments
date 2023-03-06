@@ -352,6 +352,7 @@ def run_search(
     search_args,
     recog_epochs,
     bpe_size,
+    run_all_for_best_last_avg=False,
     **kwargs,
 ):
     exp_prefix = os.path.join(prefix_name, exp_name)
@@ -391,6 +392,8 @@ def run_search(
         bpe_size=bpe_size, selected_datasets=kwargs.get("selected_datasets", None)
     )
 
+    all_test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
+
     for ep in default_recog_epochs:
         search(
             exp_prefix + f"/recogs/ep-{ep}",
@@ -406,7 +409,7 @@ def run_search(
         exp_prefix + "/default_last",
         returnn_search_config,
         train_job.out_checkpoints[num_epochs],
-        test_dataset_tuples,
+        all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
@@ -416,7 +419,7 @@ def run_search(
         exp_prefix + "/default_best",
         returnn_search_config,
         best_checkpoint,
-        test_dataset_tuples,
+        all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
@@ -426,7 +429,7 @@ def run_search(
         exp_prefix + f"/average_{num_avg}",
         returnn_search_config,
         averaged_checkpoint,
-        test_dataset_tuples,
+        all_test_dataset_tuples if run_all_for_best_last_avg else test_dataset_tuples,
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
@@ -959,7 +962,15 @@ def get_ctc_rna_based_chunk_alignments(
     return ctc_align_wo_speed_pert
 
 
-def run_chunkwise_train(ctc_chunksync_align, total_epochs=None, chunk_sizes=None, chunk_step_factors=None, suffix=""):
+def run_chunkwise_train(
+    ctc_chunksync_align,
+    total_epochs=None,
+    chunk_sizes=None,
+    chunk_step_factors=None,
+    suffix="",
+    enable_check_align=False,
+    **kwargs,
+):
     # train with ctc chunk-sync alignment
 
     if total_epochs is None:
@@ -981,7 +992,7 @@ def run_chunkwise_train(ctc_chunksync_align, total_epochs=None, chunk_sizes=None
                         train_args["max_seq_length"] = None  # no filtering!
 
                         train_args["encoder_args"].with_ctc = False  # No CTC
-                        train_args["enable_check_align"] = False  # to not break hashes
+                        train_args["enable_check_align"] = enable_check_align  # to not break hashes
 
                         decay_pt = int(total_epochs * decay_pt_factor)
 
@@ -998,19 +1009,35 @@ def run_chunkwise_train(ctc_chunksync_align, total_epochs=None, chunk_sizes=None
                         if suffix:
                             exp_name += suffix
 
-                        run_exp(
-                            prefix_name=prefix_name,
-                            exp_name=exp_name,
-                            train_args=train_args,
-                            num_epochs=total_epochs,
-                            train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
-                            cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
-                            epoch_wise_filter=None,
-                            time_rqmt=72,
-                            selected_datasets=["dev-other"],
-                            key="dev_score",
-                            use_sclite=True,
-                        )
+                        if ctc_chunksync_align:
+                            run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epochs,
+                                train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
+                                cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
+                                epoch_wise_filter=None,
+                                time_rqmt=72,
+                                selected_datasets=["dev-other"],
+                                key="dev_score",
+                                use_sclite=True,
+                                **kwargs,
+                            )
+                        else:
+                            train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
+                            run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epochs,
+                                epoch_wise_filter=None,
+                                time_rqmt=72,
+                                selected_datasets=["dev-other"],
+                                key="dev_score",
+                                use_sclite=True,
+                                **kwargs,
+                            )
 
 
 def baseline():
@@ -1020,10 +1047,38 @@ def baseline():
         chunk_step_factors=[1, 1 / 2, 3 / 4],  # do not run for 0.9 for that but with fixed alignment
     )
 
-    run_chunkwise_train(ctc_align_wo_speed_pert, chunk_step_factors=[1, 1 / 2, 3 / 4])
-
     # imported from `/work/asr4/zeyer/setups-data/combined/2021-05-31/work`
     fixed_ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
 
+    run_chunkwise_train(ctc_align_wo_speed_pert, chunk_step_factors=[1, 1 / 2, 3 / 4])
+
     # TODO: run exps with fixed align
-    run_chunkwise_train(fixed_ctc_align_wo_speed_pert, suffix="_wo_eos")
+    run_chunkwise_train(fixed_ctc_align_wo_speed_pert, suffix="_wo_eos", run_all_for_best_last_avg=True)
+
+    # for more chunks
+    # run_chunkwise_train(
+    #     fixed_ctc_align_wo_speed_pert,
+    #     suffix="_wo_eos",
+    #     run_all_for_best_last_avg=True,
+    #     chunk_sizes=[15, 25, 35, 45],
+    # )
+
+    # TODO: longer training for chunk sizes 1 and 2
+    run_chunkwise_train(
+        fixed_ctc_align_wo_speed_pert,
+        chunk_step_factors=[1, 1 / 2],
+        chunk_sizes=[1, 2],
+        total_epochs=[150, 200, 250],
+        run_all_for_best_last_avg=True,
+    )
+
+    # TODO: alignment on-the-fly
+    run_chunkwise_train(
+        ctc_chunksync_align=None,
+        suffix="_on_the_fly",
+        run_all_for_best_last_avg=True,
+        chunk_step_factors=[1, 0.75],
+        total_epochs=[100],
+    )
+
+    # TODO: causal conformer encoder
