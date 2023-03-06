@@ -31,7 +31,7 @@ def _run_exp_baseline_v1(
         exp_name=f"baseline"
         f"_enc-{enc_stream_type}-conf"
         f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
-        f"_ctx{with_ctc}",
+        f"_ctc{with_ctc}",
         train_args=train_args,
         num_epochs=total_epochs,
         epoch_wise_filter=None,
