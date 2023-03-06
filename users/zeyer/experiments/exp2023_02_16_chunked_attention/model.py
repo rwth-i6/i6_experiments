@@ -467,7 +467,6 @@ class RNNDecoder:
                 l2=self.l2,
             )
 
-        if self.add_lstm_lm:
             readout_in_src = subnet_unit.add_combine_layer(
                 "add_s_att", [s_name, "att"], kind="add", n_out=self.lstm_lm_proj_dim
             )
