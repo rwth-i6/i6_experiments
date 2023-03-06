@@ -352,6 +352,15 @@ class RNNDecoder:
         else:  # no chunking
             subnet_unit.add_compare_layer("end", source="output", value=self.eos_id)  # sentence end token
 
+        if self.masked_computation_blank_idx is not None:
+            subnet_unit["masked_comp_mask"] = {
+                "class": "compare",
+                "from": "output",
+                "kind": "not_equal",
+                "value": self.masked_computation_blank_idx,
+                "initial_output": True,
+            }
+
         # target embedding
         target_embed_layer_dict = {
             "class": "linear",
@@ -360,12 +369,12 @@ class RNNDecoder:
             "L2": self.l2,
             "forward_weights_init": self.embed_weight_init,
         }
-        if self.masked_computation_blank_idx:
+        if self.masked_computation_blank_idx is not None:
             target_embed_layer_dict["from"] = "data"
             target_embed_layer_dict = {
                 "class": "masked_computation",
                 "unit": target_embed_layer_dict,
-                "mask": 0,  # TODO
+                "mask": "masked_comp_mask",
             }
         target_embed_layer_dict.update(
             {
@@ -373,7 +382,7 @@ class RNNDecoder:
                 "initial_output": 0,
             }
         )
-        subnet_unit.get_net()["target_embed0"] = target_embed_layer_dict
+        subnet_unit["target_embed0"] = target_embed_layer_dict
 
         subnet_unit.add_dropout_layer(
             "target_embed",
@@ -417,6 +426,7 @@ class RNNDecoder:
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
         lstm_lm_component_proj = None
         if self.add_lstm_lm:
+            assert self.masked_computation_blank_idx is None  # not implemented...
             lstm_lm_component = subnet_unit.add_rec_layer(
                 "lm_like_s",
                 "prev:target_embed",
@@ -469,6 +479,15 @@ class RNNDecoder:
                 rec_weight_dropout=self.rec_weight_dropout,
                 weights_init=self.lstm_weights_init,
             )
+        if self.masked_computation_blank_idx is not None:
+            layer_dict = subnet_unit["s"]
+            subnet_unit["s"] = {
+                "class": "masked_computation",
+                "unit": layer_dict,
+                "from": layer_dict["from"],
+                "mask": "prev:masked_comp_mask",
+            }
+            layer_dict["from"] = "data"
 
         s_name = "s"
         if self.add_lstm_lm:
