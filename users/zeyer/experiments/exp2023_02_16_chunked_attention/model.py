@@ -146,6 +146,7 @@ class RNNDecoder:
         eos_id=0,
         search_type: Optional[str] = None,
         enable_check_align=True,
+        masked_computation_blank_idx: Optional[int] = None,
     ):
         """
         :param base_model: base/encoder model instance
@@ -240,6 +241,7 @@ class RNNDecoder:
         self.output_prob = None
 
         self.enable_check_align = enable_check_align
+        self.masked_computation_blank_idx = masked_computation_blank_idx
 
     def add_decoder_subnetwork(
         self,
@@ -351,15 +353,27 @@ class RNNDecoder:
             subnet_unit.add_compare_layer("end", source="output", value=self.eos_id)  # sentence end token
 
         # target embedding
-        subnet_unit.add_linear_layer(
-            "target_embed0",
-            "output",
-            n_out=self.embed_dim,
-            initial_output=0,
-            with_bias=False,
-            l2=self.l2,
-            forward_weights_init=self.embed_weight_init,
+        target_embed_layer_dict = {
+            "class": "linear",
+            "n_out": self.embed_dim,
+            "with_bias": False,
+            "L2": self.l2,
+            "forward_weights_init": self.embed_weight_init,
+        }
+        if self.masked_computation_blank_idx:
+            target_embed_layer_dict["from"] = "data"
+            target_embed_layer_dict = {
+                "class": "masked_computation",
+                "unit": target_embed_layer_dict,
+                "mask": 0,  # TODO
+            }
+        target_embed_layer_dict.update(
+            {
+                "from": "output",
+                "initial_output": 0,
+            }
         )
+        subnet_unit.get_net()["target_embed0"] = target_embed_layer_dict
 
         subnet_unit.add_dropout_layer(
             "target_embed",
