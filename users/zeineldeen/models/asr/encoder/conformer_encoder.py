@@ -42,6 +42,8 @@ class ConformerEncoder:
         ctc_dropout=0.0,
         ctc_l2=0.0,
         ctc_opts=None,
+        ctc_self_align_delay: Optional[int] = None,
+        ctc_self_align_scale: float = 0.5,
         subsample=None,
         start_conv_init=None,
         conv_module_init=None,
@@ -157,6 +159,8 @@ class ConformerEncoder:
         self.ctc_opts = ctc_opts
         if not self.ctc_opts:
             self.ctc_opts = {}
+        self.ctc_self_align_delay = ctc_self_align_delay
+        self.ctc_self_align_scale = ctc_self_align_scale
 
         self.start_conv_init = start_conv_init
         self.conv_module_init = conv_module_init
@@ -567,8 +571,47 @@ class ConformerEncoder:
                 loss="ctc",
                 dropout=self.ctc_dropout,
                 loss_opts=default_ctc_loss_opts,
-                loss_scale=self.ctc_loss_scale,
             )
+            if self.ctc_loss_scale or self.ctc_self_align_delay:
+                self.network["ctc"]["loss_scale"] = (self.ctc_loss_scale or 1.0) * (
+                    (self.ctc_self_align_scale - 1.0) if self.ctc_self_align_delay else 1.0
+                )
+
+            if self.ctc_self_align_delay:
+                # http://arxiv.org/abs/2105.05005
+                assert self.ctc_self_align_delay > 0  # not implemented otherwise, but also not sure if meaningful
+                self.network["ctc_log_prob"] = {"class": "activation", "from": "ctc", "activation": "safe_log"}
+                # Cut off first N frames.
+                self.network[f"ctc_log_prob_slice{self.ctc_self_align_delay}"] = {
+                    "class": "slice",
+                    "from": "ctc_log_prob",
+                    "axis": "T",
+                    "slice_start": self.ctc_self_align_delay,
+                }
+                # Forced alignment using that.
+                self.network[f"ctc_forced_alignment_slice{self.ctc_self_align_delay}"] = {
+                    "class": "forced_align",
+                    "align_target": f"data:{self.target}",
+                    "topology": "ctc",
+                    "from": f"ctc_log_prob_slice{self.ctc_self_align_delay}",
+                    "input_type": "log_prob",
+                }
+                # Add blanks at the end.
+                self.network["_blank_idx"] = {"class": "length", "from": f"data:{self.target}", "axis": "sparse_dim"}
+                self.network[f"ctc_forced_alignment_shift{self.ctc_self_align_delay}"] = {
+                    "class": "postfix_in_time",
+                    "from": f"ctc_forced_alignment_slice{self.ctc_self_align_delay}",
+                    "postfix": "_blank_idx",
+                    "repeat": self.ctc_self_align_delay,
+                }
+                # Now CE loss to those targets.
+                self.network[f"ctc_ce_shift{self.ctc_self_align_delay}"] = {
+                    "class": "copy",
+                    "from": "ctc",
+                    "loss": "ce",
+                    "loss_scale": (self.ctc_loss_scale or 1.0) * self.ctc_self_align_scale,
+                    "target": f"layer:ctc_forced_alignment_shift{self.ctc_self_align_delay}",
+                }
 
         return encoder
 
