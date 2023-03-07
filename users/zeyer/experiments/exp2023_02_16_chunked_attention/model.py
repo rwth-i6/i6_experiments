@@ -4,10 +4,12 @@ Model, based on Mohammads code.
 
 
 from __future__ import annotations
-from typing import Optional, Callable
+from typing import Optional, Callable, List
+import tensorflow as tf
 
 from returnn.util.basic import NotSpecified
-from returnn.tf.util.data import Data, Dim, SpatialDim, FeatureDim
+from returnn.tf.util.data import Data, Dim, SpatialDim, FeatureDim, batch_dim, single_step_dim
+from returnn.tf.layers.basic import LayerBase
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
@@ -148,10 +150,11 @@ class RNNDecoder:
         enable_check_align=True,
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
+        prev_target_embed_direct: bool = False,
     ):
         """
         :param base_model: base/encoder model instance
-        :param str source: input to decoder subnetwork
+        :param str|None source: input to decoder subnetwork
         :param float softmax_dropout: Dropout applied to the softmax input
         :param float label_smoothing: label smoothing value applied to softmax
         :param str target: target data key name
@@ -188,6 +191,8 @@ class RNNDecoder:
             This makes only sense in training. Then in recog, you do align-sync search,
             and you should set masked_computation_blank_idx to get consistent behavior,
             i.e. that blank labels are not used.
+        :param prev_target_embed_direct: if False, uses "prev:target_embed",
+            otherwise "prev_target_embed" uses "prev:output". should be like "apply(0)" as initial_output.
         """
 
         self.base_model = base_model
@@ -255,6 +260,7 @@ class RNNDecoder:
         self.full_sum_simple_approx = full_sum_simple_approx
         if full_sum_simple_approx:
             assert enc_chunks_dim is not None, "full_sum_simple_approx requires enc_chunks_dim"
+        self.prev_target_embed_direct = prev_target_embed_direct
 
     def add_decoder_subnetwork(
         self,
@@ -374,34 +380,43 @@ class RNNDecoder:
                 "initial_output": True,
             }
 
+        prev_output = "prev:output"
+        if self.full_sum_simple_approx:
+            assert self.prev_target_embed_direct
+            assert not self.source
+            prev_output = "data:source"
+
         # target embedding
-        subnet_unit.add_linear_layer(
-            "target_embed0",
-            "output",
+        _name = subnet_unit.add_linear_layer(
+            "prev_target_embed0" if self.prev_target_embed_direct else "target_embed0",
+            prev_output if self.prev_target_embed_direct else "output",
             n_out=self.embed_dim,
             with_bias=False,
             l2=self.l2,
             forward_weights_init=self.embed_weight_init,
-            initial_output=0,
+            initial_output=self.eos_id,
         )
         if self.masked_computation_blank_idx is not None:
-            target_embed_layer_dict = subnet_unit["target_embed0"]
+            target_embed_layer_dict = subnet_unit[_name]
             target_embed_layer_dict = {
                 "class": "masked_computation",
                 "unit": target_embed_layer_dict,
-                "mask": "masked_comp_mask",
-                "initial_output": 0,
+                "mask": "prev:masked_comp_mask" if self.prev_target_embed_direct else "masked_comp_mask",
+                "initial_output": self.eos_id,
                 "from": target_embed_layer_dict["from"],
             }
             target_embed_layer_dict["unit"]["from"] = "data"
-            subnet_unit["target_embed0"] = target_embed_layer_dict
+            subnet_unit[_name] = target_embed_layer_dict
+        if self.prev_target_embed_direct:
+            subnet_unit[_name]["name_scope"] = "target_embed0"  # params compatible
 
         subnet_unit.add_dropout_layer(
-            "target_embed",
-            "target_embed0",
+            "prev_target_embed" if self.prev_target_embed_direct else "target_embed",
+            _name,
             dropout=self.embed_dropout,
             dropout_noise_shape={"*": None},
         )
+        prev_target_embed = "prev_target_embed" if self.prev_target_embed_direct else "prev:target_embed"
 
         # attention
         att = AttentionMechanism(
@@ -412,27 +427,30 @@ class RNNDecoder:
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
         )
-        if self.enc_chunks_dim and not self.full_sum_simple_approx:
-
-            def _gather_chunk(source: str) -> str:
-                name = source.replace("base:", "")
-                subnet_unit[name + "_gather"] = {
-                    "class": "gather",
-                    "from": source,
-                    "position": "chunk_idx",
-                    "axis": self.enc_chunks_dim,
-                    "clip_to_valid": True,
-                }
-                subnet_unit[name + "_set_time"] = {
-                    "class": "reinterpret_data",
-                    "from": name + "_gather",
-                    "set_axes": {"T": self.enc_time_dim},
-                }
-                return name + "_set_time"
-
-            assert self.enc_time_dim
-            att.select_base_enc = _gather_chunk
+        if self.enc_chunks_dim:
             att.enc_time_dim = self.enc_time_dim
+            if self.full_sum_simple_approx:
+                pass
+            else:
+
+                def _gather_chunk(source: str) -> str:
+                    name = source.replace("base:", "")
+                    subnet_unit[name + "_gather"] = {
+                        "class": "gather",
+                        "from": source,
+                        "position": "chunk_idx",
+                        "axis": self.enc_chunks_dim,
+                        "clip_to_valid": True,
+                    }
+                    subnet_unit[name + "_set_time"] = {
+                        "class": "reinterpret_data",
+                        "from": name + "_gather",
+                        "set_axes": {"T": self.enc_time_dim},
+                    }
+                    return name + "_set_time"
+
+                assert self.enc_time_dim
+                att.select_base_enc = _gather_chunk
         subnet_unit.update(att.create())
 
         # LM-like component same as here https://arxiv.org/pdf/2001.07263.pdf
@@ -441,7 +459,7 @@ class RNNDecoder:
             assert self.masked_computation_blank_idx is None  # not implemented...
             lstm_lm_component = subnet_unit.add_rec_layer(
                 "lm_like_s",
-                "prev:target_embed",
+                prev_target_embed,
                 n_out=self.lstm_lm_dim,
                 l2=self.l2,
                 unit="NativeLSTM2",
@@ -461,7 +479,7 @@ class RNNDecoder:
         if lstm_lm_component_proj:
             lstm_inputs += [lstm_lm_component_proj]
         else:
-            lstm_inputs += ["prev:target_embed"]
+            lstm_inputs += [prev_target_embed]
         lstm_inputs += ["prev:att"]
 
         if self.add_lstm_lm:
@@ -491,6 +509,8 @@ class RNNDecoder:
                 rec_weight_dropout=self.rec_weight_dropout,
                 weights_init=self.lstm_weights_init,
             )
+        if self.full_sum_simple_approx:
+            subnet_unit["s"]["axis"] = single_step_dim
         if self.masked_computation_blank_idx is not None:
             layer_dict = subnet_unit["s"]
             subnet_unit["s"] = {
@@ -516,7 +536,7 @@ class RNNDecoder:
                 "add_s_att", [s_name, "att"], kind="add", n_out=self.lstm_lm_proj_dim
             )
         else:
-            readout_in_src = [s_name, "prev:target_embed", "att"]
+            readout_in_src = [s_name, prev_target_embed, "att"]
 
         subnet_unit.add_linear_layer("readout_in", readout_in_src, n_out=self.dec_output_num_units, l2=self.l2)
 
@@ -526,7 +546,7 @@ class RNNDecoder:
             subnet_unit.add_copy_layer("readout", "readout_in")
 
         out_prob_opts = {}
-        if not search_type:
+        if not search_type and not self.full_sum_simple_approx:
             out_prob_opts.update(
                 dict(
                     loss="ce",
@@ -541,6 +561,28 @@ class RNNDecoder:
             dropout=self.softmax_dropout,
             **out_prob_opts,
         )
+
+        if self.full_sum_simple_approx:
+            assert self.enc_chunks_dim
+            subnet_unit["output_log_prob"] = {
+                "class": "activation",
+                "from": "output_prob",
+                "activation": "safe_log",
+            }
+            subnet_unit["full_sum_simple_approx_loss"] = {
+                "class": "eval",
+                "from": ["output_log_prob", f"base:data:{target}"],
+                # Pickling/serialization of the func ref should work when this is a global function of this module.
+                # But depending on your setup, there might anyway not be any serialization.
+                "eval": _transducer_full_sum_log_prob_eval_layer_func,
+                "eval_locals": {
+                    "blank_index": self.eos_id,
+                    "input_spatial_dim": self.enc_chunks_dim,
+                },
+                "out_type": _transducer_full_sum_log_prob_eval_layer_out,
+                "loss": "as_is",
+            }
+
         if search_type == "end-of-chunk":
             subnet_unit["_label_indices"] = {
                 "class": "range_in_axis",
@@ -642,6 +684,16 @@ class RNNDecoder:
             # search_flag is False in training, but we anyway want to search, and we don't want the seq len
             # from the ground truth labels (without EOC labels), so we must not use the target here.
             rec_opts["target"] = None
+        if self.full_sum_simple_approx:
+            assert self.prev_target_embed_direct
+            self.network["_targets_with_bos"] = {
+                "class": "prefix_in_time",
+                "from": f"data:{target}",
+                "prefix": self.eos_id,
+            }
+            rec_opts["source"] = "_targets_with_bos"
+        elif self.source:
+            rec_opts["source"] = self.source
         if self.enc_chunks_dim:
             assert self.enc_time_dim and self.enc_time_dim.dimension is not None
             rec_opts["include_eos"] = True
@@ -650,9 +702,7 @@ class RNNDecoder:
             rec_opts["max_seq_len"] = f"max_len_from('base:encoder') * {self.enc_time_dim.dimension}"
         if rec_layer_opts:
             rec_opts.update(rec_layer_opts)
-        dec_output = self.network.add_subnet_rec_layer(
-            rec_layer_name, unit=subnet_unit.get_net(), source=self.source, **rec_opts
-        )
+        dec_output = self.network.add_subnet_rec_layer(rec_layer_name, unit=subnet_unit.get_net(), **rec_opts)
 
         return dec_output
 
@@ -737,38 +787,39 @@ class RNNDecoder:
                 }
 
         # Filter blank / EOS / EOC
+        if not self.full_sum_simple_approx:
 
-        self.base_model.network["out_best_non_blank_mask"] = {
-            "class": "compare",
-            "from": "out_best",
-            "value": self.eos_id,
-            "kind": "not_equal",
-        }
-
-        self.base_model.network["out_best_wo_blank"] = {
-            "class": "masked_computation",
-            "mask": "out_best_non_blank_mask",
-            "from": "out_best",
-            "unit": {"class": "copy"},
-        }
-        self.decision_layer_name = "out_best_wo_blank"
-
-        self.base_model.network["edit_distance"] = {
-            "class": "copy",
-            "from": "out_best_wo_blank",
-            "only_on_search": True,
-            "loss": "edit_distance",
-            "target": self.target,
-        }
-
-        if self.enc_chunks_dim and self.enable_check_align:
-            self.base_model.network["_check_alignment"] = {
-                "class": "eval",
-                "from": "out_best_wo_blank",
-                "eval": _check_alignment,
-                "eval_locals": {"target": target},  # with blank
-                "is_output_layer": True,
+            self.base_model.network["out_best_non_blank_mask"] = {
+                "class": "compare",
+                "from": "out_best",
+                "value": self.eos_id,
+                "kind": "not_equal",
             }
+
+            self.base_model.network["out_best_wo_blank"] = {
+                "class": "masked_computation",
+                "mask": "out_best_non_blank_mask",
+                "from": "out_best",
+                "unit": {"class": "copy"},
+            }
+            self.decision_layer_name = "out_best_wo_blank"
+
+            self.base_model.network["edit_distance"] = {
+                "class": "copy",
+                "from": "out_best_wo_blank",
+                "only_on_search": True,
+                "loss": "edit_distance",
+                "target": self.target,
+            }
+
+            if self.enc_chunks_dim and self.enable_check_align:
+                self.base_model.network["_check_alignment"] = {
+                    "class": "eval",
+                    "from": "out_best_wo_blank",
+                    "eval": _check_alignment,
+                    "eval_locals": {"target": target},  # with blank
+                    "is_output_layer": True,
+                }
 
         return self.dec_output
 
@@ -808,3 +859,57 @@ def _check_alignment(source, self, target, **kwargs):
     self.network.register_post_control_dependencies(deps)
     with tf.control_dependencies(deps):
         return tf.identity(out_wo_blank.placeholder)
+
+
+# Taken from returnn_common, adopted.
+def _transducer_full_sum_log_prob_eval_layer_func(
+    *,
+    self: LayerBase,
+    source,
+    input_spatial_dim: Dim,
+    blank_index: int,
+) -> tf.Tensor:
+    assert isinstance(self, LayerBase)
+    log_probs = source(0, auto_convert=False, as_data=True)
+    labels = source(1, auto_convert=False, as_data=True)
+    assert isinstance(log_probs, Data) and isinstance(labels, Data)
+    assert labels.batch_ndim == 2 and labels.have_batch_axis() and labels.have_time_axis()
+    labels_spatial_dim = labels.get_time_dim_tag()
+    prev_labels_spatial_dim = 1 + labels_spatial_dim
+    batch_dims = list(self.output.dim_tags)
+    feat_dim = log_probs.feature_dim_or_sparse_dim
+    if blank_index < 0:
+        blank_index += feat_dim.dimension
+    assert 0 <= blank_index < feat_dim.dimension
+    assert labels.sparse_dim.dimension <= feat_dim.dimension
+    # Move axes into the right order (no-op if they already are).
+    log_probs = log_probs.copy_compatible_to(
+        Data("log_probs", dim_tags=batch_dims + [input_spatial_dim, prev_labels_spatial_dim, feat_dim]),
+        check_dtype=False,
+    )
+    labels = labels.copy_compatible_to(
+        Data("labels", dim_tags=batch_dims + [labels_spatial_dim], sparse_dim=labels.sparse_dim), check_dtype=False
+    )
+    input_lengths = input_spatial_dim.get_dyn_size_ext_for_batch_ctx(
+        log_probs.batch, log_probs.control_flow_ctx
+    ).copy_compatible_to(Data("input_lengths", dim_tags=batch_dims), check_dtype=False)
+    label_lengths = labels_spatial_dim.get_dyn_size_ext_for_batch_ctx(
+        log_probs.batch, log_probs.control_flow_ctx
+    ).copy_compatible_to(Data("label_lengths", dim_tags=batch_dims), check_dtype=False)
+    from returnn.extern.WarpRna import rna_loss  # noqa
+
+    return rna_loss(
+        log_probs=log_probs.placeholder,
+        labels=labels.placeholder,
+        input_lengths=input_lengths.placeholder,
+        label_lengths=label_lengths.placeholder,
+        blank_label=blank_index,
+    )
+
+
+def _transducer_full_sum_log_prob_eval_layer_out(
+    *,
+    name: str,
+    **_kwargs,
+) -> Data:
+    return Data("%s_output" % name, dim_tags=[batch_dim])

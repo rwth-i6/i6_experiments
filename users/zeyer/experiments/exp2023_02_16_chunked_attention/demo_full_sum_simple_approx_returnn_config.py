@@ -109,6 +109,8 @@ transformer_decoder = RNNDecoder(
     enc_chunks_dim=chunked_time_dim,
     enc_time_dim=chunk_size_dim,
     eos_id=eoc_idx,
+    full_sum_simple_approx=task in {"train", "eval"},
+    prev_target_embed_direct=True,
 )
 transformer_decoder.create_network()
 
