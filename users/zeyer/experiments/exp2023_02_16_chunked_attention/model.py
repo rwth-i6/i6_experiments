@@ -283,7 +283,9 @@ class RNNDecoder:
             else:
                 rec_layer_name = "output"
 
-        if self.enc_chunks_dim:  # use chunking
+        if self.full_sum_simple_approx:
+            pass
+        elif self.enc_chunks_dim:  # use chunking
             subnet_unit["new_label_pos"] = {
                 "class": "eval",
                 "from": ["output", "prev:new_label_pos"],
@@ -557,7 +559,9 @@ class RNNDecoder:
             "output_prob",
             "readout",
             l2=self.l2,
-            target=f"layer:base:data:{target}" if search_type == "end-of-chunk" else target,
+            target=f"layer:base:data:{target}"
+            if (search_type == "end-of-chunk" or self.full_sum_simple_approx)
+            else target,
             dropout=self.softmax_dropout,
             **out_prob_opts,
         )
@@ -660,23 +664,26 @@ class RNNDecoder:
                 eval=f"source(0) * (source(1) ** {self.coverage_scale})",
             )
 
-        choice_opts = dict(target=target)
-        if not self.length_normalization:
-            choice_opts["length_normalization"] = False
-        if not search_type:
-            pass
-        elif search_type == "end-of-chunk":
-            choice_opts["search"] = True
-            choice_opts["target"] = None
+        if self.full_sum_simple_approx:
+            subnet_unit.add_copy_layer("output", "data:source")
         else:
-            raise ValueError(f"Unknown search type: {search_type!r}")
-        subnet_unit.add_choice_layer(
-            "output",
-            self.output_prob,
-            beam_size=self.beam_size,
-            initial_output=0,
-            **choice_opts,
-        )
+            choice_opts = dict(target=target)
+            if not self.length_normalization:
+                choice_opts["length_normalization"] = False
+            if not search_type:
+                pass
+            elif search_type == "end-of-chunk":
+                choice_opts["search"] = True
+                choice_opts["target"] = None
+            else:
+                raise ValueError(f"Unknown search type: {search_type!r}")
+            subnet_unit.add_choice_layer(
+                "output",
+                self.output_prob,
+                beam_size=self.beam_size,
+                initial_output=0,
+                **choice_opts,
+            )
 
         # recurrent subnetwork
         rec_opts = dict(target=target)
@@ -692,6 +699,7 @@ class RNNDecoder:
                 "prefix": self.eos_id,
             }
             rec_opts["source"] = "_targets_with_bos"
+            rec_opts["target"] = None
         elif self.source:
             rec_opts["source"] = self.source
         if self.enc_chunks_dim:
