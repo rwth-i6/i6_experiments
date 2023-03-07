@@ -69,7 +69,7 @@ class ConformerEncoder:
     ):
         """
         :param str input: input layer name
-        :param str input_layer: type of input layer which does subsampling
+        :param str|None input_layer: type of input layer which does subsampling
         :param int num_blocks: number of Conformer blocks
         :param int conv_kernel_size: kernel size for conv layers in Convolution module
         :param bool|None specaug: If true, then SpecAug is appliedi wi
