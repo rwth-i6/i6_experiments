@@ -4,7 +4,7 @@ Model, based on Mohammads code.
 
 
 from __future__ import annotations
-from typing import Optional, Callable, List
+from typing import Optional, Callable
 import tensorflow as tf
 
 from returnn.util.basic import NotSpecified
