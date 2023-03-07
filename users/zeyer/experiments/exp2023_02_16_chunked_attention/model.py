@@ -147,6 +147,7 @@ class RNNDecoder:
         search_type: Optional[str] = None,
         enable_check_align=True,
         masked_computation_blank_idx: Optional[int] = None,
+        full_sum_simple_approx: bool = False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -178,6 +179,15 @@ class RNNDecoder:
         :param search_type:
             None -> use RETURNN default handling via search flag (i.e. disabled in training, enabled in search mode).
             "end-of-chunk" -> assume given targets without EOC, and search for EOC.
+        :param enable_check_align: if set, the targets are checked whether M + U = T
+        :param masked_computation_blank_idx: if set, it uses masked computation for the LSTM/prev:target,
+            and the mask is for all non-blank indices
+        :param full_sum_simple_approx: if enabled, it creates a 4D tensor [B, M, U+1, V] via a simple approximation
+            by only attending to one fixed chunk in M for the whole sequence U+1, and then it uses the RNN-T loss.
+            The decoder gets only the non-blank labels as input in this case, including BOS (U+1).
+            This makes only sense in training. Then in recog, you do align-sync search,
+            and you should set masked_computation_blank_idx to get consistent behavior,
+            i.e. that blank labels are not used.
         """
 
         self.base_model = base_model
@@ -242,6 +252,9 @@ class RNNDecoder:
 
         self.enable_check_align = enable_check_align
         self.masked_computation_blank_idx = masked_computation_blank_idx
+        self.full_sum_simple_approx = full_sum_simple_approx
+        if full_sum_simple_approx:
+            assert enc_chunks_dim is not None, "full_sum_simple_approx requires enc_chunks_dim"
 
     def add_decoder_subnetwork(
         self,
@@ -362,27 +375,26 @@ class RNNDecoder:
             }
 
         # target embedding
-        target_embed_layer_dict = {
-            "class": "linear",
-            "n_out": self.embed_dim,
-            "with_bias": False,
-            "L2": self.l2,
-            "forward_weights_init": self.embed_weight_init,
-        }
+        subnet_unit.add_linear_layer(
+            "target_embed0",
+            "output",
+            n_out=self.embed_dim,
+            with_bias=False,
+            l2=self.l2,
+            forward_weights_init=self.embed_weight_init,
+            initial_output=0,
+        )
         if self.masked_computation_blank_idx is not None:
-            target_embed_layer_dict["from"] = "data"
+            target_embed_layer_dict = subnet_unit["target_embed0"]
             target_embed_layer_dict = {
                 "class": "masked_computation",
                 "unit": target_embed_layer_dict,
                 "mask": "masked_comp_mask",
-            }
-        target_embed_layer_dict.update(
-            {
-                "from": "output",
                 "initial_output": 0,
+                "from": target_embed_layer_dict["from"],
             }
-        )
-        subnet_unit["target_embed0"] = target_embed_layer_dict
+            target_embed_layer_dict["unit"]["from"] = "data"
+            subnet_unit["target_embed0"] = target_embed_layer_dict
 
         subnet_unit.add_dropout_layer(
             "target_embed",
@@ -400,7 +412,7 @@ class RNNDecoder:
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
         )
-        if self.enc_chunks_dim:
+        if self.enc_chunks_dim and not self.full_sum_simple_approx:
 
             def _gather_chunk(source: str) -> str:
                 name = source.replace("base:", "")
