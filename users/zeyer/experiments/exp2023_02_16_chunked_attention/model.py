@@ -825,7 +825,7 @@ class RNNDecoder:
 
 
 # noinspection PyShadowingNames
-def _check_alignment(source, self, target, **kwargs):
+def _check_alignment(source, self, target, **_kwargs):
     import tensorflow as tf
     from returnn.tf.util.data import Data
 
