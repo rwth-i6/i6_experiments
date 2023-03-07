@@ -28,7 +28,6 @@ device = "cpu"
 task = config.value("task", "train")
 chunk_size = config.int("chunk_size", 20)
 chunk_step = config.int("chunk_step", chunk_size * 3 // 4)
-search_type = config.value("search_type", {"train": "end-of-chunk"}.get(task, None))
 
 
 use_tensorflow = True
@@ -89,6 +88,9 @@ else:
     conformer_encoder.network.add_copy_layer("encoder", "encoder_full_seq")
 
 
+# In training, we want to get a 4D tensor [B, M, U+1, V] as output, for the RNNT loss.
+# In recog, we do align-sync search, thus we need masking.
+
 transformer_decoder = RNNDecoder(
     base_model=conformer_encoder,
     target=target,
@@ -107,7 +109,6 @@ transformer_decoder = RNNDecoder(
     enc_chunks_dim=chunked_time_dim,
     enc_time_dim=chunk_size_dim,
     eos_id=eoc_idx,
-    search_type=search_type,
 )
 transformer_decoder.create_network()
 
