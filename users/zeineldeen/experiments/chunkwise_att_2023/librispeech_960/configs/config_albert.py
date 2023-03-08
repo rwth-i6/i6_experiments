@@ -187,11 +187,7 @@ def _run_exp_chunked_v1(
 
     run_exp(
         prefix_name=prefix_name,
-        exp_name=f"chunk_att"
-        f"_chunk-{chunk_size}_step-{chunk_step}"
-        f"_enc-{enc_stream_type}-conf"
-        f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
-        f"_fixed_align{extra_align_name}",
+        exp_name="_".join(exp_name_parts),
         train_args=train_args,
         num_epochs=total_epochs,
         train_fixed_alignment=ctc_align_wo_speed_pert["train"][f"{chunk_size}_{chunk_step}"],
