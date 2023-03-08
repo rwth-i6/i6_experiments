@@ -451,6 +451,9 @@ class RNNDecoderArgs(DecoderArgs):
     output_num_units: int = 1024
     embed_dim: int = 640
     enc_key_dim: int = 1024  # also attention dim  # also attention dim
+    masked_computation_blank_idx: Optional[int] = None
+    prev_target_embed_direct: bool = False
+    full_sum_simple_approx: bool = False
 
     # location feedback
     loc_conv_att_num_channels: Optional[int] = None
