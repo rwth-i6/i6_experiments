@@ -31,6 +31,7 @@ chunk_step = config.int("chunk_step", chunk_size * 3 // 4)
 
 
 use_tensorflow = True
+log_verbosity = 5
 
 
 train = {
@@ -44,6 +45,10 @@ dev.update(
         "fixed_random_seed": 42,
     }
 )
+
+allow_random_model_init = True  # this is really just a demo here
+search_data = dev
+
 target = "targets_with_eoc"  # see below
 eoc_idx = 2
 extern_data = {
