@@ -8,7 +8,7 @@ from typing import Optional, Callable
 import tensorflow as tf
 
 from returnn.util.basic import NotSpecified
-from returnn.tf.util.data import Data, Dim, SpatialDim, FeatureDim, batch_dim, single_step_dim
+from returnn.tf.util.data import Data, Dim, SpatialDim, FeatureDim, single_step_dim
 from returnn.tf.layers.basic import LayerBase
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
@@ -878,6 +878,9 @@ def _transducer_full_sum_log_prob_eval_layer_func(
     input_spatial_dim: Dim,
     blank_index: int,
 ) -> tf.Tensor:
+    from returnn.tf.util.data import Data
+    from returnn.tf.layers.basic import LayerBase
+
     assert isinstance(self, LayerBase)
     log_probs = source(0, auto_convert=False, as_data=True)
     labels = source(1, auto_convert=False, as_data=True)
@@ -921,4 +924,6 @@ def _transducer_full_sum_log_prob_eval_layer_out(
     name: str,
     **_kwargs,
 ) -> Data:
+    from returnn.tf.util.data import Data, batch_dim
+
     return Data("%s_output" % name, dim_tags=[batch_dim])
