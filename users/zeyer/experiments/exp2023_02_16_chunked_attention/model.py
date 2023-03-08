@@ -584,12 +584,12 @@ class RNNDecoder:
                 "from": ["output_log_prob", f"base:data:{target}"],
                 # Pickling/serialization of the func ref should work when this is a global function of this module.
                 # But depending on your setup, there might anyway not be any serialization.
-                "eval": _transducer_full_sum_log_prob_eval_layer_func,
+                "eval": _rnnt_full_sum_log_prob_eval_layer_func,
                 "eval_locals": {
                     "blank_index": self.eos_id,
                     "input_spatial_dim": self.enc_chunks_dim,
                 },
-                "out_type": _transducer_full_sum_log_prob_eval_layer_out,
+                "out_type": _rnnt_full_sum_log_prob_eval_layer_out,
                 "loss": "as_is",
             }
 
@@ -876,7 +876,7 @@ def _check_alignment(source, self, target, **_kwargs):
 
 
 # Taken from returnn_common, adopted.
-def _transducer_full_sum_log_prob_eval_layer_func(
+def _rnnt_full_sum_log_prob_eval_layer_func(
     *,
     self: LayerBase,
     source,
@@ -885,6 +885,7 @@ def _transducer_full_sum_log_prob_eval_layer_func(
 ) -> tf.Tensor:
     from returnn.tf.util.data import Data
     from returnn.tf.layers.basic import LayerBase
+    from returnn.extern.HawkAaronWarpTransducer import rnnt_loss
 
     assert isinstance(self, LayerBase)
     log_probs = source(0, auto_convert=False, as_data=True)
@@ -913,10 +914,9 @@ def _transducer_full_sum_log_prob_eval_layer_func(
     label_lengths = labels_spatial_dim.get_dyn_size_ext_for_batch_ctx(
         log_probs.batch, log_probs.control_flow_ctx
     ).copy_compatible_to(Data("label_lengths", dim_tags=batch_dims), check_dtype=False)
-    from returnn.extern.WarpRna import rna_loss  # noqa
 
-    return rna_loss(
-        log_probs=log_probs.placeholder,
+    return rnnt_loss(
+        acts=log_probs.placeholder,
         labels=labels.placeholder,
         input_lengths=input_lengths.placeholder,
         label_lengths=label_lengths.placeholder,
@@ -924,7 +924,7 @@ def _transducer_full_sum_log_prob_eval_layer_func(
     )
 
 
-def _transducer_full_sum_log_prob_eval_layer_out(
+def _rnnt_full_sum_log_prob_eval_layer_out(
     *,
     name: str,
     **_kwargs,
