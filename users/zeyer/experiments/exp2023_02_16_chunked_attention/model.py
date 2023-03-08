@@ -514,11 +514,12 @@ class RNNDecoder:
         if self.full_sum_simple_approx:
             subnet_unit["s"]["axis"] = single_step_dim
         if self.masked_computation_blank_idx is not None:
+            subnet_unit["_s_input"] = {"class": "copy", "from": lstm_inputs}
             layer_dict = subnet_unit["s"]
             subnet_unit["s"] = {
                 "class": "masked_computation",
                 "unit": layer_dict,
-                "from": layer_dict["from"],
+                "from": "_s_input",
                 "mask": "prev:masked_comp_mask",
             }
             layer_dict["from"] = "data"

@@ -117,6 +117,7 @@ transformer_decoder = RNNDecoder(
     full_sum_simple_approx=task in {"train", "eval"},
     prev_target_embed_direct=True,
     masked_computation_blank_idx=eoc_idx if task == "search" else None,
+    enable_check_align=task in {"train", "eval"},
 )
 transformer_decoder.create_network()
 
