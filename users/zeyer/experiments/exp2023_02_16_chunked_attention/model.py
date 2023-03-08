@@ -491,25 +491,18 @@ class RNNDecoder:
             )
 
         # LSTM decoder (or decoder state)
+        subnet_unit.add_rec_layer(
+            "s",
+            lstm_inputs,
+            n_out=self.dec_lstm_num_units,
+            l2=self.l2,
+            unit="zoneoutlstm" if self.dec_zoneout else "NativeLSTM2",
+            rec_weight_dropout=self.rec_weight_dropout,
+            weights_init=self.lstm_weights_init,
+        )
         if self.dec_zoneout:
-            subnet_unit.add_rnn_cell_layer(
-                "s",
-                lstm_inputs,
-                n_out=self.dec_lstm_num_units,
-                l2=self.l2,
-                weights_init=self.lstm_weights_init,
-                unit="zoneoutlstm",
-                unit_opts={"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05},
-            )
-        else:
-            subnet_unit.add_rec_layer(
-                "s",
-                lstm_inputs,
-                n_out=self.dec_lstm_num_units,
-                l2=self.l2,
-                unit="NativeLSTM2",
-                rec_weight_dropout=self.rec_weight_dropout,
-                weights_init=self.lstm_weights_init,
+            subnet_unit["s"].setdefault("unit_opts", {}).update(
+                {"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05}
             )
         if self.full_sum_simple_approx:
             subnet_unit["s"]["axis"] = single_step_dim
