@@ -787,6 +787,10 @@ def create_config(
     decoder_args["search_type"] = search_type
     decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
+    if decoder_args["full_sum_simple_approx"] and is_recog:
+        decoder_args["full_sum_simple_approx"] = False
+        decoder_args["masked_computation_blank_idx"] = eoc_idx
+
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
         transformer_decoder.create_network()
