@@ -501,6 +501,8 @@ class RNNDecoder:
             weights_init=self.lstm_weights_init,
         )
         if self.dec_zoneout:
+            if not self.full_sum_simple_approx:
+                subnet_unit["s"]["class"] = "rnn_cell"  # stupid hash preserving...
             subnet_unit["s"].setdefault("unit_opts", {}).update(
                 {"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05}
             )
