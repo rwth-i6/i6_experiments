@@ -574,7 +574,7 @@ class ConformerEncoder:
             )
             if self.ctc_loss_scale or self.ctc_self_align_delay:
                 self.network["ctc"]["loss_scale"] = (self.ctc_loss_scale or 1.0) * (
-                    (self.ctc_self_align_scale - 1.0) if self.ctc_self_align_delay else 1.0
+                    (1.0 - self.ctc_self_align_scale) if self.ctc_self_align_delay else 1.0
                 )
 
             if self.ctc_self_align_delay:
