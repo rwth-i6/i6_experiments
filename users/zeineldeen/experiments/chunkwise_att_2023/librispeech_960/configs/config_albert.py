@@ -115,7 +115,10 @@ def _run_exp_chunked_v1(
     align_model_ckpt: Optional[Checkpoint] = None,
     align_model_args: Optional[dict] = None,
     extra_align_name: str = "",
+    dec_masked_comp_non_blank: bool = False,
 ):
+    exp_name_parts = ["chunk_att"]
+
     start_lr = 1e-4
     decay_pt_factor = 1 / 3
 
@@ -154,8 +157,22 @@ def _run_exp_chunked_v1(
     chunk_step = max(1, int(chunk_size * chunk_step_factor))
     train_args["chunk_step"] = chunk_step
 
+    exp_name_parts += [
+        f"chunk-{chunk_size}_step-{chunk_step}",
+        f"enc-{enc_stream_type}-conf",
+        f"linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}",
+        f"fixed_align{extra_align_name}",
+    ]
+
     chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
     train_args["chunk_level"] = chunk_level
+
+    train_args["eoc_idx"] = 0
+
+    if dec_masked_comp_non_blank:
+        train_args["decoder_args"].masked_computation_blank_idx = train_args["eoc_idx"]
+        train_args["decoder_args"].prev_target_embed_direct = True
+        exp_name_parts += ["maskNB"]
 
     if chunk_level == "input":
         # It needs more memory because there are mini batches
@@ -195,9 +212,13 @@ def sis_config_main():
     _run_exp_baseline_v1(enc_stream_type="causal", total_epochs=40)
     causal_align_ckpt = _run_exp_baseline_v1(enc_stream_type="causal-reset-conv", total_epochs=40)
 
+    # Somewhat standard experiments.
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
+    _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
+
+    # Causal exp with alignment from earlier causal model.
     _run_exp_chunked_v1(
         enc_stream_type="causal-reset-conv",
         chunk_size=20,
@@ -207,14 +228,24 @@ def sis_config_main():
         align_model_args=_get_baseline_train_args_for_forward(enc_stream_type="causal-reset-conv"),
         extra_align_name="-causal",
     )
-    _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
+
+    # Masked computation in decoder, only operate on non-blank labels.
+    _run_exp_chunked_v1(
+        enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40, dec_masked_comp_non_blank=True
+    )
+
+    # Bigger chunk size.
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=50, chunk_step_factor=0.9, total_epochs=40)
+
+    # More epochs.
     _run_exp_chunked_v1(enc_stream_type="chunked", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="causal", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="causal-reset-conv", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=100)
+
+    # Different chunk step factor.
     _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.5, total_epochs=40)
 
 
