@@ -3,7 +3,8 @@ Test for serialization
 """
 
 from __future__ import annotations
-from returnn.tf.util.data import batch_dim, SpatialDim, FeatureDim
+import pickle
+from returnn.tf.util.data import batch_dim, single_step_dim, SpatialDim, FeatureDim
 from .serialization import *
 
 
@@ -32,9 +33,30 @@ def test_get_serializable_config_dims():
     assert config.python_prolog
 
 
-def _func(source, **_kwargs):
-    """for testing the function serialization"""
-    return source(0)
+def test_get_serializable_config_dims_single_step():
+    import pprint
+
+    feat_dim = FeatureDim("out", 5)
+    config = ReturnnConfig(
+        {
+            "network": {
+                "output": {
+                    "class": "rec",
+                    "axis": single_step_dim,
+                    "out_dim": feat_dim,
+                },
+            }
+        }
+    )
+    config = get_serializable_config(config)
+    config_dump = pickle.dumps(config)
+    config = pickle.loads(config_dump)
+    print(config._ReturnnConfig__parse_python(config.python_prolog))
+    print(config.config)
+    print(config._ReturnnConfig__parse_python(config.python_epilog))
+    for k, v in config.config.items():
+        assert pprint.isreadable(v)
+    assert config.python_prolog
 
 
 def test_get_serializable_config_function():
@@ -45,7 +67,7 @@ def test_get_serializable_config_function():
             "network": {
                 "output": {
                     "class": "eval",
-                    "eval": _func,
+                    "eval": _test_get_serializable_config_function_test_func,
                 },
             }
         }
@@ -56,3 +78,8 @@ def test_get_serializable_config_function():
     print(config._ReturnnConfig__parse_python(config.python_epilog))
     for k, v in config.config.items():
         assert pprint.isreadable(v)
+
+
+def _test_get_serializable_config_function_test_func(source, **_kwargs):
+    """for testing the function serialization"""
+    return source(0)
