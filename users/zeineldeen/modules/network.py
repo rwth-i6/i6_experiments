@@ -112,13 +112,11 @@ class ReturnnNetwork:
         if l2:
             d["L2"] = l2
         if rec_weight_dropout:
-            if "unit_opts" not in d:
-                d["unit_opts"] = {}
-            d["unit_opts"].update({"rec_weight_dropout": rec_weight_dropout})
+            d.setdefault("unit_opts", {}).update({"rec_weight_dropout": rec_weight_dropout})
         if weights_init:
-            if "unit_opts" not in d:
-                d["unit_opts"] = {}
-            d["unit_opts"].update({"forward_weights_init": weights_init, "recurrent_weights_init": weights_init})
+            d.setdefault("unit_opts", {}).update(
+                {"forward_weights_init": weights_init, "recurrent_weights_init": weights_init}
+            )
         d.update(kwargs)
         self._net[name] = d
         return name
