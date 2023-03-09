@@ -63,7 +63,7 @@ def _get_baseline_train_args(
 
     train_args["chunk_size"] = None  # no chunking in decoder
 
-    # Strange, I got OOM?
+    # Strange, I got OOM? Probably because max_seq_length is removed here.
     train_args["batch_size"] = int(train_args["batch_size"] * 0.75)
     train_args["accum_grad"] = int(train_args.get("accum_grad", 2) * 1.5)
 
