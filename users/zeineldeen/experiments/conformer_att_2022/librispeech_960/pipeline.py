@@ -133,10 +133,17 @@ def search_single(
         search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
 
     if recog_ext_pipeline:
-        from i6_core.returnn.search import SearchBeamJoinScoresJob, SearchTakeBestJob
+        # TODO check if SearchBeamJoinScoresJob makes sense.
+        #   results are inconsistent.
+        #   one potential explanation: the amount of merges per hyp is uneven, and maybe bad hyps have actual more
+        #      entries in the beam due to confusions. then their sum will win over better hyps.
+        #   another potential explanation: logsumexp is not correct with length norm.
+        #      (btw, with length norm, it's not trivial to correct, as it uses the factor from the whole batch.)
+        #   thus, we do not use it for now.
+        #   if we would use it, only if there was some remove_label.
 
-        if remove_label:  # only if there was remove_label, this has an effect
-            search_bpe = SearchBeamJoinScoresJob(search_bpe, output_gzip=True).out_search_results
+        from i6_core.returnn.search import SearchTakeBestJob
+
         search_bpe = SearchTakeBestJob(search_bpe, output_gzip=True).out_best_search_results
 
     search_words = SearchBPEtoWordsJob(search_bpe, output_gzip=recog_ext_pipeline).out_word_search_results
