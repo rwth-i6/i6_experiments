@@ -353,6 +353,7 @@ def run_search(
     recog_epochs,
     bpe_size,
     run_all_for_best_last_avg=False,
+    recog_ext_pipeline=False,
     **kwargs,
 ):
     exp_prefix = os.path.join(prefix_name, exp_name)
@@ -365,6 +366,7 @@ def run_search(
         **search_args,
         feature_extraction_net=feature_extraction_net,
         is_recog=True,
+        recog_ext_pipeline=recog_ext_pipeline,
     )
 
     num_avg = kwargs.get("num_avg", 4)
@@ -394,6 +396,8 @@ def run_search(
 
     all_test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
+    remove_label = {"<s>", "</s>", "<blank>"} if recog_ext_pipeline else None
+
     for ep in default_recog_epochs:
         search(
             exp_prefix + f"/recogs/ep-{ep}",
@@ -403,6 +407,8 @@ def run_search(
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
             use_sclite=kwargs.get("use_sclite", False),
+            recog_ext_pipeline=recog_ext_pipeline,
+            remove_label=remove_label,
         )
 
     search(
@@ -413,6 +419,8 @@ def run_search(
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
+        recog_ext_pipeline=recog_ext_pipeline,
+        remove_label=remove_label,
     )
 
     search(
@@ -423,6 +431,8 @@ def run_search(
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
+        recog_ext_pipeline=recog_ext_pipeline,
+        remove_label=remove_label,
     )
 
     search(
@@ -433,6 +443,8 @@ def run_search(
         RETURNN_CPU_EXE,
         RETURNN_ROOT,
         use_sclite=kwargs.get("use_sclite", False),
+        recog_ext_pipeline=recog_ext_pipeline,
+        remove_label=remove_label,
     )
 
 
@@ -449,6 +461,7 @@ def run_exp(
     time_rqmt=168,
     train_fixed_alignment=None,
     cv_fixed_alignment=None,
+    recog_ext_pipeline=False,
     **kwargs,
 ):
     if train_fixed_alignment:
@@ -497,6 +510,7 @@ def run_exp(
         search_args,
         recog_epochs,
         bpe_size=bpe_size,
+        recog_ext_pipeline=recog_ext_pipeline,
         **kwargs,
     )
     return train_job, train_data

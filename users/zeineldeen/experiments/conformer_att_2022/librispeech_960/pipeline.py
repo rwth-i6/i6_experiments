@@ -1,4 +1,5 @@
-import os
+from __future__ import annotations
+from typing import Optional, Union, Set
 
 from sisyphus import tk
 
@@ -25,9 +26,7 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs,
         "returnn_root": returnn_root,
     }
 
-    train_job = ReturnnTrainingJob(
-        returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt
-    )
+    train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -89,6 +88,8 @@ def search_single(
     mem_rqmt,
     time_rqmt,
     use_sclite=False,
+    recog_ext_pipeline=False,
+    remove_label: Optional[Union[str, Set[str]]] = None,
 ):
     """
     Run search for a specific test dataset
@@ -100,6 +101,9 @@ def search_single(
     :param Path recognition_reference: Path to a py-dict format reference file
     :param Path returnn_exe:
     :param Path returnn_root:
+    :param recog_ext_pipeline: the search output is the raw beam search output, all beams.
+        still need to select best, and also still need to maybe remove blank/EOS/whatever.
+    :param remove_label: for SearchRemoveLabelJob
     """
     from i6_core.returnn.search import (
         ReturnnSearchJobV2,
@@ -116,24 +120,39 @@ def search_single(
         time_rqmt=time_rqmt,
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
+        output_gzip=recog_ext_pipeline,
     )
     search_job.add_alias(prefix_name + "/search_job")
+    search_bpe = search_job.out_search_file
 
-    search_words = SearchBPEtoWordsJob(
-        search_job.out_search_file
-    ).out_word_search_results
+    # If we need to remove a label, do it early, before the SearchBeamJoinScoresJob,
+    # otherwise SearchBeamJoinScoresJob would not have any effect.
+    if remove_label:
+        from i6_core.returnn.search import SearchRemoveLabelJob
+
+        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
+
+    if recog_ext_pipeline:
+        from i6_core.returnn.search import SearchBeamJoinScoresJob, SearchTakeBestJob
+
+        if remove_label:  # only if there was remove_label, this has an effect
+            search_bpe = SearchBeamJoinScoresJob(search_bpe, output_gzip=True).out_search_results
+        search_bpe = SearchTakeBestJob(search_bpe, output_gzip=True).out_search_results
+
+    search_words = SearchBPEtoWordsJob(search_bpe, output_gzip=recog_ext_pipeline).out_word_search_results
 
     if use_sclite:
         from i6_core.returnn.search import SearchWordsToCTMJob
+        from i6_core.corpus.convert import CorpusToStmJob
+        from i6_core.recognition.scoring import ScliteJob
+
         search_ctm = SearchWordsToCTMJob(
             recog_words_file=search_words,
             bliss_corpus=recognition_bliss_corpus,
         ).out_ctm_file
 
-        from i6_core.corpus.convert import CorpusToStmJob
         stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-        from i6_core.recognition.scoring import ScliteJob
         sclite_job = ScliteJob(
             ref=stm_file,
             hyp=search_ctm,
@@ -158,6 +177,8 @@ def search(
     mem_rqmt=8,
     time_rqmt=1,
     use_sclite=False,
+    recog_ext_pipeline=False,
+    remove_label: Optional[Union[str, Set[str]]] = None,
 ):
     """
 
@@ -167,6 +188,9 @@ def search(
     :param test_dataset_tuples:
     :param returnn_exe:
     :param returnn_root:
+    :param recog_ext_pipeline: the search output is the raw beam search output, all beams.
+        still need to select best, and also still need to maybe remove blank/EOS/whatever.
+    :param remove_label: for SearchRemoveLabelJob
     :return:
     """
     # use fixed last checkpoint for now, needs more fine-grained selection / average etc. here
@@ -184,18 +208,15 @@ def search(
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
             use_sclite=use_sclite,
+            recog_ext_pipeline=recog_ext_pipeline,
+            remove_label=remove_label,
         )
 
     from i6_core.report import GenerateReportStringJob, MailJob
 
-    format_string_report = ",".join(
-        ["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()]
-    )
+    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
     format_string = " - ".join(
-        [
-            "{%s}: {%s_val}" % (prefix_name + key, prefix_name + key)
-            for key in test_dataset_tuples.keys()
-        ]
+        ["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()]
     )
     values = {}
     values_report = {}
@@ -204,9 +225,7 @@ def search(
         values["%s_val" % (prefix_name + key)] = wers[key]
         values_report["%s_val" % (prefix_name + key)] = wers[key]
 
-    report = GenerateReportStringJob(
-        report_values=values, report_template=format_string, compress=False
-    ).out_report
+    report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
     mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
     # tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
     return format_string_report, values_report

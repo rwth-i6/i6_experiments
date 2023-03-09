@@ -542,6 +542,7 @@ def create_config(
     dump_ctc=False,
     dump_ctc_dataset=None,  # train, dev, etc
     enable_check_align=True,
+    recog_ext_pipeline=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -795,8 +796,11 @@ def create_config(
     if not dump_ctc_dataset:
         transformer_decoder.create_network()
 
-    decision_layer_name = transformer_decoder.decision_layer_name
-    exp_config["search_output_layer"] = decision_layer_name
+    if recog_ext_pipeline:
+        # Unfiltered, with full beam.
+        exp_config["search_output_layer"] = transformer_decoder.dec_output
+    else:
+        exp_config["search_output_layer"] = transformer_decoder.decision_layer_name
 
     if ext_lm_opts:
         transformer_decoder = ExternalLMDecoder(
