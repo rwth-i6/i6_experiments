@@ -137,7 +137,7 @@ def search_single(
 
         if remove_label:  # only if there was remove_label, this has an effect
             search_bpe = SearchBeamJoinScoresJob(search_bpe, output_gzip=True).out_search_results
-        search_bpe = SearchTakeBestJob(search_bpe, output_gzip=True).out_search_results
+        search_bpe = SearchTakeBestJob(search_bpe, output_gzip=True).out_best_search_results
 
     search_words = SearchBPEtoWordsJob(search_bpe, output_gzip=recog_ext_pipeline).out_word_search_results
 
