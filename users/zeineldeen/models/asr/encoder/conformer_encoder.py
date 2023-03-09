@@ -597,7 +597,12 @@ class ConformerEncoder:
                     "input_type": "log_prob",
                 }
                 # Add blanks at the end.
-                self.network["_blank_idx"] = {"class": "length", "from": f"data:{self.target}", "axis": "sparse_dim"}
+                self.network["_blank_idx"] = {
+                    "class": "length",
+                    "from": f"data:{self.target}",
+                    "axis": "sparse_dim",
+                    "sparse": True,
+                }
                 self.network[f"ctc_forced_alignment_shift{self.ctc_self_align_delay}"] = {
                     "class": "postfix_in_time",
                     "from": f"ctc_forced_alignment_slice{self.ctc_self_align_delay}",
