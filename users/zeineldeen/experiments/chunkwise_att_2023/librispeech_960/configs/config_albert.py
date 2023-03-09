@@ -329,7 +329,3 @@ def sis_config_main():
 
 
 py = sis_config_main  # `py` is the default sis config function name
-
-
-def py():
-    _run_exp_chunked_v1(enc_stream_type="global", chunk_size=20, chunk_step_factor=0.9, total_epochs=40)
