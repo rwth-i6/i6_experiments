@@ -39,6 +39,7 @@ def _run_exp_baseline_v1(
         selected_datasets=["dev-other"],
         key="dev_score_output/output_prob" if with_ctc else "dev_score",
         use_sclite=True,
+        recog_ext_pipeline=True,
     )
 
     return train_job.out_checkpoints[max(train_job.out_checkpoints.keys())]
@@ -197,6 +198,7 @@ def _run_exp_chunked_v1(
         selected_datasets=["dev-other"],
         key="dev_score",
         use_sclite=True,
+        recog_ext_pipeline=True,
     )
 
 
@@ -274,6 +276,7 @@ def _run_exp_full_sum_simple_approx(
         selected_datasets=["dev-other"],
         key="dev_score_output/output_prob" if with_ctc else "dev_score",
         use_sclite=True,
+        recog_ext_pipeline=True,
     )
 
 
