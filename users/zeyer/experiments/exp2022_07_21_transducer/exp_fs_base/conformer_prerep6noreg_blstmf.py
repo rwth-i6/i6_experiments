@@ -186,7 +186,7 @@ class Model(nn.Module):
             assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_input = nn.set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
