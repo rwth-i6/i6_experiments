@@ -42,7 +42,7 @@ _generated_lms = False
 EXP_PREFIX = "experiments/librispeech/kazuki_lm/"
 
 
-def get_lm(name: str):
+def get_lm(name: str) -> ZeineldeenLM:
     global _lm_stash
     global _generated_lms
     if _generated_lms is False:

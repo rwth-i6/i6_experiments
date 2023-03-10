@@ -120,7 +120,7 @@ def conformer_tf_features():
     header = "Name,best,,,,,last,,,,,average_4,,,\n,dev-clean,dev-other,test-clean,test-other,,dev-clean,dev-other,test-clean,test-other,,dev-clean,dev-other,test-clean,test-other\n"
     report = LocalReport(header=header)
 
-    def run_exp_v2(ft_name, feature_extraction_net, datasets, train_args, search_args=None, search_extraction_net=None, report=None, num_epochs=250, extra_beam=None):
+    def run_exp_v2(ft_name, feature_extraction_net, datasets, train_args, search_args=None, search_extraction_net=None, report=None, num_epochs=250, extra_beam=None, full_lm=None):
         train_args = copy.deepcopy(train_args)
         search_args = search_args if search_args is not None else train_args
         search_extraction_net = search_extraction_net if search_extraction_net is not None else feature_extraction_net
@@ -170,6 +170,21 @@ def conformer_tf_features():
                               test_dataset_tuples["dev-other"][1],
                               returnn_exe,
                               returnn_root)
+            if full_lm:
+                for lm_scale in full_lm:
+                    search_args = copy.deepcopy(ext_lm_search_args)
+                    search_args['ext_lm_opts']['lm_scale'] = lm_scale
+                    search_args["beam_size"] = beam_size
+                    returnn_config = create_config(training_datasets=datasets, **search_args,
+                                                   feature_extraction_net=search_extraction_net, is_recog=True)
+                    returnn_config.config[
+                        "batch_size"] = 3000 * 200 if beam_size > 12 else 10000 * 200  # smaller size for recognition
+                    if beam_size > 12:
+                        returnn_config.config["max_seqs"] = 10
+                    name = ft_name + "/average_ext_lm_%.2f_bs%i" % (lm_scale, beam_size)
+                    search(name.replace(".", "_"), returnn_config, average, test_dataset_tuples, returnn_exe,
+                           returnn_root)
+
         return train_job
 
     def run_extra_lm(ft_name, train_job, extraction_net, datasets, search_args, filename, lm_scale=0.4):
@@ -210,7 +225,7 @@ def conformer_tf_features():
 
     args_retrain = copy.deepcopy(args)
     args_retrain["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
-    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain, report=report)
+    train_job = run_exp_v2(exp_prefix + "/" + "raw_log10_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_retrain, train_args=args_retrain, report=report, full_lm=[0.42, 0.44, 0.46])
 
     # args_retrain_newbob = copy.deepcopy(args)
     # args_retrain_newbob["retrain_checkpoint"] = train_job_base.out_checkpoints[250]
@@ -232,7 +247,7 @@ def conformer_tf_features():
     train_job_base_460 = run_exp_v2(exp_prefix + "/" + "raw_log10_ls460", log10_net_10ms, datasets=training_datasets_speedperturbed_460, train_args=args, report=report)
     args_retrain = copy.deepcopy(args)
     args_retrain["retrain_checkpoint"] = train_job_base_460.out_checkpoints[250]
-    train_job_base_460_retrain = run_exp_v2(exp_prefix + "/" + "raw_log10_ls460_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_460, train_args=args_retrain, report=report)
+    train_job_base_460_retrain = run_exp_v2(exp_prefix + "/" + "raw_log10_ls460_retrain", log10_net_10ms, datasets=training_datasets_speedperturbed_460, train_args=args_retrain, report=report, full_lm=[0.4, 0.42, 0.44, 0.46])
 
     sat_gauss_pred = tk.Path("/u/hilmes/experiments/tts_new_sis/output/paper_nick/sat_gauss_pred/real_tags_corpus.xml.gz")
     sat_gauss_pred_scale11 = tk.Path("/u/hilmes/experiments/tts_new_sis/output/paper_nick/sat_gauss_scale_1.1/real_tags_corpus.xml.gz")
@@ -290,7 +305,7 @@ def conformer_tf_features():
                                          datasets=synth_data[0], train_args=args_bn_fix, report=report)
         args_retrain = copy.deepcopy(args_bn_fix)
         args_retrain["retrain_checkpoint"] = synth_base_train.out_checkpoints[250]
-        synth_base_retrain = run_exp_v2(exp_prefix + "/" + "combined_bn_retrain_" + name, log10_net_10ms, datasets=synth_data[0], train_args=args_retrain, report=report)
+        synth_base_retrain = run_exp_v2(exp_prefix + "/" + "combined_bn_retrain_" + name, log10_net_10ms, datasets=synth_data[0], train_args=args_retrain, report=report, full_lm=[0.42, 0.44, 0.46])
 
         synth_path = tk.Path(f"/u/hilmes/experiments/tts_new_sis/output/paper_nick/ls360/{path}/real_tags_corpus.xml.gz")
         synth_data = create_datasets(name, synth_path)
@@ -318,7 +333,10 @@ def conformer_tf_features():
                                          datasets=synth_data[0], train_args=args_bn_fix, report=report)
         args_retrain = copy.deepcopy(args_bn_fix)
         args_retrain["retrain_checkpoint"] = synth_base_train.out_checkpoints[250]
-        synth_base_retrain = run_exp_v2(exp_prefix + "/" + "combined_bn_retrain_" + name, log10_net_10ms, datasets=synth_data[0], train_args=args_retrain, report=report)
+        if "105" in name:
+            synth_base_retrain = run_exp_v2(exp_prefix + "/" + "combined_bn_retrain_" + name, log10_net_10ms, datasets=synth_data[0], train_args=args_retrain, report=report)
+        else:
+            synth_base_retrain = run_exp_v2(exp_prefix + "/" + "combined_bn_retrain_" + name, log10_net_10ms, datasets=synth_data[0], train_args=args_retrain, report=report, full_lm=[0.42, 0.44, 0.46])
 
 
     # CTC 0.0

@@ -79,6 +79,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "cpu": 4,
             "parallelize_conversion": True,
             "use_epoch_for_compile": True,
+            "native_ops": ["NativeLstm2"],
         },
     }
     test_recognition_args = None

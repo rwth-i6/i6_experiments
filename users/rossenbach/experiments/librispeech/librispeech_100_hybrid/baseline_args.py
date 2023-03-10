@@ -104,6 +104,78 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, extra_exps=Fals
             "cpu": 4,
             "parallelize_conversion": True,
             "forward_output_layer": "log_output",
+            "native_ops": ["NativeLstm2"],
+        },
+    }
+    test_recognition_args = None
+
+    nn_args = HybridArgs(
+        returnn_training_configs=returnn_configs,
+        returnn_recognition_configs=returnn_recog_configs,
+        training_args=training_args,
+        recognition_args=recognition_args,
+        test_recognition_args=test_recognition_args,
+    )
+
+    return nn_args
+
+def get_realign_args(num_outputs: int = 12001, num_epochs: int = 250, extra_exps=False):
+    evaluation_epochs  = list(np.arange(num_epochs, num_epochs + 1, 10))
+
+    returnn_configs = get_returnn_configs(
+        num_inputs=50, num_outputs=num_outputs, batch_size=5000,
+        evaluation_epochs=evaluation_epochs, extra_exps=extra_exps,
+    )
+
+    returnn_recog_configs = get_returnn_configs(
+        num_inputs=50, num_outputs=num_outputs, batch_size=5000,
+        evaluation_epochs=evaluation_epochs,
+        recognition=True, extra_exps=extra_exps,
+    )
+
+
+    training_args = {
+        "log_verbosity": 5,
+        "num_epochs": num_epochs,
+        "num_classes": num_outputs,
+        "save_interval": 1,
+        "keep_epochs": None,
+        "time_rqmt": 168,
+        "mem_rqmt": 7,
+        "cpu_rqmt": 3,
+        "partition_epochs": {"train": 40, "dev": 20},
+        "use_python_control": False,
+    }
+    recognition_args = {
+        "dev-other": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "gt",
+            "prior_scales": [0.3],
+            "pronunciation_scales": [6.0],
+            "lm_scales": [20.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 12.0,
+                "beam-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 8,
+            "lmgc_mem": 16,
+            "cpu": 4,
+            "parallelize_conversion": True,
+            "forward_output_layer": "log_output",
+            "native_ops": ["NativeLstm2"],
         },
     }
     test_recognition_args = None

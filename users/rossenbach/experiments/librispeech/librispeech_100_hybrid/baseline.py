@@ -15,15 +15,15 @@ from .default_tools import RETURNN_RC_ROOT
 from .data import  get_corpus_data_inputs_newcv, get_corpus_data_inputs_newcv_hdf
 
 
-def run_gmm_system_from_common():
-    from i6_experiments.common.baselines.librispeech.ls100.gmm.baseline_config import run_librispeech_100_common_baseline
+def run_gmm_system():
+    from .gmm_baseline import run_librispeech_100_common_baseline
     system = run_librispeech_100_common_baseline(
         extract_additional_rasr_features=get_feature_extraction_args()
     )
     return system
 
-def run_gmm_system_from_common_v2():
-    from i6_experiments.common.baselines.librispeech.ls100.gmm.baseline_config import run_librispeech_100_common_baseline
+def run_gmm_system_v2():
+    from .gmm_baseline import run_librispeech_100_common_baseline
     system = run_librispeech_100_common_baseline(
         extract_additional_rasr_features=get_feature_extraction_args(fix_features_output=True)
     )
@@ -34,7 +34,7 @@ def run_hybrid_baseline():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline'
 
-    gmm_system = run_gmm_system_from_common()
+    gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
 
@@ -83,7 +83,7 @@ def run_hybrid_baseline_newcv():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_newcv'
 
-    gmm_system = run_gmm_system_from_common()
+    gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
 
@@ -128,7 +128,7 @@ def run_hybrid_baseline_rc():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_rc_newcv'
 
-    gmm_system = run_gmm_system_from_common()
+    gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
     (
@@ -169,7 +169,7 @@ def run_hybrid_baseline_rc_hdf():
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_rc_newcv_hdf'
 
-    gmm_system = run_gmm_system_from_common_v2()
+    gmm_system = run_gmm_system_v2()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     (
         nn_train_data_inputs,
