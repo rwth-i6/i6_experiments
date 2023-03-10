@@ -366,8 +366,8 @@ class RelPosSelfAttentionWin(nn.RelPosSelfAttention):
 
         q, k, v = self.forward_qkv(source)
         hist_dim = nn.SpatialDim(f"{axis.description}:kv")
-        k, _ = nn.reinterpret_new_dim(k, in_dim=axis, out_dim=hist_dim, name="k_new_dim")
-        v, _ = nn.reinterpret_new_dim(v, in_dim=axis, out_dim=hist_dim, name="v_new_dim")
+        k, _ = nn.replace_dim(k, in_dim=axis, out_dim=hist_dim, name="k_new_dim")
+        v, _ = nn.replace_dim(v, in_dim=axis, out_dim=hist_dim, name="v_new_dim")
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
         q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
 
