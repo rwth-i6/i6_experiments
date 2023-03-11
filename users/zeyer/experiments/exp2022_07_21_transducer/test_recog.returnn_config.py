@@ -167,7 +167,7 @@ class Model(nn.Module):
         prev_wb_target: Optional[nn.Tensor] = None,  # with blank
         wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
         state: Optional[nn.LayerState] = None,
-    ) -> (nn.Tensor, nn.LayerState):
+    ) -> Tuple[nn.Tensor, nn.LayerState]:
         """decoder step, or operating on full seq"""
         assert state is not None
         state_ = nn.LayerState()
