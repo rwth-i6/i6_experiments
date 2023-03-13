@@ -20,7 +20,7 @@ class Conv6Subsampling(nn.Module):
         self.feature_pool_dim = nn.FeatureDim("conv6sub_conv1_feat", 32)
         self.time_pool1_dim = nn.FeatureDim("conv6sub_conv2_feat", 64)
         self.time_pool2_dim = nn.FeatureDim("conv6sub_conv3_feat", 64)
-        self.out_dim = self.time_pool2_dim
+        self.out_dim = nn.FeatureDim("subsampling_out", dimension=(in_dim.dimension//2)*64)
 
         self.expanded_feature_dim = nn.FeatureDim("conv6sub_new_feature", 1)
 
@@ -53,16 +53,18 @@ class Conv6Subsampling(nn.Module):
 
         expanded_features = nn.split_dims(features, axis=self.in_dim, dims=[feature_spatial_dim, self.expanded_feature_dim])
 
-        conv1, [time_dim, feature_dim] = self.feature_conv(
+        conv1, [time_dim, feature_spatial_dim] = self.feature_conv(
             expanded_features,
             in_spatial_dims=[in_spatial_dim, self.in_dim]
         )
 
-        pool1, feature_dim = nn.pool1d(conv1, mode="max", pool_size=2, padding="same", in_spatial_dim=feature_dim)
-        conv2, [time_dim, feature_dim] = self.time1_conv(pool1, in_spatial_dims=[time_dim, feature_dim])
-        conv3, [time_dim, feature_dim] = self.time2_conv(conv2, in_spatial_dims=[time_dim, feature_dim])
+        pool1, feature_spatial_dim = nn.pool1d(conv1, mode="max", pool_size=2, padding="same", in_spatial_dim=feature_spatial_dim)
+        conv2, [time_dim, feature_spatial_dim] = self.time1_conv(pool1, in_spatial_dims=[time_dim, feature_spatial_dim])
+        conv3, [time_dim, feature_spatial_dim] = self.time2_conv(conv2, in_spatial_dims=[time_dim, feature_spatial_dim])
 
-        return conv3, time_dim
+        final, _ = nn.merge_dims(conv3, axes=[feature_spatial_dim, conv3.feature_dim], out_dim=self.out_dim)
+
+        return final, time_dim
 
 
 
@@ -99,7 +101,7 @@ class ConformerAEDModel(nn.Module):
 
     def __call__(self, audio_features: nn.Tensor, audio_time: nn.Dim, bpe_labels: nn.Tensor, bpe_time: nn.Dim):
 
-        _, log_mel_features, logmel_time_dim = self.feature_extractor(audio_features)
+        _, log_mel_features, logmel_time_dim = self.feature_extractor(audio_features, audio_time)
 
         encoder_output, encoder_time_dim = self.encoder(
             source=log_mel_features,
@@ -107,7 +109,7 @@ class ConformerAEDModel(nn.Module):
         )
 
         ctc_logits = self.ctc_linear(encoder_output)
-        ctc = nn.ctc_loss(logits=ctc_probs, targets=bpe_labels, blank_index=self.ctc_out_dim.dimension - 1)
+        ctc = nn.ctc_loss(logits=ctc_logits, targets=bpe_labels, blank_index=self.ctc_out_dim.dimension - 1)
         ctc.mark_as_loss(name="ctc", custom_inv_norm_factor=nn.length(dim=bpe_time))
 
         return encoder_output
