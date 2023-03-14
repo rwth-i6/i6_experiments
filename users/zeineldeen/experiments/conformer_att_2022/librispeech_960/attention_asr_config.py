@@ -285,7 +285,10 @@ def pretrain_layers_and_dims(
     decoder_model.create_network()
 
     net_dict = encoder_model.network.get_net()
-    net_dict.update(decoder_model.network.get_net())
+
+    if decoder_args['ce_loss_scale'] and decoder_args['ce_loss_scale'] != 0.0:
+        net_dict.update(decoder_model.network.get_net())
+
     net_dict.update(extra_net_dict)
 
     return net_dict
@@ -317,6 +320,8 @@ class ConformerEncoderArgs(EncoderArgs):
     with_ctc: bool = True
     native_ctc: bool = True
     ctc_loss_scale: Optional[float] = None
+    ctc_self_align_delay: Optional[int] = None
+    ctc_self_align_scale: float = 0.5
 
     # param init
     ff_init: Optional[str] = None
@@ -458,6 +463,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     coverage_scale: float = None
     coverage_threshold: float = None
+
+    ce_loss_scale: Optional[float] = 1.0
 
 def create_config(
     training_datasets,
@@ -657,7 +664,9 @@ def create_config(
 
     # add full network
     exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
-    exp_config["network"].update(transformer_decoder.network.get_net())
+
+    if decoder_args['ce_loss_scale'] != 0.0:
+        exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)

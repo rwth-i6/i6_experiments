@@ -273,7 +273,7 @@ def conformer_baseline():
     train_job_best_epoch[exp_name] = best_checkpoint
 
     if recog_epochs is None:
-      default_recog_epochs = [20, 40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
+      default_recog_epochs = [40] + [80 * i for i in range(1, int(num_epochs / 80) + 1)]
       if num_epochs % 80 != 0:
         default_recog_epochs += [num_epochs]
     else:
@@ -528,59 +528,21 @@ def conformer_baseline():
     "final_lr": 1e-6,
     "cycle_ep": 135,
     "total_ep": 300,  # 50 epochs
-    "n_step": 940,
+    "n_step": 1385,
   }
   oclr_args["encoder_args"].input_layer = "conv-6"
   oclr_args['encoder_args'].use_sqrd_relu = True
 
-  args = copy.deepcopy(oclr_args)
-  args['batch_size'] = 20_000 * 80
-  args['max_seq_length'] = None
-  args['pretrain_reps'] = 2
-  args['accum_grad'] = 1
-  args['pretrain_opts'].pop('initial_batch_size')
-  run_exp(
-    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{9e-4}_bs20k_bpe500_pretrainReps-2", train_args=args,
-    num_epochs=300, epoch_wise_filter=None, bpe_size=BPE_500
-  )
-  run_exp(
-    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{9e-4}_bs20k_bpe500_pretrainReps-2_epochWiseFilter", train_args=args,
-    num_epochs=300, bpe_size=BPE_500
-  )
-
-  args = copy.deepcopy(oclr_args)
-  args['batch_size'] = 15_000 * 80
-  args['max_seq_length'] = None
-  args['pretrain_reps'] = 2
-  args['pretrain_opts'].pop('initial_batch_size')
-  run_exp(
-    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{9e-4}_bs15k_bpe500_pretrainReps-2_accum2", train_args=args,
-    num_epochs=300, epoch_wise_filter=None, bpe_size=BPE_500
-  )
-
-  for reps in [2, 3, 4]:
-    for momentum in [1e-2, 1e-3, 1e-4]:
-      norm_args = copy.deepcopy(args)
-      norm_args['pretrain_reps'] = reps
-      norm_args['accum_grad'] = 1
-      feat_net = copy.deepcopy(log10_net_10ms_long_bn)
-      feat_net['log_mel_features']['momentum'] = momentum
-      run_exp(
-        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{9e-4}_bs20k_bpe500_pretrainReps-{reps}_featBN-{momentum}",
-        train_args=norm_args, num_epochs=300, epoch_wise_filter=None, bpe_size=BPE_500, feature_extraction_net=feat_net,
-      )
-
-  # TODO: with epoch wise filter?
-  for peak_lr in [6e-4, 7e-4, 8e-4, 9e-4]:
-    for reps in [2, 3, 4]:
-      for bs, accum in [(15_000, 2), (20_000, 1)]:
-        args = copy.deepcopy(oclr_args)
-        args['batch_size'] = bs * 80
-        args['max_seq_length'] = None
-        args['accum_grad'] = accum
-        args['pretrain_reps'] = reps
-        args['oclr_opts']['peak_lr'] = peak_lr
-        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{peak_lr}_bs{bs}_bpe500_reps{reps}_accum{accum}_curr"
-        run_exp(name, train_args=args, num_epochs=300, bpe_size=BPE_500, epoch_wise_filter=[(1, 3, 200), (4, 6, 300)])
+  for peak_lr in [1e-4, 2e-4, 3e-4]:
+    for reps in [4, 5]:
+      for bs, accum in [(15_000, 2), (15_000, 1)]:
+        for curr_idx, curr in enumerate([[(1, 3, 200), (4, 6, 300)], [(1, 3, 100), (4, 6, 200), (7, 9, 300)]]):
+          args = copy.deepcopy(oclr_args)
+          args['batch_size'] = bs * 80
+          args['accum_grad'] = accum
+          args['pretrain_reps'] = reps
+          args['oclr_opts']['peak_lr'] = peak_lr
+          name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{peak_lr}_bs{bs}_bpe500_reps{reps}_accum{accum}_currV{curr_idx + 1}"
+          run_exp(name, train_args=args, num_epochs=300, bpe_size=BPE_500, epoch_wise_filter=curr)
 
 
