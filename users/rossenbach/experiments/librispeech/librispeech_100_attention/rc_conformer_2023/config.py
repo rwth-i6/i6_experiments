@@ -70,7 +70,6 @@ def get_network_serializer(returnn_common_root: tk.Path, rc_extern_data: ExternD
             rc_extern_data,
             rc_construction_code,
             rc_network,
-            CodeFromFunction("speed_perturbation", func=speed_perturbation)
         ],
         returnn_common_root=returnn_common_root,
         make_local_package_copy=not debug,
@@ -111,7 +110,7 @@ def get_training_config(
         "gradient_noise": 0,
         "learning_rates": [0.001],
         #############
-        "batch_size": 18000,
+        "batch_size": 18000 * 160,
         "max_seq_length": {"audio_features": 1600},
         "max_seqs": 60,
         #############
@@ -134,7 +133,7 @@ def get_training_config(
     )
 
     returnn_config = ReturnnConfig(
-        config=config, post_config=post_config, python_epilog=[serializer],
+        config=config, post_config=post_config, python_epilog=[serializer], python_prolog=speed_perturbation,
     )
 
     return returnn_config

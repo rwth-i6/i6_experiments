@@ -85,7 +85,7 @@ class ConformerAEDModel(nn.Module):
 
         self.encoder = ConformerEncoder(
             in_dim=self.feature_extractor.out_feature_dim,
-            num_layers=12,
+            num_layers=1,
             input_layer=self.subsampling,
             ff_activation=nn.swish,
             input_dropout=0.2,
@@ -123,6 +123,7 @@ def construct_network(
 ):
     net = ConformerAEDModel(
         bpe_size=bpe_labels.sparse_dim,
+        audio_feature_dim=audio_features.dim_tags[audio_features.feature_dim_axis],
         **kwargs
     )
 

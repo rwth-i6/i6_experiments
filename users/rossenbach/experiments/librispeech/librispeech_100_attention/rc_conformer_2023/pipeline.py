@@ -8,7 +8,7 @@ from i6_core.returnn.training import GetBestTFCheckpointJob
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchBPEtoWordsJob, ReturnnComputeWERJob
 from i6_experiments.users.rossenbach.returnn.training import AverageCheckpointsJobV2
 
-from .default_tools import RETURNN_CPU_EXE, RETURNN_ROOT
+from .default_tools import RETURNN_EXE, RETURNN_ROOT
 
 
 @tk.block()
@@ -71,7 +71,7 @@ def get_average_checkpoint(training_job, num_average:int = 4):
             key="dev_score_output/output_prob",
             index=i)
         epochs.append(best_checkpoint_job.out_epoch)
-    average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs, returnn_python_exe=RETURNN_CPU_EXE, returnn_root=RETURNN_ROOT)
+    average_checkpoint_job = AverageTFCheckpointsJob(training_job.out_model_dir, epochs=epochs, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT)
     return average_checkpoint_job.out_checkpoint
 
 @tk.block()

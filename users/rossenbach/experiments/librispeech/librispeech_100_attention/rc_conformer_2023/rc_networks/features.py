@@ -12,6 +12,7 @@ class LogMelFeatureExtractor(nn.Module):
 
     The default values are for 80-dimensional 10ms/25ms windowed features over 16 kHz [-1,1] ranged audio samples
     """
+
     def __init__(self, frame_shift=160, frame_size=400, fft_size=512, log_mel_size=80):
         """
 
@@ -29,32 +30,14 @@ class LogMelFeatureExtractor(nn.Module):
         assert frame_size <= fft_size, "fft_size has to be at least equal to the frame size"
 
         self.out_feature_dim = nn.FeatureDim("extractor_mel_feature", log_mel_size)
-        self.out_linear_feature_dim = nn.FeatureDim("extractor_linear_feature", fft_size//2 + 1)
+        self.out_linear_feature_dim = nn.FeatureDim("extractor_linear_feature", fft_size // 2 + 1)
 
     def __call__(self, inp: nn.Tensor, audio_time: nn.Dim) -> Tuple[nn.Tensor, nn.Tensor, Dim]:
-        # stft = nn.make_layer(
-        #     layer_dict={
-        #         "class": "stft",
-        #         "frame_shift": self.frame_shift,
-        #         "frame_size": self.frame_size,
-        #         "fft_size": self.fft_size,
-        #         "from": inp,
-        #     },
-        #     name="stft"
-        # )
-        # abs = nn.abs(stft)
-        # power = abs ** 2
-        # time_dim = None
-        # for dim in stft.dims:
-        #     # workaround because of the custom layer
-        #     if dim != stft.feature_dim and dim != stft.batch_dim:
-        #         time_dim = dim
-
         time_dim = nn.SpatialDim("stft_time")
-        stft = nn.stft(inp, frame_shift=self.frame_shift, fft_size=self.fft_size, frame_size=self.frame_size, in_spatial_dims=[audio_time], out_spatial_dims=[time_dim])
+        stft, _ = nn.stft(inp, frame_shift=self.frame_shift, fft_size=self.fft_size, frame_size=self.frame_size,
+                          in_spatial_dims=[audio_time], out_spatial_dims=[time_dim])
         abs = nn.abs(stft)
-        power = abs**2
-
+        power = abs ** 2
         mel_filterbank = nn.make_layer(
             layer_dict={
                 "class": "mel_filterbank",
@@ -65,7 +48,8 @@ class LogMelFeatureExtractor(nn.Module):
             },
             name="mel_filterbank"
         )
-        mel_filterbank, feature_dim = nn.replace_dim(mel_filterbank, in_dim=mel_filterbank.feature_dim, out_dim=self.out_feature_dim)
+        mel_filterbank, feature_dim = nn.replace_dim(mel_filterbank, in_dim=mel_filterbank.feature_dim,
+                                                     out_dim=self.out_feature_dim)
 
         log = nn.safe_log(mel_filterbank, eps=1e-10)
         log10 = log / 2.3026
