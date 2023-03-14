@@ -117,7 +117,7 @@ class ConformerAEDModel(nn.Module):
 
 def construct_network(
         epoch: int,
-        audio_features: nn.Data,  # phoneme labels
+        audio_features: nn.Data,
         bpe_labels: nn.Data,
         **kwargs
 ):
