@@ -64,9 +64,7 @@ lstm_lm_opts_map = {
     BPE_10K: lstm_10k_lm_opts,
 }
 
-trafo_lm_net = TransformerLM(
-    source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True
-)
+trafo_lm_net = TransformerLM(source="prev:output", num_layers=24, vocab_size=10025, use_as_ext_lm=True)
 trafo_lm_net.create_network()
 trafo_10k_lm_opts = {
     "lm_subnet": trafo_lm_net.network.get_net(),
@@ -82,9 +80,7 @@ bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
 trafo_5k_lm_opts = {
     "lm_subnet": bpe5k_lm.combination_network,
     "load_on_init_opts": {
-        "filename": get_best_checkpoint(
-            bpe5k_lm.train_job, key="dev_score_output/output"
-        ),
+        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
         "params_prefix": "",
         "load_if_prefix": "lm_output/",
     },
@@ -208,16 +204,10 @@ def conformer_baseline():
         elif epoch == "best":
             search_checkpoint = train_job_best_epoch[exp_name]
         else:
-            assert isinstance(
-                epoch, int
-            ), "epoch must be either a defined integer or a string in {avg, best}."
+            assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
             search_checkpoint = train_job.out_checkpoints[epoch]
 
-        ext_lm_opts = (
-            lstm_lm_opts_map[bpe_size]
-            if lm_type == "lstm"
-            else trafo_lm_opts_map[bpe_size]
-        )
+        ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
 
         time_rqmt = 1.0
 
@@ -267,21 +257,15 @@ def conformer_baseline():
                     ilm_opts = {
                         "scale": prior_scale,
                         "type": prior_type,
-                        "ctx_dim": search_args[
-                            "encoder_args"
-                        ].enc_key_dim,  # this is needed for mini-lstm
+                        "ctx_dim": search_args["encoder_args"].enc_key_dim,  # this is needed for mini-lstm
                     }
                     # this is needed for mini-self-att
                     if hasattr(search_args["decoder_args"], "num_layers"):
-                        ilm_opts["num_dec_layers"] = search_args[
-                            "decoder_args"
-                        ].num_layers
+                        ilm_opts["num_dec_layers"] = search_args["decoder_args"].num_layers
                         search_args["decoder_args"].create_ilm_decoder = True
                         search_args["decoder_args"].ilm_type = prior_type
 
-                    ilm_opts.update(
-                        kwargs.get("ilm_train_opts", {})
-                    )  # example for FFN, etc
+                    ilm_opts.update(kwargs.get("ilm_train_opts", {}))  # example for FFN, etc
 
                     search_args["prior_lm_opts"] = ilm_opts
                     search_args["preload_from_files"] = {
@@ -315,9 +299,7 @@ def conformer_baseline():
                     assert isinstance(search_args["decoder_args"], RNNDecoderArgs)
                     search_args["decoder_args"].coverage_scale = coverage_scale
                     search_args["decoder_args"].coverage_threshold = coverage_threshold
-                    lm_desc += (
-                        f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
-                    )
+                    lm_desc += f"_coverage-thre{coverage_threshold}-scale{coverage_scale}"
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
@@ -432,9 +414,7 @@ def conformer_baseline():
         **kwargs,
     ):
         if train_args.get("retrain_checkpoint", None):
-            assert (
-                kwargs.get("epoch_wise_filter", None) is None
-            ), "epoch_wise_filter should be disabled for retraining."
+            assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -486,9 +466,7 @@ def conformer_baseline():
             params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str()
         else:
             if use_ffn:
-                params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(
-                    ffn_opts["num_ffn_layers"]
-                )
+                params_freeze_str = ilm_helpers.get_ffn_params_freeze_str_w_drop(ffn_opts["num_ffn_layers"])
             else:
                 params_freeze_str = ilm_helpers.get_mini_lstm_params_freeze_str_w_drop()
 
@@ -529,16 +507,12 @@ def conformer_baseline():
             x = inp
             activations = ffn_opts["activations"]
             for l in range(ffn_opts["num_ffn_layers"]):
-                returnn_config.config["network"]["output"]["unit"][
-                    "ffn_%02i" % (l + 1)
-                ] = {
+                returnn_config.config["network"]["output"]["unit"]["ffn_%02i" % (l + 1)] = {
                     "class": "linear",
                     "n_out": ffn_opts["ffn_dims"][l],
                     "L2": l2,
                     "from": inp,
-                    "activation": activations[l]
-                    if activations and l < len(activations)
-                    else None,
+                    "activation": activations[l] if activations and l < len(activations) else None,
                 }
                 x = "ffn_%02i" % (l + 1)
 
@@ -596,9 +570,7 @@ def conformer_baseline():
         with masked self-attention models.
         """
 
-        params_freeze_str = ilm_helpers.get_mini_self_att_params_freeze_str_w_drop(
-            args["decoder_args"].num_layers
-        )
+        params_freeze_str = ilm_helpers.get_mini_self_att_params_freeze_str_w_drop(args["decoder_args"].num_layers)
 
         mini_self_att = copy.deepcopy(args)
         mini_self_att["batch_size"] = 20000 * 160  # TODO: does this fit now?
@@ -853,9 +825,7 @@ def conformer_baseline():
     for lr in [5e-4, 3e-4, 1e-4]:
         retrain_args = copy.deepcopy(oclr_args)
         retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-        retrain_args["learning_rates_list"] = [lr] * 20 + list(
-            numpy.linspace(lr, 1e-6, 580)
-        )
+        retrain_args["learning_rates_list"] = [lr] * 20 + list(numpy.linspace(lr, 1e-6, 580))
         retrain_args["lr_decay"] = 0.95
         train_j, train_data = run_exp(
             exp_name=name + f"_retrain1_const20_linDecay580_{lr}",
@@ -866,9 +836,7 @@ def conformer_baseline():
         if lr == 1e-4:
             mini_lstm_j = train_mini_lstm(
                 exp_name=name + f"_retrain1_const20_linDecay580_{lr}",
-                checkpoint=train_job_avg_ckpt[
-                    name + f"_retrain1_const20_linDecay580_{lr}"
-                ],
+                checkpoint=train_job_avg_ckpt[name + f"_retrain1_const20_linDecay580_{lr}"],
                 args=oclr_args,
                 num_epochs=40,
                 w_drop=True,
@@ -885,9 +853,7 @@ def conformer_baseline():
                             lm_scales=[lm_scale],
                             prior_scales=[prior_scale],
                             prior_type="mini_lstm",
-                            mini_lstm_ckpt=get_best_checkpoint(
-                                mini_lstm_j, key="dev_score"
-                            ),
+                            mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
                             train_job=train_j,
                             train_data=train_data,
                             feature_net=log10_net_10ms,
@@ -938,14 +904,11 @@ def conformer_baseline():
                 retrain_args = copy.deepcopy(oclr_args)
                 retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
                 start_decay_pt = int(total_epochs * decay_pt)
-                retrain_args["learning_rates_list"] = [
-                    start_lr
-                ] * start_decay_pt + list(
+                retrain_args["learning_rates_list"] = [start_lr] * start_decay_pt + list(
                     numpy.linspace(start_lr, end_lr, total_epochs - start_decay_pt)
                 )
                 run_exp(
-                    exp_name=name
-                    + f"_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}",
+                    exp_name=name + f"_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}",
                     train_args=retrain_args,
                     num_epochs=total_epochs,
                 )
@@ -993,25 +956,47 @@ def conformer_baseline():
     causal_args["encoder_args"].use_causal_layers = True
 
     # TODO: causal attention without CTC
+    # did not converge
+    # args = copy.deepcopy(causal_args)
+    # args["encoder_args"].with_ctc = False
+    # args["oclr_opts"]["peak_lr"] = 0.0008
+    # run_exp(
+    #     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noCTC",
+    #     train_args=args,
+    #     num_epochs=435,
+    # )
+
+    # TODO: causal att+CTC with small scale or without att
+    # args = copy.deepcopy(causal_args)
+    # for att_scale in [0.0, 0.1, 0.3, 0.5]:
+    #     for ctc_shift_scale in [0.0, 0.5]:
+    #         args["encoder_args"].ctc_self_align_delay = 1
+    #         args["encoder_args"].ctc_self_align_scale = ctc_shift_scale
+    #         args["decoder_args"].ce_loss_scale = att_scale
+    #         args["oclr_opts"]["peak_lr"] = 0.0008
+    #         run_exp(
+    #             f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_attScale-{att_scale}_ctcShiftScale-{ctc_shift_scale}_shift-1",
+    #             train_args=args,
+    #             num_epochs=435,
+    #         )
+
+    # TODO: with higher LR
     args = copy.deepcopy(causal_args)
-    args['encoder_args'].with_ctc = False
-    args['oclr_opts']['peak_lr'] = 0.0008
+    for att_scale in [0.3, 0.5]:
+        args["decoder_args"].ce_loss_scale = att_scale
+        args["oclr_opts"]["peak_lr"] = 0.0008 * 2
+        run_exp(
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}",
+            train_args=args,
+            num_epochs=435,
+        )
+
+    # TODO: without att
+    args = copy.deepcopy(causal_args)
+    args["decoder_args"].ce_loss_scale = 0.0
+    args["oclr_opts"]["peak_lr"] = 0.0008
     run_exp(
-        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noCTC",
+        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noAtt",
         train_args=args,
         num_epochs=435,
     )
-
-    # TODO: causal att+CTC with small scale or without att
-    args = copy.deepcopy(causal_args)
-    for att_scale in [0.0, 0.1, 0.3, 0.5]:
-        for ctc_shift_scale in [0.0, 0.5]:
-            args["encoder_args"].ctc_self_align_delay = 1
-            args["encoder_args"].ctc_self_align_scale = ctc_shift_scale
-            args["decoder_args"].ce_loss_scale = att_scale
-            args['oclr_opts']['peak_lr'] = 0.0008
-            run_exp(
-                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_attScale-{att_scale}_ctcShiftScale-{ctc_shift_scale}_shift-1",
-                train_args=args,
-                num_epochs=435,
-            )

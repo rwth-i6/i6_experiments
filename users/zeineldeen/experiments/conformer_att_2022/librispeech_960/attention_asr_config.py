@@ -156,7 +156,7 @@ def pretrain_layers_and_dims(
 
     InitialDimFactor = initial_dim_factor
 
-    encoder_keys = ["ff_dim", "enc_key_dim", "conv_kernel_size"]   # TODO: effect of pretraining conv font-end?
+    encoder_keys = ["ff_dim", "enc_key_dim", "conv_kernel_size"]  # TODO: effect of pretraining conv font-end?
     decoder_keys = ["ff_dim"]
     encoder_args_copy = copy.deepcopy(encoder_args)
     decoder_args_copy = copy.deepcopy(decoder_args)
@@ -213,9 +213,7 @@ def pretrain_layers_and_dims(
     DecoderAttNumHeads = decoder_args_copy["att_num_heads"]
 
     if reduce_dims:
-        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (
-            final_num_blocks - StartNumLayers
-        )
+        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
@@ -242,8 +240,7 @@ def pretrain_layers_and_dims(
 
             for key in decoder_keys:
                 decoder_args_copy[key] = (
-                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads))
-                    * DecoderAttNumHeads
+                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
         else:
             dim_frac_dec = 1
@@ -279,14 +276,15 @@ def pretrain_layers_and_dims(
     encoder_model = encoder_type(**encoder_args_copy)
     encoder_model.create_network()
 
-    decoder_model = decoder_type(
-        base_model=encoder_model, **decoder_args_copy
-    )
+    decoder_model = decoder_type(base_model=encoder_model, **decoder_args_copy)
     decoder_model.create_network()
 
     net_dict = encoder_model.network.get_net()
 
-    if decoder_args['ce_loss_scale'] and decoder_args['ce_loss_scale'] != 0.0:
+    if decoder_args["ce_loss_scale"] == 0.0:
+        assert encoder_args["with_ctc"], "CTC loss is not enabled."
+        net_dict["output"] = {"class": "copy", "from": "ctc"}
+    else:
         net_dict.update(decoder_model.network.get_net())
 
     net_dict.update(extra_net_dict)
@@ -357,7 +355,7 @@ class TransformerDecoderArgs(DecoderArgs):
     num_layers: int = 6
     att_num_heads: int = 8
     ff_dim: int = 2048
-    ff_act: str = 'relu'
+    ff_act: str = "relu"
     pos_enc: Optional[str] = None
     embed_pos_enc: bool = False
 
@@ -392,7 +390,7 @@ class ConformerDecoderArgs(DecoderArgs):
     num_layers: int = 6
     att_num_heads: int = 8
     ff_dim: int = 2048
-    pos_enc: Optional[str] = 'rel'
+    pos_enc: Optional[str] = "rel"
 
     # conv module
     conv_kernel_size: int = 32
@@ -466,6 +464,7 @@ class RNNDecoderArgs(DecoderArgs):
 
     ce_loss_scale: Optional[float] = 1.0
 
+
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
@@ -513,7 +512,6 @@ def create_config(
     learning_rates_list=None,
     min_lr=None,
 ):
-
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
 
@@ -522,9 +520,7 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {
-            "devtrain": training_datasets.devtrain.as_returnn_opts()
-        }
+        exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
 
     target = "bpe_labels"
 
@@ -574,9 +570,7 @@ def create_config(
         exp_config["learning_rate_control"] = "constant"
         oclr_peak_lr = oclr_opts["peak_lr"]
         oclr_initial_lr = oclr_peak_lr / 10
-        extra_python_code += "\n" + oclr_str.format(
-            **oclr_opts, initial_lr=oclr_initial_lr
-        )
+        extra_python_code += "\n" + oclr_str.format(**oclr_opts, initial_lr=oclr_initial_lr)
     else:  # newbob
         if learning_rates_list:
             learning_rates = learning_rates_list
@@ -588,15 +582,11 @@ def create_config(
             elif not allow_lr_scheduling:
                 learning_rates = None
             elif isinstance(const_lr, int):
-                learning_rates = [wup_start_lr] * const_lr + list(
-                    numpy.linspace(wup_start_lr, lr, num=wup)
-                )
+                learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
             elif isinstance(const_lr, list):
                 assert len(const_lr) == 2
                 learning_rates = (
-                    [wup_start_lr] * const_lr[0]
-                    + list(numpy.linspace(wup_start_lr, lr, num=wup))
-                    + [lr] * const_lr[1]
+                    [wup_start_lr] * const_lr[0] + list(numpy.linspace(wup_start_lr, lr, num=wup)) + [lr] * const_lr[1]
                 )
             else:
                 raise ValueError("unknown const_lr format")
@@ -619,13 +609,13 @@ def create_config(
 
     if isinstance(decoder_args, TransformerDecoderArgs):
         decoder_type = TransformerDecoder
-        dec_type = 'transformer'
+        dec_type = "transformer"
     elif isinstance(decoder_args, RNNDecoderArgs):
         decoder_type = RNNDecoder
-        dec_type = 'lstm'
+        dec_type = "lstm"
     elif isinstance(decoder_args, ConformerDecoderArgs):
         decoder_type = ConformerDecoder
-        dec_type = 'conformer'  # TODO: check if same as transformer
+        dec_type = "conformer"  # TODO: check if same as transformer
     else:
         assert False, "invalid decoder_args type"
 
@@ -637,7 +627,7 @@ def create_config(
 
     if freeze_bn:
         # freeze BN during training (e.g when retraining.)
-        encoder_args['batch_norm_opts'] = {'momentum': 0.0, 'use_sample': 1.0}
+        encoder_args["batch_norm_opts"] = {"momentum": 0.0, "use_sample": 1.0}
 
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
@@ -658,14 +648,17 @@ def create_config(
             prior_lm_opts=prior_lm_opts,
             beam_size=beam_size,
             dec_type=dec_type,
-            length_normalization=decoder_args['length_normalization'],
+            length_normalization=decoder_args["length_normalization"],
         )
         transformer_decoder.create_network()
 
     # add full network
     exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
 
-    if decoder_args['ce_loss_scale'] != 0.0:
+    if decoder_args["ce_loss_scale"] == 0.0:
+        assert encoder_args["with_ctc"], "CTC loss is not enabled."
+        exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
+    else:
         exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
@@ -682,9 +675,7 @@ def create_config(
     if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
         if "preload_from_files" not in exp_config:
             exp_config["preload_from_files"] = {}
-        exp_config["preload_from_files"].update(
-            copy.deepcopy(ext_lm_opts["preload_from_files"])
-        )
+        exp_config["preload_from_files"].update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
 
     if preload_from_files:
         if "preload_from_files" not in exp_config:
@@ -693,9 +684,7 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += "\n" + specaug_transform_func.format(
-            **specaug_str_func_opts
-        )
+        extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
     else:
         python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
 
@@ -705,24 +694,13 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if (
-        with_pretrain
-        and ext_lm_opts is None
-        and retrain_checkpoint is None
-        and is_recog is False
-    ):
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0
             while True:
                 net = pretrain_layers_and_dims(
-                    idx,
-                    exp_config["network"],
-                    encoder_type,
-                    decoder_type,
-                    encoder_args,
-                    decoder_args,
-                    **pretrain_opts
+                    idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
                 if not net:
                     break
@@ -741,22 +719,14 @@ def create_config(
             idx = 0
             while True:
                 net = pretrain_layers_and_dims(
-                    idx,
-                    exp_config["network"],
-                    encoder_type,
-                    decoder_type,
-                    encoder_args,
-                    decoder_args,
-                    **pretrain_opts
+                    idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
                 if not net:
                     break
                 pretrain_networks.append(net)
                 idx += 1
 
-            exp_config["pretrain_nets_lookup"] = {
-                k: v for k, v in enumerate(pretrain_networks)
-            }
+            exp_config["pretrain_nets_lookup"] = {k: v for k, v in enumerate(pretrain_networks)}
 
             exp_config["pretrain"] = {
                 "repetitions": pretrain_reps,
@@ -764,7 +734,9 @@ def create_config(
                 "construction_algo": CodeWrapper("custom_construction_algo"),
             }
 
-            pretrain_algo_str = "def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)"
+            pretrain_algo_str = (
+                "def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)"
+            )
             python_prolog += [pretrain_algo_str]
 
     if recog_epochs:
@@ -772,7 +744,7 @@ def create_config(
         exp_post_config["cleanup_old_models"] = {"keep": recog_epochs}
 
     if keep_all_epochs:
-        exp_post_config['cleanup_old_models'] = False
+        exp_post_config["cleanup_old_models"] = False
 
     if extra_str:
         extra_python_code += "\n" + extra_str
