@@ -33,9 +33,11 @@ class LogMelFeatureExtractor(nn.Module):
         self.out_linear_feature_dim = nn.FeatureDim("extractor_linear_feature", fft_size // 2 + 1)
 
     def __call__(self, inp: nn.Tensor, audio_time: nn.Dim) -> Tuple[nn.Tensor, nn.Tensor, Dim]:
-        time_dim = nn.SpatialDim("stft_time")
-        stft, _ = nn.stft(inp, frame_shift=self.frame_shift, fft_size=self.fft_size, frame_size=self.frame_size,
-                          in_spatial_dims=[audio_time], out_spatial_dims=[time_dim])
+        stft, time_dims = nn.stft(inp, frame_shift=self.frame_shift, fft_size=self.fft_size, frame_size=self.frame_size,
+                          in_spatial_dims=[audio_time], out_spatial_dims=None)
+        time_dim = time_dims[0]
+        # does not work because of Dim.same_as, see "short_repr"
+        time_dim.name = "stft_time"
         abs = nn.abs(stft)
         power = abs ** 2
         mel_filterbank = nn.make_layer(
