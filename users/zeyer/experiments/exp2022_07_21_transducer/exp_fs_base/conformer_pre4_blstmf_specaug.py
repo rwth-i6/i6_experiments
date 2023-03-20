@@ -368,6 +368,7 @@ def from_scratch_training(
         labels=targets,
         input_spatial_dim=enc_spatial_dim,
         labels_spatial_dim=targets_spatial_dim,
+        prev_labels_spatial_dim=prev_targets_spatial_dim,
         blank_index=model.blank_idx,
     )
     loss.mark_as_loss("full_sum")
