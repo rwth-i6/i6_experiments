@@ -170,7 +170,7 @@ class Model(nn.Module):
 
         if all_combinations_out:
             assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
-            assert prev_nb_target_spatial_dim in prev_nb_target.shape
+            assert prev_nb_target_spatial_dim in prev_nb_target.dims
             assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
