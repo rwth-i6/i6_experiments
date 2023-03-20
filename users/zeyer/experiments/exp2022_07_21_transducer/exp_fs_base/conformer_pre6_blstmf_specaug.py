@@ -183,7 +183,7 @@ class Model(nn.Module):
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
         att_energy = att_energy * (att_energy.feature_dim.dimension**-0.5)
         att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.shape_ordered)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.dims)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:

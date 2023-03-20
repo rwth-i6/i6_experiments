@@ -215,7 +215,7 @@ class Model(nn.Module):
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
         att_energy = att_energy * (att_energy.feature_dim.dimension**-0.5)
         att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.shape_ordered)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.dims)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
@@ -305,7 +305,7 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
         else:
             pos_emb, pos_emb_spatial_dim = nn.relative_positional_encoding(axis, self.pos_emb_feat_dim)
         if self.pos_emb_dropout:
-            pos_emb = nn.dropout(pos_emb, self.pos_emb_dropout, axis=pos_emb.shape_ordered)
+            pos_emb = nn.dropout(pos_emb, self.pos_emb_dropout, axis=pos_emb.dims)
         if self.linear_pos is not None:
             pos_emb = self.linear_pos(pos_emb)
         if self.separate_pos_emb_per_head:

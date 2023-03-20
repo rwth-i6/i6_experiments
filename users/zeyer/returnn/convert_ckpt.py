@@ -81,7 +81,7 @@ class ConvertCheckpointJob(Job):
 
                 tf_var_name = name.replace(".", "/") + "/param"
                 dtype = param.dtype
-                shape = tuple(d.dimension for d in param.shape_ordered)
+                shape = tuple(d.dimension for d in param.dims)
                 tf_var = tf1.Variable(
                     name=tf_var_name,
                     initial_value=tf.zeros(shape, dtype=dtype),
