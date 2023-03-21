@@ -429,7 +429,7 @@ def get_vtln_sat_args():
     },
     "optimize_am_lm_scale": True,
     "rtf": 20,
-    "mem": 4,
+    "mem": 4 if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else 8,
     "parallelize_conversion": True,
   }
 

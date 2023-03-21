@@ -442,16 +442,15 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
   cv_synth_corpus_job.add_input(verification)
   cv_synth_corpus = cv_synth_corpus_job.out_corpus
   librispeech_trafo = tk.Path(
-    "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
-    "pretrain3.natctc_recognize_pretrained.config"
+    "/work/smt4/hilmes/swer_model/returnn2.config"
   )
-  # asr_evaluation(
-  #    config_file=librispeech_trafo,
-  #    corpus=cv_synth_corpus,
-  #    output_path=name,
-  #    returnn_root=returnn_root,
-  #    returnn_python_exe=returnn_exe,
-  # )
+  asr_evaluation(
+    config_file=librispeech_trafo,
+    corpus=cv_synth_corpus,
+    output_path=name,
+    returnn_root=returnn_root,
+      returnn_python_exe=returnn_exe,
+  )
 
 
 def synthesize_with_splits(
@@ -665,6 +664,7 @@ def calculate_feature_variance(
   original_corpus=None,
   original_speakers=False,
   original_durations=None,
+  just_kl=False,
   **kwargs,
 ):
   if "speaker_embedding_size" in kwargs:
@@ -697,6 +697,30 @@ def calculate_feature_variance(
     original_corpus=original_corpus,
     original_speakers=original_speakers,
   )
+  if just_kl:
+      if original_durations is not None and durations is None:
+          forward_config2 = get_forward_config(
+              returnn_common_root=returnn_common_root,
+              forward_dataset=synth_dataset,
+              dump_round_durations=True,
+              dump_durations=True,
+              **kwargs,
+          )
+          forward_job2 = tts_forward(
+              checkpoint=train_job.out_checkpoints[200],
+              config=forward_config2,
+              prefix=prefix + "/cov_analysis/full/dur_forward",
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+          )
+          durs = forward_job2.out_default_hdf
+          kl_div_job = CalculateKLDivFromDurations(pred_durations=durs, ref_durations=original_durations, bliss=corpus)
+          kl_div_job.add_alias(prefix + "/cov_analysis/full/calculate_dur_kl_div_job")
+          tk.register_output(prefix + "/cov_analysis/full/dur_kl_div", kl_div_job.out_div)
+          content2 = GenerateReportStringJob(report_values={"kl_div": kl_div_job.out_div}, report_template="{kl_div}")
+          report2 = MailJob(subject=prefix, result=content2.out_report, send_contents=True)
+          tk.register_output(f"reports/{prefix}", report2.out_status)
+      return
   forward_config = get_forward_config(
     returnn_common_root=returnn_common_root,
     forward_dataset=synth_dataset,

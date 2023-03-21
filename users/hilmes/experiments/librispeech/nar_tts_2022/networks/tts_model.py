@@ -507,8 +507,12 @@ class NARTTSModel(nn.Module):
         gauss_with_speak_emb: bool = False,
         big: bool = False,
         random_duration_scaling: Optional[Tuple[float, float, float, float]] = None,
+        redo=False,
     ):
         super(NARTTSModel, self).__init__()
+
+        # dummy parameter to quickly redo exps
+        self.redo = redo
 
         # params
         self.phoneme_in_dim = phoneme_in_dim
@@ -798,20 +802,19 @@ class NARTTSModel(nn.Module):
             duration_prediction = duration_float
         else:
             duration_prediction = self.duration(inp=duration_in, time_dim=time_dim)  # [B, Label-time, 1]
+            if self.random_duration_scaling is not None:
+                gauss = nn.random_normal(shape=duration_prediction.shape_ordered, mean=0.0, stddev=self.dev)
+                cum_gauss = nn.cumsum(gauss, axis=time_dim)
+                mean_cum = nn.reduce(cum_gauss, mode="mean", axis=time_dim)
+                cum_gauss = nn.combine(cum_gauss, mean_cum, kind="sub")  # , allow_broadcast_all_sources=True)
+                scale = nn.combine(cum_gauss, nn.constant(self.center), kind="add")
+                scale = nn.combine(scale, nn.constant(self.max), kind="minimum")
+                scale = nn.combine(scale, nn.constant(self.min), kind="maximum")
+                duration_prediction = duration_prediction * scale
             if self.dump_durations or self.dump_durations_to_hdf:
                 duration_dump = duration_prediction
                 if self.duration_scale != 1.0:
                     duration_dump = duration_dump * self.duration_scale
-                if self.random_duration_scaling is not None:
-                    gauss = nn.random_normal(shape=duration_prediction.shape_ordered, mean=0.0, stddev=self.dev)
-                    cum_gauss = nn.cumsum(gauss, axis=time_dim)
-                    mean_cum = nn.reduce(cum_gauss, mode="mean", axis=time_dim)
-                    cum_gauss = nn.combine(cum_gauss, mean_cum, kind="sub")  # , allow_broadcast_all_sources=True)
-                    scale = nn.combine(cum_gauss, nn.constant(self.center), kind="add")
-                    scale = nn.combine(scale, nn.constant(self.max), kind="minimum")
-                    scale = nn.combine(scale, nn.constant(self.min), kind="maximum")
-                    duration_prediction = duration_prediction * scale
-                    duration_dump = duration_prediction
                 if self.dump_round_durations:
                     duration_dump = nn.rint(duration_dump)
                 if self.dump_durations_to_hdf:

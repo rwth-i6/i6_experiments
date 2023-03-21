@@ -7,6 +7,7 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.data import (
   get_tts_data_from_ctc_align,
   get_librispeech_tts_segments,
+  get_ls_train_clean_100_tts_silencepreprocessed
 )
 from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.ctc_align.ctc_experiments import (
   get_baseline_ctc_alignment,
@@ -42,11 +43,12 @@ from i6_experiments.users.hilmes.experiments.librispeech.util.asr_evaluation imp
 from copy import deepcopy
 
 
-def ctc_baseline(basic_experiments=False):
+def ctc_baseline(basic_experiments=False, return_trainings=False):
   """
     baseline for returnn_common ctc model with network constructor
     :return:
     """
+  trainings={}
   returnn_exe = tk.Path(
     "/u/hilmes/bin/returnn_tf2.3_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
@@ -83,20 +85,43 @@ def ctc_baseline(basic_experiments=False):
   synthetic_data_dict = {}
   job_splits = 10
 
-  librispeech_trafo = tk.Path(
-    "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
-    "pretrain3.natctc_recognize_pretrained.config"
-  )
+  librispeech_trafo = tk.Path("/work/smt4/hilmes/swer_model/returnn2.config")
   train_segments, cv_segments = get_librispeech_tts_segments()
   asr_evaluation(
     config_file=librispeech_trafo,
-    corpus=reference_corpus.corpus_file,
-    output_path=name,
+    corpus=get_ls_train_clean_100_tts_silencepreprocessed().corpus_file,
+    output_path="real_swer",
     returnn_root=returnn_root,
     returnn_python_exe=returnn_exe,
     segment_file=cv_segments,
   )
-
+  ls_no_sil_prep = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")['train-clean-100']
+  asr_evaluation(
+    config_file=librispeech_trafo,
+    corpus=ls_no_sil_prep.corpus_file,
+    output_path="real_swer_no_sil_p",
+    returnn_root=returnn_root,
+    returnn_python_exe=returnn_exe,
+    segment_file=cv_segments,
+  )
+  ls_vocoding_only = synthesize_ls_100_features()
+  asr_evaluation(
+    config_file=librispeech_trafo,
+    corpus=ls_vocoding_only,
+    output_path="vocoding_only",
+    returnn_root=returnn_root,
+    returnn_python_exe=returnn_exe,
+    segment_file=cv_segments,
+  )
+  ls_vocoding_only_no_sil_p = synthesize_ls_100_features(silence_prep=False)
+  asr_evaluation(
+    config_file=librispeech_trafo,
+    corpus=ls_vocoding_only_no_sil_p,
+    output_path="vocoding_only_no_sil_p",
+    returnn_root=returnn_root,
+    returnn_python_exe=returnn_exe,
+    segment_file=cv_segments,
+  )
   for upsampling in ["repeat", "gauss"]:
     exp_name = name + f"/{upsampling}"
     train_config = get_training_config(
@@ -115,22 +140,9 @@ def ctc_baseline(basic_experiments=False):
       prefix=exp_name,
       num_epochs=200,
     )
-    forward_config = get_forward_config(
-      returnn_common_root=returnn_common_root,
-      forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
-      embedding_size=256,
-      speaker_embedding_size=256,
-      gauss_up=(upsampling == "gauss"),
-      calc_speaker_embedding=True,
-    )
-    gl_swer(
-      name=exp_name,
-      vocoder=default_vocoder,
-      returnn_root=returnn_root,
-      returnn_exe=returnn_exe,
-      checkpoint=train_job.out_checkpoints[200],
-      config=forward_config,
-    )
+    trainings["ctc_0.5"] = train_job
+    if return_trainings:
+      return trainings
     speaker_embedding_hdf = build_speaker_embedding_dataset(
       returnn_common_root=returnn_common_root,
       returnn_exe=returnn_exe,
@@ -176,6 +188,23 @@ def ctc_baseline(basic_experiments=False):
       process_corpus=False,
     )
     for duration in ["pred", "cheat"]:
+      forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root_local,
+        forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+        embedding_size=256,
+        speaker_embedding_size=256,
+        gauss_up=(upsampling == "gauss"),
+        calc_speaker_embedding=True,
+        use_true_durations=(duration == "cheat"),
+      )
+      gl_swer(
+        name=exp_name + f"gl_swer_{duration}",
+        vocoder=default_vocoder,
+        returnn_root=returnn_root_local,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+      )
       synth_corpus = synthesize_with_splits(
         name=exp_name + f"/{duration}",
         reference_corpus=reference_corpus.corpus_file,
@@ -219,6 +248,9 @@ def ctc_baseline(basic_experiments=False):
       commit="fcfaacf0e98e9630167a29b7fe306cb8d77bcbe6",
       checkout_folder_name="returnn_common",
     ).out_repository
+    returnn_root_local = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
+    ).out_repository
     train_config = get_training_config(
       returnn_common_root=returnn_common_root_loc,
       training_datasets=training_datasets,
@@ -241,28 +273,6 @@ def ctc_baseline(basic_experiments=False):
       num_epochs=200,
     )
 
-    forward_config = get_forward_config(
-      returnn_common_root=returnn_common_root_loc,
-      forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
-      embedding_size=int(256 * model_scale),
-      speaker_embedding_size=int(256 * model_scale),
-      enc_lstm_size=int(256 * model_scale),
-      dec_lstm_size=int(1024 * model_scale),
-      hidden_dim=int(256 * model_scale),
-      variance_dim=int(512 * model_scale),
-      calc_speaker_embedding=True,
-      gauss_up=True,
-    )
-
-    gl_swer(
-      name=exp_name + "/gl_swer",
-      vocoder=default_vocoder,
-      returnn_root=returnn_root_loc,
-      returnn_exe=returnn_exe,
-      checkpoint=train_job.out_checkpoints[200],
-      config=forward_config,
-    )
-
     speaker_embedding_hdf = build_speaker_embedding_dataset(
       returnn_common_root=returnn_common_root_loc,
       returnn_exe=returnn_exe,
@@ -273,6 +283,28 @@ def ctc_baseline(basic_experiments=False):
       speaker_embedding_size=int(256 * model_scale)
     )
     for dur_pred in ["pred", "cheat"]:
+      forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root_loc,
+        forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+        embedding_size=int(256 * model_scale),
+        speaker_embedding_size=int(256 * model_scale),
+        enc_lstm_size=int(256 * model_scale),
+        dec_lstm_size=int(1024 * model_scale),
+        hidden_dim=int(256 * model_scale),
+        variance_dim=int(512 * model_scale),
+        calc_speaker_embedding=True,
+        gauss_up=True,
+        use_true_durations=(dur_pred == "cheat"),
+      )
+
+      gl_swer(
+        name=exp_name + f"/gl_swer_{dur_pred}",
+        vocoder=default_vocoder,
+        returnn_root=returnn_root_local,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+      )
       synth_dataset = get_inference_dataset(
         corpus,
         returnn_root=returnn_root_loc,
@@ -1028,11 +1060,12 @@ def ctc_baseline(basic_experiments=False):
   return synthetic_data_dict
 
 
-def ctc_loss_scale():
+def ctc_loss_scale(return_trainings=False):
   """
     baseline for returnn_common ctc model with network constructor
     :return:
     """
+  trainings={}
   returnn_exe = tk.Path(
     "/u/rossenbach/bin/returnn_tf2.3_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
@@ -1100,31 +1133,10 @@ def ctc_loss_scale():
         prefix=exp_name,
         num_epochs=200,
       )
-      if upsampling == "gauss":
-        forward_config = get_forward_config(
-          returnn_common_root=returnn_common_root,
-          forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
-          embedding_size=256,
-          speaker_embedding_size=256,
-          calc_speaker_embedding=True,
-          gauss_up=(upsampling == "gauss"),
-        )
-      else:
-        forward_config = get_forward_config(
-          returnn_common_root=returnn_common_root,
-          forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
-          embedding_size=256,
-          speaker_embedding_size=256,
-          calc_speaker_embedding=True,
-        )
-      gl_swer(
-        name=exp_name + "/gl_swer",
-        vocoder=default_vocoder,
-        returnn_root=returnn_root,
-        returnn_exe=returnn_exe,
-        checkpoint=train_job.out_checkpoints[200],
-        config=forward_config,
-      )
+      if float(scale) == 0.0:
+        trainings["ctc_0.0"] = train_job
+        if return_trainings:
+          return trainings
       if float(scale) in [0, 0.25, 1.0]:
         speaker_embedding_hdf = build_speaker_embedding_dataset(
           returnn_common_root=returnn_common_root,
@@ -1163,6 +1175,23 @@ def ctc_loss_scale():
           tk.register_output(exp_name + "/dump_dur/durations.hdf", forward_hdf)
         # for dur_pred in ["pred", "cheat"]:, Removed due to Space
         for dur_pred in ["pred", "cheat"]:
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root_local,
+            forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+            embedding_size=256,
+            speaker_embedding_size=256,
+            calc_speaker_embedding=True,
+            gauss_up=(upsampling == "gauss"),
+            use_true_durations=(dur_pred == "cheat"),
+          )
+          gl_swer(
+            name=exp_name + f"/gl_swer_{dur_pred}",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
           synth_dataset = get_inference_dataset_old(
             corpus,
             returnn_root=returnn_root,

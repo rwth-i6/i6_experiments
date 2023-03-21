@@ -62,7 +62,7 @@ def run_hybrid_baseline_rc(gmm_system, key):
     ) = get_corpus_data_inputs_newcv(gmm_system)
 
     nn_args = get_rc_nn_args(num_epochs=125)
-    nn_args.training_args["partition_epochs"] = {"train": 10, "dev": 1}
+    nn_args.training_args["partition_epochs"] = {"train": 10 if not ("1000" in key or "860" in key) else 100, "dev": 1}
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 

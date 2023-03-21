@@ -241,7 +241,7 @@ def gmm_duration_cheat(
           returnn_exe=returnn_exe,
           returnn_root=returnn_root if "sat" in align_name else returnn_root_local,
           datasets=training_datasets,
-          prefix=exp_name,
+          prefix=exp_name + "_full_var",
           train_job=train_job,
         )
 
@@ -389,6 +389,23 @@ def gmm_duration_cheat(
           durations=durations_hdf if dur_pred == "cheat" else None,
           original_durations=durations_hdf,
         )
+        forward_config = get_forward_config(
+          returnn_common_root=returnn_common_root_local,
+          forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+          embedding_size=256,
+          speaker_embedding_size=256,
+          gauss_up=(upsampling == "gauss"),
+          calc_speaker_embedding=True,
+          use_true_durations=(dur_pred == "cheat"),
+        )
+        gl_swer(
+          name=exp_name + f"/gl_swer_{dur_pred}",
+          vocoder=default_vocoder,
+          returnn_root=returnn_root_local,
+          returnn_exe=returnn_exe,
+          checkpoint=train_job.out_checkpoints[200],
+          config=forward_config,
+        )
         if upsampling == "gauss" and dur_pred == "pred" and align_name == "tts_align_sat":
           synth_dataset = get_inference_dataset_old(
             new_corpus,
@@ -443,7 +460,25 @@ def gmm_duration_cheat(
             durations=durations_hdf if dur_pred == "cheat" else None,
             process_corpus=False,
           )
-          for random_duration_std in [0.025, 0.0125, 0.03, 0.035, 0.02, 0.0249]:
+          for random_duration_std in [0.025, 0.0125, 0.0375, 0.05, 0.075]:
+            forward_config = get_forward_config(
+              returnn_common_root=returnn_common_root_local,
+              forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+              embedding_size=256,
+              speaker_embedding_size=256,
+              gauss_up=(upsampling == "gauss"),
+              calc_speaker_embedding=True,
+              use_true_durations=(dur_pred == "cheat"),
+              random_duration_scaling=[1.05, random_duration_std, 0.9, 1.2],
+            )
+            gl_swer(
+              name=exp_name + f"/gl_swer_1.05_{random_duration_std}",
+              vocoder=default_vocoder,
+              returnn_root=returnn_root_local,
+              returnn_exe=returnn_exe,
+              checkpoint=train_job.out_checkpoints[200],
+              config=forward_config,
+            )
             synth_corpus = synthesize_with_splits(
               name=exp_name + f"/{dur_pred}_{random_duration_std}",
               reference_corpus=reference_corpus.corpus_file,
@@ -459,7 +494,8 @@ def gmm_duration_cheat(
               speaker_embedding_size=256,
               gauss_up=(upsampling == "gauss"),
               use_true_durations=(dur_pred == "cheat"),
-              random_duration_scaling=[1.05, random_duration_std, 0.9, 1.2]
+              random_duration_scaling=[1.05, random_duration_std, 0.9, 1.2],
+              redo=True
             )
             synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_{str(random_duration_std).replace('.','_')}"] = synth_corpus
             calculate_feature_variance(
@@ -476,8 +512,143 @@ def gmm_duration_cheat(
               use_true_durations=(dur_pred == "cheat"),
               durations=durations_hdf if dur_pred == "cheat" else None,
               random_duration_scaling=[1.05, random_duration_std, 0.9, 1.2],
-              original_durations=durations_hdf
+              original_durations=durations_hdf,
+              redo=True,
             )
+            if True:
+                _, scale_mapping = get_inference_dataset(
+                    new_corpus,
+                    returnn_root=returnn_root,
+                    returnn_exe=returnn_exe,
+                    datastreams=training_datasets.datastreams,
+                    speaker_embedding_hdf=speaker_embedding_hdf,
+                    durations=durations_hdf if dur_pred == "cheat" else None,
+                    process_corpus=False,
+                    return_mapping=True
+                )
+                tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping)
+                tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_1.05_{random_duration_std}" + "/add_tags")
+                tk.register_output(exp_name + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
+                tk.register_output(f"paper_nick/21_02_23_ls100/random_1.05_{random_duration_std}_real_tags_corpus.xml.gz",
+                    tag_corpus_job.out_corpus)
+                tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping,
+                    prefix="synth_")
+                tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_1.05_{random_duration_std}" + "/add_tags_synth")
+                tk.register_output(
+                    f"paper_nick/21_02_23_ls100/random_1.05_{random_duration_std}_synth_pref_tags_corpus.xml.gz",
+                    tag_corpus_job.out_corpus)
+          for mean in [1.0]:
+            for random_duration_std in [0.025, 0.0125, 0.03, 0.035, 0.02, 0.0249, 0.0375, 0.04, 0.045, 0.05, 0.055, 0.06, 0.065,0.075,0.08,0.09,0.1, 1.0, 0.2, 0.3, 0.15, 0.5, 0.75]:
+              synth_dataset, scale_mapping = get_inference_dataset(
+                new_corpus,
+                returnn_root=returnn_root,
+                returnn_exe=returnn_exe,
+                datastreams=training_datasets.datastreams,
+                speaker_embedding_hdf=speaker_embedding_hdf,
+                durations=durations_hdf if dur_pred == "cheat" else None,
+                process_corpus=False,
+                return_mapping=True
+              )
+              if True:
+                  calculate_feature_variance(
+                      train_job=train_job,
+                      corpus=new_corpus,
+                      returnn_root=returnn_root_local,
+                      returnn_exe=returnn_exe,
+                      returnn_common_root=returnn_common_root_local,
+                      prefix=exp_name + f"/{dur_pred}_{random_duration_std}_{mean}",
+                      training_datasets=training_datasets,
+                      gauss_up=(upsampling == "gauss"),
+                      embedding_size=256,
+                      speaker_embedding_size=256,
+                      use_true_durations=(dur_pred == "cheat"),
+                      durations=durations_hdf if dur_pred == "cheat" else None,
+                      random_duration_scaling=[mean, random_duration_std, 0.9, 1.2],
+                      original_durations=durations_hdf,
+                      just_kl=True,
+                  )
+                  calculate_feature_variance(
+                      train_job=train_job,
+                      corpus=new_corpus,
+                      returnn_root=returnn_root_local,
+                      returnn_exe=returnn_exe,
+                      returnn_common_root=returnn_common_root_local,
+                      prefix=exp_name + f"/{dur_pred}_{random_duration_std}_{mean}_min_0.8",
+                      training_datasets=training_datasets,
+                      gauss_up=(upsampling == "gauss"),
+                      embedding_size=256,
+                      speaker_embedding_size=256,
+                      use_true_durations=(dur_pred == "cheat"),
+                      durations=durations_hdf if dur_pred == "cheat" else None,
+                      random_duration_scaling=[mean, random_duration_std, 0.8, 1.2],
+                      original_durations=durations_hdf,
+                      just_kl=True,
+                  )
+              if random_duration_std not in [0.0125, 0.025, 0.0375, 0.05, 0.075]:
+                  continue
+              forward_config = get_forward_config(
+                returnn_common_root=returnn_common_root_local,
+                forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+                embedding_size=256,
+                speaker_embedding_size=256,
+                gauss_up=(upsampling == "gauss"),
+                calc_speaker_embedding=True,
+                use_true_durations=(dur_pred == "cheat"),
+                random_duration_scaling=[mean, random_duration_std, 0.9, 1.2],
+              )
+              gl_swer(
+                name=exp_name + f"/gl_swer_{mean}_{random_duration_std}",
+                vocoder=default_vocoder,
+                returnn_root=returnn_root_local,
+                returnn_exe=returnn_exe,
+                checkpoint=train_job.out_checkpoints[200],
+                config=forward_config,
+              )
+              synth_corpus = synthesize_with_splits(
+                name=exp_name + f"/{dur_pred}_{random_duration_std}_{mean}",
+                reference_corpus=reference_corpus.corpus_file,
+                corpus_name="train-clean-100",
+                job_splits=job_splits,
+                datasets=synth_dataset,
+                returnn_root=returnn_root_local,
+                returnn_exe=returnn_exe,
+                returnn_common_root=returnn_common_root_local,
+                checkpoint=train_job.out_checkpoints[200],
+                vocoder=default_vocoder,
+                embedding_size=256,
+                speaker_embedding_size=256,
+                gauss_up=(upsampling == "gauss"),
+                use_true_durations=(dur_pred == "cheat"),
+                random_duration_scaling=[mean, random_duration_std, 0.9, 1.2],
+                redo=True,
+              )
+              synthetic_data_dict[
+                f"{align_name}_{upsampling}_{dur_pred}_{str(mean).replace('.', '_')}_{str(random_duration_std).replace('.', '_')}"] = synth_corpus
+              calculate_feature_variance(
+                train_job=train_job,
+                corpus=new_corpus,
+                returnn_root=returnn_root_local,
+                returnn_exe=returnn_exe,
+                returnn_common_root=returnn_common_root_local,
+                prefix=exp_name + f"/{dur_pred}_{random_duration_std}_{mean}",
+                training_datasets=training_datasets,
+                gauss_up=(upsampling == "gauss"),
+                embedding_size=256,
+                speaker_embedding_size=256,
+                use_true_durations=(dur_pred == "cheat"),
+                durations=durations_hdf if dur_pred == "cheat" else None,
+                random_duration_scaling=[mean, random_duration_std, 0.9, 1.2],
+                original_durations=durations_hdf,
+                redo=True,
+              )
+              if True:
+                tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping)
+                tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_{mean}_{random_duration_std}" + "/add_tags")
+                tk.register_output(exp_name + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
+                tk.register_output(f"paper_nick/21_02_23_ls100/random_{mean}_{random_duration_std}_real_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
+                tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping, prefix="synth_")
+                tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_{mean}_{random_duration_std}" + "/add_tags_synth")
+                tk.register_output(f"paper_nick/21_02_23_ls100/random_{mean}_{random_duration_std}_synth_pref_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
         if upsampling == "gauss" and dur_pred == "pred" and align_name == "tts_align_sat":
           corpora = []
           for seed in range(10):
@@ -530,9 +701,29 @@ def gmm_duration_cheat(
           )
         # for duration_scale in [0.9, 1.1, 1.2, 1.3, 2.0, 1.15, 1.25, 1.75]:, REMOVED because of space
         # for duration_scale in [1.1, 1.2, 1.3, 1.15, 1.25]:, REMOVED due to space
-        for duration_scale in [0.8, 0.9, 2.0, 1.2, 1.1, 1.15]:
+        for duration_scale in [0.8, 0.9, 2.0, 1.2, 1.1, 1.15, 1.05, 1.25, 1.3]:
           # TODO for duration_scale in [1.1, 1.2, 1.3, 1.15, 1.25]: once finished use this + maybe remove 1.3, 1.25
           if upsampling != "gauss" or dur_pred != "pred" or align_name != "tts_align_sat":
+            continue
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root_local,
+            forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            calc_speaker_embedding=True,
+            use_true_durations=(dur_pred == "cheat"),
+            duration_scale=duration_scale,
+          )
+          gl_swer(
+            name=exp_name + f"/gl_swer_{dur_pred}_scale{duration_scale}",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
+          if duration_scale in [1.25, 1.3]:
             continue
           synth_dataset = get_inference_dataset(
             new_corpus,
@@ -550,9 +741,9 @@ def gmm_duration_cheat(
             corpus_name="train-clean-100",
             job_splits=job_splits,
             datasets=synth_dataset,
-            returnn_root=returnn_root if duration_scale not in [0.8, 1.2, 0.9, 2.0] else returnn_root_local,
+            returnn_root=returnn_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.05] else returnn_root_local,
             returnn_exe=returnn_exe,
-            returnn_common_root=returnn_common_root if duration_scale not in [0.8, 1.2, 0.9, 2.0] else returnn_common_root_local,
+            returnn_common_root=returnn_common_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.05] else returnn_common_root_local,
             checkpoint=train_job.out_checkpoints[200],
             vocoder=default_vocoder,
             embedding_size=256,
@@ -575,9 +766,9 @@ def gmm_duration_cheat(
           calculate_feature_variance(
             train_job=train_job,
             corpus=new_corpus,
-            returnn_root=returnn_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.1, 1.15] else returnn_root_local,
+            returnn_root=returnn_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.1, 1.05, 1.15] else returnn_root_local,
             returnn_exe=returnn_exe,
-            returnn_common_root=returnn_common_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.1, 1.15] else returnn_common_root_local,
+            returnn_common_root=returnn_common_root if duration_scale not in [0.8, 1.2, 0.9, 2.0, 1.1, 1.05, 1.15] else returnn_common_root_local,
             prefix=exp_name + f"/{dur_pred}_scale{duration_scale}",
             training_datasets=training_datasets,
             gauss_up=(upsampling == "gauss"),
@@ -590,6 +781,25 @@ def gmm_duration_cheat(
             original_durations=durations_hdf,
           )
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_scale_{str(duration_scale).replace('.', '_')}"] = synth_corpus
+          if duration_scale == 1.1 or duration_scale == 1.05:
+            synth_dataset, scale_mapping = get_inference_dataset(
+              new_corpus,
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+              datastreams=training_datasets.datastreams,
+              speaker_embedding_hdf=speaker_embedding_hdf,
+              durations=durations_hdf if dur_pred == "cheat" else None,
+              process_corpus=False,
+              return_mapping=True
+            )
+            tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping)
+            tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_scale{duration_scale}" + "/add_tags")
+            tk.register_output(exp_name + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
+            tk.register_output(f"paper_nick/21_02_23_ls100/scale_{duration_scale}_real_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
+            tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=scale_mapping, prefix="synth_")
+            tag_corpus_job.add_alias(exp_name + f"/{dur_pred}_scale{duration_scale}" + "/add_synth_tags")
+            tk.register_output(f"paper_nick/21_02_23_ls100/scale_{duration_scale}_synth_prefix_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
+
           #if duration_scale in [1.1, 1.2, 1.15]:, REMOVED due to space
           if duration_scale in [1.1, 1.15]:
             synth_dataset = get_inference_dataset(
@@ -634,6 +844,24 @@ def gmm_duration_cheat(
           returnn_root_local = CloneGitRepositoryJob(
             "https://github.com/rwth-i6/returnn", commit="2c0bf3666e721b86d843f2ef54cd416dfde20566"
           ).out_repository
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root_local,
+            forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+            embedding_size=256,
+            speaker_embedding_size=256,
+            gauss_up=(upsampling == "gauss"),
+            calc_speaker_embedding=True,
+            use_true_durations=(dur_pred == "cheat"),
+            duration_scale=duration_scale,
+          )
+          gl_swer(
+            name=exp_name + f"/gl_swer_{dur_pred}_scale{duration_scale}",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root_local,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
           synth_dataset = get_inference_dataset(
             new_corpus,
             returnn_root=returnn_root if not "no_sil_p" in align_name else returnn_root_local,
@@ -759,6 +987,12 @@ def gmm_duration_cheat(
           tag_corpus_job.add_alias(exp_name + f"/{dur_pred}" + "/add_tags")
           tk.register_output(exp_name + "/add_tags/corpus.xml.gz", tag_corpus_job.out_corpus)
           synthetic_data_dict[f"{align_name}_{upsampling}_{dur_pred}_speaker_tags"] = tag_corpus_job.out_corpus
+          if dur_pred == "pred" and align_name == 'tts_align_sat':
+            tk.register_output("paper_nick/21_02_23_ls100/pred_real_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
+            tag_corpus_job = AddSpeakerTagsFromMappingJob(corpus=synth_corpus, mapping=speaker_mapping, prefix="synth_")
+            tag_corpus_job.add_alias(exp_name + f"/{dur_pred}" + "/add_tags_synth")
+            tk.register_output("paper_nick/21_02_23_ls100/pred_synth_prefix_tags_corpus.xml.gz", tag_corpus_job.out_corpus)
+
         if basic_trainings:
           continue
         if silence_prep and False:
@@ -1150,6 +1384,28 @@ def gmm_duration_cheat(
               original_durations=durations_hdf,
               **synth_kwargs,
             )
+            forward_config = get_forward_config(
+              returnn_common_root=returnn_common_root_local,
+              forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+              embedding_size=256,
+              speaker_embedding_size=256,
+              gauss_up=(upsampling == "gauss"),
+              calc_speaker_embedding=True,
+              use_true_durations=(synth_method == "cheat_dur"),
+              use_pitch_pred=("f0" in variance),
+              use_energy_pred=("energy" in variance),
+              energy_cheat=("cheat_energy" in synth_method),
+              pitch_cheat=("cheat_f0" in synth_method),
+            )
+            gl_swer(
+              name=exp_name + f"/gl_swer_{synth_method}",
+              vocoder=default_vocoder,
+              returnn_root=returnn_root_local,
+              returnn_exe=returnn_exe,
+              checkpoint=train_job.out_checkpoints[200],
+              config=forward_config,
+            )
+
           if variance == "energy_test" and False:
             synth_corpus = synthesize_with_splits(
               name=exp_name + f"/{synth_method}_norm_fix",
@@ -1650,6 +1906,8 @@ def gmm_ablation_studies(alignments: Dict, rasr_allophones, return_trainings=Fal
       prefix=exp_name,
       num_epochs=200,
     )
+    if return_trainings:
+      trainings[f"{align_name}_gauss_big"] = train_job
     speaker_embedding_hdf = build_speaker_embedding_dataset(
       returnn_common_root=returnn_common_root,
       returnn_exe=returnn_exe,
@@ -1660,6 +1918,22 @@ def gmm_ablation_studies(alignments: Dict, rasr_allophones, return_trainings=Fal
       speaker_embedding_size=256
     )
     for dur_pred in ["pred", "cheat"]:
+      forward_config = get_forward_config(
+        returnn_common_root=returnn_common_root,
+        forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+        gauss_up=True,
+        calc_speaker_embedding=True,
+        use_true_durations=(dur_pred == "cheat"),
+        big=True,
+      )
+      gl_swer(
+        name=exp_name + f"/gl_swer_{dur_pred}",
+        vocoder=default_vocoder,
+        returnn_root=returnn_root,
+        returnn_exe=returnn_exe,
+        checkpoint=train_job.out_checkpoints[200],
+        config=forward_config,
+      )
       synth_dataset = get_inference_dataset_old(
         new_corpus,
         returnn_root=returnn_root,
@@ -1771,25 +2045,26 @@ def train_tts_with_xvectors(alignments: Dict, rasr_allophones, speaker_embedding
           prefix=exp_name,
           num_epochs=200,
         )
-        forward_config = get_forward_config(
-          returnn_common_root=returnn_common_root,
-          forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
-          embedding_size=speaker_embedding_size_int,
-          speaker_embedding_size=speaker_embedding_size_int,
-          gauss_up=(upsampling == "gauss"),
-          calc_speaker_embedding=True,
-          xvectors=True,
-        )
-        gl_swer(
-          name=exp_name + "/gl_swer",
-          vocoder=default_vocoder,
-          returnn_root=returnn_root,
-          returnn_exe=returnn_exe,
-          checkpoint=train_job.out_checkpoints[200],
-          config=forward_config,
-        )
         speaker_embedding_hdf = speaker_embedding
         for dur_pred in ["pred", "cheat"]:
+          forward_config = get_forward_config(
+            returnn_common_root=returnn_common_root,
+            forward_dataset=TTSForwardData(dataset=training_datasets.cv, datastreams=training_datasets.datastreams),
+            embedding_size=speaker_embedding_size_int,
+            speaker_embedding_size=speaker_embedding_size_int,
+            gauss_up=(upsampling == "gauss"),
+            calc_speaker_embedding=True,
+            xvectors=True,
+            use_true_durations=(dur_pred == "cheat"),
+          )
+          gl_swer(
+            name=exp_name + f"/gl_swer_{dur_pred}",
+            vocoder=default_vocoder,
+            returnn_root=returnn_root,
+            returnn_exe=returnn_exe,
+            checkpoint=train_job.out_checkpoints[200],
+            config=forward_config,
+          )
           synth_dataset = get_inference_dataset(
             new_corpus,
             returnn_root=returnn_root,

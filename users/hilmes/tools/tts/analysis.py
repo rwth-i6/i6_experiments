@@ -62,7 +62,7 @@ class CalculateVarianceFromFeaturesJob(Job):
         segment_list = None
     for recording in bliss.all_recordings():
       for segment in recording.segments:
-        if segment_list is not None and segment not in segment_list:
+        if segment_list is not None and segment not in segment_list and segment.fullname() not in segment_list:
             continue
         text = segment.orth.split(" ")
         durations = durations_by_tag[segment.fullname()]
@@ -165,13 +165,14 @@ class CalculateVarianceFromDurations(Job):
         segment_list = None
 
     for segment in c.segments():
-      if segment_list is not None and segment not in segment_list:
+      if segment_list is not None and segment not in segment_list and segment.fullname() not in segment_list:
           continue
       name = segment.fullname()
       tagged_annotated_sequences[name] = np.squeeze(tagged_sequences[name]), segment.orth.split(" ")
       assert len(tagged_annotated_sequences[name][0]) == len(tagged_annotated_sequences[name][1])
 
     statistics = {}
+    print(tagged_annotated_sequences)
     for key, (seq, orth) in tagged_annotated_sequences.items():
       for dur, tok in zip(seq, orth):
         if tok not in statistics:
