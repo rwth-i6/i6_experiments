@@ -5,17 +5,6 @@ from typing import List
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
 
-from i6_experiments.common.setups.returnn_common.serialization import (
-    DataInitArgs,
-    DimInitArgs,
-    Collection,
-    Network,
-    ExternData,
-    Import
-)
-
-
-from .default_tools import RETURNN_COMMON
 
 def blstm_network(layers, input_layers, dropout=0.1, l2=0.0):
     num_layers = len(layers)
@@ -252,7 +241,7 @@ def get_returnn_configs(
         }
 
     network, last_layer = blstm_network([1024]*8, ["specaug"], dropout=0.0, l2=0.0)
-    from .specaugment_clean_legacy import specaug_layer, get_funcs
+    from ..specaugment_clean_legacy import specaug_layer, get_funcs
 
     network["specaug"] = specaug_layer(["data"])
     network["out_linear"] = {

@@ -17,7 +17,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 )
 
 
-from .default_tools import RETURNN_COMMON
+from ..default_tools import RETURNN_COMMON
 
 
 def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, **net_kwargs):
