@@ -375,6 +375,50 @@ class ConformerEncoder:
       subsampled_input = self.network.add_conv_block(
         'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 128), ((3, 3), (2, 2), 128)],
         l2=self.l2, activation='relu', init=self.start_conv_init)
+    elif self.input_layer == "conv-6-fixed":
+      self.network._net.update({
+        "source0": {"class": "split_dims", "axis": "F", "dims": (-1, 1), "from": data},
+        "conv0": {
+        "class": "conv",
+        "from": "source0",
+        "padding": "same",
+        "filter_size": (3, 3),
+        "n_out": 32,
+        "activation": "relu",
+        "with_bias": True,
+      },
+      "conv0p": {
+        "class": "pool",
+        "from": "conv0",
+        "pool_size": (1, 2),
+        "mode": "max",
+        "trainable": False,
+        "padding": "same",
+      },
+      "conv_out": {"class": "copy", "from": "conv0p"},
+      "subsample_conv0": {
+        "class": "conv",
+        "from": "conv_out",
+        "padding": "same",
+        "filter_size": (3, 3),
+        "n_out": 64,
+        "activation": "relu",
+        "with_bias": True,
+        "strides": (3, 1),
+      },
+      "subsample_conv1": {
+        "class": "conv",
+        "from": "subsample_conv0",
+        "padding": "same",
+        "filter_size": (3, 3),
+        "n_out": 64,
+        "activation": "relu",
+        "with_bias": True,
+        "strides": (2, 1),
+      },
+      "conv_merged": {"class": "merge_dims", "from": "subsample_conv1", "axes": "static"},
+      })
+      subsampled_input = "conv_merged"
     elif self.input_layer == "conv-new":
       subsampled_input = self.network.add_conv_block(
         'conv_merged', data, hwpc_sizes=[((3, 3), (2, 2), 16), ((3, 3), (2, 2), 32)],

@@ -111,7 +111,7 @@ def get_training_config(
         "learning_rates": [0.001],
         #############
         "batch_size": 18000 * 160,
-        "max_seq_length": {"audio_features": 1600},
+        "max_seq_length": {"audio_features": 1600*160},
         "max_seqs": 60,
         #############
         "train": training_datasets.train.as_returnn_opts(),
