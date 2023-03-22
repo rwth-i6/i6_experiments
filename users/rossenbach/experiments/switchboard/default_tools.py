@@ -29,7 +29,8 @@ SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 
 
 RETURNN_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-RETURNN_CPU_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+# RETURNN_CPU_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+RETURNN_CPU_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 
 RETURNN_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="6d2945a85cc95df5349a59541d84f172dd55cc20").out_repository
 RETURNN_ROOT.hash_overwrite = "SWITCHBOARD_DEFAULT_RETURNN_ROOT"

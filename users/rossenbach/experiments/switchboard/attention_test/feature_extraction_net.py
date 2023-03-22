@@ -20,9 +20,11 @@ log10_net_10ms = {
         "class": "mel_filterbank",
         "from": "power",
         "fft_size": 256,
-        "nr_of_filters": 60,
-        "n_out": 60,
+        "nr_of_filters": 50,
+        "n_out": 50,
         "sampling_rate": 8000,
+        "f_min": 100,
+        "f_max": 3700,
     },
     "log": {
         "from": "mel_filterbank",
