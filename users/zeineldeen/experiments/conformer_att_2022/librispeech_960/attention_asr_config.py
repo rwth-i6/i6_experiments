@@ -284,6 +284,8 @@ def pretrain_layers_and_dims(
     if decoder_args["ce_loss_scale"] == 0.0:
         assert encoder_args["with_ctc"], "CTC loss is not enabled."
         net_dict["output"] = {"class": "copy", "from": "ctc"}
+        net_dict["decision"]["target"] = "bpe_labels_w_blank"
+        net_dict["decision"]["loss_opts"] = {"ctc_decode": True}
     else:
         net_dict.update(decoder_model.network.get_net())
 
@@ -505,12 +507,12 @@ def create_config(
     recursion_limit=3000,
     feature_extraction_net=None,
     config_override=None,
-    feature_extraction_net_global_norm=False,
     freeze_bn=False,
     keep_all_epochs=False,
     allow_lr_scheduling=True,
     learning_rates_list=None,
     min_lr=None,
+    global_stats=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -658,6 +660,11 @@ def create_config(
     if decoder_args["ce_loss_scale"] == 0.0:
         assert encoder_args["with_ctc"], "CTC loss is not enabled."
         exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
+
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+        exp_config["network"]["decision"]["target"] = "bpe_labels_w_blank"
+        exp_config["network"]["decision"]["loss_opts"] = {"ctc_decode": True}
     else:
         exp_config["network"].update(transformer_decoder.network.get_net())
 
@@ -691,6 +698,24 @@ def create_config(
     if speed_pert:
         python_prolog += [data_aug.speed_pert]
 
+    if feature_extraction_net and global_stats:
+        exp_config["network"]["log10_"] = copy.deepcopy(exp_config["network"]["log10"])
+        exp_config["network"]["global_mean"] = {
+            "class": "eval",
+            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[0]}', dtype='float32') + (source(0) - source(0))",
+            "from": "log10_",
+        }
+        exp_config["network"]["global_stddev"] = {
+            "class": "eval",
+            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[1]}', dtype='float32') + (source(0) - source(0))",
+            "from": "log10_",
+        }
+        exp_config["network"]["log10"] = {
+            "class": "eval",
+            "from": ["log10_", "global_mean", "global_stddev"],
+            "eval": "(source(0) - source(1)) / source(2)",
+        }
+
     staged_network_dict = None
 
     # add pretraining
@@ -707,6 +732,23 @@ def create_config(
                 net["#copy_param_mode"] = "subset"
                 if feature_extraction_net:
                     net.update(feature_extraction_net)
+                    if global_stats:
+                        net["global_mean"] = {
+                            "class": "eval",
+                            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[0]}', dtype='float32') + (source(0) - source(0))",
+                            "from": "log10_",
+                        }
+                        net["global_stddev"] = {
+                            "class": "eval",
+                            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[1]}', dtype='float32') + (source(0) - source(0))",
+                            "from": "log10_",
+                        }
+                        net["log10_"] = copy.deepcopy(net["log10"])
+                        net["log10"] = {
+                            "class": "eval",
+                            "from": ["log10_", "global_mean", "global_stddev"],
+                            "eval": "(source(0) - source(1)) / source(2)",
+                        }
                 staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
             staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
@@ -751,9 +793,6 @@ def create_config(
 
     if config_override:
         exp_config.update(config_override)
-
-    if feature_extraction_net_global_norm:
-        python_prolog += ["import numpy"]
 
     returnn_config = ReturnnConfig(
         exp_config,

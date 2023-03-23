@@ -24,7 +24,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.defa
     RETURNN_CPU_EXE,
     NICK_LOGMEL_RETURNN_ROOT,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.feature_extraction_net import (
     log10_net_10ms,
     log10_net_10ms_long_bn,
 )
@@ -92,14 +92,19 @@ trafo_lm_opts_map = {
 
 # ----------------------------------------------------------- #
 
+dev_datasets = ["hub5e00"]
+test_datasets = ["hub5e01", "rt03s"]
+
 
 def conformer_baseline():
     abs_name = os.path.abspath(__file__)
     prefix_name = os.path.basename(abs_name)[: -len(".py")]
 
-    def get_test_dataset_tuples(bpe_size):
+    def get_test_dataset_tuples(bpe_size, selected_datasets=None):
         test_dataset_tuples = {}
         for testset in ["hub5e00", "hub5e01", "rt03s"]:
+            if selected_datasets and testset not in selected_datasets:
+                continue
             test_dataset_tuples[testset] = build_test_dataset(
                 testset,
                 use_raw_features=True,
@@ -304,6 +309,7 @@ def conformer_baseline():
         search_args,
         recog_epochs,
         bpe_size,
+        selected_test_datasets,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -337,13 +343,14 @@ def conformer_baseline():
             default_recog_epochs = recog_epochs
 
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
+        selected_test_dataset_tuples = get_test_dataset_tuples(bpe_size, selected_datasets=selected_test_datasets)
 
         for ep in default_recog_epochs:
             search(
                 exp_prefix + f"/recogs/ep-{ep}",
                 returnn_search_config,
                 train_job.out_checkpoints[ep],
-                test_dataset_tuples,
+                selected_test_dataset_tuples,
                 RETURNN_CPU_EXE,
                 kwargs.get("returnn_root", RETURNN_ROOT),
             )
@@ -383,6 +390,7 @@ def conformer_baseline():
         search_args=None,
         recog_epochs=None,
         bpe_size=500,
+        selected_test_datasets=None,
         **kwargs,
     ):
         if train_args.get("retrain_checkpoint", None):
@@ -394,6 +402,7 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
+
         train_job = run_train(
             exp_name, train_args, train_data, feature_extraction_net, num_epochs, recog_epochs, **kwargs
         )
@@ -409,6 +418,7 @@ def conformer_baseline():
             search_args,
             recog_epochs,
             bpe_size=bpe_size,
+            selected_test_datasets=selected_test_datasets,
             **kwargs,
         )
         return train_job, train_data
@@ -425,7 +435,7 @@ def conformer_baseline():
         # Dump log-mel features into HDFDataset
         dump_features_config = {}
         dump_features_config["extern_data"] = train_data.extern_data
-        dump_features_config["network"] = feature_extraction_net
+        dump_features_config["network"] = copy.deepcopy(feature_extraction_net)
         if model_checkpoint:
             dump_features_config["network"]["output"] = {
                 "class": "hdf_dump",
@@ -437,7 +447,7 @@ def conformer_baseline():
                 "class": "copy",
                 "from": "log_mel_features",
             }
-        dump_features_config["batch_size"] = 20_000 * 80
+        dump_features_config["forward_batch_size"] = 20_000 * 80
         dump_features_config["eval"] = train_data.train.as_returnn_opts()
         from i6_core.returnn import ReturnnForwardJob, ReturnnConfig
 
@@ -451,7 +461,7 @@ def conformer_baseline():
             hdf_outputs=[hdf_filename] if model_checkpoint else [],
             device="cpu",
             mem_rqmt=15,
-            time_rqmt=24,
+            time_rqmt=72,
             eval_mode=True if model_checkpoint else False,
         )
         dump_features_job.add_alias("swb_stats/dump_train_log_mel_features")
@@ -478,6 +488,7 @@ def conformer_baseline():
             returnn_python_exe=RETURNN_CPU_EXE,
             returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         )
+        extract_mean_stddev_job.add_alias("swb_stats/extract_mean_stddev")
 
         tk.register_output("swb_stats/mean_var", extract_mean_stddev_job.out_mean)
         tk.register_output("swb_stats/std_dev_var", extract_mean_stddev_job.out_std_dev)
@@ -730,112 +741,113 @@ def conformer_baseline():
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args["encoder_args"].use_sqrd_relu = True
 
-    for bn_mom in [None, 1e-2, 1e-3]:
-        for peak_lr in [1e-4, 2e-4, 8e-4]:
-            for reps in [3, 4, 5]:
-                for bs, accum in [(15_000, 2)]:
-                    for curr_idx, curr in enumerate([[(1, 3, 200), (4, 6, 300)], None]):
-                        args = copy.deepcopy(oclr_args)
-                        args["batch_size"] = bs * 80
-                        args["accum_grad"] = accum
-                        args["pretrain_reps"] = reps
-                        args["oclr_opts"]["peak_lr"] = peak_lr
-                        curr_name = f"currV{curr_idx + 1}" if curr else "noCurr"
-                        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_peak{peak_lr}_bs{bs}_bpe500_reps{reps}_accum{accum}_{curr_name}"
+    _, _, mean, stddev = compute_features_stats()
 
-                        if bn_mom:
-                            feat_net = copy.deepcopy(log10_net_10ms_long_bn)
-                            feat_net["log_mel_features"]["momentum"] = bn_mom
-                            name += f"_featBN-mom-{bn_mom}"
-                        else:
-                            feat_net = copy.deepcopy(log10_net_10ms)
-                        feat_net["mel_filterbank"]["f_min"] = 100
-                        feat_net["mel_filterbank"]["f_max"] = 3800
-                        run_exp(
-                            name,
-                            train_args=args,
-                            num_epochs=300,
-                            bpe_size=BPE_500,
-                            epoch_wise_filter=curr,
-                            feature_extraction_net=feat_net,
-                        )
+    # TODO: shuffling
+    for shuff in [
+        "laplace:6000",
+    ]:
+        args = copy.deepcopy(oclr_args)
+        args["global_stats"] = (mean, stddev)
+        args["oclr_opts"]["peak_lr"] = 5e-4
+        name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_{shuff}"
+        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering=shuff)
 
-    # TODO: epoch-based OCLR
-    args = copy.deepcopy(oclr_args)
-    args.pop("oclr_opts")
-    args["batch_size"] = 15_000 * 80
-    args["accum_grad"] = 2
-    args["pretrain_reps"] = 5
-    feat_net = copy.deepcopy(log10_net_10ms)
-    feat_net["mel_filterbank"]["f_min"] = 100
-    feat_net["mel_filterbank"]["f_max"] = 3800
-    args["learning_rates_list"] = (
-        list(numpy.linspace(1e-5, 1e-4, 135))
-        + list(numpy.linspace(1e-4, 1e-5, 135))
-        + list(numpy.linspace(1e-5, 1e-6, 30))
-    )
-    name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{1e-4}_bs{15000}_bpe500_reps{5}_accum{2}_currV1_epochOCLR"
-    run_exp(
-        name,
-        train_args=args,
-        num_epochs=300,
-        bpe_size=BPE_500,
-        epoch_wise_filter=[(1, 3, 200), (4, 6, 300)],
-        feature_extraction_net=feat_net,
-    )
+    for peak_lr in [2e-4, 5e-4, 8e-4, 1e-3]:
+        for curr_idx, curr in enumerate([None]):
+            args = copy.deepcopy(oclr_args)
+            args["global_stats"] = (mean, stddev)
+            args["oclr_opts"]["peak_lr"] = peak_lr
+            args["encoder_args"].input_layer = "conv-4"
+            curr_name = f"currV{curr_idx + 1}" if curr else "noCurr"
+            name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{peak_lr}_bs{15000}_bpe500_reps{5}_accum{2}_{curr_name}_globalStats_laplace:6000"
+            run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=curr, seq_ordering="laplace:6000")
 
-    # TODO: use fmin=100, and fmax=3800
-    args = copy.deepcopy(oclr_args)
-    args["batch_size"] = 15_000 * 80
-    args["accum_grad"] = 2
-    args["pretrain_reps"] = 5
-    feat_net = copy.deepcopy(log10_net_10ms)
-    feat_net["mel_filterbank"]["f_min"] = 100
-    feat_net["mel_filterbank"]["f_max"] = 3800
-    name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{1e-4}_bs{15000}_bpe500_reps{5}_accum{2}_currV1_fmin100_fmax3800"
-    run_exp(
-        name,
-        train_args=args,
-        num_epochs=300,
-        bpe_size=BPE_500,
-        epoch_wise_filter=[(1, 3, 200), (4, 6, 300)],
-        feature_extraction_net=feat_net,
-        returnn_root=NICK_LOGMEL_RETURNN_ROOT,
-    )
+    # TODO: tune l2
+    for l2 in [0.0, 1e-5, 1e-6]:
+        args = copy.deepcopy(oclr_args)
+        args["global_stats"] = (mean, stddev)
+        args["encoder_args"].input_layer = "conv-4"
+        args["oclr_opts"]["peak_lr"] = 5e-4
+        args["decoder_args"].l2 = l2
+        args["encoder_args"].l2 = l2
+        name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_l2{l2}"
+        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None)
 
-    args = copy.deepcopy(oclr_args)
-    args["batch_size"] = 15_000 * 80
-    args["accum_grad"] = 2
-    args["pretrain_reps"] = 5
-    feat_net = copy.deepcopy(log10_net_10ms)
-    feat_net["mel_filterbank"]["f_min"] = 100
-    feat_net["mel_filterbank"]["f_max"] = 3800
-    args["oclr_opts"]["cycle_ep"] = 285
-    args["oclr_opts"]["total_ep"] = 635
-    name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{1e-4}_cyc285_ep635_bs{15000}_bpe500_reps{5}_accum{2}_currV1"
-    run_exp(
-        name,
-        train_args=args,
-        num_epochs=635,
-        bpe_size=BPE_500,
-        epoch_wise_filter=[(1, 3, 200), (4, 6, 300)],
-        feature_extraction_net=feat_net,
-    )
+    # TODO: no max seq len
+    for subsample in [4, 6]:
+        args = copy.deepcopy(oclr_args)
+        args["global_stats"] = (mean, stddev)
+        args["encoder_args"].input_layer = f"conv-{subsample}"
+        args["oclr_opts"]["peak_lr"] = 5e-4
+        name = f"base_conf_12l_lstm_1l_conv{subsample}_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_noMaxSeqLen"
+        args["max_seq_length"] = None
+        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None)
 
-    # TODO: fmin=300, fmax=3400
-    args = copy.deepcopy(oclr_args)
-    args["batch_size"] = 15_000 * 80
-    args["accum_grad"] = 2
-    args["pretrain_reps"] = 5
-    feat_net = copy.deepcopy(log10_net_10ms)
-    feat_net["mel_filterbank"]["f_min"] = 300
-    feat_net["mel_filterbank"]["f_max"] = 3400
-    name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{1e-4}_bs{15000}_bpe500_reps{5}_accum{2}_currV1_fmin300_fmax3400"
-    run_exp(
-        name,
-        train_args=args,
-        num_epochs=300,
-        bpe_size=BPE_500,
-        epoch_wise_filter=[(1, 3, 200), (4, 6, 300)],
-        feature_extraction_net=feat_net,
-    )
+    # TODO:
+    #   laplace:6000
+    #   higher LR: 1e-3, 8e-4
+    #   no max seq len?
+    #   no global stats?
+    #   subsample 4
+
+    for laplace in ["laplace:6000"]:
+        for peak_lr in [8e-4, 1e-3, 2e-3]:
+            for max_seq_len in [None]:
+                for global_stats in [True]:
+                    for curr_idx, curr in enumerate(
+                        [
+                            None,
+                            [(1, 6, 100)],
+                            [(1, 3, 50), (4, 6, 100)],
+                            [(1, 1, 50), (2, 2, 60), (3, 3, 70), (4, 4, 80), (5, 5, 90), (6, 6, 100)],
+                        ]
+                    ):
+                        for att_drop in [0.0, 0.1]:
+                            args = copy.deepcopy(oclr_args)
+                            if global_stats:
+                                args["global_stats"] = (mean, stddev)
+                            args["encoder_args"].input_layer = "conv-4"
+                            args["oclr_opts"]["peak_lr"] = peak_lr
+                            args["max_seq_length"] = max_seq_len
+                            args["decoder_args"].att_dropout = att_drop
+
+                            name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{peak_lr}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_{laplace}_attDrop{att_drop}"
+                            name += f"_maxSeqLen{max_seq_len}" if max_seq_len else "_noMaxSeqLen"
+                            name += "_globalStats" if global_stats else "_noGlobalStats"
+                            name += f"_currV{curr_idx + 1}" if curr else "_noCurr"
+                            run_exp(
+                                name,
+                                train_args=args,
+                                num_epochs=300,
+                                epoch_wise_filter=curr,
+                                seq_ordering=laplace,
+                                selected_test_datasets=dev_datasets,
+                            )
+
+    base_v1_args = copy.deepcopy(oclr_args)
+    base_v1_args["global_stats"] = (mean, stddev)
+    base_v1_args["encoder_args"].input_layer = "conv-4"
+    base_v1_args["oclr_opts"]["peak_lr"] = 1e-3
+    base_v1_args["max_seq_length"] = None
+
+    # TODO: tune max_seq_len
+    # 90 -> Dropped seqs: 660 (0.26%)
+    # 100 ->Dropped seqs: 149 (0.06%)
+    # for max_seq_len in [90, 100]:
+    #     args = copy.deepcopy(base_v1_args)
+    #     args["max_seq_length"] = max_seq_len
+    #     name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_laplace:6000_maxSeqLen{max_seq_len}"
+    #     run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
+
+    # TODO: blstm front-end
+    args = copy.deepcopy(base_v1_args)
+    args["encoder_args"].input_layer = "lstm-6"
+    name = f"base_conf_12l_lstm_1l_lstm6_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_laplace:6000_maxSeqLen{max_seq_len}"
+    run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
+
+    # TODO:
+    #   laplace.1000
+    #   conv front-end init
+    #   conv dropout
+    #   LR=0.01 seems the best. try epoch based and also 9e-4 and 0.015

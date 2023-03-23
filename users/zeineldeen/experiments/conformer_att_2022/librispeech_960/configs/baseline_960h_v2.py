@@ -992,11 +992,30 @@ def conformer_baseline():
         )
 
     # TODO: without att
+    for with_pretrain in [True, False]:
+        args = copy.deepcopy(causal_args)
+        args["decoder_args"].ce_loss_scale = 0.0
+        args["oclr_opts"]["peak_lr"] = 0.0008
+        args["with_pretrain"] = with_pretrain
+        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noAtt"
+        if with_pretrain:
+            name += "_withPretrain"
+        else:
+            name += "_noPretrain"
+        run_exp(name, train_args=args, num_epochs=435)
+
+    # TODO: epoch-based OCLR
     args = copy.deepcopy(causal_args)
-    args["decoder_args"].ce_loss_scale = 0.0
-    args["oclr_opts"]["peak_lr"] = 0.0008
-    run_exp(
-        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noAtt",
-        train_args=args,
-        num_epochs=435,
-    )
+    for att_scale in [0.3, 0.5]:
+        args["decoder_args"].ce_loss_scale = att_scale
+        args.pop("oclr_opts", None)
+        args["learning_rates_list"] = (
+            list(numpy.linspace(8e-5, 8e-4, 195))
+            + list(numpy.linspace(8e-4, 8e-5, 195))
+            + list(numpy.linspace(8e-5, 1e-6, 45))
+        )
+        run_exp(
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}_epochOCLR",
+            train_args=args,
+            num_epochs=435,
+        )
