@@ -791,7 +791,7 @@ def conformer_baseline():
     base_v1_args["global_stats"] = (mean, stddev)
     base_v1_args["encoder_args"].input_layer = "conv-4"
     base_v1_args["oclr_opts"]["peak_lr"] = 1e-3
-    base_v1_args["max_seq_length"] = None
+    base_v1_args["max_seq_length"] = None  # TODO: using 75 is better? maybe make this as default for now and tune later
 
     # TODO: tune max_seq_len
     # 90 -> Dropped seqs: 660 (0.26%)
@@ -807,10 +807,106 @@ def conformer_baseline():
         args = copy.deepcopy(base_v1_args)
         args["encoder_args"].input_layer = f"lstm-{subsample}"
         name = f"base_conf_12l_lstm_1l_lstmSub{subsample}_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:6000"
-        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
+        run_exp(
+            name,
+            train_args=args,
+            num_epochs=300,
+            epoch_wise_filter=None,
+            seq_ordering="laplace:6000",
+            selected_test_datasets=dev_datasets,
+        )
+
+    # TODO: reset init params
+    args = copy.deepcopy(base_v1_args)
+    reset_params_init(args["encoder_args"])
+    args["max_seq_length"] = 75
+    name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:6000_resetParams_maxSeqLen75"
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: lstm-4, max len 75
+    args = copy.deepcopy(base_v1_args)
+    args["encoder_args"].input_layer = f"lstm-{4}"
+    args["max_seq_length"] = 75
+    name = f"base_conf_12l_lstm_1l_lstmSub{4}_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:6000_maxSeqLen75"
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: random ordering
+    args = copy.deepcopy(base_v1_args)
+    args["max_seq_length"] = 75
+    name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_random_maxSeqLen75"
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="random",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: epoch-based OCLR
+    args = copy.deepcopy(base_v1_args)
+    args["max_seq_length"] = 75
+    args.pop("oclr_opts")
+    args["learning_rates_list"] = (
+        list(numpy.linspace(1e-4, 1e-3, 135))
+        + list(numpy.linspace(1e-3, 1e-4, 135))
+        + list(numpy.linspace(1e-4, 1e-6, 30))
+    )
+    name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:6000_maxSeqLen75_epochOCLR"
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: bs 10k, accum 1 (more updates)
+    args = copy.deepcopy(base_v1_args)
+    args["max_seq_length"] = 75
+    args["batch_size"] = 10000
+    args["accum_grad"] = 1
+    name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{10000}_bpe500_reps{5}_accum{1}_laplace:6000_maxSeqLen75"
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: laplace .1000
+    args = copy.deepcopy(base_v1_args)
+    args["max_seq_length"] = 75
+    name = (
+        f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:.1000_maxSeqLen75"
+    )
+    run_exp(
+        name,
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:.1000",
+        selected_test_datasets=dev_datasets,
+    )
 
     # TODO:
-    #   laplace.1000
     #   conv front-end init
     #   conv dropout
-    #   LR=0.01 seems the best. try epoch based and also 9e-4 and 0.015
+    #   LR=0.001 seems good. try epoch based and also 9e-4 and 0.0015
