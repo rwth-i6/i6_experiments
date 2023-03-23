@@ -904,6 +904,28 @@ def conformer_baseline():
         selected_test_datasets=dev_datasets,
     )
 
+    for warmup_cycle_perc in [0.2, 0.3]:
+        args = copy.deepcopy(base_v1_args)
+        warmup_cycle_epochs = int(300 * warmup_cycle_perc)
+        decay_cycle_perc = 0.9 - warmup_cycle_perc
+        decay_cycle_epochs = int(300 * decay_cycle_perc)
+        remaining_epochs = 300 - warmup_cycle_epochs - decay_cycle_epochs
+        args.pop("oclr_opts")
+        args["learning_rates_list"] = (
+            list(numpy.linspace(8e-5, 8e-4, warmup_cycle_epochs))
+            + list(numpy.linspace(8e-4, 8e-5, decay_cycle_epochs))
+            + list(numpy.linspace(8e-5, 1e-6, remaining_epochs))
+        )
+        name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{8e-4}_bs{15000}_bpe500_reps{5}_accum{2}_maxSeqLen75_warmup{warmup_cycle_perc}_decay{decay_cycle_perc}"
+        run_exp(
+            name,
+            train_args=args,
+            num_epochs=300,
+            epoch_wise_filter=None,
+            seq_ordering="laplace:6000",
+            selected_test_datasets=dev_datasets,
+        )
+
     # TODO:
     #   conv front-end init
     #   conv dropout
