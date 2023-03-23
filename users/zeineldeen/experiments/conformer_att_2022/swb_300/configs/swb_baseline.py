@@ -743,17 +743,7 @@ def conformer_baseline():
 
     _, _, mean, stddev = compute_features_stats()
 
-    # TODO: shuffling
-    for shuff in [
-        "laplace:6000",
-    ]:
-        args = copy.deepcopy(oclr_args)
-        args["global_stats"] = (mean, stddev)
-        args["oclr_opts"]["peak_lr"] = 5e-4
-        name = f"base_conf_12l_lstm_1l_conv6_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_{shuff}"
-        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering=shuff)
-
-    for peak_lr in [2e-4, 5e-4, 8e-4, 1e-3]:
+    for peak_lr in [8e-4, 1e-3]:
         for curr_idx, curr in enumerate([None]):
             args = copy.deepcopy(oclr_args)
             args["global_stats"] = (mean, stddev)
@@ -762,27 +752,6 @@ def conformer_baseline():
             curr_name = f"currV{curr_idx + 1}" if curr else "noCurr"
             name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{peak_lr}_bs{15000}_bpe500_reps{5}_accum{2}_{curr_name}_globalStats_laplace:6000"
             run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=curr, seq_ordering="laplace:6000")
-
-    # TODO: tune l2
-    for l2 in [0.0, 1e-5, 1e-6]:
-        args = copy.deepcopy(oclr_args)
-        args["global_stats"] = (mean, stddev)
-        args["encoder_args"].input_layer = "conv-4"
-        args["oclr_opts"]["peak_lr"] = 5e-4
-        args["decoder_args"].l2 = l2
-        args["encoder_args"].l2 = l2
-        name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_l2{l2}"
-        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None)
-
-    # TODO: no max seq len
-    for subsample in [4, 6]:
-        args = copy.deepcopy(oclr_args)
-        args["global_stats"] = (mean, stddev)
-        args["encoder_args"].input_layer = f"conv-{subsample}"
-        args["oclr_opts"]["peak_lr"] = 5e-4
-        name = f"base_conf_12l_lstm_1l_conv{subsample}_sqrdReLU_peak{5e-4}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_globalStats_noMaxSeqLen"
-        args["max_seq_length"] = None
-        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None)
 
     # TODO:
     #   laplace:6000
@@ -795,14 +764,7 @@ def conformer_baseline():
         for peak_lr in [8e-4, 1e-3, 2e-3]:
             for max_seq_len in [None]:
                 for global_stats in [True]:
-                    for curr_idx, curr in enumerate(
-                        [
-                            None,
-                            [(1, 6, 100)],
-                            [(1, 3, 50), (4, 6, 100)],
-                            [(1, 1, 50), (2, 2, 60), (3, 3, 70), (4, 4, 80), (5, 5, 90), (6, 6, 100)],
-                        ]
-                    ):
+                    for curr_idx, curr in enumerate([None]):
                         for att_drop in [0.0, 0.1]:
                             args = copy.deepcopy(oclr_args)
                             if global_stats:
@@ -841,10 +803,11 @@ def conformer_baseline():
     #     run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
 
     # TODO: blstm front-end
-    args = copy.deepcopy(base_v1_args)
-    args["encoder_args"].input_layer = "lstm-6"
-    name = f"base_conf_12l_lstm_1l_lstm6_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_laplace:6000_maxSeqLen{max_seq_len}"
-    run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
+    for subsample in [4, 6]:
+        args = copy.deepcopy(base_v1_args)
+        args["encoder_args"].input_layer = f"lstm-{subsample}"
+        name = f"base_conf_12l_lstm_1l_lstmSub{subsample}_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_laplace:6000"
+        run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
 
     # TODO:
     #   laplace.1000
