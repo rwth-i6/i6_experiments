@@ -46,12 +46,8 @@ class TfRnnLmRasrConfig:
             lm_config.loader.required_libraries = self.libraries
 
         lm_config.input_map.info_0.param_name = "word"
-        lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         lm_config.output_map.info_0.param_name = self.output_layer_type
         lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
@@ -62,9 +58,7 @@ class TfRnnLmRasrConfig:
             return lm_config
         elif self.state_manager == "transformer":
             lm_config.input_map.info_1.param_name = "state-lengths"
-            lm_config.input_map.info_1.tensor_name = (
-                "output/rec/dec_0_self_att_att/state_lengths"
-            )
+            lm_config.input_map.info_1.tensor_name = "output/rec/dec_0_self_att_att/state_lengths"
 
             if self.softmax_adapter is not None:
                 lm_config.softmax_adapter.type = self.softmax_adapter
@@ -84,12 +78,8 @@ class TfRnnLmRasrConfig:
                 for i in range(6):
                     c = lm_config.state_manager.var_map[f"item-{i}"]
                     c.var_name = f"output/rec/dec_{i}_self_att_att/keep_state_var:0"
-                    c.common_prefix_initial_value = (
-                        f"output/rec/dec_{i}_self_att_att/zeros_1:0"
-                    )
-                    c.common_prefix_initializer = (
-                        f"output/rec/dec_{i}_self_att_att/common_prefix/Assign:0"
-                    )
+                    c.common_prefix_initial_value = f"output/rec/dec_{i}_self_att_att/zeros_1:0"
+                    c.common_prefix_initializer = f"output/rec/dec_{i}_self_att_att/common_prefix/Assign:0"
         else:
             raise NotImplementedError
 

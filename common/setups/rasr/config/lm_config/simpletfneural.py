@@ -40,12 +40,8 @@ class SimpleTfNeuralLmRasrConfig:
             lm_config.loader.required_libraries = self.libraries
 
         lm_config.input_map.info_0.param_name = "word"
-        lm_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        lm_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         lm_config.output_map.info_0.param_name = self.output_layer_type
         lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
