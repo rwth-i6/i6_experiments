@@ -55,16 +55,8 @@ class PriorInfo:
         assert self.left_context_prior is None or left is not None
         assert self.right_context_prior is None or right is not None
 
-        left = (
-            self.left_context_prior.with_scale(left)
-            if self.left_context_prior is not None
-            else None
-        )
-        right = (
-            self.right_context_prior.with_scale(right)
-            if self.right_context_prior is not None
-            else None
-        )
+        left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
+        right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
         return PriorInfo(
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
@@ -80,9 +72,7 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
         )
 
     @classmethod
@@ -94,12 +84,8 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=output_dir.join_right("left-context.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
+            left_context_prior=PriorConfig(file=output_dir.join_right("left-context.xml"), scale=0.0),
         )
 
     @classmethod
@@ -111,15 +97,9 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=output_dir.join_right("left-context.xml"), scale=0.0
-            ),
-            right_context_prior=PriorConfig(
-                file=output_dir.join_right("right-context.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
+            left_context_prior=PriorConfig(file=output_dir.join_right("left-context.xml"), scale=0.0),
+            right_context_prior=PriorConfig(file=output_dir.join_right("right-context.xml"), scale=0.0),
         )
 
 
@@ -177,9 +157,7 @@ class SearchParameters:
         right: typing.Optional[Float] = None,
     ) -> "SearchParameters":
         params = copy.copy(self)
-        params.prior_info = params.prior_info.with_scale(
-            center=center, left=left, right=right
-        )
+        params.prior_info = params.prior_info.with_scale(center=center, left=left, right=right)
         return params
 
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
@@ -236,9 +214,7 @@ class SearchParameters:
         )
 
     @classmethod
-    def default_for_ctx(
-        cls, context: PhoneticContext, priors: PriorInfo
-    ) -> "SearchParameters":
+    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "SearchParameters":
         if context == PhoneticContext.monophone:
             return cls.default_monophone(priors=priors)
         elif context == PhoneticContext.diphone:

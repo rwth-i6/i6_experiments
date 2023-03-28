@@ -135,11 +135,7 @@ def augment_for_right_context(
     }
 
     network = right_context_config.config["network"]
-    (
-        dim_prolog,
-        right_context_spatial_dim,
-        right_context_range_dim,
-    ) = get_context_dim_tag_prolog(
+    (dim_prolog, right_context_spatial_dim, right_context_range_dim,) = get_context_dim_tag_prolog(
         label_info.get_n_state_classes(),
         label_info.get_n_state_classes(),
         spatial_dim_variable_name="__center_state_spatial",

@@ -43,6 +43,4 @@ class RecompileTfGraphJob(tk.Job):
         dirname_txt = path.dirname(tk.uncached_path(self.out_graph_text))
         filename_txt = path.basename(tk.uncached_path(self.out_graph_text))
 
-        graph_io.write_graph(
-            mg.graph_def, logdir=dirname_txt, name=filename_txt, as_text=True
-        )
+        graph_io.write_graph(mg.graph_def, logdir=dirname_txt, name=filename_txt, as_text=True)

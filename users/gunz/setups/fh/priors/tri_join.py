@@ -38,9 +38,7 @@ class JoinRightContextPriorsJob(Job):
             n_rows = self.label_info.n_contexts * self.label_info.get_n_state_classes()
 
             xml.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-            xml.write(
-                f'<matrix-f32 nRows="{n_rows}" nColumns="{self.label_info.n_contexts}">\n'
-            )
+            xml.write(f'<matrix-f32 nRows="{n_rows}" nColumns="{self.label_info.n_contexts}">\n')
             for prior_chunk in per_c_l_context:
                 xml.write(" ".join(prior_chunk))
                 xml.write("\n")

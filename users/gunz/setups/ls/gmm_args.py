@@ -96,15 +96,9 @@ def get_monophone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        monophone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        monophone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         monophone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -135,13 +129,9 @@ def get_cart_args(
     assert phones in [1, 2, 3]
 
     cart_questions_class = (
-        CartQuestionsWithStress(
-            max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown
-        )
+        CartQuestionsWithStress(max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown)
         if cart_with_stress
-        else CartQuestionsWithoutStress(
-            max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown
-        )
+        else CartQuestionsWithoutStress(max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown)
     )
 
     if phones == 1:
@@ -222,15 +212,9 @@ def get_triphone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        triphone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        triphone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         triphone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -309,15 +293,9 @@ def get_vtln_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_training_args["train"]["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_training_args["train"]["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -397,15 +375,9 @@ def get_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -484,15 +456,9 @@ def get_vtln_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {

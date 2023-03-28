@@ -115,24 +115,15 @@ def get_feature_scorer(
     is_multi_encoder_output=False,
 ):
     if isinstance(prior_info, PriorInfo):
-        assert (
-            prior_info.center_state_prior is not None
-            and prior_info.center_state_prior.file is not None
-        )
+        assert prior_info.center_state_prior is not None and prior_info.center_state_prior.file is not None
         if prior_info.center_state_prior.scale is None:
             print(f"center state prior scale is unset, bug")
         if context_type.is_diphone():
-            assert (
-                prior_info.left_context_prior is not None
-                and prior_info.left_context_prior.file is not None
-            )
+            assert prior_info.left_context_prior is not None and prior_info.left_context_prior.file is not None
             if prior_info.left_context_prior.scale is None:
                 print(f"left context prior scale is unset, bug")
         if context_type.is_triphone():
-            assert (
-                prior_info.right_context_prior is not None
-                and prior_info.right_context_prior.file is not None
-            )
+            assert prior_info.right_context_prior is not None and prior_info.right_context_prior.file is not None
             if prior_info.right_context_prior.scale is None:
                 print(f"right context prior scale is unset, bug")
 
@@ -208,9 +199,7 @@ class FHDecoder:
 
         self.bellman_post_config = False
         self.gpu = gpu
-        self.library_path = (
-            DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
-        )
+        self.library_path = DelayedJoin(tf_library, ":") if isinstance(tf_library, list) else tf_library
         self.recompile_graph_for_feature_scorer = recompile_graph_for_feature_scorer
         self.in_graph_acoustic_scoring = in_graph_acoustic_scoring
 
@@ -312,14 +301,10 @@ class FHDecoder:
 
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
         tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map["in_data"]
-        tf_flow.config[
-            tf_fwd
-        ].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map[
-            "out_encoder_output"
-        ]
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map["out_encoder_output"]
 
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = graph
@@ -351,19 +336,13 @@ class FHDecoder:
 
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
         tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map["in_data"]
-        tf_flow.config[
-            tf_fwd
-        ].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map[
-            "out_encoder_output"
-        ]
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map["out_encoder_output"]
 
         tf_flow.config[tf_fwd].output_map.info_1.param_name = "deltaEncoder-output"
-        tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map[
-            "out_delta_encoder_output"
-        ]
+        tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map["out_delta_encoder_output"]
 
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = graph
@@ -406,47 +385,31 @@ class FHDecoder:
             PhoneticContext.mono_state_transition,
         ]:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map[
-                "out_center_state"
-            ]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
             if self.context_type == PhoneticContext.mono_state_transition:
                 # add the delta outputs
                 fs_tf_config.output_map.info_1.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map[
-                    "out_delta"
-                ]
+                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_delta"]
 
         if self.context_type in [
             PhoneticContext.diphone,
             PhoneticContext.diphone_state_transition,
         ]:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map[
-                "out_center_state"
-            ]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
             fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map[
-                "out_left_context"
-            ]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_left_context"]
             if self.context_type == PhoneticContext.diphone_state_transition:
                 fs_tf_config.output_map.info_2.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map[
-                    "out_delta"
-                ]
+                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_delta"]
 
         if self.context_type == PhoneticContext.triphone_symmetric:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map[
-                "out_center_state"
-            ]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
             fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map[
-                "out_left_context"
-            ]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_left_context"]
             fs_tf_config.output_map.info_2.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map[
-                "out_right_context"
-            ]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_right_context"]
 
         if self.context_type in [
             PhoneticContext.triphone_forward,
@@ -454,38 +417,24 @@ class FHDecoder:
         ]:
             # outputs
             fs_tf_config.output_map.info_0.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map[
-                "out_right_context"
-            ]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_right_context"]
             fs_tf_config.output_map.info_1.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map[
-                "out_center_state"
-            ]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_center_state"]
             fs_tf_config.output_map.info_2.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map[
-                "out_left_context"
-            ]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_left_context"]
 
             if self.context_type == PhoneticContext.tri_state_transition:
                 fs_tf_config.output_map.info_3.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_3.tensor_name = self.tensor_map[
-                    "out_delta"
-                ]
+                fs_tf_config.output_map.info_3.tensor_name = self.tensor_map["out_delta"]
 
         elif self.context_type == PhoneticContext.triphone_backward:
             # outputs
             fs_tf_config.output_map.info_0.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map[
-                "out_left_context"
-            ]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_left_context"]
             fs_tf_config.output_map.info_1.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map[
-                "out_right_context"
-            ]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_right_context"]
             fs_tf_config.output_map.info_2.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map[
-                "out_center_state"
-            ]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_center_state"]
 
         if self.is_multi_encoder_output:
             if self.context_type in [
@@ -493,14 +442,10 @@ class FHDecoder:
                 PhoneticContext.mono_state_transition,
             ]:
                 fs_tf_config.input_map.info_1.param_name = "deltaEncoder-output"
-                fs_tf_config.input_map.info_1.tensor_name = self.tensor_map[
-                    "in_delta_encoder_output"
-                ]
+                fs_tf_config.input_map.info_1.tensor_name = self.tensor_map["in_delta_encoder_output"]
             else:
                 fs_tf_config.input_map.info_2.param_name = "deltaEncoder-output"
-                fs_tf_config.input_map.info_2.tensor_name = self.tensor_map[
-                    "in_delta_encoder_output"
-                ]
+                fs_tf_config.input_map.info_2.tensor_name = self.tensor_map["in_delta_encoder_output"]
 
         self.featureScorerConfig = fs_tf_config
 
@@ -531,9 +476,7 @@ class FHDecoder:
         return TfRnnLmRasrConfig(
             vocab_path=lm_model_dir.join_right("vocabulary"),
             meta_graph_path=lm_model_dir.join_right("network.040.meta"),
-            returnn_checkpoint=returnn.Checkpoint(
-                lm_model_dir.join_right("network.040.index")
-            ),
+            returnn_checkpoint=returnn.Checkpoint(lm_model_dir.join_right("network.040.index")),
             scale=scale,
             libraries=self.library_path,
             state_manager="lstm",
@@ -564,24 +507,18 @@ class FHDecoder:
         trafo_config.vocab_unknown_word = "<UNK>"
 
         trafo_config.input_map.info_0.param_name = "word"
-        trafo_config.input_map.info_0.tensor_name = (
-            "extern_data/placeholders/delayed/delayed"
-        )
-        trafo_config.input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/delayed/delayed_dim0_size"
-        )
+        trafo_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
+        trafo_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
         trafo_config.input_map.info_1.param_name = "state-lengths"
-        trafo_config.input_map.info_1.tensor_name = (
-            "output/rec/dec_0_self_att_att/state_lengths"
-        )
+        trafo_config.input_map.info_1.tensor_name = "output/rec/dec_0_self_att_att/state_lengths"
 
         trafo_config.loader.type = "meta"
-        trafo_config.loader.meta_graph_file = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/graph.meta"
-        model_path = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030"
-        trafo_config.loader.saved_model_file = rasr.StringWrapper(
-            model_path, f"{model_path}.index"
+        trafo_config.loader.meta_graph_file = (
+            "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/graph.meta"
         )
+        model_path = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/ls-eugen-trafo-lm/epoch.030"
+        trafo_config.loader.saved_model_file = rasr.StringWrapper(model_path, f"{model_path}.index")
         trafo_config.loader.required_libraries = self.library_path
 
         trafo_config.nn_output_compression.bits_per_val = 16
@@ -615,9 +552,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_0.common_prefix_initializer = (
             "output/rec/dec_0_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_0.var_name = (
-            "output/rec/dec_0_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_0.var_name = "output/rec/dec_0_self_att_att/keep_state_var:0"
 
         trafo_config.state_manager.var_map.item_1.common_prefix_initial_value = (
             "output/rec/dec_1_self_att_att/zeros_1:0"
@@ -625,9 +560,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_1.common_prefix_initializer = (
             "output/rec/dec_1_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_1.var_name = (
-            "output/rec/dec_1_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_1.var_name = "output/rec/dec_1_self_att_att/keep_state_var:0"
 
         trafo_config.state_manager.var_map.item_2.common_prefix_initial_value = (
             "output/rec/dec_2_self_att_att/zeros_1:0"
@@ -635,9 +568,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_2.common_prefix_initializer = (
             "output/rec/dec_2_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_2.var_name = (
-            "output/rec/dec_2_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_2.var_name = "output/rec/dec_2_self_att_att/keep_state_var:0"
 
         trafo_config.state_manager.var_map.item_3.common_prefix_initial_value = (
             "output/rec/dec_3_self_att_att/zeros_1:0"
@@ -645,9 +576,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_3.common_prefix_initializer = (
             "output/rec/dec_3_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_3.var_name = (
-            "output/rec/dec_3_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_3.var_name = "output/rec/dec_3_self_att_att/keep_state_var:0"
 
         trafo_config.state_manager.var_map.item_4.common_prefix_initial_value = (
             "output/rec/dec_4_self_att_att/zeros_1:0"
@@ -655,9 +584,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_4.common_prefix_initializer = (
             "output/rec/dec_4_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_4.var_name = (
-            "output/rec/dec_4_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_4.var_name = "output/rec/dec_4_self_att_att/keep_state_var:0"
 
         trafo_config.state_manager.var_map.item_5.common_prefix_initial_value = (
             "output/rec/dec_5_self_att_att/zeros_1:0"
@@ -665,9 +592,7 @@ class FHDecoder:
         trafo_config.state_manager.var_map.item_5.common_prefix_initializer = (
             "output/rec/dec_5_self_att_att/common_prefix/Assign:0"
         )
-        trafo_config.state_manager.var_map.item_5.var_name = (
-            "output/rec/dec_5_self_att_att/keep_state_var:0"
-        )
+        trafo_config.state_manager.var_map.item_5.var_name = "output/rec/dec_5_self_att_att/keep_state_var:0"
 
         return trafo_config
 
@@ -826,14 +751,8 @@ class FHDecoder:
         if isinstance(search_parameters, SearchParameters):
             assert len(search_parameters.tdp_speech) == 4
             assert len(search_parameters.tdp_silence) == 4
-            assert (
-                not search_parameters.silence_penalties
-                or len(search_parameters.silence_penalties) == 2
-            )
-            assert (
-                not search_parameters.transition_scales
-                or len(search_parameters.transition_scales) == 2
-            )
+            assert not search_parameters.silence_penalties or len(search_parameters.silence_penalties) == 2
+            assert not search_parameters.transition_scales or len(search_parameters.transition_scales) == 2
 
         name = f"{name_prefix}{self.name}/"
         if name_override_without_name is not None:
@@ -910,14 +829,10 @@ class FHDecoder:
         state_tying = search_crp.acoustic_model_config.state_tying.type
 
         tdp_transition = (
-            search_parameters.tdp_speech
-            if search_parameters.tdp_scale is not None
-            else (0.0, 0.0, "infinity", 0.0)
+            search_parameters.tdp_speech if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
         )
         tdp_silence = (
-            search_parameters.tdp_silence
-            if search_parameters.tdp_scale is not None
-            else (0.0, 0.0, "infinity", 0.0)
+            search_parameters.tdp_silence if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
         )
 
         search_crp.acoustic_model_config = am.acoustic_model_config(
@@ -931,19 +846,11 @@ class FHDecoder:
             tdp_silence=tdp_silence,
         )
 
-        search_crp.acoustic_model_config.allophones[
-            "add-all"
-        ] = search_parameters.add_all_allophones
-        search_crp.acoustic_model_config.allophones[
-            "add-from-lexicon"
-        ] = not search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
 
-        search_crp.acoustic_model_config["state-tying"][
-            "use-boundary-classes"
-        ] = label_info.use_boundary_classes
-        search_crp.acoustic_model_config["state-tying"][
-            "use-word-end-classes"
-        ] = label_info.use_word_end_classes
+        search_crp.acoustic_model_config["state-tying"]["use-boundary-classes"] = label_info.use_boundary_classes
+        search_crp.acoustic_model_config["state-tying"]["use-word-end-classes"] = label_info.use_word_end_classes
 
         # lm config update
         if lm_config is not None:
@@ -1017,9 +924,7 @@ class FHDecoder:
             search.add_alias(f"{pre_path}/{name}")
 
         if calculate_stats:
-            stat = ExtractSearchStatisticsJob(
-                list(search.out_log_file.values()), self.corpus_duration
-            )
+            stat = ExtractSearchStatisticsJob(list(search.out_log_file.values()), self.corpus_duration)
 
             if add_sis_alias_and_output:
                 stat.add_alias(f"statistics/{name}")
@@ -1092,9 +997,7 @@ class FHDecoder:
                     use_estimated_tdps=use_estimated_tdps,
                 )
 
-        return RecognitionJobs(
-            lat2ctm=lat2ctm, sclite=scorer, search=search, search_stats=stat
-        )
+        return RecognitionJobs(lat2ctm=lat2ctm, sclite=scorer, search=search, search_stats=stat)
 
     def align(
         self,
@@ -1121,12 +1024,8 @@ class FHDecoder:
         align_crp.acoustic_model_config.state_tying.type = "no-tying-dense"
 
         # make sure the FSA is not buggy
-        align_crp.acoustic_model_config["*"][
-            "fix-allophone-context-at-word-boundaries"
-        ] = True
-        align_crp.acoustic_model_config["*"][
-            "transducer-builder-filter-out-invalid-allophones"
-        ] = True
+        align_crp.acoustic_model_config["*"]["fix-allophone-context-at-word-boundaries"] = True
+        align_crp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
         align_crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
         align_crp.acoustic_model_config["*"]["fix-tdp-leaving-epsilon-arc"] = True
 
@@ -1140,7 +1039,5 @@ class FHDecoder:
         alignment.rqmt["cpu"] = 2
         alignment.rqmt["mem"] = 8
         alignment.add_alias(f"alignments/align_{name}")
-        tk.register_output(
-            "alignments/realignment-{}".format(name), alignment.out_alignment_bundle
-        )
+        tk.register_output("alignments/realignment-{}".format(name), alignment.out_alignment_bundle)
         return alignment

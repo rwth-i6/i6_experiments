@@ -39,9 +39,7 @@ def get_best_model_config(
     att_dim = 64
     model_dim = size if isinstance(size, int) else size.size()
 
-    assert (
-        model_dim % att_dim == 0
-    ), "model_dim must be divisible by number of att heads"
+    assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
 
     pe400_enc_args = get_encoder_args(
         model_dim // att_dim,
@@ -82,9 +80,7 @@ def get_best_model_config(
         **loss6_down_up_3_two_vggs_args,
     )
 
-    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(
-        **pe400_conformer_down_up_3_loss6_args
-    )
+    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(**pe400_conformer_down_up_3_loss6_args)
     pe400_conformer_layer_norm_down_up_3_loss6.get_network()
 
     return pe400_conformer_layer_norm_down_up_3_loss6

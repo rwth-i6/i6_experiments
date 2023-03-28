@@ -77,9 +77,7 @@ class TransformCheckpointJob(tk.Job):
         self.tf_op_libraries = [] if tf_op_libraries is None else tf_op_libraries
 
         self.index_path = self.output_path("checkpoint.index")
-        self._checkpoint_path = os.path.join(
-            os.path.dirname(self.index_path.get_path()), "checkpoint"
-        )
+        self._checkpoint_path = os.path.join(os.path.dirname(self.index_path.get_path()), "checkpoint")
         self.output_ckpt = returnn.Checkpoint(self.index_path)
 
         self.rqmt = {"cpu": 1, "mem": 8.0, "time": 1.0}
@@ -125,14 +123,10 @@ class TransformCheckpointJob(tk.Job):
         all_output_vars = parse_variables(output_mg, "variables")
 
         with tf.device("/CPU:0"):
-            s = tf.compat.v1.Session(
-                config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})
-            )
+            s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
             tf.import_graph_def(input_mg.graph_def, name="")
         load_checkpoint(s, input_mg, tk.uncached_path(self.input_checkpoint))
-        var_data = s.run(
-            {v.variable_name: v.snapshot_name for v in tf_input_vars.values()}
-        )
+        var_data = s.run({v.variable_name: v.snapshot_name for v in tf_input_vars.values()})
         s.close()
         tf.compat.v1.reset_default_graph()
 
@@ -140,17 +134,13 @@ class TransformCheckpointJob(tk.Job):
             logging.info("Input: %s shape: %s", k, str(v.shape))
 
         for t in self.transformations:
-            var_data = t.transform(
-                var_data, input_mg, output_mg, dict(tf_input_vars), dict(tf_output_vars)
-            )
+            var_data = t.transform(var_data, input_mg, output_mg, dict(tf_input_vars), dict(tf_output_vars))
 
         for k, v in var_data.items():
             logging.info("Output: %s shape: %s", k, str(v.shape))
 
         with tf.device("/CPU:0"):
-            s = tf.compat.v1.Session(
-                config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})
-            )
+            s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
             tf.import_graph_def(output_mg.graph_def, name="")
 
         s.run(tf.compat.v1.global_variables_initializer())
@@ -172,22 +162,14 @@ class TransformCheckpointJob(tk.Job):
 
         s.run(
             output_mg.saver_def.save_tensor_name,
-            feed_dict={
-                output_mg.saver_def.filename_tensor_name: tk.uncached_path(
-                    self._checkpoint_path
-                )
-            },
+            feed_dict={output_mg.saver_def.filename_tensor_name: tk.uncached_path(self._checkpoint_path)},
         )
 
     @classmethod
     def hash(cls, kwargs):
-        d = {
-            k: kwargs[k]
-            for k in ["input_mg_path", "output_mg_path", "input_checkpoint"]
-        }
+        d = {k: kwargs[k] for k in ["input_mg_path", "output_mg_path", "input_checkpoint"]}
         d["transformations"] = [
-            (type(t).__name__, t.hash(kwargs["transformations"][0]))
-            for t in kwargs["transformations"]
+            (type(t).__name__, t.hash(kwargs["transformations"][0])) for t in kwargs["transformations"]
         ]
 
         return super().hash(d)
@@ -267,9 +249,7 @@ class ResizeLayersTransformation(Transformation):
 
         assert len(output_var.shape) == len(input_var.shape)
 
-        shape_diff = [
-            a - b for a, b in zip(input_var.shape.as_list(), output_var.shape.as_list())
-        ]
+        shape_diff = [a - b for a, b in zip(input_var.shape.as_list(), output_var.shape.as_list())]
 
         return any(d != 0 for d in shape_diff)
 
@@ -290,11 +270,7 @@ class ResizeLayersTransformation(Transformation):
         with g_out.as_default():
             tf.import_graph_def(output_mg.graph_def, name="")
 
-        to_extend = [
-            layer
-            for layer in output_vars.keys()
-            if self.needs_extension(layer, g_in, g_out)
-        ]
+        to_extend = [layer for layer in output_vars.keys() if self.needs_extension(layer, g_in, g_out)]
         for layer in to_extend:
             in_sh = tuple(g_in.get_tensor_by_name(layer).shape.as_list())
             out_sh = tuple(g_out.get_tensor_by_name(layer).shape.as_list())
@@ -338,12 +314,8 @@ def transform_checkpoint(
     Used for phonetic multistage training.
     """
 
-    n_state_diff = (
-        output_label_info.get_n_state_classes() - input_label_info.get_n_state_classes()
-    )
-    assert (
-        n_state_diff == 0
-    ), "do not initialize models w/ different number of center states"
+    n_state_diff = output_label_info.get_n_state_classes() - input_label_info.get_n_state_classes()
+    assert n_state_diff == 0, "do not initialize models w/ different number of center states"
 
     input_graph = compile_tf_graph_from_returnn_config(
         input_returnn_config.config,

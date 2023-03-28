@@ -24,9 +24,7 @@ def get_learning_rates(
     learning_rates = []
     # pretrain (optional warmup)
     if warmup:
-        learning_rates += warmup_lrates(
-            initial=lrate * warmupRatio, final=lrate, epochs=pretrain
-        )
+        learning_rates += warmup_lrates(initial=lrate * warmupRatio, final=lrate, epochs=pretrain)
     else:
         learning_rates += [lrate] * pretrain
     # linear increase and/or const
@@ -65,9 +63,7 @@ def warmup_lrates(initial=0.0001, final=0.001, epochs=20):
     return lrates
 
 
-def get_oclr_config(
-    num_epochs: int, *, schedule: str = "v6"
-) -> typing.Dict[str, typing.Any]:
+def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str, typing.Any]:
     """Returns learning rate RETURNN config for OneCycle LR."""
 
     import numpy as np

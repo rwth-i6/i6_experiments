@@ -186,9 +186,7 @@ def get_data_inputs(
         lexicon=train_lexicon,
     )
 
-    dev_corpus_keys = (
-        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
-    )
+    dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
     test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
 
     for dev_key in dev_corpus_keys:

@@ -7,9 +7,7 @@ import i6_core.returnn as returnn
 from ..factored import LabelInfo
 
 
-def get_extern_data_config(
-    label_info: LabelInfo, time_tag_name: str
-) -> typing.Dict[str, typing.Any]:
+def get_extern_data_config(label_info: LabelInfo, time_tag_name: str) -> typing.Dict[str, typing.Any]:
     conf = [
         ("classes", label_info.get_n_of_dense_classes(), True),
         ("centerState", label_info.get_n_state_classes(), True),

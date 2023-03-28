@@ -39,16 +39,10 @@ class PhoneticContext(Enum):
             raise AttributeError(f"unknown context enum value {self}")
 
     def is_monophone(self):
-        return (
-            self == PhoneticContext.monophone
-            or self == PhoneticContext.mono_state_transition
-        )
+        return self == PhoneticContext.monophone or self == PhoneticContext.mono_state_transition
 
     def is_diphone(self):
-        return (
-            self == PhoneticContext.diphone
-            or self == PhoneticContext.diphone_state_transition
-        )
+        return self == PhoneticContext.diphone or self == PhoneticContext.diphone_state_transition
 
     def is_triphone(self):
         return (
@@ -114,18 +108,10 @@ class LabelInfo:
         n_contexts = self.n_contexts
         if not self.add_unknown_phoneme:
             n_contexts += 1
-        return (
-            self.n_states_per_phone
-            * (n_contexts**3)
-            * self.phoneme_state_classes.factor()
-        )
+        return self.n_states_per_phone * (n_contexts**3) * self.phoneme_state_classes.factor()
 
     def get_n_state_classes(self) -> int:
-        return (
-            self.n_states_per_phone
-            * self.n_contexts
-            * self.phoneme_state_classes.factor()
-        )
+        return self.n_states_per_phone * self.n_contexts * self.phoneme_state_classes.factor()
 
     @classmethod
     def default_ls(cls) -> "LabelInfo":

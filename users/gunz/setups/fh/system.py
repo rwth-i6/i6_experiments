@@ -105,9 +105,7 @@ class FactoredHybridSystem(NnSystem):
         self.filter_segments: typing.Union[Path, str, typing.List[str]] = []
 
         # useful paths
-        self.dependency_path = (
-            "/work/asr4/raissi/setups/librispeech/960-ls/dependencies"
-        )
+        self.dependency_path = "/work/asr4/raissi/setups/librispeech/960-ls/dependencies"
 
         # general modeling approach
         self.label_info = LabelInfo.default_ls()
@@ -181,9 +179,7 @@ class FactoredHybridSystem(NnSystem):
         self.train_key = None  # "train-other-960"
 
     # ----------- pipeline construction -----------------
-    def set_experiment_dict(
-        self, key: str, alignment: str, context: str, postfix_name=""
-    ):
+    def set_experiment_dict(self, key: str, alignment: str, context: str, postfix_name=""):
         name = f"{context}-from-{alignment}"
         self.experiments[key] = {
             "name": ("-").join([name, postfix_name]),
@@ -210,12 +206,8 @@ class FactoredHybridSystem(NnSystem):
     def set_returnn_config_for_experiment(self, key, returnn_config):
         assert key in self.experiments.keys()
         self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"][
-            "prolog"
-        ] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"][
-            "epilog"
-        ] = returnn_config.python_epilog
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------- Helpers --------------------
     def _add_output_alias_for_train_job(
@@ -244,9 +236,7 @@ class FactoredHybridSystem(NnSystem):
     ):
         self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(
-            self.experiments[key]["train_job"], epoch
-        )
+        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
 
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -361,9 +351,7 @@ class FactoredHybridSystem(NnSystem):
 
     def set_local_flf_tool(self, path=None):
         if path is None:
-            path = (
-                "/u/raissi/dev/rasr-dense/src/Tools/Flf/flf-tool.linux-x86_64-standard"
-            )
+            path = "/u/raissi/dev/rasr-dense/src/Tools/Flf/flf-tool.linux-x86_64-standard"
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
@@ -396,9 +384,7 @@ class FactoredHybridSystem(NnSystem):
         self,
         train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        devtrain_data: Optional[
-            Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
-        ] = None,
+        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
     ):
@@ -406,9 +392,7 @@ class FactoredHybridSystem(NnSystem):
         dev_data = dev_data if dev_data is not None else {}
         test_data = test_data if test_data is not None else {}
 
-        self._assert_corpus_name_unique(
-            train_data, cv_data, devtrain_data, dev_data, test_data
-        )
+        self._assert_corpus_name_unique(train_data, cv_data, devtrain_data, dev_data, test_data)
 
         self.train_input_data = train_data
         self.cv_input_data = cv_data
@@ -455,10 +439,7 @@ class FactoredHybridSystem(NnSystem):
 
     def run_input_step(self, step_args):
         for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
-            if (
-                corpus_key
-                not in self.train_corpora + self.dev_corpora + self.test_corpora
-            ):
+            if corpus_key not in self.train_corpora + self.dev_corpora + self.test_corpora:
                 continue
             if "train" in corpus_key:
                 if self.train_key is None:
@@ -513,37 +494,21 @@ class FactoredHybridSystem(NnSystem):
         if "train" in crp_key:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
         else:
-            crp.acoustic_model_config.state_tying.type = (
-                "no-tying-dense"  # for correct tree of dependency
-            )
+            crp.acoustic_model_config.state_tying.type = "no-tying-dense"  # for correct tree of dependency
 
         if self.label_info.use_word_end_classes:
-            crp.acoustic_model_config.state_tying.use_word_end_classes = (
-                self.label_info.use_word_end_classes
-            )
-        crp.acoustic_model_config.state_tying.use_boundary_classes = (
-            self.label_info.use_boundary_classes
-        )
-        crp.acoustic_model_config.hmm.states_per_phone = (
-            self.label_info.n_states_per_phone
-        )
+            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
+        crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+        crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
 
-        crp.acoustic_model_config.allophones.add_all = self.lexicon_args[
-            "add_all_allophones"
-        ]
-        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args[
-            "add_all_allophones"
-        ]
+        crp.acoustic_model_config.allophones.add_all = self.lexicon_args["add_all_allophones"]
+        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args["add_all_allophones"]
         if add_base_allophones:
             crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
 
-        crp.lexicon_config.normalize_pronunciation = self.lexicon_args[
-            "norm_pronunciation"
-        ]
+        crp.lexicon_config.normalize_pronunciation = self.lexicon_args["norm_pronunciation"]
 
-    def _update_am_setting_for_all_crps(
-        self, train_tdp_type, eval_tdp_type, add_base_allophones=False
-    ):
+    def _update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {"train": train_tdp_type, "eval": eval_tdp_type}
         for t in types.keys():
             if types[t] == "heuristic":
@@ -572,9 +537,7 @@ class FactoredHybridSystem(NnSystem):
         total_train_num_segments = num_segments[self.train_key]
         cv_size = 3000 / total_train_num_segments
 
-        all_segments = corpus_recipe.SegmentCorpusJob(
-            train_corpus_path, 1
-        ).out_single_segment_files[1]
+        all_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
 
         if self.filter_segments:
             all_segments = corpus_recipe.FilterSegmentsByListJob(
@@ -586,14 +549,10 @@ class FactoredHybridSystem(NnSystem):
         )
         train_segments = splitted_segments_job.out_segments["train"]
         cv_segments = splitted_segments_job.out_segments["cv"]
-        devtrain_segments = text.TailJob(
-            train_segments, num_lines=1000, zip_output=False
-        ).out
+        devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 
         # ******************** NN Init ********************
-        nn_train_data = self.inputs[self.train_key][
-            input_key
-        ].as_returnn_rasr_data_input(
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
             shuffle_data=True,
             segment_order_sort_by_time_length=True,
             chunk_size=chunk_size,
@@ -605,9 +564,7 @@ class FactoredHybridSystem(NnSystem):
         nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][
-            input_key
-        ].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
@@ -654,36 +611,26 @@ class FactoredHybridSystem(NnSystem):
         cv_feature_path = Path(self.cv_info["features_postpath_cv"])
         cv_feature_flow = features.basic_cache_flow(cv_feature_path)
 
-        devtrain_segments = text.TailJob(
-            train_segments, num_lines=1000, zip_output=False
-        ).out
+        devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
 
-        nn_train_data = self.inputs[self.train_key][
-            input_key
-        ].as_returnn_rasr_data_input(
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
             shuffle_data=True,
             segment_order_sort_by_time_length=True,
             chunk_size=chunk_size,
         )
 
-        nn_train_data.update_crp_with(
-            corpus_file=train_corpus, segment_path=train_segments, concurrent=1
-        )
+        nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
         nn_train_data.feature_flow = train_feature_flow
         nn_train_data.features = train_feature_path
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
         nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
-        nn_cv_data.update_crp_with(
-            corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1
-        )
+        nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data.feature_flow = cv_feature_flow
         nn_cv_data.features = cv_feature_path
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][
-            input_key
-        ].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
@@ -692,9 +639,7 @@ class FactoredHybridSystem(NnSystem):
     def get_bw_crp_from_train_crp(self, train_crp_key):
         crp_bw = copy.deepcopy(self.crp[train_crp_key])
 
-        train_dev_segments = ("/").join(
-            [self.cv_info["pre_path"], self.cv_info[f"train-dev_segments"]]
-        )
+        train_dev_segments = ("/").join([self.cv_info["pre_path"], self.cv_info[f"train-dev_segments"]])
         lexicon_subname = "with" if self.label_info.add_unknown_phoneme else "no"
         train_dev_lexicon = ("/").join(
             [
@@ -708,9 +653,7 @@ class FactoredHybridSystem(NnSystem):
 
         return crp_bw
 
-    def set_rasr_returnn_input_datas(
-        self, input_key, chunk_size=1152, is_cv_separate_from_train=False
-    ):
+    def set_rasr_returnn_input_datas(self, input_key, chunk_size=1152, is_cv_separate_from_train=False):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
@@ -720,25 +663,15 @@ class FactoredHybridSystem(NnSystem):
         else:
             f = self.prepare_train_data_with_cv_from_train
 
-        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(
-            input_key, chunk_size
-        )
+        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(input_key, chunk_size)
 
         nn_dev_data_inputs = {
-            self.crp_names["dev-clean"]: self.inputs["dev-clean"][
-                input_key
-            ].as_returnn_rasr_data_input(),
-            self.crp_names["dev-other"]: self.inputs["dev-other"][
-                input_key
-            ].as_returnn_rasr_data_input(),
+            self.crp_names["dev-clean"]: self.inputs["dev-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names["dev-other"]: self.inputs["dev-other"][input_key].as_returnn_rasr_data_input(),
         }
         nn_test_data_inputs = {
-            self.crp_names["test-clean"]: self.inputs["test-clean"][
-                input_key
-            ].as_returnn_rasr_data_input(),
-            self.crp_names["test-other"]: self.inputs["test-other"][
-                input_key
-            ].as_returnn_rasr_data_input(),
+            self.crp_names["test-clean"]: self.inputs["test-clean"][input_key].as_returnn_rasr_data_input(),
+            self.crp_names["test-other"]: self.inputs["test-other"][input_key].as_returnn_rasr_data_input(),
         }
 
         self.init_datasets(
@@ -767,15 +700,11 @@ class FactoredHybridSystem(NnSystem):
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        returnn_config.config["train"] = self.train_input_data[
-            train_corpus_key
-        ].get_data_dict()
+        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
         returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
         if devtrain_corpus_key is not None:
             returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[
-                    devtrain_corpus_key
-                ].get_data_dict()
+                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
             }
 
         train_job = returnn.ReturnnTrainingJob(
@@ -834,9 +763,7 @@ class FactoredHybridSystem(NnSystem):
         )
 
         returnn_config = copy.deepcopy(returnn_config)
-        update_config = returnn.ReturnnConfig(
-            config={"dev": dev_data, "train": train_data}, python_epilog=cache_epilog
-        )
+        update_config = returnn.ReturnnConfig(config={"dev": dev_data, "train": train_data}, python_epilog=cache_epilog)
         returnn_config.update(update_config)
 
         train_job = returnn.ReturnnTrainingJob(
@@ -1093,20 +1020,12 @@ class FactoredHybridSystem(NnSystem):
             ("left-context", prior_jobs["l"].out_prior_xml_file),
         ]
         for context_name, file in results:
-            xml_name = (
-                f"priors/{name}/{context_name}.xml"
-                if name is not None
-                else f"priors/{context_name}.xml"
-            )
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
         self.experiments[key]["priors"] = PriorInfo(
-            center_state_prior=PriorConfig(
-                file=prior_jobs["c"].out_prior_xml_file, scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=prior_jobs["l"].out_prior_xml_file, scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=prior_jobs["c"].out_prior_xml_file, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=None,
         )
 
@@ -1157,10 +1076,7 @@ class FactoredHybridSystem(NnSystem):
         for (ctx, job) in prior_jobs.items():
             job.add_alias(f"priors/{name}/{ctx}")
 
-        right_priors = [
-            prior_jobs[f"r{i}"].out_prior_txt_file
-            for i in range(len(configs.right_context))
-        ]
+        right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(configs.right_context))]
         right_prior_xml = JoinRightContextPriorsJob(right_priors).out_prior_xml
 
         results = [
@@ -1169,32 +1085,18 @@ class FactoredHybridSystem(NnSystem):
             ("right-context", right_prior_xml),
         ]
         for context_name, file in results:
-            xml_name = (
-                f"priors/{name}/{context_name}.xml"
-                if name is not None
-                else f"priors/{context_name}.xml"
-            )
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
         self.experiments[key]["priors"] = PriorInfo(
-            center_state_prior=PriorConfig(
-                file=prior_jobs["c"].out_prior_xml_file, scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=prior_jobs["l"].out_prior_xml_file, scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=prior_jobs["c"].out_prior_xml_file, scale=0.0),
+            left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
         )
 
     # -------------------- Decoding --------------------
-    def set_graph_for_experiment(
-        self, key, override_cfg: typing.Optional[returnn.ReturnnConfig] = None
-    ):
-        config = copy.deepcopy(
-            override_cfg
-            if override_cfg is not None
-            else self.experiments[key]["returnn_config"]
-        )
+    def set_graph_for_experiment(self, key, override_cfg: typing.Optional[returnn.ReturnnConfig] = None):
+        config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
         name = self.experiments[key]["name"]
         python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
@@ -1205,14 +1107,10 @@ class FactoredHybridSystem(NnSystem):
                 if v["from"] == "source":
                     v["from"] = "data"
                 elif isinstance(v["from"], list):
-                    v["from"] = [
-                        "data" if val == "source" else val for val in v["from"]
-                    ]
+                    v["from"] = ["data" if val == "source" else val for val in v["from"]]
             del config.config["network"]["source"]
 
-        config.config["extern_data"]["data"]["same_dim_tags_as"] = {
-            "T": returnn.CodeWrapper("__time_tag__")
-        }
+        config.config["extern_data"]["data"]["same_dim_tags_as"] = {"T": returnn.CodeWrapper("__time_tag__")}
 
         infer_graph = compile_tf_graph_from_returnn_config(
             config,
@@ -1232,9 +1130,7 @@ class FactoredHybridSystem(NnSystem):
         crp_corpus: str,
         gpu=True,
         is_multi_encoder_output=False,
-        tf_library: typing.Union[
-            tk.Path, str, typing.List[tk.Path], typing.List[str], None
-        ] = None,
+        tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
         dummy_mixtures=None,
         **decoder_kwargs,
     ):
@@ -1300,9 +1196,7 @@ class FactoredHybridSystem(NnSystem):
         ],
         tdp_scales: typing.List[float],
         tdp_sil: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
-        tdp_speech: typing.Optional[
-            typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]
-        ] = None,
+        tdp_speech: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
         altas_value=14.0,
         altas_beam=14.0,
         override_search_parameters: typing.Optional[SearchParameters] = None,
@@ -1367,9 +1261,7 @@ class FactoredHybridSystem(NnSystem):
                 .with_tdp_speech(tdp_sp)
                 .with_prior_scale(left=l, center=c, right=r),
             )
-            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(
-                prior_scales, tdp_scales, tdp_sil, tdp_speech
-            )
+            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
             for ((c, l, r), tdp) in itertools.product(prior_scales, tdp_scales)
         }
         jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
@@ -1399,9 +1291,7 @@ class FactoredHybridSystem(NnSystem):
             best_overall.out_min,
         )
 
-        best_tdp_scale = ComputeArgminJob(
-            {tdp: num_e for (_, tdp, _, _), num_e in jobs_num_e.items()}
-        )
+        best_tdp_scale = ComputeArgminJob({tdp: num_e for (_, tdp, _, _), num_e in jobs_num_e.items()})
 
         def map_tdp_output(
             job: ComputeArgminJob,
@@ -1410,14 +1300,10 @@ class FactoredHybridSystem(NnSystem):
             return tuple(best_tdps[i] for i in range(4))
 
         best_tdp_sil = map_tdp_output(
-            ComputeArgminJob(
-                {tdp_sl: num_e for (_, _, tdp_sl, _), num_e in jobs_num_e.items()}
-            )
+            ComputeArgminJob({tdp_sl: num_e for (_, _, tdp_sl, _), num_e in jobs_num_e.items()})
         )
         best_tdp_sp = map_tdp_output(
-            ComputeArgminJob(
-                {tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()}
-            )
+            ComputeArgminJob({tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()})
         )
         base_cfg = (
             original_recog_args.with_tdp_scale(best_tdp_scale.out_argmin)
@@ -1425,23 +1311,15 @@ class FactoredHybridSystem(NnSystem):
             .with_tdp_speech(best_tdp_sp)
         )
 
-        best_center_prior = ComputeArgminJob(
-            {c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()}
-        )
+        best_center_prior = ComputeArgminJob({c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()})
         if context_type.is_monophone():
             return base_cfg.with_prior_scale(center=best_center_prior.out_argmin)
 
-        best_left_prior = ComputeArgminJob(
-            {l: num_e for ((_, l, _), _, _, _), num_e in jobs_num_e.items()}
-        )
+        best_left_prior = ComputeArgminJob({l: num_e for ((_, l, _), _, _, _), num_e in jobs_num_e.items()})
         if context_type.is_diphone():
-            return base_cfg.with_prior_scale(
-                center=best_center_prior.out_argmin, left=best_left_prior.out_argmin
-            )
+            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin, left=best_left_prior.out_argmin)
 
-        best_right_prior = ComputeArgminJob(
-            {r: num_e for ((_, _, r), _, _, _), num_e in jobs_num_e.items()}
-        )
+        best_right_prior = ComputeArgminJob({r: num_e for ((_, _, r), _, _, _), num_e in jobs_num_e.items()})
         return base_cfg.with_prior_scale(
             center=best_center_prior.out_argmin,
             left=best_left_prior.out_argmin,
@@ -1454,11 +1332,7 @@ class FactoredHybridSystem(NnSystem):
         if "init" in steps.get_step_names_as_list():
             self.init_system()
         for eval_c in self.dev_corpora + self.test_corpora:
-            stm_args = (
-                self.rasr_init_args.stm_args
-                if self.rasr_init_args.stm_args is not None
-                else {}
-            )
+            stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
             self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
@@ -1469,11 +1343,7 @@ class FactoredHybridSystem(NnSystem):
                     step_args = self.rasr_init_args.feature_extraction_args
                 step_args["gt"]["prefix"] = "features/"
                 for all_c in (
-                    self.train_corpora
-                    + self.cv_corpora
-                    + self.devtrain_corpora
-                    + self.dev_corpora
-                    + self.test_corpora
+                    self.train_corpora + self.cv_corpora + self.devtrain_corpora + self.dev_corpora + self.test_corpora
                 ):
                     self.feature_caches[all_c] = {}
                     self.feature_bundles[all_c] = {}
