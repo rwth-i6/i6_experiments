@@ -9,15 +9,27 @@ import i6_core.recognition as recog
 import i6_core.rasr as rasr
 import i6_core.am as am
 import i6_core.mm as mm
+from i6_core import returnn
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedJoin
 
 from ...common.decoder.rtf import ExtractSearchStatisticsJob
+from ...common.lm_config import TfRnnLmRasrConfig
 from ..factored import LabelInfo, PhoneticContext
 from ..rust_scorer import RecompileTfGraphJob
-from .config import PosteriorScales, PriorInfo, SearchParameters
+from .config import Float, PosteriorScales, PriorInfo, SearchParameters
 from .scorer import FactoredHybridFeatureScorer
+
+TDP = typing.Union[Float, str]
+
+
+def format_tdp_val(val) -> str:
+    return "inf" if val == "infinity" else f"{val}"
+
+
+def format_tdp(tdp) -> str:
+    return ",".join(format_tdp_val(v) for v in tdp)
 
 
 @dataclass(eq=True, frozen=True)
@@ -300,11 +312,11 @@ class FHDecoder:
         tf_flow.config = rasr.RasrConfig()
 
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map["in_data"]
-        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
+        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map["out_encoder_output"]
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map.out_encoder_output
 
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = graph
@@ -335,14 +347,14 @@ class FHDecoder:
         tf_flow.config = rasr.RasrConfig()
 
         tf_flow.config[tf_fwd].input_map.info_0.param_name = "features"
-        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map["in_data"]
-        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map["in_seq_length"]
+        tf_flow.config[tf_fwd].input_map.info_0.tensor_name = self.tensor_map.in_data
+        tf_flow.config[tf_fwd].input_map.info_0.seq_length_tensor_name = self.tensor_map.in_seq_length
 
         tf_flow.config[tf_fwd].output_map.info_0.param_name = "encoder-output"
-        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map["out_encoder_output"]
+        tf_flow.config[tf_fwd].output_map.info_0.tensor_name = self.tensor_map.out_encoder_output
 
         tf_flow.config[tf_fwd].output_map.info_1.param_name = "deltaEncoder-output"
-        tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map["out_delta_encoder_output"]
+        tf_flow.config[tf_fwd].output_map.info_1.tensor_name = self.tensor_map.out_delta_encoder_output
 
         tf_flow.config[tf_fwd].loader.type = "meta"
         tf_flow.config[tf_fwd].loader.meta_graph_file = graph
@@ -373,43 +385,43 @@ class FHDecoder:
 
         # input is the same for each model, since the label embeddings are calculated from the dense label identity
         fs_tf_config.input_map.info_0.param_name = "encoder-output"
-        fs_tf_config.input_map.info_0.tensor_name = self.tensor_map["in_encoder_output"]
+        fs_tf_config.input_map.info_0.tensor_name = self.tensor_map.in_encoder_output
 
         # monophone does not have any context
         if self.context_type != PhoneticContext.monophone:
             fs_tf_config.input_map.info_1.param_name = "dense-classes"
-            fs_tf_config.input_map.info_1.tensor_name = self.tensor_map["in_classes"]
+            fs_tf_config.input_map.info_1.tensor_name = self.tensor_map.in_classes
 
         if self.context_type in [
             PhoneticContext.monophone,
             PhoneticContext.mono_state_transition,
         ]:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
             if self.context_type == PhoneticContext.mono_state_transition:
                 # add the delta outputs
                 fs_tf_config.output_map.info_1.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_delta"]
+                fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_delta
 
         if self.context_type in [
             PhoneticContext.diphone,
             PhoneticContext.diphone_state_transition,
         ]:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
             fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_left_context"]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_left_context
             if self.context_type == PhoneticContext.diphone_state_transition:
                 fs_tf_config.output_map.info_2.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_delta"]
+                fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_delta
 
         if self.context_type == PhoneticContext.triphone_symmetric:
             fs_tf_config.output_map.info_0.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_center_state"]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_center_state
             fs_tf_config.output_map.info_1.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_left_context"]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_left_context
             fs_tf_config.output_map.info_2.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_right_context"]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_right_context
 
         if self.context_type in [
             PhoneticContext.triphone_forward,
@@ -417,24 +429,24 @@ class FHDecoder:
         ]:
             # outputs
             fs_tf_config.output_map.info_0.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_right_context"]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_right_context
             fs_tf_config.output_map.info_1.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_center_state"]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_center_state
             fs_tf_config.output_map.info_2.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_left_context"]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_left_context
 
             if self.context_type == PhoneticContext.tri_state_transition:
                 fs_tf_config.output_map.info_3.param_name = "delta-posteriors"
-                fs_tf_config.output_map.info_3.tensor_name = self.tensor_map["out_delta"]
+                fs_tf_config.output_map.info_3.tensor_name = self.tensor_map.out_delta
 
         elif self.context_type == PhoneticContext.triphone_backward:
             # outputs
             fs_tf_config.output_map.info_0.param_name = "left-context-posteriors"
-            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map["out_left_context"]
+            fs_tf_config.output_map.info_0.tensor_name = self.tensor_map.out_left_context
             fs_tf_config.output_map.info_1.param_name = "right-context-posteriors"
-            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map["out_right_context"]
+            fs_tf_config.output_map.info_1.tensor_name = self.tensor_map.out_right_context
             fs_tf_config.output_map.info_2.param_name = "center-state-posteriors"
-            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map["out_center_state"]
+            fs_tf_config.output_map.info_2.tensor_name = self.tensor_map.out_center_state
 
         if self.is_multi_encoder_output:
             if self.context_type in [
@@ -442,10 +454,10 @@ class FHDecoder:
                 PhoneticContext.mono_state_transition,
             ]:
                 fs_tf_config.input_map.info_1.param_name = "deltaEncoder-output"
-                fs_tf_config.input_map.info_1.tensor_name = self.tensor_map["in_delta_encoder_output"]
+                fs_tf_config.input_map.info_1.tensor_name = self.tensor_map.in_delta_encoder_output
             else:
                 fs_tf_config.input_map.info_2.param_name = "deltaEncoder-output"
-                fs_tf_config.input_map.info_2.tensor_name = self.tensor_map["in_delta_encoder_output"]
+                fs_tf_config.input_map.info_2.tensor_name = self.tensor_map.in_delta_encoder_output
 
         self.featureScorerConfig = fs_tf_config
 
@@ -849,8 +861,12 @@ class FHDecoder:
         search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
         search_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
 
-        search_crp.acoustic_model_config["state-tying"]["use-boundary-classes"] = label_info.use_boundary_classes
-        search_crp.acoustic_model_config["state-tying"]["use-word-end-classes"] = label_info.use_word_end_classes
+        search_crp.acoustic_model_config["state-tying"][
+            "use-boundary-classes"
+        ] = label_info.phoneme_state_classes.use_boundary()
+        search_crp.acoustic_model_config["state-tying"][
+            "use-word-end-classes"
+        ] = label_info.phoneme_state_classes.use_word_end()
 
         # lm config update
         if lm_config is not None:

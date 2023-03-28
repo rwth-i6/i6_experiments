@@ -1,6 +1,7 @@
 __all__ = ["LabelInfo", "PhoneticContext", "PhonemeStateClasses"]
 
 from enum import Enum
+from dataclasses import dataclass
 import typing
 
 
@@ -83,26 +84,17 @@ class RasrStateTying(Enum):
     triphone = "no-tying-dense"
 
 
+@dataclass(eq=True, frozen=True)
 class LabelInfo:
-    def __init__(
-        self,
-        n_states_per_phone: int,
-        n_contexts: int,
-        ph_emb_size: int,
-        st_emb_size: int,
-        state_tying: RasrStateTying,
-        phoneme_state_classes: PhonemeStateClasses,
-        sil_id: typing.Optional[int] = None,
-        add_unknown_phoneme=True,
-    ):
-        self.n_states_per_phone = n_states_per_phone
-        self.n_contexts = n_contexts
-        self.sil_id = sil_id
-        self.ph_emb_size = ph_emb_size
-        self.st_emb_size = st_emb_size
-        self.phoneme_state_classes = phoneme_state_classes
-        self.state_tying = state_tying
-        self.add_unknown_phoneme = add_unknown_phoneme
+    n_contexts: int
+    n_states_per_phone: int
+    phoneme_state_classes: PhonemeStateClasses
+    ph_emb_size: int
+    st_emb_size: int
+    state_tying: RasrStateTying
+
+    add_unknown_phoneme: bool = True
+    sil_id: typing.Optional[int] = None
 
     def get_n_of_dense_classes(self) -> int:
         n_contexts = self.n_contexts
@@ -116,12 +108,12 @@ class LabelInfo:
     @classmethod
     def default_ls(cls) -> "LabelInfo":
         return LabelInfo(
-            n_states_per_phone=3,
             n_contexts=42,
+            n_states_per_phone=3,
             ph_emb_size=32,
             st_emb_size=128,
-            state_tying=RasrStateTying.triphone,
-            phoneme_state_classes=PhonemeStateClasses.word_end,
             sil_id=40,
             add_unknown_phoneme=True,
+            phoneme_state_classes=PhonemeStateClasses.word_end,
+            state_tying=RasrStateTying.triphone,
         )
