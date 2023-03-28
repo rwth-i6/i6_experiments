@@ -195,9 +195,12 @@ def conformer_tf_features():
   # center frequency perturbation
   for level, kind, scale, prob in [
     ("batch", "const", 10.0, 0.5), ("utterance", "const", 10.0, 0.5),  # probability 1.0 does not converge
-    ("utterance", "vtlppwl", 0.2, 0.5), ("utterance", "vtlppwl", 0.2, 0.3), ("utterance", "vtlppwl", 0.4, 0.3),
-    ("utterance", "vtlppwl", 0.1, 0.2), ("utterance", "vtlppwl", 0.1, 0.1),
-    ("utterance", "vtlpbil", 0.2, 0.5),
+    ("utterance", "const", 10.0, 0.3), ("utterance", "const", 5.0, 0.5), ("utterance", "const", 5.0, 0.3),
+    ("utterance", "vtlppwl", 0.2, 0.3),  # ("utterance", "vtlppwl", 0.2, 0.5), ("utterance", "vtlppwl", 0.4, 0.3), fail
+    ("utterance", "vtlppwl", 0.1, 0.05), ("utterance", "vtlppwl", 0.1, 0.2), ("utterance", "vtlppwl", 0.1, 0.1),
+    ("utterance", "vtlppwl", 0.1, 0.4),  # ("utterance", "vtlppwl", 0.1, 0.3), fail
+    ("utterance", "vtlppwl", 0.4, 0.0),
+    ("utterance", "vtlpbil", 0.1, 0.1),  # ("utterance", "vtlpbil", 0.2, 0.5), fail
   ]:
     args_tmp = copy.deepcopy(args_base)
     name_tmp = exp_prefix + "/" + f"raw_log10_lvl{level}_cf_{kind}{scale}({prob})"
@@ -221,7 +224,8 @@ def conformer_tf_features():
 
   # filter width perturbation
   for level, kind, min_noise, max_noise, prob in [
-    ("utterance", "const", -18, 18, 0.5), ("utterance", "const", -10, 10, 0.3), ("utterance", "const", -5, 5, 0.1),
+    # ("utterance", "const", -18, 18, 0.5),  # does not converge
+    ("utterance", "const", -10, 10, 0.3), ("utterance", "const", -5, 5, 0.1),
   ]:
     args_tmp = copy.deepcopy(args_base)
     name_tmp = exp_prefix + "/" + f"raw_log10_lvl{level}_fw_{kind}{min_noise}-{max_noise}({prob})"
