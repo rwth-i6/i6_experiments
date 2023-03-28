@@ -1126,8 +1126,6 @@ class FactoredHybridSystem(NnSystem):
                     v["from"] = ["data" if val == "source" else val for val in v["from"]]
             del config.config["network"]["source"]
 
-        config.config["extern_data"]["data"]["same_dim_tags_as"] = {"T": returnn.CodeWrapper("__time_tag__")}
-
         infer_graph = compile_tf_graph_from_returnn_config(
             config,
             python_prolog=python_prolog,

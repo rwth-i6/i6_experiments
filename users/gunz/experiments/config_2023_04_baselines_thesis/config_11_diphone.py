@@ -202,7 +202,10 @@ def run_single(
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {
-            "data": {"dim": 50},
+            "data": {
+                "dim": 50,
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            },
             **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
         },
     }

@@ -18,7 +18,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
+from ...setups.common import oclr
 from ...setups.common.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -26,7 +26,6 @@ from ...setups.common.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStateTying
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
@@ -37,7 +36,6 @@ from .config import (
     CART_TREE_TRI_NUM_LABELS,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
-    CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
     FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
