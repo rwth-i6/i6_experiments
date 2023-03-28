@@ -261,7 +261,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map={**FH_DECODING_TENSOR_CONFIG},
+            tensor_map=FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=True,
         )
         recognizer.recognize_count_lm(
