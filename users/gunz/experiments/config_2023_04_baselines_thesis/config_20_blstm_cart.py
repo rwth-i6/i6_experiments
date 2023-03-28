@@ -365,7 +365,7 @@ def run_single(
                 in_seq_length="extern_data/placeholders/data/data_dim0_size",
             ),
             recompile_graph_for_feature_scorer=True,
-            tf_library=[s.native_lstm2_job.out_op, s.native_lstm2_job.out_grad_op],
+            tf_library=[s.native_lstm2_job.out_op],
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
