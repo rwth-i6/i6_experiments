@@ -14,6 +14,8 @@ RASR_ROOT_RS_RASR_GUNZ = "/u/mgunz/src/rs_rasr/"
 
 RETURNN_PYTHON_TF15 = "/u/mgunz/src/bin/returnn_tf1.15_launcher.sh"
 
+BLSTM_CHUNKING = "64:32"
+
 CONF_CHUNKING = "400:200"
 CONF_FOCAL_LOSS = 2.0
 CONF_LABEL_SMOOTHING = 0.0
