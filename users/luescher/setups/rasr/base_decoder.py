@@ -25,6 +25,15 @@ from .util.decode import (
 
 
 class BaseDecoder:
+    """
+    This class provides basic functionality to perform decoding with RASR
+
+    - initialize or set CommonRasrParameters (crp)
+    - set the eval corpora
+    - perform decoding
+    - lm scale optimization and redo decoding with optimized lm scale
+    """
+
     def __init__(
         self,
         rasr_binary_path: tk.Path,
@@ -37,6 +46,17 @@ class BaseDecoder:
         scorer_job_class: Type[tk.Job] = recog.ScliteJob,
         alias_output_prefix: str = "",
     ):
+        """
+        :param rasr_binary_path: path to RASR binary directory
+        :param rasr_arch: RASR arch
+        :param compress: RASR config setting to compress log files
+        :param append: RASR config setting to append to log files
+        :param unbuffered: RASR config setting to utilize buffer for writing to log files
+        :param compress_after_run: RASR config setting to compress files after the actual run
+        :param search_job_class: search job class similar to recog.AdvancedTreeSearchJob
+        :param scorer_job_class: scoring job class similar to recog.ScliteJob
+        :param alias_output_prefix: set a prefix for alias and output paths
+        """
         self.rasr_binary_path = rasr_binary_path
         self.rasr_arch = rasr_arch
 
@@ -69,6 +89,16 @@ class BaseDecoder:
         extra_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
         crp_name: Optional[str] = None,
     ):
+        """
+        creates a (base) crp from RASR configs
+
+        :param acoustic_model_config: acoustic model config as RasrConfig
+        :param lexicon_config: lexicon config as RasrConfig
+        :param language_model_config: language model config as RasrConfig
+        :param lm_lookahead_config: language model lookahead config as RasrConfig
+        :param extra_configs: additional configs
+        :param crp_name: the name for the created crp. default is "base"
+        """
         if crp_name is not None:
             self.crp[crp_name] = copy.deepcopy(self.crp["base"])
             self.base_crp_name = crp_name
@@ -83,6 +113,12 @@ class BaseDecoder:
             self.crp[self.base_crp_name][k] = v
 
     def set_crp(self, name: str, crp: rasr.CommonRasrParameters):
+        """
+        sets an already existing crp
+
+        :param name: name of the crp
+        :param crp: common RASR parameters
+        """
         self.base_crp_name = name
         self.crp[name] = copy.deepcopy(crp)
 
@@ -94,9 +130,20 @@ class BaseDecoder:
         *,
         feature_flows: Optional[Dict[str, rasr.FlowNetwork]] = None,
         feature_extraction: Optional[Tuple[str, Dict]] = None,
-        stm_args: Optional[StmArgs] = None,
+        stm_args: Optional[Dict[str, StmArgs]] = None,
         stm_paths: Optional[Dict[str, tk.Path]] = None,
     ):
+        """
+        initializes the evaluation datasets
+
+        :param eval_datasets: the actual datasets
+        :param corpus_durations: corpus durations
+        :param concurrency: split decoding in N parts and run in parallel
+        :param feature_flows: RASR flow network
+        :param feature_extraction: extract new features with the given parameters
+        :param stm_args: arguments for the STM creation
+        :param stm_paths: use already created STM files
+        """
         assert (feature_flows is not None) ^ (feature_extraction is not None)
         assert (stm_args is not None) ^ (stm_paths is not None)
 
@@ -114,7 +161,7 @@ class BaseDecoder:
                 self.stm_paths[corpus_key] = stm_paths[corpus_key]
             else:
                 self.stm_paths[corpus_key] = CorpusToStmJob(
-                    self.crp[corpus_key].corpus_config.file, **stm_args
+                    self.crp[corpus_key].corpus_config.file, **stm_args[corpus_key]
                 ).out_stm_path
 
             if feature_flows is not None:
@@ -314,6 +361,22 @@ class BaseDecoder:
         scorer_hyp_param_name: str = "hyp",
         optimize_am_lm_scales: bool = False,
     ):
+        """
+        run decoding
+
+        :param name: decoding experiment name
+        :param corpus_key: which eval corpus to use
+        :param feature_scorer: specific RASR feature scorer
+        :param feature_flow: flow network
+        :param recognition_parameters: recognition parameters (scales, tdps, ...)
+        :param lm_rasr_config: language model RASR config
+        :param search_job_args: specific arguments for the search job
+        :param lat_2_ctm_args: specific arguments for the lattice to ctm job
+        :param scorer_args: specific arguments for the scoring job
+        :param optimize_parameters: specific arguments for the optimize lm scale job
+        :param scorer_hyp_param_name: key name for the hypothesis file of the scorer
+        :param optimize_am_lm_scales: run the am and lm scale optimization step. DO NOT RUN THIS STEP ON TEST SET!!!
+        """
         for (
             am_sc,
             lm_sc,
