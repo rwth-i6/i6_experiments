@@ -11,14 +11,16 @@ def get_best_model_config(
     num_classes: int,
     time_tag_name: str,
     *,
+    chunking: typing.Optional[str] = None,
     int_loss_at_layer: typing.Optional[int] = None,
     int_loss_scale: typing.Optional[float] = None,
     label_smoothing: float = 0.2,
     target: str = "classes",
 ) -> Network:
     conformer_net = get_cfg(
-        size=size,
         num_classes=num_classes,
+        size=size,
+        chunking=chunking,
         int_loss_at_layer=int_loss_at_layer,
         int_loss_scale=int_loss_scale,
         label_smoothing=label_smoothing,

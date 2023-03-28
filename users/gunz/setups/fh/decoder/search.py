@@ -846,6 +846,11 @@ class FHDecoder:
         tdp_silence = (
             search_parameters.tdp_silence if search_parameters.tdp_scale is not None else (0.0, 0.0, "infinity", 0.0)
         )
+        tdp_non_word = (
+            search_parameters.tdp_non_word
+            if search_parameters.tdp_non_word is not None
+            else (0.0, 0.0, "infinity", 0.0)
+        )
 
         search_crp.acoustic_model_config = am.acoustic_model_config(
             state_tying=state_tying,
@@ -856,6 +861,9 @@ class FHDecoder:
             tdp_scale=search_parameters.tdp_scale,
             tdp_transition=tdp_transition,
             tdp_silence=tdp_silence,
+            tdp_nonword=tdp_non_word,
+            nonword_phones=search_parameters.non_word_phonemes,
+            tying_type="global-and-nonword",
         )
 
         search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones

@@ -29,6 +29,7 @@ from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, PhonemeStateClasses
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
+    augment_net_with_diphone_outputs,
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
@@ -93,7 +94,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ph:1-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
+    name = f"conf-ph:2-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -159,6 +160,15 @@ def run_single(
         l2=L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
+        use_multi_task=True,
+    )
+    network = augment_net_with_diphone_outputs(
+        network,
+        encoder_output_len=conf_model_dim,
+        label_smoothing=CONF_LABEL_SMOOTHING,
+        l2=L2,
+        ph_emb_size=s.label_info.ph_emb_size,
+        st_emb_size=s.label_info.st_emb_size,
         use_multi_task=True,
     )
     network = aux_loss.add_intermediate_loss(
@@ -237,7 +247,7 @@ def run_single(
         nn_train_args=train_args,
         on_2080=False,
     )
-    s.set_mono_priors_returnn_rasr(
+    s.set_diphone_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
@@ -249,7 +259,7 @@ def run_single(
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.monophone,
+            context_type=PhoneticContext.diphone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,

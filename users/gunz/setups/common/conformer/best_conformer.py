@@ -23,6 +23,7 @@ def get_best_model_config(
     size: typing.Union[Size, int],
     num_classes: int,
     *,
+    chunking: typing.Optional[str] = None,
     int_loss_at_layer: typing.Optional[int] = None,
     int_loss_scale: typing.Optional[float] = None,
     label_smoothing: typing.Optional[float] = None,
@@ -41,6 +42,8 @@ def get_best_model_config(
 
     assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
 
+    clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
+
     pe400_enc_args = get_encoder_args(
         model_dim // att_dim,
         att_dim,
@@ -52,7 +55,7 @@ def get_best_model_config(
         0.0,
         **{
             "relative_pe": True,
-            "clipping": 400,
+            "clipping": clipping,
             "layer_norm_instead_of_batch_norm": True,
         },
     )

@@ -129,6 +129,7 @@ class SearchParameters:
     beam: Float
     beam_limit: int
     lm_scale: Float
+    non_word_phonemes: str
     prior_info: PriorInfo
     pron_scale: Float
     tdp_scale: typing.Optional[Float]
@@ -170,13 +171,14 @@ class SearchParameters:
         return cls(
             beam=22,
             beam_limit=500_000,
-            prior_info=priors.with_scale(0.2),
             lm_scale=4.0,
             tdp_scale=0.4,
             pron_scale=2.0,
+            prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -186,13 +188,14 @@ class SearchParameters:
         return cls(
             beam=20,
             beam_limit=500_000,
-            prior_info=priors.with_scale(center=0.2, left=0.1),
             lm_scale=9.0,
             tdp_scale=0.4,
             pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -202,13 +205,14 @@ class SearchParameters:
         return cls(
             beam=20,
             beam_limit=500_000,
-            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             lm_scale=11.0,
-            tdp_scale=0.8,
+            tdp_scale=0.6,
             pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
             tdp_silence=(0.0, 3.0, "infinity", 20.0),
             tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
