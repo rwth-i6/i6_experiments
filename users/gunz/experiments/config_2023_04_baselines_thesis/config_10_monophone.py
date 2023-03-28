@@ -67,26 +67,19 @@ def run(returnn_root: tk.Path):
 
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
-    for focal_loss, (name, align) in itertools.product(
-        [0.0, CONF_FOCAL_LOSS],
-        [("GMMtri", tri_gmm_align)],
-    ):
+    configs = [
+        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, True),
+        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, False),
+    ]
+    for fl, a_name, a, mt in configs:
         run_single(
-            alignment=align,
-            alignment_name=name,
-            focal_loss=focal_loss,
+            alignment=a,
+            alignment_name=a_name,
+            focal_loss=fl,
             returnn_root=returnn_root,
             tune_decoding=False,
+            multitask=mt,
         )
-
-    run_single(
-        alignment=tri_gmm_align,
-        alignment_name="GMMtri",
-        focal_loss=CONF_FOCAL_LOSS,
-        returnn_root=returnn_root,
-        tune_decoding=False,
-        multitask=False,
-    )
 
 
 def run_single(
