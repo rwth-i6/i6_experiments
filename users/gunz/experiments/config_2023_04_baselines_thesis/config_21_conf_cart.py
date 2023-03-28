@@ -1,6 +1,7 @@
 __all__ = ["run", "run_single"]
 
 import copy
+import dataclasses
 import itertools
 import typing
 
@@ -26,22 +27,19 @@ from ...setups.common.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
-from ...setups.fh.network import aux_loss, extern_data
-from ...setups.fh.network.augment import (
-    augment_net_with_monophone_outputs,
-    augment_net_with_label_pops,
-    augment_net_with_triphone_outputs,
-)
+from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStateTying
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    CART_TREE_DI,
+    CART_TREE_DI_NUM_LABELS,
+    CART_TREE_TRI,
+    CART_TREE_TRI_NUM_LABELS,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
     FH_DECODING_TENSOR_CONFIG,
-    L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -68,16 +66,22 @@ def run(returnn_root: tk.Path):
 
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
-    for focal_loss, (name, align) in itertools.product(
-        [0.0, CONF_FOCAL_LOSS],
-        [("GMMtri", tri_gmm_align)],
-    ):
+    for (n_phones, cart_tree, cart_num_labels) in [
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS),
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS),
+    ]:
+        with open(cart_num_labels, "r") as file:
+            num_labels = int(file.read().strip())
+
         run_single(
-            alignment=align,
-            alignment_name=name,
-            focal_loss=focal_loss,
+            alignment=tri_gmm_align,
+            alignment_name="GMMtri",
+            focal_loss=0.2,
             returnn_root=returnn_root,
             tune_decoding=False,
+            cart_tree=tk.Path(cart_tree, cached=True),
+            n_cart_phones=n_phones,
+            n_cart_out=num_labels,
         )
 
 
@@ -86,6 +90,9 @@ def run_single(
     alignment: tk.Path,
     alignment_name: str,
     returnn_root: tk.Path,
+    n_cart_phones: int,
+    n_cart_out: int,
+    cart_tree: tk.Path,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
     focal_loss: float = CONF_FOCAL_LOSS,
@@ -94,8 +101,8 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ph:3-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
-    print(f"fh {name}")
+    name = f"conf-ph:{n_cart_phones}-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
+    print(f"cart {name}")
 
     # ***********Initial arguments and init step ********************
     (
@@ -118,6 +125,9 @@ def run_single(
         test_data=test_data_inputs,
     )
     s.train_key = train_key
+    s.label_info = dataclasses.replace(
+        s.label_info, state_tying=RasrStateTying.cart, phoneme_state_classes=PhonemeStateClasses.none
+    )
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -138,6 +148,9 @@ def run_single(
         eval_tdp_type="default",
     )
 
+    for crp_name in s.crp_names["train"].values():
+        s.crp[crp_name].acoustic_model_config.state_tying.file = cart_tree
+
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 40, "dev": 1}
 
@@ -146,40 +159,10 @@ def run_single(
         conf_model_dim,
         chunking=CONF_CHUNKING,
         label_smoothing=CONF_LABEL_SMOOTHING,
-        num_classes=s.label_info.get_n_of_dense_classes(),
+        num_classes=n_cart_out,
         time_tag_name=time_tag_name,
     )
     network = network_builder.network
-    network = augment_net_with_label_pops(network, label_info=s.label_info)
-    network = augment_net_with_monophone_outputs(
-        network,
-        add_mlps=True,
-        encoder_output_len=conf_model_dim,
-        final_ctx_type=PhoneticContext.triphone_forward,
-        focal_loss_factor=focal_loss,
-        l2=L2,
-        label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
-        use_multi_task=True,
-    )
-    network = augment_net_with_triphone_outputs(
-        network,
-        l2=L2,
-        ph_emb_size=s.label_info.ph_emb_size,
-        st_emb_size=s.label_info.st_emb_size,
-        variant=PhoneticContext.triphone_forward,
-    )
-    network = aux_loss.add_intermediate_loss(
-        network,
-        center_state_only=True,
-        context=PhoneticContext.monophone,
-        encoder_output_len=conf_model_dim,
-        focal_loss_factor=focal_loss,
-        l2=L2,
-        label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
-        time_tag_name=time_tag_name,
-    )
 
     base_config = {
         **s.initial_nn_args,
@@ -199,8 +182,17 @@ def run_single(
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {
-            "data": {"dim": 50},
-            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
+            "data": {
+                "dim": 50,
+                "shape": (None, 50),
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            },
+            "classes": {
+                "dim": n_cart_out,
+                "shape": (None,),
+                "sparse": True,
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            },
         },
     }
     keep_epochs = [550, num_epochs]

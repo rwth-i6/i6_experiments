@@ -89,6 +89,7 @@ def run_single(
     conf_model_dim: int = 512,
     num_epochs: int = 600,
     focal_loss: float = CONF_FOCAL_LOSS,
+    dc_detection: bool = False,
     tune_decoding: bool = False,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
@@ -102,7 +103,7 @@ def run_single(
         dev_data_inputs,
         test_data_inputs,
     ) = lbs_data_setups.get_data_inputs()
-    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True)
+    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
     # *********** System Instantiation *****************
     steps = rasr_util.RasrSteps()

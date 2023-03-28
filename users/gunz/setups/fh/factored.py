@@ -82,6 +82,7 @@ class RasrStateTying(Enum):
     monophone = "monophone-dense"
     diphone = "diphone-dense"
     triphone = "no-tying-dense"
+    cart = "cart"
 
 
 @dataclass(eq=True, frozen=True)
