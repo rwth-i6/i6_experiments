@@ -79,6 +79,15 @@ def run(returnn_root: tk.Path):
             tune_decoding=False,
         )
 
+    run_single(
+        alignment=tri_gmm_align,
+        alignment_name="GMMtri",
+        focal_loss=CONF_FOCAL_LOSS,
+        returnn_root=returnn_root,
+        tune_decoding=False,
+        multitask=False,
+    )
+
 
 def run_single(
     *,
@@ -90,10 +99,11 @@ def run_single(
     focal_loss: float = CONF_FOCAL_LOSS,
     dc_detection: bool = False,
     tune_decoding: bool = False,
+    multitask: bool = True,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ph:1-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
+    name = f"conf-ph:1-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}-mt:{int(multitask)}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -160,7 +170,7 @@ def run_single(
         l2=L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
-        use_multi_task=True,
+        use_multi_task=multitask,
     )
     network = aux_loss.add_intermediate_loss(
         network,
