@@ -148,7 +148,7 @@ def run_single(
         eval_tdp_type="default",
     )
 
-    for crp_name in s.crp_names["train"].values():
+    for crp_name in s.crp_names.values():
         s.crp[crp_name].acoustic_model_config.state_tying.file = cart_tree
 
     # ---------------------- returnn config---------------
@@ -159,6 +159,8 @@ def run_single(
         conf_model_dim,
         chunking=CONF_CHUNKING,
         label_smoothing=CONF_LABEL_SMOOTHING,
+        leave_cart_output=True,
+        focal_loss_factor=CONF_FOCAL_LOSS,
         num_classes=n_cart_out,
         time_tag_name=time_tag_name,
     )

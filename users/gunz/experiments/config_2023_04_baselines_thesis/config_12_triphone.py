@@ -145,6 +145,7 @@ def run_single(
     network_builder = conformer.get_best_model_config(
         conf_model_dim,
         chunking=CONF_CHUNKING,
+        focal_loss_factor=CONF_FOCAL_LOSS,
         label_smoothing=CONF_LABEL_SMOOTHING,
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
