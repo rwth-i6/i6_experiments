@@ -82,9 +82,7 @@ class HybridDecoder(BaseDecoder):
 
         self.blas_lib = blas_lib
         self.search_numpy_blas = search_numpy_blas
-        self.required_native_ops = (
-            required_native_ops if required_native_ops is not None else []
-        )
+        self.required_native_ops = required_native_ops if required_native_ops is not None else []
         self.native_ops = []
 
     def init_decoder(

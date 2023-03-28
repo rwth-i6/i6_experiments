@@ -35,9 +35,7 @@ class Tdp:
 
     def get_tuple(
         self,
-    ) -> Tuple[
-        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ]:
+    ) -> Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]]:
         return self.loop, self.forward, self.skip, self.exit
 
     def __str__(self):

@@ -45,9 +45,7 @@ class BaseDecoder:
 
         self.base_crp_name = "base"
         self.crp = {"base": rasr.CommonRasrParameters()}
-        rasr.crp_add_default_output(
-            self.crp["base"], compress, append, unbuffered, compress_after_run
-        )
+        rasr.crp_add_default_output(self.crp["base"], compress, append, unbuffered, compress_after_run)
         self.crp["base"].set_executables(rasr_binary_path, rasr_arch)
 
         self.eval_corpora = []
@@ -55,8 +53,8 @@ class BaseDecoder:
         self.feature_flows = {}
 
         self.feature_name_job_mapping = {
-                "gt": features.GammatoneJob,
-                "mfcc": features.MfccJob,
+            "gt": features.GammatoneJob,
+            "mfcc": features.MfccJob,
         }
 
         self.alias_output_prefix = alias_output_prefix
@@ -104,9 +102,7 @@ class BaseDecoder:
 
         self.eval_corpora.extend(list(eval_datasets.keys()))
         for corpus_key, corpus_object in eval_datasets.items():
-            self.crp[corpus_key] = rasr.CommonRasrParameters(
-                base=self.crp[self.base_crp_name]
-            )
+            self.crp[corpus_key] = rasr.CommonRasrParameters(base=self.crp[self.base_crp_name])
             rasr.crp_set_corpus(self.crp[corpus_key], corpus_object)
             self.crp[corpus_key].corpus_duration = corpus_durations[corpus_key]
             self.crp[corpus_key].concurrent = concurrency[corpus_key]
@@ -218,31 +214,20 @@ class BaseDecoder:
         self.crp[corpus_key].acoustic_model_config.tdp["*"].exit = tdp_speech.exit
 
         self.crp[corpus_key].acoustic_model_config.tdp.silence.loop = tdp_silence.loop
-        self.crp[
-            corpus_key
-        ].acoustic_model_config.tdp.silence.forward = tdp_silence.forward
+        self.crp[corpus_key].acoustic_model_config.tdp.silence.forward = tdp_silence.forward
         self.crp[corpus_key].acoustic_model_config.tdp.silence.skip = tdp_silence.skip
         self.crp[corpus_key].acoustic_model_config.tdp.silence.exit = tdp_silence.exit
 
         if (
-            self.crp[corpus_key].acoustic_model_config.tdp.tying_type
-            == "global-and-nonword"
+            self.crp[corpus_key].acoustic_model_config.tdp.tying_type == "global-and-nonword"
             and tdp_nonspeech is not None
         ):
             for nw in [0, 1]:
                 k = "nonword-%d" % nw
-                self.crp[corpus_key].acoustic_model_config.tdp[
-                    k
-                ].loop = tdp_nonspeech.loop
-                self.crp[corpus_key].acoustic_model_config.tdp[
-                    k
-                ].forward = tdp_nonspeech.forward
-                self.crp[corpus_key].acoustic_model_config.tdp[
-                    k
-                ].skip = tdp_nonspeech.skip
-                self.crp[corpus_key].acoustic_model_config.tdp[
-                    k
-                ].exit = tdp_nonspeech.exit
+                self.crp[corpus_key].acoustic_model_config.tdp[k].loop = tdp_nonspeech.loop
+                self.crp[corpus_key].acoustic_model_config.tdp[k].forward = tdp_nonspeech.forward
+                self.crp[corpus_key].acoustic_model_config.tdp[k].skip = tdp_nonspeech.skip
+                self.crp[corpus_key].acoustic_model_config.tdp[k].exit = tdp_nonspeech.exit
 
         return corpus_key
 
@@ -263,9 +248,9 @@ class BaseDecoder:
             feature_flow=feature_flow,
             **search_job_args,
         )
-        #search_job.set_vis_name(
+        # search_job.set_vis_name(
         #    f"Recog: {self.alias_output_prefix}{name}. Corpus: {corpus_key}"
-        #)
+        # )
         search_job.add_alias(f"{self.alias_output_prefix}recog_{corpus_key}/{name}")
 
         lat_2_ctm_job = recog.LatticeToCtmJob(
@@ -274,13 +259,9 @@ class BaseDecoder:
             parallelize=False,
             **lat_2_ctm_args,
         )
-        lat_2_ctm_job.add_alias(
-            f"{self.alias_output_prefix}lattice2ctm_{corpus_key}/{name}"
-        )
+        lat_2_ctm_job.add_alias(f"{self.alias_output_prefix}lattice2ctm_{corpus_key}/{name}")
 
-        scorer_job = self.scorer_job_class(
-            **{scorer_hyp_param_name: lat_2_ctm_job.out_ctm_file}, **scorer_args
-        )
+        scorer_job = self.scorer_job_class(**{scorer_hyp_param_name: lat_2_ctm_job.out_ctm_file}, **scorer_args)
         scorer_job.add_alias(f"{self.alias_output_prefix}scoring_{corpus_key}/{name}")
         tk.register_output(
             f"{self.alias_output_prefix}recog_{corpus_key}/{name}.reports",
