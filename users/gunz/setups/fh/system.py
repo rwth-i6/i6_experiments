@@ -971,7 +971,7 @@ class FactoredHybridSystem(NnSystem):
             share=data_share,
         )
 
-        job.add_alias(f"priors/{name}/l")
+        job.add_alias(f"priors/{name}/c")
         tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
         self.experiments[key]["priors"] = PriorInfo(
