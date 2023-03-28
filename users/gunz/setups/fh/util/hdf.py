@@ -15,8 +15,8 @@ class SprintFeatureToHdf(Job):
         self.feature_caches = feature_caches
 
         self.out_hdf_files = [
-            self.output_path(f"data.hdf.{i}", cached=False)
-            for i in range(1, len(feature_caches.hidden_paths) + 1)
+            self.output_path(f"data.hdf.{i + 1}", cached=False)
+            for i in range(len(feature_caches.hidden_paths))
         ]
 
         self.rqmt = {"cpu": 1, "mem": 8, "time": 1.0}

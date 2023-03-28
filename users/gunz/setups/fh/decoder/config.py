@@ -151,10 +151,10 @@ class SearchParameters:
     lm_scale: Float
     prior_info: PriorInfo
     pron_scale: Float
-    # tdp_non_word: float
     tdp_scale: typing.Optional[Float]
     tdp_silence: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_non_word: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
     we_pruning_limit: int
 
@@ -197,7 +197,8 @@ class SearchParameters:
             tdp_scale=0.4,
             pron_scale=2.0,
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -212,7 +213,8 @@ class SearchParameters:
             tdp_scale=0.4,
             pron_scale=2.0,
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -227,7 +229,8 @@ class SearchParameters:
             tdp_scale=0.8,
             pron_scale=2.0,
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
             we_pruning=0.5,
             we_pruning_limit=10000,
         )

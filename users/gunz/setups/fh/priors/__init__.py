@@ -1,7 +1,2 @@
-from .mono import (
-    EstimateMonophonePriorsJob,
-    EstimateCartPriorsJob,
-    DumpXmlForMonophoneJob,
-)
-from .di import EstimateDiphonePriorsJob, DumpXmlForDiphoneJob
-from .tri import EstimateTriphoneForwardPriorsJob, DumpXmlForTriphoneJob
+from .augment import get_returnn_configs_for_prior_estimation
+from .tri_join import JoinRightContextPriorsJob

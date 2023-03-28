@@ -74,6 +74,12 @@ class PhonemeStateClasses(Enum):
         else:
             raise NotImplementedError("unknown phoneme state class")
 
+    def use_boundary(self) -> bool:
+        return self == PhonemeStateClasses.boundary
+
+    def use_word_end(self) -> bool:
+        return self == PhonemeStateClasses.word_end
+
 
 class RasrStateTying(Enum):
     """The algorithm by which RASR calculates the labels to score."""
