@@ -15,6 +15,7 @@ def get_best_model_config(
     int_loss_at_layer: typing.Optional[int] = None,
     int_loss_scale: typing.Optional[float] = None,
     label_smoothing: float = 0.2,
+    leave_cart_output: bool = False,
     target: str = "classes",
 ) -> Network:
     conformer_net = get_cfg(
@@ -28,10 +29,11 @@ def get_best_model_config(
         time_tag_name=time_tag_name,
     )
 
-    conformer_net.network.pop("output", None)
-    conformer_net.network["encoder-output"] = {
-        "class": "copy",
-        "from": "length_masked",
-    }
+    if not leave_cart_output:
+        conformer_net.network.pop("output", None)
+        conformer_net.network["encoder-output"] = {
+            "class": "copy",
+            "from": "length_masked",
+        }
 
     return conformer_net

@@ -237,11 +237,12 @@ def run_single(
         nn_train_args=train_args,
         on_2080=False,
     )
-    s.set_triphone_priors_returnn_rasr(
+    s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
+        output_layer_name="output",
     )
 
     s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
@@ -249,11 +250,15 @@ def run_single(
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.triphone_forward,
+            context_type=PhoneticContext.monophone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=FH_DECODING_TENSOR_CONFIG,
+            tensor_map=dataclasses.replace(
+                FH_DECODING_TENSOR_CONFIG,
+                in_encoder_output="output/output_batch_major",
+                in_seq_length="extern_data/placeholders/data/data_dim0_size",
+            ),
             recompile_graph_for_feature_scorer=True,
         )
         recognizer.recognize_count_lm(
