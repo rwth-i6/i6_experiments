@@ -84,6 +84,9 @@ class RasrStateTying(Enum):
     triphone = "no-tying-dense"
     cart = "cart"
 
+    def __str__(self):
+        return self.value
+
 
 @dataclass(eq=True, frozen=True)
 class LabelInfo:
