@@ -4,7 +4,7 @@ import copy
 from typing import Dict, Optional, Tuple, Type, Union
 
 from sisyphus import tk
-from sisyphus.delayed_ops import Delayed, DelayedFormat
+from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedFormat
 
 import i6_core.features as features
 import i6_core.rasr as rasr
@@ -189,7 +189,7 @@ class BaseDecoder:
         tdp_nonspeech: Optional[Tdp] = None,
         pronunciation_scale: Optional[float] = None,
         altas: Optional[float] = None,
-    ):
+    ) -> Union[str, DelayedBase]:
         out_str = ""
 
         if isinstance(am_scale, tk.Variable):
@@ -295,15 +295,11 @@ class BaseDecoder:
             feature_flow=feature_flow,
             **search_job_args,
         )
-        # search_job.set_vis_name(
-        #    f"Recog: {self.alias_output_prefix}{name}. Corpus: {corpus_key}"
-        # )
         search_job.add_alias(f"{self.alias_output_prefix}recog_{corpus_key}/{name}")
 
         lat_2_ctm_job = recog.LatticeToCtmJob(
             crp=self.crp[corpus_key],
             lattice_cache=search_job.out_lattice_bundle,
-            parallelize=False,
             **lat_2_ctm_args,
         )
         lat_2_ctm_job.add_alias(f"{self.alias_output_prefix}lattice2ctm_{corpus_key}/{name}")
@@ -322,16 +318,16 @@ class BaseDecoder:
         name: str,
         corpus_key: str,
         lattice_cache: tk.Path,
-        initial_am_scale: float,
+        initial_pron_scale: float,
         initial_lm_scale: float,
         scorer_args: Union[ScliteScorerArgs, Dict],
         scorer_hyp_param_name: str,
         optimize_args: OptimizeJobArgs,
-    ) -> (float, float):
+    ) -> (tk.Variable, tk.Variable):
         opt_job = recog.OptimizeAMandLMScaleJob(
             crp=self.crp[corpus_key],
             lattice_cache=lattice_cache,
-            initial_am_scale=initial_am_scale,
+            initial_am_scale=initial_pron_scale,  # wrong parameter name in job definition
             initial_lm_scale=initial_lm_scale,
             scorer_cls=self.scorer_job_class,
             scorer_kwargs=scorer_args,
@@ -340,10 +336,10 @@ class BaseDecoder:
         )
         opt_job.add_alias(f"{self.alias_output_prefix}optimize_{corpus_key}/{name}")
 
-        best_am_scale = opt_job.out_best_am_score
+        best_pron_scale = opt_job.out_best_am_score
         best_lm_scale = opt_job.out_best_lm_score
 
-        return best_am_scale, best_lm_scale
+        return best_pron_scale, best_lm_scale
 
     def decode(
         self,
@@ -430,11 +426,11 @@ class BaseDecoder:
                 scorer_hyp_param_name=scorer_hyp_param_name,
             )
             if optimize_am_lm_scales:
-                best_am_scale, best_lm_scale = self._optimize_scales(
+                best_pron_scale, best_lm_scale = self._optimize_scales(
                     name=name,
                     corpus_key=derived_corpus_key,
                     lattice_cache=search_job.out_lattice_bundle,
-                    initial_am_scale=am_sc,
+                    initial_pron_scale=pron_sc,
                     initial_lm_scale=lm_sc,
                     scorer_args=scorer_args,
                     scorer_hyp_param_name=scorer_hyp_param_name,
@@ -443,7 +439,7 @@ class BaseDecoder:
 
                 optimized_corpus_key = self._set_scales_and_tdps(
                     corpus_key=corpus_key,
-                    am_scale=best_am_scale,
+                    am_scale=best_pron_scale,
                     lm_scale=best_lm_scale,
                     prior_scale=prior_sc,
                     tdp_scale=tdp_sc,

@@ -111,7 +111,7 @@ class HybridDecoder(BaseDecoder):
             )
             self.native_ops.append(native_ops_job.out_op)
 
-    def _compile_tf_graphs(self, returnn_config: returnn.ReturnnConfig):
+    def _compile_tf_graph(self, returnn_config: returnn.ReturnnConfig):
         graph_job = returnn.CompileTFGraphJob(
             returnn_config=returnn_config,
             returnn_python_exe=self.returnn_python_exe,
@@ -139,16 +139,16 @@ class HybridDecoder(BaseDecoder):
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
         self._compile_necessary_native_ops()
-        am_meta_graph = self._compile_tf_graphs(returnn_config)
+        am_meta_graph = self._compile_tf_graph(returnn_config)
 
         if epochs is None:
             epochs = [checkpoints.keys()]
 
         for idx, ckpt in checkpoints.items():
-            if idx in epochs:
+            if idx not in epochs:
                 continue
             for lm_name, lm_conf in lm_configs.items():
-                for s_name, p in prior_paths.items():
+                for prior_name, p in prior_paths.items():
                     feature_scorer = rasr.PrecomputedHybridFeatureScorer(
                         prior_mixtures=p.acoustic_mixture_path,
                         prior_file=p.prior_xml_path,
@@ -169,7 +169,7 @@ class HybridDecoder(BaseDecoder):
                             tf_fwd_input_name=tf_fwd_input_name,
                         )
 
-                        exp_name = f"{name}_ep{idx:03}_lm-{lm_name}_{s_name}"
+                        exp_name = f"{name}_ep{idx:03}_lm-{lm_name}_{prior_name}"
 
                         self.decode(
                             name=exp_name,
