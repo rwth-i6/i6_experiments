@@ -34,7 +34,12 @@ from ..common.compile_graph import compile_tf_graph_from_returnn_config
 from .decoder.config import PriorConfig, PriorInfo
 from .decoder.search import FHDecoder, SearchParameters
 from .factored import PhoneticContext, LabelInfo
-from .priors import get_returnn_configs_for_prior_estimation, JoinRightContextPriorsJob
+from .priors import (
+    get_returnn_config_for_center_state_prior_estimation,
+    get_returnn_config_for_left_context_prior_estimation,
+    get_returnn_configs_for_right_context_prior_estimation,
+    JoinRightContextPriorsJob,
+)
 from .util.argmin import ComputeArgminJob
 from .util.hdf import SprintFeatureToHdf
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
@@ -496,9 +501,13 @@ class FactoredHybridSystem(NnSystem):
         else:
             crp.acoustic_model_config.state_tying.type = "no-tying-dense"  # for correct tree of dependency
 
-        if self.label_info.use_word_end_classes:
-            crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
-        crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+        if self.label_info.phoneme_state_classes.use_word_end():
+            crp.acoustic_model_config.state_tying.use_word_end_classes = (
+                self.label_info.phoneme_state_classes.use_word_end()
+            )
+        crp.acoustic_model_config.state_tying.use_boundary_classes = (
+            self.label_info.phoneme_state_classes.use_boundary()
+        )
         crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
 
         crp.acoustic_model_config.allophones.add_all = self.lexicon_args["add_all_allophones"]
@@ -950,18 +959,15 @@ class FactoredHybridSystem(NnSystem):
             returnn_config = self.experiments[key]["returnn_config"]
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        left_config, _center, _right = get_returnn_configs_for_prior_estimation(
-            returnn_config,
-            label_info=self.label_info,
-            left_context_softmax_layer=output_layer_name,
-        )
+        config = copy.deepcopy(returnn_config)
+        config.config["forward_output_layer"] = output_layer_name
 
         job = self._compute_returnn_rasr_priors(
             key,
             epoch,
             train_corpus_key=train_corpus_key,
             dev_corpus_key=dev_corpus_key,
-            returnn_config=left_config,
+            returnn_config=returnn_config,
             share=data_share,
         )
 
@@ -993,11 +999,14 @@ class FactoredHybridSystem(NnSystem):
             returnn_config = self.experiments[key]["returnn_config"]
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        configs = get_returnn_configs_for_prior_estimation(
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
             returnn_config,
             label_info=self.label_info,
             center_state_softmax_layer=center_state_output_layer_name,
-            left_context_softmax_layer=left_context_output_layer_name,
         )
 
         prior_jobs = {
@@ -1009,7 +1018,7 @@ class FactoredHybridSystem(NnSystem):
                 returnn_config=cfg,
                 share=data_share,
             )
-            for (ctx, cfg) in [("l", configs.left_context), ("c", configs.center_state)]
+            for (ctx, cfg) in [("l", left_config), ("c", center_config)]
         }
 
         for (ctx, job) in prior_jobs.items():
@@ -1049,11 +1058,18 @@ class FactoredHybridSystem(NnSystem):
             returnn_config = self.experiments[key]["returnn_config"]
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        configs = get_returnn_configs_for_prior_estimation(
+        left_config = get_returnn_config_for_left_context_prior_estimation(
+            returnn_config,
+            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        center_config = get_returnn_config_for_center_state_prior_estimation(
             returnn_config,
             label_info=self.label_info,
             center_state_softmax_layer=center_state_output_layer_name,
-            left_context_softmax_layer=left_context_output_layer_name,
+        )
+        right_configs = get_returnn_configs_for_right_context_prior_estimation(
+            returnn_config,
+            label_info=self.label_info,
             right_context_softmax_layer=right_context_output_layer_name,
         )
 
@@ -1067,17 +1083,17 @@ class FactoredHybridSystem(NnSystem):
                 share=data_share,
             )
             for (ctx, cfg) in (
-                ("l", configs.left_context),
-                ("c", configs.center_state),
-                *((f"r{i}", cfg) for i, cfg in enumerate(configs.right_context)),
+                ("l", left_config),
+                ("c", center_config),
+                *((f"r{i}", cfg) for i, cfg in enumerate(right_configs)),
             )
         }
 
         for (ctx, job) in prior_jobs.items():
             job.add_alias(f"priors/{name}/{ctx}")
 
-        right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(configs.right_context))]
-        right_prior_xml = JoinRightContextPriorsJob(right_priors).out_prior_xml
+        right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(right_configs))]
+        right_prior_xml = JoinRightContextPriorsJob(right_priors, label_info=self.label_info).out_prior_xml
 
         results = [
             ("center-state", prior_jobs["c"].out_prior_xml_file),
@@ -1179,7 +1195,7 @@ class FactoredHybridSystem(NnSystem):
 
         return recognizer, recog_args
 
-    TDP = typing.Union[float, tk.Variable, sisyphus.delayed_ops.DelayedBase, str]
+    TDP = typing.Union[float, tk.Variable, DelayedBase, str]
 
     def recog_optimize_prior_tdp_scales(
         self,

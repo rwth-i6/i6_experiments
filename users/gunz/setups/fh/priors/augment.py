@@ -1,18 +1,10 @@
 import copy
-from dataclasses import dataclass
 from textwrap import dedent
 import typing
 
 from i6_core import returnn
 
 from ..factored import LabelInfo
-
-
-@dataclass
-class PriorComputationConfigs:
-    left_context: returnn.ReturnnConfig
-    center_state: returnn.ReturnnConfig
-    right_context: typing.List[returnn.ReturnnConfig]
 
 
 def get_context_dim_tag_prolog(
@@ -187,32 +179,23 @@ def augment_for_right_context(
     return right_context_spatial_dim, right_context_range_dim
 
 
-def get_returnn_configs_for_prior_estimation(
+def get_returnn_config_for_left_context_prior_estimation(
     config_in: returnn.ReturnnConfig,
     *,
-    label_info: LabelInfo,
     left_context_softmax_layer="left-output",
-    center_state_softmax_layer="center-output",
-    right_context_softmax_layer="right-output",
-    out_center_state_layer="center-state-outputs",
-    out_right_context_layer="right-context-outputs",
     left_context_batch_size: typing.Optional[int] = None,
-    center_state_batch_size: typing.Optional[int] = None,
-    right_context_batch_size: typing.Optional[int] = None,
-) -> PriorComputationConfigs:
+) -> returnn.ReturnnConfig:
+
     """
     Assumes forward decomposition and augments the given returnn config to be
     compatible with ReturnnRasrComputePriorV2Job.
 
-    Returns a config for left context, center state and right context (in this order).
+    Returns a config for left context.
 
     The output layers (as given by function parameters) are reshaped such that
     averaging their outputs directly yields the priors.
 
-    The user needs to run ReturnnRasrComputePriorJob per phonetic output, and for
-    each one a dedicated config is provided. Due to the size of the output, for the
-    right context, multiple prior computation jobs need to be run. Their output then
-    is joined into the final list of priors via `JoinRightContextPriorsJob`.
+    The user needs to run ReturnnRasrComputePriorV2Job with the returned config.
     """
 
     # Left Context does not need any network modifications
@@ -220,6 +203,29 @@ def get_returnn_configs_for_prior_estimation(
     left_context_config.config["forward_output_layer"] = left_context_softmax_layer
     if left_context_batch_size is not None:
         left_context_config.config["batch_size"] = left_context_batch_size
+
+    return left_context_config
+
+
+def get_returnn_config_for_center_state_prior_estimation(
+    config_in: returnn.ReturnnConfig,
+    *,
+    label_info: LabelInfo,
+    center_state_softmax_layer="center-output",
+    out_center_state_layer="center-state-outputs",
+    center_state_batch_size: typing.Optional[int] = None,
+) -> returnn.ReturnnConfig:
+    """
+    Assumes forward decomposition and augments the given returnn config to be
+    compatible with ReturnnRasrComputePriorV2Job.
+
+    Returns a config for center state.
+
+    The output layers (as given by function parameters) are reshaped such that
+    averaging their outputs directly yields the priors.
+
+    The user needs to run ReturnnRasrComputePriorV2Job with the returned config.
+    """
 
     # Center State
     center_state_config = copy.deepcopy(config_in)
@@ -232,6 +238,31 @@ def get_returnn_configs_for_prior_estimation(
         left_context_range=None,
     )
 
+    return center_state_config
+
+
+def get_returnn_configs_for_right_context_prior_estimation(
+    config_in: returnn.ReturnnConfig,
+    *,
+    label_info: LabelInfo,
+    right_context_softmax_layer="right-output",
+    out_right_context_layer="right-context-outputs",
+    right_context_batch_size: typing.Optional[int] = None,
+) -> typing.List[returnn.ReturnnConfig]:
+    """
+    Assumes forward decomposition and augments the given returnn config to be
+    compatible with ReturnnRasrComputePriorV2Job.
+
+    Returns a config for the right context.
+
+    The output layers (as given by function parameters) are reshaped such that
+    averaging their outputs directly yields the priors.
+
+    The user needs to run ReturnnRasrComputePriorV2Job. Due to the size of the output,
+    for the right context, multiple prior computation jobs need to be run. Their
+    output then is joined into the final list of priors via `JoinRightContextPriorsJob`.
+    """
+
     # Right Context takes modified config for center state and augments it further
     right_configs = []
     for left_context in range(label_info.n_contexts):
@@ -241,9 +272,9 @@ def get_returnn_configs_for_prior_estimation(
         center_state_spatial, center_state_range = augment_for_center_state(
             right_context_config,
             label_info,
-            center_state_batch_size=center_state_batch_size,
-            center_state_softmax_layer=center_state_softmax_layer,
-            out_center_state_layer=out_center_state_layer,
+            center_state_batch_size=1,
+            center_state_softmax_layer="center-output",
+            out_center_state_layer="center-state-outputs",
             left_context_range=(l_from, l_to),
         )
 
@@ -262,8 +293,4 @@ def get_returnn_configs_for_prior_estimation(
 
         right_configs.append(right_context_config)
 
-    return PriorComputationConfigs(
-        left_context=left_context_config,
-        center_state=center_state_config,
-        right_context=right_configs,
-    )
+    return right_configs
