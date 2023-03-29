@@ -284,7 +284,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": CONF_CHUNKING,
+        "chunking": "64:32",
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
