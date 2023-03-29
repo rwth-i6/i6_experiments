@@ -125,7 +125,7 @@ class HybridDecoder(BaseDecoder):
         *,
         returnn_config: Union[returnn.ReturnnConfig, tk.Path],
         checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-        recognition_parameters: RecognitionParameters,
+        recognition_parameters: RecognitionParameters,  # TODO switch to list
         lm_configs: Dict[str, LmConfig],
         prior_paths: Dict[str, PriorPath],
         search_job_args: Union[SearchJobArgs, Dict],

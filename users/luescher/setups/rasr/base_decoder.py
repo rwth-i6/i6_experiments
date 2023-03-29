@@ -377,7 +377,7 @@ class BaseDecoder:
             am_sc,
             lm_sc,
             prior_sc,
-            pron_sc,
+            pron_sc,  # TODO check if pron and am scale are set correctly
             tdp_sc,
             tdp_speech,
             tdp_silence,
