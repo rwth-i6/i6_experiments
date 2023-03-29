@@ -76,7 +76,7 @@ def run(returnn_root: tk.Path):
         run_single(
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
-            focal_loss=0.2,
+            focal_loss=CONF_FOCAL_LOSS,
             returnn_root=returnn_root,
             tune_decoding=False,
             cart_tree=tk.Path(cart_tree, cached=True),
