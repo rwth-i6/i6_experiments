@@ -325,7 +325,7 @@ def run_single(
         },
     )
 
-    s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
