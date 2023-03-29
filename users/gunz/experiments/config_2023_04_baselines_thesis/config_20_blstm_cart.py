@@ -64,9 +64,10 @@ def run(returnn_root: tk.Path):
 
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
-    for (n_phones, cart_tree, cart_num_labels) in [
-        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS),
-        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS),
+    for (n_phones, cart_tree, cart_num_labels, lr) in [
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v6"),
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v7"),
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v7"),
     ]:
         with open(cart_num_labels, "r") as file:
             num_labels = int(file.read().strip())
@@ -80,6 +81,7 @@ def run(returnn_root: tk.Path):
             cart_tree=tk.Path(cart_tree, cached=True),
             n_cart_phones=n_phones,
             n_cart_out=num_labels,
+            lr=lr,
         )
 
 
@@ -96,10 +98,11 @@ def run_single(
     focal_loss: float = CONF_FOCAL_LOSS,
     dc_detection: bool = False,
     tune_decoding: bool = False,
+    lr: str = "v6",
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-ph:{n_cart_phones}-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
+    name = f"blstm-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
     print(f"cart {name}")
 
     # ***********Initial arguments and init step ********************
@@ -274,9 +277,9 @@ def run_single(
 
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_oclr_config(num_epochs=num_epochs),
+        **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 11000,
+        "batch_size": 11000 if lr == "v7" else 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,

@@ -68,20 +68,32 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
 
     import numpy as np
 
-    assert schedule == "v6", "unknown LR schedule"
+    assert schedule in ["v6", "v7"], "unknown LR schedule"
 
-    # OneCycle from Wei + linear decrease at the end to 1e-6
+    def oclr_cfg(lrate: float):
+        n = int((num_epochs // 10) * 9)
+        n_rest = num_epochs - n
+        lrates = get_learning_rates(lrate=lrate, increase=n // 2, decay=n // 2)
+        lrates += list(np.linspace(schedule[-1], min([*schedule, 1e-6]), n_rest))
 
-    n = int((num_epochs // 10) * 9)
-    n_rest = num_epochs - n
-    schedule = get_learning_rates(increase=n // 2, decay=n // 2)
-    schedule += list(np.linspace(schedule[-1], min([*schedule, 1e-6]), n_rest))
+        assert len(lrates) == num_epochs
 
-    assert len(schedule) == num_epochs
+        return {
+            "learning_rate_file": "lr.log",
+            "min_learning_rate": 1e-6,
+            "learning_rates": lrates,
+            "learning_rate_control": "constant",
+        }
 
-    return {
-        "learning_rate_file": "lr.log",
-        "min_learning_rate": 1e-6,
-        "learning_rates": schedule,
-        "learning_rate_control": "constant",
-    }
+    if schedule == "v6":
+        # OneCycle from Wei + linear decrease at the end to 1e-6
+        #
+        # Max LR 0.0003.
+
+        return oclr_cfg(lrate=0.001)
+    elif schedule == "v7":
+        # Like v6 but higher max LR (0.00053 vs 0.0003)
+
+        return oclr_cfg(lrate=0.00053 / 0.3)
+    else:
+        raise ValueError(f"unknown LR schedule {schedule}")

@@ -69,15 +69,17 @@ def run(returnn_root: tk.Path):
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
-        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align),
+        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v6"),
+        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v7"),
     ]
-    for fl, a_name, a in configs:
+    for fl, a_name, a, lr in configs:
         run_single(
             alignment=a,
             alignment_name=a_name,
             focal_loss=fl,
             returnn_root=returnn_root,
             tune_decoding=False,
+            lr=lr,
         )
 
 
@@ -91,10 +93,11 @@ def run_single(
     focal_loss: float = CONF_FOCAL_LOSS,
     dc_detection: bool = False,
     tune_decoding: bool = False,
+    lr: str = "v6",
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ph:3-from:{alignment_name}-ep:{num_epochs}-fl:{focal_loss}"
+    name = f"conf-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -184,9 +187,9 @@ def run_single(
 
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_oclr_config(num_epochs=num_epochs),
+        **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 11000,
+        "batch_size": 11000 if lr == "v7" else 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
