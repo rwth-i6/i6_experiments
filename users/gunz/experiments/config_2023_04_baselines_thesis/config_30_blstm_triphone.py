@@ -97,7 +97,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
+    name = f"blstm-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
