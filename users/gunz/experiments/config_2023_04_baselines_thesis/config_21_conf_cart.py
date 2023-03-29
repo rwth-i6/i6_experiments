@@ -225,7 +225,7 @@ def run_single(
         },
     )
 
-    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "tri" if n_cart_phones == 3 else "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
