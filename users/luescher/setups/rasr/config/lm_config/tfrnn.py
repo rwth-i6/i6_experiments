@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedJoin
 
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
@@ -45,7 +46,10 @@ class TfRnnLmRasrConfig:
         lm_config.loader.meta_graph_file = self.meta_graph_path
         lm_config.loader.saved_model_file = self.returnn_checkpoint
         if self.libraries is not None:
-            lm_config.loader.required_libraries = self.libraries
+            if isinstance(self.libraries, list):
+                lm_config.loader.required_libraries = DelayedJoin(self.libraries, ";")
+            else:
+                lm_config.loader.required_libraries = self.libraries
 
         lm_config.input_map.info_0.param_name = "word"
         lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
