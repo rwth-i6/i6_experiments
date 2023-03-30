@@ -1,5 +1,3 @@
-import copy
-import numpy as np
 from typing import Optional, Dict
 
 from i6_experiments.users.berger.args.jobs.training_args import get_base_training_args
@@ -11,24 +9,29 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 
 def get_nn_args(
-    train_networks: Dict[str, Dict],
+    train_networks: Dict[str, dict],
     *,
     num_inputs: int,
     num_outputs: int,
     num_epochs: int,
     search_type: SearchTypes = SearchTypes.AdvancedTreeSearch,
-    recog_networks: Dict[str, Dict] = {},
-    returnn_train_config_args: Optional[Dict] = None,
-    returnn_recog_config_args: Optional[Dict] = None,
-    train_args: Optional[Dict] = None,
-    prior_args: Optional[Dict] = None,
+    recog_networks: Dict[str, dict] = {},
+    keep_epochs: Optional[list] = None,
+    returnn_train_config_args: Optional[dict] = None,
+    returnn_recog_config_args: Optional[dict] = None,
+    train_args: Optional[dict] = None,
+    prior_args: Optional[dict] = None,
     align_name: Optional[str] = None,
-    align_args: Optional[Dict] = None,
+    align_args: Optional[dict] = None,
     recog_name: Optional[str] = None,
-    recog_args: Optional[Dict] = None,
+    recog_args: Optional[dict] = None,
     test_recog_name: Optional[str] = None,
-    test_recog_args: Optional[Dict] = None,
+    test_recog_args: Optional[dict] = None,
 ) -> rasr_util.HybridArgs:
+
+    # By default every 10th epoch starting at 80% of the training
+    if keep_epochs is None:
+        keep_epochs = list(range(10 * ((num_epochs * 4) // 50), num_epochs + 1, 10))
 
     returnn_train_configs = {
         name: get_returnn_config(
@@ -36,6 +39,7 @@ def get_nn_args(
             num_inputs=num_inputs,
             num_outputs=num_outputs,
             num_epochs=num_epochs,
+            keep_epochs=keep_epochs,
             **(returnn_train_config_args or {}),
         )
         for name, net in train_networks.items()
@@ -57,25 +61,25 @@ def get_nn_args(
     )
 
     recog_name = recog_name or "recog"
-    recog_args = recog_args or {}
-    recog_args.setdefault(
-        "epochs", list(np.arange(10 * ((num_epochs * 4) // 50), num_epochs + 1, 10))
-    )
-    recognition_args = {recog_name: get_recognition_args(search_type, **recog_args)}
+    recognition_args = {
+        recog_name: get_recognition_args(
+            search_type, epochs=keep_epochs, **(recog_args or {})
+        )
+    }
 
     test_recog_name = test_recog_name or recog_name
-    test_recog_args = test_recog_args or copy.deepcopy(recog_args)
-    test_recog_args.setdefault(
-        "epochs", list(np.arange(10 * ((num_epochs * 4) // 50), num_epochs + 1, 10))
-    )
     test_recognition_args = {
-        test_recog_name: get_recognition_args(search_type, **test_recog_args)
+        test_recog_name: get_recognition_args(
+            search_type, epochs=keep_epochs, **(test_recog_args or recog_args or {})
+        )
     }
 
     align_name = align_name or "align"
-    align_args = align_args or {}
-    align_args.setdefault("epochs", [num_epochs])
-    alignment_args = {align_name: get_alignment_args(search_type, **align_args)}
+    alignment_args = {
+        align_name: get_alignment_args(
+            search_type, epochs=[num_epochs], **(align_args or {})
+        )
+    }
 
     return rasr_util.HybridArgs(
         returnn_training_configs=returnn_train_configs,

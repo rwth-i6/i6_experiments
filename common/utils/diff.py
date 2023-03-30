@@ -25,9 +25,7 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
     """
     if orig is None and new is None:
         return []
-    if isinstance(orig, i6_core.util.MultiPath) and isinstance(
-        new, i6_core.util.MultiPath
-    ):
+    if isinstance(orig, i6_core.util.MultiPath) and isinstance(new, i6_core.util.MultiPath):
         pass  # allow different sub types
     elif isinstance(orig, sisyphus.Job) and isinstance(new, sisyphus.Job):
         # noinspection PyProtectedMember
@@ -116,9 +114,7 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         return diffs
     if isinstance(orig, i6_core.util.MultiPath):
         # only hidden_paths relevant (?)
-        diffs = collect_diffs(
-            f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths
-        )
+        diffs = collect_diffs(f"{prefix}.hidden_paths", orig.hidden_paths, new.hidden_paths)
         if not diffs:
             return _sis_hash_diff(prefix, orig, new)
         return diffs
@@ -129,9 +125,7 @@ def collect_diffs(prefix: str, orig, new) -> List[str]:
         if diffs:
             return diffs
         for key in vars(orig).keys():
-            diffs += collect_diffs(
-                f"{prefix}.{key}", getattr(orig, key), getattr(new, key)
-            )
+            diffs += collect_diffs(f"{prefix}.{key}", getattr(orig, key), getattr(new, key))
         if not diffs:
             return _sis_hash_diff(prefix, orig, new)
         return diffs

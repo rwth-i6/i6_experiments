@@ -104,7 +104,6 @@ def build_training_data(output_prefix="", corpus_key="train-clean-100", bpe_size
         subword_nmt_repo=get_returnn_subword_nmt()
     )
     lm_bpe_data_job.add_alias(os.path.join(output_prefix, "apply_bpe_to_train"))
-    tk.register_output("test_lm_bpe.txt.gz", lm_bpe_data_job.out_bpe_text)
 
     #### Dev Data ####
 

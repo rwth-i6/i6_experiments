@@ -1,6 +1,7 @@
 from i6_core.returnn.config import ReturnnConfig
 
-from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
+# from .zeineldeen_helpers.models.lm.transformer_lm import TransformerLM
+from i6_experiments.users.zeineldeen.models.lm.transformer_lm import TransformerLM
 from .data import TrainingDatasets, SOURCE_DATASTREAM_KEY, TARGET_DATASTREAN_KEY
 
 # changing these does not change the hash
@@ -70,7 +71,17 @@ def get_training_config(datasets: TrainingDatasets):
         att_num_heads=8,
         vocab_size=datasets.extern_data[SOURCE_DATASTREAM_KEY]["dim"]
     )
+    trafo_ext_lm = TransformerLM(
+        source="data:" + SOURCE_DATASTREAM_KEY,
+        target="data:" + TARGET_DATASTREAN_KEY,
+        num_layers=24,
+        ff_dim=4096,
+        att_num_heads=8,
+        vocab_size=datasets.extern_data[SOURCE_DATASTREAM_KEY]["dim"],
+        use_as_ext_lm=True
+    )
     trafo_lm.create_network()
+    trafo_ext_lm.create_network()
     config["network"] = trafo_lm.network.get_net()
 
     # the current LM helpers have a bug for training, thus remove the invalid max_seq_len entry
@@ -83,7 +94,7 @@ def get_training_config(datasets: TrainingDatasets):
         python_prolog_hash="",
     )
 
-    return returnn_config
+    return returnn_config, trafo_ext_lm.network.get_net()
 
 
 

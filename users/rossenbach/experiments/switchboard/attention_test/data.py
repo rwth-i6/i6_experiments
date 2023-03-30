@@ -6,10 +6,11 @@ from typing import Dict, Any, Tuple
 
 from i6_core.returnn import CodeWrapper
 
-from i6_experiments.users.rossenbach.datasets.switchboard import get_train_bliss_corpus_ldc, \
-    get_bliss_lexicon
-from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, SwitchboardEvalDataset
-from i6_experiments.users.rossenbach.datasets.switchboard.bpe import get_subword_nmt_bpe
+from i6_experiments.common.datasets.switchboard.lexicon import get_bliss_lexicon
+from i6_experiments.common.datasets.switchboard.corpus_train import get_spoken_form_train_bliss_corpus_ldc, \
+    get_train_bliss_corpus_ldc
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00, SwitchboardEvalDataset
+from i6_experiments.common.datasets.switchboard.bpe import get_subword_nmt_bpe
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import AudioRawDatastream, \
     ReturnnAudioRawOptions
@@ -20,7 +21,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset
 from ..default_tools import RETURNN_ROOT, RETURNN_CPU_EXE, RETURNN_EXE
 
 @lru_cache()
-def get_bpe_datastream(bpe_size, is_recog):
+def get_bpe_datastream(bpe_size, is_recog, use_spoken_form):
     """
     Returns the datastream for the bpe labels
 
@@ -31,7 +32,12 @@ def get_bpe_datastream(bpe_size, is_recog):
     :return:
     """
     # build dataset
-    bpe_settings = get_subword_nmt_bpe(bpe_size=bpe_size, unk_label='<unk>', subdir_prefix="experiments/switchboard/attention_test/bpe/")
+    bpe_settings = get_subword_nmt_bpe(
+        bpe_size=bpe_size,
+        use_spoken_form=use_spoken_form,
+        unk_label='<unk>',
+        subdir_prefix="experiments/switchboard/attention_test/bpe/"
+    )
     bpe_targets = BpeDatastream(
         available_for_inference=False,
         bpe_settings=bpe_settings,
@@ -63,7 +69,8 @@ def build_training_datasets(
         use_curicculum=True,
         seq_ordering="laplace:.1000",
         link_speed_perturbation=True,
-        use_raw_features=True
+        use_raw_features=True,
+        use_spoken_form=False,
     ):
     """
 
@@ -75,15 +82,14 @@ def build_training_datasets(
     :param str seq_ordering:
     :return:
     """
-    #ogg_zip_dict = get_ogg_zip_dict("corpora")
-    #train_clean_960_ogg = ogg_zip_dict['train-other-960']
-    #dev_clean_ogg = ogg_zip_dict['dev-clean']
-    #dev_other_ogg = ogg_zip_dict['dev-other']
-
     from i6_core.returnn.oggzip import BlissToOggZipJob
 
+    if use_spoken_form:
+        train_corpus = get_spoken_form_train_bliss_corpus_ldc()
+    else:
+        train_corpus = get_train_bliss_corpus_ldc()
     switchboard_ogg = BlissToOggZipJob(
-        bliss_corpus=get_train_bliss_corpus_ldc(),
+        bliss_corpus=train_corpus,
         segments=None,
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_CPU_EXE
@@ -108,7 +114,7 @@ def build_training_datasets(
         returnn_python_exe=RETURNN_CPU_EXE
     ).out_ogg_zip
 
-    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=False)
+    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, use_spoken_form=use_spoken_form, is_recog=False)
 
     if use_raw_features:
         audio_datastream = get_audio_raw_datastream()
@@ -178,7 +184,7 @@ def build_training_datasets(
 
 
 @lru_cache()
-def build_test_datasets(bpe_size, use_raw_features=False) -> Tuple[Dataset, SwitchboardEvalDataset]:
+def build_test_datasets(bpe_size, use_spoken_form, use_raw_features=False) -> Tuple[Dataset, SwitchboardEvalDataset]:
 
 
     eval_dataset = get_hub5e00()
@@ -192,7 +198,7 @@ def build_test_datasets(bpe_size, use_raw_features=False) -> Tuple[Dataset, Swit
         returnn_python_exe=RETURNN_CPU_EXE
     ).out_ogg_zip
 
-    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, is_recog=True)
+    train_bpe_datastream = get_bpe_datastream(bpe_size=bpe_size, use_spoken_form=use_spoken_form, is_recog=True)
 
     if use_raw_features:
         audio_datastream = get_audio_raw_datastream()

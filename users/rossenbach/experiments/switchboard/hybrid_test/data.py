@@ -1,7 +1,10 @@
+from sisyphus import tk
+
 from i6_core import corpus as corpus_recipe
 from i6_core import text
 
-from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, get_hub5e01
+#from i6_experiments.users.rossenbach.datasets.switchboard import get_hub5e00, get_hub5e01
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00, get_hub5e01
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
 
 
@@ -37,6 +40,17 @@ def get_corpus_data_inputs_newcv(gmm_system):
     nn_train_data_inputs = {
         "switchboard.train": nn_train_data,
     }
+
+    print(nn_train_data.alignments.alternatives["bundle"])
+    print(gmm_system.allophone_files["switchboard"])
+    from i6_experiments.users.hilmes.tools.tts.extract_alignment import ExtractDurationsFromRASRAlignmentJob
+    extract_durations = ExtractDurationsFromRASRAlignmentJob(
+        rasr_alignment=nn_train_data.alignments.alternatives["bundle"],
+        rasr_allophones=gmm_system.allophone_files["switchboard"],
+        bliss_corpus=train_corpus_path
+    )
+    tk.register_output("swbd.durations.hdf", extract_durations.out_durations_hdf)
+
 
     nn_cv_data = gmm_system.outputs["switchboard"][
         "final"

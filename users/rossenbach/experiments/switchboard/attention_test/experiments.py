@@ -15,12 +15,14 @@ def conformer_baseline():
     train_data = build_training_datasets(
         bpe_size=500,
         use_raw_features=True,
-        link_speed_perturbation=True
+        link_speed_perturbation=True,
+        use_spoken_form=True,
     )
 
     test_data, eval_object = build_test_datasets(
         bpe_size=500,
         use_raw_features=True,
+        use_spoken_form=True,
     )
 
     # ---------------------------------------------------------------------------------------------------------------- #

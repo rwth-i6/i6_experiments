@@ -139,9 +139,7 @@ def get_monophone_args():
         "use_gpu": False,
     }
 
-    return util.GmmMonophoneArgs(
-        linear_alignment_args, monophone_training_args, monophone_recognition_args
-    )
+    return util.GmmMonophoneArgs(linear_alignment_args, monophone_training_args, monophone_recognition_args)
 
 
 def get_cart_args(
@@ -163,9 +161,7 @@ def get_cart_args(
     :return:
     """
 
-    CartQuestions = (
-        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
-    )
+    CartQuestions = CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
 
     cart_questions_class = CartQuestions(
         max_leaves=max_leaves,

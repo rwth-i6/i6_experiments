@@ -139,16 +139,12 @@ class CartQuestionsWithoutStress:
                     },
                     {
                         "type": "for-each-key",
-                        "keys": (" ").join(
-                            "history[0] central future[0]".split(" ")[:n_phones]
-                        ),
+                        "keys": (" ").join("history[0] central future[0]".split(" ")[:n_phones]),
                         "questions": [
                             {
                                 "type": "for-each-value",
                                 "values": self.phonemes_boundary_str,
-                                "questions": [
-                                    {"type": "question", "description": "context-phone"}
-                                ],
+                                "questions": [{"type": "question", "description": "context-phone"}],
                             },
                             {
                                 "type": "question",
@@ -374,9 +370,7 @@ class CartQuestionsWithoutStress:
 
 
 class CartQuestionsWithStress:
-    def __init__(
-        self, max_leaves=12001, min_obs=1000, add_unknown: bool = True, n_phones=3
-    ):
+    def __init__(self, max_leaves=12001, min_obs=1000, add_unknown: bool = True, n_phones=3):
         self.max_leaves = max_leaves
         self.min_obs = min_obs
         self.boundary = "#"
@@ -528,16 +522,12 @@ class CartQuestionsWithStress:
                     },
                     {
                         "type": "for-each-key",
-                        "keys": (" ").join(
-                            "history[0] central future[0]".split(" ")[:n_phones]
-                        ),
+                        "keys": (" ").join("history[0] central future[0]".split(" ")[:n_phones]),
                         "questions": [
                             {
                                 "type": "for-each-value",
                                 "values": self.phonemes_boundary_str,
-                                "questions": [
-                                    {"type": "question", "description": "context-phone"}
-                                ],
+                                "questions": [{"type": "question", "description": "context-phone"}],
                             },
                             {
                                 "type": "question",

@@ -215,3 +215,30 @@ def get_ls_train_clean_360_tts_silencepreprocessed(alias_path=""):
         ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
 
     return copy.deepcopy(processed_corpus)
+
+
+def get_ls_train_other_500_tts_silencepreprocessed(alias_path=""):
+    """
+    This returns the silence-preprocessed version of LibriSpeech train-clean-100 with
+    FFmpeg silence preprocessing using a threshold of -50dB for silence
+    :return:
+    """
+    corpus_object_dict = get_corpus_object_dict(audio_format="ogg", output_prefix="corpora")
+    train_500_corpus = corpus_object_dict['train-other-500']
+
+    processed_corpus = CorpusObject()
+    processed_corpus.audio_format = "ogg"
+    # this is not the true duration, but because it is unknown we just copy
+    # this as no further implications to the pipeline except for the RTF settings to estimate SGE usage
+    processed_corpus.duration = train_500_corpus.duration
+    processed_corpus.audio_dir = train_500_corpus.audio_dir
+    processed_corpus.corpus_file = ffmpeg_silence_remove(
+        train_500_corpus.corpus_file,
+        stop_threshold = -50,
+        stop_duration = 0,
+        force_output_format = 'ogg',
+        # the pipeline uses n4.1.4, but we assume that it is safe to user other versions of FFMPEG as well
+        # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
+        ffmpeg_binary=tk.Path("/u/rossenbach/bin/ffmpeg", hash_overwrite="FFMPEG"))
+
+    return copy.deepcopy(processed_corpus)

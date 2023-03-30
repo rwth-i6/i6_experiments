@@ -103,7 +103,7 @@ def get_loss_scale_alignments():
     )
     alignments = {}
     # for loss in [0, 0.25, 0.4, 0.5, 0.6, 0.75, 1]:, REMOVED because of space
-    for loss in [0, 0.25, 0.75, 1]:
+    for loss in [0, 1]:
         exp_name = name + f"_{loss}"
         aligner_config = get_training_config(
             returnn_common_root=returnn_common_root,

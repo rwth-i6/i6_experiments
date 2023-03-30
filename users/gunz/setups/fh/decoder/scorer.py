@@ -132,26 +132,14 @@ class FactoredHybridFeatureScorerV2(rasr.FeatureScorer):
         self.config.center_state_scale = posterior_scales["center-state-scale"]
         self.config.right_context_scale = posterior_scales["right-context-scale"]
         if prior_info["left-context-prior"]["file"] is not None:
-            self.config.left_context_prior_scale = prior_info["left-context-prior"][
-                "scale"
-            ]
-            self.config.left_context_prior_file = prior_info["left-context-prior"][
-                "file"
-            ]
+            self.config.left_context_prior_scale = prior_info["left-context-prior"]["scale"]
+            self.config.left_context_prior_file = prior_info["left-context-prior"]["file"]
         if prior_info["center-state-prior"]["file"] is not None:
-            self.config.center_state_prior_scale = prior_info["center-state-prior"][
-                "scale"
-            ]
-            self.config.center_state_prior_file = prior_info["center-state-prior"][
-                "file"
-            ]
+            self.config.center_state_prior_scale = prior_info["center-state-prior"]["scale"]
+            self.config.center_state_prior_file = prior_info["center-state-prior"]["file"]
         if prior_info["right-context-prior"]["file"] is not None:
-            self.config.right_context_prior_scale = prior_info["right-context-prior"][
-                "scale"
-            ]
-            self.config.right_context_prior_file = prior_info["right-context-prior"][
-                "file"
-            ]
+            self.config.right_context_prior_scale = prior_info["right-context-prior"]["scale"]
+            self.config.right_context_prior_file = prior_info["right-context-prior"]["file"]
         self.config.loop_scale = loop_scale
         self.config.forward_scale = forward_scale
         self.config.silence_loop_penalty = silence_loop_penalty

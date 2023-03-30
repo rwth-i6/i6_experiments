@@ -32,7 +32,11 @@ class AlignmentTrainingDatasets:
     datastreams: Dict[str, Datastream]
 
 
-def build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed=True, center : bool = False) -> AlignmentTrainingDatasets:
+def build_training_dataset(
+        ls_corpus_key="train-clean-100",
+        silence_preprocessed=True,
+        partition_epoch=1,
+        center : bool = False) -> AlignmentTrainingDatasets:
     """
 
     :param center: do feature centering
@@ -69,7 +73,7 @@ def build_training_dataset(ls_corpus_key="train-clean-100", silence_preprocessed
         audio_options=log_mel_datastream.as_returnn_audio_opts(),
         target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=train_segments,
-        partition_epoch=1,
+        partition_epoch=partition_epoch,
         seq_ordering="laplace:.1000"
     )
     train_dataset = make_meta_dataset(train_ogg_dataset, joint_speaker_dataset)

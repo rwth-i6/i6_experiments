@@ -23,7 +23,8 @@ def sis_run_with_prefix(prefix_name: str):
         return
     task = get_switchboard_task_bpe1k()
     model = train(
-        prefix_name, task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training)
+        prefix_name, task=task, config=config, model_def=from_scratch_model_def, train_def=from_scratch_training
+    )
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
 
@@ -33,7 +34,6 @@ config = dict(
     batch_size=12000,
     max_seqs=200,
     max_seq_length_default_target=75,
-
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
@@ -53,19 +53,22 @@ config = dict(
 class Model(nn.Module):
     """Model definition"""
 
-    def __init__(self, in_dim: nn.Dim, *,
-                 num_enc_layers=12,
-                 nb_target_dim: nn.Dim,
-                 wb_target_dim: nn.Dim,
-                 blank_idx: int,
-                 bos_idx: int,
-                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
-                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
-                 att_dropout: float = 0.1,
-                 enc_dropout: float = 0.1,
-                 enc_att_dropout: float = 0.1,
-                 l2: float = 0.0001,
-                 ):
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        num_enc_layers=12,
+        nb_target_dim: nn.Dim,
+        wb_target_dim: nn.Dim,
+        blank_idx: int,
+        bos_idx: int,
+        enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
+        att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
+        att_dropout: float = 0.1,
+        enc_dropout: float = 0.1,
+        enc_att_dropout: float = 0.1,
+        l2: float = 0.0001,
+    ):
         super(Model, self).__init__()
         if nn.ConformerEncoderLayer.use_dropout_after_self_att:
             nn.ConformerEncoderLayer.use_dropout_after_self_att = False
@@ -76,7 +79,8 @@ class Model(nn.Module):
             input_layer=nn.ConformerConvSubsample(
                 in_dim,
                 out_dims=[nn.FeatureDim("conv1", 32), nn.FeatureDim("conv2", 64)],
-                filter_sizes=[3, 5], strides=[2, 3]
+                filter_sizes=[3, 5],
+                strides=[2, 3],
             ),
             num_layers=num_enc_layers,
             dropout=enc_dropout,
@@ -136,38 +140,41 @@ class Model(nn.Module):
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def decode(self, *,
-               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-               enc_spatial_dim: nn.Dim,  # single step or time axis,
-               enc_ctx_win: nn.Tensor,  # like enc
-               enc_val_win: nn.Tensor,  # like enc
-               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
-               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-               state: Optional[nn.LayerState] = None,
-               ) -> (ProbsFromReadout, nn.LayerState):
+    def decode(
+        self,
+        *,
+        enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+        enc_spatial_dim: nn.Dim,  # single step or time axis,
+        enc_ctx_win: nn.Tensor,  # like enc
+        enc_val_win: nn.Tensor,  # like enc
+        all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+        prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+        prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
+        prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+        wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+        state: Optional[nn.LayerState] = None,
+    ) -> (ProbsFromReadout, nn.LayerState):
         """decoder step, or operating on full seq"""
         if state is None:
             assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
-            batch_dims = enc.batch_dims_ordered(
+            batch_dims = enc.remaining_dims(
                 remove=(enc.feature_dim, enc_spatial_dim)
                 if enc_spatial_dim != nn.single_step_dim
-                else (enc.feature_dim,))
+                else (enc.feature_dim,)
+            )
             state = self.decoder_default_initial_state(batch_dims=batch_dims)
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
-        att_energy = att_energy * (att_energy.feature_dim.dimension ** -0.5)
+        att_energy = att_energy * (att_energy.feature_dim.dimension**-0.5)
         att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.shape_ordered)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.dims)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
             assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
-            assert prev_nb_target_spatial_dim in prev_nb_target.shape
+            assert prev_nb_target_spatial_dim in prev_nb_target.dims
             assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
@@ -177,7 +184,7 @@ class Model(nn.Module):
             assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_input = nn.set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
@@ -194,7 +201,8 @@ class Model(nn.Module):
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout_in += self.readout_in_bias
         readout = nn.reduce_out(
-            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim)
+            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim
+        )
 
         return ProbsFromReadout(model=self, readout=readout), state_
 
@@ -204,12 +212,16 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part, or prediction network.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self, in_dim: nn.Dim, *,
-                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
-                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
-                 dropout: float = 0.2,
-                 l2: float = 0.0001,
-                 ):
+
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
+        lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+        dropout: float = 0.2,
+        l2: float = 0.0001,
+    ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(in_dim, embed_dim)
         self.dropout = dropout
@@ -222,8 +234,9 @@ class DecoderLabelSync(nn.Module):
         """init"""
         return self.lstm.default_initial_state(batch_dims=batch_dims)
 
-    def __call__(self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
-                 ) -> Tuple[nn.Tensor, nn.LayerState]:
+    def __call__(
+        self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
+    ) -> Tuple[nn.Tensor, nn.LayerState]:
         embed = self.embed(source)
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, spatial_dim=spatial_dim, state=state)
@@ -234,6 +247,7 @@ class ProbsFromReadout:
     """
     functions to calculate the probabilities from the readout
     """
+
     def __init__(self, *, model: Model, readout: nn.Tensor):
         self.model = model
         self.readout = readout
@@ -301,28 +315,30 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 
 
-def from_scratch_training(*,
-                          model: Model,
-                          data: nn.Tensor, data_spatial_dim: nn.Dim,
-                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
-                          ):
+def from_scratch_training(
+    *, model: Model, data: nn.Tensor, data_spatial_dim: nn.Dim, targets: nn.Tensor, targets_spatial_dim: nn.Dim
+):
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True
+    )
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
         all_combinations_out=True,
         prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
+        prev_nb_target_spatial_dim=prev_targets_spatial_dim,
+    )
     out_log_prob = probs.get_wb_label_log_probs()
     loss = nn.transducer_time_sync_full_sum_neg_log_prob(
         log_probs=out_log_prob,
         labels=targets,
         input_spatial_dim=enc_spatial_dim,
         labels_spatial_dim=targets_spatial_dim,
-        blank_index=model.blank_idx)
+        prev_labels_spatial_dim=prev_targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
     loss.mark_as_loss("full_sum")
 
 
@@ -330,11 +346,13 @@ from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def model_recog(*,
-                model: Model,
-                data: nn.Tensor, data_spatial_dim: nn.Dim,
-                targets_dim: nn.Dim,  # noqa
-                ) -> nn.Tensor:
+def model_recog(
+    *,
+    model: Model,
+    data: nn.Tensor,
+    data_spatial_dim: nn.Dim,
+    targets_dim: nn.Dim,  # noqa
+) -> nn.Tensor:
     """
     Function is run within RETURNN.
 
@@ -344,7 +362,7 @@ def model_recog(*,
 
     :return: recog results including beam
     """
-    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
@@ -359,17 +377,18 @@ def model_recog(*,
             enc_spatial_dim=nn.single_step_dim,
             wb_target_spatial_dim=nn.single_step_dim,
             prev_wb_target=loop.state.target,
-            state=loop.state.decoder)
+            state=loop.state.decoder,
+        )
         log_prob = probs.get_wb_label_log_probs()
         loop.state.target = nn.choice(
-            log_prob, input_type="log_prob",
-            target=None, search=True, beam_size=beam_size,
-            length_normalization=False)
+            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
+        )
         res = loop.stack(loop.state.target)
 
     assert model.blank_idx == targets_dim.dimension  # added at the end
     res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
-        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})
+        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx}
+    )
     return res
 
 

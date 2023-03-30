@@ -88,9 +88,14 @@ Tracks:
   - Check LR schedules, one-cycle, cosine, etc -> `oclr` and others
   - Chunking in some way, either using fixed alignment + framewise CE, or direct somehow.
   - Label smoothing variant for RNN-T
-  - More on time-warping, speed/tempo perturbation
+  - More on time-warping, speed/tempo perturbation. See also ESPnet code
   - "Sequence noise injected training for end-to-end speech recognition"
   - Switchout on label context -> `decswitchout0F` experiments
+  - Check https://github.com/lucidrains/x-transformers for tricks
+  - Check Tim Schupps work, ConvNeXt, ContextNet things, SE-block
+  - Check E-Branchformer
+  - Check https://github.com/espnet/espnet/blob/master/egs2/librispeech/asr1/conf/tuning/train_asr_conformer10_hop_length160.yaml
+  - Check RWKV is a RNN (https://github.com/BlinkDL/RWKV-LM, https://www.reddit.com/r/MachineLearning/comments/umq908/r_rwkvv2rnn_a_parallelizable_rnn_with/), Attention Free Transformer (https://arxiv.org/abs/2105.14103)
 
 - Understand cause(s) of non-determinism.
   - https://github.com/rwth-i6/returnn/issues/1210
@@ -261,6 +266,10 @@ Experiments parts:
 - chunkNa: chunking but only when seq len > chunk size
 - rndresizeF1_F2: random resize to F1..F2
 - rndframedropF: random frame drop with prob F
+- bN: baseline number N, derives all hyperparams from that.
+  prefix conformer, and optionally att or ctc is still explicit.
+  N=2: conformer_ln_pre10a_d384_h6_cnnblstmf2_chunk50_fix245_wdro_specaugweia_attdrop01_posdrop01_aux48ff_mhsapinit05_lsxx01
+    -> conformer_b2
 
 Current good Conformer baselines:
 - conformer_ln_pre10_d384_h6_blstmf2_specaug_attdrop01_posdrop01_aux48ff
@@ -281,9 +290,9 @@ Current recommended:
 - wdro
 - lsxx01, or other lsxx
 - cnnblstmf2
-- specaugweia? yes but generalize...
-- twarp?
+- specaugweia? yes but generalize... also could be optimized
+- twarp? should get a pure returnn-common implementation
 - rndresize09_12, or other
 - mhsapinit05
 - bhv16
-- chunk, some variant...
+- chunk, some variant, unclear which is best...

@@ -23,13 +23,18 @@ from i6_experiments.users.hilmes.experiments.librispeech.nar_tts_2022.gmm_align.
 
 
 def run_librispeech_100_with_synthetic_data(
-  synth_corpus, alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/synthetic", ls360=False, pool_variance=True
+  synth_corpus, alias_prefix="experiments/librispeech/nar_tts_2022/gmm_align/synthetic", ls360=False, pool_variance=True,
+    return_system=False, extract_additional_rasr_features=None, ls860=False, ls1000=False,
 ):
 
   stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
   gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
 
   hybrid_init_args = baseline_args.get_init_args()
+  if extract_additional_rasr_features is not None:
+    for feature_key, feature_options in extract_additional_rasr_features.items():
+      hybrid_init_args.feature_extraction_args[feature_key] = feature_options
+
   mono_args = baseline_args.get_monophone_args(pool_variance=pool_variance)
   # no unknown question needed when G2P is used
   cart_args = baseline_args.get_cart_args(add_unknown=False)
@@ -42,6 +47,10 @@ def run_librispeech_100_with_synthetic_data(
   final_output_args.define_corpus_type("train-clean-100", "train")
   final_output_args.define_corpus_type("dev-clean", "dev")
   final_output_args.define_corpus_type("dev-other", "dev")
+
+  if extract_additional_rasr_features:
+    for feature_key in extract_additional_rasr_features.keys():
+      final_output_args.add_feature_to_extract(feature_key)
 
   steps = RasrSteps()
   steps.add_step("extract", hybrid_init_args.feature_extraction_args)
@@ -63,7 +72,7 @@ def run_librispeech_100_with_synthetic_data(
   steps.add_step("vtln+sat", vtln_sat_args)
   steps.add_step("output", final_output_args)
 
-  corpus_data = get_synth_corpus_data_inputs(synth_corpus, ls360=ls360)
+  corpus_data = get_synth_corpus_data_inputs(synth_corpus, ls360=ls360, ls860=ls860, ls1000=ls1000)
 
   system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
   system.init_system(
@@ -90,6 +99,8 @@ def run_librispeech_100_with_synthetic_data(
   report = MailJob(subject=alias_prefix, result=content, send_contents=True)
   tk.register_output(f"reports/{alias_prefix}", report.out_status)
 
+  if return_system:
+    return system
   for align in ["tts_align_sat"]:
     alignments[align] = system.alignments["tts_align"][align].alternatives["bundle"]
   return (

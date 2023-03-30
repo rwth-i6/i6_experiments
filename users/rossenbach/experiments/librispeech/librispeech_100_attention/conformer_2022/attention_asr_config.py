@@ -24,7 +24,8 @@ post_config = {
     'log_batch_size': True,
     'debug_print_layer_output_template': True,
     'debug_mode': False,
-    'batching': 'random'
+    'batching': 'random',
+    "tf_session_opts": {"gpu_options": {"per_process_gpu_memory_fraction": 0.92}}
 }
 
 # -------------------------- LR Scheduling -------------------------- #
@@ -361,8 +362,8 @@ class RNNDecoderArgs(DecoderArgs):
 
 
 def create_config(
-        name, training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False, is_recog=False, input_key="audio_features",
-        lr=0.0008, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20, batch_size=10000,
+        training_datasets, encoder_args: EncoderArgs, decoder_args: DecoderArgs, with_staged_network=False, is_recog=False, input_key="audio_features",
+        lr=0.0008, learning_rates=None, wup_start_lr=0.0003, lr_decay=0.9, const_lr=0, wup=10, epoch_split=20, batch_size=10000,
         accum_grad=2, pretrain_reps=5, max_seq_length=75, noam_opts=None,
         warmup_lr_opts=None, with_pretrain=True, pretrain_opts=None,
         speed_pert=True,
@@ -421,7 +422,9 @@ def create_config(
         exp_config['learning_rate_control'] = 'constant'
         extra_python_code += '\n' + warmup_lr_str.format(**warmup_lr_opts)
     else:  # newbob
-        if retrain_checkpoint is not None:
+        if learning_rates is not None:
+            pass
+        elif retrain_checkpoint is not None:
             learning_rates = None
         elif isinstance(const_lr, int):
             learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
@@ -432,9 +435,13 @@ def create_config(
         else:
             raise ValueError('unknown const_lr format')
 
-        exp_config['learning_rate'] = lr
-        exp_config['learning_rates'] = learning_rates
-        exp_config['min_learning_rate'] = lr / min_lr_factor
+        if isinstance(lr, list):
+            exp_config['learning_rate'] = lr[-1]
+            exp_config['learning_rates'] = lr
+        else:
+            exp_config['learning_rate'] = lr
+            exp_config['learning_rates'] = learning_rates
+            exp_config['min_learning_rate'] = lr / min_lr_factor
         exp_config['learning_rate_control'] = "newbob_multi_epoch"
         exp_config['learning_rate_control_relative_error_relative_lr'] = True
         exp_config['learning_rate_control_min_num_epochs_per_new_lr'] = 3

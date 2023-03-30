@@ -55,16 +55,8 @@ class PriorInfo:
         assert self.left_context_prior is None or left is not None
         assert self.right_context_prior is None or right is not None
 
-        left = (
-            self.left_context_prior.with_scale(left)
-            if self.left_context_prior is not None
-            else None
-        )
-        right = (
-            self.right_context_prior.with_scale(right)
-            if self.right_context_prior is not None
-            else None
-        )
+        left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
+        right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
         return PriorInfo(
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
@@ -80,9 +72,7 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
         )
 
     @classmethod
@@ -94,12 +84,8 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=output_dir.join_right("left-context.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
+            left_context_prior=PriorConfig(file=output_dir.join_right("left-context.xml"), scale=0.0),
         )
 
     @classmethod
@@ -111,15 +97,9 @@ class PriorInfo:
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
         return cls(
-            center_state_prior=PriorConfig(
-                file=output_dir.join_right("center-state.xml"), scale=0.0
-            ),
-            left_context_prior=PriorConfig(
-                file=output_dir.join_right("left-context.xml"), scale=0.0
-            ),
-            right_context_prior=PriorConfig(
-                file=output_dir.join_right("right-context.xml"), scale=0.0
-            ),
+            center_state_prior=PriorConfig(file=output_dir.join_right("center-state.xml"), scale=0.0),
+            left_context_prior=PriorConfig(file=output_dir.join_right("left-context.xml"), scale=0.0),
+            right_context_prior=PriorConfig(file=output_dir.join_right("right-context.xml"), scale=0.0),
         )
 
 
@@ -149,12 +129,13 @@ class SearchParameters:
     beam: Float
     beam_limit: int
     lm_scale: Float
+    non_word_phonemes: str
     prior_info: PriorInfo
     pron_scale: Float
-    # tdp_non_word: float
     tdp_scale: typing.Optional[Float]
     tdp_silence: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     tdp_speech: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
+    tdp_non_word: typing.Tuple[TDP, TDP, TDP, TDP]  # loop, fwd, skip, exit
     we_pruning: Float
     we_pruning_limit: int
 
@@ -177,9 +158,7 @@ class SearchParameters:
         right: typing.Optional[Float] = None,
     ) -> "SearchParameters":
         params = copy.copy(self)
-        params.prior_info = params.prior_info.with_scale(
-            center=center, left=left, right=right
-        )
+        params.prior_info = params.prior_info.with_scale(center=center, left=left, right=right)
         return params
 
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
@@ -192,12 +171,14 @@ class SearchParameters:
         return cls(
             beam=22,
             beam_limit=500_000,
-            prior_info=priors.with_scale(0.2),
             lm_scale=4.0,
             tdp_scale=0.4,
             pron_scale=2.0,
+            prior_info=priors.with_scale(0.2),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -207,12 +188,14 @@ class SearchParameters:
         return cls(
             beam=20,
             beam_limit=500_000,
-            prior_info=priors.with_scale(center=0.2, left=0.1),
             lm_scale=9.0,
             tdp_scale=0.4,
             pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
@@ -222,20 +205,20 @@ class SearchParameters:
         return cls(
             beam=20,
             beam_limit=500_000,
-            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             lm_scale=11.0,
-            tdp_scale=0.8,
+            tdp_scale=0.6,
             pron_scale=2.0,
+            prior_info=priors.with_scale(center=0.2, left=0.1, right=0.1),
             tdp_speech=(3.0, 0.0, "infinity", 0.0),
-            tdp_silence=(3.0, 0.0, "infinity", 20.0),
+            tdp_silence=(0.0, 3.0, "infinity", 20.0),
+            tdp_non_word=(0.0, 3.0, "inifinity", 20.0),
+            non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
         )
 
     @classmethod
-    def default_for_ctx(
-        cls, context: PhoneticContext, priors: PriorInfo
-    ) -> "SearchParameters":
+    def default_for_ctx(cls, context: PhoneticContext, priors: PriorInfo) -> "SearchParameters":
         if context == PhoneticContext.monophone:
             return cls.default_monophone(priors=priors)
         elif context == PhoneticContext.diphone:

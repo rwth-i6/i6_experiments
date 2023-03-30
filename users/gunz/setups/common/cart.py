@@ -7,22 +7,14 @@ from i6_experiments.common.datasets.librispeech.cart import (
 
 
 class DiphoneCartQuestionsWithoutStress(CartQuestionsWithoutStress):
-    def __init__(
-        self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True
-    ):
-        super().__init__(
-            max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown
-        )
+    def __init__(self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True):
+        super().__init__(max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown)
         self.steps = list(_remove_future_steps(self.steps))
 
 
 class DiphoneCartQuestionsWithStress(CartQuestionsWithStress):
-    def __init__(
-        self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True
-    ):
-        super().__init__(
-            max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown
-        )
+    def __init__(self, max_leaves: int = 12001, min_obs: int = 1000, add_unknown: bool = True):
+        super().__init__(max_leaves=max_leaves, min_obs=min_obs, add_unknown=add_unknown)
         self.steps = list(_remove_future_steps(self.steps))
 
 

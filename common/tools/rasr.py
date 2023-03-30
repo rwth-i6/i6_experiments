@@ -21,9 +21,7 @@ def compile_rasr_binaries_i6mode(
     :param rasr_arch: RASR compile architecture string
     :return: path to the binary folder
     """
-    rasr_repo = CloneGitRepositoryJob(
-        rasr_git_repository, branch=branch, commit=commit
-    ).out_repository
+    rasr_repo = CloneGitRepositoryJob(rasr_git_repository, branch=branch, commit=commit).out_repository
     make_job = MakeJob(
         folder=rasr_repo,
         make_sequence=["build", "install"],

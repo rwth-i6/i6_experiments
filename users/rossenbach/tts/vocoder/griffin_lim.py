@@ -96,7 +96,7 @@ class PhaseReconstructor():
         Based on https://github.com/librosa/librosa/issues/434
         """
         angles = np.exp(2j * np.pi * np.random.rand(*spectrogram.shape))
-        complex_spectrogram = np.abs(spectrogram).astype(np.complex)
+        complex_spectrogram = np.abs(spectrogram).astype(np.complex128)
         waveform = self._istft(complex_spectrogram * angles)
         for i in range(self.iterations):
             angles = np.exp(1j * np.angle(self._stft(waveform)))

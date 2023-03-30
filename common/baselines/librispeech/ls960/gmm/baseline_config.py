@@ -53,9 +53,7 @@ def run_librispeech_960_common_baseline(
 
     # ******************** Data ********************
 
-    corpus_data = get_corpus_data_inputs(
-        corpus_key="train-other-960", use_g2p_training=True, use_stress_marker=False
-    )
+    corpus_data = get_corpus_data_inputs(corpus_key="train-other-960", use_g2p_training=True, use_stress_marker=False)
 
     # ******************** GMM System ********************
 

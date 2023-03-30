@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Union, List
+from typing import Optional, Dict, Tuple, Union, List
 import copy
 
 
@@ -11,6 +11,7 @@ def add_blstm_layer(
     dropout: Optional[float] = 0.1,
     l2: Optional[float] = 0.01,
     trainable: bool = True,
+    reuse_from_name: Optional[str] = None,
 ) -> List[str]:
     layer_dict = {
         "class": "rec",
@@ -29,6 +30,9 @@ def add_blstm_layer(
     network[f"fwd_{name}"]["direction"] = 1
     network[f"bwd_{name}"] = copy.deepcopy(layer_dict)
     network[f"bwd_{name}"]["direction"] = -1
+    if reuse_from_name is not None:
+        network[f"fwd_{name}"]["reuse_params"] = f"fwd_{reuse_from_name}"
+        network[f"bwd_{name}"]["reuse_params"] = f"bwd_{reuse_from_name}"
 
     output = [f"fwd_{name}", f"bwd_{name}"]
 
@@ -51,15 +55,28 @@ def add_blstm_stack(
     name: str = "lstm",
     num_layers: int = 6,
     max_pool: Optional[List[int]] = None,
+    reuse_from_name: Optional[str] = None,
     **kwargs,
-) -> List[str]:
+) -> Tuple[List[str], List[List[str]]]:
+
+    layers = []
 
     for layer_idx in range(num_layers):
         pool = None
         if max_pool is not None and len(max_pool) > layer_idx:
             pool = max_pool[layer_idx]
+        if reuse_from_name is not None:
+            layer_reuse_name = f"{reuse_from_name}_{layer_idx + 1}"
+        else:
+            layer_reuse_name = None
         from_list = add_blstm_layer(
-            network, f"{name}_{layer_idx + 1}", from_list, max_pool=pool, **kwargs
+            network,
+            f"{name}_{layer_idx + 1}",
+            from_list,
+            max_pool=pool,
+            reuse_from_name=layer_reuse_name,
+            **kwargs,
         )
+        layers.append(from_list)
 
-    return from_list
+    return from_list, layers

@@ -71,7 +71,7 @@ def conformer_baseline():
 
     def run_single_search(
             exp_name, train_data, search_args, checkpoint, feature_extraction_net, recog_dataset, recog_ref,
-            mem_rqmt=8, time_rqmt=4, **kwargs):
+            recog_bliss, mem_rqmt=8, time_rqmt=4, **kwargs):
 
         exp_prefix = os.path.join(prefix_name, exp_name)
         returnn_search_config = create_config(
@@ -86,6 +86,7 @@ def conformer_baseline():
             checkpoint,
             recognition_dataset=recog_dataset,
             recognition_reference=recog_ref,
+            recognition_bliss_corpus=recog_bliss,
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
@@ -214,6 +215,7 @@ def conformer_baseline():
                     feature_extraction_net=feature_net,
                     recog_dataset=test_dataset_tuples[test_set][0],
                     recog_ref=test_dataset_tuples[test_set][1],
+                    recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=time_rqmt,
                 )
 

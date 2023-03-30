@@ -6,7 +6,7 @@ from typing import Optional
 from i6_core.meta.system import CorpusObject as _CorpusObject
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class CorpusObject(_CorpusObject):
     """
     Substitution of the old CorpusObject with a properly defined dataclass and strictly required members

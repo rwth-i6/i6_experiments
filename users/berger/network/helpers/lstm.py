@@ -11,6 +11,7 @@ def add_lstm_layer(
     dropout: Optional[float] = 0.1,
     l2: Optional[float] = 0.01,
     trainable: bool = True,
+    initializer: Optional[str] = None,
 ) -> List[str]:
 
     network[name] = {
@@ -26,6 +27,10 @@ def add_lstm_layer(
         network[name]["L2"] = l2
     if not trainable:
         network[name]["trainable"] = False
+    if initializer:
+        network[name]["forward_weights_init"] = initializer
+        network[name]["recurrent_weights_init"] = initializer
+        network[name]["bias_init"] = initializer
 
     output = [name]
 

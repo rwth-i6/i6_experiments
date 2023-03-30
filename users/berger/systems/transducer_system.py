@@ -1,3 +1,4 @@
+from enum import Enum
 import copy
 import itertools
 import sys
@@ -7,20 +8,27 @@ from i6_core.rasr.flow import FlowNetwork
 
 # -------------------- Sisyphus --------------------
 
-from sisyphus import gs, tk
+from sisyphus import Job, gs, tk
+from sisyphus.delayed_ops import DelayedFormat
 
 # -------------------- Recipes --------------------
 
 from i6_core import features
 from i6_core import rasr
 from i6_core import recognition as recog
+from i6_core.mm import CreateDummyMixturesJob
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
-from i6_core.returnn.extract_prior import ReturnnRasrComputePriorJob
+from i6_core.returnn.extract_prior import (
+    ReturnnRasrComputePriorJob,
+)
 from i6_core.returnn.training import Checkpoint
-from i6_core.returnn.search import SearchBPEtoWordsJob, SearchWordsToCTMJob
+from i6_core.returnn.search import (
+    SearchBPEtoWordsJob,
+    SearchWordsToCTMJob,
+)
 from i6_core.lexicon.allophones import DumpStateTyingJob
 
 from i6_experiments.common.setups.rasr.nn_system import NnSystem
@@ -30,10 +38,14 @@ from i6_experiments.common.setups.rasr.util import (
     RasrSteps,
     HybridArgs,
 )
+from i6_experiments.users.berger.recipe.returnn.training import GetBestCheckpointJob
 from i6_experiments.users.berger.recipe.returnn.rasr_search import ReturnnRasrSearchJob
+from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.recipe.lexicon.modification import (
     AddBoundaryMarkerToLexiconJob,
 )
+from i6_core.recognition.advanced_tree_search import AdvancedTreeSearchJob
+from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
 from i6_experiments.users.berger.recipe.recognition.label_sync_search import (
     LabelSyncSearchJob,
 )
@@ -46,10 +58,26 @@ from i6_experiments.users.berger.recipe.rasr import (
 from i6_experiments.users.berger.network.helpers.ctc_loss import (
     make_ctc_rasr_loss_config,
 )
+from i6_experiments.users.berger.util import change_source_name
 
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
+
+
+class SummaryKey(Enum):
+    NAME = "Name"
+    CORPUS = "Corpus"
+    EPOCH = "Epoch"
+    PRON = "Pron"
+    PRIOR = "Prior"
+    LM = "Lm"
+    WER = "WER"
+    SUB = "Sub"
+    DEL = "Del"
+    INS = "Ins"
+    ERR = "#Err"
+
 
 # -------------------- System --------------------
 
@@ -75,6 +103,7 @@ class TransducerSystem(NnSystem):
 
     def __init__(
         self,
+        rasr_binary_path: tk.Path,
         returnn_root: Optional[str] = None,
         returnn_python_home: Optional[str] = None,
         returnn_python_exe: Optional[str] = None,
@@ -86,6 +115,7 @@ class TransducerSystem(NnSystem):
             returnn_root=returnn_root,
             returnn_python_home=returnn_python_home,
             returnn_python_exe=returnn_python_exe,
+            rasr_binary_path=rasr_binary_path,
             blas_lib=blas_lib,
         )
         rasr_python_home = rasr_python_home or (
@@ -95,7 +125,7 @@ class TransducerSystem(NnSystem):
             gs.RASR_PYTHON_EXE if hasattr(gs, "RASR_PYTHON_EXE") else None
         )
         # assert rasr_python_home
-        assert rasr_python_exe
+        # assert rasr_python_exe
         self.crp["base"].python_home = rasr_python_home
         self.crp["base"].python_program_name = rasr_python_exe
 
@@ -106,6 +136,7 @@ class TransducerSystem(NnSystem):
         self.cv_input_data = None
         self.dev_input_data = None
         self.test_input_data = None
+        self.align_input_data = None
 
         self.train_cv_pairing = None
 
@@ -113,7 +144,11 @@ class TransducerSystem(NnSystem):
 
         self.tf_nn_checkpoints = {}  # type: Dict[str, Dict[int, Checkpoint]]
 
+        self.best_checkpoints = {}  # type: Dict[str, Tuple[int, Checkpoint]]
+
         self.prior_files = {}  # type: Dict[str, Dict[int, tk.Path]]
+
+        self.summary_report = None
 
     # -------------------- Helpers ---------------------
 
@@ -125,9 +160,13 @@ class TransducerSystem(NnSystem):
             self.cv_input_data,
             self.dev_input_data,
             self.test_input_data,
+            self.align_input_data,
         ]:
             result.update(data if data is not None else {})
         return result
+
+    def get_summary_report(self) -> SummaryReport:
+        return self.summary_report
 
     def make_model_loader_config(
         self, tf_graph: tk.Path, tf_checkpoint: Checkpoint
@@ -158,15 +197,18 @@ class TransducerSystem(NnSystem):
         self,
         name: str,
         epoch: int,
-        label_scorer_args: Dict,
+        label_scorer_args: Optional[Dict] = None,
         train_corpus_key: Optional[str] = None,
         cv_corpus_key: Optional[str] = None,
         train_returnn_config: Optional[ReturnnConfig] = None,
         checkpoint: Optional[Checkpoint] = None,
         prior_args: Optional[Dict] = None,
+        use_txt_prior: bool = False,
     ) -> tk.Path:
         if name not in self.prior_files:
             self.prior_files[name] = {}
+
+        label_scorer_args = label_scorer_args or {}
 
         if label_scorer_args.get("prior_file", None):
             prior_file = label_scorer_args["prior_file"]
@@ -187,6 +229,7 @@ class TransducerSystem(NnSystem):
                 cv_corpus_key=cv_corpus_key,
                 checkpoint=checkpoint,
                 nn_prior_args=prior_args or {},
+                use_txt_prior=use_txt_prior,
             )
 
         self.prior_files[name][epoch] = prior_file
@@ -370,18 +413,25 @@ class TransducerSystem(NnSystem):
         name: str,
     ) -> None:
         self.tf_nn_checkpoints[
-            f"{train_corpus_key}_{cv_corpus_key}"
+            f"{train_corpus_key}_{cv_corpus_key}_{name}"
         ] = train_job.out_checkpoints
-        train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_train")
+        train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}")
         tk.register_output(
             f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_learning_rate.png",
             train_job.out_plot_lr,
+        )
+        best_checkpoint_job = GetBestCheckpointJob(
+            train_job.out_model_dir, train_job.out_learning_rates
+        )
+        self.best_checkpoints[f"{train_corpus_key}_{cv_corpus_key}_{name}"] = (
+            best_checkpoint_job.out_epoch,
+            best_checkpoint_job.out_checkpoint,
         )
 
     # -------------------- Setup --------------------
     def init_system(
         self,
-        hybrid_init_args: RasrInitArgs,
+        rasr_init_args: RasrInitArgs,
         train_data: Dict[str, ReturnnRasrDataInput],
         cv_data: Dict[str, ReturnnRasrDataInput],
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
@@ -389,16 +439,19 @@ class TransducerSystem(NnSystem):
         align_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         train_cv_pairing: Optional[List[Tuple[str, ...]]] = None,
         train_cv_align_pairing: Optional[List[Tuple[str, ...]]] = None,
+        summary_keys: Optional[List[SummaryKey]] = None,
     ) -> None:
-        self.hybrid_init_args = hybrid_init_args
+        self.rasr_init_args = rasr_init_args
 
-        self._init_am(**self.hybrid_init_args.am_args)
+        self._init_am(**self.rasr_init_args.am_args)
 
         dev_data = dev_data or {}
         test_data = test_data or {}
         align_data = align_data or {}
 
-        self._assert_corpus_name_unique(train_data, cv_data, dev_data, test_data)
+        self._assert_corpus_name_unique(
+            train_data, cv_data, dev_data, test_data, align_data
+        )
 
         self.train_input_data = train_data
         self.cv_input_data = cv_data
@@ -446,10 +499,20 @@ class TransducerSystem(NnSystem):
 
             self.jobs[f"{trn_c}_{cv_c}_{al_c}"] = {}
 
+        if summary_keys:
+            col_names = [key.value for key in summary_keys]
+        else:
+            col_names = [key.value for key in SummaryKey]
+        self.summary_report = SummaryReport(
+            col_names=col_names,
+            col_sort_key=SummaryKey.ERR.value,
+        )
+
     def _set_data(self, data_dict: Dict) -> None:
         for c_key, c_data in data_dict.items():
             self.jobs[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.normalization_matrices[c_key] = {}
             self.feature_flows[c_key] = c_data.feature_flow
 
     def _set_eval_data(self, data_dict: Dict) -> None:
@@ -483,6 +546,7 @@ class TransducerSystem(NnSystem):
             dev_data.feature_flow != train_data.feature_flow
             or dev_data.features != train_data.features
             or dev_data.alignments != train_data.alignments
+            or cv_corpus_key in self.feature_flows
         ):
             dev_feature_flow = self.get_feature_flow_for_corpus(cv_corpus_key)
             dev_alignments = self.get_alignments_for_corpus(cv_corpus_key)
@@ -540,6 +604,7 @@ class TransducerSystem(NnSystem):
         train_corpus_key: str,
         cv_corpus_key: str,
         checkpoint: Checkpoint,
+        use_txt_prior: bool = False,
         nn_prior_args: Optional[Dict] = None,
     ) -> tk.Path:
         nn_prior_args = nn_prior_args or {}
@@ -557,6 +622,7 @@ class TransducerSystem(NnSystem):
             dev_data.feature_flow != train_data.feature_flow
             or dev_data.features != train_data.features
             or dev_data.alignments != train_data.alignments
+            or cv_corpus_key in self.feature_flows
         ):
             dev_feature_flow = self.get_feature_flow_for_corpus(cv_corpus_key)
             dev_alignments = self.get_alignments_for_corpus(cv_corpus_key)
@@ -580,66 +646,318 @@ class TransducerSystem(NnSystem):
             ),
         )
 
-        return prior_job.out_prior_xml_file
+        if use_txt_prior:
+            return prior_job.out_prior_txt_file
+        else:
+            return prior_job.out_prior_xml_file
 
     # -------------------- Recognition --------------------
-    def returnn_bpe_recognition(
+
+    def lattice_scoring(
+        self,
+        recognition_job: Union[AdvancedTreeSearchJob, LabelSyncSearchJob],
+        recognition_corpus_key: str,
+        prefix: str,
+        exp_name: str,
+        lattice_to_ctm_kwargs: Optional[dict] = None,
+    ) -> Job:
+        lattice_to_ctm_kwargs = lattice_to_ctm_kwargs or {}
+
+        lat2ctm = self.jobs[recognition_corpus_key].setdefault(
+            f"lat2ctm_{exp_name}",
+            recog.LatticeToCtmJob(
+                crp=self.crp[recognition_corpus_key],
+                lattice_cache=recognition_job.out_lattice_bundle,
+                **lattice_to_ctm_kwargs,
+            ),
+        )
+        self.ctm_files[recognition_corpus_key][
+            f"recog_{exp_name}"
+        ] = lat2ctm.out_ctm_file
+
+        scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
+        scorer_kwargs[
+            self.scorer_hyp_arg[recognition_corpus_key]
+        ] = lat2ctm.out_ctm_file
+        scorer = self.jobs[recognition_corpus_key].setdefault(
+            f"scorer_{exp_name}",
+            self.scorers[recognition_corpus_key](**scorer_kwargs),
+        )
+        tk.register_output(f"{prefix}recog_{exp_name}.reports", scorer.out_report_dir)
+
+        return scorer
+
+    def bpe_scoring(
+        self,
+        recognition_job: ReturnnRasrSearchJob,
+        recognition_corpus_key: str,
+        recog_corpus_file: tk.Path,
+        prefix: str,
+        exp_name: str,
+    ) -> Job:
+        word_output = self.jobs[recognition_corpus_key].setdefault(
+            f"word_{exp_name}", SearchBPEtoWordsJob(recognition_job.out_search_file)
+        )
+        word2ctm = self.jobs[recognition_corpus_key].setdefault(
+            f"word2ctm_{exp_name}",
+            SearchWordsToCTMJob(
+                word_output.out_word_search_results,
+                recog_corpus_file,
+            ),
+        )
+
+        scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
+        scorer_kwargs[
+            self.scorer_hyp_arg[recognition_corpus_key]
+        ] = word2ctm.out_ctm_file
+        scorer = self.jobs[recognition_corpus_key].setdefault(
+            f"scorer_{exp_name}",
+            self.scorers[recognition_corpus_key](**scorer_kwargs),
+        )
+        tk.register_output(f"{prefix}recog_{exp_name}.reports", scorer.out_report_dir)
+
+        return scorer
+
+    def nn_recognition(
+        self, search_type: SearchTypes = SearchTypes.LabelSyncSearch, **kwargs
+    ) -> None:
+        try:
+            return {
+                SearchTypes.LabelSyncSearch: self.lss_nn_recognition,
+                SearchTypes.AdvancedTreeSearch: self.atr_nn_recognition,
+                SearchTypes.ReturnnSearch: self.returnn_nn_recognition,
+            }[search_type](**kwargs)
+        except KeyError as ke:
+            raise NotImplementedError(f"Search type {search_type} is not supported.") from ke
+
+    def returnn_nn_recognition(
         self,
         name: str,
+        base_key: str,
+        train_corpus_key: str,
+        cv_corpus_key: str,
         recognition_corpus_key: str,
+        train_returnn_config: ReturnnConfig,
         recog_returnn_config: ReturnnConfig,
         checkpoints: Dict[int, Checkpoint],
         epochs: Optional[List[int]] = None,
+        prior_scales: Optional[List[float]] = None,
+        log_prob_layer: Optional[str] = None,
+        prior_args: Optional[Dict] = None,
+        bpe_scoring: bool = True,
         **kwargs,
     ) -> None:
         with tk.block(name):
             recog_crp = self.crp[recognition_corpus_key]
             feature_flow = self.get_feature_flow_for_corpus(recognition_corpus_key)
 
-            epochs = epochs if epochs is not None else list(checkpoints.values())
-            for epoch in epochs:
+            epochs = epochs if epochs is not None else list(checkpoints.keys())
+
+            if not prior_scales:
+                prior_scales = [0]
+
+            for prior, epoch in itertools.product(prior_scales, epochs):
+                modified_recog_returnn_config = copy.deepcopy(recog_returnn_config)
                 tf_checkpoint = checkpoints[epoch]
 
-                exp_name = f"{recognition_corpus_key}-e{epoch:03d}"
+                if prior != 0:
+                    prior_file = self.get_prior_file(
+                        base_key,
+                        epoch,
+                        label_scorer_args=None,
+                        train_corpus_key=train_corpus_key,
+                        cv_corpus_key=cv_corpus_key,
+                        train_returnn_config=train_returnn_config,
+                        checkpoint=tf_checkpoint,
+                        prior_args=prior_args,
+                        use_txt_prior=True,
+                    )
+                    modified_recog_returnn_config.python_epilog.append(
+                        DelayedFormat(
+                            "def get_prior_vector():"
+                            '    return np.loadtxt("{}", dtype=np.float32)',
+                            prior_file,
+                        )
+                    )
+                    change_source_name(
+                        modified_recog_returnn_config.config["network"],
+                        log_prob_layer,
+                        "output_prior",
+                    )
+                    modified_recog_returnn_config.config["network"]["output_prior"] = {
+                        "class": "eval",
+                        "from": log_prob_layer,
+                        "eval": DelayedFormat(
+                            'source(0) - {} * self.network.get_config().typed_value("get_prior_vector")()',
+                            prior,
+                        ),
+                    }
+
+                exp_name = f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}"
                 rec = self.jobs[recognition_corpus_key].setdefault(
                     f"recog_{exp_name}",
                     ReturnnRasrSearchJob(
                         crp=recog_crp,
                         feature_flow=feature_flow,
                         model_checkpoint=tf_checkpoint,
-                        returnn_config=recog_returnn_config,
+                        returnn_config=modified_recog_returnn_config,
                         **kwargs,
                     ),
                 )
 
-                prefix = f"nn_recog/{name}/"
-                rec.set_vis_name("Recog %s%s" % (prefix, exp_name))
-                rec.add_alias("%srecog_%s" % (prefix, exp_name))
+                prefix = f"nn_recog/{train_corpus_key}_{name}/"
+                rec.set_vis_name(f"Recog {prefix}{exp_name}")
+                rec.add_alias(f"{prefix}recog_{exp_name}")
 
-                word_output = self.jobs[recognition_corpus_key].setdefault(
-                    f"word_{exp_name}", SearchBPEtoWordsJob(rec.out_search_file)
+                if bpe_scoring:
+                    scorer_job = self.bpe_scoring(
+                        recognition_job=rec,
+                        recognition_corpus_key=recognition_corpus_key,
+                        recog_corpus_file=recog_crp.corpus_config.file,
+                        prefix=prefix,
+                        exp_name=exp_name,
+                    )
+                    self.summary_report.add_row(
+                        {
+                            SummaryKey.NAME.value: name,
+                            SummaryKey.CORPUS.value: recognition_corpus_key,
+                            SummaryKey.EPOCH.value: epoch,
+                            SummaryKey.PRIOR.value: prior,
+                            SummaryKey.WER.value: scorer_job.out_wer,
+                            SummaryKey.SUB.value: scorer_job.out_percent_substitution,
+                            SummaryKey.DEL.value: scorer_job.out_percent_deletions,
+                            SummaryKey.INS.value: scorer_job.out_percent_insertions,
+                            SummaryKey.ERR.value: scorer_job.out_num_errors,
+                        }
+                    )
+
+    def atr_nn_recognition(
+        self,
+        name: str,
+        base_key: str,
+        recognition_corpus_key: str,
+        train_returnn_config: ReturnnConfig,
+        recog_returnn_config: ReturnnConfig,
+        checkpoints: Dict[int, Checkpoint],
+        lm_scales: List[float],
+        prior_scales: List[float],
+        pronunciation_scales: List[float],
+        train_corpus_key: Optional[str] = None,
+        cv_corpus_key: Optional[str] = None,
+        prior_args: Optional[Dict] = None,
+        lattice_to_ctm_kwargs: Dict = {},
+        epochs: Optional[List[int]] = None,
+        **kwargs,
+    ):
+        with tk.block(name):
+
+            native_lstm_job = CompileNativeOpJob(
+                "NativeLstm2",
+                returnn_root=self.returnn_root,
+                returnn_python_exe=self.returnn_python_exe,
+                blas_lib=self.blas_lib,
+            )
+            native_lstm_job.add_alias(f"{name}/compile_native_op")
+
+            graph_compile_job = CompileTFGraphJob(
+                recog_returnn_config,
+                returnn_root=self.returnn_root,
+                returnn_python_exe=self.returnn_python_exe,
+            )
+            graph_compile_job.add_alias(f"nn_recog/graph/{name}.meta")
+
+            base_feature_flow = self.feature_flows[recognition_corpus_key]
+            assert isinstance(
+                base_feature_flow, rasr.FlowNetwork
+            ), f"type incorrect: {recognition_corpus_key} {type(base_feature_flow)}"
+
+            epochs = epochs or list(checkpoints.keys())
+
+            for pron, lm, prior, epoch in itertools.product(
+                pronunciation_scales, lm_scales, prior_scales, epochs
+            ):
+
+                assert epoch in checkpoints.keys()
+                prior_file = None
+                if prior != 0:
+                    prior_file = self.get_prior_file(
+                        base_key,
+                        epoch,
+                        train_corpus_key=train_corpus_key,
+                        cv_corpus_key=cv_corpus_key,
+                        train_returnn_config=train_returnn_config,
+                        checkpoint=checkpoints[epoch],
+                        prior_args=prior_args,
+                    )
+
+                num_inputs = train_returnn_config.get("num_inputs", 0)
+                num_classes = train_returnn_config.get("num_outputs", {"classes": 0})[
+                    "classes"
+                ]
+                if isinstance(num_classes, list):
+                    num_classes = num_classes[0]
+                acoustic_mixture_path = CreateDummyMixturesJob(
+                    num_classes, num_inputs
+                ).out_mixtures
+
+                feature_scorer = rasr.PrecomputedHybridFeatureScorer(
+                    prior_mixtures=acoustic_mixture_path,
+                    priori_scale=prior,
+                    prior_file=prior_file,
                 )
-                word2ctm = self.jobs[recognition_corpus_key].setdefault(
-                    f"word2ctm_{exp_name}",
-                    SearchWordsToCTMJob(
-                        word_output.out_word_search_results,
-                        recog_crp.corpus_config.file,
+
+                feature_flow = self.make_tf_feature_flow(
+                    base_feature_flow,
+                    graph_compile_job.out_graph,
+                    checkpoints[epoch],
+                )
+
+                exp_name = f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
+
+                self.crp[recognition_corpus_key].language_model_config.scale = lm
+                model_combination_config = rasr.RasrConfig()
+                model_combination_config.pronunciation_scale = pron
+
+                rec = self.jobs[recognition_corpus_key].setdefault(
+                    f"recog_{exp_name}",
+                    AdvancedTreeSearchJob(
+                        crp=self.crp[recognition_corpus_key],
+                        feature_flow=feature_flow,
+                        feature_scorer=feature_scorer,
+                        model_combination_config=model_combination_config,
+                        **kwargs,
                     ),
                 )
 
-                scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
-                scorer_kwargs[
-                    self.scorer_hyp_arg[recognition_corpus_key]
-                ] = word2ctm.out_ctm_file
-                scorer = self.jobs[recognition_corpus_key].setdefault(
-                    f"scorer_{exp_name}",
-                    self.scorers[recognition_corpus_key](**scorer_kwargs),
-                )
-                tk.register_output(
-                    "%srecog_%s.reports" % (prefix, exp_name), scorer.out_report_dir
+                prefix = f"nn_recog/{train_corpus_key}_{name}/"
+                rec.set_vis_name(f"Recog {prefix}{exp_name}")
+                rec.add_alias(f"{prefix}recog_{exp_name}")
+
+                scorer_job = self.lattice_scoring(
+                    recognition_job=rec,
+                    recognition_corpus_key=recognition_corpus_key,
+                    prefix=prefix,
+                    exp_name=exp_name,
+                    lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
                 )
 
-    def nn_recognition(
+                self.summary_report.add_row(
+                    {
+                        SummaryKey.NAME.value: name,
+                        SummaryKey.CORPUS.value: recognition_corpus_key,
+                        SummaryKey.EPOCH.value: epoch,
+                        SummaryKey.PRON.value: pron,
+                        SummaryKey.PRIOR.value: prior,
+                        SummaryKey.LM.value: lm,
+                        SummaryKey.WER.value: scorer_job.out_wer,
+                        SummaryKey.SUB.value: scorer_job.out_percent_substitution,
+                        SummaryKey.DEL.value: scorer_job.out_percent_deletions,
+                        SummaryKey.INS.value: scorer_job.out_percent_insertions,
+                        SummaryKey.ERR.value: scorer_job.out_num_errors,
+                    }
+                )
+
+    def lss_nn_recognition(
         self,
         name: str,
         base_key: str,
@@ -772,6 +1090,7 @@ class TransducerSystem(NnSystem):
                 lookahead_options["scale"] = lm
 
                 exp_name = f"{recognition_corpus_key}-e{epoch:03d}-prior{prior:02.2f}-lm{lm:02.2f}"
+
                 rec = self.jobs[recognition_corpus_key].setdefault(
                     f"recog_{exp_name}",
                     LabelSyncSearchJob(
@@ -784,32 +1103,31 @@ class TransducerSystem(NnSystem):
                     ),
                 )
 
-                prefix = f"nn_recog/{name}/"
-                rec.set_vis_name("Recog %s%s" % (prefix, exp_name))
-                rec.add_alias("%srecog_%s" % (prefix, exp_name))
+                prefix = f"nn_recog/{train_corpus_key}_{name}/"
+                rec.set_vis_name(f"Recog {prefix}{exp_name}")
+                rec.add_alias(f"{prefix}recog_{exp_name}")
 
-                lat2ctm = self.jobs[recognition_corpus_key].setdefault(
-                    f"lat2ctm_{exp_name}",
-                    recog.LatticeToCtmJob(
-                        crp=recog_crp,
-                        lattice_cache=rec.out_lattice_bundle,
-                        **lattice_to_ctm_kwargs,
-                    ),
+                scorer_job = self.lattice_scoring(
+                    recognition_job=rec,
+                    recognition_corpus_key=recognition_corpus_key,
+                    prefix=prefix,
+                    exp_name=exp_name,
+                    lattice_to_ctm_kwargs=lattice_to_ctm_kwargs,
                 )
-                self.ctm_files[recognition_corpus_key][
-                    f"recog_{exp_name}"
-                ] = lat2ctm.out_ctm_file
 
-                scorer_kwargs = copy.deepcopy(self.scorer_args[recognition_corpus_key])
-                scorer_kwargs[
-                    self.scorer_hyp_arg[recognition_corpus_key]
-                ] = lat2ctm.out_ctm_file
-                scorer = self.jobs[recognition_corpus_key].setdefault(
-                    f"scorer_{exp_name}",
-                    self.scorers[recognition_corpus_key](**scorer_kwargs),
-                )
-                tk.register_output(
-                    "%srecog_%s.reports" % (prefix, exp_name), scorer.out_report_dir
+                self.summary_report.add_row(
+                    {
+                        SummaryKey.NAME.value: name,
+                        SummaryKey.CORPUS.value: recognition_corpus_key,
+                        SummaryKey.EPOCH.value: epoch,
+                        SummaryKey.PRIOR.value: prior,
+                        SummaryKey.LM.value: lm,
+                        SummaryKey.WER.value: scorer_job.out_wer,
+                        SummaryKey.SUB.value: scorer_job.out_percent_substitution,
+                        SummaryKey.DEL.value: scorer_job.out_percent_deletions,
+                        SummaryKey.INS.value: scorer_job.out_percent_insertions,
+                        SummaryKey.ERR.value: scorer_job.out_num_errors,
+                    }
                 )
 
     def nn_alignment(
@@ -904,10 +1222,10 @@ class TransducerSystem(NnSystem):
                 )
                 prefix = f"nn_align/{name}/"
 
-                align_job.set_vis_name("Alignment %s%s" % (prefix, exp_name))
-                align_job.add_alias("%salign_%s" % (prefix, exp_name))
+                align_job.set_vis_name(f"Alignment {prefix}{exp_name}")
+                align_job.add_alias(f"{prefix}align_{exp_name}")
                 tk.register_output(
-                    "%salign_%s.cache.bundle" % (prefix, exp_name),
+                    f"{prefix}align_{exp_name}.cache.bundle",
                     align_job.out_alignment_bundle,
                 )
                 self.alignments[corpus_key] = rasr.FlagDependentFlowAttribute(
@@ -919,62 +1237,6 @@ class TransducerSystem(NnSystem):
                 )
 
     # -------------------- run functions  --------------------
-
-    def run_bpe_nn_step(self, step_args: HybridArgs) -> None:
-        for pairing in self.train_cv_pairing:
-            trn_c = pairing[0]
-            cv_c = pairing[1]
-            name_list = (
-                [pairing[2]]
-                if len(pairing) >= 3
-                else list(step_args.returnn_training_configs.keys())
-            )
-
-            for name in name_list:
-                returnn_train_job = self.returnn_rasr_training(
-                    name=name,
-                    returnn_config=step_args.returnn_training_configs[name],
-                    train_corpus_key=trn_c,
-                    cv_corpus_key=cv_c,
-                    **(step_args.training_args or {}),
-                )
-
-                recog_returnn_config = step_args.returnn_recognition_configs.get(
-                    name, step_args.returnn_training_configs[name]
-                )
-                for recog_name, recog_args in step_args.recognition_args.items():
-                    for dev_c in self.dev_corpora:
-                        self.returnn_bpe_recognition(
-                            name=f"{trn_c}-{name}-{recog_name}",
-                            recognition_corpus_key=dev_c,
-                            recog_returnn_config=recog_returnn_config,
-                            checkpoints=returnn_train_job.out_checkpoints,
-                            **recog_args,
-                        )
-
-    def run_bpe_recog_step(self, step_args: HybridArgs) -> None:
-        for pairing in self.train_cv_pairing:
-            trn_c = pairing[0]
-            cv_c = pairing[1]
-            name_list = (
-                [pairing[2]]
-                if len(pairing) >= 3
-                else list(step_args.returnn_training_configs.keys())
-            )
-
-            for name in name_list:
-                recog_returnn_config = step_args.returnn_recognition_configs.get(
-                    name, step_args.returnn_training_configs[name]
-                )
-                for recog_name, recog_args in step_args.test_recognition_args.items():
-                    for test_c in self.test_corpora:
-                        self.returnn_bpe_recognition(
-                            name=f"{trn_c}-{name}-{recog_name}",
-                            recognition_corpus_key=test_c,
-                            recog_returnn_config=recog_returnn_config,
-                            checkpoints=self.tf_nn_checkpoints[f"{trn_c}_{cv_c}"],
-                            **recog_args,
-                        )
 
     def run_nn_step(self, step_args: HybridArgs) -> None:
         for pairing in self.train_cv_pairing:
@@ -1001,8 +1263,8 @@ class TransducerSystem(NnSystem):
                 for recog_name, recog_args in step_args.recognition_args.items():
                     for dev_c in self.dev_corpora:
                         self.nn_recognition(
-                            name=f"{trn_c}-{name}-{recog_name}",
-                            base_key=f"{trn_c}-{name}",
+                            name=f"{name}_{recog_name}",
+                            base_key=f"{trn_c}_{name}",
                             train_corpus_key=trn_c,
                             cv_corpus_key=cv_c,
                             recognition_corpus_key=dev_c,
@@ -1030,16 +1292,20 @@ class TransducerSystem(NnSystem):
                     name, step_args.returnn_training_configs[name]
                 )
                 for recog_name, recog_args in step_args.test_recognition_args.items():
-                    for test_c in self.test_corpora:
+                    for eval_c in self.dev_corpora + self.test_corpora:
                         self.nn_recognition(
-                            name=f"{trn_c}-{name}-{recog_name}",
-                            base_key=f"{trn_c}-{name}",
-                            recognition_corpus_key=test_c,
+                            name=f"{name}_{recog_name}",
+                            base_key=f"{trn_c}_{name}",
+                            train_corpus_key=trn_c,
+                            cv_corpus_key=cv_c,
+                            recognition_corpus_key=eval_c,
                             train_returnn_config=step_args.returnn_training_configs[
                                 name
                             ],
                             recog_returnn_config=recog_returnn_config,
-                            checkpoints=self.tf_nn_checkpoints[f"{trn_c}_{cv_c}"],
+                            checkpoints=self.tf_nn_checkpoints[
+                                f"{trn_c}_{cv_c}_{name}"
+                            ],
                             prior_args=step_args.prior_args,
                             **recog_args,
                         )
@@ -1061,11 +1327,11 @@ class TransducerSystem(NnSystem):
                 )
                 for align_name, align_args in step_args.alignment_args.items():
                     self.nn_alignment(
-                        name=f"{trn_c}-{name}-{align_name}",
-                        base_key=f"{trn_c}-{name}",
+                        name=f"{trn_c}_{name}_{align_name}",
+                        base_key=f"{trn_c}_{name}",
                         corpus_key=al_c,
                         returnn_config=recog_returnn_config,
-                        checkpoints=self.tf_nn_checkpoints[f"{trn_c}_{cv_c}"],
+                        checkpoints=self.tf_nn_checkpoints[f"{trn_c}_{cv_c}_{name}"],
                         **align_args,
                     )
 
@@ -1082,11 +1348,17 @@ class TransducerSystem(NnSystem):
                 f"allophones/{trn_c}/allophones", self.allophone_files["base"]
             )
 
+            state_tying_job = DumpStateTyingJob(self.crp[trn_c])
+            tk.register_output(
+                f"state_tying/{trn_c}/state_tying",
+                state_tying_job.out_state_tying,
+            )
+
         for eval_c in self.dev_corpora + self.test_corpora:
             if eval_c not in self.stm_files:
                 stm_args = (
-                    self.hybrid_init_args.stm_args
-                    if self.hybrid_init_args.stm_args is not None
+                    self.rasr_init_args.stm_args
+                    if self.rasr_init_args.stm_args is not None
                     else {}
                 )
                 self.create_stm_from_corpus(eval_c, **stm_args)
@@ -1096,27 +1368,34 @@ class TransducerSystem(NnSystem):
             # ---------- Feature Extraction ----------
             if step_name.startswith("extract"):
                 if step_args is None:
-                    step_args = self.hybrid_init_args.feature_extraction_args
-                for all_c in (
+                    step_args = self.rasr_init_args.feature_extraction_args
+                    feature_key = list(step_args.keys())[0]
+                else:
+                    feature_key = step_args.pop("feature_key", "gt")
+                corpora = set(
                     self.train_corpora
                     + self.cv_corpora
                     + self.dev_corpora
                     + self.test_corpora
                     + self.align_corpora
-                ):
+                )
+                for all_c in corpora:
                     self.feature_caches[all_c] = {}
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
-                self.extract_features(step_args)
+                self.extract_features(step_args, corpora=corpora)
+
+                for all_c in corpora:
+                    self.feature_caches[all_c] = self.feature_caches[all_c][feature_key]
+                    self.feature_bundles[all_c] = self.feature_bundles[all_c][
+                        feature_key
+                    ]
+                    self.feature_flows[all_c] = self.feature_flows[all_c][feature_key]
 
             # ---------- NN Training ----------
             if step_name.startswith("nn"):
                 self.run_nn_step(step_args)
             if step_name.startswith("nn_recog"):
                 self.run_nn_recog_step(step_args)
-            if step_name.startswith("bpe_nn"):
-                self.run_bpe_nn_step(step_args)
-            if step_name.startswith("bpe_recog"):
-                self.run_bpe_recog_step(step_args)
             if step_name.startswith("realign"):
                 self.run_realign_step(step_args)

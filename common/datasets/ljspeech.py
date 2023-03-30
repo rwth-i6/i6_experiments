@@ -26,12 +26,8 @@ def get_22khz_bliss_corpus(create_alias_with_prefix=None):
         audio_folder=download_ljspeech_job.out_audio_folder,
     )
     if create_alias_with_prefix:
-        download_ljspeech_job.add_alias(
-            os.path.join(create_alias_with_prefix, "LJSpeech", "download_job")
-        )
-        bliss_corpus_job.add_alias(
-            os.path.join(create_alias_with_prefix, "LJSpeech", "create_bliss_job")
-        )
+        download_ljspeech_job.add_alias(os.path.join(create_alias_with_prefix, "LJSpeech", "download_job"))
+        bliss_corpus_job.add_alias(os.path.join(create_alias_with_prefix, "LJSpeech", "create_bliss_job"))
     return bliss_corpus_job.out_bliss_corpus
 
 
@@ -50,9 +46,7 @@ def get_16khz_bliss_corpus(create_alias_with_prefix=None):
         corpus_file=ljspeech_22khz_corpus, output_format="wav", sample_rate=16000
     )
     if create_alias_with_prefix:
-        sample_rate_conversion_job.add_alias(
-            os.path.join(create_alias_with_prefix, "LJSpeech", "convert_16khz_job")
-        )
+        sample_rate_conversion_job.add_alias(os.path.join(create_alias_with_prefix, "LJSpeech", "convert_16khz_job"))
     return sample_rate_conversion_job.out_corpus
 
 
@@ -117,12 +111,8 @@ def get_g2p(create_alias_with_prefix=None):
     if create_alias_with_prefix:
         path_prefix = os.path.join(create_alias_with_prefix, "LJSpeech", "G2P")
         download_cmu_lexicon_job.add_alias(os.path.join(path_prefix, "download_cmu"))
-        convert_cmu_lexicon_uppercase_job.add_alias(
-            os.path.join(path_prefix, "convert_cmu")
-        )
-        train_cmu_default_sequitur.add_alias(
-            os.path.join(path_prefix, "train_sequitur")
-        )
+        convert_cmu_lexicon_uppercase_job.add_alias(os.path.join(path_prefix, "convert_cmu"))
+        train_cmu_default_sequitur.add_alias(os.path.join(path_prefix, "train_sequitur"))
 
     return sequitur_cmu_uppercase_model
 
@@ -131,12 +121,8 @@ def export(path_prefix):
     """
     :param str path_prefix:
     """
-    ljspeech_22khz_bliss_corpus = get_22khz_bliss_corpus(
-        create_alias_with_prefix=path_prefix
-    )
-    ljspeech_16khz_bliss_corpus = get_16khz_bliss_corpus(
-        create_alias_with_prefix=path_prefix
-    )
+    ljspeech_22khz_bliss_corpus = get_22khz_bliss_corpus(create_alias_with_prefix=path_prefix)
+    ljspeech_16khz_bliss_corpus = get_16khz_bliss_corpus(create_alias_with_prefix=path_prefix)
     ljspeech_sequitur_model = get_g2p(create_alias_with_prefix=path_prefix)
 
     tk.register_output(

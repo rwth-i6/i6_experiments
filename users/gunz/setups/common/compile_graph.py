@@ -38,12 +38,8 @@ def compile_tf_graph_from_returnn_config(
 
     conf = returnn.ReturnnConfig(
         tf_returnn_config,
-        python_prolog=python_prolog
-        if python_prolog is not None
-        else returnn_config.python_prolog,
-        python_epilog=python_epilog
-        if python_epilog is not None
-        else returnn_config.python_epilog,
+        python_prolog=python_prolog if python_prolog is not None else returnn_config.python_prolog,
+        python_epilog=python_epilog if python_epilog is not None else returnn_config.python_epilog,
     )
     compile_job = returnn.CompileTFGraphJob(
         conf,

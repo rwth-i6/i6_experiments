@@ -77,26 +77,20 @@ class attention_for_hybrid:
             if isinstance(window_limit_idx, int):
                 window_limit_idx = [window_limit_idx]
             for idx in window_limit_idx:
-                assert (
-                    idx in inspection_idx
-                ), f"please include {idx} in the inspection list."
+                assert idx in inspection_idx, f"please include {idx} in the inspection list."
             assert len(window_size) == enc_args["num_heads"]
 
         if was_idx:
             if isinstance(was_idx, int):
                 was_idx = [was_idx]
             for idx in was_idx:
-                assert (
-                    idx in inspection_idx
-                ), f"please include {idx} in the inspection list."
+                assert idx in inspection_idx, f"please include {idx} in the inspection list."
 
         if feature_repre_idx:
             if isinstance(feature_repre_idx, int):
                 feature_repre_idx = [feature_repre_idx]
             for idx in feature_repre_idx:
-                assert (
-                    idx in inspection_idx
-                ), f"please include {idx} in the inspection list."
+                assert idx in inspection_idx, f"please include {idx} in the inspection list."
 
         if loss_layer_idx:
             if isinstance(loss_layer_idx, int):
@@ -109,9 +103,7 @@ class attention_for_hybrid:
                 "same",
                 "different",
             ], "please choose one from 'same' and 'different'."
-            assert isinstance(
-                num_sec_enc_layers, int
-            ), "please give num. of layers for the second encoder."
+            assert isinstance(num_sec_enc_layers, int), "please give num. of layers for the second encoder."
 
         if use_pos_encoding:
             if not src_embed_args:
@@ -174,9 +166,7 @@ class attention_for_hybrid:
         self.use_spec_augment = use_spec_augment
 
         self.add_blstm_block = add_blstm_block
-        self.num_blstm_layers = (
-            len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2
-        )
+        self.num_blstm_layers = len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2
         self.blstm_args = blstm_args
         self.blstm_pooing_args = blstm_pooling_args
 
@@ -723,19 +713,13 @@ class attention_for_hybrid:
             }
             self.network[f"enc_{idx:03d}_att_weights"]["use_time_mask"] = False
 
-        self.network[f"enc_{idx:03d}_att_value0"]["from"] = [
-            f"enc_{idx:03d}_feature_repre"
-        ]
-        self.network[f"enc_{idx:03d}_att_key0"]["from"] = [
-            f"enc_{idx:03d}_feature_repre"
-        ]
+        self.network[f"enc_{idx:03d}_att_value0"]["from"] = [f"enc_{idx:03d}_feature_repre"]
+        self.network[f"enc_{idx:03d}_att_key0"]["from"] = [f"enc_{idx:03d}_feature_repre"]
 
     def _add_was(self, idx):
         ## if was should be applied
         ## use two softmax layers to do weak attention suppression
-        self.network[f"enc_{idx:03d}_att_weights_aux"] = copy.deepcopy(
-            self.network[f"enc_{idx:03d}_att_weights"]
-        )
+        self.network[f"enc_{idx:03d}_att_weights_aux"] = copy.deepcopy(self.network[f"enc_{idx:03d}_att_weights"])
 
         self.network[f"enc_{idx:03d}_att_energy_was"] = {
             "class": "eval",
@@ -743,17 +727,13 @@ class attention_for_hybrid:
             "eval": f"self.network.get_config().typed_value('att_weight_suppression')(source(0), source(1), upsilon={self.upsilon})",
         }
 
-        self.network[f"enc_{idx:03d}_att_weights"]["from"] = [
-            f"enc_{idx:03d}_att_energy_was"
-        ]
+        self.network[f"enc_{idx:03d}_att_weights"]["from"] = [f"enc_{idx:03d}_att_energy_was"]
 
     def add_auxiliary_loss(self, idx):
         last_layers = [f"enc_{idx:03d}"]
 
         if self.transposed_conv:
-            last_layers = self._upsampling_by_transposed_conv(
-                last_layers, prefix=f"aux_{idx}"
-            )
+            last_layers = self._upsampling_by_transposed_conv(last_layers, prefix=f"aux_{idx}")
             if "upsampled0" in self.network:
                 self.network[f"aux_{idx}_upsampled0"]["reuse_params"] = "upsampled0"
             if "upsampled1" in self.network:
@@ -762,9 +742,7 @@ class attention_for_hybrid:
                 self.network[f"aux_{idx}_upsampled2"]["reuse_params"] = "upsampled2"
 
         if self.frame_repetition:
-            last_layers = self._upsampling_by_frame_repetition(
-                last_layers, prefix=f"aux_{idx}"
-            )
+            last_layers = self._upsampling_by_frame_repetition(last_layers, prefix=f"aux_{idx}")
 
         if self.aux_loss_mlp_dim:
             self.network[f"aux_{idx}_ff1"] = {
@@ -848,8 +826,7 @@ class attention_for_hybrid:
                 "activation": "relu",
                 "strides": (self.feature_stacking_stride,),
                 "with_bias": True,
-                "n_out": self.enc_args["model_dim"]
-                or self.transposed_conv_args.get("model_dim0", None),
+                "n_out": self.enc_args["model_dim"] or self.transposed_conv_args.get("model_dim0", None),
                 "from": last_layers,
             }
             last_layers = [f"{prefix}upsampled0"]
@@ -862,8 +839,7 @@ class attention_for_hybrid:
                     "activation": "relu",
                     "strides": (self.reduction_factor[0],),
                     "with_bias": True,
-                    "n_out": self.enc_args["model_dim"]
-                    or self.transposed_conv_args.get("model_dim1", None),
+                    "n_out": self.enc_args["model_dim"] or self.transposed_conv_args.get("model_dim1", None),
                     "from": last_layers,
                 }
                 last_layers = [f"{prefix}upsampled1"]
@@ -875,8 +851,7 @@ class attention_for_hybrid:
                     "activation": "relu",
                     "strides": (self.reduction_factor[1],),
                     "with_bias": True,
-                    "n_out": self.enc_args["model_dim"]
-                    or self.transposed_conv_args.get("model_dim2", None),
+                    "n_out": self.enc_args["model_dim"] or self.transposed_conv_args.get("model_dim2", None),
                     "from": last_layers,
                 }
                 last_layers = [f"{prefix}upsampled2"]
@@ -904,9 +879,7 @@ class attention_for_hybrid:
         if self.feature_stacking:
             total_ratio = total_ratio * self.feature_stacking_stride
         if self.reduction_factor:
-            total_ratio = (
-                total_ratio * self.reduction_factor[0] * self.reduction_factor[1]
-            )
+            total_ratio = total_ratio * self.reduction_factor[0] * self.reduction_factor[1]
 
         # check if total_ratio is power of 2
         assert (total_ratio & (total_ratio - 1) == 0) and total_ratio != 0
@@ -1049,9 +1022,7 @@ class attention_for_hybrid:
 
         # pe by sinusoidal functions
         if self.use_pos_encoding:
-            last_layer = sec_last_layer = self._positional_encoding(
-                inp=last_layer, add_to_input=self.add_to_input
-            )
+            last_layer = sec_last_layer = self._positional_encoding(inp=last_layer, add_to_input=self.add_to_input)
 
         # add both blstm_block and vgg blocks
         if self.add_blstm_block and self.add_conv_block:
@@ -1102,15 +1073,11 @@ class attention_for_hybrid:
             if self.variant == "different":
                 if self.add_blstm_block and not self.add_conv_block:
                     sec_last_layer = self._conv_block(inp=sec_last_layer, prefix="sec")
-                    sec_last_layer = self._add_embedding(
-                        inp=sec_last_layer, prefix="sec"
-                    )
+                    sec_last_layer = self._add_embedding(inp=sec_last_layer, prefix="sec")
 
                 elif self.add_conv_block and not self.add_blstm_block:
                     sec_last_layer = self._blstm_block(inp=sec_last_layer, prefix="sec")
-                    sec_last_layer = self._add_embedding(
-                        inp=sec_last_layer, prefix="sec"
-                    )
+                    sec_last_layer = self._add_embedding(inp=sec_last_layer, prefix="sec")
 
             ## variant 2: use the same type of feature extraction layers
             elif self.variant == "same":
@@ -1118,28 +1085,18 @@ class attention_for_hybrid:
                     if self.share_par:
                         sec_last_layer = ["embedding_dropout"]
                     else:
-                        sec_last_layer = self._blstm_block(
-                            inp=sec_last_layer, prefix="sec"
-                        )
-                        sec_last_layer = self._add_embedding(
-                            inp=sec_last_layer, prefix="sec"
-                        )
+                        sec_last_layer = self._blstm_block(inp=sec_last_layer, prefix="sec")
+                        sec_last_layer = self._add_embedding(inp=sec_last_layer, prefix="sec")
 
                 elif self.add_conv_block and not self.add_blstm_block:
                     if self.share_par:
                         sec_last_layer = ["embedding_dropout"]
                     else:
-                        sec_last_layer = self._conv_block(
-                            inp=sec_last_layer, prefix="sec"
-                        )
+                        sec_last_layer = self._conv_block(inp=sec_last_layer, prefix="sec")
 
-                        sec_last_layer = self._add_embedding(
-                            inp=sec_last_layer, prefix="sec"
-                        )
+                        sec_last_layer = self._add_embedding(inp=sec_last_layer, prefix="sec")
 
-            last_layer = self._second_encoder(
-                inp=sec_last_layer, ca_layer=last_layer[0]
-            )
+            last_layer = self._second_encoder(inp=sec_last_layer, ca_layer=last_layer[0])
 
         if self.mlp:
             self.network["ff1"] = {

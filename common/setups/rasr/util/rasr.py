@@ -218,9 +218,7 @@ class RasrSteps:
         """
         step_names = list(
             filter(
-                lambda x: not any(
-                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
-                ),
+                lambda x: not any(x.startswith(step) for step in self.get_non_gmm_steps_as_list()),
                 self.get_step_names_as_list(),
             )
         )
@@ -235,9 +233,7 @@ class RasrSteps:
         """
         step_names = list(
             filter(
-                lambda x: not any(
-                    x.startswith(step) for step in self.get_non_gmm_steps_as_list()
-                ),
+                lambda x: not any(x.startswith(step) for step in self.get_non_gmm_steps_as_list()),
                 self.get_step_names_as_list()[:idx],
             )
         )

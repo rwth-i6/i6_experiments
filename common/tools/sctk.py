@@ -17,9 +17,7 @@ def compile_sctk(
     :param sctk_git_repository: where to clone SCTK from, usually does not need to be altered
     :return: SCTK binary folder
     """
-    sctk_repo = CloneGitRepositoryJob(
-        url=sctk_git_repository, branch=branch, commit=commit
-    ).out_repository
+    sctk_repo = CloneGitRepositoryJob(url=sctk_git_repository, branch=branch, commit=commit).out_repository
     sctk_make = MakeJob(
         folder=sctk_repo,
         make_sequence=["config", "all", "check", "install", "doc"],

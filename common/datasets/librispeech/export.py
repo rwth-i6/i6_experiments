@@ -15,23 +15,17 @@ def _export_datasets(output_prefix):
 
     # export all bliss corpora
     for audio_format in ["flac", "ogg", "wav"]:
-        bliss_corpus_dict = get_bliss_corpus_dict(
-            audio_format=audio_format, output_prefix=output_prefix
-        )
+        bliss_corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
         for name, bliss_corpus in bliss_corpus_dict.items():
             tk.register_output(
-                os.path.join(
-                    output_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)
-                ),
+                os.path.join(output_prefix, "LibriSpeech", "%s-%s.xml.gz" % (name, audio_format)),
                 bliss_corpus,
             )
 
     # export all ogg zip corpora
     ogg_corpus_dict = get_ogg_zip_dict(output_prefix=output_prefix)
     for name, ogg_corpus in ogg_corpus_dict.items():
-        tk.register_output(
-            os.path.join(output_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus
-        )
+        tk.register_output(os.path.join(output_prefix, "LibriSpeech", "%s.ogg.zip" % name), ogg_corpus)
 
 
 def _export_lm_data(output_prefix):
@@ -57,37 +51,27 @@ def _export_lexicon_and_vocab(output_prefix):
     lexicon_output_prefix = os.path.join(output_prefix, "LibriSpeech", "lexicon")
 
     # folded / without stress marker
-    bliss_lexicon = get_bliss_lexicon(
-        output_prefix=output_prefix, use_stress_marker=False
-    )
+    bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix, use_stress_marker=False)
     tk.register_output(
         os.path.join(lexicon_output_prefix, "librispeech.lexicon.folded.xml.gz"),
         bliss_lexicon,
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(
-        use_stress_marker=True, output_prefix=output_prefix
-    )
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=True, output_prefix=output_prefix)
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
-            os.path.join(
-                lexicon_output_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k
-            ),
+            os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.folded.xml.gz" % k),
             lexicon,
         )
 
     # with stress marker
-    bliss_lexicon = get_bliss_lexicon(
-        output_prefix=output_prefix, use_stress_marker=True
-    )
+    bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix, use_stress_marker=True)
     tk.register_output(
         os.path.join(lexicon_output_prefix, "librispeech.lexicon.xml.gz"),
         bliss_lexicon,
     )
 
-    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(
-        use_stress_marker=False, output_prefix=output_prefix
-    )
+    g2p_lexicon_dict = get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False, output_prefix=output_prefix)
     for k, lexicon in g2p_lexicon_dict.items():
         tk.register_output(
             os.path.join(lexicon_output_prefix, "%s.lexicon_with_g2p.xml.gz" % k),
@@ -102,12 +86,8 @@ def _export_legacy_bpe(output_prefix):
     :param str output_prefix
     """
     lexicon_output_prefix = os.path.join(output_prefix, "LibriSpeech", "bpe")
-    ls960_bpe_settings = get_subword_nmt_bpe(
-        corpus_key="train-other-960", bpe_size=10000, output_prefix=output_prefix
-    )
-    ls100_bpe_settings = get_subword_nmt_bpe(
-        corpus_key="train-clean-100", bpe_size=2000, output_prefix=output_prefix
-    )
+    ls960_bpe_settings = get_subword_nmt_bpe(corpus_key="train-other-960", bpe_size=10000, output_prefix=output_prefix)
+    ls100_bpe_settings = get_subword_nmt_bpe(corpus_key="train-clean-100", bpe_size=2000, output_prefix=output_prefix)
     tk.register_output(
         os.path.join(lexicon_output_prefix, "train-other-960", "bpe_10k.codes"),
         ls960_bpe_settings.bpe_codes,

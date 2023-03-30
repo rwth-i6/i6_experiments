@@ -15,6 +15,7 @@ from i6_experiments.common.datasets.librispeech.cart import (
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 from i6_core.rasr.config import RasrConfig
+from sisyphus import gs
 
 
 def get_init_args():
@@ -107,7 +108,7 @@ def get_monophone_args(pool_variance=True):
     "align_iter": 75,
     "splits": 10,
     "accs_per_split": 2,
-    "dump_alignment_score_report": True,
+    "dump_alignment_score_report": ("gauss_pred_no_round" not in gs.ALIAS_AND_OUTPUT_SUBDIR) and ("0_8" not in gs.ALIAS_AND_OUTPUT_SUBDIR) and ('0_025' not in gs.ALIAS_AND_OUTPUT_SUBDIR),
   }
 
   monophone_recognition_args = {
@@ -231,7 +232,7 @@ def get_triphone_args():
     },
     "optimize_am_lm_scale": True,
     "rtf": 20,
-    "mem": 4,
+    "mem": 4 if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else 8,
     "parallelize_conversion": True,
   }
 
@@ -269,9 +270,9 @@ def get_vtln_args():
       "splits": 10,
       "accs_per_split": 2,
       "feature_flow": "mfcc+context+lda+vtln",
-      "accumulate_extra_rqmt": {"mem": 8},
-      "align_extra_rqmt": {"mem": 8},
-      "split_extra_rqmt": {"mem": 8},
+      "accumulate_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
+      "align_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
+      "split_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
     },
   }
 
@@ -297,7 +298,7 @@ def get_vtln_args():
     },
     "optimize_am_lm_scale": True,
     "rtf": 20,
-    "mem": 4,
+    "mem": 4 if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else 8,
     "parallelize_conversion": True,
   }
 
@@ -324,9 +325,12 @@ def get_sat_args():
     "cache_regex": "^mfcc.*$",
     "splits": 10,
     "accs_per_split": 2,
-    "accumulate_extra_rqmt": {"mem": 8},
-    "align_extra_rqmt": {"mem": 8},
-    "split_extra_rqmt": {"mem": 8},
+    "accumulate_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not (
+        "1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
+    "align_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not (
+        "1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
+    "split_extra_rqmt": {"mem": 8} if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not (
+        "1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else {"mem": 8, "time": 1.0},
   }
 
   sat_recognition_args = {
@@ -361,7 +365,7 @@ def get_sat_args():
     },
     "optimize_am_lm_scale": True,
     "rtf": 20,
-    "mem": 4,
+    "mem": 4 if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else 8,
     "parallelize_conversion": True,
   }
 
@@ -425,7 +429,7 @@ def get_vtln_sat_args():
     },
     "optimize_am_lm_scale": True,
     "rtf": 20,
-    "mem": 4,
+    "mem": 4 if (not 'ls860' in gs.ALIAS_AND_OUTPUT_SUBDIR) and not ("1000h" in gs.ALIAS_AND_OUTPUT_SUBDIR) else 8,
     "parallelize_conversion": True,
   }
 

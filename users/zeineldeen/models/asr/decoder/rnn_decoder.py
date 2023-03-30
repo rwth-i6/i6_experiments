@@ -16,7 +16,7 @@ class RNNDecoder:
                ff_init=None, add_lstm_lm=False, lstm_lm_dim=1024, loc_conv_att_filter_size=None,
                loc_conv_att_num_channels=None, reduceout=True, att_num_heads=1, embed_weight_init=None,
                lstm_weights_init=None, lstm_lm_proj_dim=1024, length_normalization=True,
-               coverage_threshold=None, coverage_scale=None,):
+               coverage_threshold=None, coverage_scale=None, ce_loss_scale=1.0,):
     """
     :param base_model: base/encoder model instance
     :param str source: input to decoder subnetwork
@@ -89,6 +89,8 @@ class RNNDecoder:
     self.length_normalization = length_normalization
     self.coverage_threshold = coverage_threshold
     self.coverage_scale = coverage_scale
+
+    self.ce_loss_scale = ce_loss_scale
 
     self.network = ReturnnNetwork()
     self.subnet_unit = ReturnnNetwork()
@@ -163,9 +165,14 @@ class RNNDecoder:
     else:
       subnet_unit.add_copy_layer('readout', 'readout_in')
 
+    ce_loss_opts = {'label_smoothing': self.label_smoothing}
+    if self.ce_loss_scale and self.ce_loss_scale != 1.0:
+      ce_loss_opts['scale'] = self.ce_loss_scale
+
     self.output_prob = subnet_unit.add_softmax_layer(
-      'output_prob', 'readout', l2=self.l2, loss='ce', loss_opts={'label_smoothing': self.label_smoothing},
-      target=self.target, dropout=self.softmax_dropout)
+      'output_prob', 'readout', l2=self.l2, loss='ce', loss_opts=ce_loss_opts, target=self.target,
+      dropout=self.softmax_dropout
+    )
 
     if self.coverage_scale and self.coverage_threshold:
       assert self.att_num_heads == 1, 'Not supported for multi-head attention.'  # TODO: just average the heads?

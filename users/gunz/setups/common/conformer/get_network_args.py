@@ -79,9 +79,7 @@ def get_encoder_args(
 
 
 ## acoustic model specific parameters: frond-end, downsampling,
-def get_network_args(
-    num_enc_layers, type, enc_args, target="classes", num_classes=12001, **kwargs
-):
+def get_network_args(num_enc_layers, type, enc_args, target="classes", num_classes=12001, **kwargs):
 
     assert type in ["transformer", "conformer"]
     if type == "conformer":
@@ -160,9 +158,7 @@ def add_time_chunking_and_unchunking_to_network(
 
     network_new[first_layer]["from"] = ["time_chunk"]
 
-    for before_unchunking_layer, next_layer in zip(
-        before_unchunking_layers, next_layers
-    ):
+    for before_unchunking_layer, next_layer in zip(before_unchunking_layers, next_layers):
 
         network_new[f"{before_unchunking_layer}_time_unchunk"] = {
             "class": "time_unchunking",
@@ -176,17 +172,13 @@ def add_time_chunking_and_unchunking_to_network(
             "from": [f"{before_unchunking_layer}_time_unchunk"],
         }
 
-        network_new[next_layer]["from"] = [
-            f"{before_unchunking_layer}_time_unchunk_swapped"
-        ]
+        network_new[next_layer]["from"] = [f"{before_unchunking_layer}_time_unchunk_swapped"]
 
     return network_new
 
 
 enc_half_args = get_encoder_args(4, 64, 64, 256, 1024, 32)
-enc_orig_half_args = get_encoder_args(
-    4, 64, 64, 256, 1024, 32, **{"end_layernorm": True}
-)
+enc_orig_half_args = get_encoder_args(4, 64, 64, 256, 1024, 32, **{"end_layernorm": True})
 
 enc_standard_args = get_encoder_args(8, 64, 64, 512, 2048, 32)
 

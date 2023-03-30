@@ -2,7 +2,6 @@ from i6_core import corpus as corpus_recipe
 from i6_core import text
 
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
-from i6_experiments.common.setups.rasr.util.nn import SingleHdfDataInput
 
 from .default_tools import RETURNN_EXE, RETURNN_RC_ROOT
 
@@ -153,6 +152,7 @@ def get_corpus_data_inputs_newcv_hdf(gmm_system):
     :param GmmSystem gmm_system:
     :return:
     """
+    from i6_experiments.common.setups.rasr.util.nn import SingleHdfDataInput
     train_corpus_path = gmm_system.corpora["train-clean-100"].corpus_file
     total_train_num_segments = 28539
     cv_size = 300 / total_train_num_segments

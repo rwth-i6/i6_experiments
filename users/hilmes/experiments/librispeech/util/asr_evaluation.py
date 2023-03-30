@@ -12,8 +12,7 @@ from i6_core.report.report import GenerateReportStringJob, MailJob, _Report_Type
 
 def asr_eval_report_format(report: _Report_Type):
     out = []
-    with open(report["wer"], "rt") as f:
-        wer = f.read()
+    wer = report["wer"].get()
     out.append(
         f"""Name: {report["name"]}
 

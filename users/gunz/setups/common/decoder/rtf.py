@@ -74,26 +74,16 @@ class ExtractSearchStatisticsJob(Job):
             total_system += system
 
             for layer in root.findall('.//segment/layer[@name="recognizer"]'):
-                frames = int(
-                    layer.findall('./statistics/frames[@port="features"]')[0].attrib[
-                        "number"
-                    ]
-                )
+                frames = int(layer.findall('./statistics/frames[@port="features"]')[0].attrib["number"])
                 total_frames += frames
                 total_word_ends += frames * float(
-                    layer.findall(
-                        './search-space-statistics/statistic[@name="ending words after pruning"]/avg'
-                    )[0].text
+                    layer.findall('./search-space-statistics/statistic[@name="ending words after pruning"]/avg')[0].text
                 )
                 total_trees += frames * float(
-                    layer.findall(
-                        './search-space-statistics/statistic[@name="trees after  pruning"]/avg'
-                    )[0].text
+                    layer.findall('./search-space-statistics/statistic[@name="trees after  pruning"]/avg')[0].text
                 )
                 total_states += frames * float(
-                    layer.findall(
-                        './search-space-statistics/statistic[@name="states after pruning"]/avg'
-                    )[0].text
+                    layer.findall('./search-space-statistics/statistic[@name="states after pruning"]/avg')[0].text
                 )
 
                 recognizer_time += float(layer.findall("./flf-recognizer-time")[0].text)
@@ -107,27 +97,21 @@ class ExtractSearchStatisticsJob(Job):
             for seg in root.findall(".//segment"):
                 seg_stats = {}
                 full_name = seg.attrib["full-name"]
-                for sss in seg.findall(
-                    './layer[@name="recognizer"]/search-space-statistics/statistic[@type="scalar"]'
-                ):
+                for sss in seg.findall('./layer[@name="recognizer"]/search-space-statistics/statistic[@type="scalar"]'):
                     min_val = float(sss.findtext("./min", default="0"))
                     avg_val = float(sss.findtext("./avg", default="0"))
                     max_val = float(sss.findtext("./max", default="0"))
                     seg_stats[sss.attrib["name"]] = (min_val, avg_val, max_val)
                 seq_ss_statistics[full_name] = seg_stats
 
-                features = seg.find(
-                    './layer[@name="recognizer"]/statistics/frames[@port="features"]'
-                )
+                features = seg.find('./layer[@name="recognizer"]/statistics/frames[@port="features"]')
                 seq_ss_statistics[full_name]["frames"] = int(features.attrib["number"])
 
                 tf_fwd = seg.find(
                     './layer[@name="recognizer"]/information[@component="flf-lattice-tool.network.recognizer.feature-extraction.tf-fwd"]'
                 )
                 if tf_fwd is not None:
-                    seq_ss_statistics[full_name]["tf_fwd"] = float(
-                        tf_fwd.text.strip().split()[-1]
-                    )
+                    seq_ss_statistics[full_name]["tf_fwd"] = float(tf_fwd.text.strip().split()[-1])
                 else:
                     seq_ss_statistics[full_name]["tf_fwd"] = 0.0
 
@@ -137,11 +121,7 @@ class ExtractSearchStatisticsJob(Job):
                     alignment = evaluation.find('statistic[@type="alignment"]')
                     eval_statistics[full_name][stat_name] = {
                         "errors": int(alignment.findtext("edit-operations")),
-                        "ref-tokens": int(
-                            alignment.findtext(
-                                'count[@event="token"][@source="reference"]'
-                            )
-                        ),
+                        "ref-tokens": int(alignment.findtext('count[@event="token"][@source="reference"]')),
                         "score": float(alignment.findtext('score[@source="best"]')),
                     }
 
@@ -176,19 +156,12 @@ class ExtractSearchStatisticsJob(Job):
         self.avg_trees.set(total_trees / total_frames)
         self.avg_states.set(total_states / total_frames)
         self.recognizer_time.set(recognizer_time / (3600.0 * 1000.0))
-        self.recognizer_rtf.set(
-            recognizer_time / (3600.0 * 1000.0 * self.corpus_duration)
-        )
+        self.recognizer_rtf.set(recognizer_time / (3600.0 * 1000.0 * self.corpus_duration))
         self.rescoring_time.set(rescoring_time / (3600.0 * 1000.0))
-        self.rescoring_rtf.set(
-            rescoring_time / (3600.0 * 1000.0 * self.corpus_duration)
-        )
+        self.rescoring_rtf.set(rescoring_time / (3600.0 * 1000.0 * self.corpus_duration))
         self.tf_lm_time.set(lm_time / (3600.0 * 1000.0))
         self.tf_lm_rtf.set(lm_time / (3600.0 * 1000.0 * self.corpus_duration))
-        self.decoding_rtf.set(
-            (recognizer_time + rescoring_time)
-            / (3600.0 * 1000.0 * self.corpus_duration)
-        )
+        self.decoding_rtf.set((recognizer_time + rescoring_time) / (3600.0 * 1000.0 * self.corpus_duration))
         self.ss_statistics.set(dict(ss_statistics.items()))
         self.seq_ss_statistics.set(seq_ss_statistics)
         self.eval_statistics.set(eval_statistics)

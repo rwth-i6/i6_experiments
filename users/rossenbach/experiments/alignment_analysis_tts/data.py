@@ -17,6 +17,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import (
     get_librispeech_tts_segments,
     get_ls_train_clean_100_tts_silencepreprocessed,
     get_ls_train_clean_360_tts_silencepreprocessed,
+    get_ls_train_other_500_tts_silencepreprocessed
 )
 
 
@@ -99,6 +100,36 @@ def get_ls460_silence_preprocessed_bliss() -> tk.Path:
 
 
 @lru_cache
+def get_ls960_silence_preprocessed_bliss() -> tk.Path:
+    """
+    Get the modified ls960 corpus for the TTS task
+    :return: Bliss xml file
+    """
+    # this is the FFmpeg silence preprocessed version of LibriSpeech train-clean-100
+    sil_pp_train_clean_100_co = get_ls_train_clean_100_tts_silencepreprocessed()
+    sil_pp_train_clean_360_co = get_ls_train_clean_360_tts_silencepreprocessed()
+    sil_pp_train_other_500_co = get_ls_train_other_500_tts_silencepreprocessed()
+
+    from i6_core.corpus.transform import MergeCorporaJob, MergeStrategy
+    spp_960_corpus = MergeCorporaJob(
+        bliss_corpora=[
+            sil_pp_train_clean_100_co.corpus_file,
+            sil_pp_train_clean_360_co.corpus_file,
+            sil_pp_train_other_500_co.corpus_file,
+        ],
+        merge_strategy=MergeStrategy.FLAT,
+        name="train-other-960"
+    ).out_merged_corpus
+
+    # convert the corpus transcriptions into phoneme and marker representation
+    sil_pp_train_other_960_tts = process_corpus_text_with_extended_lexicon(
+        bliss_corpus=spp_960_corpus,
+        lexicon=get_librispeech_lexicon("train-other-960"))
+
+    return sil_pp_train_other_960_tts
+
+
+@lru_cache
 def get_ls360_zip_for_synthesis_only() -> tk.Path:
     """
     TTS label processed librispeech 360 without audio
@@ -168,8 +199,10 @@ def get_bliss_and_zip(ls_corpus_key, silence_preprocessed=True):
             bliss_dataset = get_ls100_silence_preprocessed_bliss()
         elif ls_corpus_key == "train-clean-460":
             bliss_dataset = get_ls460_silence_preprocessed_bliss()
+        elif ls_corpus_key == "train-other-960":
+            bliss_dataset = get_ls960_silence_preprocessed_bliss()
         else:
-            assert "invalid key"
+            assert False, "invalid key %s" % ls_corpus_key
     else:
         bliss_dataset = get_tts_extended_bliss(ls_corpus_key=ls_corpus_key)
 

@@ -184,6 +184,7 @@ class Decoder(nn.Module):
         dec_lstm_size_2: int = 1024,
         linear_size: int = 80,
         dropout: float = 0.5,
+        big: bool = False,
     ):
         """
 
@@ -195,6 +196,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
 
         self.dropout = dropout
+        self.big = big
 
         self.dec_lstm_dim_1 = nn.FeatureDim("dec_lstm_dim", dec_lstm_size_1)
         self.dec_lstm_dim_2 = nn.FeatureDim("dec_lstm_dim", dec_lstm_size_2)
@@ -204,8 +206,16 @@ class Decoder(nn.Module):
         self.dec_lstm_bw_1 = nn.LSTM(out_dim=self.dec_lstm_dim_1, in_dim=in_dim)
         self.dec_lstm_fw_2 = nn.LSTM(out_dim=self.dec_lstm_dim_2, in_dim=2 * self.dec_lstm_dim_1)
         self.dec_lstm_bw_2 = nn.LSTM(out_dim=self.dec_lstm_dim_2, in_dim=2 * self.dec_lstm_dim_1)
-        self.linear_out = nn.Linear(out_dim=self.linear_dim, in_dim=2 * self.dec_lstm_dim_2)
-        self.linear_ref = nn.Linear(out_dim=self.linear_dim, in_dim=2 * self.dec_lstm_dim_2)
+        if self.big:
+            self.dec_lstm_dim_3 = nn.FeatureDim("dec_lstm_dim", dec_lstm_size_1)
+            self.dec_lstm_dim_4 = nn.FeatureDim("dec_lstm_dim", dec_lstm_size_2)
+            self.dec_lstm_fw_3 = nn.LSTM(out_dim=self.dec_lstm_dim_3, in_dim=2 * self.dec_lstm_dim_2)
+            self.dec_lstm_bw_3 = nn.LSTM(out_dim=self.dec_lstm_dim_3, in_dim=2 * self.dec_lstm_dim_2)
+            self.dec_lstm_fw_4 = nn.LSTM(out_dim=self.dec_lstm_dim_4, in_dim=2 * self.dec_lstm_dim_3)
+            self.dec_lstm_bw_4 = nn.LSTM(out_dim=self.dec_lstm_dim_4, in_dim=2 * self.dec_lstm_dim_3)
+
+        self.linear_out = nn.Linear(out_dim=self.linear_dim, in_dim=2 * self.dec_lstm_dim_2 if not self.big else 2 * self.dec_lstm_dim_4)
+        self.linear_ref = nn.Linear(out_dim=self.linear_dim, in_dim=2 * self.dec_lstm_dim_2 if not self.big else 2 * self.dec_lstm_dim_4)
 
     def __call__(self, rep: nn.Tensor, speaker_embedding: Optional[nn.Tensor], time_dim: nn.Dim) -> nn.Tensor:
         """
@@ -242,6 +252,23 @@ class Decoder(nn.Module):
             dec_lstm_bw,
         )
         dec_drop = nn.dropout(cat, axis=cat.feature_dim, dropout=self.dropout)
+
+        if self.big:
+            dec_lstm_fw, _ = self.dec_lstm_fw_3(dec_drop, spatial_dim=time_dim, direction=1)
+            dec_lstm_bw, _ = self.dec_lstm_bw_3(dec_drop, spatial_dim=time_dim, direction=-1)
+            cat = nn.concat_features(
+                dec_lstm_fw,
+                dec_lstm_bw,
+            )
+            dec_drop = nn.dropout(cat, axis=cat.feature_dim, dropout=self.dropout)
+
+            dec_lstm_fw, _ = self.dec_lstm_fw_4(dec_drop, spatial_dim=time_dim, direction=1)
+            dec_lstm_bw, _ = self.dec_lstm_bw_4(dec_drop, spatial_dim=time_dim, direction=-1)
+            cat = nn.concat_features(
+                dec_lstm_fw,
+                dec_lstm_bw,
+            )
+            dec_drop = nn.dropout(cat, axis=cat.feature_dim, dropout=self.dropout)
 
         lin_out = self.linear_out(dec_drop)
         # lin_ref = self.linear_ref(dec_drop)
@@ -477,8 +504,15 @@ class NARTTSModel(nn.Module):
         hidden_dim: int = 256,
         variance_dim: int = 512,
         xvectors: bool = False,
+        gauss_with_speak_emb: bool = False,
+        big: bool = False,
+        random_duration_scaling: Optional[Tuple[float, float, float, float]] = None,
+        redo=False,
     ):
         super(NARTTSModel, self).__init__()
+
+        # dummy parameter to quickly redo exps
+        self.redo = redo
 
         # params
         self.phoneme_in_dim = phoneme_in_dim
@@ -525,6 +559,13 @@ class NARTTSModel(nn.Module):
         self.energy_scale = energy_scale
         self.test = test
         self.xvectors = xvectors
+        assert gauss_up or not gauss_with_speak_emb
+        self.gauss_with_speak_emb = gauss_with_speak_emb
+        self.big = big
+        self.random_duration_scaling = random_duration_scaling
+
+        if self.random_duration_scaling is not None:
+            self.center, self.dev, self.min, self.max = random_duration_scaling
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
@@ -540,15 +581,20 @@ class NARTTSModel(nn.Module):
         )
         self.enc_lstm_fw = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.conv_stack.out_dims[-1])
         self.enc_lstm_bw = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.conv_stack.out_dims[-1])
+        if self.big:
+            self.enc_lstm_fw2 = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.enc_lstm_dim)
+            self.enc_lstm_bw2 = nn.LSTM(out_dim=self.enc_lstm_dim, in_dim=self.enc_lstm_dim)
         if self.gauss_up:
             # only import here to reduce serializer imports and not import for every model that doesn't use it
             from i6_experiments.users.hilmes.modules.gaussian_upsampling import (
                 GaussianUpsampling,
                 VarianceNetwork,
             )
-
-            self.variance_net = VarianceNetwork(lstm_size=variance_dim, in_dim=2 * self.enc_lstm_dim)
-            self.upsamling = GaussianUpsampling()
+            var_in = 2 * self.enc_lstm_dim
+            if self.gauss_with_speak_emb:
+                var_in = var_in + self.speaker_embedding_dim
+            self.variance_net = VarianceNetwork(lstm_size=variance_dim, in_dim=var_in)
+            self.upsamling = GaussianUpsampling(int_durations=self.round_durations)
         else:
             self.variance_net = None
             self.upsamling = None
@@ -590,6 +636,7 @@ class NARTTSModel(nn.Module):
             dec_lstm_size_2=dec_lstm_size,
             dropout=dropout,
             in_dim=decoder_dim,
+            big=self.big,
         )
         duration_in = 2 * self.enc_lstm_dim
         if not self.skip_speaker_embeddings or self.xvectors:
@@ -717,6 +764,10 @@ class NARTTSModel(nn.Module):
         enc_lstm_fw, _ = self.enc_lstm_fw(conv, spatial_dim=time_dim, direction=1)
         enc_lstm_bw, _ = self.enc_lstm_bw(conv, spatial_dim=time_dim, direction=-1)
         cat = nn.concat_features(enc_lstm_fw, enc_lstm_bw)
+        if self.big:
+            enc_lstm_fw2, _ = self.enc_lstm_fw(conv, spatial_dim=time_dim, direction=1)
+            enc_lstm_bw2, _ = self.enc_lstm_bw(conv, spatial_dim=time_dim, direction=-1)
+            cat = nn.concat_features(enc_lstm_fw, enc_lstm_bw)
         encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
         # duration predictor
@@ -751,6 +802,15 @@ class NARTTSModel(nn.Module):
             duration_prediction = duration_float
         else:
             duration_prediction = self.duration(inp=duration_in, time_dim=time_dim)  # [B, Label-time, 1]
+            if self.random_duration_scaling is not None:
+                gauss = nn.random_normal(shape=duration_prediction.shape_ordered, mean=0.0, stddev=self.dev)
+                cum_gauss = nn.cumsum(gauss, axis=time_dim)
+                mean_cum = nn.reduce(cum_gauss, mode="mean", axis=time_dim)
+                cum_gauss = nn.combine(cum_gauss, mean_cum, kind="sub")  # , allow_broadcast_all_sources=True)
+                scale = nn.combine(cum_gauss, nn.constant(self.center), kind="add")
+                scale = nn.combine(scale, nn.constant(self.max), kind="minimum")
+                scale = nn.combine(scale, nn.constant(self.min), kind="maximum")
+                duration_prediction = duration_prediction * scale
             if self.dump_durations or self.dump_durations_to_hdf:
                 duration_dump = duration_prediction
                 if self.duration_scale != 1.0:
@@ -761,7 +821,7 @@ class NARTTSModel(nn.Module):
                     duration_dump = nn.hdf_dump(duration_dump, filename="durations.hdf")
                     duration_dump.mark_as_output()
                 else:
-                    return duration_prediction
+                    return duration_dump
 
         if self.training:
             duration_prediction_loss = nn.mean_absolute_difference(duration_prediction, duration_float)
@@ -780,7 +840,11 @@ class NARTTSModel(nn.Module):
 
         # upsampling
         if self.gauss_up:
-            var = self.variance_net(inp=encoder, durations=duration_int, time_dim=time_dim)
+            if self.gauss_with_speak_emb:
+                var_in = nn.concat_features(encoder, speaker_embedding, allow_broadcast=True)
+            else:
+                var_in = encoder
+            var = self.variance_net(inp=var_in, durations=duration_int, time_dim=time_dim)
             rep, rep_dim = self.upsamling(
                 inp=encoder,
                 durations=duration_int,

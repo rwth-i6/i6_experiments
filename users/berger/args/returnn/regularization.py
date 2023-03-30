@@ -31,8 +31,10 @@ def get_chunking_config(
 def get_base_regularization_config(
     batch_size: int = 10000,
     max_seqs: int = 128,
+    accum_grad: int = 1,
     grad_noise: Optional[float] = 0.1,
     grad_clip: Optional[float] = None,
+    grad_clip_global_norm: Optional[float] = None,
     **kwargs,
 ) -> Dict[str, Any]:
     result = {"batch_size": batch_size, "max_seqs": max_seqs}
@@ -40,4 +42,8 @@ def get_base_regularization_config(
         result["gradient_noise"] = grad_noise
     if grad_clip is not None:
         result["gradient_clip"] = grad_clip
+    if grad_clip_global_norm is not None:
+        result["gradient_clip_global_norm"] = grad_clip_global_norm
+    if accum_grad > 1:
+        result["accum_grad_multiple_step"] = accum_grad
     return result

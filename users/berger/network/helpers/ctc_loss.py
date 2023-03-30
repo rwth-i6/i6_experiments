@@ -1,4 +1,5 @@
 import copy
+from enum import Enum, auto
 from typing import Dict, List, Union, Optional
 
 from sisyphus import gs
@@ -12,6 +13,18 @@ from i6_core.rasr import (
     build_config_from_mapping,
     crp_add_default_output,
 )
+
+
+class CtcLossType(Enum):
+    RasrFastBW = (auto(),)
+    ReturnnFastBW = auto()
+
+
+def add_ctc_output_layer(type: CtcLossType = CtcLossType.RasrFastBW, **kwargs):
+    if type == CtcLossType.RasrFastBW:
+        return add_rasr_fastbw_output_layer(**kwargs)
+    else:
+        return add_returnn_fastbw_output_layer(**kwargs)
 
 
 def make_rasr_fullsum_loss_opts(sprint_exe=None):
@@ -33,7 +46,6 @@ def add_rasr_fastbw_output_layer(
     name: str = "output",
     l2: Optional[float] = None,
 ):
-
     network[name] = {
         "class": "softmax",
         "from": from_list,
@@ -45,6 +57,8 @@ def add_rasr_fastbw_output_layer(
         "target": None,
         "n_out": num_outputs,
     }
+    if l2:
+        network[name]["L2"] = l2
 
     return name
 
@@ -80,7 +94,7 @@ def make_ctc_rasr_loss_config(
         loss_crp = CommonRasrParameters()
     crp_add_default_output(loss_crp, unbuffered=True)
 
-    loss_crp.python_exe = gs.RASR_PYTHON_EXE
+    # loss_crp.python_exe = gs.RASR_PYTHON_EXE
     loss_crp.corpus_config.file = loss_corpus
     loss_crp.corpus_config.remove_corpus_name_prefix = "loss-corpus/"
     loss_crp.segment_path = SegmentCorpusJob(
@@ -122,3 +136,48 @@ def make_ctc_rasr_loss_config(
     post_config._update(extra_post_config)
 
     return config, post_config
+
+
+def add_returnn_fastbw_output_layer(
+    network: Dict,
+    from_list: Union[str, List[str]],
+    num_outputs: int,
+    name: str = "output",
+    reuse_from_name: Optional[str] = None,
+    target_key: str = "classes",
+    blank_index: Optional[int] = None,
+    l2: Optional[float] = None,
+):
+    if blank_index is None:
+        blank_index = num_outputs - 1
+    else:
+        assert 0 <= blank_index < num_outputs
+
+    network[name] = {
+        "class": "softmax",
+        "from": from_list,
+        "n_out": num_outputs,
+    }
+    if l2:
+        network[name]["L2"] = l2
+    if reuse_from_name is not None:
+        network[name]["reuse_params"] = reuse_from_name
+
+    network[f"{name}_ctc_loss"] = {
+        "class": "fast_bw",
+        "from": "output_0",
+        "align_target_key": target_key,
+        "align_target": "ctc",
+        "input_type": "prob",
+        "tdp_scale": 0.0,
+        "ctc_opts": {"blank_idx": blank_index},
+    }
+    network[f"{name}_apply_loss"] = {
+        "class": "copy",
+        "from": name,
+        "loss": "via_layer",
+        "loss_opts": {
+            "loss_wrt_to_act_in": "softmax",
+            "align_layer": f"{name}_ctc_loss",
+        },
+    }

@@ -17,21 +17,22 @@ def make_lstm_lm_model(
 
     from_list = ["data:delayed"]
 
-    embedding_args["size"] = embedding_args.get("size", 128)
+    embedding_args.setdefault("size", 128)
+    embedding_args.setdefault("dropout", 0.0)
+    embedding_args.setdefault("l2", 0.0)
+    embedding_args.setdefault("num_layers", 1)
+    embedding_args.setdefault("activation", None)
 
     from_list = add_feed_forward_stack(
         network,
         from_list,
         name="embedding",
-        num_layers=1,
-        dropout=0.0,
         **embedding_args,
     )
 
     from_list = add_lstm_stack(network, from_list, **lstm_args)
 
-    if "target" not in output_args:
-        output_args["target"] = "data"
+    output_args.setdefault("target", "data")
 
     add_softmax_output(
         network, from_list=from_list, num_outputs=num_outputs, **output_args

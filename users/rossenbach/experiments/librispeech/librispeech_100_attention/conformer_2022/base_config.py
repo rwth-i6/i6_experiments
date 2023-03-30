@@ -21,6 +21,27 @@ def get_lm_opts():
     return transf_lm_opts
 
 
+def get_lm_opts_new():
+    from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experiment import  get_lm
+    lm = get_lm("ls100_trafo24_bs3000_5ep_2kbpe")
+    transf_lm_net = TransformerLM(
+        source='prev:output', num_layers=24, vocab_size=2051, use_as_ext_lm=True, prefix_name='lm_')
+    transf_lm_net.create_network()
+    transf_lm_opts = {
+        'lm_subnet': transf_lm_net.network.get_net(),
+        'lm_output_prob_name': 'lm_output',
+        'is_recurrent': True,
+        'preload_from_files': {
+            'lm_model': {
+                'filename': lm.train_job.out_checkpoints[100],
+                'prefix': 'lm_'
+            }
+        },
+        'name': 'trafo',
+    }
+    return transf_lm_opts
+
+
 def apply_fairseq_init_to_conformer_encoder(conformer_enc_args: ConformerEncoderArgs):
     # fairseq init
     fairseq_ff_init = "variance_scaling_initializer(mode='fan_avg', distribution='uniform', scale=1.0)"  # limit = sqrt(6 / (fan_in + fan_out))

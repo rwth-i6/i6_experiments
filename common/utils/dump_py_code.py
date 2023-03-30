@@ -154,9 +154,7 @@ class PythonCodeDumper:
         for k, v in d.items():
             self._dump(v, lhs=f"{lhs}.{k}")
 
-    def _dump_rasr_config(
-        self, config: rasr.RasrConfig, *, lhs: str, parent_is_config: bool
-    ):
+    def _dump_rasr_config(self, config: rasr.RasrConfig, *, lhs: str, parent_is_config: bool):
         kwargs = {}
         for k in ["prolog", "epilog"]:
             v = getattr(config, f"_{k}")
@@ -301,9 +299,7 @@ class PythonCodeDumper:
             name = obj.__name__
         else:
             name = type(obj).__name__
-            name = re.sub(
-                r"(?<!^)(?=[A-Z])", "_", name
-            ).lower()  # https://stackoverflow.com/a/1176023/133374
+            name = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()  # https://stackoverflow.com/a/1176023/133374
         name = self._new_unique_private_name(name)
         self._dump(obj, lhs=name, check_memo=False)
         return name

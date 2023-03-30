@@ -54,6 +54,7 @@ class LJSpeechMiniGLVocoder:
     train_dataset_key: str = "train-clean-100-tts-train",
     dev_dataset_key: str = "train-clean-100-tts-dev",
     model_size: int = 512,
+    partition_epoch=4,
   ):
     """
     :param name: A name for this specific vocoder
@@ -71,6 +72,7 @@ class LJSpeechMiniGLVocoder:
     self._train_dataset_key = train_dataset_key
     self._dev_dataset_key = dev_dataset_key
     self._model_size = model_size
+    self._partition_epoch = partition_epoch
     self._source_audio_opts = audio_datastream
     assert (
       audio_datastream.options.sample_rate is not None
@@ -187,7 +189,7 @@ class LJSpeechMiniGLVocoder:
       path=self._zip_dataset,
       audio_opts=self._source_audio_opts.as_returnn_audio_opts(),
       segment_file=self._train_segments,
-      partition_epoch=4,
+      partition_epoch=self._partition_epoch,
       seq_ordering="laplace:.1000",
     )
 
@@ -353,7 +355,7 @@ class LJSpeechMiniGLVocoder:
     return hdf_reconstruct.out_corpus
 
 
-def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
+def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root, partition_epoch=4):
 
   # Vocoder training
 
@@ -367,6 +369,7 @@ def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
     model_size=512,
     returnn_gpu_exe=returnn_exe,
     returnn_root=returnn_root,
+    partition_epoch=partition_epoch,
   )
 
   mini_vocoder.build_config()
@@ -379,12 +382,18 @@ def default_vocoder(output_path, corpus_data, returnn_exe, returnn_root):
   return mini_vocoder
 
 
-def get_default_vocoder(name):
+def get_default_vocoder(name, corpus_key="train-clean-100"):
   returnn_exe = RETURNN_EXE
 
   corpus_data = get_vocoder_data()
   output_path = name
 
-  mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, RETURNN_RC_ROOT)
+  partition_epoch = {
+    "train-clean-100": 4,
+    "train-clean-460": 18,
+    "train-other-960": 38,
+  }
+
+  mini_vocoder = default_vocoder(output_path, corpus_data, returnn_exe, RETURNN_RC_ROOT, partition_epoch=partition_epoch[corpus_key])
   mini_vocoder.train(num_epochs=100, time_rqmt=36, mem_rqmt=12)
   return mini_vocoder

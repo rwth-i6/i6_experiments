@@ -122,7 +122,8 @@ class ExtractDurationsFromRASRAlignmentJob(Job):
             difference = len(alignment) - returnn_length_dict[key]
             assert -1 <= difference <= 1, (
               "The difference must not be greater, remember to use center=False "
-              "for the RETURNN feature extration"
+              "for the RETURNN feature extration",
+              key
             )
           else:
             difference = 0

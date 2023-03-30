@@ -26,7 +26,7 @@ def make_blstm_hybrid_model(
     from_list = add_specaug_layer(network, **specaug_args)
     python_code += get_specaug_funcs()
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 
@@ -103,7 +103,7 @@ def make_blstm_hybrid_recog_model(
 
     from_list = ["data"]
 
-    from_list = add_blstm_stack(network, from_list, **blstm_args)
+    from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
 

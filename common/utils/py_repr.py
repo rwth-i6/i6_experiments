@@ -17,9 +17,7 @@ def py_repr(obj) -> str:
     if isinstance(obj, i6_core.util.MultiPath):
         return py_multi_path_repr(obj)
     if isinstance(obj, dict):
-        return (
-            f"{{{', '.join(f'{py_repr(k)}: {py_repr(v)}' for (k, v) in obj.items())}}}"
-        )
+        return f"{{{', '.join(f'{py_repr(k)}: {py_repr(v)}' for (k, v) in obj.items())}}}"
     if isinstance(obj, list):
         return f"[{', '.join(f'{py_repr(v)}' for v in obj)}]"
     if isinstance(obj, tuple):

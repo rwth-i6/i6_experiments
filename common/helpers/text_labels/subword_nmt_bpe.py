@@ -24,14 +24,13 @@ class BPESettings:
 
     bpe_codes: tk.Path
     bpe_vocab: tk.Path
+    bpe_count_vocab: tk.Path
     bpe_vocab_size: tk.Variable
     unk_label: typing.Optional[str]
 
 
 @lru_cache()
-def get_returnn_subword_nmt(
-    commit_hash="6ba4515d684393496502b79188be13af9cad66e2", output_prefix=""
-):
+def get_returnn_subword_nmt(commit_hash="6ba4515d684393496502b79188be13af9cad66e2", output_prefix=""):
     """
     clones the legacy subword-nmt repository and returns the repository root path
 
@@ -56,9 +55,7 @@ def get_returnn_subword_nmt(
 
 
 @lru_cache()
-def get_bpe_settings(
-    bliss_corpus, bpe_size, subword_nmt_repo_path, unk_label="<unk>", output_prefix=""
-):
+def get_bpe_settings(bliss_corpus, bpe_size, subword_nmt_repo_path, unk_label="<unk>", output_prefix=""):
     """
     Creates a BPESettings object containing codec and vocab files based on the provided parameters.
 
@@ -85,19 +82,14 @@ def get_bpe_settings(
         to_text_job.add_alias(os.path.join(output_prefix, "bliss_to_text"))
         train_bpe_job.add_alias(os.path.join(output_prefix, "train_bpe"))
 
-        tk.register_output(
-            os.path.join(output_prefix, "bpe.codes"), train_bpe_job.out_bpe_codes
-        )
-        tk.register_output(
-            os.path.join(output_prefix, "bpe.vocab"), train_bpe_job.out_bpe_vocab
-        )
-        tk.register_output(
-            os.path.join(output_prefix, "bpe.vocab.size"), train_bpe_job.out_vocab_size
-        )
+        tk.register_output(os.path.join(output_prefix, "bpe.codes"), train_bpe_job.out_bpe_codes)
+        tk.register_output(os.path.join(output_prefix, "bpe.vocab"), train_bpe_job.out_bpe_vocab)
+        tk.register_output(os.path.join(output_prefix, "bpe.vocab.size"), train_bpe_job.out_vocab_size)
 
     return BPESettings(
         train_bpe_job.out_bpe_codes,
         train_bpe_job.out_bpe_vocab,
+        train_bpe_job.out_bpe_dummy_count_vocab,
         train_bpe_job.out_vocab_size,
         unk_label,
     )

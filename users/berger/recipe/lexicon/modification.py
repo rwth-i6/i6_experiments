@@ -130,3 +130,46 @@ class EnsureSilenceFirstJob(Job):
             out_lexicon.add_phoneme(phoneme, variation)
 
         write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())
+
+
+class EnsureUnknownPronunciationOrthJob(Job):
+    """
+    Ensures that the unknown lemma has a pronunciation.
+    """
+
+    def __init__(self, bliss_lexicon: tk.Path):
+        """
+        :param tk.Path bliss_lexicon: input lexicon
+        """
+        self.bliss_lexicon = bliss_lexicon
+
+        self.out_lexicon = self.output_path("lexicon.xml")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        in_lexicon = Lexicon()
+        in_lexicon.load(self.bliss_lexicon.get_path())
+
+        out_lexicon = Lexicon()
+        out_lexicon.phonemes = in_lexicon.phonemes
+        out_lexicon.lemmata = in_lexicon.lemmata
+
+        silence_phon = None
+        for lemma in out_lexicon.lemmata:
+            if lemma.special == "silence":
+                silence_phon = lemma.phon[0]
+                assert (
+                    len(lemma.phon) == 1
+                ), "Silence lemma does not have only one phoneme"
+                break
+        assert silence_phon, "No silence lemma found"
+
+        for lemma in out_lexicon.lemmata:
+            if lemma.special == "unknown":
+                if not lemma.phon:
+                    lemma.phon.append(silence_phon)
+                break
+
+        write_xml(self.out_lexicon.get_path(), out_lexicon.to_xml())

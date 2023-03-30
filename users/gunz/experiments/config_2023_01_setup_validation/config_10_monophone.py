@@ -32,7 +32,6 @@ from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
-from ...setups.fh.decoder.config import PriorInfo
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -54,9 +53,7 @@ from .loss_scale import get_int_loss_scale
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
 
-RS_RASR_BINARY_PATH = tk.Path(
-    os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH)
-)
+RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
@@ -103,12 +100,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    loss_str = "+".join(
-        [
-            f"{i}{ctx.short_name()}{'_c' if c_only else ''}"
-            for i, ctx, c_only in int_losses
-        ]
-    )
+    loss_str = "+".join([f"{i}{ctx.short_name()}{'_c' if c_only else ''}" for i, ctx, c_only in int_losses])
     name = f"conf-ph:1-ep:{num_epochs}-cls:{web_cls.value}-loss:{loss_str}"
     print(f"fh {name}")
 
@@ -216,12 +208,10 @@ def run_single(
         "network": network,
         "extern_data": {
             "data": {"dim": 50},
-            **extern_data.get_extern_data_config(
-                label_info=s.label_info, time_tag_name=time_tag_name
-            ),
+            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
         },
     }
-    keep_epochs = list(np.arange(num_epochs // 2, num_epochs + 1, 25))
+    keep_epochs = [550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -261,14 +251,16 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
+        on_2080=False,
+    )
+    s.set_mono_priors_returnn_rasr(
+        key="fh",
+        epoch=keep_epochs[-2],
+        train_corpus_key=s.crp_names["train"],
+        dev_corpus_key=s.crp_names["cvtrain"],
     )
 
     s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
-    s.set_graph_for_experiment("fh")
-
-    s.set_mono_priors(
-        key="fh", epoch=keep_epochs[-3], tf_library=None, hdf_key=None, gpu=False
-    )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(

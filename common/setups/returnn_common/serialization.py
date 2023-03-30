@@ -42,11 +42,10 @@ Usage Example::
     )
 """
 
-from dataclasses import dataclass, asdict
+from __future__ import annotations
 from typing import Any, List, Union, Optional, Dict, Set
-from types import FunctionType
+from dataclasses import dataclass, asdict
 import os
-import sys
 import pathlib
 import shutil
 import string
@@ -57,20 +56,22 @@ from sisyphus import tk, gs
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
 
-from i6_core.util import instanciate_delayed, uopen
+from i6_core.util import instanciate_delayed
 from i6_core.returnn.config import CodeWrapper
 
-
-class SerializerObject(DelayedBase):
-    """
-    Base class for objects that can be passed to :class:`Collection`
-    """
-
-    use_for_hash = True
-
-    def __init__(self):
-        # suppress init warning
-        super().__init__(None)
+# Import here to keep aliases for older code.
+# noinspection PyUnresolvedReferences
+from ..serialization import (
+    SerializerObject,
+    Import,
+    NonhashedCode,
+    NonhashedCodeFromFile,
+    CodeFromFile,
+    ExplicitHash,
+    PythonEnlargeStackWorkaroundNonhashedCode,
+    PythonCacheManagerFunctionNonhashedCode,
+    PythonModelineNonhashedCode,
+)
 
 
 @dataclass(frozen=True)
@@ -172,20 +173,14 @@ class Collection(DelayedBase):
                 else:
                     assert False, "invalid type for packages"
                 target_package_path = os.path.join(out_dir, package_path)
-                pathlib.Path(os.path.dirname(target_package_path)).mkdir(
-                    parents=True, exist_ok=True
-                )
-                shutil.copytree(
-                    os.path.join(self.root_path, package_path), target_package_path
-                )
+                pathlib.Path(os.path.dirname(target_package_path)).mkdir(parents=True, exist_ok=True)
+                shutil.copytree(os.path.join(self.root_path, package_path), target_package_path)
                 content.append(f"sys.path.insert(0, os.path.dirname(__file__))\n")
         else:
             content.append(f"sys.path.insert(0, {self.root_path!r})\n")
 
         # Make sure Sisyphus can be imported, as many recipes usually import it.
-        content.append(
-            f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n"
-        )
+        content.append(f"sys.path.insert(1, {os.path.dirname(sisyphus.__path__[0])!r})\n")
 
         if self.returnn_common_root is None:
             # Note that this here depends on a proper sys.path setup.
@@ -199,8 +194,7 @@ class Collection(DelayedBase):
                 # TODO: maybe find a workaround for this problem?  Somehow python ignores the sys.path priority
                 # order here and always chooses the package from recipe/ first...
             content.append(
-                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n'
-                "from returnn_common import nn\n\n"
+                f'sys.path.insert(0, "{self.returnn_common_root.get()}/..")\n' "from returnn_common import nn\n\n"
             )
 
         content += [obj.get() for obj in self.serializer_objects]
@@ -208,9 +202,7 @@ class Collection(DelayedBase):
 
     def _sis_hash(self) -> bytes:
         h = {
-            "delayed_objects": [
-                obj for obj in self.serializer_objects if obj.use_for_hash
-            ],
+            "delayed_objects": [obj for obj in self.serializer_objects if obj.use_for_hash],
         }
         if self.returnn_common_root:
             h["returnn_common_root"] = self.returnn_common_root
@@ -245,9 +237,7 @@ class ExternData(SerializerObject):
         if data.sparse_dim is not None:
             content.append(f"    sparse_dim={data.sparse_dim.name},")
         content.append(f"    available_for_inference={data.available_for_inference},")
-        if (
-            data.dtype != "float32"
-        ):  # RETURNN default is float32 so we only append it otherwise
+        if data.dtype != "float32":  # RETURNN default is float32 so we only append it otherwise
             content.append(f'    dtype="{data.dtype}",')
         content.append(")\n")
         return content
@@ -276,79 +266,21 @@ class ExternData(SerializerObject):
         # RETURNN does not allow for "name" in the args, as this is set via the dict key
         # thus, we need to explicitly remove it for now
         for constructor_data in self.extern_data:
-            content.append(
-                f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n"
-            )
+            content.append(f"{constructor_data.name}_args = {constructor_data.name}.get_kwargs()\n")
             content.append(f'{constructor_data.name}_args.pop("name")\n')
 
         content.append("\nextern_data={\n")
         for constructor_data in self.extern_data:
-            content.append(
-                f'    "{constructor_data.name}": {constructor_data.name}_args,\n'
-            )
+            content.append(f'    "{constructor_data.name}": {constructor_data.name}_args,\n')
         content.append("}\n")
         return "".join(content)
-
-
-class Import(SerializerObject):
-    """
-    A class to indicate a module or function that should be imported within the returnn config
-
-    When passed to the ReturnnCommonSerializer it will automatically detect the local package in case of
-    `make_local_package_copy=True`, unless specific package paths are given.
-    """
-
-    def __init__(
-        self,
-        code_object_path: Union[str, FunctionType, Any],
-        import_as: Optional[str] = None,
-        *,
-        use_for_hash: bool = True,
-        ignore_import_as_for_hash: bool = False,
-    ):
-        """
-        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
-            This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
-        :param import_as: if given, the code object will be imported as this name
-        :param use_for_hash:
-        """
-        super().__init__()
-        if not isinstance(code_object_path, str):
-            assert getattr(code_object_path, "__qualname__", None) and getattr(
-                code_object_path, "__module__", None
-            )
-            mod_name = code_object_path.__module__
-            qual_name = code_object_path.__qualname__
-            assert "." not in qual_name
-            assert getattr(sys.modules[mod_name], qual_name) is code_object_path
-            code_object_path = f"{mod_name}.{qual_name}"
-        self.code_object = code_object_path
-
-        self.object_name = self.code_object.split(".")[-1]
-        self.module = ".".join(self.code_object.split(".")[:-1])
-        self.package = ".".join(self.code_object.split(".")[:-2])
-        self.import_as = import_as
-        self.use_for_hash = use_for_hash
-        self.ignore_import_as_for_hash = ignore_import_as_for_hash
-
-    def get(self) -> str:
-        """get. this code is run in the task"""
-        if self.import_as:
-            return f"from {self.module} import {self.object_name} as {self.import_as}\n"
-        return f"from {self.module} import {self.object_name}\n"
-
-    def _sis_hash(self):
-        if self.import_as and not self.ignore_import_as_for_hash:
-            return sis_hash_helper(
-                {"code_object": self.code_object, "import_as": self.import_as}
-            )
-        return sis_hash_helper(self.code_object)
 
 
 class Network(SerializerObject):
     """
     Serializes a `get_network` function into the config, which calls
     a defined network construction function and defines the parameters to it.
+    This is for returnn_common networks.
 
     Note that the network constructor function always needs "epoch" as first defined parameter,
     and should return an `nn.Module` object.
@@ -408,136 +340,3 @@ class Network(SerializerObject):
             "net_kwargs": self.net_kwargs,
         }
         return sis_hash_helper(h)
-
-
-class _NonhashedSerializerObject(SerializerObject):
-    """
-    Any serializer object which is not used for the hash.
-    """
-
-    use_for_hash = False
-
-    def _sis_hash(self):
-        raise Exception(f"({self.__class__.__name__}) must not be hashed")
-
-
-class NonhashedCode(_NonhashedSerializerObject):
-    """
-    Insert code from raw string which is not hashed.
-    """
-
-    def __init__(self, code: Union[str, tk.Path]):
-        super().__init__()
-        self.code = code
-
-    def get(self):
-        """get"""
-        return self.code
-
-
-class NonhashedCodeFromFile(_NonhashedSerializerObject):
-    """
-    Insert code from file content which is not hashed (neither the file name nor the content).
-    """
-
-    def __init__(self, filename: tk.Path):
-        super().__init__()
-        self.filename = filename
-
-    def get(self):
-        """get"""
-        with uopen(self.filename, "rt") as f:
-            return f.read()
-
-
-class CodeFromFile(SerializerObject):
-    """
-    Insert code from a file hashed by file path/name or full content
-    """
-
-    def __init__(self, filename: tk.Path, hash_full_content: bool = False):
-        """
-        :param filename:
-        :param hash_full_content: False -> hash filename, True -> hash content (but not filename)
-        """
-        super().__init__()
-        self.filename = filename
-        self.hash_full_content = hash_full_content
-
-    def get(self):
-        """get"""
-        with uopen(self.filename, "rt") as f:
-            return f.read()
-
-    def _sis_hash(self):
-        if self.hash_full_content:
-            with uopen(self.filename, "rt") as f:
-                return sis_hash_helper(f.read())
-        else:
-            return sis_hash_helper(self.filename)
-
-
-class ExplicitHash(SerializerObject):
-    """
-    Inserts nothing, but uses the given object for hashing
-    """
-
-    # noinspection PyShadowingBuiltins
-    def __init__(self, hash: Any):
-        super().__init__()
-        self.hash = hash
-
-    def get(self) -> str:
-        """get"""
-        return ""
-
-    def _sis_hash(self):
-        return sis_hash_helper(self.hash)
-
-
-PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(
-    textwrap.dedent(
-        """\
-        # https://github.com/rwth-i6/returnn/issues/957
-        # https://stackoverflow.com/a/16248113/133374
-        import resource
-        import sys
-        try:
-            resource.setrlimit(resource.RLIMIT_STACK, (2 ** 29, -1))
-        except Exception as exc:
-            print(f"resource.setrlimit {type(exc).__name__}: {exc}")
-        sys.setrecursionlimit(10 ** 6)
-        """
-    )
-)
-
-
-PythonCacheManagerFunctionNonhashedCode = NonhashedCode(
-    textwrap.dedent(
-        """\
-        _cf_cache = {}
-        
-        def cf(filename):
-            "Cache manager"
-            from subprocess import check_output, CalledProcessError
-            if filename in _cf_cache:
-                return _cf_cache[filename]
-            if int(os.environ.get("RETURNN_DEBUG", "0")):
-                print("use local file: %s" % filename)
-                return filename  # for debugging
-            try:
-                cached_fn = check_output(["cf", filename]).strip().decode("utf8")
-            except CalledProcessError:
-                print("Cache manager: Error occurred, using local file")
-                return filename
-            assert os.path.exists(cached_fn)
-            _cf_cache[filename] = cached_fn
-            return cached_fn
-        """
-    )
-)
-
-
-# Modelines should be at the beginning or end of a file.
-# Many editors (e.g. VSCode) read those information.
-PythonModelineNonhashedCode = NonhashedCode("# -*- mode: python; tab-width: 4 -*-\n")

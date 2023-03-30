@@ -202,7 +202,7 @@ def get_corpus_data_inputs_no_sil_p():
   )
 
 
-def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False):
+def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False, ls860=False, ls1000=False):
   """
     :return: a 3-sized tuple containing lists of RasrDataInput for train, dev and test
     """
@@ -222,8 +222,15 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False):
     use_stress_marker=False,
   )
   lm = None
+  if ls860:
+    file = g2p_lexica["train-other-960"]
+  elif ls360:
+    file = g2p_lexica["train-clean-360"]
+  else:
+    file = g2p_lexica["train-clean-100"]
+
   train_lexicon = {
-    "filename": g2p_lexica["train-clean-100"] if not ls360 else g2p_lexica["train-clean-360"],
+    "filename": file,
     "normalize_pronunciation": False,
   }
 
@@ -233,7 +240,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False):
 
   train_data_inputs["train-clean-100"] = RasrDataInput(
     corpus_object=synth_co,
-    concurrent=constants.concurrent["train-clean-100"],
+    concurrent=constants.concurrent["train-clean-100"] if not (ls860 or ls1000) else constants.concurrent["train-clean-100"] * 10,
     lexicon=train_lexicon,
     lm=lm,
   )
@@ -271,7 +278,7 @@ def get_synth_corpus_data_inputs(synth_corpus: tk.Path, ls360=False):
 
   test_data_inputs["tts_align"] = RasrDataInput(
     corpus_object=synth_co,
-    concurrent=constants.concurrent["train-clean-100"],
+    concurrent=constants.concurrent["train-clean-100"] if not (ls860 or ls1000) else constants.concurrent["train-clean-100"] * 10,
     lexicon=train_lexicon,
     lm=lm,
   )

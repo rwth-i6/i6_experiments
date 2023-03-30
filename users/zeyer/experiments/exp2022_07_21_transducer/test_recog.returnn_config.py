@@ -46,10 +46,68 @@ extern_data = {
         "vocab": {
             "class": "Vocabulary",
             "labels": [
-                "pau", "aa", "ae", "ah", "ao", "aw", "ax", "ax-h", "axr", "ay", "b", "bcl", "ch", "d", "dcl",
-                "dh", "dx", "eh", "el", "em", "en", "eng", "epi", "er", "ey", "f", "g", "gcl", "h#", "hh", "hv",
-                "ih", "ix", "iy", "jh", "k", "kcl", "l", "m", "n", "ng", "nx", "ow", "oy", "p", "pcl", "q", "r",
-                "s", "sh", "t", "tcl", "th", "uh", "uw", "ux", "v", "w", "y", "z", "zh"],
+                "pau",
+                "aa",
+                "ae",
+                "ah",
+                "ao",
+                "aw",
+                "ax",
+                "ax-h",
+                "axr",
+                "ay",
+                "b",
+                "bcl",
+                "ch",
+                "d",
+                "dcl",
+                "dh",
+                "dx",
+                "eh",
+                "el",
+                "em",
+                "en",
+                "eng",
+                "epi",
+                "er",
+                "ey",
+                "f",
+                "g",
+                "gcl",
+                "h#",
+                "hh",
+                "hv",
+                "ih",
+                "ix",
+                "iy",
+                "jh",
+                "k",
+                "kcl",
+                "l",
+                "m",
+                "n",
+                "ng",
+                "nx",
+                "ow",
+                "oy",
+                "p",
+                "pcl",
+                "q",
+                "r",
+                "s",
+                "sh",
+                "t",
+                "tcl",
+                "th",
+                "uh",
+                "uw",
+                "ux",
+                "v",
+                "w",
+                "y",
+                "z",
+                "zh",
+            ],
             "vocab_file": None,
             "unknown_label": None,
             "user_defined_symbols": {"<sil>": 0},
@@ -63,12 +121,14 @@ from i6_experiments.users.zeyer.beam_search import beam_search, IDecoder
 class Model(nn.Module):
     """Model definition"""
 
-    def __init__(self, *,
-                 nb_target_dim: nn.Dim,
-                 wb_target_dim: nn.Dim,
-                 blank_idx: int,
-                 bos_idx: int,
-                 ):
+    def __init__(
+        self,
+        *,
+        nb_target_dim: nn.Dim,
+        wb_target_dim: nn.Dim,
+        blank_idx: int,
+        bos_idx: int,
+    ):
         super(Model, self).__init__()
 
         self.nb_target_dim = nb_target_dim
@@ -99,13 +159,15 @@ class Model(nn.Module):
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def decode(self, *,
-               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-               enc_spatial_dim: nn.Dim,  # single step or time axis,
-               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-               state: Optional[nn.LayerState] = None,
-               ) -> (nn.Tensor, nn.LayerState):
+    def decode(
+        self,
+        *,
+        enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+        enc_spatial_dim: nn.Dim,  # single step or time axis,
+        prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+        wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+        state: Optional[nn.LayerState] = None,
+    ) -> Tuple[nn.Tensor, nn.LayerState]:
         """decoder step, or operating on full seq"""
         assert state is not None
         state_ = nn.LayerState()
@@ -128,10 +190,13 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self, *,
-                 embed_dim: nn.Dim = nn.FeatureDim("embed", 20),
-                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 20),
-                 ):
+
+    def __init__(
+        self,
+        *,
+        embed_dim: nn.Dim = nn.FeatureDim("embed", 20),
+        lstm_dim: nn.Dim = nn.FeatureDim("lstm", 20),
+    ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(embed_dim)
         self.lstm = nn.LSTM(lstm_dim)
@@ -156,17 +221,19 @@ def _model_def(*, epoch: int, target_dim: nn.Dim) -> Model:
     )
 
 
-def _recog_def(*,
-               model: Model,
-               data: nn.Tensor, data_spatial_dim: nn.Dim,
-               targets_dim: nn.Dim,  # noqa
-               ) -> nn.Tensor:
+def _recog_def(
+    *,
+    model: Model,
+    data: nn.Tensor,
+    data_spatial_dim: nn.Dim,
+    targets_dim: nn.Dim,  # noqa
+) -> nn.Tensor:
     """
     Function is run within RETURNN.
 
     :return: recog results including beam
     """
-    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
     class _Decoder(IDecoder):
@@ -192,7 +259,8 @@ def _recog_def(*,
                 enc_spatial_dim=nn.single_step_dim,
                 wb_target_spatial_dim=nn.single_step_dim,
                 prev_wb_target=prev_target,
-                state=state)
+                state=state,
+            )
             return nn.log_softmax(logits, axis=logits.feature_dim), state
 
     return beam_search(_Decoder())
@@ -209,9 +277,7 @@ def get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     data = nn.get_extern_data(data)
     targets = nn.get_extern_data(targets)
     model = _model_def(epoch=epoch, target_dim=targets.feature_dim)
-    recog_out = _recog_def(
-        model=model,
-        data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
+    recog_out = _recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
     assert isinstance(recog_out, nn.Tensor)
     recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)

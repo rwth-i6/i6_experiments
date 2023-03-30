@@ -117,7 +117,7 @@ def get_feature_extraction_args_16kHz(
                 "without_samples": False,
                 "samples_options": {
                     "audio_format": "wav",
-                    "dc_detection": True,  # dc_detection,
+                    "dc_detection": dc_detection,
                 },
                 "cepstrum_options": mfcc_cepstrum_options,
                 "fft_options": None,
@@ -153,7 +153,7 @@ def get_feature_extraction_args_16kHz(
                 "without_samples": False,
                 "samples_options": {
                     "audio_format": "wav",
-                    "dc_detection": True,  # dc_detection,
+                    "dc_detection": dc_detection,
                 },
                 "fft_options": {},
             }
@@ -199,6 +199,7 @@ def get_init_args(
     scorer: Optional[str] = None,
     feature_args: Optional[Dict] = None,
     am_args: Optional[Dict] = None,
+    **kwargs,
 ):
     """
     Initialize acoustic model, feature extraction and scorer arguments
@@ -215,12 +216,11 @@ def get_init_args(
     am_config_args = get_am_config_args(am_args)
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
-    default_mixture_scorer_args = {"scale": 0.3}
 
     return rasr_util.RasrInitArgs(
         costa_args=costa_args,
         am_args=am_config_args,
         feature_extraction_args=feature_extraction_args,
-        default_mixture_scorer_args=default_mixture_scorer_args,
         scorer=scorer,
+        **kwargs,
     )

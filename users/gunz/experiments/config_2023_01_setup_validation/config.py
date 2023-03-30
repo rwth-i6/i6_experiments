@@ -8,9 +8,7 @@ RASR_ROOT_FH_GUNZ = "/u/mgunz/src/fh_rasr/"
 RASR_ROOT_RS_RASR_GUNZ = "/u/mgunz/src/rs_rasr/"
 
 RETURNN_PYTHON_TF15 = "/u/mgunz/src/bin/returnn_tf1.15_launcher.sh"
-RETURNN_PYTHON_GENERIC_TF15 = (
-    "/work/tools/asr/python/3.8.0_tf_1.15-generic+cuda10.1/bin/python3.8"
-)
+RETURNN_PYTHON_GENERIC_TF15 = "/work/tools/asr/python/3.8.0_tf_1.15-generic+cuda10.1/bin/python3.8"
 
 CONF_CHUNKING = "400:200"
 CONF_NUM_TRAIN_EPOCHS = [600]

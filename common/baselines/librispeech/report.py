@@ -78,14 +78,10 @@ def gmm_example_report_format(report: _Report_Type) -> str:
         + str(results["dev-other"]["VTLN"]["10"])
     )
     out.append(
-        "SAT 08".ljust(23)
-        + str(results["dev-clean"]["SAT"]["08"]).ljust(14)
-        + str(results["dev-other"]["SAT"]["08"])
+        "SAT 08".ljust(23) + str(results["dev-clean"]["SAT"]["08"]).ljust(14) + str(results["dev-other"]["SAT"]["08"])
     )
     out.append(
-        "SAT 10".ljust(23)
-        + str(results["dev-clean"]["SAT"]["10"]).ljust(14)
-        + str(results["dev-other"]["SAT"]["10"])
+        "SAT 10".ljust(23) + str(results["dev-clean"]["SAT"]["10"]).ljust(14) + str(results["dev-other"]["SAT"]["10"])
     )
     out.append(
         "VTLN+SAT 08".ljust(17)

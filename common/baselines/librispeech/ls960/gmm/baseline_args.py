@@ -143,9 +143,7 @@ def get_monophone_args(feature_flow: str = "mfcc+deriv+norm") -> util.GmmMonopho
         "use_gpu": False,
     }
 
-    return util.GmmMonophoneArgs(
-        linear_alignment_args, monophone_training_args, monophone_recognition_args
-    )
+    return util.GmmMonophoneArgs(linear_alignment_args, monophone_training_args, monophone_recognition_args)
 
 
 def get_cart_args(
@@ -168,9 +166,7 @@ def get_cart_args(
     :param add_unknown: set to true if an unknown phoneme exists
     """
 
-    CartQuestions = (
-        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
-    )
+    CartQuestions = CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
 
     cart_questions_class = CartQuestions(
         max_leaves=max_leaves,

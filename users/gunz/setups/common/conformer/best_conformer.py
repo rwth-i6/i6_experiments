@@ -23,8 +23,10 @@ def get_best_model_config(
     size: typing.Union[Size, int],
     num_classes: int,
     *,
+    chunking: typing.Optional[str] = None,
     int_loss_at_layer: typing.Optional[int] = None,
     int_loss_scale: typing.Optional[float] = None,
+    focal_loss_factor: typing.Optional[float] = None,
     label_smoothing: typing.Optional[float] = None,
     target: str = "classes",
     time_tag_name: typing.Optional[str] = None,
@@ -39,9 +41,9 @@ def get_best_model_config(
     att_dim = 64
     model_dim = size if isinstance(size, int) else size.size()
 
-    assert (
-        model_dim % att_dim == 0
-    ), "model_dim must be divisible by number of att heads"
+    assert model_dim % att_dim == 0, "model_dim must be divisible by number of att heads"
+
+    clipping, overlap = [int(v) for v in chunking.split(":")] if chunking is not None else (400, 200)
 
     pe400_enc_args = get_encoder_args(
         model_dim // att_dim,
@@ -54,7 +56,7 @@ def get_best_model_config(
         0.0,
         **{
             "relative_pe": True,
-            "clipping": 400,
+            "clipping": clipping,
             "layer_norm_instead_of_batch_norm": True,
         },
     )
@@ -72,6 +74,10 @@ def get_best_model_config(
             "time_tag_name": time_tag_name,
         },
     }
+
+    if focal_loss_factor is not None:
+        loss6_down_up_3_two_vggs_args["focal_loss_factor"] = focal_loss_factor
+
     pe400_conformer_down_up_3_loss6_args = get_network_args(
         num_enc_layers=12,
         type="conformer",
@@ -82,9 +88,7 @@ def get_best_model_config(
         **loss6_down_up_3_two_vggs_args,
     )
 
-    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(
-        **pe400_conformer_down_up_3_loss6_args
-    )
+    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(**pe400_conformer_down_up_3_loss6_args)
     pe400_conformer_layer_norm_down_up_3_loss6.get_network()
 
     return pe400_conformer_layer_norm_down_up_3_loss6

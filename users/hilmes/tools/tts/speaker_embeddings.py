@@ -7,7 +7,7 @@ import pickle
 import random
 from typing import Iterator, Optional, Dict
 
-from i6_private.users.rossenbach.lib.hdf import SimpleHDFWriter
+from i6_core.lib.hdf import get_returnn_simple_hdf_writer
 from i6_core.lib import corpus
 import collections
 
@@ -154,7 +154,7 @@ class DistributeSpeakerEmbeddings(Job):
             self.speaker_embedding_tags.append(tag)
             offset += length[0]
 
-        self.hdf_writer = SimpleHDFWriter(
+        self.hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(
             tk.uncached_path(self.out), dim=self.speaker_embedding_features[0].shape[-1]
         )
 
@@ -211,7 +211,7 @@ class SpeakerLabelHDFFromBliss(Job):
 
         pickle.dump(speaker_by_index, open(tk.uncached_path(self.speaker_dict), "wb"))
 
-        hdf_writer = SimpleHDFWriter(
+        hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(
             tk.uncached_path(self.out), dim=num_speakers, ndim=1
         )
 
@@ -231,7 +231,7 @@ class RandomSpeakerAssignmentJob(Job):
     """
     Depending on input either randomizes speaker indices within corpus or uses speaker names from different corpus
     """
-    __sis_hash_exclude__ = {"shuffle": True}
+    __sis_hash_exclude__ = {"shuffle": True, "seed": None}
 
     def __init__(
         self,
@@ -239,6 +239,7 @@ class RandomSpeakerAssignmentJob(Job):
         speaker_bliss_corpus: Optional[tk.Path] = None,
         keep_ratio: bool = True,
         shuffle: bool = True,
+        seed: Optional[int] = None,
     ):
         """
 
@@ -253,6 +254,7 @@ class RandomSpeakerAssignmentJob(Job):
         )
         self.keep_ratio = keep_ratio
         self.shuffle = shuffle
+        self.seed = seed
 
         self.out_mapping = self.output_path("out_mapping.pkl")
 
@@ -272,6 +274,8 @@ class RandomSpeakerAssignmentJob(Job):
         if not self.keep_ratio:
             speakers = list(set(speakers))
         if self.shuffle:
+            if self.seed is not None:
+                random.seed(self.seed)
             random.shuffle(speakers)
 
         mapping = {}
@@ -328,7 +332,7 @@ class CalculateSpeakerPriorJob(Job):
                 speaker_sums[speaker_idx] += vae_inputs[idx]
                 speaker_counts[speaker_idx] += 1
 
-        hdf_writer = SimpleHDFWriter(self.out_prior.get_path(), dim=len(vae_inputs[0]))
+        hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(self.out_prior.get_path(), dim=len(vae_inputs[0]))
         for speaker_idx in range(len(bliss.speakers)):
             prior = speaker_sums[speaker_idx] / speaker_counts[speaker_idx]
             hdf_writer.insert_batch(
@@ -374,7 +378,7 @@ class SingularizeHDFPerSpeakerJob(Job):
         offset = 0
         dim = inputs[0 : lengths[0][0]][0].shape[-1]
         for tag, length in zip(raw_tags, lengths):
-            tag_to_value[tag] = inputs[offset : offset + length[0]]
+            tag_to_value[tag if isinstance(tag, str) else tag.decode()] = inputs[offset : offset + length[0]]
             offset += length[0]
 
         index_to_value = {}
@@ -391,7 +395,7 @@ class SingularizeHDFPerSpeakerJob(Job):
             if len(index_to_value) == num_speakers:
                 break
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=dim)
+        hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(self.out_hdf.get_path(), dim=dim)
 
         for index in index_to_value:
             hdf_writer.insert_batch(
@@ -442,7 +446,7 @@ class DistributeHDFByMappingJob(Job):
             tag_to_length[tag] = length[0]
             offset += length[0]
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=dim, ndim=2)
+        hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(self.out_hdf.get_path(), dim=dim, ndim=2)
         for segment_tag, index in mapping.items():
             hdf_writer.insert_batch(
                 numpy.asarray([tag_to_value[index]]),
@@ -557,7 +561,7 @@ class AverageF0OverDurationJob(Job):
             f0_tag_to_value
         ), "Duration HDF does not include all F0 seqs"
 
-        hdf_writer = SimpleHDFWriter(self.out_hdf.get_path(), dim=1, ndim=2)
+        hdf_writer = get_returnn_simple_hdf_writer(returnn_root=None)(self.out_hdf.get_path(), dim=1, ndim=2)
         values = numpy.concatenate(list(avrg_dur_tag_to_value.values()))
         mean = numpy.mean(values)
         std = numpy.std(values)
@@ -597,12 +601,13 @@ class RemoveSpeakerTagsJob(Job):
 
 
 class AddSpeakerTagsFromMappingJob(Job):
-    __sis_hash_exclude__ = {"segment_level": True}
+    __sis_hash_exclude__ = {"segment_level": True, "prefix": ""}
 
-    def __init__(self, corpus: tk.Path, mapping: tk.Path, segment_level=True):
+    def __init__(self, corpus: tk.Path, mapping: tk.Path, segment_level=True, prefix=""):
         self.corpus = corpus
         self.mapping = mapping
         self.segment_level = segment_level
+        self.prefix = prefix
 
         self.out_corpus = self.output_path("corpus.xml.gz")
 
@@ -619,13 +624,13 @@ class AddSpeakerTagsFromMappingJob(Job):
         bliss.speakers = collections.OrderedDict()
         for id in set(mapping.values()):
             speaker = corpus.Speaker()
-            speaker.name = str(id)
+            speaker.name = self.prefix + str(id)
             bliss.add_speaker(speaker)
         for recording in bliss.all_recordings():
             for segment in recording.segments:
                 if self.segment_level:
-                    segment.speaker_name = mapping[segment.fullname()]
+                    segment.speaker_name = self.prefix + mapping[segment.fullname()]
                 else:
-                    recording.speaker_name = mapping[segment.fullname()]
+                    recording.speaker_name = self.prefix + mapping[segment.fullname()]
 
         bliss.dump(self.out_corpus.get_path())

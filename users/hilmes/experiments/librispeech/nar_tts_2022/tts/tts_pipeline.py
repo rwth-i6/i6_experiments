@@ -33,6 +33,7 @@ from typing import Optional, List, Dict, Union, Any
 from i6_experiments.users.hilmes.tools.tts.analysis import (
   CalculateVarianceFromFeaturesJob,
   CalculateVarianceFromDurations,
+  CalculateKLDivFromDurations,
 )
 from i6_core.report import GenerateReportStringJob, MailJob
 
@@ -441,16 +442,15 @@ def gl_swer(name, vocoder, checkpoint, config, returnn_root, returnn_exe):
   cv_synth_corpus_job.add_input(verification)
   cv_synth_corpus = cv_synth_corpus_job.out_corpus
   librispeech_trafo = tk.Path(
-    "/u/rossenbach/experiments/librispeech_tts/config/evaluation/asr/pretrained_configs/trafo.specaug4.12l.ffdim4."
-    "pretrain3.natctc_recognize_pretrained.config"
+    "/work/smt4/hilmes/swer_model/returnn2.config"
   )
-  # asr_evaluation(
-  #    config_file=librispeech_trafo,
-  #    corpus=cv_synth_corpus,
-  #    output_path=name,
-  #    returnn_root=returnn_root,
-  #    returnn_python_exe=returnn_exe,
-  # )
+  asr_evaluation(
+    config_file=librispeech_trafo,
+    corpus=cv_synth_corpus,
+    output_path=name,
+    returnn_root=returnn_root,
+      returnn_python_exe=returnn_exe,
+  )
 
 
 def synthesize_with_splits(
@@ -531,7 +531,10 @@ def synthesize_with_splits(
 
   from i6_core.corpus.transform import MergeStrategy
 
-  merge_job = MergeCorporaJob(output_corpora, corpus_name, merge_strategy=MergeStrategy.FLAT)
+  if "train-clean-100_" in corpus_name:
+    merge_job = MergeCorporaJob(output_corpora, "train-clean-100", merge_strategy=MergeStrategy.FLAT)
+  else:
+    merge_job = MergeCorporaJob(output_corpora, corpus_name, merge_strategy=MergeStrategy.FLAT)
   for verfication in verifications:
     merge_job.add_input(verfication)
 
@@ -539,6 +542,9 @@ def synthesize_with_splits(
     bliss_corpus=merge_job.out_merged_corpus,
     reference_bliss_corpus=reference_corpus,
   ).out_corpus
+
+  if "train-clean-100_" in corpus_name:
+    cv_synth_corpus = MergeCorporaJob([cv_synth_corpus], corpus_name, merge_strategy=MergeStrategy.FLAT).out_merged_corpus
 
   tk.register_output(name + "/synth_corpus/synthesized_corpus.xml.gz", cv_synth_corpus)
   return cv_synth_corpus
@@ -638,7 +644,7 @@ def var_rep_format(report) -> str:
                   Full / No Silence / Weighted / Weighted no Silence
         Features:{str(report["feat_var"])}, {str(report["feat_var_no_sil"])}, {str(report["feat_var_weight"])}, {str(report["feat_var_weight_no_sil"])}
         Durations:{str(report["dur_var"])}, {str(report["dur_var_no_sil"])}, {str(report["dur_var_weight"])}, {str(report["dur_var_weight_no_sil"])}
-        Excel: {report["feat_var"].get():.{4}f}/{report["feat_var_weight"].get():.{4}f}, {report["feat_var_no_sil"].get():.{4}f}/{report["feat_var_weight_no_sil"].get():.{4}f}, {report["dur_var"].get():.{4}f}/{report["dur_var_weight"].get():.{4}f}, {report["dur_var_no_sil"].get():.{4}f}/{report["dur_var_weight_no_sil"].get():.{4}f} 
+        Excel: {report["feat_var"].get():.{4}f}/{report["feat_var_weight"].get():.{4}f}, {report["feat_var_no_sil"].get():.{4}f}/{report["feat_var_weight_no_sil"].get():.{4}f}, {report["dur_var"].get():.{4}f}/{report["dur_var_weight"].get():.{4}f}, {report["dur_var_no_sil"].get():.{4}f}/{report["dur_var_weight_no_sil"].get():.{4}f}
 """
   )
   return "\n".join(out)
@@ -654,6 +660,11 @@ def calculate_feature_variance(
   training_datasets,
   durations=None,
   speaker_embedding_hdf: Optional = None,
+  segments=None,
+  original_corpus=None,
+  original_speakers=False,
+  original_durations=None,
+  just_kl=False,
   **kwargs,
 ):
   if "speaker_embedding_size" in kwargs:
@@ -681,8 +692,35 @@ def calculate_feature_variance(
     process_corpus=False,
     shuffle_info=False,
     alias=prefix,
-    speaker_embedding_size=speaker_embedding_size
+    speaker_embedding_size=speaker_embedding_size,
+    segments=segments,
+    original_corpus=original_corpus,
+    original_speakers=original_speakers,
   )
+  if just_kl:
+      if original_durations is not None and durations is None:
+          forward_config2 = get_forward_config(
+              returnn_common_root=returnn_common_root,
+              forward_dataset=synth_dataset,
+              dump_round_durations=True,
+              dump_durations=True,
+              **kwargs,
+          )
+          forward_job2 = tts_forward(
+              checkpoint=train_job.out_checkpoints[200],
+              config=forward_config2,
+              prefix=prefix + "/cov_analysis/full/dur_forward",
+              returnn_root=returnn_root,
+              returnn_exe=returnn_exe,
+          )
+          durs = forward_job2.out_default_hdf
+          kl_div_job = CalculateKLDivFromDurations(pred_durations=durs, ref_durations=original_durations, bliss=corpus)
+          kl_div_job.add_alias(prefix + "/cov_analysis/full/calculate_dur_kl_div_job")
+          tk.register_output(prefix + "/cov_analysis/full/dur_kl_div", kl_div_job.out_div)
+          content2 = GenerateReportStringJob(report_values={"kl_div": kl_div_job.out_div}, report_template="{kl_div}")
+          report2 = MailJob(subject=prefix, result=content2.out_report, send_contents=True)
+          tk.register_output(f"reports/{prefix}", report2.out_status)
+      return
   forward_config = get_forward_config(
     returnn_common_root=returnn_common_root,
     forward_dataset=synth_dataset,
@@ -706,12 +744,34 @@ def calculate_feature_variance(
   else:
     durations_hdf = forward_job.out_hdf_files["durations.hdf"]
     tk.register_output(prefix + "/cov_analysis/full/durations.hdf", durations_hdf)
-  feat_var_job = CalculateVarianceFromFeaturesJob(feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus)
+  feat_var_job = CalculateVarianceFromFeaturesJob(feature_hdf=forward_hdf, duration_hdf=durations_hdf, bliss=corpus, segments=segments, mem=16 if not ("pred_scale2.0" in prefix or "pred_scale1.15" in prefix or "0.0125" in prefix) else 40)
   feat_var_job.add_alias(prefix + "/cov_analysis/full/calculate_feat_var_job")
   tk.register_output(prefix + "/cov_analysis/full/feat_variance", feat_var_job.out_variance)
-  dur_var_job = CalculateVarianceFromDurations(duration_hdf=durations_hdf, bliss=corpus)
+  dur_var_job = CalculateVarianceFromDurations(duration_hdf=durations_hdf, bliss=corpus, segments=segments)
   dur_var_job.add_alias(prefix + "/cov_analysis/full/calculate_dur_var_job")
   tk.register_output(prefix + "/cov_analysis/full/dur_variance", dur_var_job.out_variance)
+  if original_durations is not None and durations is None:
+    forward_config2 = get_forward_config(
+      returnn_common_root=returnn_common_root,
+      forward_dataset=synth_dataset,
+      dump_round_durations=True,
+      dump_durations=True,
+      **kwargs,
+    )
+    forward_job2 = tts_forward(
+      checkpoint=train_job.out_checkpoints[200],
+      config=forward_config2,
+      prefix=prefix + "/cov_analysis/full/dur_forward",
+      returnn_root=returnn_root,
+      returnn_exe=returnn_exe,
+    )
+    durs = forward_job2.out_default_hdf
+    kl_div_job = CalculateKLDivFromDurations(pred_durations=durs, ref_durations=original_durations, bliss=corpus)
+    kl_div_job.add_alias(prefix + "/cov_analysis/full/calculate_dur_kl_div_job")
+    tk.register_output(prefix + "/cov_analysis/full/dur_kl_div", kl_div_job.out_div)
+    content2 = GenerateReportStringJob(report_values={"kl_div": kl_div_job.out_div}, report_template="{kl_div}")
+    report2 = MailJob(subject=prefix, result=content2.out_report, send_contents=True)
+    tk.register_output(f"reports/{prefix}", report2.out_status)
   report_dict = {
     "name": prefix,
     "feat_var": feat_var_job.out_variance,

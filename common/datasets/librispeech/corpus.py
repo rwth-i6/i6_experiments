@@ -39,9 +39,7 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
     output_prefix = os.path.join(output_prefix, "LibriSpeech")
 
     download_metadata_job = DownloadLibriSpeechMetadataJob()
-    download_metadata_job.add_alias(
-        os.path.join(output_prefix, "download", "metadata_job")
-    )
+    download_metadata_job.add_alias(os.path.join(output_prefix, "download", "metadata_job"))
 
     def _get_corpus(corpus_name):
         download_corpus_job = DownloadLibriSpeechCorpusJob(corpus_key=corpus_name)
@@ -49,12 +47,8 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
             corpus_folder=download_corpus_job.out_corpus_folder,
             speaker_metadata=download_metadata_job.out_speakers,
         )
-        download_corpus_job.add_alias(
-            os.path.join(output_prefix, "download", corpus_name)
-        )
-        create_bliss_corpus_job.add_alias(
-            os.path.join(output_prefix, "create_bliss", corpus_name)
-        )
+        download_corpus_job.add_alias(os.path.join(output_prefix, "download", corpus_name))
+        create_bliss_corpus_job.add_alias(os.path.join(output_prefix, "create_bliss", corpus_name))
         return create_bliss_corpus_job.out_corpus
 
     corpus_names = [
@@ -67,9 +61,7 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
         "train-other-500",
     ]
 
-    bliss_corpus_dict = {
-        corpus_name: _get_corpus(corpus_name) for corpus_name in corpus_names
-    }
+    bliss_corpus_dict = {corpus_name: _get_corpus(corpus_name) for corpus_name in corpus_names}
 
     audio_format_options = {
         "wav": {
@@ -94,19 +86,13 @@ def get_bliss_corpus_dict(audio_format="flac", output_prefix="datasets"):
                     corpus_name,
                 )
             )
-            converted_bliss_corpus_dict[
-                corpus_name
-            ] = bliss_change_encoding_job.out_corpus
+            converted_bliss_corpus_dict[corpus_name] = bliss_change_encoding_job.out_corpus
     else:
         converted_bliss_corpus_dict = bliss_corpus_dict
 
     def _merge_corpora(corpora, name):
-        merge_job = MergeCorporaJob(
-            bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT
-        )
-        merge_job.add_alias(
-            os.path.join(output_prefix, "%s_merge" % audio_format, name)
-        )
+        merge_job = MergeCorporaJob(bliss_corpora=corpora, name=name, merge_strategy=MergeStrategy.FLAT)
+        merge_job.add_alias(os.path.join(output_prefix, "%s_merge" % audio_format, name))
         return merge_job.out_merged_corpus
 
     converted_bliss_corpus_dict["train-clean-460"] = _merge_corpora(
@@ -151,9 +137,7 @@ def get_corpus_object_dict(audio_format="flac", output_prefix="datasets"):
         - 'train-other-960'
     :rtype: dict[str, CorpusObject]
     """
-    bliss_corpus_dict = get_bliss_corpus_dict(
-        audio_format=audio_format, output_prefix=output_prefix
-    )
+    bliss_corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
 
     corpus_object_dict = {}
 
@@ -196,9 +180,7 @@ def get_ogg_zip_dict(
     from i6_core.returnn.oggzip import BlissToOggZipJob
 
     ogg_zip_dict = {}
-    bliss_corpus_dict = get_bliss_corpus_dict(
-        audio_format="ogg", output_prefix=output_prefix
-    )
+    bliss_corpus_dict = get_bliss_corpus_dict(audio_format="ogg", output_prefix=output_prefix)
     for name, bliss_corpus in bliss_corpus_dict.items():
         ogg_zip_job = BlissToOggZipJob(
             bliss_corpus,
@@ -206,9 +188,7 @@ def get_ogg_zip_dict(
             returnn_python_exe=returnn_python_exe,
             returnn_root=returnn_root,
         )
-        ogg_zip_job.add_alias(
-            os.path.join(output_prefix, "LibriSpeech", "%s_ogg_zip_job" % name)
-        )
+        ogg_zip_job.add_alias(os.path.join(output_prefix, "LibriSpeech", "%s_ogg_zip_job" % name))
         ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
 
     return ogg_zip_dict

@@ -35,9 +35,12 @@ def sis_run_with_prefix(prefix_name: str):
 
     epoch = 300
     new_chkpt = ConvertCheckpointJob(
-        checkpoint=Checkpoint(index_path=tk.Path(
-            f"/u/zeyer/setups/combined/2021-05-31"
-            f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index")),
+        checkpoint=Checkpoint(
+            index_path=tk.Path(
+                f"/u/zeyer/setups/combined/2021-05-31"
+                f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index"
+            )
+        ),
         make_model_func=MakeModel(
             extern_data_dict=task.train_dataset.get_extern_data(),
             default_input_key=task.train_dataset.get_default_input(),
@@ -85,7 +88,7 @@ class MakeModel:
                     with_pos_bias=False,
                     learnable_pos_emb=True,
                     separate_pos_emb_per_head=False,
-                )
+                ),
             ),
             nb_target_dim=target_dim,
             wb_target_dim=target_dim + 1,
@@ -102,68 +105,96 @@ def _add_params():
     for layer_idx in [0, 1]:
         for direction in ["fw", "bw"]:
             for param_name in ["W", "W_re", "b"]:
-                _ParamMapping[f"encoder.input_layer.layers.{layer_idx}.{direction}.param_{param_name}"] = \
-                    f"encoder/lstm{layer_idx}_{direction}/rec/{param_name}"
-    _ParamMapping.update({
-        "encoder.input_projection.weight": "encoder/source_linear/W",
-    })
+                _ParamMapping[
+                    f"encoder.input_layer.layers.{layer_idx}.{direction}.param_{param_name}"
+                ] = f"encoder/lstm{layer_idx}_{direction}/rec/{param_name}"
+    _ParamMapping.update(
+        {
+            "encoder.input_projection.weight": "encoder/source_linear/W",
+        }
+    )
     # conformer
     for layer_idx in range(12):
         # FF
         for sub in [1, 2]:
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/W"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/b"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/W"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/b"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/scale"
-            _ParamMapping[f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"] = \
-                f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/bias"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.weight"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/W"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}.linear_ff.bias"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff1/b"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.weight"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/W"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}.linear_out.bias"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ff2/b"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.scale"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/scale"
+            _ParamMapping[
+                f"encoder.layers.{layer_idx}.ffn{sub}_layer_norm.bias"
+            ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ffmod_{sub}_ln/bias"
         # conv
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/b"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/W"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/b"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_mean"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_mean"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.running_variance"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_variance"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.beta"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_beta"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_block.norm.gamma"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_gamma"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.scale"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/scale"
-        _ParamMapping[f"encoder.layers.{layer_idx}.conv_layer_norm.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.weight"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/W"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.positionwise_conv1.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv1/b"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.filter"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/W"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.depthwise_conv.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_depthwise_conv2/bias"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.weight"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/W"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.positionwise_conv2.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_pointwise_conv2/b"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.norm.running_mean"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_mean"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.norm.running_variance"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_variance"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.norm.beta"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_beta"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_block.norm.gamma"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_bn/batch_norm/v2_gamma"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_layer_norm.scale"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/scale"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.conv_layer_norm.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_conv_mod_ln/bias"
         # self-att
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.qkv.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att/QKV"
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.proj.weight"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
-        _ParamMapping[f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.self_att.qkv.weight"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_self_att/QKV"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.self_att.proj.weight"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_linear/W"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.self_att_layer_norm.scale"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/scale"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.self_att_layer_norm.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln/bias"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.self_att.learned_pos_emb.pos_emb"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_self_att_ln_rel_pos_enc/encoding_matrix"
         # final layer norm
-        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.scale"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_ln/scale"
-        _ParamMapping[f"encoder.layers.{layer_idx}.final_layer_norm.bias"] = \
-            f"encoder/conformer_block_{layer_idx + 1:02d}_ln/bias"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.final_layer_norm.scale"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ln/scale"
+        _ParamMapping[
+            f"encoder.layers.{layer_idx}.final_layer_norm.bias"
+        ] = f"encoder/conformer_block_{layer_idx + 1:02d}_ln/bias"
 
 
 _add_params()
@@ -173,6 +204,7 @@ def map_param_func_v2(reader, name, var):
     """map params"""
     import tensorflow as tf
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
+
     assert isinstance(reader, CheckpointReader)
     assert isinstance(var, tf.Variable)
     if reader.has_tensor(var.op.name):
@@ -209,19 +241,22 @@ def test_import():
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
+
     exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
 
     in_dim = nn.FeatureDim("in", 40)
     time_dim = nn.SpatialDim("time")
     target_dim = nn.FeatureDim("target", 1030)
     target_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
-        [str(i) for i in range(target_dim.dimension)], eos_label=0)
+        [str(i) for i in range(target_dim.dimension)], eos_label=0
+    )
     data = nn.Data("data", dim_tags=[nn.batch_dim, time_dim, in_dim])
     target_spatial_dim = nn.SpatialDim("target_spatial")
     target = nn.Data("target", dim_tags=[nn.batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
     num_layers = 3
     from .old_nick_att_conformer_lrs2 import Model as OldModel, encoder_args as old_encoder_args
+
     old_encoder_args["num_blocks"] = num_layers
     old_encoder_args["batch_norm_opts"]["update_sample_only_in_training"] = True  # better for testing
 
@@ -236,10 +271,15 @@ def test_import():
         epoch=300,
     )
     from_scratch_training(
-        model=old_model, data=nn.get_extern_data(data), data_spatial_dim=time_dim,
-        targets=nn.get_extern_data(target), targets_spatial_dim=target_spatial_dim)
+        model=old_model,
+        data=nn.get_extern_data(data),
+        data_spatial_dim=time_dim,
+        targets=nn.get_extern_data(target),
+        targets_spatial_dim=target_spatial_dim,
+    )
 
     from returnn.config import Config
+
     config = Config(dict(log_verbositiy=5))
     config.update(nn.get_returnn_config().get_config_raw_dict(old_model))
 
@@ -249,6 +289,7 @@ def test_import():
     import tempfile
     import atexit
     import shutil
+
     ckpt_dir = tempfile.mkdtemp("returnn-import-test")
     atexit.register(lambda: shutil.rmtree(ckpt_dir))
 
@@ -264,6 +305,7 @@ def test_import():
 
         print("*** Forwarding ...")
         from returnn_common.tests.returnn_helpers import make_feed_dict
+
         feed_dict = make_feed_dict(net.extern_data)
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
@@ -305,7 +347,8 @@ def test_import():
         net.load_params_from_file(ckpt_dir + "/new_model/model", session=session)
 
         old_model_outputs_data["encoder/source_linear"].get_time_dim_tag().declare_same_as(
-            net.get_layer("encoder/input_projection").output.get_time_dim_tag())
+            net.get_layer("encoder/input_projection").output.get_time_dim_tag()
+        )
 
         print("*** Forwarding ...")
         feed_dict = make_feed_dict(net.extern_data)
@@ -314,8 +357,7 @@ def test_import():
             layer = net.get_layer(new_layer_name)
             old_out = old_model_outputs_data[old_layer_name]
             assert old_out.batch_ndim == layer.output.batch_ndim
-            mapped_axes = layer.output.find_matching_dim_map(
-                old_out, list(range(old_out.batch_ndim)))
+            mapped_axes = layer.output.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
             out = layer.output.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
             fetches["layer:" + old_layer_name] = out.placeholder
             for i, tag in enumerate(out.dim_tags):
@@ -359,24 +401,27 @@ py = test_import
 class Model(nn.Module):
     """Model definition"""
 
-    def __init__(self, in_dim: nn.Dim, *,
-                 num_enc_layers: int = 12,
-                 nb_target_dim: nn.Dim,
-                 wb_target_dim: nn.Dim,
-                 blank_idx: int,
-                 bos_idx: int,
-                 enc_input_allow_pool_last: bool = False,
-                 enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
-                 enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
-                 enc_att_num_heads: int = 4,
-                 enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
-                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
-                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
-                 att_dropout: float = 0.1,
-                 enc_dropout: float = 0.1,
-                 enc_att_dropout: float = 0.1,
-                 l2: float = 0.0001,
-                 ):
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        num_enc_layers: int = 12,
+        nb_target_dim: nn.Dim,
+        wb_target_dim: nn.Dim,
+        blank_idx: int,
+        bos_idx: int,
+        enc_input_allow_pool_last: bool = False,
+        enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
+        enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
+        enc_att_num_heads: int = 4,
+        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
+        att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
+        att_dropout: float = 0.1,
+        enc_dropout: float = 0.1,
+        enc_att_dropout: float = 0.1,
+        l2: float = 0.0001,
+    ):
         super(Model, self).__init__()
         if nn.ConformerEncoderLayer.use_dropout_after_self_att:
             nn.ConformerEncoderLayer.use_dropout_after_self_att = False
@@ -388,7 +433,8 @@ class Model(nn.Module):
             input_layer=BlstmEncoder(
                 in_dim,
                 nn.FeatureDim("pre-lstm", 512),
-                num_layers=2, time_reduction=6,
+                num_layers=2,
+                time_reduction=6,
                 dropout=enc_dropout,
                 allow_pool_last=enc_input_allow_pool_last,
             ),
@@ -453,38 +499,41 @@ class Model(nn.Module):
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def decode(self, *,
-               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-               enc_spatial_dim: nn.Dim,  # single step or time axis,
-               enc_ctx_win: nn.Tensor,  # like enc
-               enc_val_win: nn.Tensor,  # like enc
-               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
-               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-               state: Optional[nn.LayerState] = None,
-               ) -> (ProbsFromReadout, nn.LayerState):
+    def decode(
+        self,
+        *,
+        enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+        enc_spatial_dim: nn.Dim,  # single step or time axis,
+        enc_ctx_win: nn.Tensor,  # like enc
+        enc_val_win: nn.Tensor,  # like enc
+        all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+        prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+        prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
+        prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+        wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+        state: Optional[nn.LayerState] = None,
+    ) -> (ProbsFromReadout, nn.LayerState):
         """decoder step, or operating on full seq"""
         if state is None:
             assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
-            batch_dims = enc.batch_dims_ordered(
+            batch_dims = enc.remaining_dims(
                 remove=(enc.feature_dim, enc_spatial_dim)
                 if enc_spatial_dim != nn.single_step_dim
-                else (enc.feature_dim,))
+                else (enc.feature_dim,)
+            )
             state = self.decoder_default_initial_state(batch_dims=batch_dims)
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
-        att_energy = att_energy * (att_energy.feature_dim.dimension ** -0.5)
+        att_energy = att_energy * (att_energy.feature_dim.dimension**-0.5)
         att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.shape_ordered)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.dims)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
             assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
-            assert prev_nb_target_spatial_dim in prev_nb_target.shape
+            assert prev_nb_target_spatial_dim in prev_nb_target.dims
             assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
@@ -494,7 +543,7 @@ class Model(nn.Module):
             assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_input = nn.set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
@@ -511,7 +560,8 @@ class Model(nn.Module):
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout_in += self.readout_in_bias
         readout = nn.reduce_out(
-            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim)
+            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim
+        )
 
         return ProbsFromReadout(model=self, readout=readout), state_
 
@@ -521,12 +571,16 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part, or prediction network.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self, in_dim: nn.Dim, *,
-                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
-                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
-                 dropout: float = 0.2,
-                 l2: float = 0.0001,
-                 ):
+
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
+        lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+        dropout: float = 0.2,
+        l2: float = 0.0001,
+    ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(in_dim, embed_dim)
         self.dropout = dropout
@@ -539,8 +593,9 @@ class DecoderLabelSync(nn.Module):
         """init"""
         return self.lstm.default_initial_state(batch_dims=batch_dims)
 
-    def __call__(self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
-                 ) -> Tuple[nn.Tensor, nn.LayerState]:
+    def __call__(
+        self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
+    ) -> Tuple[nn.Tensor, nn.LayerState]:
         embed = self.embed(source)
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, spatial_dim=spatial_dim, state=state)
@@ -551,6 +606,7 @@ class ProbsFromReadout:
     """
     functions to calculate the probabilities from the readout
     """
+
     def __init__(self, *, model: Model, readout: nn.Tensor):
         self.model = model
         self.readout = readout
@@ -608,28 +664,30 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 
 
-def from_scratch_training(*,
-                          model: Model,
-                          data: nn.Tensor, data_spatial_dim: nn.Dim,
-                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
-                          ):
+def from_scratch_training(
+    *, model: Model, data: nn.Tensor, data_spatial_dim: nn.Dim, targets: nn.Tensor, targets_spatial_dim: nn.Dim
+):
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True
+    )
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
         all_combinations_out=True,
         prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
+        prev_nb_target_spatial_dim=prev_targets_spatial_dim,
+    )
     out_log_prob = probs.get_wb_label_log_probs()
     loss = nn.transducer_time_sync_full_sum_neg_log_prob(
         log_probs=out_log_prob,
         labels=targets,
         input_spatial_dim=enc_spatial_dim,
         labels_spatial_dim=targets_spatial_dim,
-        blank_index=model.blank_idx)
+        prev_labels_spatial_dim=prev_targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
     loss.mark_as_loss("full_sum")
 
 
@@ -637,11 +695,13 @@ from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def model_recog(*,
-                model: Model,
-                data: nn.Tensor, data_spatial_dim: nn.Dim,
-                targets_dim: nn.Dim,  # noqa
-                ) -> nn.Tensor:
+def model_recog(
+    *,
+    model: Model,
+    data: nn.Tensor,
+    data_spatial_dim: nn.Dim,
+    targets_dim: nn.Dim,  # noqa
+) -> nn.Tensor:
     """
     Function is run within RETURNN.
 
@@ -651,7 +711,7 @@ def model_recog(*,
 
     :return: recog results including beam
     """
-    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
@@ -666,17 +726,18 @@ def model_recog(*,
             enc_spatial_dim=nn.single_step_dim,
             wb_target_spatial_dim=nn.single_step_dim,
             prev_wb_target=loop.state.target,
-            state=loop.state.decoder)
+            state=loop.state.decoder,
+        )
         log_prob = probs.get_wb_label_log_probs()
         loop.state.target = nn.choice(
-            log_prob, input_type="log_prob",
-            target=None, search=True, beam_size=beam_size,
-            length_normalization=False)
+            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
+        )
         res = loop.stack(loop.state.target)
 
     assert model.blank_idx == targets_dim.dimension  # added at the end
     res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
-        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})
+        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx}
+    )
     return res
 
 

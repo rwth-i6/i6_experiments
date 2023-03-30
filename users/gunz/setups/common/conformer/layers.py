@@ -13,9 +13,7 @@ __all__ = [
     "add_conformer_block",
 ]
 
-DEFAULT_INIT = (
-    "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
-)
+DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
 
 def add_conv_layer(
@@ -1998,9 +1996,7 @@ def conformer_enc_layer_all_in_one_default(
                     "from": [f"{name}_att_energy", f"{name}_att_pos_energy"],
                 }
 
-                network[f"{name}_att_weights"]["energy_factor"] = (
-                    2 * key_per_head
-                ) ** energy_factor
+                network[f"{name}_att_weights"]["energy_factor"] = (2 * key_per_head) ** energy_factor
 
             # scale per layer
             if False:
@@ -2061,9 +2057,7 @@ def conformer_enc_layer_all_in_one_default(
                     ],
                 }
 
-            network[f"{name}_att_weights"]["from"] = [
-                f"{name}_att_energy_with_pos_corr"
-            ]
+            network[f"{name}_att_weights"]["from"] = [f"{name}_att_energy_with_pos_corr"]
 
         ## attention weights dropout
         network[f"{name}_att_weights_drop"] = {

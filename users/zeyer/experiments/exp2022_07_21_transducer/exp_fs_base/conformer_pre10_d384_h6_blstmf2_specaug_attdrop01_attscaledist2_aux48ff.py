@@ -27,8 +27,13 @@ def sis_run_with_prefix(prefix_name: str):
         return
     task = get_switchboard_task_bpe1k()
     model = train(
-        prefix_name, task=task, config=config, post_config=post_config,
-        model_def=from_scratch_model_def, train_def=from_scratch_training)
+        prefix_name,
+        task=task,
+        config=config,
+        post_config=post_config,
+        model_def=from_scratch_model_def,
+        train_def=from_scratch_training,
+    )
     recog_training_exp(prefix_name, task, model, recog_def=model_recog)
 
 
@@ -38,7 +43,6 @@ config = dict(
     max_seqs=200,
     max_seq_length_default_target=75,
     accum_grad_multiple_step=2,
-
     # gradient_clip=0,
     # gradient_clip_global_norm = 1.0
     optimizer={"class": "nadam", "epsilon": 1e-8},
@@ -46,8 +50,8 @@ config = dict(
     learning_rate=0.0005,
     learning_rates=(
         # matching pretraining
-        list(numpy.linspace(0.0000001, 0.001, num=10)) * 3 +
-        list(numpy.linspace(0.0000001, 0.001, num=30))
+        list(numpy.linspace(0.0000001, 0.001, num=10)) * 3
+        + list(numpy.linspace(0.0000001, 0.001, num=30))
     ),
     min_learning_rate=0.001 / 50,
     learning_rate_control="newbob_multi_epoch",
@@ -60,7 +64,10 @@ config = dict(
     newbob_relative_error_threshold=-0.01,
     use_last_best_model=dict(
         only_last_n=3,  # make sure in cleanup_old_models that keep_last_n covers those
-        filter_score=50., min_score_dist=1.5, first_epoch=35),
+        filter_score=50.0,
+        min_score_dist=1.5,
+        first_epoch=35,
+    ),
 )
 post_config = dict(
     cleanup_old_models=dict(keep_last_n=5),
@@ -71,25 +78,28 @@ aux_loss_layers = [4, 8]
 class Model(nn.Module):
     """Model definition"""
 
-    def __init__(self, in_dim: nn.Dim, *,
-                 num_enc_layers: int = 12,
-                 nb_target_dim: nn.Dim,
-                 wb_target_dim: nn.Dim,
-                 blank_idx: int,
-                 bos_idx: int,
-                 enc_aux_logits: Sequence[int] = (),  # layers
-                 enc_input_allow_pool_last: bool = False,
-                 enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
-                 enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
-                 enc_att_num_heads: int = 4,
-                 enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
-                 enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
-                 att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
-                 att_dropout: float = 0.1,
-                 enc_dropout: float = 0.1,
-                 enc_att_dropout: float = 0.1,
-                 l2: float = 0.0001,
-                 ):
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        num_enc_layers: int = 12,
+        nb_target_dim: nn.Dim,
+        wb_target_dim: nn.Dim,
+        blank_idx: int,
+        bos_idx: int,
+        enc_aux_logits: Sequence[int] = (),  # layers
+        enc_input_allow_pool_last: bool = False,
+        enc_model_dim: nn.Dim = nn.FeatureDim("enc", 512),
+        enc_ff_dim: nn.Dim = nn.FeatureDim("enc-ff", 2048),
+        enc_att_num_heads: int = 4,
+        enc_conformer_layer_opts: Optional[Dict[str, Any]] = None,
+        enc_key_total_dim: nn.Dim = nn.FeatureDim("enc_key_total_dim", 200),
+        att_num_heads: nn.Dim = nn.SpatialDim("att_num_heads", 1),
+        att_dropout: float = 0.1,
+        enc_dropout: float = 0.1,
+        enc_att_dropout: float = 0.1,
+        l2: float = 0.0001,
+    ):
         super(Model, self).__init__()
         if nn.ConformerEncoderLayer.use_dropout_after_self_att:
             nn.ConformerEncoderLayer.use_dropout_after_self_att = False
@@ -101,7 +111,8 @@ class Model(nn.Module):
             input_layer=BlstmEncoder(
                 in_dim,
                 nn.FeatureDim("pre-lstm", 512),
-                num_layers=2, time_reduction=6,
+                num_layers=2,
+                time_reduction=6,
                 dropout=enc_dropout,
                 allow_pool_last=enc_input_allow_pool_last,
             ),
@@ -146,9 +157,13 @@ class Model(nn.Module):
         for p in self.enc_ctx.parameters():
             p.weight_decay = l2
 
-    def encode(self, source: nn.Tensor, *, in_spatial_dim: nn.Dim,
-               collected_outputs: Optional[Dict[str, nn.Tensor]] = None,
-               ) -> Tuple[Dict[str, nn.Tensor], nn.Dim]:
+    def encode(
+        self,
+        source: nn.Tensor,
+        *,
+        in_spatial_dim: nn.Dim,
+        collected_outputs: Optional[Dict[str, nn.Tensor]] = None,
+    ) -> Tuple[Dict[str, nn.Tensor], nn.Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         source = specaugment_v2(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
@@ -171,38 +186,41 @@ class Model(nn.Module):
         """Default initial state"""
         return nn.LayerState(lm=self.lm.default_initial_state(batch_dims=batch_dims))
 
-    def decode(self, *,
-               enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
-               enc_spatial_dim: nn.Dim,  # single step or time axis,
-               enc_ctx_win: nn.Tensor,  # like enc
-               enc_val_win: nn.Tensor,  # like enc
-               all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
-               prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
-               prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
-               prev_wb_target: Optional[nn.Tensor] = None,  # with blank
-               wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
-               state: Optional[nn.LayerState] = None,
-               ) -> (ProbsFromReadout, nn.LayerState):
+    def decode(
+        self,
+        *,
+        enc: nn.Tensor,  # single frame if axis is single step, or sequence otherwise ("am" before)
+        enc_spatial_dim: nn.Dim,  # single step or time axis,
+        enc_ctx_win: nn.Tensor,  # like enc
+        enc_val_win: nn.Tensor,  # like enc
+        all_combinations_out: bool = False,  # [...,prev_nb_target_spatial_dim,axis] out
+        prev_nb_target: Optional[nn.Tensor] = None,  # non-blank
+        prev_nb_target_spatial_dim: Optional[nn.Dim] = None,  # one longer than target_spatial_dim, due to BOS
+        prev_wb_target: Optional[nn.Tensor] = None,  # with blank
+        wb_target_spatial_dim: Optional[nn.Dim] = None,  # single step or align-label spatial axis
+        state: Optional[nn.LayerState] = None,
+    ) -> (ProbsFromReadout, nn.LayerState):
         """decoder step, or operating on full seq"""
         if state is None:
             assert enc_spatial_dim != nn.single_step_dim, "state should be explicit, to avoid mistakes"
-            batch_dims = enc.batch_dims_ordered(
+            batch_dims = enc.remaining_dims(
                 remove=(enc.feature_dim, enc_spatial_dim)
                 if enc_spatial_dim != nn.single_step_dim
-                else (enc.feature_dim,))
+                else (enc.feature_dim,)
+            )
             state = self.decoder_default_initial_state(batch_dims=batch_dims)
         state_ = nn.LayerState()
 
         att_query = self.att_query(enc)
         att_energy = nn.dot(enc_ctx_win, att_query, reduce=att_query.feature_dim)
-        att_energy = att_energy * (att_energy.feature_dim.dimension ** -0.5)
+        att_energy = att_energy * (att_energy.feature_dim.dimension**-0.5)
         att_weights = nn.softmax(att_energy, axis=self.enc_win_dim)
-        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.shape_ordered)
+        att_weights = nn.dropout(att_weights, dropout=self.att_dropout, axis=att_weights.dims)
         att = nn.dot(att_weights, enc_val_win, reduce=self.enc_win_dim)
 
         if all_combinations_out:
             assert prev_nb_target is not None and prev_nb_target_spatial_dim is not None
-            assert prev_nb_target_spatial_dim in prev_nb_target.shape
+            assert prev_nb_target_spatial_dim in prev_nb_target.dims
             assert enc_spatial_dim != nn.single_step_dim
             lm_scope = contextlib.nullcontext()
             lm_input = prev_nb_target
@@ -212,7 +230,7 @@ class Model(nn.Module):
             assert wb_target_spatial_dim in {enc_spatial_dim, nn.single_step_dim}
             prev_out_emit = prev_wb_target != self.blank_idx
             lm_scope = nn.MaskedComputation(mask=prev_out_emit)
-            lm_input = nn.reinterpret_set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
+            lm_input = nn.set_sparse_dim(prev_wb_target, out_dim=self.nb_target_dim)
             lm_axis = wb_target_spatial_dim
 
         with lm_scope:
@@ -229,7 +247,8 @@ class Model(nn.Module):
         readout_in = nn.combine_bc(readout_in_am, "+", readout_in_lm)
         readout_in += self.readout_in_bias
         readout = nn.reduce_out(
-            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim)
+            readout_in, mode="max", num_pieces=self.readout_reduce_num_pieces, out_dim=self.readout_dim
+        )
 
         return ProbsFromReadout(model=self, readout=readout), state_
 
@@ -239,12 +258,16 @@ class DecoderLabelSync(nn.Module):
     Often called the (I)LM part, or prediction network.
     Runs label-sync, i.e. only on non-blank labels.
     """
-    def __init__(self, in_dim: nn.Dim, *,
-                 embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
-                 lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
-                 dropout: float = 0.2,
-                 l2: float = 0.0001,
-                 ):
+
+    def __init__(
+        self,
+        in_dim: nn.Dim,
+        *,
+        embed_dim: nn.Dim = nn.FeatureDim("embed", 256),
+        lstm_dim: nn.Dim = nn.FeatureDim("lstm", 1024),
+        dropout: float = 0.2,
+        l2: float = 0.0001,
+    ):
         super(DecoderLabelSync, self).__init__()
         self.embed = nn.Linear(in_dim, embed_dim)
         self.dropout = dropout
@@ -257,8 +280,9 @@ class DecoderLabelSync(nn.Module):
         """init"""
         return self.lstm.default_initial_state(batch_dims=batch_dims)
 
-    def __call__(self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
-                 ) -> Tuple[nn.Tensor, nn.LayerState]:
+    def __call__(
+        self, source: nn.Tensor, *, spatial_dim: nn.Dim, state: nn.LayerState
+    ) -> Tuple[nn.Tensor, nn.LayerState]:
         embed = self.embed(source)
         embed = nn.dropout(embed, self.dropout, axis=embed.feature_dim)
         lstm, state = self.lstm(embed, spatial_dim=spatial_dim, state=state)
@@ -269,6 +293,7 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
     """
     Same as RelPosSelfAttention but with window in training
     """
+
     def __init__(self, *args, grad_dist_scale: float, **kwargs):
         super(RelPosSelfAttentionGradScaleDist, self).__init__(*args, **kwargs)
         self.grad_dist_scale = grad_dist_scale
@@ -280,7 +305,7 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
         else:
             pos_emb, pos_emb_spatial_dim = nn.relative_positional_encoding(axis, self.pos_emb_feat_dim)
         if self.pos_emb_dropout:
-            pos_emb = nn.dropout(pos_emb, self.pos_emb_dropout, axis=pos_emb.shape_ordered)
+            pos_emb = nn.dropout(pos_emb, self.pos_emb_dropout, axis=pos_emb.dims)
         if self.linear_pos is not None:
             pos_emb = self.linear_pos(pos_emb)
         if self.separate_pos_emb_per_head:
@@ -289,8 +314,8 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
 
         q, k, v = self.forward_qkv(source)
         hist_dim = nn.SpatialDim(f"{axis.description}:kv")
-        k, _ = nn.reinterpret_new_dim(k, in_dim=axis, out_dim=hist_dim, name="k_new_dim")
-        v, _ = nn.reinterpret_new_dim(v, in_dim=axis, out_dim=hist_dim, name="v_new_dim")
+        k, _ = nn.replace_dim(k, in_dim=axis, out_dim=hist_dim, name="k_new_dim")
+        v, _ = nn.replace_dim(v, in_dim=axis, out_dim=hist_dim, name="v_new_dim")
         q_with_bias_u = (q + self.pos_bias_u) if self.pos_bias_u is not None else q  # (batch, head, time1, d_k)
         q_with_bias_v = (q + self.pos_bias_v) if self.pos_bias_v is not None else q  # (batch, head, time1, d_k)
 
@@ -306,19 +331,20 @@ class RelPosSelfAttentionGradScaleDist(nn.RelPosSelfAttention):
         matrix_bd = self._rel_shift(matrix_bd, axis, pos_emb_spatial_dim, hist_dim)
 
         scores = matrix_ac + matrix_bd  # (batch, head, time1, time2)
-        scores *= self.key_dim_per_head.dimension ** -0.5
+        scores *= self.key_dim_per_head.dimension**-0.5
 
         dist = nn.cast(nn.combine_bc(nn.range_over_dim(hist_dim), "-", nn.range_over_dim(axis)), dtype="float32")
         score_grad_scale = nn.exp(-nn.abs(dist * self.grad_dist_scale))
         score_grad_scale = nn.dropout(score_grad_scale, dropout=0.1, axis=hist_dim)
-        score_grad_scale = nn.where(nn.random_uniform(dist.shape_ordered, maxval=1.) < 0.1, 1., score_grad_scale)
+        score_grad_scale = nn.where(nn.random_uniform(dist.dims, maxval=1.0) < 0.1, 1.0, score_grad_scale)
         scores = nn.scaled_gradient(scores, scale=score_grad_scale)
 
         att_weights = nn.softmax(scores, axis=hist_dim, name="att_weights_recog")
         att = nn.dot(att_weights, v, reduce=hist_dim, name="att")
 
         output, _ = nn.merge_dims(
-            att, axes=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total, name="output")
+            att, axes=(self.num_heads, self.value_dim_per_head), out_dim=self.value_dim_total, name="output"
+        )
         if self.proj:
             output = self.proj(output)
         return output
@@ -328,6 +354,7 @@ class ProbsFromReadout:
     """
     functions to calculate the probabilities from the readout
     """
+
     def __init__(self, *, model: Model, readout: nn.Tensor):
         self.model = model
         self.readout = readout
@@ -400,7 +427,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: nn.Dim, target_dim: nn.Dim) ->
             self_att=RelPosSelfAttentionGradScaleDist,
             self_att_opts=dict(
                 grad_dist_scale=0.1,
-            )
+            ),
         ),
         enc_aux_logits=aux_loss_layers,
         nb_target_dim=target_dim,
@@ -416,11 +443,9 @@ from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 
 
-def from_scratch_training(*,
-                          model: Model,
-                          data: nn.Tensor, data_spatial_dim: nn.Dim,
-                          targets: nn.Tensor, targets_spatial_dim: nn.Dim
-                          ):
+def from_scratch_training(
+    *, model: Model, data: nn.Tensor, data_spatial_dim: nn.Dim, targets: nn.Tensor, targets_spatial_dim: nn.Dim
+):
     """Function is run within RETURNN."""
     collected_outputs = {}
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim, collected_outputs=collected_outputs)
@@ -432,20 +457,24 @@ def from_scratch_training(*,
         aux_loss = nn.ctc_loss(logits=aux_logits, targets=targets)
         aux_loss.mark_as_loss(f"ctc_{i}")
     prev_targets, prev_targets_spatial_dim = nn.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True)
+        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True
+    )
     probs, _ = model.decode(
         **enc_args,
         enc_spatial_dim=enc_spatial_dim,
         all_combinations_out=True,
         prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim)
+        prev_nb_target_spatial_dim=prev_targets_spatial_dim,
+    )
     out_log_prob = probs.get_wb_label_log_probs()
     loss = nn.transducer_time_sync_full_sum_neg_log_prob(
         log_probs=out_log_prob,
         labels=targets,
         input_spatial_dim=enc_spatial_dim,
         labels_spatial_dim=targets_spatial_dim,
-        blank_index=model.blank_idx)
+        prev_labels_spatial_dim=prev_targets_spatial_dim,
+        blank_index=model.blank_idx,
+    )
     loss.mark_as_loss("full_sum")
 
 
@@ -453,11 +482,13 @@ from_scratch_training: TrainDef[Model]
 from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 
 
-def model_recog(*,
-                model: Model,
-                data: nn.Tensor, data_spatial_dim: nn.Dim,
-                targets_dim: nn.Dim,  # noqa
-                ) -> nn.Tensor:
+def model_recog(
+    *,
+    model: Model,
+    data: nn.Tensor,
+    data_spatial_dim: nn.Dim,
+    targets_dim: nn.Dim,  # noqa
+) -> nn.Tensor:
     """
     Function is run within RETURNN.
 
@@ -467,7 +498,7 @@ def model_recog(*,
 
     :return: recog results including beam
     """
-    batch_dims = data.batch_dims_ordered((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
@@ -482,17 +513,18 @@ def model_recog(*,
             enc_spatial_dim=nn.single_step_dim,
             wb_target_spatial_dim=nn.single_step_dim,
             prev_wb_target=loop.state.target,
-            state=loop.state.decoder)
+            state=loop.state.decoder,
+        )
         log_prob = probs.get_wb_label_log_probs()
         loop.state.target = nn.choice(
-            log_prob, input_type="log_prob",
-            target=None, search=True, beam_size=beam_size,
-            length_normalization=False)
+            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
+        )
         res = loop.stack(loop.state.target)
 
     assert model.blank_idx == targets_dim.dimension  # added at the end
     res.feature_dim.vocab = nn.Vocabulary.create_vocab_from_labels(
-        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx})
+        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx}
+    )
     return res
 
 

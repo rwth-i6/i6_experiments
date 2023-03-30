@@ -94,9 +94,7 @@ class RasrSystem(meta.System):
         allow_zero_weights = kwargs.get("allow_zero_weights", False)
         if allow_zero_weights:
             self.crp["base"].acoustic_model_config.mixture_set.allow_zero_weights = True
-            self.crp[
-                "base"
-            ].acoustic_model_config.old_mixture_set.allow_zero_weights = True
+            self.crp["base"].acoustic_model_config.old_mixture_set.allow_zero_weights = True
 
     @tk.block()
     def _init_corpus(self, corpus_key: str):
@@ -116,15 +114,11 @@ class RasrSystem(meta.System):
             segment_path=segm_corpus_job.out_segment_path,
         )
 
-        self.crp[corpus_key].set_executables(
-            rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch
-        )
+        self.crp[corpus_key].set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
-    def _init_lm(
-        self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs
-    ):
+    def _init_lm(self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs):
         """
         TODO: docstring
 
@@ -141,9 +135,7 @@ class RasrSystem(meta.System):
         self.crp[corpus_key].language_model_config.scale = scale
 
     @tk.block()
-    def _init_lexicon(
-        self, corpus_key: str, filename: Path, normalize_pronunciation: bool, **kwargs
-    ):
+    def _init_lexicon(self, corpus_key: str, filename: Path, normalize_pronunciation: bool, **kwargs):
         """
         TODO: docstring
 
@@ -155,9 +147,7 @@ class RasrSystem(meta.System):
         """
         self.crp[corpus_key].lexicon_config = rasr.RasrConfig()
         self.crp[corpus_key].lexicon_config.file = filename
-        self.crp[
-            corpus_key
-        ].lexicon_config.normalize_pronunciation = normalize_pronunciation
+        self.crp[corpus_key].lexicon_config.normalize_pronunciation = normalize_pronunciation
 
     def _set_scorer_for_corpus(self, eval_corpus_key: str):
         """
@@ -168,11 +158,7 @@ class RasrSystem(meta.System):
         """
         scorer_args = copy.deepcopy(self.rasr_init_args.scorer_args)
         if self.rasr_init_args.scorer == "kaldi":
-            scorer_args = (
-                scorer_args
-                if scorer_args is not None
-                else dict(mapping={"[SILENCE]": ""})
-            )
+            scorer_args = scorer_args if scorer_args is not None else dict(mapping={"[SILENCE]": ""})
             self.set_kaldi_scorer(
                 corpus=eval_corpus_key,
                 **scorer_args,
@@ -181,9 +167,7 @@ class RasrSystem(meta.System):
             scorer_args = scorer_args if scorer_args is not None else {}
             self.set_hub5_scorer(corpus=eval_corpus_key, **scorer_args)
         else:
-            scorer_args = (
-                scorer_args if scorer_args is not None else dict(sort_files=False)
-            )
+            scorer_args = scorer_args if scorer_args is not None else dict(sort_files=False)
             self.set_sclite_scorer(
                 corpus=eval_corpus_key,
                 **scorer_args,
@@ -195,11 +179,7 @@ class RasrSystem(meta.System):
         """
         for eval_c in self.dev_corpora + self.test_corpora:
             if eval_c not in self.stm_files:
-                stm_args = (
-                    self.rasr_init_args.stm_args
-                    if self.rasr_init_args.stm_args is not None
-                    else {}
-                )
+                stm_args = self.rasr_init_args.stm_args if self.rasr_init_args.stm_args is not None else {}
                 self.create_stm_from_corpus(eval_c, **stm_args)
             self._set_scorer_for_corpus(eval_c)
 
@@ -239,9 +219,7 @@ class RasrSystem(meta.System):
         :param python_exe: path to the python binary that should be executed
             in case of None nothing will be set
         """
-        self.crp[crp_key].set_executables(
-            rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch
-        )
+        self.crp[crp_key].set_executables(rasr_binary_path=rasr_binary_path, rasr_arch=rasr_arch)
 
         if python_home is not None:
             self.crp[crp_key].python_home = python_home
@@ -267,9 +245,7 @@ class RasrSystem(meta.System):
             self.stm_files[corpus_key] = data.stm
         if data.glm is not None:
             self.glm_files[corpus_key] = data.glm
-        tk.register_output(
-            f"corpora/{corpus_key}.xml.gz", data.corpus_object.corpus_file
-        )
+        tk.register_output(f"corpora/{corpus_key}.xml.gz", data.corpus_object.corpus_file)
 
     def extract_features_for_corpus(self, corpus: str, feat_args: dict):
         """
@@ -298,9 +274,7 @@ class RasrSystem(meta.System):
                 self.generic_features(corpus, k, **v)
 
     @tk.block()
-    def extract_features(
-        self, feat_args: dict, corpus_list: Optional[List[str]] = None, **kwargs
-    ):
+    def extract_features(self, feat_args: dict, corpus_list: Optional[List[str]] = None, **kwargs):
         """
         TODO: docstring
         TODO: add more generic flow dependencies
@@ -331,9 +305,7 @@ class RasrSystem(meta.System):
 
     # -------------------- Single Density Mixtures --------------------
 
-    def single_density_mixtures(
-        self, name: str, corpus_key: str, feature_flow_key: str, alignment: str
-    ):
+    def single_density_mixtures(self, name: str, corpus_key: str, feature_flow_key: str, alignment: str):
         """
         TODO: docstring
 
@@ -347,9 +319,7 @@ class RasrSystem(meta.System):
             name=name,
             corpus=corpus_key,
             flow=feature_flow_key,
-            alignment=meta.select_element(
-                self.alignments, corpus_key, (corpus_key, alignment, -1)
-            ),
+            alignment=meta.select_element(self.alignments, corpus_key, (corpus_key, alignment, -1)),
             split_first=False,
         )
         tk.register_output(
@@ -413,12 +383,8 @@ class RasrSystem(meta.System):
         if dump_alignment:
             dump_job = mm.DumpAlignmentJob(
                 crp=self.crp[target_corpus_key],
-                feature_flow=meta.select_element(
-                    self.feature_flows, target_corpus_key, flow
-                ),
-                original_alignment=meta.select_element(
-                    self.alignments, target_corpus_key, name
-                ),
+                feature_flow=meta.select_element(self.feature_flows, target_corpus_key, flow),
+                original_alignment=meta.select_element(self.alignments, target_corpus_key, name),
             )
             self.jobs[target_corpus_key]["alignment_dump_%s" % name] = dump_job
             dump_job.add_alias("forced_alignment/alignment_dump_%s" % name)

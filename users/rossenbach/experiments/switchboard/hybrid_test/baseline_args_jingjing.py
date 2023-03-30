@@ -53,7 +53,8 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False
         "hub5e00": {
             "epochs": evaluation_epochs,
             "feature_flow_key": "gt",
-            "prior_scales": [0.5, 0.6, 0.7, 0.8],
+            #"prior_scales": [0.5, 0.6, 0.7, 0.8],
+            "prior_scales": [0.7],
             "pronunciation_scales": [6.0],
             "lm_scales": [10.0],
             "lm_lookahead": True,
@@ -62,7 +63,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False
             "eval_single_best": True,
             "eval_best_in_lattice": True,
             "search_parameters": {
-                "beam-pruning": 12.0,
+                "beam-pruning": 16.0,
                 "beam-pruning-limit": 100000,
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 10000,
@@ -243,7 +244,7 @@ def get_returnn_configs_jingjing(
     conformer_jingjing_returnn_config = make_returnn_config(conformer_jingjing_config, staged_network_dict=None, python_prolog=prolog_jingjing)
 
     return {
-        "conformer_base": conformer_base_returnn_config,
+        #"conformer_base": conformer_base_returnn_config,
         "conformer_fast": conformer_fast_returnn_config,
         "conformer_fast2": conformer_fast2_returnn_config,
         "conformer_jingjing": conformer_jingjing_returnn_config,

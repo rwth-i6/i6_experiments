@@ -25,17 +25,23 @@ def add_loss_boost(
     return name
 
 
+# def loss_boost_func(loss, boost_positions_mask):
+#     import tensorflow as tf
+
+#     blanks = tf.where(
+#         boost_positions_mask,
+#         tf.zeros_like(loss, dtype=tf.float32),
+#         tf.ones_like(loss, dtype=tf.float32),
+#     )
+#     blank_count = tf.math.maximum(1.0, tf.reduce_sum(blanks, axis=0, keepdims=True))
+
+#     downscaled_loss = loss / blank_count
+#     final_loss = tf.where(boost_positions_mask, loss, downscaled_loss)
+
+#     return final_loss
+
+
 def loss_boost_func(loss, boost_positions_mask):
     import tensorflow as tf
 
-    blanks = tf.where(
-        boost_positions_mask,
-        tf.zeros_like(loss, dtype=tf.float32),
-        tf.ones_like(loss, dtype=tf.float32),
-    )
-    blank_count = tf.math.maximum(1.0, tf.reduce_sum(blanks, axis=0, keepdims=True))
-
-    downscaled_loss = loss / blank_count
-    final_loss = tf.where(boost_positions_mask, loss, downscaled_loss)
-
-    return final_loss
+    return tf.where(boost_positions_mask, loss, tf.zeros_like(loss))

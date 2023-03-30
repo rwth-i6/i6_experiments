@@ -39,9 +39,7 @@ def get_corpus_data_inputs(
     """
 
     # Dictionary containing all LibriSpeech CorpusObject entries
-    corpus_object_dict = get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora"
-    )
+    corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
 
     # Definition of the official 4-gram LM to be used as default LM
     lm = {

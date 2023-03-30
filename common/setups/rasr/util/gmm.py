@@ -14,7 +14,7 @@ __all__ = [
 
 import copy
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
 from sisyphus import tk
 
@@ -189,9 +189,7 @@ class GmmTriphoneArgs:
 class GmmVtlnArgs:
     def __init__(
         self,
-        training_args: Dict[
-            str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]
-        ],
+        training_args: Dict[str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]],
         recognition_args: dict,
         test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
@@ -327,28 +325,17 @@ class GmmVtlnSatArgs:
         self.sdm_args = sdm_args
 
 
-class ForcedAlignmentArgs:
+class ForcedAlignmentArgs(TypedDict):
     """
     parameters for forced alignment on the target corpus
     """
 
-    def __init__(
-        self,
-        name: str,
-        target_corpus_key: str,
-        flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute],
-        feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer],
-    ):
-        """
-        :param name: experiment name
-        :param target_corpus_key: target corpus
-        :param flow: feature flow
-        :param feature_scorer: feature scorer (normally trained on different corpus)
-        """
-        self.name = name
-        self.target_corpus_key = target_corpus_key
-        self.flow = flow
-        self.feature_scorer = feature_scorer
+    name: str
+    target_corpus_keys: List[str]
+    flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute]
+    feature_scorer_corpus_key: str
+    scorer_model_key: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
+    dump_alignment: bool
 
 
 class RecognitionArgs:
@@ -409,12 +396,8 @@ class GmmOutput:
         self.acoustic_mixtures: Optional[tk.Path] = None
         self.feature_scorers: Dict[str, Type[rasr.FeatureScorer]] = {}
         self.feature_flows: Dict[str, rasr.FlowNetwork] = {}
-        self.features: Dict[
-            str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = {}
-        self.alignments: Optional[
-            Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None
+        self.features: Dict[str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = {}
+        self.alignments: Optional[Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = None
 
     def as_returnn_rasr_data_input(
         self,

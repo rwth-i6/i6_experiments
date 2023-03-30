@@ -49,7 +49,7 @@ class TTSForwardData:
     datastreams: Dict[str, Datastream]
 
 
-def get_tts_data_from_ctc_align(alignment_hdf, ls_corpus_key="train-clean-100", silence_preprocessed=True):
+def get_tts_data_from_ctc_align(alignment_hdf, ls_corpus_key="train-clean-100", silence_preprocessed=True, partition_epoch=1):
     """
     Build the datastreams for TTS training
     :param tk.Path alignment_hdf: alignment hdf
@@ -94,7 +94,7 @@ def get_tts_data_from_ctc_align(alignment_hdf, ls_corpus_key="train-clean-100", 
         audio_options=log_mel_datastream.as_returnn_audio_opts(),
         target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=train_segments,
-        partition_epoch=1,
+        partition_epoch=partition_epoch,
         seq_ordering="laplace:.1000",
     )
     speaker_hdf_dataset = HDFDataset(files=[train_speakers])

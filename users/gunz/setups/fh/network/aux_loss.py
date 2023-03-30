@@ -90,9 +90,7 @@ def add_intermediate_loss(
             prefix=prefix,
         )
     else:
-        raise AttributeError(
-            f"context type {context} not implemented as intermediate loss"
-        )
+        raise AttributeError(f"context type {context} not implemented as intermediate loss")
 
     if center_state_only:
         network.pop(f"{prefix}left-output", None)

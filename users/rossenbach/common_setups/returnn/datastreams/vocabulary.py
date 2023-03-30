@@ -99,7 +99,6 @@ class BpeDatastream(LabelDatastream):
             unk_label=bpe_settings.unk_label,
         )
         self.codes = bpe_settings.bpe_codes
-        assert isinstance(seq_postfix, int)
         self.seq_postfix = seq_postfix
         self.use_unk_label = use_unk_label
 

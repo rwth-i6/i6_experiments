@@ -92,9 +92,7 @@ class HybridSystem(NnSystem):
 
         self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.devtrain_input_data = (
-            None
-        )  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 
@@ -120,15 +118,9 @@ class HybridSystem(NnSystem):
     ):
         train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_train")
         self.jobs[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job
-        self.nn_models[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_models
-        self.nn_checkpoints[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_checkpoints
-        self.nn_configs[f"{train_corpus_key}_{cv_corpus_key}"][
-            name
-        ] = train_job.out_returnn_config_file
+        self.nn_models[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_models
+        self.nn_checkpoints[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_checkpoints
+        self.nn_configs[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_returnn_config_file
         tk.register_output(
             f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_learning_rate.png",
             train_job.out_plot_lr,
@@ -140,14 +132,10 @@ class HybridSystem(NnSystem):
         rasr_init_args: RasrInitArgs,
         train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
         cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        devtrain_data: Optional[
-            Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
-        ] = None,
+        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-        train_cv_pairing: Optional[
-            List[Tuple[str, ...]]
-        ] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
+        train_cv_pairing: Optional[List[Tuple[str, ...]]] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
     ):
         self.rasr_init_args = rasr_init_args
 
@@ -157,9 +145,7 @@ class HybridSystem(NnSystem):
         dev_data = dev_data if dev_data is not None else {}
         test_data = test_data if test_data is not None else {}
 
-        self._assert_corpus_name_unique(
-            train_data, cv_data, devtrain_data, dev_data, test_data
-        )
+        self._assert_corpus_name_unique(train_data, cv_data, devtrain_data, dev_data, test_data)
 
         self.train_input_data = train_data
         self.cv_input_data = cv_data
@@ -235,15 +221,11 @@ class HybridSystem(NnSystem):
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        returnn_config.config["train"] = self.train_input_data[
-            train_corpus_key
-        ].get_data_dict()
+        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
         returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
         if devtrain_corpus_key is not None:
             returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[
-                    devtrain_corpus_key
-                ].get_data_dict()
+                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
             }
 
         train_job = returnn.ReturnnTrainingJob(
@@ -261,9 +243,7 @@ class HybridSystem(NnSystem):
 
         return train_job
 
-    def _get_feature_flow(
-        self, feature_flow_key: str, data_input: ReturnnRasrDataInput
-    ):
+    def _get_feature_flow(self, feature_flow_key: str, data_input: ReturnnRasrDataInput):
         """
         Select the appropriate feature flow from the data input object.
 
@@ -401,9 +381,7 @@ class HybridSystem(NnSystem):
 
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
-            for pron, lm, prior, epoch in itertools.product(
-                pronunciation_scales, lm_scales, prior_scales, epochs
-            ):
+            for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
                 assert acoustic_mixture_path is not None
 
@@ -423,16 +401,10 @@ class HybridSystem(NnSystem):
                 )
                 flow = add_tf_flow_to_base_flow(feature_flow, tf_flow)
 
-                self.feature_scorers[recognition_corpus_key][
-                    f"pre-nn-{name}-{prior:02.2f}"
-                ] = scorer
-                self.feature_flows[recognition_corpus_key][
-                    f"{feature_flow_key}-tf-{epoch:03d}"
-                ] = flow
+                self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
+                self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-tf-{epoch:03d}"] = flow
 
-                recog_name = (
-                    f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
-                )
+                recog_name = f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
                 recog_func(
                     name=f"{name}-{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
@@ -463,19 +435,14 @@ class HybridSystem(NnSystem):
                     name=f"{train_corpus_key}-{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[
-                        train_corpus_key
-                    ].acoustic_mixtures,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     recognition_corpus_key=dev_c,
                     **recog_args,
                 )
 
             for tst_c in self.test_corpora:
                 r_args = copy.deepcopy(recog_args)
-                if (
-                    step_args.test_recognition_args is None
-                    or recog_name not in step_args.test_recognition_args.keys()
-                ):
+                if step_args.test_recognition_args is None or recog_name not in step_args.test_recognition_args.keys():
                     break
                 r_args.update(step_args.test_recognition_args[recog_name])
                 r_args["optimize_am_lm_scale"] = False
@@ -483,9 +450,7 @@ class HybridSystem(NnSystem):
                     name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[
-                        train_corpus_key
-                    ].acoustic_mixtures,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     recognition_corpus_key=tst_c,
                     **r_args,
                 )
@@ -530,11 +495,7 @@ class HybridSystem(NnSystem):
         for pairing in self.train_cv_pairing:
             trn_c = pairing[0]
             cv_c = pairing[1]
-            name_list = (
-                [pairing[2]]
-                if len(pairing) >= 3
-                else list(step_args.returnn_training_configs.keys())
-            )
+            name_list = [pairing[2]] if len(pairing) >= 3 else list(step_args.returnn_training_configs.keys())
             dvtr_c_list = [pairing[3]] if len(pairing) >= 4 else self.devtrain_corpora
             dvtr_c_list = [None] if len(dvtr_c_list) == 0 else dvtr_c_list
 
@@ -609,9 +570,7 @@ class HybridSystem(NnSystem):
 
     def run(self, steps: RasrSteps):
         if "init" in steps.get_step_names_as_list():
-            print(
-                "init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs"
-            )
+            print("init needs to be run manually. provide: gmm_args, {train,dev,test}_inputs")
             sys.exit(-1)
 
         self.prepare_scoring()

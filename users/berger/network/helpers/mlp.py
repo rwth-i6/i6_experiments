@@ -12,6 +12,7 @@ def add_feed_forward_stack(
     l2: Optional[float] = 0.01,
     reuse_params: Optional[str] = None,
     trainable: bool = True,
+    initializer: Optional[str] = None,
 ) -> List[str]:
 
     for layer_idx in range(num_layers):
@@ -30,6 +31,8 @@ def add_feed_forward_stack(
             network[layer_name]["reuse_params"] = f"{reuse_params}_{layer_idx + 1}"
         if not trainable:
             network[layer_name]["trainable"] = False
+        if initializer:
+            network[layer_name]["forward_weights_init"] = initializer
 
         from_list = [layer_name]
 
