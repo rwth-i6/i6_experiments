@@ -14,11 +14,13 @@ def get_fairseq_args(num_gpus=1):
       DownloadLibriSpeechCorpusJob(corpus_key=key).out_corpus_folder for key in [
         "train-clean-100", "train-clean-360", "train-other-500"]
     ]
-    manifest = FairseqAudioManifestCreationJob(
+    job = FairseqAudioManifestCreationJob(
         audio_dir_path=audio_dirs,
         file_extension="flac",
         valid_percent=0.001,
-    ).out_manifest_path
+    )
+    job.rqmt["time"] = 8
+    manifest = job.out_manifest_path
 
     # Set training and model parameters
     sample_rate = 16000
@@ -109,6 +111,5 @@ def main():
         fairseq_python_exe=fairseq_python,
         use_cache_manager=False,
     )
-    job.rqmt["sbatch_args"] = "-p dgx2 -A supp0003"
-    job.add_alias(f"{prefix_name}/{exp_name}/pretraining/")
+    job.add_alias(f"{prefix_name}/{exp_name}/pretraining")
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
