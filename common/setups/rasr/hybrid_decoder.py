@@ -150,7 +150,7 @@ class HybridDecoder(BaseDecoder):
         optimize_parameters: Union[OptimizeJobArgs, Dict],
         epochs: Optional[List[int]] = None,
         scorer_hyp_param_name: str = "hyp",
-        optimize_am_lm_scales: bool = False,
+        optimize_pron_lm_scales: bool = False,
         forward_output_layer: str = "output",
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
@@ -168,7 +168,7 @@ class HybridDecoder(BaseDecoder):
         :param optimize_parameters: parameters for the optimization of the pronunciation and lm scale
         :param epochs: which epochs to evaluate
         :param scorer_hyp_param_name: parameter name for the hypothesis key
-        :param optimize_am_lm_scales: should the scales be optimized
+        :param optimize_pron_lm_scales: should the scales be optimized
         :param forward_output_layer: output layer name of the NN
         :param tf_fwd_input_name: flow node name
         """
@@ -217,5 +217,5 @@ class HybridDecoder(BaseDecoder):
                             scorer_args=scorer_args,
                             optimize_parameters=optimize_parameters,
                             scorer_hyp_param_name=scorer_hyp_param_name,
-                            optimize_am_lm_scales=optimize_am_lm_scales,
+                            optimize_pron_lm_scales=optimize_pron_lm_scales,
                         )

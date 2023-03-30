@@ -367,7 +367,7 @@ class BaseDecoder:
         scorer_args: Union[ScliteScorerArgs, Dict],
         optimize_parameters: Union[OptimizeJobArgs, Dict],
         scorer_hyp_param_name: str = "hyp",
-        optimize_am_lm_scales: bool = False,
+        optimize_pron_lm_scales: bool = False,
     ):
         """
         run decoding
@@ -383,14 +383,14 @@ class BaseDecoder:
         :param scorer_args: specific arguments for the scoring job
         :param optimize_parameters: specific arguments for the optimize lm scale job
         :param scorer_hyp_param_name: key name for the hypothesis file of the scorer
-        :param optimize_am_lm_scales: run the am and lm scale optimization step. DO NOT RUN THIS STEP ON TEST SET!!!
+        :param optimize_pron_lm_scales: run the pronunciation and lm scale optimization step. DO NOT RUN THIS STEP ON TEST SET!!!
         """
         for recog_par in recognition_parameters:
             for (
                 am_sc,
                 lm_sc,
                 prior_sc,
-                pron_sc,  # TODO check if pron and am scale are set correctly
+                pron_sc,
                 tdp_sc,
                 tdp_speech,
                 tdp_silence,
@@ -438,7 +438,7 @@ class BaseDecoder:
                     scorer_args=scorer_args,
                     scorer_hyp_param_name=scorer_hyp_param_name,
                 )
-                if optimize_am_lm_scales:
+                if optimize_pron_lm_scales:
                     best_pron_scale, best_lm_scale = self._optimize_scales(
                         name=name,
                         corpus_key=derived_corpus_key,
@@ -452,14 +452,14 @@ class BaseDecoder:
 
                     optimized_corpus_key = self._set_scales_and_tdps(
                         corpus_key=corpus_key,
-                        am_scale=best_pron_scale,
+                        am_scale=am_sc,
                         lm_scale=best_lm_scale,
                         prior_scale=prior_sc,
                         tdp_scale=tdp_sc,
                         tdp_speech=tdp_speech,
                         tdp_silence=tdp_silence,
                         tdp_nonspeech=tdp_nonspeech,
-                        pronunciation_scale=pron_sc,
+                        pronunciation_scale=best_pron_scale,
                         altas=altas,
                     )
 
