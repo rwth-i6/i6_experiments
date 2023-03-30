@@ -5,7 +5,10 @@ from typing import Optional
 
 from sisyphus import tk
 
+import i6_core.lm as lm
 import i6_core.rasr as rasr
+
+from ..lex_config import LexiconRasrConfig
 
 
 @dataclass()
@@ -21,6 +24,7 @@ class ArpaLmRasrConfig:
     lm_path: tk.Path
     scale: Optional[float] = None
     image: Optional[tk.Path] = None
+    lexicon_config: Optional[LexiconRasrConfig] = None
 
     def get(self) -> rasr.RasrConfig:
         lm_config = rasr.RasrConfig()
@@ -33,5 +37,10 @@ class ArpaLmRasrConfig:
 
         if self.image is not None:
             lm_config.image = self.image
+        elif self.lexicon_config is not None:
+            crp = rasr.CommonRasrParameters()
+            crp.lexicon_config = self.lexicon_config.get()
+            crp.language_model_config = lm_config
+            lm_config.image = lm.CreateLmImageJob(crp=crp).out_image
 
         return lm_config
