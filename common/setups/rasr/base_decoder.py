@@ -1,7 +1,7 @@
 __all__ = ["BaseDecoder"]
 
 import copy
-from typing import Dict, Optional, Tuple, Type, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedFormat
@@ -360,7 +360,7 @@ class BaseDecoder:
         *,
         feature_scorer: Optional[rasr.FeatureScorer],
         feature_flow: rasr.FlowNetwork,
-        recognition_parameters: RecognitionParameters,
+        recognition_parameters: List[RecognitionParameters],
         lm_rasr_config: rasr.RasrConfig,
         search_job_args: Union[SearchJobArgs, Dict],
         lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
@@ -385,74 +385,25 @@ class BaseDecoder:
         :param scorer_hyp_param_name: key name for the hypothesis file of the scorer
         :param optimize_am_lm_scales: run the am and lm scale optimization step. DO NOT RUN THIS STEP ON TEST SET!!!
         """
-        for (
-            am_sc,
-            lm_sc,
-            prior_sc,
-            pron_sc,  # TODO check if pron and am scale are set correctly
-            tdp_sc,
-            tdp_speech,
-            tdp_silence,
-            tdp_nonspeech,
-            altas,
-        ) in recognition_parameters:
-            scorer_args["ref"] = self.stm_paths[corpus_key]
-            self.crp[corpus_key].language_model_config = lm_rasr_config
+        for recog_par in recognition_parameters:
+            for (
+                am_sc,
+                lm_sc,
+                prior_sc,
+                pron_sc,  # TODO check if pron and am scale are set correctly
+                tdp_sc,
+                tdp_speech,
+                tdp_silence,
+                tdp_nonspeech,
+                altas,
+            ) in recog_par:
+                scorer_args["ref"] = self.stm_paths[corpus_key]
+                self.crp[corpus_key].language_model_config = lm_rasr_config
 
-            derived_corpus_key = self._set_scales_and_tdps(
-                corpus_key=corpus_key,
-                am_scale=am_sc,
-                lm_scale=lm_sc,
-                prior_scale=prior_sc,
-                tdp_scale=tdp_sc,
-                tdp_speech=tdp_speech,
-                tdp_silence=tdp_silence,
-                tdp_nonspeech=tdp_nonspeech,
-                pronunciation_scale=pron_sc,
-                altas=altas,
-            )
-
-            feature_scorer.config.scale = am_sc
-            feature_scorer.config.priori_scale = prior_sc
-
-            if altas is not None:
-                adv_search_extra_config = rasr.RasrConfig()
-                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
-                    altas
-                )
-                search_job_args["extra_config"] = adv_search_extra_config
-
-            if pron_sc is not None:
-                model_combination_config = rasr.RasrConfig()
-                model_combination_config.pronunciation_scale = pron_sc
-                search_job_args["model_combination_config"] = model_combination_config
-
-            search_job, lat_2_ctm_job, scorer_job = self._recog(
-                name=name,
-                corpus_key=derived_corpus_key,
-                feature_scorer=feature_scorer,
-                feature_flow=feature_flow,
-                search_job_args=search_job_args,
-                lat_2_ctm_args=lat_2_ctm_args,
-                scorer_args=scorer_args,
-                scorer_hyp_param_name=scorer_hyp_param_name,
-            )
-            if optimize_am_lm_scales:
-                best_pron_scale, best_lm_scale = self._optimize_scales(
-                    name=name,
-                    corpus_key=derived_corpus_key,
-                    lattice_cache=search_job.out_lattice_bundle,
-                    initial_pron_scale=pron_sc,
-                    initial_lm_scale=lm_sc,
-                    scorer_args=scorer_args,
-                    scorer_hyp_param_name=scorer_hyp_param_name,
-                    optimize_args=optimize_parameters,
-                )
-
-                optimized_corpus_key = self._set_scales_and_tdps(
+                derived_corpus_key = self._set_scales_and_tdps(
                     corpus_key=corpus_key,
-                    am_scale=best_pron_scale,
-                    lm_scale=best_lm_scale,
+                    am_scale=am_sc,
+                    lm_scale=lm_sc,
                     prior_scale=prior_sc,
                     tdp_scale=tdp_sc,
                     tdp_speech=tdp_speech,
@@ -462,9 +413,24 @@ class BaseDecoder:
                     altas=altas,
                 )
 
-                self._recog(
-                    name=f"{name}-opt",
-                    corpus_key=optimized_corpus_key,
+                feature_scorer.config.scale = am_sc
+                feature_scorer.config.priori_scale = prior_sc
+
+                if altas is not None:
+                    adv_search_extra_config = rasr.RasrConfig()
+                    adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
+                        altas
+                    )
+                    search_job_args["extra_config"] = adv_search_extra_config
+
+                if pron_sc is not None:
+                    model_combination_config = rasr.RasrConfig()
+                    model_combination_config.pronunciation_scale = pron_sc
+                    search_job_args["model_combination_config"] = model_combination_config
+
+                search_job, lat_2_ctm_job, scorer_job = self._recog(
+                    name=name,
+                    corpus_key=derived_corpus_key,
                     feature_scorer=feature_scorer,
                     feature_flow=feature_flow,
                     search_job_args=search_job_args,
@@ -472,8 +438,43 @@ class BaseDecoder:
                     scorer_args=scorer_args,
                     scorer_hyp_param_name=scorer_hyp_param_name,
                 )
+                if optimize_am_lm_scales:
+                    best_pron_scale, best_lm_scale = self._optimize_scales(
+                        name=name,
+                        corpus_key=derived_corpus_key,
+                        lattice_cache=search_job.out_lattice_bundle,
+                        initial_pron_scale=pron_sc,
+                        initial_lm_scale=lm_sc,
+                        scorer_args=scorer_args,
+                        scorer_hyp_param_name=scorer_hyp_param_name,
+                        optimize_args=optimize_parameters,
+                    )
 
-            self.crp[corpus_key].language_model = None
+                    optimized_corpus_key = self._set_scales_and_tdps(
+                        corpus_key=corpus_key,
+                        am_scale=best_pron_scale,
+                        lm_scale=best_lm_scale,
+                        prior_scale=prior_sc,
+                        tdp_scale=tdp_sc,
+                        tdp_speech=tdp_speech,
+                        tdp_silence=tdp_silence,
+                        tdp_nonspeech=tdp_nonspeech,
+                        pronunciation_scale=pron_sc,
+                        altas=altas,
+                    )
+
+                    self._recog(
+                        name=f"{name}-opt",
+                        corpus_key=optimized_corpus_key,
+                        feature_scorer=feature_scorer,
+                        feature_flow=feature_flow,
+                        search_job_args=search_job_args,
+                        lat_2_ctm_args=lat_2_ctm_args,
+                        scorer_args=scorer_args,
+                        scorer_hyp_param_name=scorer_hyp_param_name,
+                    )
+
+                self.crp[corpus_key].language_model = None
 
     def get_results(self):
         pass
