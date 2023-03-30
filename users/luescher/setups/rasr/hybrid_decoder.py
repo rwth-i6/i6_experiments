@@ -40,6 +40,10 @@ LmConfig = Union[
 
 
 class HybridDecoder(BaseDecoder):
+    """
+    Class to perform Hybrid Decoding with a RETURNN model
+    """
+
     def __init__(
         self,
         rasr_binary_path: tk.Path,
@@ -59,8 +63,6 @@ class HybridDecoder(BaseDecoder):
         required_native_ops: Optional[List[str]] = None,
     ):
         """
-        Class to perform Hybrid Decoding with a RETURNN model
-
         param rasr_binary_path: path to the rasr binary folder
         param rasr_arch: RASR compile architecture suffix
         """
@@ -93,6 +95,14 @@ class HybridDecoder(BaseDecoder):
         extra_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
         crp_name: str = "base",
     ):
+        """
+        passes the specific decoder RASR configs to the general interface "init_base_crp"
+
+        :param acoustic_model_config: RASR config for acoustic model
+        :param lexicon_config: RASR config for lexicon
+        :param extra_configs: additional RASR configs
+        :param crp_name: name for the CommonRasrParameters
+        """
         self.init_base_crp(
             acoustic_model_config=acoustic_model_config.get(),
             lexicon_config=lexicon_config.get(),
@@ -138,6 +148,24 @@ class HybridDecoder(BaseDecoder):
         forward_output_layer: str = "output",
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
+        """
+        run the recognitino, consisting of search, lattice to ctm, and scoring
+
+        :param returnn_config: RETURNN config for recognition
+        :param checkpoints: epoch to model checkpoint mapping
+        :param recognition_parameters: mainly influences the search space and the HMM
+        :param lm_configs: LM used for recognition
+        :param prior_paths: priors used for recognition
+        :param search_job_args: arguments for the search job
+        :param lat_2_ctm_args: arguments for the lattice to ctm job
+        :param scorer_args: arguments for the scoring job
+        :param optimize_parameters: parameters for the optimization of the pronunciation and lm scale
+        :param epochs: which epochs to evaluate
+        :param scorer_hyp_param_name: parameter name for the hypothesis key
+        :param optimize_am_lm_scales: should the scales be optimized
+        :param forward_output_layer: output layer name of the NN
+        :param tf_fwd_input_name: flow node name
+        """
         self._compile_necessary_native_ops()
         am_meta_graph = self._compile_tf_graph(returnn_config)
 
