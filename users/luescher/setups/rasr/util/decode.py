@@ -1,4 +1,6 @@
 __all__ = [
+    "DevRecognitionParameters",
+    "TestRecognitionParameters",
     "RecognitionParameters",
     "PriorPath",
     "SearchJobArgs",
@@ -19,7 +21,7 @@ import i6_core.rasr as rasr
 from ..config.am_config import Tdp
 
 
-class RecognitionParameters:
+class DevRecognitionParameters:
     def __init__(
         self,
         *,
@@ -95,6 +97,9 @@ class TestRecognitionParameters:
         self.altas = altas if altas is not None else 0.0
 
 
+RecognitionParameters = Union[DevRecognitionParameters, TestRecognitionParameters]
+
+
 @dataclass()
 class PriorPath:
     prior_xml_path: tk.Path
@@ -106,6 +111,7 @@ class LookaheadOptions(TypedDict):
 
 
 class SearchJobArgs(TypedDict):
+    search_parameters: Dict[str, Any]
     use_gpu: bool
     rtf: float
     mem: int
@@ -115,7 +121,6 @@ class SearchJobArgs(TypedDict):
 
 
 class AdvTreeSearchJobArgs(SearchJobArgs):
-    search_parameters: Dict[str, Any]
     lm_lookahead: bool
     lookahead_options: Optional[Union[LookaheadOptions, Dict]]
     create_lattice: bool
