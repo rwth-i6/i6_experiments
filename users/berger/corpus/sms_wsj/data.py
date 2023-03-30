@@ -304,16 +304,18 @@ def get_data_inputs(
     lm_name: str = "5k_3gram",
     recog_lex_name: str = "nab-64k",
     delete_empty_orth: bool = False,
+    preprocessing: bool = True,
     lm_cleaning: bool = False,
     add_all_allophones: bool = True,
 ) -> Tuple[Dict[str, rasr_util.RasrDataInput], ...]:
     corpus_object_dict = get_corpus_object_dict()
 
-    for _, (corpus_object, _) in corpus_object_dict.items():
-        corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
-            corpus_object.corpus_file,
-            lm_cleaning=lm_cleaning,
-        ).out_corpus_file
+    for name, (corpus_object, _) in corpus_object_dict.items():
+        if preprocessing or "train" in name:
+            corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
+                corpus_object.corpus_file,
+                lm_cleaning=lm_cleaning,
+            ).out_corpus_file
 
     filename = {
         "5k_3gram": "lm-5k.lm.gz",

@@ -68,8 +68,9 @@ SHOW_JOB_TARGETS = False
 SHOW_VIS_NAME_IN_MANAGER = False
 PRINT_ERROR = False
 
-RASR_ROOT = "/u/berger/rasr_tf2"
 # RASR_ROOT = "/u/berger/rasr"
+# RASR_ROOT = "/u/berger/rasr_tf2"
+RASR_ROOT = "/u/berger/rasr_review"
 RASR_ARCH = "linux-x86_64-standard"
 
 # needed for returnn sprint interface

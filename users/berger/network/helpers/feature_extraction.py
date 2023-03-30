@@ -16,7 +16,7 @@ def add_gt_feature_extraction(
     tempint_shift: float = 0.01,
     max_freq: Optional[int] = None,
     padding: Optional[Tuple[int, int]] = None,
-):
+) -> Tuple[str, Union[str, List[str]]]:
     python_code = []
 
     channels = (
@@ -68,6 +68,16 @@ def add_gt_feature_extraction(
             gt_net, from_list=gt_net["output"]["from"]
         )
         gt_net["output"]["from"] = specaug_name
+
+    for layer_attr in gt_net.values():
+        if layer_attr.get("from", "") == "data":
+            layer_attr["from"] = "cast_input"
+
+    gt_net["cast_input"] = {
+        "class": "cast",
+        "from": "data",
+        "dtype": "float32",
+    }
 
     network[name] = {
         "class": "subnetwork",

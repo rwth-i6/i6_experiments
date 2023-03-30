@@ -2,7 +2,7 @@ import copy
 from enum import Enum, auto
 from typing import Dict, List, Union, Optional
 
-from sisyphus import gs
+from sisyphus import gs, tk
 
 from i6_core.lib.corpus import Corpus
 from i6_core.corpus import MergeStrategy, MergeCorporaJob, SegmentCorpusJob
@@ -27,8 +27,8 @@ def add_ctc_output_layer(type: CtcLossType = CtcLossType.RasrFastBW, **kwargs):
         return add_returnn_fastbw_output_layer(**kwargs)
 
 
-def make_rasr_fullsum_loss_opts(sprint_exe=None):
-    trainer_exe = RasrCommand.select_exe(sprint_exe, "nn-trainer")
+def make_rasr_fullsum_loss_opts(rasr_exe=None):
+    trainer_exe = RasrCommand.select_exe(rasr_exe, "nn-trainer")
     loss_opts = {
         "sprintExecPath": trainer_exe,
         "sprintConfigStr": "--config=rasr.loss.config --*.LOGFILE=nn-trainer.loss.log --*.TASK=1",
@@ -45,13 +45,14 @@ def add_rasr_fastbw_output_layer(
     num_outputs: int,
     name: str = "output",
     l2: Optional[float] = None,
+    rasr_exe=None,
 ):
     network[name] = {
         "class": "softmax",
         "from": from_list,
         "loss": "fast_bw",
         "loss_opts": {
-            "sprint_opts": make_rasr_fullsum_loss_opts(),
+            "sprint_opts": make_rasr_fullsum_loss_opts(rasr_exe),
             "tdp_scale": 0.0,
         },
         "target": None,
@@ -128,6 +129,71 @@ def make_ctc_rasr_loss_config(
     config.neural_network_trainer.alignment_fsa_exporter.allow_label_loop = (
         allow_label_loop
     )
+
+    # maybe not needed
+    config["*"].allow_for_silence_repetitions = False
+
+    config._update(extra_config)
+    post_config._update(extra_post_config)
+
+    return config, post_config
+
+
+def make_ctc_rasr_loss_config_v2(
+    train_corpus_path: tk.Path,
+    dev_corpus_path: tk.Path,
+    base_crp: Optional[CommonRasrParameters] = None,
+    allow_label_loop: bool = True,
+    min_duration: int = 1,
+    extra_config: Optional[RasrConfig] = None,
+    extra_post_config: Optional[RasrConfig] = None,
+):
+    # Create loss corpus by merging train and dev corpus
+    loss_corpus = MergeCorporaJob(
+        [train_corpus_path, dev_corpus_path],
+        name="loss-corpus",
+        merge_strategy=MergeStrategy.SUBCORPORA,
+    ).out_merged_corpus
+
+    # Make crp from base_crp and set loss_corpus and segments
+    if base_crp:
+        loss_crp = copy.deepcopy(base_crp)
+    else:
+        loss_crp = CommonRasrParameters()
+    crp_add_default_output(loss_crp, unbuffered=True)
+    loss_crp.set_executables(
+        tk.Path("/u/berger/rasr_github/arch/linux-x86_64-standard")
+    )
+
+    loss_crp.corpus_config.file = loss_corpus
+    loss_crp.corpus_config.remove_corpus_name_prefix = "loss-corpus/"
+
+    # Make config from crp
+    mapping = {
+        "acoustic_model": "*.model-combination.acoustic-model",
+        "corpus": "*.corpus",
+        "lexicon": "*.model-combination.lexicon",
+    }
+    config, post_config = build_config_from_mapping(
+        loss_crp, mapping, parallelize=(base_crp.concurrent == 1)
+    )
+    config.neural_network_trainer.action = "python-control"
+    config.neural_network_trainer.python_control_loop_type = "python-control-loop"
+    config.neural_network_trainer.extract_features = False
+
+    # Allophone state transducer
+    config["*"].transducer_builder_filter_out_invalid_allophones = True
+    config["*"].fix_allophone_context_at_word_boundaries = True
+
+    # Automaton manipulation
+    if allow_label_loop:
+        topology = "ctc"
+    else:
+        topology = "rna"
+    config["*"].allophone_state_graph_builder.topology = topology
+
+    if min_duration > 1:
+        config["*"].allophone_state_graph_builder.label_min_duration = min_duration
 
     # maybe not needed
     config["*"].allow_for_silence_repetitions = False

@@ -7,7 +7,7 @@ def get_speech_separator(
     from_list: str = "data",
     frame_size: int = 512,
     trainable: bool = True,
-) -> Dict[str, Dict]:
+) -> Tuple[Dict[str, Dict], Dict[str, Dim]]:
     dim_tags = {
         "speaker": FeatureDim("speaker_dim", 2),
         "stft_feature": FeatureDim("stft_output_feature_dim", frame_size // 2 + 1),
@@ -225,7 +225,6 @@ def get_speech_separator(
     if not trainable:
         for layer in ["blstm", "linear1", "linear2"]:
             net[layer]["trainable"] = False
-        
 
     return net, dim_tags
 
@@ -236,7 +235,7 @@ def add_speech_separation(
     frame_size: int = 512,
     frame_shift: int = 128,
     trainable: bool = True,
-) -> Tuple[str, List[Dim]]:
+) -> Tuple[str, Dict[str, Dim]]:
     sep_net, sep_dim_tags = get_speech_separator(
         frame_size=frame_size, trainable=trainable
     )

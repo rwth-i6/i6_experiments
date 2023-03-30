@@ -22,7 +22,7 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.compile import CompileTFGraphJob, CompileNativeOpJob
 from i6_core.returnn.rasr_training import ReturnnRasrTrainingJob
 from i6_core.returnn.extract_prior import (
-    ReturnnRasrComputePriorJob,
+    ReturnnRasrComputePriorJobV2,
 )
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.search import (
@@ -49,7 +49,7 @@ from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
 from i6_experiments.users.berger.recipe.recognition.label_sync_search import (
     LabelSyncSearchJob,
 )
-from i6_experiments.users.berger.recipe.mm.alignment import LabelAlignmentJob
+from i6_experiments.users.berger.recipe.mm.alignment import Seq2SeqAlignmentJob
 from i6_experiments.users.berger.recipe.rasr import (
     LabelTree,
     LabelScorer,
@@ -57,6 +57,7 @@ from i6_experiments.users.berger.recipe.rasr import (
 )
 from i6_experiments.users.berger.network.helpers.ctc_loss import (
     make_ctc_rasr_loss_config,
+    make_ctc_rasr_loss_config_v2,
 )
 from i6_experiments.users.berger.util import change_source_name
 
@@ -554,9 +555,9 @@ class TransducerSystem(NnSystem):
         assert isinstance(returnn_config, ReturnnConfig)
 
         if use_rasr_ctc_loss:
-            loss_config, loss_post_config = make_ctc_rasr_loss_config(
-                train_corpus_path=train_crp.corpus_config.file.get_path(),
-                dev_corpus_path=dev_crp.corpus_config.file.get_path(),
+            loss_config, loss_post_config = make_ctc_rasr_loss_config_v2(
+                train_corpus_path=train_crp.corpus_config.file,
+                dev_corpus_path=dev_crp.corpus_config.file,
                 base_crp=dev_crp,
                 **(rasr_ctc_loss_args or {}),
             )
@@ -631,7 +632,7 @@ class TransducerSystem(NnSystem):
 
         prior_job = self.jobs[f"{train_corpus_key}_{cv_corpus_key}"].setdefault(
             name,
-            ReturnnRasrComputePriorJob(
+            ReturnnRasrComputePriorJobV2(
                 train_crp=train_crp,
                 dev_crp=dev_crp,
                 feature_flow=feature_flow,
@@ -728,7 +729,9 @@ class TransducerSystem(NnSystem):
                 SearchTypes.ReturnnSearch: self.returnn_nn_recognition,
             }[search_type](**kwargs)
         except KeyError as ke:
-            raise NotImplementedError(f"Search type {search_type} is not supported.") from ke
+            raise NotImplementedError(
+                f"Search type {search_type} is not supported."
+            ) from ke
 
     def returnn_nn_recognition(
         self,
@@ -1212,7 +1215,7 @@ class TransducerSystem(NnSystem):
                 exp_name = f"{corpus_key}-e{epoch:03d}"
                 align_job = self.jobs[corpus_key].setdefault(
                     f"align_{exp_name}",
-                    LabelAlignmentJob(
+                    Seq2SeqAlignmentJob(
                         crp=crp,
                         feature_flow=feature_flow,
                         label_scorer=label_scorer,

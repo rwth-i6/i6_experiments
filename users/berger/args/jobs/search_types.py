@@ -3,5 +3,5 @@ from enum import Enum, auto
 
 class SearchTypes(Enum):
     AdvancedTreeSearch = auto()
-    LabelSyncSearch = auto()
+    GenericSeq2SeqSearchJob = auto()
     ReturnnSearch = auto()

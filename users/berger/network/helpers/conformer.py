@@ -375,9 +375,9 @@ def add_initial_conv(
     from_list: Union[str, List[str]],
     linear_size: int = 384,
     conv_outputs: List[int] = [32, 64, 64, 32],
-    conv_filters: List[Tuple[int, ...]] = [(3, 3), (3, 3), (3, 3), (3, 3)],
-    conv_strides: List[Tuple[int, ...]] = [(1, 1), (1, 1), (1, 1), (3, 1)],
-    max_pool: List[Tuple[int, ...]] = [(1, 2)],
+    conv_filters: List[int] = [3, 3, 3, 3],
+    conv_strides: List[int] = [1, 1, 1, 3],
+    max_pool: List[int] = [2],
     reuse_from_name: Optional[str] = None,
     dropout: float = 0.1,
     **kwargs,
@@ -397,8 +397,8 @@ def add_initial_conv(
             "class": "conv",
             "from": from_name,
             "n_out": n_out,
-            "filter_size": filter,
-            "strides": stride,
+            "filter_size": (filter, filter),
+            "strides": (stride, 1),
             "with_bias": True,
             "padding": "same",
             "forward_weights_init": get_variance_scaling_init(),
@@ -417,7 +417,7 @@ def add_initial_conv(
                 "class": "pool",
                 "from": from_name,
                 "mode": "max",
-                "pool_size": max_pool[idx - 1],
+                "pool_size": (1, max_pool[idx - 1]),
                 "padding": "same",
             }
             from_name = f"{name}_pool_{idx}"
@@ -460,7 +460,7 @@ def add_transposed_conv(
     network: Dict,
     name: str,
     from_list: Union[str, List[str]],
-    size_base: str = "data:classes",
+    size_base: Optional[str] = "data:classes",
     n_out: int = 512,
     filter_size: int = 3,
     stride: int = 3,
@@ -481,13 +481,15 @@ def add_transposed_conv(
         "forward_weights_init": get_variance_scaling_init(),
     }
 
-    network[f"{layer_name}_reinterpret"] = {
-        "class": "reinterpret_data",
-        "from": layer_name,
-        "size_base": size_base,
-    }
+    if size_base is not None:
+        network[f"{layer_name}_reinterpret"] = {
+            "class": "reinterpret_data",
+            "from": layer_name,
+            "size_base": size_base,
+        }
+        layer_name = f"{layer_name}_reinterpret"
 
     if reuse_from_name:
-        network[layer_name] = f"{reuse_from_name}_transposed_conv"
+        network[layer_name]["reuse_params"] = f"{reuse_from_name}_transposed_conv"
 
-    return f"{layer_name}_reinterpret"
+    return layer_name

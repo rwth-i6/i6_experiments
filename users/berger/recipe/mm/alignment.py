@@ -1,4 +1,4 @@
-__all__ = ["LabelAlignmentJob"]
+__all__ = ["Seq2SeqAlignmentJob"]
 
 import shutil
 
@@ -11,7 +11,7 @@ import i6_core.rasr as rasr
 import i6_core.util as util
 
 
-class LabelAlignmentJob(rasr.RasrCommand, Job):
+class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
     """
     Modified alignment job for Weis LabelSyncDecoder RASR branch
 
@@ -52,8 +52,8 @@ class LabelAlignmentJob(rasr.RasrCommand, Job):
         kwargs = locals()
         del kwargs["self"]
 
-        self.config, self.post_config = LabelAlignmentJob.create_config(**kwargs)
-        self.alignment_flow = LabelAlignmentJob.create_flow(**kwargs)
+        self.config, self.post_config = Seq2SeqAlignmentJob.create_config(**kwargs)
+        self.alignment_flow = Seq2SeqAlignmentJob.create_flow(**kwargs)
         self.concurrent = crp.concurrent
         if rasr_exe is None:
             rasr_exe = crp.acoustic_model_trainer_exe
@@ -162,8 +162,8 @@ class LabelAlignmentJob(rasr.RasrCommand, Job):
         """
 
         alignment_flow = cls.create_flow(feature_flow)
-        align_node = "speech-label-alignment"
-        assert label_scorer is not None, "need label scorer for label aligner"
+        align_node = "speech-seq2seq-alignment"
+        assert label_scorer is not None, "need label scorer for seq2seq aligner"
 
         # acoustic model + lexicon for the flow nodes
         mapping = {

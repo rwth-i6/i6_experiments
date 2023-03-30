@@ -10,7 +10,7 @@ def add_feed_forward_stack(
     activation: str = "tanh",
     dropout: Optional[float] = 0.1,
     l2: Optional[float] = 0.01,
-    reuse_params: Optional[str] = None,
+    reuse_from_name: Optional[str] = None,
     trainable: bool = True,
     initializer: Optional[str] = None,
 ) -> List[str]:
@@ -27,8 +27,8 @@ def add_feed_forward_stack(
             network[layer_name]["dropout"] = dropout
         if l2 is not None:
             network[layer_name]["L2"] = l2
-        if reuse_params is not None:
-            network[layer_name]["reuse_params"] = f"{reuse_params}_{layer_idx + 1}"
+        if reuse_from_name is not None:
+            network[layer_name]["reuse_params"] = f"{reuse_from_name}_{layer_idx + 1}"
         if not trainable:
             network[layer_name]["trainable"] = False
         if initializer:
