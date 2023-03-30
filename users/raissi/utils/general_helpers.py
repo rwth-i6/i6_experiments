@@ -32,3 +32,20 @@ def get_prior_from_xml(path):
 
     return priors
 
+
+def createTriAndDiDictsWithZeros(nContexts, nStateClasses):
+  triDict = {}
+  for i in range(nContexts):
+    triDict[i] = dict(zip(range(nStateClasses), [np.zeros(nContexts) for _ in range(nStateClasses)]))
+  diDict = dict(zip(range(nContexts), [np.zeros(nStateClasses) for _ in range(nContexts)]))
+
+  return triDict, diDict
+
+def initializeTriAndDiDicts(nContexts=47, nStateClasses=282):
+  triDict = {}
+  for i in range(nContexts):
+    triDict[i] = dict(zip(range(nStateClasses), [[] for _ in range(nStateClasses)]))
+  diDict = dict(zip(range(nContexts), [[] for _ in range(nContexts)]))
+
+  return triDict, diDict
+

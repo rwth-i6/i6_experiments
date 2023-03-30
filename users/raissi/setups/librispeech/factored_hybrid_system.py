@@ -888,7 +888,7 @@ class FactoredHybridSystem(NnSystem):
                 if endSegInd > 2000: endSegInd = 2000
 
                 datasetIndices = list(range(startInd, endInd))
-                estimateJob = EstimateSprintTriphonePriorsForwardV2(graphPath=self.experiments[key]["graph"]["inference"],
+                estimateJob = EstimateRasrTriphonePriorsForwardV2(graphPath=self.experiments[key]["graph"]["inference"],
                                                                     model=model_checkpoint,
                                                                     dataPaths=hdf_paths,
                                                                     datasetIndices=datasetIndices,
@@ -901,12 +901,13 @@ class FactoredHybridSystem(NnSystem):
                                                                     cpu=2,
                                                                     gpu=gpu,
                                                                     time=time)
-                if name is not None:
-                    estimateJob.add_alias(f"priors/{name}-startind{startSegInd}")
+
                 triphoneFiles.extend(estimateJob.triphoneFiles)
                 diphoneFiles.extend(estimateJob.diphoneFiles)
                 contextFiles.extend(estimateJob.contextFiles)
                 numSegments.extend(estimateJob.numSegments)
+        if name is not None:
+            estimateJob.add_alias(f"priors/triphone_priors_example")
 
         comJobs = []
         for spliter in range(0, len(triphoneFiles), step):
@@ -937,11 +938,7 @@ class FactoredHybridSystem(NnSystem):
         xmlName = f"priors/{name}"
         tk.register_output(xmlName, priorFilesTriphone[0])
 
-        self.experiments[key]["priors"]["right-context"] = priorFilesTriphone[0]
-        self.experiments[key]["priors"]["center-state"] = priorFilesTriphone[1]
-        self.experiments[key]["priors"]["left-context"] = priorFilesTriphone[2]
-
-
+        self.experiments[key]["priors"] = priorFilesTriphone
 
     # -------------------- Decoding --------------------
     def set_graph_for_experiment(self, key):

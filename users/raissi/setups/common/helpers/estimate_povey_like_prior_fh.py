@@ -2,7 +2,7 @@ __all__ = ["EstimateMonophonePriors_",
            "DumpXmlForMonophone",
            "EstimateRasrDiphoneAndContextPriorsV2",
            "DumpXmlRasrForDiphone",
-           "EstimateSprintTriphonePriorsForwardV2",
+           "EstimateRasrTriphonePriorsForwardV2",
            "CombineMeansForTriphoneForwardV2",
            "DumpXmlForTriphoneForwardV2"
            ]
@@ -19,11 +19,16 @@ try:
 except ImportError:
     import pickle
 
+
+
 from sisyphus import *
 #from .utils import *
 
 from i6_core.lib.rasr_cache import FileArchive
-
+from i6_experiments.users.raissi.utils.general_helpers import (
+    createTriAndDiDictsWithZeros,
+    initializeTriAndDiDicts
+)
 Path = setup_path(__package__)
 
 def get_batch_from_segments(segments, batchSize=10000):
@@ -37,7 +42,7 @@ def get_batch_from_segments(segments, batchSize=10000):
 ###################################
 # Triphone with new tying
 ###################################
-class EstimateSprintTriphonePriorsForwardV2(Job):
+class EstimateRasrTriphonePriorsForwardV2(Job):
     tm = {"triphone": "triphone", "diphone": "diphone", "context": "context"}
     __sis_hash_exclude__ = {"tensorMap": tm, "isMultiEncoder": False}
 
@@ -187,7 +192,7 @@ class CombineMeansForTriphoneForwardV2(Job):
         self.contextFiles = contextFiles
         self.numSegmentFiles = numSegmentFiles
         self.numSegments = []
-        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStates=nStateClasses)
+        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStateClasses=nStateClasses)
         self.contextMeans = []
         self.numSegmentsOut = self.output_path('segmentLength', cached=False)
         self.triphoneFilesOut = self.output_path('triphoneMeans', cached=False)
@@ -252,7 +257,7 @@ class DumpXmlForTriphoneForwardV2(Job):
         self.contextFiles = contextFiles
         self.numSegmentFiles = numSegmentFiles
         self.numSegments = []
-        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStates=nStateClasses)
+        self.triphoneMeans, self.diphoneMeans = initializeTriAndDiDicts(nContexts=nContexts, nStateClasses=nStateClasses)
         self.contextMeans = []
         self.triphoneXml = self.output_path('triphoneScores.xml', cached=False)
         self.diphoneXml = self.output_path('diphoneScores.xml', cached=False)
