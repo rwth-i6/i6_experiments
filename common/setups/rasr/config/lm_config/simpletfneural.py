@@ -8,6 +8,8 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
+from .common import OutputLayerType
+
 
 @dataclass()
 class SimpleTfNeuralLmRasrConfig:
@@ -21,7 +23,7 @@ class SimpleTfNeuralLmRasrConfig:
     scale: Optional[float] = None
     unknown_symbol: str = "<UNK>"
     transform_output_negate: bool = True
-    output_layer_type: str = "softmax"
+    output_layer_type: OutputLayerType = OutputLayerType.SOFTMAX
     libraries: Optional[Union[tk.Path, List[tk.Path]]] = None
     max_batch_size: int = 128
 
@@ -43,7 +45,7 @@ class SimpleTfNeuralLmRasrConfig:
         lm_config.input_map.info_0.tensor_name = "extern_data/placeholders/delayed/delayed"
         lm_config.input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/delayed/delayed_dim0_size"
 
-        lm_config.output_map.info_0.param_name = self.output_layer_type
+        lm_config.output_map.info_0.param_name = self.output_layer_type.value
         lm_config.output_map.info_0.tensor_name = "output/output_batch_major"
 
         lm_config.max_batch_size = self.max_batch_size
