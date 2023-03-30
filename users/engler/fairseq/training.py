@@ -150,11 +150,10 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
         self.use_cache_manager = use_cache_manager
-        if not isinstance(zipped_audio_dir, list):
-            self.zipped_audio_dir = [zipped_audio_dir]
-        else:
-            self.zipped_audio_dir = zipped_audio_dir
+        self.zipped_audio_dir = zipped_audio_dir
         if self.zipped_audio_dir is not None:
+            if not isinstance(self.zipped_audio_dir, list):
+                self.zipped_audio_dir = [self.zipped_audio_dir]
             assert (
                 self.use_cache_manager
             ), "cache manager must be used for zipped audio input"
