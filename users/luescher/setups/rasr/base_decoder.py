@@ -234,7 +234,7 @@ class BaseDecoder:
         tdp_nonspeech: Optional[Tdp],
         pronunciation_scale: Optional[float],
         altas: Optional[float],
-    ) -> str:
+    ) -> Union[str, DelayedBase]:
         """
         sets scales and TDPs for each corpus
         """
