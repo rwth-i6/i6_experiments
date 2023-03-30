@@ -141,7 +141,7 @@ class HybridDecoder(BaseDecoder):
         *,
         returnn_config: Union[returnn.ReturnnConfig, tk.Path],
         checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-        recognition_parameters: List[RecognitionParameters],
+        recognition_parameters: Dict[str, List[RecognitionParameters]],
         lm_configs: Dict[str, LmConfig],
         prior_paths: Dict[str, PriorPath],
         search_job_args: Union[SearchJobArgs, Dict],
@@ -159,7 +159,9 @@ class HybridDecoder(BaseDecoder):
 
         :param returnn_config: RETURNN config for recognition
         :param checkpoints: epoch to model checkpoint mapping
-        :param recognition_parameters: mainly influences the search space and the HMM
+        :param recognition_parameters: keys are the corpus keys so that recog params can be set for specific eval sets.
+                                       IMPORTANT: for test sets: len(recognition_parameters[test_set_key]) == 1
+                                       mainly influences the search space and the HMM.
         :param lm_configs: LM used for recognition
         :param prior_paths: priors used for recognition
         :param search_job_args: arguments for the search job
@@ -168,7 +170,7 @@ class HybridDecoder(BaseDecoder):
         :param optimize_parameters: parameters for the optimization of the pronunciation and lm scale
         :param epochs: which epochs to evaluate
         :param scorer_hyp_param_name: parameter name for the hypothesis key
-        :param optimize_pron_lm_scales: should the scales be optimized
+        :param optimize_pron_lm_scales: should the scales be optimized. for test set: NO!
         :param forward_output_layer: output layer name of the NN
         :param tf_fwd_input_name: flow node name
         """
@@ -210,7 +212,7 @@ class HybridDecoder(BaseDecoder):
                             corpus_key=eval_c,
                             feature_scorer=feature_scorer,
                             feature_flow=feature_tf_flow,
-                            recognition_parameters=recognition_parameters,
+                            recognition_parameters=recognition_parameters[eval_c],
                             lm_rasr_config=lm_conf.get(),
                             search_job_args=search_job_args,
                             lat_2_ctm_args=lat_2_ctm_args,
