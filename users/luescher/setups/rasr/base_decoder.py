@@ -190,6 +190,9 @@ class BaseDecoder:
         pronunciation_scale: Optional[float] = None,
         altas: Optional[float] = None,
     ) -> Union[str, DelayedBase]:
+        """
+        gets a string which describes the individual recognition and its parameters. used for alias and output.
+        """
         out_str = ""
 
         if isinstance(am_scale, tk.Variable):
@@ -232,6 +235,9 @@ class BaseDecoder:
         pronunciation_scale: Optional[float],
         altas: Optional[float],
     ) -> str:
+        """
+        sets scales and TDPs for each corpus
+        """
         base_corpus_key = corpus_key
         corpus_key += "/"
         corpus_key += self._get_scales_string(
@@ -289,6 +295,9 @@ class BaseDecoder:
         scorer_args: Union[ScliteScorerArgs, Dict],
         scorer_hyp_param_name: str,
     ) -> (tk.Job, recog.LatticeToCtmJob, tk.Job):
+        """
+        the recognition job pipeline: search, lattice to ctm, score
+        """
         search_job = self.search_job_class(
             crp=self.crp[corpus_key],
             feature_scorer=feature_scorer,
@@ -324,6 +333,9 @@ class BaseDecoder:
         scorer_hyp_param_name: str,
         optimize_args: OptimizeJobArgs,
     ) -> (tk.Variable, tk.Variable):
+        """
+        optimizes the scales: pronunciation and lm
+        """
         opt_job = recog.OptimizeAMandLMScaleJob(
             crp=self.crp[corpus_key],
             lattice_cache=lattice_cache,

@@ -111,6 +111,9 @@ class HybridDecoder(BaseDecoder):
         )
 
     def _compile_necessary_native_ops(self):
+        """
+        compiles all necessary natice ops for the NN
+        """
         for op in self.required_native_ops:
             native_ops_job = returnn.CompileNativeOpJob(
                 native_op=op,
@@ -122,6 +125,9 @@ class HybridDecoder(BaseDecoder):
             self.native_ops.append(native_ops_job.out_op)
 
     def _compile_tf_graph(self, returnn_config: returnn.ReturnnConfig):
+        """
+        compiles the TF graph for AM and LM
+        """
         graph_job = returnn.CompileTFGraphJob(
             returnn_config=returnn_config,
             returnn_python_exe=self.returnn_python_exe,
