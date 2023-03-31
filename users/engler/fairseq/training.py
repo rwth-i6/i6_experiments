@@ -414,7 +414,7 @@ class FairseqHydraTrainingJob(Job):
 
         if self.fairseq_root is not None:
             sys.path.insert(0, self.fairseq_root)
-            hydra_train_entry = self.fairseq_root + "fairseq_cli/hydra_train.py"
+            hydra_train_entry = os.path.join(self.fairseq_root, "fairseq_cli/hydra_train.py")
             run_cmd.insert(0, tk.uncached_path(hydra_train_entry))
         else:
             run_cmd.insert(0, tk.uncached_path(self.fairseq_hydra_exe))
