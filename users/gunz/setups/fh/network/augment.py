@@ -218,7 +218,7 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": tri_mlp,
-                "target": "classes",
+                "target": "centerState",
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -264,7 +264,7 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": di_mlp,
-                "target": "classes",
+                "target": "centerState",
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -381,7 +381,7 @@ def augment_net_with_monophone_outputs(
             network[f"{prefix}center-output"] = {
                 "class": "softmax",
                 "from": di_mlp,
-                "target": "classes",
+                "target": "centerState",
                 "loss": "ce",
                 "loss_opts": copy.copy(loss_opts),
             }
@@ -438,7 +438,7 @@ def augment_net_with_monophone_outputs(
         network[f"{prefix}center-output"] = {
             "class": "softmax",
             "from": encoder_output_layer,
-            "target": "classes",
+            "target": "centerState",
             "loss": "ce",
             "loss_opts": copy.copy(loss_opts),
         }
