@@ -144,7 +144,7 @@ def main():
     # run pre-training
     exp_name = "base"
     fairseq_args = get_fairseq_args(num_gpus=8)
-    fairseq_config = FairseqHydraConfig(fairseq_args, yaml_prefix="# @package _group_")
+    fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
     job = FairseqHydraTrainingJob(
         fairseq_config,
