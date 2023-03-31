@@ -9,6 +9,7 @@ from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from i6_experiments.users.dierkes.preprocessing.wav2vec import FairseqAudioManifestCreationJob
+from .fairseq import SetupFairseqJob
 
 
 def get_manifest(valid_percent=0.001, audio_format="ogg", output_prefix="datasets"):
@@ -58,6 +59,15 @@ def get_manifest(valid_percent=0.001, audio_format="ogg", output_prefix="dataset
     return manifest
 
 
+def get_fairseq_root():
+    fairseq_root = CloneGitRepositoryJob(
+        "https://github.com/facebookresearch/fairseq",
+        checkout_folder_name="fairseq",
+        commit="176cd934982212a4f75e0669ee81b834ee71dbb0").out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+    return fairseq_root
+
+
 def get_fairseq_args(num_gpus=1):
     # create wav2vec manifest for training
     manifest = get_manifest()
@@ -103,7 +113,7 @@ def get_fairseq_args(num_gpus=1):
             "max_epoch": 1000,
             "max_update": 400000,
             "lr": [0.0005],
-            "update_freq": [64 / num_gpus]
+            "update_freq": [64 // num_gpus]
         },
         "optimizer": {
             "_name": "adam",
@@ -135,10 +145,7 @@ def main():
     exp_name = "base"
     fairseq_args = get_fairseq_args(num_gpus=8)
     fairseq_config = FairseqHydraConfig(fairseq_args, yaml_prefix="# @package _group_")
-    fairseq_root = CloneGitRepositoryJob(
-        "https://github.com/facebookresearch/fairseq", commit="176cd934982212a4f75e0669ee81b834ee71dbb0").out_repository
-    fairseq_python = tk.Path(
-        "/home/oh751555/python_env/env3.6fairseq20220421/bin/python3", hash_overwrite="FAIRSEQ_PYTHON")
+    fairseq_root = get_fairseq_root()
     job = FairseqHydraTrainingJob(
         fairseq_config,
         max_epoch=300,
@@ -148,8 +155,7 @@ def main():
         cpu_rqmt=2,
         gpu_rqmt=8,
         fairseq_root=fairseq_root,
-        fairseq_python_exe=fairseq_python,
         use_cache_manager=False,
     )
-    job.add_alias(f"{prefix_name}/{exp_name}/pretraining")
+    job.add_alias(os.path.join(prefix_name, exp_name, "pretraining"))
     tk.register_output(f"{prefix_name}/{exp_name}/pretraining/scores.png", job.out_plot_se)
