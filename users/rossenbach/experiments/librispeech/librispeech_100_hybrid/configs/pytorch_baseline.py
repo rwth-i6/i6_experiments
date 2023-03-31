@@ -67,9 +67,9 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             },
             "optimize_am_lm_scale": True,
             "rtf": 50,
-            "mem": 8,
+            "mem": 7,
             "lmgc_mem": 16,
-            "cpu": 4,
+            "cpu": 2,
             "parallelize_conversion": True,
         },
     }

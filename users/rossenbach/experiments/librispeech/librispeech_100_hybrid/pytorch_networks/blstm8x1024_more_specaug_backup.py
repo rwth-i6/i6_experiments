@@ -1,9 +1,8 @@
 import time
 import torch
 from torch import nn
-from torch.onnx import export as onnx_export
+from torch.onnx import export
 from torchaudio.functional import mask_along_axis
-from torch.nn import DataParallel
 
 from returnn.torch.engine import TrainCtx
 
@@ -24,13 +23,10 @@ class Model(torch.nn.Module):
             audio_features: torch.Tensor,
             audio_features_len: torch.Tensor,
     ):
-        if self.training:
-            audio_features_time_masked = mask_along_axis(audio_features, mask_param=20, mask_value=0.0, axis=1)
-            audio_features_time_masked_2 = mask_along_axis(audio_features_time_masked, mask_param=20, mask_value=0.0, axis=1)
-            audio_features_masked = mask_along_axis(audio_features_time_masked_2, mask_param=10, mask_value=0.0, axis=2)
-            audio_features_masked_2 = mask_along_axis(audio_features_masked, mask_param=10, mask_value=0.0, axis=2)
-        else:
-            audio_features_masked_2 = audio_features
+        audio_features_time_masked = mask_along_axis(audio_features, mask_param=20, mask_value=0.0, axis=1)
+        audio_features_time_masked_2 = mask_along_axis(audio_features_time_masked, mask_param=20, mask_value=0.0, axis=1)
+        audio_features_masked = mask_along_axis(audio_features_time_masked_2, mask_param=10, mask_value=0.0, axis=2)
+        audio_features_masked_2 = mask_along_axis(audio_features_masked, mask_param=10, mask_value=0.0, axis=2)
         blstm_in = torch.swapaxes(audio_features_masked_2, 0, 1)  # [B, T, F] -> [T, B, F]
 
         blstm_packed_in = nn.utils.rnn.pack_padded_sequence(blstm_in, audio_features_len)
@@ -39,13 +35,11 @@ class Model(torch.nn.Module):
         blstm_out, _ = nn.utils.rnn.pad_packed_sequence(blstm_packed_out, padding_value=0.0, batch_first=False)  # [T, B, F]
         
         logits = self.final_linear(blstm_out)  # [T, B, F]
-        logits_rasr_order = torch.permute(logits, dims=(1, 0, 2))  # RASR expects [B, T, F]
-        logits_ce_order  = torch.permute(logits, dims=(1, 2, 0))  # CE expects [B, F, T]
-        log_probs = torch.log_softmax(logits_rasr_order, dim=2)
+        logits  = torch.permute(logits, dims=(1, 2, 0))  # CE expects [B, F, T]
+        log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs, logits_ce_order
-
-
+        return log_probs, logits
+        
 scripted_model = None
 
 def train_step(*, model: Model, data, train_ctx, **_kwargs):
@@ -62,7 +56,6 @@ def train_step(*, model: Model, data, train_ctx, **_kwargs):
     if scripted_model is None:
         scripted_model = torch.jit.script(model)
 
-    # distributed_model = DataParallel(model)
     log_probs, logits = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len,
@@ -76,23 +69,7 @@ def train_step(*, model: Model, data, train_ctx, **_kwargs):
     train_ctx.mark_as_loss(name="CE", loss=loss)
 
 
-def export(*, model: Model, model_filename: str):
-    scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
-    dummy_data = torch.randn(1, 30, 50, device="cpu")
-    dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
-    onnx_export(
-        scripted_model,
-        (dummy_data, dummy_data_len),
-        f=model_filename,
-        verbose=True,
-        input_names=["data", "data_len"],
-        output_names=["classes"],
-        dynamic_axes={
-            # dict value: manually named axes
-            "data": {0: "batch", 1: "time"},
-            "data_len": {0: "batch"},
-            "classes": {0: "batch", 1: "time"}
-        }
-    )
+
+
 
 
