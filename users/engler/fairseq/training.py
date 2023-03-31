@@ -278,7 +278,8 @@ class FairseqHydraTrainingJob(Job):
 
         my_env = os.environ
         if self.fairseq_root is not None:
-            my_env["PYTHONPATH"] = self.fairseq_root
+            fairseq_root = self.fairseq_root.get() if isinstance(self.fairseq_root, tk.Path) else self.fairseq_root
+            my_env["PYTHONPATH"] = fairseq_root
         sp.check_call(self._get_run_cmd(), env=my_env)
 
     def plot(self):
