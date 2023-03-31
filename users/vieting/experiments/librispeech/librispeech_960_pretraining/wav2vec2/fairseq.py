@@ -25,7 +25,7 @@ class SetupFairseqJob(Job):
 
     def run(self):
         shutil.copytree(self.fairseq_root.get(), self.out_fairseq_root.get(), dirs_exist_ok=True, symlinks=True)
-        python_exe = get_executable_path(self.python_exe, "RETURNN_PYTHON_EXE")
+        python_exe = get_executable_path(self.python_exe, "FAIRSEQ_PYTHON_EXE")
         assert python_exe is not None
         args = [python_exe, "setup.py", "build_ext", "--inplace"]
         sp.run(args, cwd=self.out_fairseq_root.get(), check=True)
