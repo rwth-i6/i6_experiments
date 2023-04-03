@@ -550,7 +550,7 @@ class UkrainianHybridSystem(NnSystem):
             self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
         }
         nn_test_data_inputs = {
-            self.crp_names['test']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
+            self.crp_names['test']: self.inputs[self.crp_names['test']][input_key].as_returnn_rasr_data_input(),
         }
 
         self.init_datasets(
@@ -970,10 +970,16 @@ class UkrainianHybridSystem(NnSystem):
         search_crp.acoustic_model_config.tdp.scale = tdp_scale
         search_crp.acoustic_model_config.tdp["silence"]["exit"] = exit_sil
 
+        #lm
+        search_crp.language_model_config.scale = lm_scale
+
+        name += f'-{corpus}-beaminfo{beam}-{beam_limit}-{we_pruning}'
+        name += f'-lmScale-{lm_scale}'
         if tdp_scale != 1.0:
             name+= f'_tdpscale-{tdp_scale}'
         if exit_sil != 20.0:
             name += f'_exitSil-{tdp_scale}'
+
         if altas is not None:
             name += f'_altas-{altas}'
         sp = {
@@ -1011,6 +1017,9 @@ class UkrainianHybridSystem(NnSystem):
             extra_post_config=None,
         )
         search.rqmt["cpu"] = 2
+        if corpus == 'russian':
+            search.rqmt["time"] = 1
+
         search.add_alias(f"{pre_path}/recog_{name}")
 
 
@@ -1020,11 +1029,13 @@ class UkrainianHybridSystem(NnSystem):
             crp=search_crp,
             lattice_cache=search.out_lattice_bundle,
             parallelize=True,
+            fill_empty_segments=True,
             best_path_algo="bellman-ford",
             extra_config=lat2ctm_extra_config,
         )
 
         sKwrgs = copy.deepcopy(self.scorer_args[corpus])
+        sKwrgs["sort_files"] = True
         sKwrgs[self.scorer_hyp_arg[corpus]] = lat2ctm.out_ctm_file
         scorer = self.scorers[corpus](**sKwrgs)
 
