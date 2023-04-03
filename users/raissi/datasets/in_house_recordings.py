@@ -19,7 +19,7 @@ from sisyphus import gs, tk, Path
 import i6_core.lib.corpus as corpus
 import i6_core.util as util
 
-#adapted from Chris M. Luescher
+
 class CreateRawTrialogBlissCorpusJob(Job):
 
     def __init__(
