@@ -1006,7 +1006,7 @@ def conformer_baseline():
 
     # TODO: epoch-based OCLR
     args = copy.deepcopy(causal_args)
-    for att_scale in [0.3, 0.5]:
+    for att_scale in [0.1, 0.2, 0.3, 0.5]:
         args["decoder_args"].ce_loss_scale = att_scale
         args.pop("oclr_opts", None)
         args["learning_rates_list"] = (

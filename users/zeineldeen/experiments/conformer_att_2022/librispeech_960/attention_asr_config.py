@@ -14,7 +14,6 @@ from i6_experiments.users.zeineldeen.data_aug import specaugment
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
-
 # -------------------------- Base Config -------------------------- #
 
 config = {}
@@ -29,7 +28,6 @@ post_config = {
     "debug_mode": False,
     "batching": "random",
 }
-
 
 # -------------------------- LR Scheduling -------------------------- #
 
@@ -466,6 +464,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     ce_loss_scale: Optional[float] = 1.0
 
+    label_smoothing: float = 0.1
+
 
 def create_config(
     training_datasets,
@@ -513,6 +513,8 @@ def create_config(
     learning_rates_list=None,
     min_lr=None,
     global_stats=None,
+    speed_pert_version=1,
+    specaug_version=1,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -693,10 +695,24 @@ def create_config(
         python_prolog = specaugment.specaug_helpers.get_funcs()
         extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
     else:
-        python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
+        if specaug_version == 1:
+            python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
+        elif specaug_version == 2:
+            python_prolog = specaugment.specaug_v2.get_funcs()
+        else:
+            raise ValueError("Invalid specaug_version")
 
     if speed_pert:
-        python_prolog += [data_aug.speed_pert]
+        if speed_pert_version == 1:
+            python_prolog += [data_aug.speed_pert]
+        elif speed_pert_version == 2:
+            python_prolog += [data_aug.speed_pert_v2]
+        elif speed_pert_version == 3:
+            python_prolog += [data_aug.speed_pert_v3]
+        elif speed_pert_version == 4:
+            python_prolog += [data_aug.speed_pert_v4]
+        else:
+            raise ValueError("Invalid speed_pert_version")
 
     if feature_extraction_net and global_stats:
         exp_config["network"]["log10_"] = copy.deepcopy(exp_config["network"]["log10"])
