@@ -1,4 +1,6 @@
 __all__ = [
+    "DevRecognitionParameters",
+    "TestRecognitionParameters",
     "RecognitionParameters",
     "PriorPath",
     "SearchJobArgs",
@@ -19,29 +21,29 @@ import i6_core.rasr as rasr
 from ..config.am_config import Tdp
 
 
-class RecognitionParameters:
+class DevRecognitionParameters:
     def __init__(
         self,
         *,
         am_scales: List[float],
         lm_scales: List[float],
         prior_scales: List[float],
-        pronunciation_scales: List[Optional[float]],
+        pronunciation_scales: Optional[List[float]],
         tdp_scales: List[float],
         speech_tdps: List[Tdp],
         silence_tdps: List[Tdp],
-        nonspeech_tdps: List[Optional[Tdp]],
-        altas: List[Optional[float]],
+        nonspeech_tdps: Optional[List[Tdp]],
+        altas: Optional[List[float]],
     ):
         self.am_scales = am_scales
         self.lm_scales = lm_scales
         self.prior_scales = prior_scales
-        self.pronunciation_scales = pronunciation_scales
+        self.pronunciation_scales = pronunciation_scales if pronunciation_scales is not None else [1.0]
         self.tdp_scales = tdp_scales
         self.speech_tdps = speech_tdps
         self.silence_tdps = silence_tdps
-        self.nonspeech_tdps = nonspeech_tdps
-        self.altas = altas
+        self.nonspeech_tdps = nonspeech_tdps if nonspeech_tdps is not None else [None]
+        self.altas = altas if altas is not None else [0.0]
 
     def _get_iter(self):
         return [
@@ -70,6 +72,34 @@ class RecognitionParameters:
             raise StopIteration
 
 
+class TestRecognitionParameters:
+    def __init__(
+        self,
+        *,
+        am_scales: float,
+        lm_scales: float,
+        prior_scales: float,
+        pronunciation_scales: Optional[float],
+        tdp_scales: float,
+        speech_tdps: Tdp,
+        silence_tdps: Tdp,
+        nonspeech_tdps: Optional[Tdp],
+        altas: Optional[float],
+    ):
+        self.am_scales = am_scales
+        self.lm_scales = lm_scales
+        self.prior_scales = prior_scales
+        self.pronunciation_scales = pronunciation_scales if pronunciation_scales is not None else 1.0
+        self.tdp_scales = tdp_scales
+        self.speech_tdps = speech_tdps
+        self.silence_tdps = silence_tdps
+        self.nonspeech_tdps = nonspeech_tdps
+        self.altas = altas if altas is not None else 0.0
+
+
+RecognitionParameters = Union[DevRecognitionParameters, TestRecognitionParameters]
+
+
 @dataclass()
 class PriorPath:
     prior_xml_path: tk.Path
@@ -81,6 +111,7 @@ class LookaheadOptions(TypedDict):
 
 
 class SearchJobArgs(TypedDict):
+    search_parameters: Dict[str, Any]
     use_gpu: bool
     rtf: float
     mem: int
@@ -90,7 +121,6 @@ class SearchJobArgs(TypedDict):
 
 
 class AdvTreeSearchJobArgs(SearchJobArgs):
-    search_parameters: Dict[str, Any]
     lm_lookahead: bool
     lookahead_options: Optional[Union[LookaheadOptions, Dict]]
     create_lattice: bool
@@ -103,6 +133,7 @@ class Lattice2CtmArgs(TypedDict):
     best_path_algo: str
     fill_empty_segments: bool
     encoding: str
+    parallelize: bool
     extra_config: Optional[rasr.RasrConfig]
     extra_post_config: Optional[rasr.RasrConfig]
 

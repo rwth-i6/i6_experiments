@@ -11,19 +11,12 @@ import i6_core.rasr as rasr
 
 
 class StateTying(Enum):
-    MONOPHONE = 1
-    CART = 2
-    DENSE = 3
+    MONOPHONE = "monophone"
+    CART = "cart"
+    DENSE = "dense"
 
     def __str__(self):
-        if self.value == 1:
-            return "monophone"
-        elif self.value == 2:
-            return "cart"
-        elif self.value == 3:
-            return "dense"
-        else:
-            raise NotImplemented
+        return self.value
 
 
 @dataclass()
@@ -35,9 +28,7 @@ class Tdp:
 
     def get_tuple(
         self,
-    ) -> Tuple[
-        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ]:
+    ) -> Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]]:
         return self.loop, self.forward, self.skip, self.exit
 
     def __str__(self):
@@ -65,7 +56,7 @@ class NonSpeechTdp(Tdp):
     loop: Union[float, str] = field(default=0.0)
     forward: Union[float, str] = field(default=3.0)
     skip: Union[float, str] = field(default="infinity")
-    exit: Union[float, str] = field(default=6.0)
+    exit: Union[float, str] = field(default=21.0)
 
 
 def acoustic_model_config(
@@ -110,8 +101,8 @@ def acoustic_model_config(
     config.tdp["entry-m1"].loop = "infinity"
     config.tdp["entry-m2"].loop = "infinity"
 
+    config.tdp.tying_type = tying_type
     if tying_type == "global-and-nonword":
-        config.tdp.tying_type = "global-and-nonword"
         config.tdp.nonword_phones = ",".join(nonword_phones)
 
     return config

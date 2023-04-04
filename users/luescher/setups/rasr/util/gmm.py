@@ -190,9 +190,7 @@ class GmmTriphoneArgs:
 class GmmVtlnArgs:
     def __init__(
         self,
-        training_args: Dict[
-            str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]
-        ],
+        training_args: Dict[str, Dict[str, Union[str, int, Dict[str, Union[int, rasr.RasrConfig]]]]],
         recognition_args: dict,
         test_recognition_args: Optional[dict] = None,
         sdm_args: Optional[dict] = None,
@@ -402,12 +400,8 @@ class GmmOutput:
         self.acoustic_mixtures: Optional[tk.Path] = None
         self.feature_scorers: Dict[str, Type[rasr.FeatureScorer]] = {}
         self.feature_flows: Dict[str, rasr.FlowNetwork] = {}
-        self.features: Dict[
-            str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = {}
-        self.alignments: Optional[
-            Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None
+        self.features: Dict[str, Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = {}
+        self.alignments: Optional[Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]] = None
 
     def as_returnn_rasr_data_input(
         self,
