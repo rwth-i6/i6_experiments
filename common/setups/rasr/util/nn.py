@@ -159,6 +159,7 @@ class OggZipHdfDataInput:
         partition_epoch: int = 1,
         seq_ordering: str = "laplace:.1000",
         ogg_args: Optional[Dict[str, Any]] = None,
+        meta_args: Optional[Dict[str, Any]] = None,
         acoustic_mixtures: Optional[tk.Path] = None,
     ):
         """
@@ -166,9 +167,12 @@ class OggZipHdfDataInput:
         :param alignments:
         :param context_window: {"classes": 1, "data": 242}
         :param audio: e.g. {"features": "raw", "sample_rate": 16000} for raw waveform input with a sample rate of 16 kHz
+        :param targets:
         :param partition_epoch:
         :param seq_ordering:
-        :param targets:
+        :param ogg_args
+        :param meta_args
+        :param acoustic_mixtures
         """
         self.oggzip_files = oggzip_files
         self.alignments = alignments
@@ -178,6 +182,7 @@ class OggZipHdfDataInput:
         self.seq_ordering = seq_ordering
         self.targets = targets
         self.ogg_args = ogg_args
+        self.meta_args = meta_args
         self.acoustic_mixtures = acoustic_mixtures
 
     def get_data_dict(self):
@@ -203,6 +208,7 @@ class OggZipHdfDataInput:
                 },
             },
             "seq_order_control_dataset": "ogg",
+            **(self.meta_args or {}),
         }
 
 
