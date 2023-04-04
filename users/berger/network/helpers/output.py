@@ -13,6 +13,7 @@ def add_softmax_output(
     label_smoothing: Optional[float] = None,
     focal_loss_factor: Optional[float] = None,
     initializer: Optional[str] = None,
+    reuse_from_name: Optional[str] = None,
 ):
 
     loss_opts = {}
@@ -40,5 +41,7 @@ def add_softmax_output(
     if initializer:
         network[name]["forward_weights_init"] = initializer
         network[name]["bias_init"] = initializer
+    if reuse_from_name:
+        network[name]["reuse_params"] = reuse_from_name
 
     return name

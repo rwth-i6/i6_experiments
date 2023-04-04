@@ -66,8 +66,7 @@ def run(returnn_root: tk.Path):
 
     for (n_phones, cart_tree, cart_num_labels, lr) in [
         (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v6"),
-        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v7"),
-        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v7"),
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v6"),
     ]:
         with open(cart_num_labels, "r") as file:
             num_labels = int(file.read().strip())

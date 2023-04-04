@@ -238,6 +238,7 @@ class FactoredHybridSystem(NnSystem):
         dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
+        time_rqmt: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -312,7 +313,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
             mem_rqmt=12,
-            time_rqmt=12,
+            time_rqmt=time_rqmt if time_rqmt is not None else 12,
         )
 
         return prior_job
@@ -1081,6 +1082,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
+                time_rqmt=30,
             )
             for (ctx, cfg) in (
                 ("l", left_config),

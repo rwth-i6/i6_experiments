@@ -144,6 +144,7 @@ def run_single(
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 40, "dev": 1}
 
+    time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     blstm_size = 512
     network = {
         "lstm_bwd_1": {
@@ -298,8 +299,11 @@ def run_single(
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {
-            "data": {"dim": 50},
-            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=None),
+            "data": {
+                "dim": 50,
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            },
+            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
         },
     }
     keep_epochs = [550, num_epochs]
@@ -313,7 +317,7 @@ def run_single(
         config=base_config,
         post_config=base_post_config,
         hash_full_python_code=True,
-        python_prolog={"numpy": "import numpy as np"},
+        python_prolog={"numpy": "import numpy as np", "time": time_prolog},
         python_epilog={
             "functions": [
                 sa_mask,

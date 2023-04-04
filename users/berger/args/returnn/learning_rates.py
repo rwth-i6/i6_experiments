@@ -1,6 +1,7 @@
 from enum import Enum, auto
-from typing import Callable, Optional, Any, List, Dict, Tuple
-from i6_core.returnn.config import CodeWrapper
+from typing import Optional, Any, List, Dict, Tuple
+from textwrap import dedent
+import numpy as np
 
 
 class LearningRateSchedules(Enum):
@@ -29,11 +30,12 @@ def get_learning_rate_config(
     elif schedule == LearningRateSchedules.NewbobAbs:
         config.update(get_newbob_abs_config(**kwargs))
     elif schedule == LearningRateSchedules.OCLR:
-        extra_python.append(get_oclr_function(**kwargs))
+        config.update(get_oclr_config(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY:
         extra_python.append(get_const_decay_function(**kwargs))
     else:
         raise NotImplementedError
+
     if optimizer == Optimizers.Nadam:
         config.update(get_nadam_config(**kwargs))
     elif optimizer == Optimizers.SGD:
@@ -98,82 +100,106 @@ def get_newbob_abs_config(
     return result
 
 
+def get_oclr_config(
+    num_epochs: int,
+    peak_lr: float = 1e-03,
+    cycle_epoch: Optional[int] = None,
+    initial_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> dict:
+    initial_lr = initial_lr or peak_lr / 10
+    final_lr = final_lr or initial_lr / 5
+    cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
+    lr_list = (
+        list(np.linspace(initial_lr, peak_lr, cycle_epoch, endpoint=False))
+        + list(np.linspace(peak_lr, initial_lr, cycle_epoch, endpoint=False))
+        + list(np.linspace(initial_lr, final_lr, num_epochs - 2 * cycle_epoch))
+    )
+
+    return {
+        "learning_rates": lr_list,
+    }
+
+
 def get_oclr_function(
     num_epochs: int,
     n_steps_per_epoch: int,
     peak_lr: float = 1e-03,
+    cycle_epoch: Optional[int] = None,
     initial_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
     **kwargs,
-) -> Callable:
+) -> str:
     initial_lr = initial_lr or peak_lr / 10
     final_lr = final_lr or initial_lr / 5
-    cycle_epoch = (num_epochs * 9) // 20  # 45% of the training
+    cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
 
-    return f"""
-def dynamic_learning_rate(*,
-        global_train_step,
-        **kwargs):
-    # Increase linearly from initial_lr to peak_lr over the first cycle_epoch epochs
-    # Decrease linearly from peak_lr to initial_lr over the next cycle_epoch epochs
-    # Decrease linearly from initial_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
-    initial_lr = {initial_lr}
-    peak_lr = {peak_lr}
-    final_lr = {final_lr}
-    cycle_epoch = {cycle_epoch}
-    total_epochs = {num_epochs}
-    n_steps_per_epoch = {n_steps_per_epoch}
+    return dedent(
+        f"""def dynamic_learning_rate(*,
+                global_train_step,
+                **kwargs):
+            # Increase linearly from initial_lr to peak_lr over the first cycle_epoch epochs
+            # Decrease linearly from peak_lr to initial_lr over the next cycle_epoch epochs
+            # Decrease linearly from initial_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
+            initial_lr = {initial_lr}
+            peak_lr = {peak_lr}
+            final_lr = {final_lr}
+            cycle_epoch = {cycle_epoch}
+            total_epochs = {num_epochs}
+            n_steps_per_epoch = {n_steps_per_epoch}
 
-    # -- derived -- #
-    steps = cycle_epoch * n_steps_per_epoch
-    step_size = (peak_lr - initial_lr) / steps
-    steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
-    step_size_final = (initial_lr - final_lr) / steps_final
+            # -- derived -- #
+            steps = cycle_epoch * n_steps_per_epoch
+            step_size = (peak_lr - initial_lr) / steps
+            steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
+            step_size_final = (initial_lr - final_lr) / steps_final
 
-    import tensorflow as tf
-    n = tf.cast(global_train_step, tf.float32)
-    return tf.where(global_train_step <= steps, initial_lr + step_size * n,
-               tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
-                   tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))
-"""
+            import tensorflow as tf
+            n = tf.cast(global_train_step, tf.float32)
+            return tf.where(global_train_step <= steps, initial_lr + step_size * n,
+                       tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
+                           tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
+    )
 
 
 def get_const_decay_function(
     num_epochs: int,
     n_steps_per_epoch: int,
     const_lr: float = 1e-03,
+    cycle_epoch: Optional[int] = None,
     decay_lr: Optional[float] = None,
     final_lr: Optional[float] = None,
     **kwargs,
-) -> Callable:
+) -> str:
     # Adapted OCLR by replacing the increase-part with a const-part
     decay_lr = decay_lr or const_lr / 5
     final_lr = final_lr or const_lr / 50
-    cycle_epoch = (num_epochs * 9) // 20  # 45% of the training
+    cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
 
-    return f"""
-def dynamic_learning_rate(*,
-        global_train_step,
-        **kwargs):
-    # Keep const_lr over the first cycle_epoch epochs
-    # Decrease linearly from const_lr to decay_lr over the next cycle_epoch epochs
-    # Decrease linearly from decay_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
-    const_lr = {const_lr}
-    decay_lr = {decay_lr}
-    final_lr = {final_lr}
-    cycle_epoch = {cycle_epoch}
-    total_epochs = {num_epochs}
-    n_steps_per_epoch = {n_steps_per_epoch}
-
-    # -- derived -- #
-    steps = cycle_epoch * n_steps_per_epoch
-    step_size = (const_lr - decay_lr) / steps
-    steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
-    step_size_final = (decay_lr - final_lr) / steps_final
-
-    import tensorflow as tf
-    n = tf.cast(global_train_step, tf.float32)
-    return tf.where(global_train_step <= steps, const_lr,
-               tf.where(global_train_step <= 2*steps, const_lr - step_size * (n - steps), 
-                   tf.maximum(decay_lr - step_size_final * (n - 2*steps), final_lr)))
-"""
+    return dedent(
+        f"""def dynamic_learning_rate(*,
+                    global_train_step,
+                    **kwargs):
+                # Keep const_lr over the first cycle_epoch epochs
+                # Decrease linearly from const_lr to decay_lr over the next cycle_epoch epochs
+                # Decrease linearly from decay_lr to final_lr over the last (total_epochs - 2*cycle_epoch) epochs
+                const_lr = {const_lr}
+                decay_lr = {decay_lr}
+                final_lr = {final_lr}
+                cycle_epoch = {cycle_epoch}
+                total_epochs = {num_epochs}
+                n_steps_per_epoch = {n_steps_per_epoch}
+        
+                # -- derived -- #
+                steps = cycle_epoch * n_steps_per_epoch
+                step_size = (const_lr - decay_lr) / steps
+                steps_final = (total_epochs - 2 * cycle_epoch) * n_steps_per_epoch
+                step_size_final = (decay_lr - final_lr) / steps_final
+        
+                import tensorflow as tf
+                n = tf.cast(global_train_step, tf.float32)
+                return tf.where(global_train_step <= steps, const_lr,
+                           tf.where(global_train_step <= 2*steps, const_lr - step_size * (n - steps), 
+                               tf.maximum(decay_lr - step_size_final * (n - 2*steps), final_lr)))"""
+    )

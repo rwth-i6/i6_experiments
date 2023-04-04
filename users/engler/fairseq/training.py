@@ -150,11 +150,10 @@ class FairseqHydraTrainingJob(Job):
         if self.fairseq_root is not None:
             assert self.fairseq_python_exe is not None
         self.use_cache_manager = use_cache_manager
-        if not isinstance(zipped_audio_dir, list):
-            self.zipped_audio_dir = [zipped_audio_dir]
-        else:
-            self.zipped_audio_dir = zipped_audio_dir
+        self.zipped_audio_dir = zipped_audio_dir
         if self.zipped_audio_dir is not None:
+            if not isinstance(self.zipped_audio_dir, list):
+                self.zipped_audio_dir = [self.zipped_audio_dir]
             assert (
                 self.use_cache_manager
             ), "cache manager must be used for zipped audio input"
@@ -279,7 +278,8 @@ class FairseqHydraTrainingJob(Job):
 
         my_env = os.environ
         if self.fairseq_root is not None:
-            my_env["PYTHONPATH"] = self.fairseq_root
+            fairseq_root = self.fairseq_root.get() if isinstance(self.fairseq_root, tk.Path) else self.fairseq_root
+            my_env["PYTHONPATH"] = fairseq_root
         sp.check_call(self._get_run_cmd(), env=my_env)
 
     def plot(self):
@@ -414,7 +414,7 @@ class FairseqHydraTrainingJob(Job):
 
         if self.fairseq_root is not None:
             sys.path.insert(0, self.fairseq_root)
-            hydra_train_entry = self.fairseq_root + "fairseq_cli/hydra_train.py"
+            hydra_train_entry = os.path.join(self.fairseq_root, "fairseq_cli/hydra_train.py")
             run_cmd.insert(0, tk.uncached_path(hydra_train_entry))
         else:
             run_cmd.insert(0, tk.uncached_path(self.fairseq_hydra_exe))

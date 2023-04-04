@@ -21,18 +21,18 @@ def get_returnn_rasr_data_input(
 ) -> ReturnnRasrDataInput:
 
     data_input = ReturnnRasrDataInput(name=name, **kwargs)
-    
+
     if concurrent is None:
         concurrent = rasr_data.concurrent
-    
+
     if segment_path is None:
         segment_path = SegmentCorpusJob(
             rasr_data.corpus_object.corpus_file, concurrent
         ).out_segment_path
-    
+
     if am_args is None:
         am_args = {}
-    
+
     data_input.get_crp(
         am_args=get_am_config_args(am_args),
         corpus_object=rasr_data.corpus_object,
@@ -42,7 +42,7 @@ def get_returnn_rasr_data_input(
         lm_args=rasr_data.lm,
         allophone_file=allophone_file,
     )
-    
+
     return data_input
 
 
@@ -67,9 +67,9 @@ def get_returnn_rasr_data_inputs(
     alignments = alignments or {}
     feature_flows = feature_flows or {}
     feature_caches = feature_caches or {}
-    
+
     nn_data_inputs = {"train": {}, "cv": {}, "dev": {}, "test": {}, "align": {}}
-    
+
     for train_key, cv_key in train_cv_pairing:
         nn_data_inputs["train"][f"{train_key}.train"] = get_returnn_rasr_data_input(
             train_data_inputs[train_key],
@@ -79,13 +79,13 @@ def get_returnn_rasr_data_inputs(
             am_args=am_args,
             shuffle_data=True,
             allophone_file=allophone_file,
-            concurrent=1,
+            # concurrent=1,
         )
-    
+
         # Set CV lexicon to train lexicon
         cv_data_input = copy.deepcopy(cv_data_inputs[cv_key])
         cv_data_input.lexicon = train_data_inputs[train_key].lexicon
-    
+
         nn_data_inputs["cv"][f"{train_key}.cv"] = get_returnn_rasr_data_input(
             cv_data_input,
             feature_flow=feature_flows.get(cv_key, {}).get(f_name, None),
@@ -94,9 +94,9 @@ def get_returnn_rasr_data_inputs(
             am_args=am_args,
             shuffle_data=False,
             allophone_file=allophone_file,
-            concurrent=1,
+            # concurrent=1,
         )
-    
+
         # Remove segments with unknown words from cv corpus
         nn_data_inputs["cv"][
             f"{train_key}.cv"
@@ -105,7 +105,7 @@ def get_returnn_rasr_data_inputs(
             nn_data_inputs["cv"][f"{train_key}.cv"].crp.lexicon_config.file,
             case_sensitive=True,
         ).out_corpus
-    
+
         for dev_key in dev_data_inputs:
             nn_data_inputs["dev"][dev_key] = get_returnn_rasr_data_input(
                 dev_data_inputs[dev_key],
@@ -115,7 +115,7 @@ def get_returnn_rasr_data_inputs(
                 allophone_file=allophone_file,
                 shuffle_data=False,
             )
-    
+
         for test_key in test_data_inputs:
             nn_data_inputs["test"][test_key] = get_returnn_rasr_data_input(
                 test_data_inputs[test_key],
@@ -125,7 +125,7 @@ def get_returnn_rasr_data_inputs(
                 allophone_file=allophone_file,
                 shuffle_data=False,
             )
-    
+
         for align_key in align_data_inputs:
             nn_data_inputs["align"][align_key] = get_returnn_rasr_data_input(
                 align_data_inputs[align_key],
@@ -135,5 +135,5 @@ def get_returnn_rasr_data_inputs(
                 allophone_file=allophone_file,
                 shuffle_data=False,
             )
-    
+
     return nn_data_inputs

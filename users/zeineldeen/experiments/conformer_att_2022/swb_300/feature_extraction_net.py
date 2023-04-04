@@ -1,9 +1,9 @@
 log10_net_10ms = {
     "stft": {
         "class": "stft",
-        "frame_shift": 160,
-        "frame_size": 400,
-        "fft_size": 512,
+        "frame_shift": 80,
+        "frame_size": 200,
+        "fft_size": 256,
         "from": "data:audio_features",
     },
     "abs": {
@@ -19,11 +19,12 @@ log10_net_10ms = {
     "mel_filterbank": {
         "class": "mel_filterbank",
         "from": "power",
-        "fft_size": 512,
-        "nr_of_filters": 80,
-        "n_out": 80,
+        "fft_size": 256,
+        "nr_of_filters": 50,
+        "n_out": 50,
+        "sampling_rate": 8000,
         "f_min": 100,
-        "f_max": 3800,
+        "f_max": 3700,
     },
     "log": {
         "from": "mel_filterbank",
@@ -41,9 +42,9 @@ log10_net_10ms = {
 log10_net_10ms_long_bn = {
     "stft": {
         "class": "stft",
-        "frame_shift": 160,
-        "frame_size": 400,
-        "fft_size": 512,
+        "frame_shift": 80,
+        "frame_size": 200,
+        "fft_size": 256,
         "from": "data:audio_features",
     },
     "abs": {
@@ -59,11 +60,12 @@ log10_net_10ms_long_bn = {
     "mel_filterbank": {
         "class": "mel_filterbank",
         "from": "power",
-        "fft_size": 512,
-        "nr_of_filters": 80,
-        "n_out": 80,
+        "fft_size": 256,
+        "nr_of_filters": 50,
+        "n_out": 50,
+        "sampling_rate": 8000,
         "f_min": 100,
-        "f_max": 3800,
+        "f_max": 3700,
     },
     "log": {
         "from": "mel_filterbank",

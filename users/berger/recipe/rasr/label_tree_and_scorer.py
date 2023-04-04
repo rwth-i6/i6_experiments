@@ -87,6 +87,10 @@ class LabelScorer:
         for key in extra_args:
             self.config[key.replace("_", "-")] = extra_args[key]
 
+    @property
+    def scorer_type(self):
+        return self.config.label_scorer_type
+
     def apply_config(self, path, config, post_config=None):
         config[path]._update(self.config)
         if post_config is not None:

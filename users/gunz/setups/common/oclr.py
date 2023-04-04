@@ -93,6 +93,8 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
         return oclr_cfg(lrate=0.001)
     elif schedule == "v7":
         # Like v6 but higher max LR (0.00053 vs 0.0003)
+        #
+        # This is proportionally scaled to a batch size of 11k vs 6144, where schedule v6 is better.
 
         return oclr_cfg(lrate=0.00053 / 0.3)
     else:

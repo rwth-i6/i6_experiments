@@ -67,12 +67,10 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             },
             "optimize_am_lm_scale": True,
             "rtf": 50,
-            "mem": 8,
+            "mem": 7,
             "lmgc_mem": 16,
-            "cpu": 4,
+            "cpu": 2,
             "parallelize_conversion": True,
-            "use_epoch_for_compile": True,
-            "native_ops": ["NativeLstm2"],
         },
     }
     test_recognition_args = None
@@ -134,10 +132,6 @@ def get_pytorch_returnn_configs(
     # those are hashed
     pytorch_package =  PACKAGE + ".pytorch_networks"
 
-    net_kwargs = {
-        "model_type": "mlp_test",
-    }
-
     def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
         model_type = net_kwargs.pop("model_type")
         pytorch_model_import = Import(
@@ -155,6 +149,11 @@ def get_pytorch_returnn_configs(
             pytorch_train_step,
             pytorch_model,
         ]
+        if recognition:
+            pytorch_export = Import(
+                PACKAGE + ".pytorch_networks.%s.export" % model_type
+            )
+            serializer_objects.append(pytorch_export)
         if explicit_hash:
             serializer_objects.append(ExplicitHash(explicit_hash))
         serializer = Collection(
@@ -171,8 +170,10 @@ def get_pytorch_returnn_configs(
             python_epilog=[serializer],
             pprint_kwargs={"sort_dicts": False},
         )
+
         return blstm_base_returnn_config
 
     return {
-        "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, net_kwargs),
+        "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024"}),
+        "blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}),
     }
