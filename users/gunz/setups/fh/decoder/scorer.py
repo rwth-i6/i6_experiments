@@ -29,7 +29,6 @@ class FactoredHybridFeatureScorer(rasr.FeatureScorer):
         use_word_end_classes=False,
         use_boundary_classes=False,
         is_multi_encoder_output=False,
-        set_is_batch_major=False,
     ):
         super().__init__()
 
@@ -74,8 +73,6 @@ class FactoredHybridFeatureScorer(rasr.FeatureScorer):
         self.config.loader = fs_tf_config.loader
         self.config.input_map = fs_tf_config.input_map
         self.config.output_map = fs_tf_config.output_map
-        if set_is_batch_major:
-            self.config.is_batch_major = set_is_batch_major
 
 
 class FactoredHybridFeatureScorerV2(rasr.FeatureScorer):

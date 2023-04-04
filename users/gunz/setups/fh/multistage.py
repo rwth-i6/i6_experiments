@@ -20,7 +20,7 @@ from sisyphus import tk, Task
 
 import i6_core.returnn as returnn
 
-from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
+from ..common.compile_graph import compile_tf_graph_from_returnn_config
 from .factored import LabelInfo
 
 if typing.TYPE_CHECKING:
@@ -38,9 +38,7 @@ class Transformation:
         self,
         var_data: typing.Dict[str, np.ndarray],
         input_mg: "tf.compat.v1.MetaGraphDef",
-        input_gd: "tf.compat.v1.GraphDef",
         output_mg: "tf.compat.v1.MetaGraphDef",
-        output_gd: "tf.compat.v1.GraphDef",
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ):
@@ -65,9 +63,7 @@ class TransformCheckpointJob(tk.Job):
     def __init__(
         self,
         input_mg_path: typing.Union[str, tk.Path],
-        input_gd_path: typing.Union[str, tk.Path],
         output_mg_path: typing.Union[str, tk.Path],
-        output_gd_path: typing.Union[str, tk.Path],
         input_checkpoint: typing.Union[str, tk.Path, returnn.Checkpoint],
         transformations: typing.List[Transformation],
         tf_op_libraries: typing.Optional[typing.List[tk.Path]] = None,
@@ -75,9 +71,7 @@ class TransformCheckpointJob(tk.Job):
         assert all(isinstance(t, Transformation) for t in transformations)
 
         self.input_mg_path = input_mg_path
-        self.input_gd_path = input_gd_path
         self.output_mg_path = output_mg_path
-        self.output_gd_path = output_gd_path
         self.input_checkpoint = input_checkpoint
         self.transformations = transformations
         self.tf_op_libraries = [] if tf_op_libraries is None else tf_op_libraries
@@ -89,13 +83,11 @@ class TransformCheckpointJob(tk.Job):
         self.rqmt = {"cpu": 1, "mem": 8.0, "time": 1.0}
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt)
+        yield Task("run", mini_task=True)
 
     def run(self):
         import tensorflow as tf
         from tensorflow.core.framework.variable_pb2 import VariableDef
-
-        tf.compat.v1.disable_eager_execution()
 
         if len(self.tf_op_libraries):
             tf.load_op_library(self.tf_op_libraries)
@@ -108,13 +100,7 @@ class TransformCheckpointJob(tk.Job):
 
             return mg
 
-        def load_graph_def(gd_path):
-            gd = tf.compat.v1.GraphDef()
-            with open(gd_path, "rb") as f:
-                gd.ParseFromString(f.read())
-            return gd
-
-        def load_checkpoint(session: tf.compat.v1.Session, mg, checkpoint_path):
+        def load_checkpoint(session, mg, checkpoint_path):
             session.run(tf.compat.v1.global_variables_initializer())
             session.run(
                 mg.saver_def.restore_op_name,
@@ -130,12 +116,11 @@ class TransformCheckpointJob(tk.Job):
             return res
 
         input_mg = load_graph(self.input_mg_path)
-        input_gd = load_graph_def(self.input_gd_path)
         output_mg = load_graph(self.output_mg_path)
-        output_gd = load_graph_def(self.output_gd_path)
 
         tf_input_vars = parse_variables(input_mg)
         tf_output_vars = parse_variables(output_mg)
+        all_output_vars = parse_variables(output_mg, "variables")
 
         with tf.device("/CPU:0"):
             s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
@@ -149,12 +134,10 @@ class TransformCheckpointJob(tk.Job):
             logging.info("Input: %s shape: %s", k, str(v.shape))
 
         for t in self.transformations:
-            var_data = t.transform(var_data, input_gd, output_gd, dict(tf_input_vars), dict(tf_output_vars))
+            var_data = t.transform(var_data, input_mg, output_mg, dict(tf_input_vars), dict(tf_output_vars))
 
         for k, v in var_data.items():
             logging.info("Output: %s shape: %s", k, str(v.shape))
-
-        tf.compat.v1.reset_default_graph()
 
         with tf.device("/CPU:0"):
             s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
@@ -210,53 +193,33 @@ class InitNewLayersTransformation(Transformation):
     Initializes the weights of layers that do not exist in the original config.
     """
 
-    def __init__(self, init: Init, force_init: typing.Dict[str, tuple]) -> None:
+    def __init__(self, init: Init) -> None:
         super().__init__()
 
-        self.force_init = force_init
         self.init = init
 
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
-        input_gd: "tf.compat.v1.GraphDef",
-        output_gd: "tf.compat.v1.GraphDef",
+        input_mg: "tf.compat.v1.MetaGraphDef",
+        output_mg: "tf.compat.v1.MetaGraphDef",
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
         import tensorflow as tf
 
-        with tf.compat.v1.Session() as s:
-            tf.import_graph_def(output_gd, name="")
-            s.run(tf.compat.v1.global_variables_initializer())
-            g_out = tf.compat.v1.get_default_graph()
+        g_out = tf.Graph()
+        with g_out.as_default():
+            tf.import_graph_def(output_mg.graph_def, name="")
 
-            to_init = [
-                layer
-                for layer in output_vars.keys()
-                if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
-            ]
-            for var_name in to_init:
-                if var_name in self.force_init:
-                    data = self.force_init[var_name]
-                    if isinstance(data, np.ndarray) or isinstance(data, list):
-                        array = data if isinstance(data, np.ndarray) else np.array(data)
-                        var_data[var_name] = array
-                        logging.info(f"initializing {var_name} with data from dict {array.shape}")
-                        continue
-                    else:
-                        shape = self.force_init[var_name]
-                else:
-                    shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+        to_init = [layer for layer in output_vars.keys() if layer not in input_vars]
+        for var_name in to_init:
+            shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+            logging.info(f"initializing {var_name}:{shape} with {self.init}")
 
-                if (shape is None or len(shape) == 0) and var_name in var_data:
-                    # try taking shape from input
-                    shape = var_data[var_name].shape
+            var_data[var_name] = self.init.get_value(shape)
 
-                logging.info(f"initializing {var_name}:{shape} with {self.init}")
-                var_data[var_name] = self.init.get_value(shape)
-
-            return var_data
+        return var_data
 
     @classmethod
     def hash(cls, kwargs):
@@ -272,35 +235,45 @@ class ResizeLayersTransformation(Transformation):
     amount from the graph.
     """
 
-    def collect_shapes(self, keys: typing.Iterable[str], gd: "tf.compat.v1.GraphDef"):
-        import tensorflow as tf
+    def needs_extension(
+        self,
+        var_name: str,
+        input_g: "tf.Graph",
+        output_g: "tf.Graph",
+    ) -> bool:
+        try:
+            input_var = input_g.get_tensor_by_name(var_name)
+            output_var = output_g.get_tensor_by_name(var_name)
+        except:
+            return False
 
-        with tf.compat.v1.Session() as s:
-            tf.import_graph_def(gd, name="")
-            s.run(tf.compat.v1.global_variables_initializer())
-            g = tf.compat.v1.get_default_graph()
+        assert len(output_var.shape) == len(input_var.shape)
 
-            shapes = {k: g.get_tensor_by_name(k).shape.as_list() for k in keys}
-            return shapes
+        shape_diff = [a - b for a, b in zip(input_var.shape.as_list(), output_var.shape.as_list())]
+
+        return any(d != 0 for d in shape_diff)
 
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
-        input_gd: "tf.compat.v1.GraphDef",
-        output_gd: "tf.compat.v1.GraphDef",
+        input_mg: "tf.compat.v1.MetaGraphDef",
+        output_mg: "tf.compat.v1.MetaGraphDef",
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        shapes_in = self.collect_shapes(output_vars.keys(), input_gd)
-        shapes_out = self.collect_shapes(output_vars.keys(), output_gd)
+        import tensorflow as tf
 
-        needs_extension = [
-            k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
-        ]
+        g_in = tf.Graph()
+        with g_in.as_default():
+            tf.import_graph_def(input_mg.graph_def, name="")
+        g_out = tf.Graph()
+        with g_out.as_default():
+            tf.import_graph_def(output_mg.graph_def, name="")
 
-        for layer in needs_extension:
-            in_sh = tuple(shapes_in[layer])
-            out_sh = tuple(shapes_out[layer])
+        to_extend = [layer for layer in output_vars.keys() if self.needs_extension(layer, g_in, g_out)]
+        for layer in to_extend:
+            in_sh = tuple(g_in.get_tensor_by_name(layer).shape.as_list())
+            out_sh = tuple(g_out.get_tensor_by_name(layer).shape.as_list())
 
             logging.info(f"padding {layer} {in_sh} -> {out_sh}")
 
@@ -327,12 +300,11 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
-    force_init: typing.Optional[typing.Dict[str, typing.Union[tuple, np.ndarray, list]]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
     tf_library: typing.Optional[typing.Union[str, tk.Path]] = None,
-) -> returnn.ReturnnConfig:
+):
     """
     Transforms the weights of one checkpoint to be compatible with the other.
 
@@ -343,37 +315,32 @@ def transform_checkpoint(
     """
 
     n_state_diff = output_label_info.get_n_state_classes() - input_label_info.get_n_state_classes()
-    assert (
-        any(k.startswith("center__output") for k in force_init) or n_state_diff == 0
-    ), "do not initialize models w/ different number of center states"
+    assert n_state_diff == 0, "do not initialize models w/ different number of center states"
 
-    # Need both meta graph def and "plain" graph def format.
-    #
-    # The meta graph def contains the saver, while the plain one contains the shapes.
-    input_graph_meta = compile_tf_graph_from_returnn_config(
-        input_returnn_config, output_format="meta", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
+    input_graph = compile_tf_graph_from_returnn_config(
+        input_returnn_config.config,
+        python_epilog=input_returnn_config.python_epilog,
+        python_prolog=input_returnn_config.python_prolog,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
     )
-    input_graph_pb = compile_tf_graph_from_returnn_config(
-        input_returnn_config, output_format="pb", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
-    )
-    output_graph_meta = compile_tf_graph_from_returnn_config(
-        output_returnn_config, output_format="meta", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
-    )
-    output_graph_pb = compile_tf_graph_from_returnn_config(
-        output_returnn_config, output_format="pb", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
+    output_graph = compile_tf_graph_from_returnn_config(
+        output_returnn_config.config,
+        python_epilog=output_returnn_config.python_epilog,
+        python_prolog=output_returnn_config.python_prolog,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_python_exe,
     )
 
     logging.debug(f"IN: {input_returnn_config.config['extern_data']}")
     logging.debug(f"OUT: {output_returnn_config.config['extern_data']}")
 
     j = TransformCheckpointJob(
-        input_mg_path=input_graph_meta,
-        input_gd_path=input_graph_pb,
+        input_mg_path=input_graph,
         input_checkpoint=input_model_path,
-        output_mg_path=output_graph_meta,
-        output_gd_path=output_graph_pb,
+        output_mg_path=output_graph,
         transformations=[
-            InitNewLayersTransformation(init_new, force_init),
+            InitNewLayersTransformation(init_new),
             ResizeLayersTransformation(),
         ],
         tf_op_libraries=tf_library,

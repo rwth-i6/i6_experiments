@@ -1,8 +1,5 @@
 import copy
-from dataclasses import dataclass
 import typing
-
-from i6_core import returnn
 
 from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext
 
@@ -101,33 +98,11 @@ def pop_phoneme_state_classes(
     return network, labeling_output, rem_dim
 
 
-@dataclass(frozen=True, eq=True)
-class SubsamplingInfo:
-    factor: int
-    time_tag_name: str
-
-
-def augment_net_with_label_pops(
-    network: Network, label_info: LabelInfo, classes_subsampling_info: typing.Optional[SubsamplingInfo] = None
-) -> Network:
+def augment_net_with_label_pops(network: Network, label_info: LabelInfo) -> Network:
     labeling_input = "data:classes"
     remaining_label_dim = label_info.get_n_of_dense_classes()
 
     network = copy.deepcopy(network)
-
-    if classes_subsampling_info is not None:
-        # This layer sets the time step ratio between the input and the output of the NN.
-
-        network["classes_"] = {
-            "class": "reinterpret_data",
-            "set_dim_tags": {
-                "T": returnn.CodeWrapper(
-                    f"{classes_subsampling_info.time_tag_name}.ceildiv_right({classes_subsampling_info.factor})"
-                )
-            },
-            "from": labeling_input,
-        }
-        labeling_input = "classes_"
 
     network["futureLabel"] = {
         "class": "eval",
@@ -583,45 +558,3 @@ def augment_net_with_triphone_outputs(
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
-
-
-def remove_label_pops_and_losses(
-    network: typing.Union["returnn.ReturnnConfig", Network], except_layers: typing.Optional[typing.Iterable[str]] = None
-) -> Network:
-    network = copy.copy(network)
-
-    layers_to_pop = {
-        "centerPhoneme",
-        "stateId",
-        "centerState",
-        "pastLabel",
-        "popFutureLabel",
-        "futureLabel",
-        "classes_",
-    } - set(except_layers or [])
-    for k in layers_to_pop:
-        network.pop(k, None)
-
-    for layer in network.values():
-        layer.pop("target", None)
-        layer.pop("loss", None)
-        layer.pop("loss_scale", None)
-        layer.pop("loss_opts", None)
-
-    return network
-
-
-def remove_label_pops_and_losses_from_returnn_config(
-    cfg: returnn.ReturnnConfig, except_layers: typing.Optional[typing.Iterable[str]] = None
-) -> returnn.ReturnnConfig:
-    cfg = copy.deepcopy(cfg)
-    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
-
-    for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
-        cfg.config["extern_data"].pop(k, None)
-
-    chk_cfg = cfg.config.get("chunking", None)
-    if isinstance(chk_cfg, tuple):
-        cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
-
-    return cfg

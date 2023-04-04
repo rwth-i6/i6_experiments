@@ -1,6 +1,6 @@
 import typing
 
-from sisyphus import tk, Job, Task
+from sisyphus import Job, Task
 
 
 K = typing.TypeVar("K")
@@ -20,11 +20,7 @@ class ComputeArgminJob(Job, typing.Generic[K, V]):
         yield Task("run", mini_task=True)
 
     def run(self):
-        def get(v):
-            val = self.dict.get(v)
-            return val.get() if isinstance(val, tk.Variable) else val
-
-        argmin = min(self.dict, key=get)
+        argmin = min(self.dict, key=self.dict.get)
 
         self.out_argmin.set(argmin)
         self.out_min.set(self.dict[argmin])
