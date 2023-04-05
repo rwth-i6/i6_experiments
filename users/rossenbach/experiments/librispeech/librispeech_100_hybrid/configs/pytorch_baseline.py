@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
 
-from i6_experiments.common.setups.serialization import Import, ExplicitHash
+from i6_experiments.common.setups.serialization import Import, ExplicitHash, ExternalImport
 from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchModel, Collection
 
 
@@ -93,6 +93,10 @@ def get_pytorch_returnn_configs(
     # ******************** blstm base ********************
 
     base_config = {
+        "extern_data": {
+            "data": {"dim": num_inputs},
+            "classes": {"dim": num_outputs, "sparse": True},
+        },
     }
     base_post_config = {
         "backend": "torch",
@@ -128,11 +132,13 @@ def get_pytorch_returnn_configs(
             "keep": evaluation_epochs,
         }
 
+    high_lr_config = copy.deepcopy(blstm_base_config)
+    high_lr_config["learning_rates"] = list(np.linspace(2.5e-4, 3e-3, 50)) + list(np.linspace(3e-3, 2.5e-4, 50))
 
     # those are hashed
     pytorch_package =  PACKAGE + ".pytorch_networks"
 
-    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
+    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, use_tracing=False, use_custom_engine=False, use_espnet=False):
         model_type = net_kwargs.pop("model_type")
         pytorch_model_import = Import(
             PACKAGE + ".pytorch_networks.%s.Model" % model_type
@@ -149,10 +155,29 @@ def get_pytorch_returnn_configs(
             pytorch_train_step,
             pytorch_model,
         ]
-        if recognition:
-            pytorch_export = Import(
-                PACKAGE + ".pytorch_networks.%s.export" % model_type
+        if use_espnet:
+            from i6_core.tools.git import CloneGitRepositoryJob
+            espnet_path = CloneGitRepositoryJob(
+                url="https://github.com/espnet/espnet",
+                checkout_folder_name="espnet"
+            ).out_repository
+            espnet_path.hash_overwrite = "DEFAULT_ESPNET"
+            serializer_objects.insert(0, ExternalImport(espnet_path))
+        if use_custom_engine:
+            pytorch_engine = Import(
+                PACKAGE + ".pytorch_networks.%s.Engine" % model_type
             )
+            serializer_objects.append(pytorch_engine)
+        if recognition:
+            if use_tracing:
+                pytorch_export = Import(
+                    PACKAGE + ".pytorch_networks.%s.export_trace" % model_type,
+                    import_as="export"
+                )
+            else:
+                pytorch_export = Import(
+                    PACKAGE + ".pytorch_networks.%s.export" % model_type
+                )
             serializer_objects.append(pytorch_export)
         if explicit_hash:
             serializer_objects.append(ExplicitHash(explicit_hash))
@@ -174,6 +199,10 @@ def get_pytorch_returnn_configs(
         return blstm_base_returnn_config
 
     return {
-        "blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024"}),
-        "blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}),
+        #"blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024"}),
+        #"blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}),
+        #"blstm_oclr_v2_custom": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_custom_engine"}, use_custom_engine=True),
+        "blstm_oclr_v2_trace": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=True),#
+        "espnet_conformer_test": construct_from_net_kwargs(blstm_base_config, {"model_type": "espnet_conformer_test"},
+                                                         use_espnet=True),  #
     }
