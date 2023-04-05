@@ -112,7 +112,6 @@ class Import(SerializerObject):
         return sis_hash_helper(self.code_object)
 
 
-
 class ExternalImport(SerializerObject):
     """
     Import from e.g. a git repository. For imports within the recipes use "Import".
@@ -125,7 +124,7 @@ class ExternalImport(SerializerObject):
         self.import_path = import_path
 
     def get(self) -> str:
-        return f"sys.path.insert(0, \"{self.import_path.get()}\")\n"
+        return f'sys.path.insert(0, "{self.import_path.get()}")\n'
 
     def _sis_hash(self):
         return sis_hash_helper(self.import_path)

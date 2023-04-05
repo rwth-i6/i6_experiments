@@ -184,6 +184,7 @@ class HybridSystem(NnSystem):
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.crp[c_key].set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
             self.feature_flows[c_key] = c_data.feature_flow
             self.feature_scorers[c_key] = {}
             if c_data.stm is not None:
@@ -297,7 +298,9 @@ class HybridSystem(NnSystem):
         dev_data = self.cv_input_data[cv_corpus_key]
 
         train_crp = train_data.get_crp()
+        train_crp.set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
         dev_crp = dev_data.get_crp()
+        dev_crp.set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
 
         assert train_data.feature_flow == dev_data.feature_flow
         assert train_data.features == dev_data.features
