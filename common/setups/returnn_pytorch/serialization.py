@@ -64,6 +64,8 @@ class PyTorchModel(SerializerObject):
         return sis_hash_helper(h)
 
 
+
+
 class Collection(DelayedBase):
     """
     A helper class to serialize a RETURNN config with returnn_common elements.
