@@ -136,6 +136,7 @@ class RasrFeatureToHDF(Job):
     if isinstance(feature_path, tk.Path):
         feature_path = feature_path.get_path()
     feature_cache = FileArchive(feature_path)
+
     out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
 
     # root

@@ -1361,6 +1361,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- CaRT ----------
             if step_name.startswith("cart"):
+
                 self.cart_questions = step_args.cart_questions
                 for trn_c in self.train_corpora:
                     self.cart_and_lda(
