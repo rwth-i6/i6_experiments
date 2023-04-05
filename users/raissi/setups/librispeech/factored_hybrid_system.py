@@ -342,11 +342,12 @@ class FactoredHybridSystem(NnSystem):
         sys_in.feature_flows = self.feature_flows[corpus_key]
         sys_in.features = self.feature_caches[corpus_key]
 
+        """
         for feat_name in extract_features:
             tk.register_output(
                 f"features/{corpus_key}_{feat_name}_features.bundle",
                 self.feature_bundles[corpus_key][feat_name],
-            )
+            )"""
 
 
         return sys_in

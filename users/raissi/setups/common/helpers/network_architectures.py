@@ -844,9 +844,9 @@ def get_bw_params_for_monophone_noprior(csp, returnn_config, loss_wrt_to_act_in=
     config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = False
     config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = normalize_lemma_scores
     # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
 
     # additional config
     config._update(extra_config)
