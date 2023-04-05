@@ -14,6 +14,7 @@ def get_label_info(
         'n_contexts': 42,
         'ph_emb_size': ph_emb_size,
         'st_emb_size': st_emb_size,
+        'sil_id': 0,
         'state_tying': 'monophone-no-tying-dense', #no-tying-dense for decoding
         'use_word_end_classes': use_word_end_classes,
         'use_boundary_classes': use_boundary_classes,

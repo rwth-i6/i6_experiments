@@ -87,7 +87,7 @@ def add_delta_blstm_(network, name, l2=0.01, source_layer=None):
     return network
 
 
-def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_boundary_classes=True, n_contexts=47, n_states_per_phone=3,
+def get_common_subnetwork_for_targets_with_blstm_old_tying(layers, dropout, l2, use_boundary_classes=True, n_contexts=47, n_states_per_phone=3,
                                                  unit_type="nativelstm2",
                                                  specaugment=False, is_min_duration=False, use_word_end_classes=False):
     acousticNet = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
@@ -157,6 +157,38 @@ def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_bounda
                                           "eval": f"(source(0)*{n_states_per_phone})+source(1)", "register_as_extern_data": "centerState",
                                           "out_type": {'dim': n_contexts * n_states_per_phone, 'dtype': 'int32', 'sparse': True}}
     
+    return acousticNet
+
+
+def get_common_subnetwork_for_targets_with_blstm(layers, dropout, l2, use_boundary_classes=True, n_contexts=47,
+                                                 n_states_per_phone=3,
+                                                 unit_type="nativelstm2",
+                                                 specaugment=False, is_min_duration=False, use_word_end_classes=False):
+
+    #toDo: boundary class and minimum duration
+    acousticNet = blstm_network(layers, dropout, l2, unit_type=unit_type, specaugment=specaugment)
+
+
+    acousticNet["futureLabel"] = {"class": "eval", "from": "data:classes",
+                                  "eval": f"tf.math.floormod(source(0), {n_contexts})",
+                                  "register_as_extern_data": "futureLabel",
+                                  "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
+
+    acousticNet["popFutureLabel"] = {"class": "eval", "from": "data:classes",
+                                     "eval": f"tf.math.floordiv(source(0), {n_contexts})",
+                                     "out_type": {'dim': (n_contexts ** 2 * n_states_per_phone), 'dtype': 'int32', 'sparse': True}}
+
+    acousticNet["pastLabel"] = {"class": "eval", "from": "popFutureLabel",
+                                "eval": f"tf.math.floormod(source(0), {n_contexts})",
+                                "register_as_extern_data": "pastLabel",
+                                "out_type": {'dim': n_contexts, 'dtype': 'int32', 'sparse': True}}
+
+    acousticNet["centerState"] = {"class": "eval", "from": "popFutureLabel",
+                                   "eval": f"tf.math.floordiv(source(0), {n_contexts})",
+                                   "out_type": {'dim':  n_contexts * n_states_per_phone * (int(use_word_end_classes)+1), 'dtype': 'int32',
+                                                'sparse': True}}
+
+
     return acousticNet
 
 
@@ -654,16 +686,13 @@ def get_bw_params_for_cartfree(csp, returnn_config, output_names, loss_wrt_to_ac
     # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
     config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = False
     config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = True
-    # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
+    # neural_network_trainer.alignment_fsa_exporter
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
 
     # additional config
     config._update(extra_config)
     post_config._update(extra_post_config)
-
-    config["neural-network-trainer"]["*"]["seed"] = 29
-    config["neural-network-trainer"]["*"]["corpus"]["select-partition"] = 5
 
     additional_sprint_config_files = {'fastbw': config}
     additional_sprint_post_config_files = {'fastbw': post_config}
@@ -671,7 +700,8 @@ def get_bw_params_for_cartfree(csp, returnn_config, output_names, loss_wrt_to_ac
     return returnn_config, additional_sprint_config_files, additional_sprint_post_config_files
 
 
-def get_bw_params_for_monophone(csp, returnn_config, loss_wrt_to_act_in=False,
+
+def get_bw_params_for_monophone (crp, returnn_config, loss_wrt_to_act_in=False,
                                 am_scale=1.0, prior_scale=1.0, tdp_scale=1.0,
                                 import_model=None, exp_average=0.001,
                                 out='center-output', fix_tdp_bug=False, fixed_prior=None, normalize_lemma_scores=True,
@@ -711,7 +741,7 @@ def get_bw_params_for_monophone(csp, returnn_config, loss_wrt_to_act_in=False,
                                                     'from': inputs,
                                                     'tdp_scale': tdp_scale}
         returnn_config.config['network']["fast_bw"]['sprint_opts'] = {
-            "sprintExecPath": RasrCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
+            "sprintExecPath": RasrCommand.select_exe(crp.nn_trainer_exe, 'nn-trainer'),
             "sprintConfigStr": "--config=fastbw.config",
             "sprintControlConfig": {"verbose": True},
             "usePythonSegmentOrder": False,
@@ -737,97 +767,7 @@ def get_bw_params_for_monophone(csp, returnn_config, loss_wrt_to_act_in=False,
                'acoustic_model': [
                    'neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model']
                }
-    config, post_config = sp.build_config_from_mapping(csp, mapping)
-    post_config['*'].output_channel.file = 'fastbw.log'
-
-    # Define action
-    config.neural_network_trainer.action = 'python-control'
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = False
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = normalize_lemma_scores
-    # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
-    config.neural_network_trainer.alignment_fsa_exporter.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
-
-    # additional config
-    config._update(extra_config)
-    post_config._update(extra_post_config)
-
-    additional_sprint_config_files = {'fastbw': config}
-    additional_sprint_post_config_files = {'fastbw': post_config}
-
-    return returnn_config, additional_sprint_config_files, additional_sprint_post_config_files
-
-
-
-def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in=False,
-                                am_scale=1.0, prior_scale=1.0, tdp_scale=1.0,
-                                import_model=None, exp_average=0.001,
-                                out='center-output', fix_tdp_bug=False, fixed_prior=None, normalize_lemma_scores=True,
-                                extra_config=None, extra_post_config=None):
-    if returnn_config.config['use_tensorflow']:
-        inputs = []
-        out_denot = out.split('-')[0]
-        # prior calculation
-        accu_name = ("_").join(['acc-prior', out_denot])
-        if fixed_prior is None:
-            returnn_config.config['network'][accu_name] = {'class': 'accumulate_mean',
-                                                        'exp_average': exp_average,
-                                                        'from': out,
-                                                        'is_prob_distribution': True}
-        else:
-            returnn_config.config['network'][accu_name] = {'class': 'constant',
-                                                        'dtype': 'float32',
-                                                        'value': fixed_prior}
-
-        comb_name = ("_").join(['comb-prior', out_denot])
-        inputs.append(comb_name)
-        returnn_config.config['network'][comb_name] = {'class': 'combine',
-                                                    'kind': 'eval',
-                                                    'eval': 'am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )',
-                                                    'eval_locals': {'am_scale': am_scale,
-                                                                    'prior_scale': prior_scale},
-                                                    'from': [out, accu_name]}
-
-        returnn_config.config['network']['output_bw'] = {'class': 'copy',
-                                                      'from': out,
-                                                      'loss': 'via_layer',
-                                                      'loss_opts': {'align_layer': 'fast_bw',
-                                                                    'loss_wrt_to_act_in': loss_wrt_to_act_in},
-                                                      'loss_scale': 1.0}
-        returnn_config.config['network']['fast_bw'] = {'class': 'fast_bw',
-                                                    'align_target': 'sprint',
-                                                    'from': inputs,
-                                                    'tdp_scale': tdp_scale}
-        returnn_config.config['network']["fast_bw"]['sprint_opts'] = {
-            "sprintExecPath": RasrCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
-            "sprintConfigStr": "--config=fastbw.config",
-            "sprintControlConfig": {"verbose": True},
-            "usePythonSegmentOrder": False,
-            "numInstances": 1}
-
-
-    else:  # Use Theano
-        assert False, "Please set use_tensorflow to True in your config."
-
-    if 'chunking' in returnn_config.config:
-        del returnn_config.config['chunking']
-    if 'pretrain' in returnn_config.config and import_model is not None:
-        del returnn_config.config['pretrain']
-
-    # start training from existing model
-    if import_model is not None:
-        returnn_config.config['import_model_train_epoch1'] = import_model
-
-    # Create additional Sprint config file to compute losses
-    mapping = {'corpus': 'neural-network-trainer.corpus',
-               'lexicon': [
-                   'neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon'],
-               'acoustic_model': [
-                   'neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model']
-               }
-    config, post_config = sp.build_config_from_mapping(csp, mapping)
+    config, post_config = sp.build_config_from_mapping(crp, mapping)
     post_config['*'].output_channel.file = 'fastbw.log'
 
     # Define action
@@ -838,7 +778,6 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
     # neural_network_trainer.alignment_fsa_exporter.alignment-fsa-exporter
     config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = True
     config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = True
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_tdp_leaving_epsilon_arc = fix_tdp_bug
 
     # additional config
     config._update(extra_config)
@@ -852,7 +791,7 @@ def get_bw_params_for_monophone_debugged(csp, returnn_config, loss_wrt_to_act_in
 
 
 
-def get_bw_params_for_monophone_noprior(csp, crnn_config, loss_wrt_to_act_in=False,
+def get_bw_params_for_monophone_noprior(crp, crnn_config, loss_wrt_to_act_in=False,
                                 am_scale=1.0, tdp_scale=1.0,
                                 import_model=None, out='center-output', fix_tdp_bug=False, normalize_lemma_scores=True,
                                 extra_config=None, extra_post_config=None):
@@ -880,7 +819,7 @@ def get_bw_params_for_monophone_noprior(csp, crnn_config, loss_wrt_to_act_in=Fal
                                                     'from': inputs,
                                                     'tdp_scale': tdp_scale}
         crnn_config.config['network']["fast_bw"]['sprint_opts'] = {
-            "sprintExecPath": SprintCommand.select_exe(csp.nn_trainer_exe, 'nn-trainer'),
+            "sprintExecPath": SprintCommand.select_exe(crp.nn_trainer_exe, 'nn-trainer'),
             "sprintConfigStr": "--config=fastbw.config",
             "sprintControlConfig": {"verbose": True},
             "usePythonSegmentOrder": False,
@@ -906,7 +845,7 @@ def get_bw_params_for_monophone_noprior(csp, crnn_config, loss_wrt_to_act_in=Fal
                'acoustic_model': [
                    'neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model']
                }
-    config, post_config = sp.build_config_from_mapping(csp, mapping)
+    config, post_config = sp.build_config_from_mapping(crp, mapping)
     post_config['*'].output_channel.file = 'fastbw.log'
 
     # Define action
@@ -922,9 +861,6 @@ def get_bw_params_for_monophone_noprior(csp, crnn_config, loss_wrt_to_act_in=Fal
     # additional config
     config._update(extra_config)
     post_config._update(extra_post_config)
-
-    # config["neural-network-trainer"]["*"]["seed"] = 29
-    # config["neural-network-trainer"]["*"]["corpus"]["select-partition"] = 5
 
     additional_sprint_config_files = {'fastbw': config}
     additional_sprint_post_config_files = {'fastbw': post_config}

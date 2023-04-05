@@ -31,7 +31,8 @@ class SystemInput:
         chunk_size=348,
     ):
         """
-        dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
+        Independently from an existing system, stores all info that can be used for bootstrapping
+        a hybrid system
 
         :param name:
         :param feature_flow_key:
