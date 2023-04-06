@@ -33,6 +33,7 @@ from .util import (
     RasrSteps,
     NnForcedAlignArgs,
     ReturnnTrainingJobArgs,
+    AllowedReturnnTrainingData,
 )
 
 # -------------------- Init --------------------
@@ -625,5 +626,31 @@ class HybridSystem(NnSystem):
                 self.run_forced_align_step(step_args)
 
 
-def returnn_training(returnn_config: returnn.ReturnnConfig, training_args: ReturnnTrainingJobArgs):
+def returnn_training(
+    name: str,
+    returnn_config: returnn.ReturnnConfig,
+    training_args: ReturnnTrainingJobArgs,
+    train_data: AllowedReturnnTrainingData,
+    cv_data: Optional[AllowedReturnnTrainingData] = None,
+    additional_data: Optional[Dict[str, AllowedReturnnTrainingData]] = None,
+) -> returnn.ReturnnTrainingJob:
     assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+    config = copy.deepcopy(returnn_config)
+
+    config.config["train"] = train_data if isinstance(train_data, Dict) else train_data.get()
+    if cv_data is not None:
+        config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get()
+    if additional_data is not None:
+        config.config["eval_datasets"] = {}
+        for name, data in additional_data.items():
+            config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get()
+
+    returnn_training_job = returnn.ReturnnTrainingJob(
+        returnn_config=config,
+        **asdict(training_args),
+    )
+    returnn_training_job.add_alias(f"nn_train/{name}")
+    tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)
+
+    return returnn_training_job
