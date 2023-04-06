@@ -13,6 +13,7 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.tools.audio import compile_ffmpeg_binary
 from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 from i6_experiments.common.tools.sctk import compile_sctk
+from i6_experiments.users.vieting.tools.conda import InstallMinicondaJob, CreateCondaEnvJob
 
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
@@ -29,11 +30,27 @@ SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 # SCTK_BINARY_PATH = compile_sctk()  # use most recent SCTK
 SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 
-
-RETURNN_EXE = tk.Path(
-    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
-    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+conda = InstallMinicondaJob()
+packages = {
+    "numpy": "==1.23.5",
+    "tensorflow": "=2.3",
+    "pysoundfile": "==0.11.0",
+    "h5py": "==3.7.0",
+    "typing": "==3.10.0.0",
+    "black": "==22.3.0",
+    "flask": "==2.2.2",
+    "ipdb": "==0.13.11",
+    "tqdm": "==4.65.0",
+}
+conda_env_job = CreateCondaEnvJob(
+    conda.out_conda_exe, python_version="3.10", channels=["conda-forge"], packages=packages,
 )
+conda_env_job.add_alias("tools/conda_envs/returnn_training")
+RETURNN_EXE = conda_env_job.out_env_exe
+# RETURNN_EXE = tk.Path(
+#     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+#     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+# )
 RETURNN_CPU_EXE = tk.Path(
     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
