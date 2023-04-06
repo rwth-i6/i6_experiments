@@ -1,14 +1,14 @@
 import copy
 from sisyphus import tk, gs
 
-from .data import get_corpus_data_inputs_newcv
+from .data import get_corpus_data_inputs_oggzip
 from .baseline_args_jingjing import get_nn_args as get_nn_args_jingjing
 
 import i6_core.rasr as rasr
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
-from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT
+from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE
 
 
 def run_gmm_system_from_common():
@@ -34,7 +34,7 @@ def run_hybrid_baseline_jingjing():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs_newcv(gmm_system)
+    ) = get_corpus_data_inputs_oggzip(gmm_system, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
 
     nn_args = get_nn_args_jingjing(num_epochs=260, peak_lr=peak_lr)
     nn_args.training_args["partition_epochs"] = {"train": 6, "dev": 1}
