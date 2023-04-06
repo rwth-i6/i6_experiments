@@ -32,6 +32,7 @@ from .util import (
     NnRecogArgs,
     RasrSteps,
     NnForcedAlignArgs,
+    ReturnnTrainingJobArgs,
 )
 
 # -------------------- Init --------------------
@@ -622,3 +623,7 @@ class HybridSystem(NnSystem):
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced") or step_name.startswith("align"):
                 self.run_forced_align_step(step_args)
+
+
+def returnn_training(returnn_config: returnn.ReturnnConfig, training_args: ReturnnTrainingJobArgs):
+    assert isinstance(returnn_config, returnn.ReturnnConfig)
