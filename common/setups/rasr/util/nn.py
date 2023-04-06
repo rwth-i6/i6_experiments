@@ -170,9 +170,9 @@ class OggZipHdfDataInput:
         :param targets:
         :param partition_epoch:
         :param seq_ordering:
-        :param ogg_args
-        :param meta_args
-        :param acoustic_mixtures
+        :param ogg_args: parameters for the `OggZipDataset`.
+        :param meta_args: parameters for the `MetaDataset`.
+        :param acoustic_mixtures: path to a RASR acoustic mixture file
         """
         self.oggzip_files = oggzip_files
         self.alignments = alignments
