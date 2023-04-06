@@ -2,6 +2,7 @@ import numpy as np
 
 from i6_core import corpus as corpus_recipe
 from i6_core import text
+from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.lexicon.allophones import DumpStateTyingJob
 from i6_core.returnn.hdf import RasrAlignmentDumpHDFJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
@@ -128,8 +129,16 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
         data_type=np.int16,
         returnn_root=returnn_root,
     )
+    corpus_ogg_job = BlissChangeEncodingJob(
+        corpus_file=train_corpus_path,
+        output_format="ogg",
+        codec="libvorbis",
+        sample_rate=8000,
+        recover_duration=False,
+    )
     ogg_zip_job = BlissToOggZipJob(
-        train_corpus_path,
+        corpus_ogg_job.out_corpus,
+        no_conversion=True,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
     )
