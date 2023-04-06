@@ -32,18 +32,18 @@ SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 
 conda = InstallMinicondaJob()
 packages = {
-    "numpy": "==1.23.5",
-    "tensorflow": "=2.3",
-    "pysoundfile": "==0.11.0",
-    "h5py": "==3.7.0",
-    "typing": "==3.10.0.0",
+    "numpy": "==1.18.5",
+    "tensorflow": "==2.3.0",
+    "pysoundfile": "==0.10.2",
+    "h5py": "==2.10.0",
+    "typing": "==3.7.4.3",
     "black": "==22.3.0",
-    "flask": "==2.2.2",
-    "ipdb": "==0.13.11",
-    "tqdm": "==4.65.0",
+    "flask": "==1.1.1",
+    "ipdb": "==0.13.3",
+    "tqdm": "==4.61.2",
 }
 conda_env_job = CreateCondaEnvJob(
-    conda.out_conda_exe, python_version="3.10", channels=["conda-forge"], packages=packages,
+    conda.out_conda_exe, python_version="3.8", channels=["conda-forge"], packages=packages,
 )
 conda_env_job.add_alias("tools/conda_envs/returnn_training")
 RETURNN_EXE = conda_env_job.out_env_exe
