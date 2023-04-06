@@ -14,7 +14,7 @@ from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT
 def run_gmm_system_from_common():
     from ...gmm.baseline.baseline_config import run_switchboard_baseline_ldc_v5
 
-    system = run_switchboard_baseline_ldc_v5()
+    system = run_switchboard_baseline_ldc_v5(recognition=False)
     return system
 
 

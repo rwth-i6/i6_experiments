@@ -13,7 +13,8 @@ from .default_tools import RASR_BINARY_PATH
 
 @tk.block(name="SWDB_LDC_v5")
 def run_switchboard_baseline_ldc_v5(
-        alias_prefix="baselines/switchboard/gmm_ldc_v5/",
+    alias_prefix="baselines/switchboard/gmm_ldc_v5/",
+    recognition=True,
 ):
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
@@ -31,7 +32,8 @@ def run_switchboard_baseline_ldc_v5(
 
     final_output_args = OutputArgs("final")
     final_output_args.define_corpus_type("switchboard", "train")
-    final_output_args.define_corpus_type("hub5e00", "dev")
+    if recognition:
+        final_output_args.define_corpus_type("hub5e00", "dev")
     #final_output_args.define_corpus_type("dev-other", "dev")
     # enable this if you want to create features for the following training, e.g. Hybrid
     final_output_args.add_feature_to_extract("gt")
@@ -54,8 +56,8 @@ def run_switchboard_baseline_ldc_v5(
     system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=corpus_data.train_data,
-        dev_data=corpus_data.dev_data,
-        test_data=corpus_data.test_data,
+        dev_data=corpus_data.dev_data if recognition else {},
+        test_data=corpus_data.test_data if recognition else {},
     )
     system.run(steps)
 
