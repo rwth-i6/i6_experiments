@@ -3,7 +3,7 @@ import numpy as np
 from sisyphus import tk, gs
 
 from i6_core.tools.git import CloneGitRepositoryJob
-
+from i6_core.features.common import samples_flow
 from i6_experiments.common.setups.rasr.util import RasrSteps, OggZipHdfDataInput
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
@@ -24,8 +24,9 @@ from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hyb
 
 def run_gmm_system():
     from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.gmm_baseline import run_librispeech_100_common_baseline
+    flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
     system = run_librispeech_100_common_baseline(
-        extract_additional_rasr_features=get_feature_extraction_args()
+        extract_additional_rasr_features={"samples": {"feature_flow": flow}}
     )
     return system
 
@@ -42,25 +43,22 @@ def get_ls100_oggzip_hdf_data():
     from i6_core.lexicon.allophones import DumpStateTyingJob
     state_tying = DumpStateTyingJob(gmm_system.outputs["train-clean-100"]["final"].crp)
     train_align_job = RasrAlignmentDumpHDFJob(
-        alignment_caches=gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths,
-        # state_tying_file=gmm_system.outputs["train-clean-100"]["final"].crp.acoustic_model_config.state_tying.file,
+        alignment_caches=gmm_system.outputs["train-clean-100"]["final"].alignments.hidden_paths,  # TODO: needs to be list
         state_tying_file=state_tying.out_state_tying,
         allophone_file=gmm_system.outputs["train-clean-100"]["final"].crp.acoustic_model_post_config.allophones.add_from_file,
         data_type=np.int16,
         returnn_root=returnn_root,
     )
-    import ipdb
-    ipdb.set_trace()
+    # import ipdb
+    # ipdb.set_trace()
 
     ogg_zip_dict = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)
     ogg_zip_base_args = dict(
-        # alignments=tk.Path("/work/asr3/vieting/setups/librispeech/dependencies/train.hdf"),
         alignments=train_align_job.out_hdf_files,
         context_window={"classes": 1, "data": 400},
-        audio={'features': 'raw', 'peak_normalization': True, 'preemphasis': None},
-        # meta_a"rgs={
-        #     "seq_list_file": tk.Path("/u/vieting/setups/librispeech/20230328_wav2vec2/dependencies/segment_list.pkl")
-        # },"
+        audio={"features": "raw", "peak_normalization": True, "preemphasis": None},
+        meta_args={"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}},
+        acoustic_mixtures=gmm_system.outputs["train-clean-100"]["final"].acoustic_mixtures,
     )
     nn_data_inputs = {}
     nn_data_inputs["train"] = OggZipHdfDataInput(
@@ -89,7 +87,7 @@ def run_hybrid_baseline_pytorch():
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
 
-    nn_args = get_pytorch_nn_args(num_epochs=125, debug=True, use_rasr_returnn_training=False)
+    nn_args = get_pytorch_nn_args(num_epochs=10, debug=True, use_rasr_returnn_training=False)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
@@ -101,7 +99,6 @@ def run_hybrid_baseline_pytorch():
         "torchaudio": "==2.0.0",
         "torchdata": "==0.6.0",
         "pytorch-cuda": "==11.7",
-        # "cudnn": "",
         "pysoundfile": "==0.11.0",
         "matplotlib": "==3.7.1",
         "h5py": "==3.7.0",
@@ -138,13 +135,20 @@ def run_hybrid_baseline_pytorch():
         rasr_binary_path=RASR_BINARY_PATH_APPTEK_APPTAINER)
 
     data = get_ls100_oggzip_hdf_data()
+    (
+        nn_train_data_inputs,
+        nn_cv_data_inputs,
+        nn_devtrain_data_inputs,
+        nn_dev_data_inputs,
+        nn_test_data_inputs,
+    ) = get_corpus_data_inputs(gmm_system)
 
     lbs_nn_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data={"train-clean-100.train": data["train"]},
         cv_data={"train-clean-100.cv": data["cv"]},
         # devtrain_data={"train-clean-100.devtrain": data["devtrain"]},
-        # dev_data=nn_dev_data_inputs,
+        dev_data=nn_dev_data_inputs,
         # test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["train-clean-100.train", "train-clean-100.cv"])],
     )
