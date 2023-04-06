@@ -24,38 +24,37 @@ sys.setrecursionlimit(3000)
 
 
 def get_nn_args(
-    num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=2e-3
+    num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=1e-3
 ):
     evaluation_epochs = list(np.arange(num_epochs, num_epochs + 1, 10))
 
-    returnn_configs = get_returnn_configs_jingjing(
-        num_inputs=40,
+    returnn_configs = get_returnn_config(
+        num_inputs=1,
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
         extra_exps=extra_exps,
         peak_lr=peak_lr,
+        num_epochs=num_epochs,
     )
 
-    returnn_recog_configs = get_returnn_configs_jingjing(
-        num_inputs=40,
+    returnn_recog_configs = get_returnn_config(
+        num_inputs=1,
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
         recognition=True,
         extra_exps=extra_exps,
         peak_lr=peak_lr,
+        num_epochs=num_epochs,
     )
 
     training_args = {
-        "log_verbosity": 5,
+        "log_verbosity": 4,
         "num_epochs": num_epochs,
-        "num_classes": num_outputs,
         "save_interval": 1,
         "keep_epochs": None,
         "time_rqmt": 168,
         "mem_rqmt": 7,
         "cpu_rqmt": 3,
-        "partition_epochs": {"train": 6, "dev": 1},
-        "use_python_control": False,
     }
     recognition_args = {
         "hub5e00": {
@@ -101,14 +100,16 @@ def get_nn_args(
     return nn_args
 
 
-def get_returnn_configs_jingjing(
+def get_returnn_config(
     num_inputs: int,
     num_outputs: int,
     evaluation_epochs: List[int],
-    num_epochs: int = 240,
-    recognition=False,
-    extra_exps=False,
-    peak_lr=2e-3,
+    peak_lr: float,
+    num_epochs: int,
+    batch_size: int = 10000,
+    sample_rate: int = 8000,
+    recognition: bool = False,
+    extra_exps: bool = False,
 ):
     # ******************** blstm base ********************
 
@@ -133,18 +134,17 @@ def get_returnn_configs_jingjing(
         }
 
     from .reduced_dim import network
+    network = copy.deepcopy(network)
+    if not recognition:
+        network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
-    network_jingjing = copy.deepcopy(network)
-
-    network_jingjing["source"] = specaug_layer_jingjing(in_layer=["data"])
-
-    prolog_jingjing = get_funcs_jingjing()
+    prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
-            "batch_size": 14000,  # {"classes": batch_size, "data": batch_size},
-            # "batching": 'sort_bin_shuffle:.64',
-            "chunking": "500:250",
+            "network": network,
+            "batch_size": {"classes": batch_size, "data": batch_size * sample_rate},
+            "chunking": ({"classes": 500, "data": 500 * sample_rate}, {"classes": 250, "data": 250 * sample_rate}),
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.0,
             "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
@@ -159,8 +159,6 @@ def get_returnn_configs_jingjing(
             "newbob_multi_update_interval": 1,
         }
     )
-    conformer_jingjing_config = copy.deepcopy(conformer_base_config)
-    conformer_jingjing_config["network"] = network_jingjing
 
     def make_returnn_config(
         config,
@@ -187,12 +185,12 @@ def get_returnn_configs_jingjing(
             pprint_kwargs={"sort_dicts": False},
         )
 
-    conformer_jingjing_returnn_config = make_returnn_config(
-        conformer_jingjing_config,
+    conformer_base_returnn_config = make_returnn_config(
+        conformer_base_config,
         staged_network_dict=None,
-        python_prolog=prolog_jingjing,
+        python_prolog=prolog,
     )
 
     return {
-        "conformer_jingjing": conformer_jingjing_returnn_config,
+        "conformer_base": conformer_base_returnn_config,
     }

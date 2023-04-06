@@ -2,7 +2,7 @@ import copy
 from sisyphus import tk, gs
 
 from .data import get_corpus_data_inputs_oggzip
-from .baseline_args_jingjing import get_nn_args as get_nn_args_jingjing
+from .baseline_args import get_nn_args as get_nn_args_baseline
 
 import i6_core.rasr as rasr
 from i6_experiments.common.setups.rasr.util import RasrSteps
@@ -18,12 +18,8 @@ def run_gmm_system_from_common():
     return system
 
 
-def run_hybrid_baseline_jingjing():
-    peak_lr = 1e-3
-
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/{}".format(
-        str("%.0E" % peak_lr).replace("-", "_").replace("E", "e").replace(".", "")
-    )
+def run_baseline_gt():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
     gmm_system = run_gmm_system_from_common()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
@@ -34,29 +30,18 @@ def run_hybrid_baseline_jingjing():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs_oggzip(gmm_system, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+    ) = get_corpus_data_inputs_oggzip(
+        gmm_system, partition_epoch={"train": 6, "dev": 1}, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
 
-    nn_args = get_nn_args_jingjing(num_epochs=260, peak_lr=peak_lr)
-    nn_args.training_args["partition_epochs"] = {"train": 6, "dev": 1}
+    nn_args = get_nn_args_baseline(num_epochs=260)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
     # ******************** NN System ********************
 
-    returnn_exe = tk.Path(
-        "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
-        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
-    )
-    blas_lib = tk.Path(
-        "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
-        hash_overwrite="TF23_MKL_BLAS",
-    )
-
     hybrid_nn_system = HybridSystem(
         returnn_root=RETURNN_ROOT,
-        returnn_python_exe=returnn_exe,
-        blas_lib=blas_lib,
-        rasr_arch="linux-x86_64-standard",
+        returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
     )
     hybrid_nn_system.init_system(

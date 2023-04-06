@@ -80,7 +80,7 @@ def get_corpus_data_inputs_newcv(gmm_system):
     )
 
 
-def get_corpus_data_inputs_oggzip(gmm_system, returnn_root=None, returnn_python_exe=None):
+def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None, returnn_python_exe=None):
     """
 
     :param GmmSystem gmm_system:
@@ -129,8 +129,9 @@ def get_corpus_data_inputs_oggzip(gmm_system, returnn_root=None, returnn_python_
     )
 
     # nn data
+    assert set(partition_epoch.keys()) == {"train", "dev"}
     nn_train_data = OggZipHdfDataInput(
-        partition_epoch=6,  # TODO: get from args
+        partition_epoch=partition_epoch["train"],
         ogg_args={"segment_file": train_segments},
         **ogg_zip_base_args,
     )
@@ -139,6 +140,7 @@ def get_corpus_data_inputs_oggzip(gmm_system, returnn_root=None, returnn_python_
     }
 
     nn_cv_data = OggZipHdfDataInput(
+        partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": cv_segments},
         **ogg_zip_base_args,
@@ -148,6 +150,7 @@ def get_corpus_data_inputs_oggzip(gmm_system, returnn_root=None, returnn_python_
     }
 
     nn_devtrain_data = OggZipHdfDataInput(
+        partition_epoch=partition_epoch["dev"],
         seq_ordering="sorted_reverse",
         ogg_args={"segment_file": devtrain_segments},
         **ogg_zip_base_args,
