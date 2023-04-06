@@ -152,7 +152,7 @@ class OggZipHdfDataInput:
     def __init__(
         self,
         oggzip_files: List[tk.Path],
-        alignments: tk.Path,
+        alignments: List[tk.Path],
         context_window: Dict,
         audio: Dict,
         targets: Optional[str] = None,
@@ -193,7 +193,7 @@ class OggZipHdfDataInput:
             "datasets": {
                 "hdf": {
                     "class": "HDFDataset",
-                    "files": [self.alignments.get_path()],
+                    "files": self.alignments,
                     "use_cache_manager": True,
                 },
                 "ogg": {
