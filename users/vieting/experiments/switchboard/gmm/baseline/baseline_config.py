@@ -9,8 +9,7 @@ from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
 from . import baseline_args_v5
 from . import baseline_args_v6
 from .data import get_corpus_data_inputs
-
-from ..hybrid.switchboard.default_tools import RASR_BINARY_PATH
+from .default_tools import RASR_BINARY_PATH
 
 
 @tk.block(name="SWDB_LDC_v5")

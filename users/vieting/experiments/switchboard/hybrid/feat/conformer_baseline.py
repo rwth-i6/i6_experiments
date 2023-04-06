@@ -12,13 +12,14 @@ from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT
 
 
 def run_gmm_system_from_common():
-    from ...gmm_michel.baseline_config import run_switchboard_baseline_ldc_v5
+    from ...gmm.baseline.baseline_config import run_switchboard_baseline_ldc_v5
 
     system = run_switchboard_baseline_ldc_v5()
     return system
 
 
-def run_hybrid_baseline_jingjing(peak_lr):
+def run_hybrid_baseline_jingjing():
+    peak_lr = 1e-3
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/{}".format(
         str("%.0E" % peak_lr).replace("-", "_").replace("E", "e").replace(".", "")

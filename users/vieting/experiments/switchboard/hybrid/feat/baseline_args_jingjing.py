@@ -4,7 +4,6 @@ from typing import List
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
-
 from i6_experiments.common.setups.returnn_common.serialization import (
     DataInitArgs,
     DimInitArgs,
@@ -12,6 +11,10 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     Network,
     ExternData,
     Import,
+)
+from .specaug_jingjing import (
+    specaug_layer_jingjing,
+    get_funcs_jingjing,
 )
 
 RECUSRION_LIMIT = """
@@ -132,10 +135,6 @@ def get_returnn_configs_jingjing(
     from .reduced_dim import network
 
     network_jingjing = copy.deepcopy(network)
-    from ....spec_aug.legacy_specaug_jingjing import (
-        specaug_layer_jingjing,
-        get_funcs_jingjing,
-    )
 
     network_jingjing["source"] = specaug_layer_jingjing(in_layer=["data"])
 
