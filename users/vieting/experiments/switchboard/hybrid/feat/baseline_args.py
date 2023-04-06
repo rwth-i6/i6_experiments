@@ -111,8 +111,6 @@ def get_returnn_config(
     recognition: bool = False,
     extra_exps: bool = False,
 ):
-    # ******************** blstm base ********************
-
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
@@ -133,8 +131,10 @@ def get_returnn_config(
             "keep": evaluation_epochs,
         }
 
-    from .reduced_dim import network
+    from .network_helpers.reduced_dim import network
+    from .network_helpers.features import GammatoneNetwork
     network = copy.deepcopy(network)
+    network["features"] = GammatoneNetwork(sample_rate=8000).get_as_subnetwork()
     if not recognition:
         network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
