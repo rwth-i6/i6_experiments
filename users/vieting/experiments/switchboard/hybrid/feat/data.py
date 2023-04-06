@@ -93,6 +93,20 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
 
     all_segments = corpus_recipe.SegmentCorpusJob(
         train_corpus_path, 1
+    ).out_single_segment_files
+
+    blacklisted_segments = [
+		"switchboard-1/sw02986A/sw2986A-ms98-a-0013",
+        "switchboard-1/sw02663A/sw2663A-ms98-a-0022",
+        "switchboard-1/sw02691A/sw2691A-ms98-a-0017",
+        "switchboard-1/sw04091A/sw4091A-ms98-a-0063",
+        "switchboard-1/sw04103A/sw4103A-ms98-a-0022",
+        "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
+        "switchboard-1/sw04318A/sw4318A-ms98-a-0024",
+	]
+    all_segments = corpus_recipe.FilterSegmentsByListJob(
+        segment_files=all_segments,
+        filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
 
     splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
