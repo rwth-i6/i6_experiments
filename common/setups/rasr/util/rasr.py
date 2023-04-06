@@ -205,7 +205,8 @@ class RasrSteps:
     def get_step_names_as_list(self):
         return list(self._step_names_args.keys())
 
-    def get_non_gmm_steps_as_list(self):
+    @staticmethod
+    def get_non_gmm_steps_as_list():
         """
         Returns all steps that do not produce new mixtures/alignments
         """

@@ -15,6 +15,7 @@ __all__ = [
 import copy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
+from typing_extensions import NotRequired
 
 from sisyphus import tk
 
@@ -333,14 +334,17 @@ class ForcedAlignmentArgs(TypedDict):
     name: str
     target_corpus_keys: List[str]
     flow: Union[str, List[str], Tuple[str], rasr.FlagDependentFlowAttribute]
-    feature_scorer_corpus_key: str
-    scorer_model_key: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
-    dump_alignment: bool
+    train_corpus_keys: NotRequired[List[str]]
+    feature_scorer: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
+    scorer_index: NotRequired[int]
+    bliss_lexicon: NotRequired[Dict[str, Any]]
+    dump_alignment: NotRequired[bool]
+    rtf: NotRequired[float]
 
 
 class RecognitionArgs:
     """
-    stand alone recognition
+    stand-alone recognition
     """
 
     def __init__(self, name, recognition_args):
