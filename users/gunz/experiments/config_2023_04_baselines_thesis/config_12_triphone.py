@@ -254,18 +254,10 @@ def run_single(
         on_2080=False,
     )
 
-    if lr == "v7":
-        s.set_triphone_priors_returnn_rasr(
-            key="fh",
-            epoch=keep_epochs[-2],
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-        )
-    else:
-        s.set_graph_for_experiment("fh")
-        s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
-            "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
-        )
+    s.set_graph_for_experiment("fh")
+    s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
+        "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
+    )
 
     s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
