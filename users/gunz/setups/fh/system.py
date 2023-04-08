@@ -968,7 +968,7 @@ class FactoredHybridSystem(NnSystem):
             epoch,
             train_corpus_key=train_corpus_key,
             dev_corpus_key=dev_corpus_key,
-            returnn_config=returnn_config,
+            returnn_config=config,
             share=data_share,
         )
 
