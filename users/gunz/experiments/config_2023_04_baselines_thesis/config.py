@@ -11,6 +11,7 @@ RAISSI_ALIGNMENT = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/
 
 RASR_ROOT_FH_GUNZ = "/u/mgunz/src/fh_rasr/"
 RASR_ROOT_RS_RASR_GUNZ = "/u/mgunz/src/rs_rasr/"
+RASR_ROOT_BLSTM_COMPATIBLE_GUNZ = "/u/mgunz/src/rasr_tf1/"
 
 RETURNN_PYTHON_TF15 = "/u/mgunz/src/bin/returnn_tf1.15_launcher.sh"
 

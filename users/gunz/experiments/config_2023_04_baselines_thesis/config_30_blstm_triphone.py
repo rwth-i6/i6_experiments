@@ -44,6 +44,7 @@ from .config import (
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
+    RASR_ROOT_BLSTM_COMPATIBLE_GUNZ,
     RETURNN_PYTHON_TF15,
 )
 
@@ -51,7 +52,8 @@ RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH)
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
 RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
-BLSTM_FH_RASR_BINARY_PATH = tk.Path(os.path.join("/u/raissi/dev/rasr_github/rasr_tf1/arch", gs.RASR_ARCH))
+BLSTM_FH_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_BLSTM_COMPATIBLE_GUNZ, "arch", gs.RASR_ARCH))
+BLSTM_FH_RASR_BINARY_PATH.hash_overwrite = "BLSTM_FH_RASR_BINARY_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
