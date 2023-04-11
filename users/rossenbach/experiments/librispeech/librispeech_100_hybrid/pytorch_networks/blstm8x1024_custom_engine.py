@@ -1,8 +1,14 @@
-import time
+from random import random
 import torch
+import time
+from typing import Dict, Optional
 from torch import nn
 from torch.onnx import export as onnx_export
 from torchaudio.functional import mask_along_axis
+
+from returnn.torch.engine import Engine as TorchEngine
+from returnn.util import NumbersDict
+from returnn.log import log
 
 
 class Model(torch.nn.Module):
@@ -70,7 +76,7 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
 
     loss = nn.functional.cross_entropy(logits, targets_masked)
 
-    run_ctx.mark_as_loss(name="CE", loss=loss)
+    run_ctx.mark_as_loss(name="ce", loss=loss)
 
 
 def export(*, model: Model, model_filename: str):
@@ -111,5 +117,4 @@ def export_trace(*, model: Model, model_filename: str):
             "classes": {0: "batch", 1: "time"}
         }
     )
-
 

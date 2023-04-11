@@ -26,7 +26,7 @@ from ...setups.common.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext, PhonemeStateClasses
+from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_diphone_outputs,
@@ -50,9 +50,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -261,9 +261,9 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
-
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.diphone,

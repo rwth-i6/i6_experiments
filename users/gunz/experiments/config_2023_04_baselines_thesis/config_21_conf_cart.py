@@ -35,11 +35,11 @@ from .config import (
     CART_TREE_DI_NUM_LABELS,
     CART_TREE_TRI,
     CART_TREE_TRI_NUM_LABELS,
+    CONF_CART_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -48,9 +48,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -249,7 +249,7 @@ def run_single(
         output_layer_name="output",
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
@@ -258,12 +258,8 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=dataclasses.replace(
-                FH_DECODING_TENSOR_CONFIG,
-                in_encoder_output="output/output_batch_major",
-                in_seq_length="extern_data/placeholders/data/data_dim0_size",
-            ),
-            recompile_graph_for_feature_scorer=True,
+            tensor_map=CONF_CART_DECODING_TENSOR_CONFIG,
+            recompile_graph_for_feature_scorer=False,
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,

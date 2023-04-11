@@ -65,6 +65,8 @@ class Import(SerializerObject):
 
     When passed to the ReturnnCommonSerializer it will automatically detect the local package in case of
     `make_local_package_copy=True`, unless specific package paths are given.
+
+    For imports from external libraries, e.g. git repositories use "ExternalImport".
     """
 
     def __init__(
@@ -108,6 +110,24 @@ class Import(SerializerObject):
         if self.import_as and not self.ignore_import_as_for_hash:
             return sis_hash_helper({"code_object": self.code_object, "import_as": self.import_as})
         return sis_hash_helper(self.code_object)
+
+
+class ExternalImport(SerializerObject):
+    """
+    Import from e.g. a git repository. For imports within the recipes use "Import".
+
+    Should be added in the beginning.
+    """
+
+    def __init__(self, import_path: tk.Path):
+        super().__init__()
+        self.import_path = import_path
+
+    def get(self) -> str:
+        return f'sys.path.insert(0, "{self.import_path.get()}")\n'
+
+    def _sis_hash(self):
+        return sis_hash_helper(self.import_path)
 
 
 class CodeFromFunction(SerializerObject):

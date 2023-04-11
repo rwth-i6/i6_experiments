@@ -11,6 +11,7 @@ RAISSI_ALIGNMENT = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/
 
 RASR_ROOT_FH_GUNZ = "/u/mgunz/src/fh_rasr/"
 RASR_ROOT_RS_RASR_GUNZ = "/u/mgunz/src/rs_rasr/"
+RASR_ROOT_BLSTM_COMPATIBLE_GUNZ = "/u/mgunz/src/rasr_tf1/"
 
 RETURNN_PYTHON_TF15 = "/u/mgunz/src/bin/returnn_tf1.15_launcher.sh"
 
@@ -41,4 +42,10 @@ FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     out_right_context="right__output/output_batch_major",
     out_left_context="left__output/output_batch_major",
     out_center_state="center__output/output_batch_major",
+)
+CONF_CART_DECODING_TENSOR_CONFIG = dataclasses.replace(
+    FH_DECODING_TENSOR_CONFIG,
+    in_seq_length="extern_data/placeholders/classes/classes_dim0_size",
+    out_encoder_output="length_masked/output_batch_major",
+    out_center_state="output/output_batch_major",
 )

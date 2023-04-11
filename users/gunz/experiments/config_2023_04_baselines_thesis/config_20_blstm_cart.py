@@ -46,9 +46,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -352,7 +352,18 @@ def run_single(
         output_layer_name="output",
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    graph_config = copy.deepcopy(returnn_config)
+    graph_network = graph_config.config["network"]
+    graph_network["encoder-output"] = {
+        "class": "copy",
+        "from": ["lstm_fwd_6", "lstm_bwd_6"],
+        "register_as_extern_data": "encoder-output",
+        "n_out": 2 * blstm_size,
+    }
+    graph_network["output"]["from"] = "encoder-output"
+    s.set_graph_for_experiment("fh", override_cfg=graph_config)
+
+    # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
@@ -363,10 +374,12 @@ def run_single(
             gpu=False,
             tensor_map=dataclasses.replace(
                 FH_DECODING_TENSOR_CONFIG,
-                in_encoder_output="output/output_batch_major",
+                in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
                 in_seq_length="extern_data/placeholders/data/data_dim0_size",
+                out_encoder_output="encoder__output/output_batch_major",
+                out_center_state="output/output_batch_major",
             ),
-            recompile_graph_for_feature_scorer=True,
+            recompile_graph_for_feature_scorer=False,
             tf_library=[s.native_lstm2_job.out_op],
         )
         recognizer.recognize_count_lm(
