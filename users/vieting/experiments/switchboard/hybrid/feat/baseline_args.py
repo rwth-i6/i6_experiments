@@ -100,6 +100,22 @@ def get_nn_args(
     return nn_args
 
 
+def fix_network_for_sparse_output(net):
+    net = copy.deepcopy(net)
+    net.update({
+        "classes_int": {"class": "cast", "dtype": "int16", "from": "data:classes"},
+        "classes_squeeze": {"class": "squeeze", "axis": "F", "from": "classes_int"},
+        "classes_sparse": {
+            "class": "reinterpret_data", "from": "classes_squeeze", "set_sparse": True, "set_sparse_dim": 9001},
+    })
+    for layer in net:
+        if net[layer].get("target", None) == "classes":
+            net[layer]["target"] = "layer:classes_sparse"
+        if net[layer].get("size_base", None) == "data:classes":
+            net[layer]["size_base"] = "classes_sparse"
+    return net
+
+
 def get_returnn_config(
     num_inputs: int,
     num_outputs: int,
@@ -114,7 +130,8 @@ def get_returnn_config(
     base_config = {
         "extern_data": {
             "data": {"dim": num_inputs},
-            "classes": {"dim": num_outputs, "sparse": True},
+            "classes": {"dim": 1, "dtype": "int16"},
+            # "classes": {"dim": num_outputs, "sparse": True},  # alignment stored as data with F dim
         },
     }
     base_post_config = {
@@ -137,14 +154,18 @@ def get_returnn_config(
     network["features"] = GammatoneNetwork(sample_rate=8000).get_as_subnetwork()
     if not recognition:
         network["source"] = specaug_layer_jingjing(in_layer=["features"])
+    network = fix_network_for_sparse_output(network)
 
     prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
             "network": network,
-            "batch_size": {"classes": batch_size, "data": batch_size * sample_rate},
-            "chunking": ({"classes": 500, "data": 500 * sample_rate}, {"classes": 250, "data": 250 * sample_rate}),
+            "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
+            "chunking": (
+                {"classes": 500, "data": 500 * sample_rate // 100},
+                {"classes": 250, "data": 250 * sample_rate // 100},
+            ),
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.0,
             "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
