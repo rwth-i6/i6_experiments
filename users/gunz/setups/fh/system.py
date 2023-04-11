@@ -1,6 +1,7 @@
 __all__ = ["FactoredHybridSystem"]
 
 import copy
+import dataclasses
 import itertools
 import typing
 from typing import Dict, List, Optional, Union
