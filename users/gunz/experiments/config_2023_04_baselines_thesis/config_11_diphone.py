@@ -261,9 +261,9 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
-
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.diphone,
