@@ -19,11 +19,10 @@ from sisyphus import gs, tk, Path
 import i6_core.lib.corpus as corpus
 import i6_core.util as util
 
-
-
-
-#adapted from Chris M. Luescher
-class CreateRawTrialogBlissCorpusJob(Job):
+class CreateRawTrialogBlissCorpusJobV1(Job):
+    """
+    This is for the first deployment done in March 2023 with only 4 hours of recordings
+    """
     def __init__(
         self,
         audio_dir: str,

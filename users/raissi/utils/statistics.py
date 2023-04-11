@@ -9,9 +9,6 @@ from i6_core.lib import corpus
 from i6_core.rasr.command import RasrCommand
 from i6_core.util import uopen, get_val
 
-
-
-
 class PhonemeCounts(Job):
     def __init__(self, bliss_corpus):
         self.bliss_corpus = bliss_corpus
