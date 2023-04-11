@@ -30,27 +30,27 @@ SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 # SCTK_BINARY_PATH = compile_sctk()  # use most recent SCTK
 SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 
-conda = InstallMinicondaJob()
-packages = {
-    "numpy": "==1.18.5",
-    "tensorflow-gpu": "==2.4.1",
-    "pysoundfile": "==0.10.2",
-    "h5py": "==2.10.0",
-    "typing": "==3.7.4.3",
-    "black": "==22.3.0",
-    "flask": "==1.1.1",
-    "ipdb": "==0.13.3",
-    "tqdm": "==4.61.2",
-}
-conda_env_job = CreateCondaEnvJob(
-    conda.out_conda_exe, python_version="3.8", channels=["conda-forge"], packages=packages,
-)
-conda_env_job.add_alias("tools/conda_envs/returnn_training")
-RETURNN_EXE = conda_env_job.out_env_exe
-# RETURNN_EXE = tk.Path(
-#     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
-#     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+# conda = InstallMinicondaJob()
+# packages = {
+#     "numpy": "==1.18.5",
+#     "tensorflow-gpu": "==2.4.1",
+#     "pysoundfile": "==0.10.2",
+#     "h5py": "==2.10.0",
+#     "typing": "==3.7.4.3",
+#     "black": "==22.3.0",
+#     "flask": "==1.1.1",
+#     "ipdb": "==0.13.3",
+#     "tqdm": "==4.61.2",
+# }
+# conda_env_job = CreateCondaEnvJob(
+#     conda.out_conda_exe, python_version="3.8", channels=["conda-forge"], packages=packages,
 # )
+# conda_env_job.add_alias("tools/conda_envs/returnn_training")
+# RETURNN_EXE = conda_env_job.out_env_exe
+RETURNN_EXE = tk.Path(
+    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+)
 RETURNN_CPU_EXE = tk.Path(
     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
