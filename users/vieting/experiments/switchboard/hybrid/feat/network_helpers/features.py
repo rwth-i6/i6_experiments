@@ -20,16 +20,16 @@ class GammatoneNetwork(NetworkDict):
   """
   Wrapper class for subnetwork that extracts gammatone features
   """
-  def __init__(self, output_dim=50, sample_rate=16000, gt_filterbank_size=640, gt_filterbank_padding="valid",
-    temporal_integration_size=400, temporal_integration_strides=160, temporal_integration_padding="valid",
+  def __init__(self, output_dim=50, sample_rate=16000, gt_filterbank_size=0.04, gt_filterbank_padding="valid",
+    temporal_integration_size=0.025, temporal_integration_strides=None, temporal_integration_padding="valid",
     normalization="time", trainable=False, **kwargs):
     """
     :param int output_dim: gammatone feature output dimension
     :param int|float sample_rate: sampling rate of input waveform
-    :param int gt_filterbank_size: size of gammatone filterbank (in samples)
+    :param int gt_filterbank_size: size of gammatone filterbank (in seconds)
     :param str|int gt_filterbank_padding: padding for gammatone filterbank
-    :param int temporal_integration_size: size of filter for temporal integration
-    :param int temporal_integration_strides: strides of filter for temporal integration
+    :param int temporal_integration_size: size of filter for temporal integration (in seconds)
+    :param int|None temporal_integration_strides: strides of filter for temporal integration
     :param str temporal_integration_padding: padding for temporal integration
     :param str normalization: type of normalization.
       time: normalize mean and variance over time dim only
@@ -39,17 +39,19 @@ class GammatoneNetwork(NetworkDict):
     """
     assert gt_filterbank_padding in ["valid", "same"] or isinstance(gt_filterbank_padding, int), "Unknown padding"
     assert temporal_integration_padding in ["valid", "same"], "Unknown padding"
+    temporal_integration_size = int(temporal_integration_size * sample_rate)
+    temporal_integration_strides = temporal_integration_strides or sample_rate // 100
 
     self._trainable = trainable
     self._network = {
       "gammatone_filterbank": {
         "activation": "abs",
         "class": "conv",
-        "filter_size": (gt_filterbank_size,),
+        "filter_size": (int(gt_filterbank_size * sample_rate),),
         "forward_weights_init": {
           "class": "GammatoneFilterbankInitializer",
           "num_channels": output_dim,
-          "length": gt_filterbank_size / sample_rate,
+          "length": gt_filterbank_size,
           "sample_rate": sample_rate,
         },
         "n_out": output_dim,
