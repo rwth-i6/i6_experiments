@@ -105,13 +105,13 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
         "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
         "switchboard-1/sw04318A/sw4318A-ms98-a-0024",
 	]
-    all_segments = corpus_recipe.FilterSegmentsByListJob(
+    filtered_segments = corpus_recipe.FilterSegmentsByListJob(
         segment_files=all_segments,
         filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
 
     splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
-        all_segments, {"train": 1 - cv_size, "cv": cv_size}
+        filtered_segments, {"train": 1 - cv_size, "cv": cv_size}
     )
     train_segments = splitted_segments_job.out_segments["train"]
     cv_segments = splitted_segments_job.out_segments["cv"]
@@ -129,19 +129,14 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
         data_type=np.int16,
         returnn_root=returnn_root,
     )
-    corpus_ogg_job = BlissChangeEncodingJob(
-        corpus_file=train_corpus_path,
-        output_format="ogg",
-        codec="libvorbis",
-        sample_rate=8000,
-        recover_duration=False,
-    )
+    segments = corpus_recipe.SplitSegmentFileJob(all_segments[1], concurrent=50).out_segment_path
     ogg_zip_job = BlissToOggZipJob(
-        corpus_ogg_job.out_corpus,
-        no_conversion=True,
+        train_corpus_path,
+        segments=segments,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
     )
+    ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=train_align_job.out_hdf_files,
