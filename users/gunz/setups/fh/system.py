@@ -39,6 +39,7 @@ from .priors import (
     get_returnn_config_for_left_context_prior_estimation,
     get_returnn_configs_for_right_context_prior_estimation,
     JoinRightContextPriorsJob,
+    ReshapeCenterStatePriorsJob,
 )
 from .util.argmin import ComputeArgminJob
 from .util.hdf import SprintFeatureToHdf
@@ -1025,8 +1026,11 @@ class FactoredHybridSystem(NnSystem):
         for (ctx, job) in prior_jobs.items():
             job.add_alias(f"priors/{name}/{ctx}")
 
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
         results = [
-            ("center-state", prior_jobs["c"].out_prior_xml_file),
+            ("center-state", center_priors_xml),
             ("left-context", prior_jobs["l"].out_prior_xml_file),
         ]
         for context_name, file in results:
@@ -1034,7 +1038,7 @@ class FactoredHybridSystem(NnSystem):
             tk.register_output(xml_name, file)
 
         self.experiments[key]["priors"] = PriorInfo(
-            center_state_prior=PriorConfig(file=prior_jobs["c"].out_prior_xml_file, scale=0.0),
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=None,
         )
@@ -1094,11 +1098,14 @@ class FactoredHybridSystem(NnSystem):
         for (ctx, job) in prior_jobs.items():
             job.add_alias(f"priors/{name}/{ctx}")
 
+        center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
+        center_priors_xml = center_priors.out_prior_xml
+
         right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(right_configs))]
         right_prior_xml = JoinRightContextPriorsJob(right_priors, label_info=self.label_info).out_prior_xml
 
         results = [
-            ("center-state", prior_jobs["c"].out_prior_xml_file),
+            ("center-state", center_priors_xml),
             ("left-context", prior_jobs["l"].out_prior_xml_file),
             ("right-context", right_prior_xml),
         ]
@@ -1107,7 +1114,7 @@ class FactoredHybridSystem(NnSystem):
             tk.register_output(xml_name, file)
 
         self.experiments[key]["priors"] = PriorInfo(
-            center_state_prior=PriorConfig(file=prior_jobs["c"].out_prior_xml_file, scale=0.0),
+            center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
         )
