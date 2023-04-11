@@ -49,7 +49,9 @@ class GammatoneNetwork(NetworkDict):
         "forward_weights_init": {
           "class": "GammatoneFilterbankInitializer",
           "num_channels": output_dim,
-          "length": gt_filterbank_size / sample_rate},
+          "length": gt_filterbank_size / sample_rate,
+          "sample_rate": sample_rate,
+        },
         "n_out": output_dim,
         "padding": gt_filterbank_padding,
         "trainable": self._trainable,
