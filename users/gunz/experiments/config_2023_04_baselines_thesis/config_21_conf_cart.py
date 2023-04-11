@@ -48,9 +48,9 @@ from .config import (
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
