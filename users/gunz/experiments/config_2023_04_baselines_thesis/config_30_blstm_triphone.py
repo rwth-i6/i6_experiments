@@ -372,6 +372,7 @@ def run_single(
             gpu=False,
             tensor_map=FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=False,
+            tf_library=[s.native_lstm2_job.out_op],
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
