@@ -33,7 +33,7 @@ SCTK_BINARY_PATH.hash_overwrite = "SWITCHBOARD_DEFAULT_SCTK_BINARY_PATH"
 conda = InstallMinicondaJob()
 packages = {
     "numpy": "==1.18.5",
-    "tensorflow": "==2.3.0",
+    "tensorflow-gpu": "==2.4.1",
     "pysoundfile": "==0.10.2",
     "h5py": "==2.10.0",
     "typing": "==3.7.4.3",
