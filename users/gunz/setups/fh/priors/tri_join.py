@@ -35,9 +35,10 @@ class JoinRightContextPriorsJob(Job):
         with open(self.out_prior_txt, "w") as txt:
             txt.writelines(priors)
 
-        with open(self.out_prior_xml, "w") as xml:
-            per_c_l_context = chunks(lst=priors, n=self.label_info.n_contexts)
+        priors = [p.strip() for p in priors]
+        per_c_l_context = chunks(lst=priors, n=self.label_info.n_contexts)
 
+        with open(self.out_prior_xml, "w") as xml:
             n_rows = self.label_info.n_contexts * self.label_info.get_n_state_classes()
 
             xml.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -45,7 +46,7 @@ class JoinRightContextPriorsJob(Job):
             for prior_chunk in per_c_l_context:
                 xml.write(" ".join(prior_chunk))
                 xml.write("\n")
-            xml.write("\n</matrix-f32>")
+            xml.write("</matrix-f32>")
 
 
 class ReshapeCenterStatePriorsJob(Job):
@@ -67,11 +68,11 @@ class ReshapeCenterStatePriorsJob(Job):
 
     def run(self):
         with open(self.prior_file_path, "r") as file:
-            priors = file.readlines()
+            priors = [p.strip() for p in file.readlines()]
+
+        per_l_context = chunks(lst=priors, n=self.label_info.get_n_state_classes())
 
         with open(self.out_prior_xml, "w") as xml:
-            per_l_context = chunks(lst=priors, n=self.label_info.get_n_state_classes())
-
             n_rows = self.label_info.n_contexts
 
             xml.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -79,4 +80,4 @@ class ReshapeCenterStatePriorsJob(Job):
             for prior_chunk in per_l_context:
                 xml.write(" ".join(prior_chunk))
                 xml.write("\n")
-            xml.write("\n</matrix-f32>")
+            xml.write("</matrix-f32>")
