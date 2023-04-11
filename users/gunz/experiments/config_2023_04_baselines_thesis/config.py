@@ -43,3 +43,8 @@ FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     out_left_context="left__output/output_batch_major",
     out_center_state="center__output/output_batch_major",
 )
+CART_DECODING_TENSOR_CONFIG = dataclasses.replace(
+    FH_DECODING_TENSOR_CONFIG,
+    out_encoder_output="output/output_batch_major",
+    in_seq_length="extern_data/placeholders/data/data_dim0_size",
+)
