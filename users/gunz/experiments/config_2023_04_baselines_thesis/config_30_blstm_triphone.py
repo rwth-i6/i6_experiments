@@ -359,8 +359,6 @@ def run_single(
             "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
-
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -369,7 +367,7 @@ def run_single(
             epoch=ep,
             gpu=False,
             tensor_map=FH_DECODING_TENSOR_CONFIG,
-            recompile_graph_for_feature_scorer=True,
+            recompile_graph_for_feature_scorer=False,
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
