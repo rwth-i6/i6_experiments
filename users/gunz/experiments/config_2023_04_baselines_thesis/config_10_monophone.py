@@ -26,7 +26,7 @@ from ...setups.common.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext, PhonemeStateClasses
+from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
