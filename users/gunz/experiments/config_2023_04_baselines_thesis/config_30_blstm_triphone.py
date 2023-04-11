@@ -44,7 +44,6 @@ from .config import (
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
-    RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
 )
 
@@ -52,7 +51,7 @@ RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH)
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
 RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
-RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
+BLSTM_FH_RASR_BINARY_PATH = tk.Path(os.path.join("/u/raissi/dev/rasr_github/rasr_tf1/arch", gs.RASR_ARCH))
 
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
@@ -358,6 +357,8 @@ def run_single(
         s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
             "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
+
+    s.set_binaries_for_crp("dev-other", BLSTM_FH_RASR_BINARY_PATH)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(

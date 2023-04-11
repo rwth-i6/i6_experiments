@@ -249,7 +249,7 @@ def run_single(
         output_layer_name="output",
     )
 
-    s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
+    # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
@@ -263,7 +263,7 @@ def run_single(
                 in_encoder_output="output/output_batch_major",
                 in_seq_length="extern_data/placeholders/data/data_dim0_size",
             ),
-            recompile_graph_for_feature_scorer=True,
+            recompile_graph_for_feature_scorer=False,
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
