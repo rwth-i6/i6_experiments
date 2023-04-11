@@ -360,9 +360,10 @@ def run_single(
             "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
 
-    s.set_binaries_for_crp("dev-other", BLSTM_FH_RASR_BINARY_PATH)
-
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, BLSTM_FH_RASR_BINARY_PATH)
+        s.crp[crp_k].lm_util_exe = tk.Path("/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard")
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.triphone_forward,

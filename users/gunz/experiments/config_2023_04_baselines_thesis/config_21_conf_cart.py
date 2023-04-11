@@ -31,11 +31,11 @@ from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStat
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CART_DECODING_TENSOR_CONFIG,
     CART_TREE_DI,
     CART_TREE_DI_NUM_LABELS,
     CART_TREE_TRI,
     CART_TREE_TRI_NUM_LABELS,
+    CONF_CART_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -258,7 +258,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=CART_DECODING_TENSOR_CONFIG,
+            tensor_map=CONF_CART_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=False,
         )
         recognizer.recognize_count_lm(

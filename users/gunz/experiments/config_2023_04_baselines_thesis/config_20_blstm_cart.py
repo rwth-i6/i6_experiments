@@ -30,7 +30,6 @@ from ...setups.fh.factored import PhonemeStateClasses, PhoneticContext, RasrStat
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CART_DECODING_TENSOR_CONFIG,
     CART_TREE_DI,
     CART_TREE_DI_NUM_LABELS,
     CART_TREE_TRI,
@@ -38,6 +37,7 @@ from .config import (
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_SA_CONFIG,
+    FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -352,6 +352,17 @@ def run_single(
         output_layer_name="output",
     )
 
+    graph_config = copy.deepcopy(returnn_config)
+    graph_network = graph_config.config["network"]
+    graph_network["encoder-output"] = {
+        "class": "copy",
+        "from": ["lstm_fwd_6", "lstm_bwd_6"],
+        "register_as_extern_data": "encoder-output",
+        "n_out": 2 * blstm_size,
+    }
+    graph_network["output"]["from"] = "encoder-output"
+    s.set_graph_for_experiment("fh", override_cfg=graph_config)
+
     # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
@@ -361,7 +372,13 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=CART_DECODING_TENSOR_CONFIG,
+            tensor_map=dataclasses.replace(
+                FH_DECODING_TENSOR_CONFIG,
+                in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
+                in_seq_length="extern_data/placeholders/data/data_dim0_size",
+                out_encoder_output="encoder__output/output_batch_major",
+                out_center_state="output/output_batch_major",
+            ),
             recompile_graph_for_feature_scorer=False,
             tf_library=[s.native_lstm2_job.out_op],
         )
