@@ -251,6 +251,9 @@ def run_single(
 
     # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
+    def set_cart_tree(crp: rasr.RasrConfig):
+        crp.acoustic_model_config.state_tying.file = cart_tree
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -267,6 +270,7 @@ def run_single(
             num_encoder_output=conf_model_dim,
             rerun_after_opt_lm=True,
             calculate_stats=True,
+            crp_update=set_cart_tree,
         )
 
     return s

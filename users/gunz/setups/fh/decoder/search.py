@@ -627,6 +627,7 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -648,6 +649,7 @@ class FHDecoder:
             is_nn_lm=False,
             lm_config=None,
             pre_path="",
+            crp_update=crp_update,
         )
 
     def recognize_ls_lstm_lm(
@@ -669,6 +671,7 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
     ) -> RecognitionJobs:
         return None  # buggy
 
@@ -692,6 +695,7 @@ class FHDecoder:
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
+            crp_update=crp_update,
         )
 
     def recognize_ls_trafo_lm(
@@ -713,6 +717,7 @@ class FHDecoder:
         gpu: typing.Optional[bool] = None,
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -734,6 +739,7 @@ class FHDecoder:
             rerun_after_opt_lm=rerun_after_opt_lm,
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
+            crp_update=crp_update,
         )
 
     def recognize(
@@ -759,6 +765,7 @@ class FHDecoder:
         use_estimated_tdps=False,
         mem_rqmt: typing.Optional[int] = None,
         cpu_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
             assert len(search_parameters.tdp_speech) == 4
@@ -866,15 +873,15 @@ class FHDecoder:
             tying_type="global-and-nonword",
         )
 
-        search_crp.acoustic_model_config.allophones["add-all"] = search_parameters.add_all_allophones
-        search_crp.acoustic_model_config.allophones["add-from-lexicon"] = not search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones.add_all = search_parameters.add_all_allophones
+        search_crp.acoustic_model_config.allophones.add_from_lexicon = not search_parameters.add_all_allophones
 
-        search_crp.acoustic_model_config["state-tying"][
-            "use-boundary-classes"
-        ] = label_info.phoneme_state_classes.use_boundary()
-        search_crp.acoustic_model_config["state-tying"][
-            "use-word-end-classes"
-        ] = label_info.phoneme_state_classes.use_word_end()
+        search_crp.acoustic_model_config.state_tying.use_boundary_classes = (
+            label_info.phoneme_state_classes.use_boundary()
+        )
+        search_crp.acoustic_model_config.state_tying.use_word_end_classes = (
+            label_info.phoneme_state_classes.use_word_end()
+        )
 
         # lm config update
         if lm_config is not None:
@@ -926,6 +933,9 @@ class FHDecoder:
             if search_parameters.altas is not None
             else "decoding"
         )
+
+        if crp_update is not None:
+            crp_update(search_crp)
 
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,

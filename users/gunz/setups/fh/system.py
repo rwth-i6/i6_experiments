@@ -502,7 +502,10 @@ class FactoredHybridSystem(NnSystem):
         if "train" in crp_key:
             crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
         else:
-            crp.acoustic_model_config.state_tying.type = "no-tying-dense"  # for correct tree of dependency
+            # Previously set to: "no-tying-dense"  # for correct tree of dependency
+            #
+            # Now using str(self.label_info.state_tying) for hash compatibility, otherwise same behavior
+            crp.acoustic_model_config.state_tying.type = str(self.label_info.state_tying)
 
         if self.label_info.phoneme_state_classes.use_word_end():
             crp.acoustic_model_config.state_tying.use_word_end_classes = (
