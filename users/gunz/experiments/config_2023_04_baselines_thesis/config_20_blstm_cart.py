@@ -387,7 +387,9 @@ def run_single(
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
-            search_parameters=recog_args.with_prior_scale(0.4),
+            search_parameters=dataclasses.replace(
+                recog_args, beam=16, beam_limit=100_000, lm_scale=7.0, pron_scale=2.0
+            ).with_prior_scale(0.4),
             num_encoder_output=conf_model_dim,
             rerun_after_opt_lm=True,
             calculate_stats=True,
