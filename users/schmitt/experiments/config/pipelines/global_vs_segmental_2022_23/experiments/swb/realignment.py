@@ -40,9 +40,9 @@ def run_rasr_segmental_realignment(
     else:
       time_rqmt = 30
       mem_rqmt = 12
-      max_segment_len = 15
+      max_segment_len = 12
       concurrent = 8
-      label_pruning = 12.0
+      label_pruning = 5.0
   else:
     if dependencies.model_hyperparameters.sil_idx is None:
       time_rqmt = 2
@@ -51,8 +51,8 @@ def run_rasr_segmental_realignment(
       concurrent = 1
       label_pruning = 12.0
     else:
-      time_rqmt = 8
-      mem_rqmt = 12
+      time_rqmt = 3
+      mem_rqmt = 6
       max_segment_len = 12
       concurrent = 1
       label_pruning = 5.0
