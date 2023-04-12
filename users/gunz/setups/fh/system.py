@@ -1283,10 +1283,9 @@ class FactoredHybridSystem(NnSystem):
                 lm_config=lm_config,
                 name_override=f"{self.experiments[key]['name']}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
                 opt_lm_am=False,
-                search_parameters=recog_args.with_tdp_scale(tdp)
-                .with_tdp_silence(tdp_sl)
-                .with_tdp_speech(tdp_sp)
-                .with_prior_scale(left=l, center=c, right=r),
+                search_parameters=dataclasses.replace(
+                    recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                ).with_prior_scale(left=l, center=c, right=r),
             )
             for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
             for ((c, l, r), tdp) in itertools.product(prior_scales, tdp_scales)
@@ -1332,10 +1331,8 @@ class FactoredHybridSystem(NnSystem):
         best_tdp_sp = map_tdp_output(
             ComputeArgminJob({tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()})
         )
-        base_cfg = (
-            original_recog_args.with_tdp_scale(best_tdp_scale.out_argmin)
-            .with_tdp_silence(best_tdp_sil)
-            .with_tdp_speech(best_tdp_sp)
+        base_cfg = dataclasses.replace(
+            original_recog_args, tdp_scale=best_tdp_scale.out_argmin, tdp_silence=best_tdp_sil, tdp_speech=best_tdp_sp
         )
 
         best_center_prior = ComputeArgminJob({c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()})
