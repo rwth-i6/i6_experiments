@@ -104,6 +104,11 @@ def get_recog_config(
 
   config_params = copy.deepcopy(variant_params["config"])
 
+  # quick fix: the vocab variable in the config needs to be set to the vocab_dict when using recomb
+  # TODO: fix
+  if use_recomb:
+    config_params["vocab"] = dependencies.vocab_dict
+
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
