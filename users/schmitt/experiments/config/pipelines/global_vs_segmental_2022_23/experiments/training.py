@@ -19,11 +19,13 @@ class TrainExperiment(ABC):
           dependencies: LabelDefinition,
           num_epochs: List[int],
           variant_params: Dict,
-          base_alias: str
+          base_alias: str,
+          import_model_train_epoch1: Optional[Checkpoint] = None,
   ):
     self.dependencies = dependencies
     self.variant_params = variant_params
     self.num_epochs = num_epochs
+    self.import_model_train_epoch1 = import_model_train_epoch1
 
     self.alias = "%s/train" % base_alias
 
@@ -60,7 +62,6 @@ class SegmentalTrainExperiment(TrainExperiment):
           cv_alignment: Optional[Path] = None,
           train_alignment: Optional[Path] = None,
           length_scale: float = 1.0,
-          import_model_train_epoch1: Optional[Checkpoint] = None,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -74,8 +75,6 @@ class SegmentalTrainExperiment(TrainExperiment):
       "train": train_alignment,
       "devtrain": train_alignment,
       "cv": cv_alignment} if cv_alignment is not None else None
-
-    self.import_model_train_epoch1 = import_model_train_epoch1
 
   @property
   def returnn_config(self):
@@ -96,4 +95,8 @@ class GlobalTrainExperiment(TrainExperiment):
 
   @property
   def returnn_config(self):
-    return get_global_train_config(self.dependencies, self.variant_params, load=None)
+    return get_global_train_config(
+      self.dependencies,
+      self.variant_params,
+      load=None,
+      import_model_train_epoch1=self.import_model_train_epoch1)
