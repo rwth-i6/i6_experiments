@@ -12,7 +12,7 @@ import os
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
-
+import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
@@ -368,6 +368,8 @@ def run_single(
     def set_cart_tree(crp: rasr.RasrConfig):
         crp.acoustic_model_config.state_tying.file = cart_tree
 
+    dummy_mixture = mm.CreateDummyMixturesJob(n_cart_out, s.initial_nn_args["num_input"]).out_mixtures
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -384,6 +386,7 @@ def run_single(
             ),
             recompile_graph_for_feature_scorer=False,
             tf_library=[s.native_lstm2_job.out_op],
+            dummy_mixtures=dummy_mixture,
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
