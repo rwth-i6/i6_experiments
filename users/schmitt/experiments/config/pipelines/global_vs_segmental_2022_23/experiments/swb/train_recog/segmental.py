@@ -205,6 +205,13 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
   def run(self):
     super().run()
 
+    self.compare_alignments(
+      hdf_align_path1=self.alignments["train"]["cv"],
+      align1_name="ground-truth",
+      hdf_align_path2=self.alignments["train"]["cv"],
+      align2_name="ground-truth",
+      align_alias="train/ground-truth-alignment")
+
     for retrain_iter in range(self.num_retrain):
       cur_train_alias = "train" if retrain_iter == 0 else ("retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter, self.num_epochs[-1], self.realignment_length_scale))
       next_train_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter + 1, self.num_epochs[-1], self.realignment_length_scale)
