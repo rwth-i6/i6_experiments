@@ -5,8 +5,7 @@ import itertools
 import sys
 
 from dataclasses import asdict
-from enum import Enum
-from typing import Dict, List, Optional, Tuple, TypedDict, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -26,7 +25,7 @@ import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
-#common modules
+
 from i6_experiments.common.setups.rasr.nn_system import (
     NnSystem
 )
@@ -40,46 +39,9 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
 )
 
-import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
-import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
-import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
-import i6_experiments.users.raissi.common.helpers.train as train_helpers
 
 
-from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
-    mask as sa_mask,
-    random_mask as sa_random_mask,
-    summary as sa_summary,
-    transform as sa_transform,
-)
-
-
-#user based modules
-from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
-    get_lexicon_args,
-    get_tdp_values,
-)
-
-from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
-
-from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
-    FactoredHybridBaseDecoder
-)
-
-from i6_experiments.users.raissi.setups.common.decoder.config import (
-    PriorInfo,
-    PosteriorScales,
-    SearchParameters
-)
-
-from i6_experiments.users.raissi.setups.common.util.hdf import (
-    SprintFeatureToHdf
-)
-
-
-#From here to be checked
 #get_recog_ctx_args*() functions are imported here
-"""
 from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import *
 from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
 
@@ -123,38 +85,30 @@ from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
     FactoredHybridBaseDecoder
 )
-"""
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
 
 
-class TrainingCriterion(Enum):
-    """The training criterion."""
-    viterbi = "viterbi"
-    fullsum = "fullsum"
-    mmi = "mmi"
 
-    def __str__(self):
-        return self.value
-
-
-class ExtraReturnnCode(TypedDict):
+class ExtraReturnnCode(typing.TypedDict):
     epilog: str
     prolog: str
 
-class Graphs(TypedDict):
-    train: Optional[tk.Path]
-    inference: Optional[tk.Path]
 
-class Experiment(TypedDict, total=False):
+class Graphs(typing.TypedDict):
+    train: typing.Optional[tk.Path]
+    inference: typing.Optional[tk.Path]
+
+
+class Experiment(typing.TypedDict, total=False):
     extra_returnn_code: ExtraReturnnCode
     name: str
     graph: Graphs
-    priors: Optional[PriorInfo]
-    prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
-    returnn_config: Optional[returnn.ReturnnConfig]
-    train_job: Optional[returnn.ReturnnRasrTrainingJob]
+    priors: typing.Optional[PriorInfo]
+    prior_job: typing.Optional[returnn.ReturnnRasrComputePriorJobV2]
+    returnn_config: typing.Optional[returnn.ReturnnConfig]
+    train_job: typing.Optional[returnn.ReturnnRasrTrainingJob]
 
 # -------------------- Systems --------------------
 class FactoredHybridBaseSystem(NnSystem):
@@ -167,12 +121,11 @@ class FactoredHybridBaseSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[tk.Path] = None,
-            rasr_binary_path: Optional[tk.Path] = None,
+            rasr_binary_path: Optional[tk.Path] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
             rasr_init_args:   RasrInitArgs = None,
             train_data: Dict[str, RasrDataInput] = None,
             dev_data:   Dict[str, RasrDataInput] = None,
             test_data:  Dict[str, RasrDataInput] = None,
-            initial_nn_args: Dict = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -213,30 +166,16 @@ class FactoredHybridBaseSystem(NnSystem):
 
         #data and pipeline related
         self.inputs = {}
-        self.experiments: Dict[str, Experiment] = {}
+        self.experiments: typing.Dict[str, Experiment] = {}
 
         # train information
         self.nn_feature_type = 'gt' #Gammatones
-        # mostly used as placeholders and info to the user about what is necessary
-        self.initial_nn_args = {'num_input': None,
-                                'partition_epochs': None,
-                                "num_epochs": None,
-                                "keep_epochs": None,
-                                'time_rqmt': 168,
-                                'mem_rqmt': 40,
-                                'log_verbosity': 3,}
-
-        self.initial_nn_args.update(**initial_nn_args)
-
-        self.partition_epochs = {'train': 6, 'cv': 1}
-        self.shuffling_params = {
-            "shuffle_data": True,
-            "segment_order_sort_by_time_length_chunk_size": 348,
-        }
-        self.fullsum_log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
+        self.initial_train_args = {'time_rqmt': 168,
+                                   'mem_rqmt': 40,
+                                   'log_verbosity': 3,
+                                   }
 
         # extern classes and objects
-        self.training_criterion: TrainingCriterion = TrainingCriterion.fullsum
         self.trainers    = {'returnn': returnn.ReturnnTrainingJob, 'rasr-returnn': returnn.ReturnnRasrTrainingJob}
         self.recognizers = {'count_lm': FactoredHybridBaseDecoder}
         self.aligners    = {}
@@ -248,7 +187,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
         #keys when you have different dev and test sets
         self.train_key = None  # "train-baseline"
-    def set_crp_pairings(self, dev_key, test_key):
+    def set_crp_pairings(self, dev_key='dev-baseline', test_key='test-baseline'):
         #have a dict of crp_names so that you can refer to your data as you want
         keys = self.corpora.keys()
         if self.train_key is None:
@@ -281,6 +220,13 @@ class FactoredHybridBaseSystem(NnSystem):
             "decode_job": {"runner": None, "args": None},
             "extra_returnn_code": {"epilog": "", "prolog": ""}
         }
+
+
+    def set_returnn_config_for_experiment(self, key, returnn_config):
+        assert key in self.experiments.keys()
+        self.experiments[key]["returnn_config"] = returnn_config
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------- Internal helpers --------------------
     def _init_datasets(
@@ -376,9 +322,8 @@ class FactoredHybridBaseSystem(NnSystem):
                 if self.train_key is None:
                     self.train_key = corpus_key
                 else:
-                    assert self.train_key == corpus_key, f"You already set the train key to be {self.train_key}, you cannot have more than one train key"
-
-
+                    assert (self.train_key == corpus_key,
+                            f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self._get_system_input(
@@ -447,6 +392,7 @@ class FactoredHybridBaseSystem(NnSystem):
         return corpus_recipe.SegmentCorpusJob(
             bliss_corpus=corpus_path,
             num_segments=1,
+            remove_prefix=remove_prefix,
         ).out_single_segment_files[1]
 
     def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
@@ -465,7 +411,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
     def _add_output_alias_for_train_job(
             self,
-            train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
+            train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob, ReturnnRasrTrainingBWJob],
             name: str,
     ):
         train_job.add_alias(f"train/nn_{name}")
@@ -523,14 +469,16 @@ class FactoredHybridBaseSystem(NnSystem):
             returnn_cfg.config['network'][f'{o}-output']['from'] = source
         return returnn_cfg
 
-    def set_local_flf_tool_for_decoding(self, path=None):
+    def set_local_flf_tool(self, path=None):
+        if path is None:
+            path = "/u/raissi/dev/rasr_tf14py38_private/src/Tools/Flf/flf-tool.linux-x86_64-standard"
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
     def init_system(self, label_info_additional_args=None):
 
         if self.native_lstm2_path is None:
-            self._set_native_lstm_path()
+            self.set_native_lstm_path()
 
         if label_info_additional_args is not None:
             for k, v in label_info_additional_args.items():
@@ -577,18 +525,14 @@ class FactoredHybridBaseSystem(NnSystem):
                 self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'],
                                             add_base_allophones=add_base_allophones)
 
-    def set_rasr_returnn_input_datas(self, input_key: str, is_cv_separate_from_train=False):
+    def set_rasr_returnn_input_datas(self, input_key, chunk_size):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
 
-        if is_cv_separate_from_train:
-            f = self.prepare_rasr_train_data_with_separate_cv
-        else: f = self.prepare_rasr_train_data_with_cv_from_train
-
         nn_train_data_inputs, \
         nn_cv_data_inputs, \
-        nn_devtrain_data_inputs = f(input_key)
+        nn_devtrain_data_inputs = self.prepare_train_data_with_cv_from_train(input_key, chunk_size)
 
         nn_dev_data_inputs = {
             self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
@@ -598,48 +542,23 @@ class FactoredHybridBaseSystem(NnSystem):
         self.crp_names['test']: self.inputs[self.crp_names['test']][input_key].as_returnn_rasr_data_input(),
 
         }
+
         self._init_datasets(
             train_data=nn_train_data_inputs,
             cv_data=nn_cv_data_inputs,
             devtrain_data=nn_devtrain_data_inputs,
             dev_data=nn_dev_data_inputs,
             test_data=nn_test_data_inputs)
-
         label_info_args = {
             'n_states_per_phone': self.label_info.n_states_per_phone,
             'n_contexts': self.label_info.n_contexts}
         self.initial_nn_args.update(label_info_args)
 
     # ----- data preparation for train-----------------------------------------------------
-    def get_epilog_for_train(self, specaug_args=None):
-        #this is for FH when one needs to define extern data
-        if specaug_args is not None:
-            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
-        else:
-            spec_augment_epilog = None
-        return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
-                                           n_contexts=self.label_info.n_contexts,
-                                           n_states=self.label_info.n_states_per_phone,
-                                           specaugment=spec_augment_epilog)
-
-    def _get_segment_file(self, corpus_path, remove_prefix=""):
-        return corpus_recipe.SegmentCorpusJob(
-            bliss_corpus=corpus_path,
-            num_segments=1,
-            remove_prefix=remove_prefix,
-        ).out_single_segment_files[1]
-
-    def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
-        merged_corpus_job = corpus_recipe.MergeCorporaJob([train_corpus, cv_corpus],
-                                                          name=name,
-                                                          merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA)
-        return merged_corpus_job.out_merged_corpus
-
 
     def prepare_rasr_train_data_with_cv_from_train(self, input_key, chunk_size=1152, cv_num_segments=100):
         #from i6_experiments.common.datasets.librispeech.constants import num_segments
         #ToDo: decide how you want to set the number of segments
-        print("WARNING: hardcoded number of segments")
 
         key = train_key if train_key is not None else self.train_key
         train_corpus_path = self.corpora[key].corpus_file
@@ -659,7 +578,9 @@ class FactoredHybridBaseSystem(NnSystem):
         ).out
 
         # ******************** NN Init ********************
-        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffling_parameters=self.shuffling_params)
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
+                                                                                        segment_order_sort_by_time_length=True,
+                                                                                        chunk_size=chunk_size)
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
 
@@ -676,7 +597,6 @@ class FactoredHybridBaseSystem(NnSystem):
 
     def prepare_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', chunk_size=1152, configure_rasr_automaton=False):
         train_corpus_key = self.train_key
-        self.input_key = input_key
 
         train_corpus = self.corpora[train_corpus_key].corpus_file
         cv_corpus    = self.corpora[cv_corpus_key].corpus_file
@@ -703,6 +623,8 @@ class FactoredHybridBaseSystem(NnSystem):
             self.crp_names['bw'] = f'{self.train_key}.bw'
             self.crp[self.crp_names['bw']] = crp_bw
 
+
+
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
                                                                                           segment_order_sort_by_time_length=True,
                                                                                           chunk_size=chunk_size)
@@ -720,87 +642,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-    # -------------------------------------------- Training --------------------------------------------------------
-    def set_standard_prolog_and_epilog_to_config(self, config: Dict, prolog_additional_str: str=None, epilog_additional_str: str=None):
-        #this is not a returnn config, but the dict params
-        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
-        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
-
-        config["extern_data"] = {
-            "data": {
-                "dim": self.initial_nn_args["num_input"],
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
-            },
-            **extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
-        }
-        #these two are gonna get popped and stored during returnn config object creation
-        config["python_prolog"] = {"numpy": "import numpy as np",
-                                   "time": time_prolog}
-        config["python_epilog"] = {
-            "functions": [
-                sa_mask,
-                sa_random_mask,
-                sa_summary,
-                sa_transform,
-            ],
-        }
-
-        if prolog_additional_str is not None:
-            config["python_prolog"]["str"] = prolog_additional_str
-
-        if epilog_additional_str is not None:
-            config["python_epilog"]["str"] = epilog_additional_str
-
-
-        return config
-
-    #-------------encoder architectures -------------------------------
-    def get_blstm_network(self, **kwargs):
-        #this is without any loss and output layers
-        network = blstm_setup.blstm_network(**kwargs)
-        if self.training_criterion != TrainingCriterion.fullsum:
-            network = augment_net_with_label_pops(network, label_info=self.label_info)
-
-        return network
-
-    def get_conformer_network(self, chunking, conf_model_dim, aux_loss_args):
-        # this only includes auxilaury losses
-        network_builder = conformer_setup.get_best_conformer_network(
-            conf_model_dim,
-            chunking=chunking,
-            focal_loss_factor=aux_loss_args["focal_loss_factor"],
-            label_smoothing=aux_loss_args["label_smoothing"],
-            num_classes=s.label_info.get_n_of_dense_classes(),
-        )
-        network = network_builder.network
-        if self.training_criterion != TrainingCriterion.fullsum:
-            network = augment_net_with_label_pops(network, label_info=s.label_info)
-        return network
-
-    #-------------------------------------------------------------------------
-    def set_returnn_config_for_experiment(self, key: str, config_dict: Dict):
-        assert key in self.experiments.keys()
-        assert num_epochs in self.initial_nn_args, "set the number of epochs in the nn args"
-        python_prolog = config_dict.pop('python_prolog') if 'python_prolog' in config_dict else None
-        python_epilog = config_dict.pop('python_epilog') if 'python_epilog' in config_dict else None
-
-        base_post_config = {
-            "cleanup_old_models": {
-                "keep_best_n": 3,
-                "keep": self.initial_nn_args["keep_epochs"],
-            },
-        }
-        returnn_config = returnn.ReturnnConfig(
-            config=config_dict,
-            post_config=base_post_config,
-            hash_full_python_code=True,
-            python_prolog=python_prolog,
-            python_epilog=python_epilog,
-        )
-        self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
-
+    # -------------------- Training --------------------
     def returnn_training(
             self,
             name,
@@ -811,12 +653,6 @@ class FactoredHybridBaseSystem(NnSystem):
             devtrain_corpus_key=None,
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        if self.inputs[self.train_key][self.input_key][self.crp_names['train']].alignments is None:
-            returnn_config = fh_augmenter.add_fast_bw_layer(crp=bw_crp,
-                                                             returnn_config=returnn_config,
-                                                             log_linear_scales=self.fullsum_log_linear_scales,
-                                                             )
 
         returnn_config.config["train"] = self.train_input_data[
             train_corpus_key
@@ -839,8 +675,6 @@ class FactoredHybridBaseSystem(NnSystem):
             train_job=train_job,
             name=name,
         )
-
-        embed()
 
         return train_job
 
@@ -963,152 +797,83 @@ class FactoredHybridBaseSystem(NnSystem):
         self.set_graph_for_experiment(experiment_key)
 
     # ---------------------Prior Estimation--------------
-    def get_hdf_path(self, hdf_key: Optional[str]):
+    def get_hdf_path(self, hdf_key):
         if hdf_key is not None:
             assert hdf_key in self.hdfs.keys()
             return self.hdfs[hdf_key]
 
         if self.train_key not in self.hdfs.keys():
-            self.create_hdf()
+            self.create_hdf(crp_name=self.train_key)
 
         return self.hdfs[self.train_key]
 
-    def create_hdf(self):
-        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key]["gt"]
-        hdf_job = SprintFeatureToHdf(
-            feature_caches=gammatone_features_paths,
-        )
+    def create_hdf(self, with_alignment=False, crp_name=None):
+        crp_name = self.crp_names['train'] if crp_name is None else crp_name
+        gammaton_features_paths = self.feature_caches[crp_name]['gt'].hidden_paths
+        feature_caches = [gammaton_features_paths[i] for i in
+                          range(1, len(gammaton_features_paths.keys()) + 1)]
+        if with_alignment:
+            alignment_paths = self.alignments[crp_name].get_path().split('.bundle')[0]
+            alignment_caches = [tk.Path(f"{alignment_paths}.{i}") for i in
+                          range(1, len(gammaton_features_paths.keys()) + 1)]
+            store_allophones = StoreAllophonesJob(self.crp[crp_name])
+            dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
+            tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
+            tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
 
-        self.hdfs[self.train_key] = hdf_job.out_hdf_files
+            hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
+                                                  alignment_caches=alignment_caches,
+                                                  allophones=store_allophones.out_allophone_file,
+                                                  state_tying=dump_statetying.out_state_tying)
+        else:
+            hdfJob = RasrFeatureToHDF(feature_caches)
+        self.hdfs[crp_name] = hdfJob.hdf_files
 
-        hdf_job.add_alias(f"hdf/{self.train_key}")
-
-        return hdf_job
+        hdfJob.add_alias(f"hdf/{crp_name}")
+        tk.register_output(f"hdf/{crp_name}.hdf.1", self.hdfs[crp_name][0])
 
     # -------------------- Decoding --------------------
-    def _compute_returnn_rasr_priors(
-        self,
-        key: str,
-        epoch: int,
-        train_corpus_key: str,
-        dev_corpus_key: str,
-        returnn_config: returnn.ReturnnConfig,
-        share: float,
-        time_rqmt: Optional[int] = None,
-    ):
-        self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
+        if nStateClasses is None:
+            nStateClasses = self.label_info.get_n_state_classes()
 
-        train_data = self.train_input_data[train_corpus_key]
-        dev_data = self.cv_input_data[dev_corpus_key]
+        if tm is None:
+            tm = self.tf_map
 
-        train_crp = train_data.get_crp()
-        dev_crp = dev_data.get_crp()
+        if tf_library is None:
+            tf_library = self.tf_library
 
-        if share != 1.0:
-            train_crp = copy.deepcopy(train_crp)
-            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
-                segment_file=train_crp.segment_path,
-                split={"priors": share, "rest": 1 - share},
-                shuffle=True,
-            )
-            train_crp.segment_path = segment_job.out_segments["priors"]
-
-        # assert train_data.feature_flow == dev_data.feature_flow
-        # assert train_data.features == dev_data.features
-        # assert train_data.alignments == dev_data.alignments
-
-        if train_data.feature_flow is not None:
-            feature_flow = train_data.feature_flow
-        else:
-            if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
-                feature_path = train_data.features
-            elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "task_dependent": train_data.features,
-                    },
-                )
-            elif isinstance(train_data.features, tk.Path):
-                feature_path = rasr.FlagDependentFlowAttribute(
-                    "cache_mode",
-                    {
-                        "bundle": train_data.features,
-                    },
-                )
-            else:
-                raise NotImplementedError
-
-            feature_flow = features.basic_cache_flow(feature_path)
-            if isinstance(train_data.features, tk.Path):
-                feature_flow.flags = {"cache_mode": "bundle"}
-
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(train_data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
-            alignments = train_data.alignments
-        else:
-            raise NotImplementedError
-
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        prior_job = returnn.ReturnnRasrComputePriorJobV2(
-            train_crp=train_crp,
-            dev_crp=dev_crp,
-            model_checkpoint=model_checkpoint,
-            feature_flow=feature_flow,
-            alignment=alignments,
-            returnn_config=returnn_config,
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            mem_rqmt=12,
-            time_rqmt=time_rqmt if time_rqmt is not None else 12,
+        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
+        model_checkpoint = self._get_model_checkpoint(
+            self.experiments[key]["train_job"], epoch
         )
+        graph = self.experiments[key]["graph"]["inference"]
 
-        return prior_job
+        hdf_paths = self.get_hdf_path(hdf_key)
 
-    def set_mono_priors_returnn_rasr(
-        self,
-        key: str,
-        epoch: int,
-        train_corpus_key: str,
-        dev_corpus_key: str,
-        returnn_config: Optional[returnn.ReturnnConfig] = None,
-        output_layer_name: str = "output",
-        data_share: float = 0.1,
-    ):
-        self.set_graph_for_experiment(key)
+        estimateJob = EstimateMonophonePriors_(graph=graph,
+                                               model=model_checkpoint,
+                                               dataPaths=hdf_paths,
+                                               datasetIndices=list(range(len(hdf_paths) // 3)),
+                                               libraryPath=tf_library,
+                                               nStates=nStateClasses,
+                                               tensorMap=tm,
+                                               gpu=1)
+        if name is not None:
+            estimateJob.add_alias(f"priors/priors-{name}")
 
-        name = f"{self.experiments[key]['name']}/e{epoch}"
+        xmlJob = DumpXmlForMonophone(estimateJob.priorFiles,
+                                     estimateJob.numSegments,
 
-        if returnn_config is None:
-            returnn_config = self.experiments[key]["returnn_config"]
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        config = copy.deepcopy(returnn_config)
-        config.config["forward_output_layer"] = output_layer_name
-
-        job = self._compute_returnn_rasr_priors(
-            key,
-            epoch,
-            train_corpus_key=train_corpus_key,
-            dev_corpus_key=dev_corpus_key,
-            returnn_config=config,
-            share=data_share,
-        )
-
-        job.add_alias(f"priors/{name}/c")
-        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
-
-        s.experiments[key]['priors'] = [job.out_prior_xml_file]
-
+                                     nStates=nStateClasses)
+        priorFiles = [xmlJob.centerPhonemeXml]
+        if name is not None:
+            xmlName = f"priors/{name}-xmlpriors"
+        else:
+            xmlName = "mono-prior"
+        tk.register_output(xmlName, priorFiles[0])
+        self.experiments[key]["priors"] = priorFiles
 
     def set_diphone_priors(self, key, epoch, tf_library=None, nStateClasses=None, nContexts=None,
                            gpu=1, time=20, isSilMapped=True, hdf_key=None):
