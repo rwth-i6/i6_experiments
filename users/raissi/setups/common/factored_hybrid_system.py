@@ -415,9 +415,8 @@ class FactoredHybridBaseSystem(NnSystem):
                 if self.train_key is None:
                     self.train_key = corpus_key
                 else:
-                    if self.train_key != corpus_key:
-                        assert (False,
-                                f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
+                    assert (self.train_key == corpus_key,
+                            f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self.get_system_input(
@@ -513,11 +512,12 @@ class FactoredHybridBaseSystem(NnSystem):
                                            n_states=self.label_info.n_states_per_phone,
                                            specaugment=spec_augment_epilog)
 
-    def _get_segment_file(self, corpus_path):
+    def _get_segment_file(self, corpus_path, remove_prefix=""):
         return corpus_recipe.SegmentCorpusJob(
-            corpus_path, 1
+            bliss_corpus=corpus_path,
+            num_segments=1,
+            remove_prefix=remove_prefix,
         ).out_single_segment_files[1]
-
 
     def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
         merged_corpus_job = corpus_recipe.MergeCorporaJob([train_corpus, cv_corpus],
@@ -533,7 +533,7 @@ class FactoredHybridBaseSystem(NnSystem):
         key = train_key if train_key is not None else self.train_key
         train_corpus_path = self.corpora[key].corpus_file
 
-        all_segments = self._get_train_segment_file(corpus_path=train_corpus_path)
+        all_segments = self._get_segment_file(corpus_path=train_corpus_path)
 
         assert self.train_key in num_segments, 'It seems that you set a wrong train key in inputs step'
         cv_size = cv_num_segments / self.num_segments[self.train_key]
@@ -564,48 +564,49 @@ class FactoredHybridBaseSystem(NnSystem):
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-    def prepare_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', chunk_size=1152):
+
+    def prepare_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', chunk_size=1152, configure_rasr_automaton=False):
         train_corpus_key = self.train_key
 
         train_corpus = self.corpora[train_corpus_key].corpus_file
-        cv_corpus = self.corpora[cv_corpus_key].corpus_file
-        merged_name = 'loss-corpus'
+        cv_corpus    = self.corpora[cv_corpus_key].corpus_file
 
+        merged_name = 'loss-corpus'
         merged_corpus = self._get_merged_corpus_for_train(train_corpus=train_corpus,
                                                           cv_corpus=cv_corpus,
                                                           name=merged_name)
 
-        #segments
-        train_segments = self._get_train_segment_file(train_key=train_corpus_key)
-        cv_segments = ("/").join([self.cv_info['pre_path'], self.cv_info['cv_segments_other']])
+        # segments
+        train_segments = self._get_segment_file(train_corpus)
+        cv_segments    = self._get_segment_file(cv_corpus)
+        merged_segments = self._get_segment_file(merged_corpus, remove_prefix=merged_name)
 
         devtrain_segments = text.TailJob(
             train_segments, num_lines=1000, zip_output=False
         ).out
 
+        if configure_rasr_automaton:
+            crp_bw = copy.deepcopy(copy.deepcopy(self.crp[self.train_key]))
+            crp_bw.corpus_config.file = merged_corpus
+            crp_bw.corpus_config.segment.file = merged_segments
+            crp_bw.corpus_config.remove_corpus_name_prefix = f'{merged_name}/'
+            self.crp_names['bw'] = f'{self.train_key}.bw'
+            self.crp[self.crp_names['bw']] = crp_bw
+
+
+
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
                                                                                           segment_order_sort_by_time_length=True,
                                                                                           chunk_size=chunk_size)
-        nn_train_data.update_crp_with(corpus_file=merged_corpus, segment_path=train_segments, concurrent=1)
-        nn_train_data.crp.corpus_config.remove_corpus_name_prefix = f'{merged_name}/'
+        nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
-        #setting crp for fastbw config
-        crp_bw = copy.deepcopy(nn_train_data.crp)
-        bw_segment_file = corpus_recipe.SegmentCorpusJob(
-            merged_corpus, 1
-        ).out_single_segment_files[1]
-        crp_bw.corpus_config.segment.file = bw_segment_file
-        self.crp_names['bw'] = f'{self.train_key}.bw'
-        self.crp[self.crp_names['bw']] = crp_bw
 
-        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
-        nn_cv_data.update_crp_with(corpus_file=merged_corpus, segment_path=cv_segments, concurrent=1)
-        nn_cv_data.crp.corpus_config.remove_corpus_name_prefix = f'{merged_name}/'
+        nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input()
+        nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names['cvtrain']: nn_cv_data}
 
         nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
-        nn_devtrain_data.crp.corpus_config.remove_corpus_name_prefix = f'{merged_name}/'
         nn_devtrain_data_inputs = {self.crp_names['devtrain']: nn_devtrain_data}
 
 
