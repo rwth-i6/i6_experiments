@@ -266,7 +266,7 @@ def run_single(
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
-            search_parameters=recog_args,
+            search_parameters=recog_args.with_prior_scale(0.4),
             num_encoder_output=conf_model_dim,
             rerun_after_opt_lm=True,
             calculate_stats=True,
