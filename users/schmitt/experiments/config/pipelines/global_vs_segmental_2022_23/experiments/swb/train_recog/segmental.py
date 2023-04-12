@@ -114,7 +114,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       base_alias=base_alias,
       length_scale=length_scale)
 
-  def run_standard_recog(self, calc_search_errors: bool, checkpoints: Dict[int, Checkpoint], train_alias: str):
+  def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
@@ -125,7 +125,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
-        calc_search_errors=calc_search_errors,
+        use_recomb=False,
+        calc_search_errors=True,
         search_error_corpus_key="cv",
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
@@ -140,12 +141,29 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
-        calc_search_errors=calc_search_errors,
+        calc_search_errors=True,
         search_error_corpus_key="cv",
         label_pruning_limit=12,
         word_end_pruning_limit=12,
         max_segment_len=20,
         concurrent=4,
+        cv_realignment=self._get_realignment(
+          corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
+
+  def run_returnn_recog_w_recomb(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+    for epoch in self.returnn_recog_epochs:
+      checkpoint = checkpoints[epoch]
+      base_alias = "%s/%s/epoch_%d/returnn_w_recomb" % (self.base_alias, train_alias, epoch)
+
+      run_returnn_simple_segmental_decoding(
+        dependencies=self.dependencies,
+        variant_params=self.variant_params,
+        base_alias=base_alias,
+        checkpoint=checkpoint,
+        test_corpora_keys=["dev"],
+        use_recomb=True,
+        calc_search_errors=True,
+        search_error_corpus_key="cv",
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
 
@@ -176,9 +194,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
 
   def run_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str = "train"):
     if self.recog_type == "standard":
-      self.run_standard_recog(calc_search_errors=True, checkpoints=checkpoints, train_alias=train_alias)
-    elif self.recog_type == "standard_wo_search_errors":
-      self.run_standard_recog(calc_search_errors=False, checkpoints=checkpoints, train_alias=train_alias)
+      self.run_standard_recog(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "returnn_w_recomb":
+      self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:
