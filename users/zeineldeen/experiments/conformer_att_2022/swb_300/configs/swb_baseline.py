@@ -802,9 +802,11 @@ def conformer_baseline():
 
     # TODO: more layers
     # 12, 0.7 dim: 48M, full dim: 87M
-    for enc_layers in [13, 14, 15, 16]:
+    for enc_layers in [14, 16]:
         args = copy.deepcopy(base_12l_reduce_0_7_args)
         args["encoder_args"].num_blocks = enc_layers
+        if enc_layers >= 16:
+            args["recursion_limit"] = 4000
         run_exp(
             f"base_conf_{enc_layers}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_maxSeqLen75_dimReduce{0.7}",
             train_args=args,
