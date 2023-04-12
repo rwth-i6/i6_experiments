@@ -17,7 +17,8 @@ tools_dir = os.path.join(os.path.dirname(os.path.abspath(config_mod.__file__)), 
 class CalcSearchErrorJob(Job):
   def __init__(
     self, returnn_config, rasr_config, rasr_nn_trainer_exe, segment_file, ref_targets, search_targets, blank_idx,
-    label_name, model_type, max_seg_len, length_norm, returnn_python_exe=None, returnn_root=None):
+    label_name, model_type, max_seg_len, length_norm, concat_seqs=False, concat_seq_tags_file=None,
+    returnn_python_exe=None, returnn_root=None):
     self.blank_idx = blank_idx
     self.rasr_nn_trainer_exe = rasr_nn_trainer_exe
     self.rasr_config = rasr_config
@@ -28,6 +29,8 @@ class CalcSearchErrorJob(Job):
     self.model_type = model_type
     self.max_seg_len = max_seg_len
     self.length_norm = length_norm
+    self.concat_seqs = concat_seqs
+    self.concat_seq_tags_file = concat_seq_tags_file
     self.returnn_config = returnn_config
     self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
     self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
@@ -54,25 +57,40 @@ class CalcSearchErrorJob(Job):
     if self.length_norm:
       command.append("--length_norm")
 
+    if self.concat_seqs:
+      assert self.concat_seq_tags_file
+      command += ["--concat_seqs"]
+      command += ["--concat_seq_tags_file", self.concat_seq_tags_file.get_path()]
+
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
 
     shutil.move("search_errors", self.out_search_errors)
 
+  @classmethod
+  def hash(cls, kwargs):
+    if not kwargs["concat_seqs"]:
+      kwargs.pop("concat_seqs")
+      kwargs.pop("concat_seq_tags_file")
+    return super().hash(kwargs)
+
 
 class DumpAttentionWeightsJob(Job):
   def __init__(
     self, returnn_config, rasr_config, rasr_nn_trainer_exe, seq_tag, hdf_targets, blank_idx, label_name, model_type,
-    concat_seqs=False, concat_hdf=False, returnn_python_exe=None, returnn_root=None):
+    concat_seqs=False, concat_hdf=False, concat_seq_tags_file=None, returnn_python_exe=None, returnn_root=None):
     self.model_type = model_type
     self.label_name = label_name
-    self.blank_idx = blank_idx
+    if blank_idx is None and model_type != "glob":
+      raise ValueError("blank idx needs to be set when not using global model")
+    self.blank_idx = 0 if blank_idx is None else blank_idx
     self.rasr_nn_trainer_exe = rasr_nn_trainer_exe
     self.rasr_config = rasr_config
     self.hdf_targets = hdf_targets
     self.seq_tag = seq_tag
     self.concat_seqs = concat_seqs
     self.concat_hdf = concat_hdf
+    self.concat_seq_tags_file = concat_seq_tags_file
     self.returnn_config = returnn_config
     self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
     self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
@@ -80,7 +98,7 @@ class DumpAttentionWeightsJob(Job):
     self.out_data = self.output_path("out_data.npz")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 6, "time": 1})
+    yield Task("run", rqmt={"cpu": 1, "mem": 8, "time": 3})
 
   def run(self):
     self.returnn_config.write("returnn.config")
@@ -99,9 +117,11 @@ class DumpAttentionWeightsJob(Job):
     ]
 
     if self.concat_seqs:
+      assert self.concat_seq_tags_file
       command += ["--concat_seqs"]
-    if self.concat_hdf:
-      command += ["--concat_hdf"]
+      if self.concat_hdf:
+        command += ["--concat_hdf"]
+      command += ["--concat_seq_tags_file", self.concat_seq_tags_file.get_path()]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
@@ -112,6 +132,7 @@ class DumpAttentionWeightsJob(Job):
   def hash(cls, kwargs):
     if not kwargs["concat_seqs"]:
       kwargs.pop("concat_seqs")
+      kwargs.pop("concat_seq_tags_file")
       if not kwargs["concat_hdf"]:
         kwargs.pop("concat_hdf")
     return super().hash(kwargs)

@@ -19,17 +19,25 @@ tools_dir = os.path.join(os.path.dirname(os.path.abspath(config_mod.__file__)), 
 
 
 class PlotAttentionWeightsJob(Job):
-  def __init__(self, data_path, blank_idx, json_vocab_path, time_red, seq_tag):
+  def __init__(self, data_path, blank_idx, json_vocab_path, time_red, seq_tag, mem_rqmt=2):
     self.data_path = data_path
     self.blank_idx = blank_idx
     self.time_red = time_red
     self.seq_tag = seq_tag
+    self.mem_rqmt = mem_rqmt
     self.json_vocab_path = json_vocab_path
     self.out_plot = self.output_path("out_plot.png")
     self.out_plot_pdf = self.output_path("out_plot.pdf")
 
   def tasks(self):
-    yield Task("run", rqmt={"cpu": 1, "mem": 2, "time": 1, "gpu": 0}, mini_task=True)
+    yield Task(
+      "run", rqmt={"cpu": 1, "mem": self.mem_rqmt, "time": 1, "gpu": 0},
+      mini_task=True if self.mem_rqmt <= 2 else False)
+
+  @classmethod
+  def hash(cls, kwargs):
+    kwargs.pop("mem_rqmt")
+    return super().hash(kwargs)
 
   def run(self):
     # seq_tag = "switchboard-1/sw02180A/sw2180A-ms98-a-0002;switchboard-1/sw02180A/sw2180A-ms98-a-0004;switchboard-1/sw02180A/sw2180A-ms98-a-0005;switchboard-1/sw02180A/sw2180A-ms98-a-0006;switchboard-1/sw02180A/sw2180A-ms98-a-0007;switchboard-1/sw02180A/sw2180A-ms98-a-0009;switchboard-1/sw02180A/sw2180A-ms98-a-0011;switchboard-1/sw02180A/sw2180A-ms98-a-0013;switchboard-1/sw02180A/sw2180A-ms98-a-0014;switchboard-1/sw02180A/sw2180A-ms98-a-0015;switchboard-1/sw02180A/sw2180A-ms98-a-0016;switchboard-1/sw02180A/sw2180A-ms98-a-0017;switchboard-1/sw02180A/sw2180A-ms98-a-0018;switchboard-1/sw02180A/sw2180A-ms98-a-0019;switchboard-1/sw02180A/sw2180A-ms98-a-0020;switchboard-1/sw02180A/sw2180A-ms98-a-0021;switchboard-1/sw02180A/sw2180A-ms98-a-0022;switchboard-1/sw02180A/sw2180A-ms98-a-0023;switchboard-1/sw02180A/sw2180A-ms98-a-0024;switchboard-1/sw02180A/sw2180A-ms98-a-0025"
@@ -90,12 +98,17 @@ class PlotAttentionWeightsJob(Job):
     else:
       labels = [idx_to_label[idx] for idx in align]
 
+    print("WEIGHTS SHAPE: ", weights.shape)
+    print("WEIGHTS: ", weights)
+    print("STARTS: ", seg_starts)
+    print("LENS: ", seg_lens)
+
     last_label_rep = len(hmm_align) % self.time_red
     weights = np.concatenate(
       [np.repeat(weights[:, :-1], self.time_red, axis=-1), np.repeat(weights[:, -1:], last_label_rep, axis=-1)], axis=-1)
 
     font_size = 15
-    figsize_factor = font_size * len(hmm_align_major) / 95
+    figsize_factor = 5 * font_size * len(hmm_align_major) / 110
     figsize = (figsize_factor, len(labels) / len(hmm_align_major) * figsize_factor)
     # print(figsize)
     # print("LABELS: ", labels)
