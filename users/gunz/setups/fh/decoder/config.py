@@ -12,12 +12,12 @@ from dataclasses import dataclass
 import typing
 
 from sisyphus import tk
-from sisyphus.delayed_ops import Delayed
+from sisyphus.delayed_ops import DelayedBase
 
 from ..factored import PhoneticContext
 
 
-Float = typing.Union[float, tk.Variable, Delayed]
+Float = typing.Union[float, tk.Variable, DelayedBase]
 
 
 @dataclass
