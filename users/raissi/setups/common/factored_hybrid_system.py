@@ -187,8 +187,6 @@ class FactoredHybridBaseSystem(NnSystem):
 
         #keys when you have different dev and test sets
         self.train_key = None  # "train-baseline"
-
-    # ----------- pipeline construction -----------------
     def set_crp_pairings(self, dev_key='dev-baseline', test_key='test-baseline'):
         #have a dict of crp_names so that you can refer to your data as you want
         keys = self.corpora.keys()
@@ -202,21 +200,14 @@ class FactoredHybridBaseSystem(NnSystem):
             if 'train' in k:
                 crp_n = f'{self.train_key}.{k}'
                 self.crp_names[k]  = crp_n
-                self.add_feature_and_alignment_for_crp_with_existing_crp(
+                self._add_feature_and_alignment_for_crp_with_existing_crp(
                     existing_crp_key=self.train_key,
                     new_crp_key=crp_n
                 )
         self.crp_names['dev']  = dev_key
         self.crp_names['test'] = test_key
 
-    def add_feature_and_alignment_for_crp_with_existing_crp(self, existing_crp_key, new_crp_key):
-        assert self.alignments[existing_crp_key] is not None, f'you need to set the alignment for {existing_crp_key} first'
-        #assuming feature flows, caches and buundles are all set similarly
-        assert self.feature_flows[existing_crp_key][self.nn_feature_type] is not None, f'you need to set the features for {existing_crp_key} first'
-        self.alignments[new_crp_key]      = self.alignments[existing_crp_key]
-        self.feature_caches[new_crp_key]  = {self.nn_feature_type: self.feature_caches[existing_crp_key][self.nn_feature_type]}
-        self.feature_bundles[new_crp_key] = {self.nn_feature_type: self.feature_bundles[existing_crp_key][self.nn_feature_type]}
-        self.feature_flows[new_crp_key]   = {self.nn_feature_type: self.feature_flows[existing_crp_key][self.nn_feature_type]}
+
 
     def set_experiment_dict(self, key, alignment, context, postfix_name=""):
         name = self.stage.get_name(alignment, context)
@@ -230,7 +221,60 @@ class FactoredHybridBaseSystem(NnSystem):
             "extra_returnn_code": {"epilog": "", "prolog": ""}
         }
 
-    def set_native_lstm_path(self):
+
+    def set_returnn_config_for_experiment(self, key, returnn_config):
+        assert key in self.experiments.keys()
+        self.experiments[key]["returnn_config"] = returnn_config
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
+
+    # -------------------- Internal helpers --------------------
+    def _init_datasets(
+            self,
+            train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
+            cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
+            devtrain_data: Optional[
+                Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
+            ] = None,
+            dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
+            test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
+    ):
+        devtrain_data = devtrain_data if devtrain_data is not None else {}
+        dev_data = dev_data if dev_data is not None else {}
+        test_data = test_data if test_data is not None else {}
+
+        self._assert_corpus_name_unique(
+            train_data, cv_data, devtrain_data, dev_data, test_data
+        )
+
+        self.train_input_data = train_data
+        self.cv_input_data = cv_data
+        self.devtrain_input_data = devtrain_data
+        self.dev_input_data = dev_data
+        self.test_input_data = test_data
+
+        self.train_corpora.extend(list(train_data.keys()))
+        self.cv_corpora.extend(list(cv_data.keys()))
+        self.devtrain_corpora.extend(list(devtrain_data.keys()))
+        self.dev_corpora.extend(list(dev_data.keys()))
+        self.test_corpora.extend(list(test_data.keys()))
+
+        self._set_train_data(train_data)
+        self._set_train_data(cv_data)
+        self._set_train_data(devtrain_data)
+        self._set_eval_data(dev_data)
+        self._set_eval_data(test_data)
+
+    def _add_feature_and_alignment_for_crp_with_existing_crp(self, existing_crp_key, new_crp_key):
+        assert self.alignments[existing_crp_key] is not None, f'you need to set the alignment for {existing_crp_key} first'
+        #assuming feature flows, caches and buundles are all set similarly
+        assert self.feature_flows[existing_crp_key][self.nn_feature_type] is not None, f'you need to set the features for {existing_crp_key} first'
+        self.alignments[new_crp_key]      = self.alignments[existing_crp_key]
+        self.feature_caches[new_crp_key]  = {self.nn_feature_type: self.feature_caches[existing_crp_key][self.nn_feature_type]}
+        self.feature_bundles[new_crp_key] = {self.nn_feature_type: self.feature_bundles[existing_crp_key][self.nn_feature_type]}
+        self.feature_flows[new_crp_key]   = {self.nn_feature_type: self.feature_flows[existing_crp_key][self.nn_feature_type]}
+
+    def _set_native_lstm_path(self):
         compile_native_op_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
             returnn_root=returnn_root,
@@ -239,13 +283,124 @@ class FactoredHybridBaseSystem(NnSystem):
         )
         self.native_lstm2_path = compile_native_op_job.out_op
 
-    def set_returnn_config_for_experiment(self, key, returnn_config):
-        assert key in self.experiments.keys()
-        self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
+    def _get_system_input(
+            self,
+            corpus_key: str,
+            extract_features: List[str],
 
-    # -------------------- Helpers --------------------
+    ):
+        """
+        :param corpus_key: corpus name identifier
+        :param extract_features: list of features to extract for later usage
+        :return SystemInput:
+        """
+        sys_in = SystemInput()
+        sys_in.crp = self.crp[corpus_key]
+        sys_in.feature_flows = self.feature_flows[corpus_key]
+        sys_in.features = self.feature_caches[corpus_key]
+        if corpus_key in self.alignments:
+            sys_in.alignments = self.alignments[corpus_key]
+
+        for feat_name in extract_features:
+            tk.register_output(
+                f"features/{corpus_key}_{feat_name}_features.bundle",
+                self.feature_bundles[corpus_key][feat_name],
+            )
+
+        return sys_in
+
+    def _run_input_step(self, step_args):
+        for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
+            if 'train' in corpus_key:
+                self.train_key = corpus_key
+            if (
+                    corpus_key
+                    not in self.train_corpora + self.dev_corpora + self.test_corpora
+            ):
+                continue
+            if 'train' in corpus_key:
+                if self.train_key is None:
+                    self.train_key = corpus_key
+                else:
+                    assert (self.train_key == corpus_key,
+                            f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
+            if corpus_key not in self.inputs.keys():
+                self.inputs[corpus_key] = {}
+            self.inputs[corpus_key][step_args.name] = self._get_system_input(
+                corpus_key,
+                step_args.extract_features,
+            )
+
+    def _set_train_data(self, data_dict):
+        for c_key, c_data in data_dict.items():
+            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.feature_flows[c_key] = c_data.feature_flow
+            if c_data.alignments:
+                self.alignments[c_key] = c_data.alignments
+
+    def _set_eval_data(self, data_dict):
+        for c_key, c_data in data_dict.items():
+            self.ctm_files[c_key] = {}
+            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.feature_flows[c_key] = c_data.feature_flow
+            self.set_sclite_scorer(c_key)
+
+    def _update_crp_am_setting(self, crp_key, tdp_type=None, add_base_allophones=False):
+        # ToDo handle different tdp values: default, based on transcription, based on an alignment
+        tdp_pattern = self.tdp_values['pattern']
+        if tdp_type in ['default']:  # additional later, maybe enum or so
+            tdp_values = self.tdp_values[tdp_type]
+
+        elif isinstance(tdp_type, tuple):
+            tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
+
+        else:
+            print("Not implemented tdp type")
+            import sys
+            sys.exit()
+
+        crp = self.crp[crp_key]
+        print(crp_key)
+        for ind, ele in enumerate(tdp_pattern):
+            for type in ["*", "silence"]:
+                crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
+
+        if self.label_info.state_tying == 'cart':
+            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+            assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
+            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
+        else:
+            if self.label_info.use_word_end_classes:
+                crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
+            crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
+            crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
+            if 'train' in crp_key:
+                crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
+                self.label_info.set_sil_ids(crp)
+            else:
+                crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
+
+
+        crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
+        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
+        if add_base_allophones:
+            crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
+
+        crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
+
+    def _get_segment_file(self, corpus_path, remove_prefix=""):
+        return corpus_recipe.SegmentCorpusJob(
+            bliss_corpus=corpus_path,
+            num_segments=1,
+            remove_prefix=remove_prefix,
+        ).out_single_segment_files[1]
+
+    def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
+        merged_corpus_job = corpus_recipe.MergeCorporaJob([train_corpus, cv_corpus],
+                                                          name=name,
+                                                          merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA)
+        return merged_corpus_job.out_merged_corpus
+
     def _get_prior_info_dict(self):
         prior_dict = {}
         for k in ['left-context', 'center-state', 'right-context']:
@@ -264,6 +419,18 @@ class FactoredHybridBaseSystem(NnSystem):
             f"train/{name}_learning_rate.png",
             train_job.out_plot_lr,
         )
+
+    # -------------------- External helpers --------------------
+    def get_epilog_for_train(self, specaug_args=None):
+        #this is for FH when one needs to define extern data
+        if specaug_args is not None:
+            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
+        else:
+            spec_augment_epilog = None
+        return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
+                                           n_contexts=self.label_info.n_contexts,
+                                           n_states=self.label_info.n_states_per_phone,
+                                           specaugment=spec_augment_epilog)
 
     def get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
@@ -340,148 +507,6 @@ class FactoredHybridBaseSystem(NnSystem):
 
         assert len(self.train_corpora) < 2, 'you can have only one corpus for training'
 
-    def init_datasets(
-            self,
-            train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-            cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-            devtrain_data: Optional[
-                Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]
-            ] = None,
-            dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-            test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
-    ):
-        devtrain_data = devtrain_data if devtrain_data is not None else {}
-        dev_data = dev_data if dev_data is not None else {}
-        test_data = test_data if test_data is not None else {}
-
-        self._assert_corpus_name_unique(
-            train_data, cv_data, devtrain_data, dev_data, test_data
-        )
-
-        self.train_input_data = train_data
-        self.cv_input_data = cv_data
-        self.devtrain_input_data = devtrain_data
-        self.dev_input_data = dev_data
-        self.test_input_data = test_data
-
-        self.train_corpora.extend(list(train_data.keys()))
-        self.cv_corpora.extend(list(cv_data.keys()))
-        self.devtrain_corpora.extend(list(devtrain_data.keys()))
-        self.dev_corpora.extend(list(dev_data.keys()))
-        self.test_corpora.extend(list(test_data.keys()))
-
-        self._set_train_data(train_data)
-        self._set_train_data(cv_data)
-        self._set_train_data(devtrain_data)
-        self._set_eval_data(dev_data)
-        self._set_eval_data(test_data)
-
-    def get_system_input(
-            self,
-            corpus_key: str,
-            extract_features: List[str],
-
-    ):
-        """
-        :param corpus_key: corpus name identifier
-        :param extract_features: list of features to extract for later usage
-        :return SystemInput:
-        """
-        sys_in = SystemInput()
-        sys_in.crp = self.crp[corpus_key]
-        sys_in.feature_flows = self.feature_flows[corpus_key]
-        sys_in.features = self.feature_caches[corpus_key]
-        if corpus_key in self.alignments:
-            sys_in.alignments = self.alignments[corpus_key]
-
-        for feat_name in extract_features:
-            tk.register_output(
-                f"features/{corpus_key}_{feat_name}_features.bundle",
-                self.feature_bundles[corpus_key][feat_name],
-            )
-
-        return sys_in
-
-    def run_input_step(self, step_args):
-        for corpus_key, corpus_type in step_args.corpus_type_mapping.items():
-            if 'train' in corpus_key:
-                self.train_key = corpus_key
-            if (
-                    corpus_key
-                    not in self.train_corpora + self.dev_corpora + self.test_corpora
-            ):
-                continue
-            if 'train' in corpus_key:
-                if self.train_key is None:
-                    self.train_key = corpus_key
-                else:
-                    assert (self.train_key == corpus_key,
-                            f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
-            if corpus_key not in self.inputs.keys():
-                self.inputs[corpus_key] = {}
-            self.inputs[corpus_key][step_args.name] = self.get_system_input(
-                corpus_key,
-                step_args.extract_features,
-            )
-
-    def _set_train_data(self, data_dict):
-        for c_key, c_data in data_dict.items():
-            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
-            self.feature_flows[c_key] = c_data.feature_flow
-            if c_data.alignments:
-                self.alignments[c_key] = c_data.alignments
-
-    def _set_eval_data(self, data_dict):
-        for c_key, c_data in data_dict.items():
-            self.ctm_files[c_key] = {}
-            self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
-            self.feature_flows[c_key] = c_data.feature_flow
-            self.set_sclite_scorer(c_key)
-
-    def _update_crp_am_setting(self, crp_key, tdp_type=None, add_base_allophones=False):
-        # ToDo handle different tdp values: default, based on transcription, based on an alignment
-        tdp_pattern = self.tdp_values['pattern']
-        if tdp_type in ['default']:  # additional later, maybe enum or so
-            tdp_values = self.tdp_values[tdp_type]
-
-        elif isinstance(tdp_type, tuple):
-            tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
-
-        else:
-            print("Not implemented tdp type")
-            import sys
-            sys.exit()
-
-        crp = self.crp[crp_key]
-        print(crp_key)
-        for ind, ele in enumerate(tdp_pattern):
-            for type in ["*", "silence"]:
-                crp.acoustic_model_config["tdp"][type][ele] = tdp_values[type][ind]
-
-        if self.label_info.state_tying == 'cart':
-            crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-            assert self.label_info.state_tying_file is not None, 'for cart state tying you need to set state tying file for label_info'
-            crp.acoustic_model_config.state_tying.file = self.label_info.state_tying_file
-        else:
-            if self.label_info.use_word_end_classes:
-                crp.acoustic_model_config.state_tying.use_word_end_classes = self.label_info.use_word_end_classes
-            crp.acoustic_model_config.state_tying.use_boundary_classes = self.label_info.use_boundary_classes
-            crp.acoustic_model_config.hmm.states_per_phone = self.label_info.n_states_per_phone
-            if 'train' in crp_key:
-                crp.acoustic_model_config.state_tying.type = self.label_info.state_tying
-                self.label_info.set_sil_ids(crp)
-            else:
-                crp.acoustic_model_config.state_tying.type = 'no-tying-dense'  # for correct tree of dependency
-
-
-        crp.acoustic_model_config.allophones.add_all = self.lexicon_args['add_all_allophones']
-        crp.acoustic_model_config.allophones.add_from_lexicon = not self.lexicon_args['add_all_allophones']
-        if add_base_allophones:
-            crp.acoustic_model_config.allophones.add_from_file = self.base_allophones
-
-        crp.lexicon_config.normalize_pronunciation = self.lexicon_args['norm_pronunciation']
-
-
     def update_am_setting_for_all_crps(self, train_tdp_type, eval_tdp_type, add_base_allophones=False):
         types = {'train': train_tdp_type, 'eval': eval_tdp_type}
         for t in types.keys():
@@ -500,31 +525,36 @@ class FactoredHybridBaseSystem(NnSystem):
                 self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'],
                                             add_base_allophones=add_base_allophones)
 
+    def set_rasr_returnn_input_datas(self, input_key, chunk_size):
+        for k in self.corpora.keys():
+            assert self.inputs[k] is not None
+            assert self.inputs[k][input_key] is not None
+
+        nn_train_data_inputs, \
+        nn_cv_data_inputs, \
+        nn_devtrain_data_inputs = self.prepare_train_data_with_cv_from_train(input_key, chunk_size)
+
+        nn_dev_data_inputs = {
+            self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
+        }
+        nn_test_data_inputs = {
+
+        self.crp_names['test']: self.inputs[self.crp_names['test']][input_key].as_returnn_rasr_data_input(),
+
+        }
+
+        self._init_datasets(
+            train_data=nn_train_data_inputs,
+            cv_data=nn_cv_data_inputs,
+            devtrain_data=nn_devtrain_data_inputs,
+            dev_data=nn_dev_data_inputs,
+            test_data=nn_test_data_inputs)
+        label_info_args = {
+            'n_states_per_phone': self.label_info.n_states_per_phone,
+            'n_contexts': self.label_info.n_contexts}
+        self.initial_nn_args.update(label_info_args)
+
     # ----- data preparation for train-----------------------------------------------------
-    def get_epilog_for_train(self, specaug_args=None):
-        #this is for FH when one needs to define extern data
-        if specaug_args is not None:
-            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
-        else:
-            spec_augment_epilog = None
-        return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
-                                           n_contexts=self.label_info.n_contexts,
-                                           n_states=self.label_info.n_states_per_phone,
-                                           specaugment=spec_augment_epilog)
-
-    def _get_segment_file(self, corpus_path, remove_prefix=""):
-        return corpus_recipe.SegmentCorpusJob(
-            bliss_corpus=corpus_path,
-            num_segments=1,
-            remove_prefix=remove_prefix,
-        ).out_single_segment_files[1]
-
-    def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
-        merged_corpus_job = corpus_recipe.MergeCorporaJob([train_corpus, cv_corpus],
-                                                          name=name,
-                                                          merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA)
-        return merged_corpus_job.out_merged_corpus
-
 
     def prepare_rasr_train_data_with_cv_from_train(self, input_key, chunk_size=1152, cv_num_segments=100):
         #from i6_experiments.common.datasets.librispeech.constants import num_segments
@@ -612,38 +642,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-
-    def set_rasr_returnn_input_datas(self, input_key, chunk_size):
-        for k in self.corpora.keys():
-            assert self.inputs[k] is not None
-            assert self.inputs[k][input_key] is not None
-
-        nn_train_data_inputs, \
-        nn_cv_data_inputs, \
-        nn_devtrain_data_inputs = self.prepare_train_data_with_cv_from_train(input_key, chunk_size)
-
-        nn_dev_data_inputs = {
-            self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
-        }
-        nn_test_data_inputs = {
-
-        self.crp_names['test']: self.inputs[self.crp_names['test']][input_key].as_returnn_rasr_data_input(),
-
-        }
-
-        self.init_datasets(
-            train_data=nn_train_data_inputs,
-            cv_data=nn_cv_data_inputs,
-            devtrain_data=nn_devtrain_data_inputs,
-            dev_data=nn_dev_data_inputs,
-            test_data=nn_test_data_inputs)
-        label_info_args = {
-            'n_states_per_phone': self.label_info.n_states_per_phone,
-            'n_contexts': self.label_info.n_contexts}
-        self.initial_nn_args.update(label_info_args)
-
     # -------------------- Training --------------------
-
     def returnn_training(
             self,
             name,
