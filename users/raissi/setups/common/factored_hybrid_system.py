@@ -377,6 +377,8 @@ class FactoredHybridBaseSystem(NnSystem):
                     self.train_key = corpus_key
                 else:
                     assert self.train_key == corpus_key, f"You already set the train key to be {self.train_key}, you cannot have more than one train key"
+
+
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self._get_system_input(
@@ -609,7 +611,32 @@ class FactoredHybridBaseSystem(NnSystem):
         self.initial_nn_args.update(label_info_args)
 
     # ----- data preparation for train-----------------------------------------------------
-    def prepare_rasr_train_data_with_cv_from_train(self, input_key: str, cv_num_segments: int=100):
+    def get_epilog_for_train(self, specaug_args=None):
+        #this is for FH when one needs to define extern data
+        if specaug_args is not None:
+            spec_augment_epilog = get_specaugment_epilog(**specaug_args)
+        else:
+            spec_augment_epilog = None
+        return get_epilog_code_dense_label(n_input=self.initial_nn_args["num_input"],
+                                           n_contexts=self.label_info.n_contexts,
+                                           n_states=self.label_info.n_states_per_phone,
+                                           specaugment=spec_augment_epilog)
+
+    def _get_segment_file(self, corpus_path, remove_prefix=""):
+        return corpus_recipe.SegmentCorpusJob(
+            bliss_corpus=corpus_path,
+            num_segments=1,
+            remove_prefix=remove_prefix,
+        ).out_single_segment_files[1]
+
+    def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
+        merged_corpus_job = corpus_recipe.MergeCorporaJob([train_corpus, cv_corpus],
+                                                          name=name,
+                                                          merge_strategy=corpus_recipe.MergeStrategy.SUBCORPORA)
+        return merged_corpus_job.out_merged_corpus
+
+
+    def prepare_rasr_train_data_with_cv_from_train(self, input_key, chunk_size=1152, cv_num_segments=100):
         #from i6_experiments.common.datasets.librispeech.constants import num_segments
         #ToDo: decide how you want to set the number of segments
         print("WARNING: hardcoded number of segments")
@@ -647,7 +674,7 @@ class FactoredHybridBaseSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
 
-    def prepare_rasr_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', configure_rasr_automaton=False):
+    def prepare_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', chunk_size=1152, configure_rasr_automaton=False):
         train_corpus_key = self.train_key
         self.input_key = input_key
 
@@ -676,16 +703,13 @@ class FactoredHybridBaseSystem(NnSystem):
             self.crp_names['bw'] = f'{self.train_key}.bw'
             self.crp[self.crp_names['bw']] = crp_bw
 
-
-        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
-            shuffling_parameters=self.shuffling_params,
-            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs['train']),
-        )
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
+                                                                                          segment_order_sort_by_time_length=True,
+                                                                                          chunk_size=chunk_size)
         nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
 
-        nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input(
-            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs['cv']))
+        nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input()
         nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names['cvtrain']: nn_cv_data}
 
