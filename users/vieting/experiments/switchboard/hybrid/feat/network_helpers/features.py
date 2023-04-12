@@ -127,12 +127,18 @@ class ScfNetwork(NetworkDict):
     if wave_norm:
       self._network["wave_norm"] = {"class": "norm", "axes": "T", "from": "data"}
     self._network.update({
+      "conv_h_filter": {
+        "class": "variable",
+        "shape": (size_tf, 1, num_tf),
+        "init": "glorot_uniform",
+      },
       "conv_h": {
         "class": "conv",
         "filter_size": (size_tf,),
         "strides": stride_tf,
         "n_out": num_tf,
         "padding": padding,
+        "filter": "conv_h_filter",
         "from": "wave_norm" if wave_norm else "data"},
       "conv_h_split": {
         "class": "split_dims",
@@ -193,4 +199,3 @@ class ScfNetwork(NetworkDict):
       self._network[layer_name] = {"class": "norm", "axes": norm, "from": layer_name + "_no_norm"}
     else:
       raise NotImplementedError
-
