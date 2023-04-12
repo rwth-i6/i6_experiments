@@ -129,9 +129,14 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
         data_type=np.int16,
         returnn_root=returnn_root,
     )
-    segments = corpus_recipe.SplitSegmentFileJob(all_segments[1], concurrent=50).out_segment_path
+    segments = corpus_recipe.SplitSegmentFileJob(all_segments[1], concurrent=20).out_segment_path
+    gt_caches = gmm_system.outputs["switchboard"]["final"].features["gt"].hidden_paths
+    gt_cache_bundle = gt_caches[1].creator.out_feature_bundle["gt"]
     ogg_zip_job = BlissToOggZipJob(
         train_corpus_path,
+        rasr_cache=gt_cache_bundle,
+        raw_sample_rate=8000,
+        feat_sample_rate=100,
         segments=segments,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
