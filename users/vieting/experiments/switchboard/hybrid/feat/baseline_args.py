@@ -163,9 +163,10 @@ def get_returnn_config(
             "network": network,
             "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
             "chunking": (
-                {"classes": 500, "data": 500 * sample_rate // 100},
+                {"classes": 500, "data": 500 * sample_rate // 100},# + 400},
                 {"classes": 250, "data": 250 * sample_rate // 100},
             ),
+            # "min_chunk_size": {"classes": 1, "data": 1 * 80 + 43},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.0,
             "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
@@ -212,6 +213,16 @@ def get_returnn_config(
         python_prolog=prolog,
     )
 
+    # from .network_helpers.features import ScfNetwork
+    # conformer_scf_config = copy.deepcopy(conformer_base_config)
+    # conformer_scf_config["network"]["features"] = ScfNetwork(size_tf=256 // 2, stride_tf=10 // 2).get_as_subnetwork()
+    # conformer_scf_returnn_config = make_returnn_config(
+    #     conformer_scf_config,
+    #     staged_network_dict=None,
+    #     python_prolog=prolog,
+    # )
+
     return {
         "conformer_base": conformer_base_returnn_config,
+        # "conformer_scf": conformer_scf_returnn_config,
     }
