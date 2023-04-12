@@ -15,6 +15,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.model_variants import build_alias, models, global_model_variants, segmental_model_variants, segmental_model_variants_w_length_model, segmental_model_variants_wo_length_model
 
+import time
 
 segmental_dependencies = {
     "rna-bpe": RNA_BPE,
@@ -77,6 +78,21 @@ def run_pipeline():
         variant_params=variant_params,
         num_epochs=num_epochs,
         base_alias=base_alias,
+        recog_type="returnn_w_recomb",
+        do_recog=True,
+        rasr_recog_epochs=(150,),
+        returnn_recog_epochs=(40, 150),
+        num_retrain=2,
+        realignment_length_scale=0.
+      ).run()
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=num_epochs,
+        base_alias=base_alias,
         recog_type="huge_beam",
         do_recog=True).run()
 
@@ -95,23 +111,6 @@ def run_pipeline():
         num_epochs=num_epochs,
         base_alias=base_alias,
         recog_type="huge_beam",
-        do_recog=False
-      ).run()
-
-  for model_type, model_variants in global_model_variants.items():
-    for variant_name, variant_params in model_variants.items():
-      # select the correct dependencies for the current model
-      dependencies = global_dependencies[variant_params["config"]["label_type"]]
-
-      base_alias = "models/%s/%s" % (model_type, variant_name)
-
-      GlobalTrainRecogPipeline(
-        dependencies=dependencies,
-        model_type=model_type,
-        variant_name=variant_name,
-        variant_params=variant_params,
-        num_epochs=num_epochs,
-        base_alias=base_alias,
         do_recog=False
       ).run()
 
@@ -141,4 +140,48 @@ def run_pipeline():
         num_retrain=2,
         realignment_length_scale=0.,
         retrain_load_checkpoint=True,
+      ).run()
+
+  for model_type, model_variants in global_model_variants.items():
+    for variant_name, variant_params in model_variants.items():
+      # select the correct dependencies for the current model
+      dependencies = global_dependencies[variant_params["config"]["label_type"]]
+
+      base_alias = "models/%s/%s" % (model_type, variant_name)
+
+      global_train_recog_pipeline = GlobalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=num_epochs,
+        base_alias=base_alias,
+        do_recog=False
+      )
+      global_train_recog_pipeline.run()
+      checkpoints[variant_name] = global_train_recog_pipeline.checkpoints
+
+  for model_type, model_variants in (
+          ("segmental", segmental_model_variants["segmental"]),
+  ):
+    for variant_name, variant_params in model_variants.items():
+      # select the correct dependencies for the current model
+      dependencies = segmental_dependencies[variant_params["config"]["label_type"]]
+
+      base_alias = "models/%s/%s" % (model_type, variant_name)
+
+      global_import_model_name = "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.no-prev-target-in-readout.pretrain-like-seg"
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[6, 12],
+        base_alias=base_alias,
+        recog_type="standard",
+        do_recog=True,
+        num_retrain=0,
+        import_model_train_epoch1=checkpoints[global_import_model_name]["train"][150],
+        import_model_train_epoch1_alias="global-train-150"
       ).run()
