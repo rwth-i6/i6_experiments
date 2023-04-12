@@ -1,6 +1,6 @@
 from sisyphus import *
-from recipe.i6_core.returnn.config import ReturnnConfig
-from recipe.i6_core import util
+from i6_core.returnn.config import ReturnnConfig
+from i6_core import util
 import os
 import subprocess as sp
 import copy
