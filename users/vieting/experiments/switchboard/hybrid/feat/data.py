@@ -145,9 +145,11 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=train_align_job.out_hdf_files,
-        context_window={"classes": 1, "data": 400},
         audio={"features": "raw", "peak_normalization": True},
-        meta_args={"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}},
+        meta_args={
+            "data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")},
+            "context_window": {"classes": 1, "data": 400},
+        },
         acoustic_mixtures=gmm_system.outputs["switchboard"]["final"].acoustic_mixtures,
     )
 
