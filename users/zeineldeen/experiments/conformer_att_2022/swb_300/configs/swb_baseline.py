@@ -752,51 +752,6 @@ def conformer_baseline():
     base_v1_args["max_seq_length"] = 75
     base_v1_args["oclr_opts"]["n_step"] = 2012
 
-    # TODO: model layers and dims
-    for enc_layers in [8, 12]:
-        for dim_reduce_factor in [0.7, 1.0]:
-
-            args = copy.deepcopy(base_v1_args)
-            args["encoder_args"].num_blocks = enc_layers
-
-            # reduce dims
-            reduced_att_heads = int(args["encoder_args"].att_num_heads * dim_reduce_factor)
-            enc_key_dim = (
-                int(args["encoder_args"].enc_key_dim * dim_reduce_factor / float(reduced_att_heads)) * reduced_att_heads
-            )
-            args["encoder_args"].enc_key_dim = enc_key_dim
-            args["encoder_args"].ff_dim = 4 * enc_key_dim
-            args["encoder_args"].att_num_heads = reduced_att_heads
-
-            args["encoder_args"].input_layer = f"conv-{6}"
-
-            run_exp(
-                f"base_conf_{enc_layers}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_maxSeqLen75_dimReduce{dim_reduce_factor}_fixedFeat",
-                train_args=args,
-                num_epochs=300,
-                epoch_wise_filter=None,
-                seq_ordering="laplace:6000",
-                selected_test_datasets=dev_datasets,
-            )
-
-            if dim_reduce_factor == 0.7 and enc_layers in [8, 12]:
-                for max_seq_len in [80, 90, 100]:
-                    args["max_seq_length"] = max_seq_len
-                    run_exp(
-                        f"base_conf_{enc_layers}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_maxSeqLen{max_seq_len}_dimReduce{dim_reduce_factor}_fixedFeat",
-                        train_args=args,
-                        num_epochs=300,
-                        epoch_wise_filter=None,
-                        seq_ordering="laplace:6000",
-                        selected_test_datasets=dev_datasets,
-                    )
-
-            # if dim_reduce_factor == 0.7 and enc_layers == 12:
-            #     retrain_args = copy.deepcopy(args)
-            #     retrain_args.pop("oclr_opts")
-            #     retrain_args["learning_rates_list"] = [8e-4] * 6 + list(numpy.linspace(8e-4, 1e-6, 144))
-            #
-
     # best: 8l, 12l with 0.7 dim reduction
 
     def get_base_args(args, num_blocks, dim_reduce_factor):
@@ -812,50 +767,96 @@ def conformer_baseline():
         return new_args
 
     base_12l_reduce_0_7_args = get_base_args(base_v1_args, 12, 0.7)
-
-    # TODO: peak lr
-    for final_lr in [1e-5, 1e-6]:
-        for num_epochs in [300]:
-            for peak_lr in [8e-4, 9e-4, 1e-3, 0.0015, 2e-3]:
-                args = copy.deepcopy(base_12l_reduce_0_7_args)
-                # update OCLR
-                args["oclr_opts"]["peak_lr"] = peak_lr
-                args["oclr_opts"]["cycle_ep"] = int(0.45 * num_epochs)
-                args["oclr_opts"]["total_ep"] = num_epochs
-                args["oclr_opts"]["final_lr"] = final_lr
-                run_exp(
-                    f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{peak_lr}_bpe500_maxSeqLen75_dimReduce{0.7}_ep{num_epochs}_finalLR{final_lr}",
-                    train_args=args,
-                    num_epochs=num_epochs,
-                    epoch_wise_filter=None,
-                    seq_ordering="laplace:6000",
-                    selected_test_datasets=dev_datasets,
-                )
-
-    # TODO: more speed pert
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["speed_pert_version"] = 3
-    run_exp(
-        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{peak_lr}_bpe500_maxSeqLen75_dimReduce{0.7}_speedPertV3",
-        train_args=args,
-        num_epochs=num_epochs,
+    base_train_j, base_train_datasets = run_exp(
+        "base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLen75_dimReduce0.7_ep300",
+        train_args=base_12l_reduce_0_7_args,
+        num_epochs=300,
         epoch_wise_filter=None,
         seq_ordering="laplace:6000",
         selected_test_datasets=dev_datasets,
     )
 
-    # TODO: more regularization
-    # for drop_val in [0.1, 0.2, 0.3]:
-    #     args = copy.deepcopy(base_12l_reduce_0_7_args)
-    #
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["oclr_opts"]["n_step"] = 2085
+    args["max_seq_length"] = None
+    run_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_noMaxSeqLen",
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["oclr_opts"]["n_step"] = 2082
+    args["max_seq_length"] = 100
+    run_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_maxSeqLen100_step2082",
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: more layers
+    # 12, 0.7 dim: 48M, full dim: 87M
+    for enc_layers in [14, 16]:
+        args = copy.deepcopy(base_12l_reduce_0_7_args)
+        args["encoder_args"].num_blocks = enc_layers
+        if enc_layers >= 16:
+            args["recursion_limit"] = 4000
+        run_exp(
+            f"base_conf_{enc_layers}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_maxSeqLen75_dimReduce{0.7}",
+            train_args=args,
+            num_epochs=300,
+            epoch_wise_filter=None,
+            seq_ordering="laplace:6000",
+            selected_test_datasets=dev_datasets,
+        )
 
     # TODO: longer training
+    for ep in [100 * 6, 150 * 6, 200 * 6]:
+        for max_seq_len, n_step in [(75, 2012), (100, 2082), (None, 2085)]:
+            args = copy.deepcopy(base_12l_reduce_0_7_args)
+            args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+            args["oclr_opts"]["total_ep"] = ep
+            args["max_seq_length"] = max_seq_len
+            args["oclr_opts"]["n_step"] = n_step
+            run_exp(
+                f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_maxSeqLen{max_seq_len}_dimReduce{0.7}_ep{ep}",
+                train_args=args,
+                num_epochs=ep,
+                epoch_wise_filter=None,
+                seq_ordering="laplace:6000",
+                selected_test_datasets=dev_datasets,
+            )
 
-    # TODO: tune max_seq_len
-    # 90 -> Dropped seqs: 660 (0.26%)
-    # 100 ->Dropped seqs: 149 (0.06%)
-    # for max_seq_len in [90, 100]:
-    #     args = copy.deepcopy(base_v1_args)
-    #     args["max_seq_length"] = max_seq_len
-    #     name = f"base_conf_12l_lstm_1l_conv4_sqrdReLU_peak{1e-3}_bs{15000}_bpe500_reps{5}_accum{2}_noCurr_laplace:6000_maxSeqLen{max_seq_len}"
-    #     run_exp(name, train_args=args, num_epochs=300, epoch_wise_filter=None, seq_ordering="laplace:6000")
+    # TODO: retrain
+    for total_ep in [30 * 6, 50 * 6]:
+        for lr in [3e-4, 5e-4, 8e-4]:
+            retrain_args = copy.deepcopy(base_12l_reduce_0_7_args)
+            retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[
+                "base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLen75_dimReduce0.7_ep300"
+            ]
+            retrain_args["learning_rates_list"] = [lr] * 6 + list(numpy.linspace(lr, 1e-6, total_ep - 6))
+            run_exp(
+                f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_ep{total_ep}_lr{lr}_retrain1",
+                train_args=retrain_args,
+                num_epochs=total_ep,
+                epoch_wise_filter=None,
+                seq_ordering="laplace:6000",
+                selected_test_datasets=dev_datasets,
+            )
+
+    # TODO: shuff
+    for shuff in ["laplace:.40", "laplace:.42"]:
+        run_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_shuff{shuff}",
+            train_args=base_12l_reduce_0_7_args,
+            num_epochs=300,
+            epoch_wise_filter=None,
+            seq_ordering=shuff,
+            selected_test_datasets=dev_datasets,
+        )

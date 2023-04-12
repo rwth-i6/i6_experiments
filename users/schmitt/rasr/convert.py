@@ -1,8 +1,8 @@
 from sisyphus import *
 
-from recipe.i6_core.util import create_executable
-from recipe.i6_core.rasr.config import build_config_from_mapping
-from recipe.i6_core.rasr.command import RasrCommand
+from i6_core.util import create_executable
+from i6_core.rasr.config import build_config_from_mapping
+from i6_core.rasr.command import RasrCommand
 
 import subprocess
 import tempfile

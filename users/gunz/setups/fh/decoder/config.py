@@ -7,20 +7,20 @@ __all__ = [
     "SearchParameters",
 ]
 
-import copy
+import dataclasses
 from dataclasses import dataclass
 import typing
 
 from sisyphus import tk
-from sisyphus.delayed_ops import Delayed
+from sisyphus.delayed_ops import DelayedBase
 
 from ..factored import PhoneticContext
 
 
-Float = typing.Union[float, tk.Variable, Delayed]
+Float = typing.Union[float, tk.Variable, DelayedBase]
 
 
-@dataclass
+@dataclass(eq=True, frozen=True)
 class PriorConfig:
     file: typing.Union[str, tk.Path, None]
     scale: Float
@@ -29,7 +29,7 @@ class PriorConfig:
         return PriorConfig(file=self.file, scale=scale)
 
 
-@dataclass
+@dataclass(eq=True, frozen=True)
 class PriorInfo:
     """
     Contains the prior XML file and scale for the left/right contexts and the
@@ -57,7 +57,8 @@ class PriorInfo:
 
         left = self.left_context_prior.with_scale(left) if self.left_context_prior is not None else None
         right = self.right_context_prior.with_scale(right) if self.right_context_prior is not None else None
-        return PriorInfo(
+        return dataclasses.replace(
+            self,
             center_state_prior=self.center_state_prior.with_scale(center),
             left_context_prior=left,
             right_context_prior=right,
@@ -124,7 +125,7 @@ def default_posterior_scales() -> PosteriorScales:
 TDP = typing.Union[Float, str]
 
 
-@dataclass()
+@dataclass(eq=True, frozen=True)
 class SearchParameters:
     beam: Float
     beam_limit: int
@@ -147,9 +148,7 @@ class SearchParameters:
     transition_scales: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
 
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
-        params = copy.copy(self)
-        params.lm_scale = scale
-        return params
+        return dataclasses.replace(self, lm_scale=scale)
 
     def with_prior_scale(
         self,
@@ -157,14 +156,19 @@ class SearchParameters:
         left: typing.Optional[Float] = None,
         right: typing.Optional[Float] = None,
     ) -> "SearchParameters":
-        params = copy.copy(self)
-        params.prior_info = params.prior_info.with_scale(center=center, left=left, right=right)
-        return params
+        return dataclasses.replace(self, prior_info=self.prior_info.with_scale(center=center, left=left, right=right))
+
+    def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
+        return dataclasses.replace(self, pron_scale=pron_scale)
 
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
-        params = copy.copy(self)
-        params.tdp_scale = scale
-        return params
+        return dataclasses.replace(self, tdp_scale=scale)
+
+    def with_tdp_silence(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_silence=tdp)
+
+    def with_tdp_speech(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_speech=tdp)
 
     @classmethod
     def default_monophone(cls, *, priors: PriorInfo) -> "SearchParameters":

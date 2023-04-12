@@ -12,7 +12,7 @@ import os
 from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
-
+import i6_core.mm as mm
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
@@ -35,9 +35,9 @@ from .config import (
     CART_TREE_TRI,
     CART_TREE_TRI_NUM_LABELS,
     CONF_CHUNKING,
+    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
@@ -365,6 +365,11 @@ def run_single(
 
     # s.set_binaries_for_crp("dev-other", RS_RASR_BINARY_PATH)
 
+    def set_cart_tree(crp: rasr.RasrConfig):
+        crp.acoustic_model_config.state_tying.file = cart_tree
+
+    dummy_mixture = mm.CreateDummyMixturesJob(n_cart_out, s.initial_nn_args["num_input"]).out_mixtures
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -373,7 +378,7 @@ def run_single(
             epoch=ep,
             gpu=False,
             tensor_map=dataclasses.replace(
-                FH_DECODING_TENSOR_CONFIG,
+                CONF_FH_DECODING_TENSOR_CONFIG,
                 in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
                 in_seq_length="extern_data/placeholders/data/data_dim0_size",
                 out_encoder_output="encoder__output/output_batch_major",
@@ -381,13 +386,17 @@ def run_single(
             ),
             recompile_graph_for_feature_scorer=False,
             tf_library=[s.native_lstm2_job.out_op],
+            dummy_mixtures=dummy_mixture,
         )
         recognizer.recognize_count_lm(
             label_info=s.label_info,
-            search_parameters=recog_args,
+            search_parameters=dataclasses.replace(
+                recog_args, beam=16, beam_limit=100_000, lm_scale=7.0, pron_scale=2.0
+            ).with_prior_scale(0.4),
             num_encoder_output=conf_model_dim,
             rerun_after_opt_lm=True,
             calculate_stats=True,
+            crp_update=set_cart_tree,
         )
 
     return s

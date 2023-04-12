@@ -36,11 +36,11 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    BLSTM_FH_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
@@ -362,7 +362,9 @@ def run_single(
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, BLSTM_FH_RASR_BINARY_PATH)
-        s.crp[crp_k].lm_util_exe = tk.Path("/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard")
+        s.crp[crp_k].lm_util_exe = tk.Path(
+            "/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard"
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -370,7 +372,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=FH_DECODING_TENSOR_CONFIG,
+            tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=False,
             tf_library=[s.native_lstm2_job.out_op],
         )

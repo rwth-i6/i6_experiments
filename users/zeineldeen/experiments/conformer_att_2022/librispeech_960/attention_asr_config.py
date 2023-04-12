@@ -320,6 +320,7 @@ class ConformerEncoderArgs(EncoderArgs):
     ctc_loss_scale: Optional[float] = None
     ctc_self_align_delay: Optional[int] = None
     ctc_self_align_scale: float = 0.5
+    ctc_dropout: float = 0.0
 
     # param init
     ff_init: Optional[str] = None

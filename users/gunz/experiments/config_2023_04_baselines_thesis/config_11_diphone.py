@@ -37,10 +37,10 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     CONF_CHUNKING,
+    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    FH_DECODING_TENSOR_CONFIG,
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
@@ -270,7 +270,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=FH_DECODING_TENSOR_CONFIG,
+            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=True,
         )
         recognizer.recognize_count_lm(
