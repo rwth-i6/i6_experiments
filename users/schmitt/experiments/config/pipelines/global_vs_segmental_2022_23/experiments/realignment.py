@@ -47,7 +47,7 @@ class RasrRealignmentExperiment:
 
     self.returnn_config = get_segmental_compile_config(self.variant_params, length_scale=length_scale)
 
-    self.base_alias = "%s/rasr_realign_length_scale%0.1f/%s" % (base_alias, length_scale, self.corpus_key)
+    self.base_alias = base_alias
 
     self.time_rqmt = time_rqmt
     self.mem_rqmt = mem_rqmt

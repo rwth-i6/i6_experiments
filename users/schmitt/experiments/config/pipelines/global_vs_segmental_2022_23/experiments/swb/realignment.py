@@ -3,6 +3,8 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 # experiments
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import SegmentalReturnnDecodingExperiment, RasrDecodingExperiment, DecodingExperiment, GlobalReturnnDecodingExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.realignment import RasrRealignmentExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.analysis import AlignmentComparer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb import default_tags_for_analysis
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment, SearchErrorExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_recog_config as get_segmental_recog_config
@@ -57,7 +59,9 @@ def run_rasr_segmental_realignment(
       concurrent = 1
       label_pruning = 5.0
 
-  return RasrRealignmentExperiment(
+  base_alias = "%s/rasr_realign_length_scale%0.1f/%s" % (base_alias, length_scale, corpus_key)
+
+  realignment = RasrRealignmentExperiment(
     dependencies=dependencies,
     variant_params=variant_params,
     base_alias=base_alias,
@@ -71,3 +75,20 @@ def run_rasr_segmental_realignment(
     mem_rqmt=mem_rqmt,
     label_pruning=label_pruning
   ).run()
+
+  if corpus_key == "cv":
+    for seq_tag in default_tags_for_analysis:
+      AlignmentComparer(
+        hdf_align_path1=realignment,
+        blank_idx1=dependencies.model_hyperparameters.blank_idx,
+        name1="realignment",
+        vocab_path1=dependencies.vocab_path,
+        hdf_align_path2=realignment,
+        blank_idx2=dependencies.model_hyperparameters.blank_idx,
+        name2="realignment",
+        vocab_path2=dependencies.vocab_path,
+        seq_tag=seq_tag,
+        corpus_key="cv",
+        base_alias=base_alias).run()
+
+  return realignment
