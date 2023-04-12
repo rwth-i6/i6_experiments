@@ -362,7 +362,9 @@ def run_single(
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, BLSTM_FH_RASR_BINARY_PATH)
-        s.crp[crp_k].lm_util_exe = tk.Path("/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard")
+        s.crp[crp_k].lm_util_exe = tk.Path(
+            "/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard"
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
