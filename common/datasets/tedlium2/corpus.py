@@ -35,7 +35,7 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
     }
 
     converted_bliss_corpus_dict = {}
-    if audio_format != "sph" or audio_format != "nist":
+    if audio_format not in ["sph", "nist"]:
         for corpus_name, sph_corpus in bliss_corpus_dict.items():
             bliss_change_encoding_job = BlissChangeEncodingJob(
                 corpus_file=sph_corpus,
@@ -50,8 +50,8 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
                 )
             )
             converted_bliss_corpus_dict[corpus_name] = bliss_change_encoding_job.out_corpus
-        else:
-            converted_bliss_corpus_dict = bliss_corpus_dict
+    else:
+        converted_bliss_corpus_dict = bliss_corpus_dict
 
     return converted_bliss_corpus_dict
 
