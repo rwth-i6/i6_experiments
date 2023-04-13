@@ -31,7 +31,12 @@ def run_baseline_gt():
         nn_dev_data_inputs,
         nn_test_data_inputs,
     ) = get_corpus_data_inputs_oggzip(
-        gmm_system, partition_epoch={"train": 6, "dev": 1}, returnn_root=RETURNN_ROOT, returnn_python_exe=RETURNN_EXE)
+        gmm_system,
+        partition_epoch={"train": 6, "dev": 1},
+        context_window={"classes": 1, "data": 441},
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+    )
 
     nn_args = get_nn_args_baseline(num_epochs=260)
     nn_steps = RasrSteps()
@@ -39,12 +44,12 @@ def run_baseline_gt():
 
     # ******************** NN System ********************
 
-    hybrid_nn_system = HybridSystem(
+    hybrid_nn_gt_system = HybridSystem(
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
     )
-    hybrid_nn_system.init_system(
+    hybrid_nn_gt_system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=nn_train_data_inputs,
         cv_data=nn_cv_data_inputs,
@@ -53,4 +58,4 @@ def run_baseline_gt():
         test_data=nn_test_data_inputs,
         train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
     )
-    hybrid_nn_system.run(nn_steps)
+    hybrid_nn_gt_system.run(nn_steps)

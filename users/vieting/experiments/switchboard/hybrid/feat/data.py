@@ -1,8 +1,9 @@
 import numpy as np
+from typing import Dict, Optional
 
+from sisyphus import Path
 from i6_core import corpus as corpus_recipe
 from i6_core import text
-from i6_core.audio.encoding import BlissChangeEncodingJob
 from i6_core.lexicon.allophones import DumpStateTyingJob
 from i6_core.returnn.hdf import RasrAlignmentDumpHDFJob
 from i6_core.returnn.oggzip import BlissToOggZipJob
@@ -81,10 +82,15 @@ def get_corpus_data_inputs_newcv(gmm_system):
     )
 
 
-def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None, returnn_python_exe=None):
+def get_corpus_data_inputs_oggzip(
+    gmm_system, partition_epoch, context_window=None, returnn_root=None, returnn_python_exe=None
+):
     """
-
     :param GmmSystem gmm_system:
+    :param Dict[str, int] partition_epoch:
+    :param Optional[Dict[str, int]] context_window:
+    :param Optional[Path] returnn_root:
+    :param Optional[Path] returnn_python_exe:
     :return:
     """
     # create train and cv sets
@@ -142,14 +148,14 @@ def get_corpus_data_inputs_oggzip(gmm_system, partition_epoch, returnn_root=None
         returnn_root=returnn_root,
     )
     ogg_zip_job.rqmt = {"time": 8.0, "cpu": 2}
+    meta_args={"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}}
+    if context_window is not None:
+        meta_args["context_window"] = context_window
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=train_align_job.out_hdf_files,
         audio={"features": "raw", "peak_normalization": True},
-        meta_args={
-            "data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")},
-            "context_window": {"classes": 1, "data": 400},
-        },
+        meta_args=meta_args,
         acoustic_mixtures=gmm_system.outputs["switchboard"]["final"].acoustic_mixtures,
     )
 

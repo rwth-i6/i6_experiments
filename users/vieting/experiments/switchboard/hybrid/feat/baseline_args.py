@@ -163,10 +163,10 @@ def get_returnn_config(
             "network": network,
             "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
             "chunking": (
-                {"classes": 500, "data": 500 * sample_rate // 100},# + 400},
+                {"classes": 500, "data": 500 * sample_rate // 100},
                 {"classes": 250, "data": 250 * sample_rate // 100},
             ),
-            # "min_chunk_size": {"classes": 1, "data": 1 * 80 + 43},
+            "min_chunk_size": {"classes": 10, "data": 10 * sample_rate // 100},
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.0,
             "learning_rates": list(np.linspace(peak_lr / 10, peak_lr, 100))
