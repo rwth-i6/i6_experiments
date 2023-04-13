@@ -17,9 +17,7 @@ class CartQuestions:
         self.silence = SILENCE
         self.phonemes = PHONEMES
         self.phonemes_str = " ".join(self.phonemes)
-        self.phonemes_boundary_silence = (
-            [self.boundary] + [self.silence] + self.phonemes
-        )
+        self.phonemes_boundary_silence = [self.boundary] + [self.silence] + self.phonemes
         self.phonemes_boundary_silence_str = " ".join(self.phonemes_boundary_silence)
 
         assert n_phones in [2, 3], "Only diphone and triphone contexts are allowed"
@@ -87,15 +85,11 @@ class CartQuestions:
                     },
                     {
                         "type": "for-each-key",
-                        "keys": " ".join(
-                            "history[0] central future[0]".split(" ")[:n_phones]
-                        ),
+                        "keys": " ".join("history[0] central future[0]".split(" ")[:n_phones]),
                         "questions": [
                             {
                                 "type": "for-each-value",
-                                "questions": [
-                                    {"type": "question", "description": "context-phone"}
-                                ],
+                                "questions": [{"type": "question", "description": "context-phone"}],
                             },
                             {
                                 "type": "question",

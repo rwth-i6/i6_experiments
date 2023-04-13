@@ -13,9 +13,7 @@ from .download import download_data_dict
 
 
 @lru_cache()
-def get_bliss_corpus_dict(
-    audio_format: str = "wav", output_prefix: str = "datasets"
-) -> Dict[str, tk.Path]:
+def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datasets") -> Dict[str, tk.Path]:
     """
     :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
     :param output_prefix:
@@ -51,9 +49,7 @@ def get_bliss_corpus_dict(
                     corpus_name,
                 )
             )
-            converted_bliss_corpus_dict[
-                corpus_name
-            ] = bliss_change_encoding_job.out_corpus
+            converted_bliss_corpus_dict[corpus_name] = bliss_change_encoding_job.out_corpus
         else:
             converted_bliss_corpus_dict = bliss_corpus_dict
 
@@ -61,12 +57,8 @@ def get_bliss_corpus_dict(
 
 
 @lru_cache()
-def get_corpus_object_dict(
-    audio_format: str = "flac", output_prefix: str = "datasets"
-) -> Dict[str, CorpusObject]:
-    bliss_corpus_dict = get_bliss_corpus_dict(
-        audio_format=audio_format, output_prefix=output_prefix
-    )
+def get_corpus_object_dict(audio_format: str = "flac", output_prefix: str = "datasets") -> Dict[str, CorpusObject]:
+    bliss_corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
 
     corpus_object_dict = {}
 
