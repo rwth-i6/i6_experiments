@@ -24,6 +24,8 @@ def run_baseline_gt():
     gmm_system = run_gmm_system_from_common()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
 
+    # Gammatone args
+    # noinspection PyTypeChecker
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
@@ -38,12 +40,11 @@ def run_baseline_gt():
         returnn_python_exe=RETURNN_EXE,
     )
 
-    nn_args = get_nn_args_baseline(num_epochs=260)
+    nn_args = get_nn_args_baseline(prefix="gt_", num_epochs=260)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    # ******************** NN System ********************
-
+    # Gammatone NN system
     hybrid_nn_gt_system = HybridSystem(
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,

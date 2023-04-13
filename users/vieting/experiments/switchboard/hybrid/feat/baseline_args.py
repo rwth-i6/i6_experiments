@@ -1,6 +1,6 @@
 import copy
 import numpy as np
-from typing import List
+from typing import List, Dict, Any
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
@@ -12,6 +12,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
 )
+from .network_helpers.features import GammatoneNetwork, ScfNetwork
 from .specaug_jingjing import (
     specaug_layer_jingjing,
     get_funcs_jingjing,
@@ -24,28 +25,38 @@ sys.setrecursionlimit(3000)
 
 
 def get_nn_args(
-    num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=1e-3
+    num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=1e-3, feature_args=None, prefix="",
 ):
     evaluation_epochs = list(np.arange(num_epochs, num_epochs + 1, 10))
 
-    returnn_configs = get_returnn_config(
-        num_inputs=1,
-        num_outputs=num_outputs,
-        evaluation_epochs=evaluation_epochs,
-        extra_exps=extra_exps,
-        peak_lr=peak_lr,
-        num_epochs=num_epochs,
-    )
+    feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
+    feature_network_class = {"GammatoneNetwork": GammatoneNetwork, "ScfNetwork": ScfNetwork}[feature_args.pop("class")]
+    feature_net = feature_network_class(**feature_args).get_as_subnetwork()
 
-    returnn_recog_configs = get_returnn_config(
-        num_inputs=1,
-        num_outputs=num_outputs,
-        evaluation_epochs=evaluation_epochs,
-        recognition=True,
-        extra_exps=extra_exps,
-        peak_lr=peak_lr,
-        num_epochs=num_epochs,
-    )
+    returnn_configs = {
+        prefix + "conformer_base": get_returnn_config(
+            num_inputs=1,
+            num_outputs=num_outputs,
+            evaluation_epochs=evaluation_epochs,
+            extra_exps=extra_exps,
+            peak_lr=peak_lr,
+            num_epochs=num_epochs,
+            feature_net=feature_net,
+        )
+    }
+
+    returnn_recog_configs = {
+        prefix + "conformer_base": get_returnn_config(
+            num_inputs=1,
+            num_outputs=num_outputs,
+            evaluation_epochs=evaluation_epochs,
+            recognition=True,
+            extra_exps=extra_exps,
+            peak_lr=peak_lr,
+            num_epochs=num_epochs,
+            feature_net=feature_net,
+        )
+    }
 
     training_args = {
         "log_verbosity": 4,
@@ -122,6 +133,7 @@ def get_returnn_config(
     evaluation_epochs: List[int],
     peak_lr: float,
     num_epochs: int,
+    feature_net: Dict[str, Any],
     batch_size: int = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
@@ -149,9 +161,8 @@ def get_returnn_config(
         }
 
     from .network_helpers.reduced_dim import network
-    from .network_helpers.features import GammatoneNetwork
     network = copy.deepcopy(network)
-    network["features"] = GammatoneNetwork(sample_rate=8000).get_as_subnetwork()
+    network["features"] = feature_net
     if not recognition:
         network["source"] = specaug_layer_jingjing(in_layer=["features"])
     network = fix_network_for_sparse_output(network)
@@ -213,16 +224,4 @@ def get_returnn_config(
         python_prolog=prolog,
     )
 
-    # from .network_helpers.features import ScfNetwork
-    # conformer_scf_config = copy.deepcopy(conformer_base_config)
-    # conformer_scf_config["network"]["features"] = ScfNetwork(size_tf=256 // 2, stride_tf=10 // 2).get_as_subnetwork()
-    # conformer_scf_returnn_config = make_returnn_config(
-    #     conformer_scf_config,
-    #     staged_network_dict=None,
-    #     python_prolog=prolog,
-    # )
-
-    return {
-        "conformer_base": conformer_base_returnn_config,
-        # "conformer_scf": conformer_scf_returnn_config,
-    }
+    return conformer_base_returnn_config
