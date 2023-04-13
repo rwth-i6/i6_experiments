@@ -17,13 +17,9 @@ from i6_experiments.users.luescher.setups.rasr.config.lm_config import ArpaLmRas
 
 
 def get_corpus_data_inputs() -> Dict[str, Dict[str, RasrDataInput]]:
-    corpus_object_dict = get_corpus_object_dict(
-        audio_format="wav", output_prefix="corpora"
-    )
+    corpus_object_dict = get_corpus_object_dict(audio_format="wav", output_prefix="corpora")
 
-    train_lexicon = LexiconRasrConfig(
-        get_g2p_augmented_bliss_lexicon(output_prefix="lexicon"), False
-    )
+    train_lexicon = LexiconRasrConfig(get_g2p_augmented_bliss_lexicon(output_prefix="lexicon"), False)
 
     wei_lm = ArpaLmRasrConfig(  # TODO replace with complete sisyphus pipeline
         lm_path=tk.Path(

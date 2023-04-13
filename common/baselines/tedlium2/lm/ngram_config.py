@@ -19,12 +19,8 @@ def run_tedlium2_ngram_lm(alias_prefix="baselines/tedlium2/lm/ngram"):
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
 
-    dev_data = CorpusToTxtJob(
-        get_bliss_corpus_dict(audio_format="wav", output_prefix="corpora")["dev"]
-    ).out_txt
-    test_data = CorpusToTxtJob(
-        get_bliss_corpus_dict(audio_format="wav", output_prefix="corpora")["test"]
-    ).out_txt
+    dev_data = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="wav", output_prefix="corpora")["dev"]).out_txt
+    test_data = CorpusToTxtJob(get_bliss_corpus_dict(audio_format="wav", output_prefix="corpora")["test"]).out_txt
 
     train_data_dict = get_text_data_dict()
     dev_data_dict = {"dev": dev_data}
