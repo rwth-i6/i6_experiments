@@ -45,7 +45,7 @@ def run_tedlium2_common_baseline(
     system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=corpus_data["train"],
-        dev_data={},  # corpus_data["dev"],
+        dev_data=corpus_data["dev"],
         test_data={},  # corpus_data["test"],
     )
     system.run(steps)
