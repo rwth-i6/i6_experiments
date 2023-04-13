@@ -44,3 +44,13 @@ class ArpaLmRasrConfig:
             lm_config.image = lm.CreateLmImageJob(crp=crp).out_image
 
         return lm_config
+
+    def get_dict(self):
+        lm_dict = {
+            "filename": self.lm_path,
+            "type": "ARPA",
+        }
+        if self.scale is not None:
+            lm_dict["scale"] = self.scale
+
+        return lm_dict
