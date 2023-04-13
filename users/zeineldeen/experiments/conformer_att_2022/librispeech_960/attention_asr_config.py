@@ -131,6 +131,7 @@ def pretrain_layers_and_dims(
     second_bs_idx=None,
     enc_dec_share_grow_frac=True,
     repeat_first=True,
+    ignored_keys_for_reduce_dim=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -215,6 +216,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
+            if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                continue
             encoder_args_copy[key] = (
                 int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
@@ -237,6 +240,8 @@ def pretrain_layers_and_dims(
                 decoder_keys += ["conv_kernel_size"]
 
             for key in decoder_keys:
+                if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                    continue
                 decoder_args_copy[key] = (
                     int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )

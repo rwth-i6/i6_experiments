@@ -754,7 +754,7 @@ def conformer_baseline():
 
     # best: 8l, 12l with 0.7 dim reduction
 
-    def get_base_args(args, num_blocks, dim_reduce_factor):
+    def get_modified_base_args(args, num_blocks, dim_reduce_factor):
         new_args = copy.deepcopy(args)
         new_args["encoder_args"].num_blocks = num_blocks
         reduced_att_heads = int(new_args["encoder_args"].att_num_heads * dim_reduce_factor)
@@ -766,7 +766,7 @@ def conformer_baseline():
         new_args["encoder_args"].att_num_heads = reduced_att_heads
         return new_args
 
-    base_12l_reduce_0_7_args = get_base_args(base_v1_args, 12, 0.7)
+    base_12l_reduce_0_7_args = get_modified_base_args(base_v1_args, 12, 0.7)
     base_train_j, base_train_datasets = run_exp(
         "base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLen75_dimReduce0.7_ep300",
         train_args=base_12l_reduce_0_7_args,
@@ -860,3 +860,38 @@ def conformer_baseline():
             seq_ordering=shuff,
             selected_test_datasets=dev_datasets,
         )
+
+    # TODO: fix depthwise conv kernel size during pretraining
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    run_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_woDepthwiseConvPre",
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    args = copy.deepcopy(base_v1_args)
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    run_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{1.0}_woDepthwiseConvPre",
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
+
+    # TODO: without global norm
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["global_stats"] = None
+    run_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_woGlobalNorm",
+        train_args=args,
+        num_epochs=300,
+        epoch_wise_filter=None,
+        seq_ordering="laplace:6000",
+        selected_test_datasets=dev_datasets,
+    )
