@@ -1,11 +1,11 @@
-__all__ = ["ReturnnTrainingJobArgs", "ReturnnRawAlignmentHdfTrainingData", "AllowedReturnnTrainingData"]
+__all__ = ["ReturnnTrainingJobArgs", "EpochPartitioning", "ReturnnRasrTrainingArgs"]
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Union
+from typing import Any, List, Optional, Set, TypedDict, Union
 
 from sisyphus import tk
 
-from i6_core.returnn.hdf import BlissToPcmHDFJob, RasrAlignmentDumpHDFJob
+import i6_core.rasr as rasr
 
 
 @dataclass()
@@ -24,45 +24,26 @@ class ReturnnTrainingJobArgs:
     returnn_root: Optional[tk.Path] = None
 
 
-@dataclass()
-class ReturnnRawAlignmentHdfTrainingData:
-    bliss_corpus: tk.Path
-    alignment_caches: List[tk.Path]
-    state_tying_file: tk.Path
-    allophone_file: tk.Path
-    returnn_root: tk.Path
-    seq_ordering: str
-
-    def get(self):
-        raw_hdf_path = BlissToPcmHDFJob(
-            bliss_corpus=self.bliss_corpus,
-            returnn_root=self.returnn_root,
-        ).out_hdf
-        alignment_hdf_path = RasrAlignmentDumpHDFJob(
-            alignment_caches=self.alignment_caches,
-            allophone_file=self.allophone_file,
-            state_tying_file=self.state_tying_file,
-            returnn_root=self.returnn_root,
-        ).out_hdf_files
-
-        data = {
-            "class": "MetaDataset",
-            "data_map": {"classes": ("alignments", "data"), "data": ("features", "data")},
-            "datasets": {
-                "alignments": {
-                    "class": "HDFDataset",
-                    "files": alignment_hdf_path,
-                    "seq_ordering": self.seq_ordering,
-                },
-                "features": {
-                    "class": "HDFDataset",
-                    "files": [raw_hdf_path],
-                },
-            },
-            "seq_order_control_dataset": "alignments",
-        }
-
-        return data
+class EpochPartitioning(TypedDict):
+    dev: int
+    train: int
 
 
-AllowedReturnnTrainingData = Union[Dict, ReturnnRawAlignmentHdfTrainingData]
+class ReturnnRasrTrainingArgs(TypedDict):
+    buffer_size: Optional[int]
+    class_label_file: Optional[tk.Path]
+    cpu_rqmt: Optional[int]
+    device: Optional[str]
+    disregarded_classes: Optional[Any]
+    extra_rasr_config: Optional[rasr.RasrConfig]
+    extra_rasr_post_config: Optional[rasr.RasrConfig]
+    horovod_num_processes: Optional[int]
+    keep_epochs: Optional[bool]
+    log_verbosity: Optional[int]
+    mem_rqmt: Optional[int]
+    num_classes: int
+    num_epochs: int
+    partition_epochs: Optional[EpochPartitioning]
+    save_interval: Optional[int]
+    time_rqmt: Optional[int]
+    use_python_control: Optional[bool]
