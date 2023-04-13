@@ -94,7 +94,7 @@ def get_bliss_lexicon(
 
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon(
-    output_prefix="datasets",
+    output_prefix: str = "datasets",
 ) -> tk.Path:
     original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
     corpus_name = "train"
