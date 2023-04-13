@@ -50,7 +50,7 @@ def download_data_dict(output_prefix: str = "datasets") -> Dict[str, Any]:
         lm_dir=download_tedlium2_job.out_lm_folder,
         vocab=download_tedlium2_job.out_vocab_dict,
         bliss_nist=bliss_corpus_tedlium2_job.out_corpus_files,
-        stm=bliss_corpus_tedlium2_job.out_corpus_files,
+        stm=bliss_corpus_tedlium2_job.out_stm_files,
     )
 
     return tl2_data.as_dict()
