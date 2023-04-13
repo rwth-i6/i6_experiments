@@ -33,7 +33,7 @@ from .util import (
     RasrSteps,
     NnForcedAlignArgs,
     ReturnnTrainingJobArgs,
-    AllowedReturnnTrainingData,
+    AllowedReturnnTrainingDataInput,
 )
 
 # -------------------- Init --------------------
@@ -630,9 +630,9 @@ def returnn_training(
     name: str,
     returnn_config: returnn.ReturnnConfig,
     training_args: ReturnnTrainingJobArgs,
-    train_data: AllowedReturnnTrainingData,
-    cv_data: Optional[AllowedReturnnTrainingData] = None,
-    additional_data: Optional[Dict[str, AllowedReturnnTrainingData]] = None,
+    train_data: AllowedReturnnTrainingDataInput,
+    cv_data: Optional[AllowedReturnnTrainingDataInput] = None,
+    additional_data: Optional[Dict[str, AllowedReturnnTrainingDataInput]] = None,
 ) -> returnn.ReturnnTrainingJob:
     assert isinstance(returnn_config, returnn.ReturnnConfig)
 
