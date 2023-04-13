@@ -9,7 +9,9 @@ from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
 import i6_core.util as util
 from sisyphus import Task, tk, Job
 from typing import Callable
+import logging
 import optuna
+import inspect
 
 
 class OptunaReturnnTrainingJob(Job):
@@ -54,6 +56,8 @@ class OptunaReturnnTrainingJob(Job):
         self.returnn_root = returnn_root
         self.horovod_num_processes = horovod_num_processes
         self.multi_node_slots = multi_node_slots
+
+        self.num_epochs = num_epochs
 
         stored_epochs = list(range(save_interval, num_epochs, save_interval)) + [num_epochs]
         if keep_epochs is None:
@@ -266,30 +270,32 @@ class OptunaReturnnTrainingJob(Job):
         )
 
     def run(self, task_id: int) -> None:
+        storage = optuna.storages.get_storage(self.study_storage)
         study = optuna.load_study(
             study_name=self.study_name,
-            storage=self.study_storage,
+            storage=storage,
         )
 
-        study = optuna.load_study(study_name=self.study_name, storage=self.study_storage)
         if self.out_trials[task_id].is_set():
-            trial = self.out_trials[task_id].get()
-            trial_num = self.out_trial_nums[task_id].get()
-            print(f"Found existing trial with number {trial_num}")
-            assert isinstance(trial, optuna.trial.FixedTrial)
-            assert isinstance(trial_num, int)
-            returnn_config = self.get_returnn_config(trial, trial_num)
+            trial_num = int(self.out_trial_nums[task_id].get())
+            logging.info(f"Found existing trial with number {trial_num}")
+
+            # Retreive the trial id for reporting purposes
+            # Returnn config should already exist and does not need to be created again
+            study_id = storage.get_study_id_from_name(self.study_name)
+            trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, trial_num)
+            trial = optuna.Trial(study, trial_id)
         else:
             trial = study.ask()
             trial_num = trial.number
-            print(f"Start new trial with number {trial_num}")
-            returnn_config = self.get_returnn_config(trial, trial_num)
-            self.prepare_trial_files(returnn_config, trial_num)
+            logging.info(f"Start new trial with number {trial_num}")
+            returnn_config = self.get_returnn_config(trial, task_id)
+            self.prepare_trial_files(returnn_config, task_id)
             self.out_trial_nums[task_id].set(trial_num)
-            self.out_trial_params[trial_num].set(trial.params)
-            self.out_trials[trial_num].set(optuna.trial.FixedTrial(trial.params, trial_num))
+            self.out_trial_params[task_id].set(trial.params)
+            self.out_trials[task_id].set(optuna.trial.FixedTrial(trial.params, trial_num))
 
-        config_file = self.out_trial_returnn_config_files[trial_num]
+        config_file = self.out_trial_returnn_config_files[task_id]
 
         run_cmd = self._get_run_cmd(config_file)
         training_process = sp.Popen(run_cmd)
@@ -300,7 +306,7 @@ class OptunaReturnnTrainingJob(Job):
         while return_code := training_process.poll() is None:
             time.sleep(30)
             try:
-                lr_data = self.parse_lr_file(trial_num)
+                lr_data = self.parse_lr_file(task_id)
             except (FileNotFoundError, SyntaxError):
                 continue
             epochs = list(sorted(lr_data.keys()))
@@ -321,18 +327,25 @@ class OptunaReturnnTrainingJob(Job):
                 study.tell(trial_num, state=optuna.trial.TrialState.PRUNED)
                 break
 
-        if trial_pruned or return_code == 0:
-            self.out_trial_scores[trial_num].set(best_score)
+        if trial_pruned:
+            logging.info("Pruned trial run")
+            self.out_trial_scores[task_id].set(best_score)
             os.link(
-                f"trial-{trial_num:03d}/learning_rates",
-                self.out_trial_learning_rates[trial_num].get_path(),
+                f"trial-{task_id:03d}/learning_rates",
+                self.out_trial_learning_rates[task_id].get_path(),
             )
 
         if not trial_pruned and return_code == 0:
-            assert max_epoch == returnn_config.config["num_epochs"]
+            logging.info("Finished trial run normally")
+            assert max_epoch == self.num_epochs
             study.tell(trial_num, best_score, state=optuna.trial.TrialState.COMPLETE)
+            os.link(
+                f"trial-{task_id:03d}/learning_rates",
+                self.out_trial_learning_rates[task_id].get_path(),
+            )
 
         if not trial_pruned and return_code != 0:
+            logging.info("Training had an error")
             raise sp.CalledProcessError(return_code, cmd=run_cmd)
 
     def select_best_trial(self) -> None:
@@ -404,7 +417,7 @@ class OptunaReturnnTrainingJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": kwargs["returnn_config_generator"],
+            "returnn_config_generator": inspect.getsource(kwargs["returnn_config_generator"]),
             "returnn_config_generator_kwargs": kwargs["returnn_config_generator_kwargs"],
             "sampler_seed": kwargs["sampler_seed"],
             "score_key": kwargs["score_key"],

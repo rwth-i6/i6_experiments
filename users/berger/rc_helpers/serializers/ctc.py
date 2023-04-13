@@ -12,7 +12,11 @@ def get_ctc_rc_network_serializer(num_outputs: int, network_kwargs: dict, return
 
     data_init = [
         DataInitArgs(
-            name="data", available_for_inference=True, dim_tags=[time_dim, data_feature], sparse_dim=None, dtype="float32"
+            name="data",
+            available_for_inference=True,
+            dim_tags=[time_dim, data_feature],
+            sparse_dim=None,
+            dtype="float32",
         )
     ]
     extern_data = ExternData(data_init)

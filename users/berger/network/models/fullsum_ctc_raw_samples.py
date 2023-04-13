@@ -1,7 +1,7 @@
 import copy
 from pathlib import Path
 from i6_core.am.config import acoustic_model_config
-from sisyphus.delayed_ops import DelayedFunction
+from sisyphus.delayed_ops import DelayedFunction, DelayedFormat
 import i6_core.rasr as rasr
 from sisyphus import tk
 from typing import Dict, List, Optional, Tuple, Union
@@ -129,6 +129,10 @@ def make_ctc_rasr_loss_config_v2(
     return config, post_config
 
 
+def format_func(s, *args, **kwargs):
+    return s % args
+
+
 def make_rasr_ctc_loss_opts(
     rasr_binary_path: str, rasr_arch: str = "linux-x86_64-standard", v2: bool = True, num_instances: int = 2, **kwargs
 ):
@@ -142,7 +146,9 @@ def make_rasr_ctc_loss_opts(
     loss_opts = {
         "sprint_opts": {
             "sprintExecPath": trainer_exe.as_posix(),
-            "sprintConfigStr": f"{config} {post_config} --*.LOGFILE=nn-trainer.loss.log --*.TASK=1",
+            "sprintConfigStr": DelayedFunction(
+                "%s %s --*.LOGFILE=nn-trainer.loss.log --*.TASK=1", format_func, config, post_config
+            ),
             "minPythonControlVersion": 4,
             "numInstances": num_instances,
             "usePythonSegmentOrder": False,
@@ -164,10 +170,7 @@ def add_rasr_fastbw_output_layer(
         "class": "softmax",
         "from": from_list,
         "loss": "fast_bw",
-        "loss_opts": {
-            "sprint_opts": make_rasr_ctc_loss_opts(**kwargs),
-            "tdp_scale": 0.0,
-        },
+        "loss_opts": make_rasr_ctc_loss_opts(**kwargs),
         "target": None,
         "n_out": num_outputs,
     }
@@ -188,7 +191,6 @@ def make_blstm_fullsum_ctc_model(
     python_code = []
 
     from_list = ["data"]
-
     from_list, python_code = add_gt_feature_extraction(network, from_list=from_list, name="gt", **gt_args)
     from_list, _ = add_blstm_stack(network, from_list, **blstm_args)
     network["encoder"] = {"class": "copy", "from": from_list}

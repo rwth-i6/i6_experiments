@@ -49,7 +49,7 @@ from i6_experiments.users.berger.recipe.returnn.optuna_returnn_training import (
 from i6_experiments.users.berger.recipe.returnn.optuna_extract_prior import (
     OptunaReturnnComputePriorJob,
 )
-from i6_experiments.users.berger.recipe.returnn.training import GetBestCheckpointJob
+from i6_experiments.users.berger.recipe.returnn.training import GetBestEpochJob, GetBestCheckpointJob
 from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 
 # -------------------- Sisyphus --------------------
@@ -340,13 +340,17 @@ class TransducerSystem:
         self,
         train_exp_name: str,
         returnn_config: ReturnnConfigType,
-        epoch: Optional[int] = None,
+        epoch: Optional[Union[EpochType, tk.Variable]] = None,
         label_scorer_type: str = "precomputed-log-posterior",
         trial_num: Optional[int] = None,
     ) -> tk.Path:
+        train_job = self.train_jobs[train_exp_name]
         rec_step_by_step = "output" if self.is_autoregressive_decoding(label_scorer_type) else None
         rec_json_info = True if rec_step_by_step else None
         if isinstance(returnn_config, ReturnnConfig):
+            assert isinstance(train_job, ReturnnTrainingJob)
+            if epoch == "best":
+                epoch = GetBestEpochJob(train_job.out_learning_rates).out_epoch
             graph_compile_job = CompileTFGraphJob(
                 returnn_config,
                 returnn_root=self.returnn_root,
@@ -356,12 +360,15 @@ class TransducerSystem:
                 rec_json_info=rec_json_info,
             )
         else:
-            train_job = self.train_jobs[train_exp_name]
             assert isinstance(train_job, OptunaReturnnTrainingJob)
             if trial_num is None:
                 trial = train_job.out_best_trial
+                if epoch == "best":
+                    epoch = GetBestEpochJob(train_job.out_learning_rates).out_epoch
             else:
                 trial = train_job.out_trials[trial_num]
+                if epoch == "best":
+                    epoch = GetBestEpochJob(train_job.out_trial_learning_rates[trial_num]).out_epoch
             graph_compile_job = OptunaCompileTFGraphJob(
                 returnn_config_generator=returnn_config[0],
                 returnn_config_generator_kwargs=returnn_config[1],
@@ -680,7 +687,7 @@ class TransducerSystem:
                         SummaryKey.TRAIN_NAME.value: train_exp_name,
                         SummaryKey.RECOG_NAME.value: recog_exp_name,
                         SummaryKey.CORPUS.value: recognition_corpus_key,
-                        SummaryKey.TRIAL.value: trial_num if trial_num else "best",
+                        SummaryKey.TRIAL.value: trial_num if trial_num is not None else "best",
                         SummaryKey.EPOCH.value: epoch,
                         SummaryKey.PRIOR.value: prior_scale,
                         SummaryKey.LM.value: lm_scale,
@@ -784,7 +791,7 @@ class TransducerSystem:
                         SummaryKey.TRAIN_NAME.value: train_exp_name,
                         SummaryKey.RECOG_NAME.value: recog_exp_name,
                         SummaryKey.CORPUS.value: recognition_corpus_key,
-                        SummaryKey.TRIAL.value: trial_num if trial_num else "best",
+                        SummaryKey.TRIAL.value: trial_num if trial_num is not None else "best",
                         SummaryKey.EPOCH.value: epoch,
                         SummaryKey.PRIOR.value: prior_scale,
                         SummaryKey.LM.value: lm_scale,
