@@ -2,9 +2,6 @@ __all__ = [
     "ReturnnRasrTrainingArgs",
     "ReturnnRasrDataInput",
     "OggZipHdfDataInput",
-    "HybridArgs",
-    "NnRecogArgs",
-    "NnForcedAlignArgs",
 ]
 
 import copy
@@ -16,11 +13,8 @@ from sisyphus.delayed_ops import DelayedFormat
 
 import i6_core.am as am
 import i6_core.rasr as rasr
-import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath
-
-from .rasr import RasrDataInput
 
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
 
@@ -290,149 +284,11 @@ class OggZipHdfDataInput:
         }
 
 
-# Attribute names are invalid identifiers, therefore use old syntax
-SearchParameters = TypedDict(
-    "SearchParameters",
-    {
-        "beam-pruning": float,
-        "beam-pruning-limit": float,
-        "lm-state-pruning": Optional[float],
-        "word-end-pruning": float,
-        "word-end-pruning-limit": float,
-    },
-)
-
-
-class LookaheadOptions(TypedDict):
-    cache_high: Optional[int]
-    cache_low: Optional[int]
-    history_limit: Optional[int]
-    laziness: Optional[int]
-    minimum_representation: Optional[int]
-    tree_cutoff: Optional[int]
-
-
-class LatticeToCtmArgs(TypedDict):
-    best_path_algo: Optional[str]
-    encoding: Optional[str]
-    extra_config: Optional[Any]
-    extra_post_config: Optional[Any]
-    fill_empty_segments: Optional[bool]
-
-
-class NnRecogArgs(TypedDict):
-    acoustic_mixture_path: Optional[tk.Path]
-    checkpoints: Optional[Dict[int, returnn.Checkpoint]]
-    create_lattice: Optional[bool]
-    epochs: Optional[List[int]]
-    eval_best_in_lattice: Optional[bool]
-    eval_single_best: Optional[bool]
-    feature_flow_key: str
-    lattice_to_ctm_kwargs: Optional[LatticeToCtmArgs]
-    lm_lookahead: bool
-    lm_scales: List[float]
-    lookahead_options: Optional[LookaheadOptions]
-    mem: int
-    name: str
-    optimize_am_lm_scale: bool
-    parallelize_conversion: Optional[bool]
-    prior_scales: List[float]
-    pronunciation_scales: List[float]
-    returnn_config: Optional[returnn.ReturnnConfig]
-    rtf: int
-    search_parameters: Optional[SearchParameters]
-    use_gpu: Optional[bool]
-
-
-KeyedRecogArgsType = Dict[str, Union[Dict[str, Any], NnRecogArgs]]
-
-
-class EpochPartitioning(TypedDict):
-    dev: int
-    train: int
-
-
-class NnTrainingArgs(TypedDict):
-    buffer_size: Optional[int]
-    class_label_file: Optional[tk.Path]
-    cpu_rqmt: Optional[int]
-    device: Optional[str]
-    disregarded_classes: Optional[Any]
-    extra_rasr_config: Optional[rasr.RasrConfig]
-    extra_rasr_post_config: Optional[rasr.RasrConfig]
-    horovod_num_processes: Optional[int]
-    keep_epochs: Optional[bool]
-    log_verbosity: Optional[int]
-    mem_rqmt: Optional[int]
-    num_classes: int
-    num_epochs: int
-    partition_epochs: Optional[EpochPartitioning]
-    save_interval: Optional[int]
-    time_rqmt: Optional[int]
-    use_python_control: Optional[bool]
-
-
-class HybridArgs:
     def __init__(
         self,
-        returnn_training_configs: Dict[str, returnn.ReturnnConfig],
-        returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: Union[Dict[str, Any], NnTrainingArgs],
-        recognition_args: KeyedRecogArgsType,
-        test_recognition_args: Optional[KeyedRecogArgsType] = None,
     ):
         """
-        ##################################################
-        :param returnn_training_configs
-            RETURNN config keyed by training corpus.
-        ##################################################
-        :param returnn_recognition_configs
-            If a config is not found here, the corresponding training config is used
-        ##################################################
-        :param training_args:
-        ##################################################
-        :param recognition_args:
-            Configuration for recognition on dev corpora.
-        ##################################################
-        :param test_recognition_args:
-            Additional configuration for recognition on test corpora. Merged with recognition_args.
-        ##################################################
         """
-        self.returnn_training_configs = returnn_training_configs
-        self.returnn_recognition_configs = returnn_recognition_configs
-        self.training_args = training_args
-        self.recognition_args = recognition_args
-        self.test_recognition_args = test_recognition_args
 
 
 @dataclass()
-class NnRecogArgs:
-    name: str
-    returnn_config: returnn.ReturnnConfig
-    checkpoints: Dict[int, returnn.Checkpoint]
-    acoustic_mixture_path: tk.Path
-    prior_scales: List[float]
-    pronunciation_scales: List[float]
-    lm_scales: List[float]
-    optimize_am_lm_scale: bool
-    feature_flow_key: str
-    search_parameters: Dict
-    lm_lookahead: bool
-    lattice_to_ctm_kwargs: Dict
-    parallelize_conversion: bool
-    rtf: int
-    mem: int
-    lookahead_options: Optional[Dict] = None
-    epochs: Optional[List[int]] = None
-    native_ops: Optional[List[str]] = None
-
-
-class NnForcedAlignArgs(TypedDict):
-    name: str
-    target_corpus_keys: List[str]
-    feature_scorer_corpus_key: str
-    scorer_model_key: Union[str, List[str], Tuple[str], rasr.FeatureScorer]
-    epoch: int
-    base_flow_key: str
-    tf_flow_key: str
-    dump_alignment: bool
