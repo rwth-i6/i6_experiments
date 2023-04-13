@@ -118,9 +118,7 @@ class RasrSystem(meta.System):
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
-    def _init_lm(
-        self, corpus_key: str, filename: Path, type: str, scale: Optional[int] = None, **kwargs
-    ):
+    def _init_lm(self, corpus_key: str, filename: Path, type: str, scale: Optional[int] = None, **kwargs):
         """
         TODO: docstring
 
