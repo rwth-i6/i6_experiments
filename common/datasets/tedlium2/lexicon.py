@@ -70,7 +70,7 @@ def _get_raw_bliss_lexicon(
 
 @lru_cache()
 def get_bliss_lexicon(
-    output_prefix="datasets",
+    output_prefix: str = "datasets",
 ) -> tk.Path:
     static_lexicon = _get_special_lemma_lexicon()
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
