@@ -1,14 +1,13 @@
 __all__ = ["FactoredHybridSystem"]
 
 import copy
-import dataclasses
-import itertools
 import typing
 from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
+import numpy as np
+
 from sisyphus import gs, tk
-from sisyphus.delayed_ops import DelayedBase
 
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
@@ -42,7 +41,6 @@ from .priors import (
     JoinRightContextPriorsJob,
     ReshapeCenterStatePriorsJob,
 )
-from .util.argmin import ComputeArgminJob
 from .util.hdf import SprintFeatureToHdf
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
 from .util.rasr import SystemInput
@@ -240,7 +238,7 @@ class FactoredHybridSystem(NnSystem):
         dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
-        time_rqmt: typing.Optional[int] = None,
+        time_rqmt: typing.Union[int, float] = 12,
     ):
         self.set_graph_for_experiment(key)
 
@@ -315,7 +313,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
             mem_rqmt=12,
-            time_rqmt=time_rqmt if time_rqmt is not None else 12,
+            time_rqmt=time_rqmt,
         )
 
         return prior_job
@@ -975,6 +973,7 @@ class FactoredHybridSystem(NnSystem):
             dev_corpus_key=dev_corpus_key,
             returnn_config=config,
             share=data_share,
+            time_rqmt=4.9,
         )
 
         job.add_alias(f"priors/{name}/c")
@@ -1158,7 +1157,7 @@ class FactoredHybridSystem(NnSystem):
         gpu=True,
         is_multi_encoder_output=False,
         tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
-        dummy_mixtures=None,
+        dummy_mixtures: typing.Optional[tk.Path] = None,
         **decoder_kwargs,
     ):
         if context_type in [
@@ -1205,150 +1204,6 @@ class FactoredHybridSystem(NnSystem):
         )
 
         return recognizer, recog_args
-
-    TDP = typing.Union[float, tk.Variable, DelayedBase, str]
-
-    def recog_optimize_prior_tdp_scales(
-        self,
-        *,
-        key: str,
-        context_type: PhoneticContext,
-        crp_corpus: str,
-        epoch: int,
-        num_encoder_output: int,
-        prior_scales: typing.Union[
-            typing.List[typing.Tuple[float]],  # center
-            typing.List[typing.Tuple[float, float]],  # center, left
-            typing.List[typing.Tuple[float, float, float]],  # center, left, right
-        ],
-        tdp_scales: typing.List[float],
-        tdp_sil: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
-        tdp_speech: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
-        altas_value=14.0,
-        altas_beam=14.0,
-        override_search_parameters: typing.Optional[SearchParameters] = None,
-        gpu=False,
-        is_min_duration=False,
-        is_multi_encoder_output=False,
-        is_nn_lm: bool = False,
-        lm_config: typing.Optional[rasr.RasrConfig] = None,
-        pre_path: str = "scales",
-        tf_library=None,
-        dummy_mixtures=None,
-        **decoder_kwargs,
-    ) -> SearchParameters:
-        assert len(prior_scales) > 0
-        assert len(tdp_scales) > 0
-
-        recognizer, recog_args = self.get_recognizer_and_args(
-            key=key,
-            context_type=context_type,
-            crp_corpus=crp_corpus,
-            epoch=epoch,
-            gpu=gpu,
-            is_multi_encoder_output=is_multi_encoder_output,
-            tf_library=tf_library,
-            dummy_mixtures=dummy_mixtures,
-            **decoder_kwargs,
-        )
-
-        if override_search_parameters is not None:
-            recog_args = override_search_parameters
-
-        original_recog_args = recog_args
-        recog_args = dataclasses.replace(recog_args, altas=altas_value, beam=altas_beam)
-
-        prior_scales = [tuple(round(p, 2) for p in priors) for priors in prior_scales]
-        prior_scales = [
-            (p, 0.0, 0.0)
-            if isinstance(p, float)
-            else (p[0], 0.0, 0.0)
-            if len(p) == 1
-            else (p[0], p[1], 0.0)
-            if len(p) == 2
-            else p
-            for p in prior_scales
-        ]
-        tdp_scales = [round(s, 2) for s in tdp_scales]
-        tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
-        tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
-
-        jobs = {
-            ((c, l, r), tdp, tdp_sl, tdp_sp): recognizer.recognize(
-                add_sis_alias_and_output=False,
-                label_info=self.label_info,
-                num_encoder_output=num_encoder_output,
-                is_min_duration=is_min_duration,
-                is_nn_lm=is_nn_lm,
-                lm_config=lm_config,
-                name_override=f"{self.experiments[key]['name']}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
-                opt_lm_am=False,
-                search_parameters=dataclasses.replace(
-                    recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
-                ).with_prior_scale(left=l, center=c, right=r),
-            )
-            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
-            for ((c, l, r), tdp) in itertools.product(prior_scales, tdp_scales)
-        }
-        jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
-
-        for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
-            pre_name = f"{pre_path}/{self.experiments[key]['name']}-e{epoch}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
-
-            recog_jobs.lat2ctm.set_keep_value(10)
-            recog_jobs.search.set_keep_value(10)
-
-            recog_jobs.search.add_alias(pre_name)
-            tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
-            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
-
-        best_overall = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
-        best_overall_n = ComputeArgminJob(jobs_num_e)
-        tk.register_output(
-            f"scales-best/{self.experiments[key]['name']}-e{epoch}/args",
-            best_overall.out_argmin,
-        )
-        tk.register_output(
-            f"scales-best/{self.experiments[key]['name']}-e{epoch}/num_err",
-            best_overall_n.out_min,
-        )
-        tk.register_output(
-            f"scales-best/{self.experiments[key]['name']}-e{epoch}/wer",
-            best_overall.out_min,
-        )
-
-        best_tdp_scale = ComputeArgminJob({tdp: num_e for (_, tdp, _, _), num_e in jobs_num_e.items()})
-
-        def map_tdp_output(
-            job: ComputeArgminJob,
-        ) -> typing.Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
-            best_tdps = sisyphus.delayed_ops.Delayed(job.out_argmin)
-            return tuple(best_tdps[i] for i in range(4))
-
-        best_tdp_sil = map_tdp_output(
-            ComputeArgminJob({tdp_sl: num_e for (_, _, tdp_sl, _), num_e in jobs_num_e.items()})
-        )
-        best_tdp_sp = map_tdp_output(
-            ComputeArgminJob({tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()})
-        )
-        base_cfg = dataclasses.replace(
-            original_recog_args, tdp_scale=best_tdp_scale.out_argmin, tdp_silence=best_tdp_sil, tdp_speech=best_tdp_sp
-        )
-
-        best_center_prior = ComputeArgminJob({c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()})
-        if context_type.is_monophone():
-            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin)
-
-        best_left_prior = ComputeArgminJob({l: num_e for ((_, l, _), _, _, _), num_e in jobs_num_e.items()})
-        if context_type.is_diphone():
-            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin, left=best_left_prior.out_argmin)
-
-        best_right_prior = ComputeArgminJob({r: num_e for ((_, _, r), _, _, _), num_e in jobs_num_e.items()})
-        return base_cfg.with_prior_scale(
-            center=best_center_prior.out_argmin,
-            left=best_left_prior.out_argmin,
-            right=best_right_prior.out_argmin,
-        )
 
     # -------------------- run setup  --------------------
 

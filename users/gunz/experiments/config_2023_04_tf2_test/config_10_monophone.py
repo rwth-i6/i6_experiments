@@ -45,20 +45,19 @@ from .config import (
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
-    RETURNN_PYTHON_TF15,
+    RETURNN_PYTHON_TF23,
     SCRATCH_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
 RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
 
 RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
 
-RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
+RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23)
 RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
 
-train_key = "train-other-960"
+train_key = "train-clean-100"
 
 
 @dataclass(frozen=True)
@@ -79,7 +78,6 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
@@ -90,31 +88,7 @@ def run(returnn_root: tk.Path):
             lr="v6",
             multitask=True,
             tune_decoding=True,
-        ),
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v6",
-            multitask=False,
-            tune_decoding=False,
-        ),
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v7",
-            multitask=True,
-            tune_decoding=True,
-        ),
-        Experiment(
-            alignment=scratch_align,
-            alignment_name="scratch",
-            dc_detection=True,
-            lr="v7",
-            multitask=True,
-            tune_decoding=True,
-        ),
+        )
     ]
     for exp in configs:
         run_single(
@@ -151,7 +125,7 @@ def run_single(
         train_data_inputs,
         dev_data_inputs,
         test_data_inputs,
-    ) = lbs_data_setups.get_data_inputs()
+    ) = lbs_data_setups.get_data_inputs(train_corpus=train_key)
     rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
     # *********** System Instantiation *****************
@@ -297,6 +271,8 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
     )
+
+    return
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)

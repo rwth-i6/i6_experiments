@@ -3,33 +3,24 @@ __all__ = ["DecodingTensorMap", "FHDecoder"]
 import copy
 import dataclasses
 from dataclasses import dataclass
+import itertools
+import numpy as np
 import typing
 
 import i6_core.recognition as recog
-import i6_core.rasr as rasr
-import i6_core.am as am
-import i6_core.mm as mm
-from i6_core import returnn
+from i6_core import am, mm, rasr, returnn
 
 from sisyphus import tk
 from sisyphus.delayed_ops import Delayed, DelayedBase, DelayedJoin
 
 from ...common.decoder.rtf import ExtractSearchStatisticsJob
 from ...common.lm_config import TfRnnLmRasrConfig
+from ...common.tdp import TDP, format_tdp
 from ..factored import LabelInfo, PhoneticContext
 from ..rust_scorer import RecompileTfGraphJob
-from .config import Float, PosteriorScales, PriorInfo, SearchParameters
+from ..util.argmin import ComputeArgminJob
+from .config import PosteriorScales, PriorInfo, SearchParameters
 from .scorer import FactoredHybridFeatureScorer
-
-TDP = typing.Union[Float, str]
-
-
-def format_tdp_val(val) -> str:
-    return "inf" if val == "infinity" else f"{val}"
-
-
-def format_tdp(tdp) -> str:
-    return ",".join(format_tdp_val(v) for v in tdp)
 
 
 @dataclass(eq=True, frozen=True)
@@ -650,6 +641,134 @@ class FHDecoder:
             lm_config=None,
             pre_path="",
             crp_update=crp_update,
+        )
+
+    def recognize_optimize_scales(
+        self,
+        *,
+        label_info: LabelInfo,
+        num_encoder_output: int,
+        search_parameters: SearchParameters,
+        prior_scales: typing.Union[
+            typing.List[typing.Tuple[float]],  # center
+            typing.List[typing.Tuple[float, float]],  # center, left
+            typing.List[typing.Tuple[float, float, float]],  # center, left, right
+            np.ndarray,
+        ],
+        tdp_scales: typing.Union[typing.List[float], np.ndarray],
+        tdp_sil: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        tdp_speech: typing.Optional[typing.List[typing.Tuple[TDP, TDP, TDP, TDP]]] = None,
+        altas_value=14.0,
+        altas_beam=14.0,
+        keep_value=10,
+        gpu: typing.Optional[bool] = None,
+        cpu_rqmt: typing.Optional[int] = None,
+        mem_rqmt: typing.Optional[int] = None,
+        crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        pre_path: str = "scales",
+    ) -> SearchParameters:
+        assert len(prior_scales) > 0
+        assert len(tdp_scales) > 0
+
+        recog_args = dataclasses.replace(search_parameters, altas=altas_value, beam=altas_beam)
+
+        if isinstance(prior_scales, np.ndarray):
+            prior_scales = [(s,) for s in prior_scales] if prior_scales.ndim == 1 else [tuple(s) for s in prior_scales]
+
+        prior_scales = [tuple(round(p, 2) for p in priors) for priors in prior_scales]
+        prior_scales = [
+            (p, 0.0, 0.0)
+            if isinstance(p, float)
+            else (p[0], 0.0, 0.0)
+            if len(p) == 1
+            else (p[0], p[1], 0.0)
+            if len(p) == 2
+            else p
+            for p in prior_scales
+        ]
+        tdp_scales = [round(s, 2) for s in tdp_scales]
+        tdp_sil = tdp_sil if tdp_sil is not None else [recog_args.tdp_silence]
+        tdp_speech = tdp_speech if tdp_speech is not None else [recog_args.tdp_speech]
+
+        jobs = {
+            ((c, l, r), tdp, tdp_sl, tdp_sp): self.recognize_count_lm(
+                add_sis_alias_and_output=False,
+                calculate_stats=False,
+                cpu_rqmt=cpu_rqmt,
+                crp_update=crp_update,
+                gpu=gpu,
+                is_min_duration=False,
+                keep_value=keep_value,
+                label_info=label_info,
+                mem_rqmt=mem_rqmt,
+                name_override=f"{self.name}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{tdp_sl}-tdpSp{tdp_sp}",
+                num_encoder_output=num_encoder_output,
+                opt_lm_am=False,
+                rerun_after_opt_lm=False,
+                search_parameters=dataclasses.replace(
+                    recog_args, tdp_scale=tdp, tdp_silence=tdp_sl, tdp_speech=tdp_sp
+                ).with_prior_scale(left=l, center=c, right=r),
+            )
+            for ((c, l, r), tdp, tdp_sl, tdp_sp) in itertools.product(prior_scales, tdp_scales, tdp_sil, tdp_speech)
+        }
+        jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
+
+        for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
+            pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
+
+            recog_jobs.lat2ctm.set_keep_value(keep_value)
+            recog_jobs.search.set_keep_value(keep_value)
+
+            recog_jobs.search.add_alias(pre_name)
+            tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
+            tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
+
+        best_overall = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
+        best_overall_n = ComputeArgminJob(jobs_num_e)
+        tk.register_output(
+            f"scales-best/{self.name}/args",
+            best_overall.out_argmin,
+        )
+        tk.register_output(
+            f"scales-best/{self.name}/num_err",
+            best_overall_n.out_min,
+        )
+        tk.register_output(
+            f"scales-best/{self.name}/wer",
+            best_overall.out_min,
+        )
+
+        best_tdp_scale = ComputeArgminJob({tdp: num_e for (_, tdp, _, _), num_e in jobs_num_e.items()})
+
+        def map_tdp_output(
+            job: ComputeArgminJob,
+        ) -> typing.Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
+            best_tdps = Delayed(job.out_argmin)
+            return tuple(best_tdps[i] for i in range(4))
+
+        best_tdp_sil = map_tdp_output(
+            ComputeArgminJob({tdp_sl: num_e for (_, _, tdp_sl, _), num_e in jobs_num_e.items()})
+        )
+        best_tdp_sp = map_tdp_output(
+            ComputeArgminJob({tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()})
+        )
+        base_cfg = dataclasses.replace(
+            search_parameters, tdp_scale=best_tdp_scale.out_argmin, tdp_silence=best_tdp_sil, tdp_speech=best_tdp_sp
+        )
+
+        best_center_prior = ComputeArgminJob({c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()})
+        if self.context_type.is_monophone():
+            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin)
+
+        best_left_prior = ComputeArgminJob({l: num_e for ((_, l, _), _, _, _), num_e in jobs_num_e.items()})
+        if self.context_type.is_diphone():
+            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin, left=best_left_prior.out_argmin)
+
+        best_right_prior = ComputeArgminJob({r: num_e for ((_, _, r), _, _, _), num_e in jobs_num_e.items()})
+        return base_cfg.with_prior_scale(
+            center=best_center_prior.out_argmin,
+            left=best_left_prior.out_argmin,
+            right=best_right_prior.out_argmin,
         )
 
     def recognize_ls_lstm_lm(

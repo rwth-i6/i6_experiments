@@ -46,7 +46,6 @@ from .config import (
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
-    SCRATCH_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
@@ -79,42 +78,18 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
+    gmm_tri_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
         Experiment(
-            alignment=tri_gmm_align,
+            alignment=gmm_tri_align,
             alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v6",
-            multitask=True,
-            tune_decoding=True,
-        ),
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v6",
-            multitask=False,
-            tune_decoding=False,
-        ),
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v7",
-            multitask=True,
-            tune_decoding=True,
-        ),
-        Experiment(
-            alignment=scratch_align,
-            alignment_name="scratch",
             dc_detection=True,
-            lr="v7",
+            lr=f"v{lr}",
             multitask=True,
             tune_decoding=True,
-        ),
+        )
+        for lr in range(7, 13)
     ]
     for exp in configs:
         run_single(
@@ -228,7 +203,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 11000 if lr == "v7" else 6144,
+        "batch_size": 11000,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
