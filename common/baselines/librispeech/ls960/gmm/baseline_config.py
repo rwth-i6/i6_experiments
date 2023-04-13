@@ -17,6 +17,7 @@ from ...default_tools import RASR_BINARY_PATH
 
 def run_librispeech_960_common_baseline(
     alias_prefix="baselines/librispeech/ls960/gmm/common_baseline",
+    recognition=True,
 ):
 
     # the RASR-System pipelines need global alias and output settings
@@ -61,8 +62,8 @@ def run_librispeech_960_common_baseline(
     system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=corpus_data.train_data,
-        dev_data=corpus_data.dev_data,
-        test_data=corpus_data.test_data,
+        dev_data=corpus_data.dev_data if recognition else {},
+        test_data=corpus_data.test_data if recognition else {},
     )
 
     # run everything
@@ -70,3 +71,5 @@ def run_librispeech_960_common_baseline(
 
     # recover alias and output path settings
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
+
+    return system
