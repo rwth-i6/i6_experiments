@@ -24,8 +24,8 @@ class G2PBasedOovAugmenter:
 
     def __init__(
         self,
-        original_bliss_lexicon: str,
-        train_lexicon: Optional[str] = None,
+        original_bliss_lexicon: Path,
+        train_lexicon: Optional[Path] = None,
         g2p_model_path: Optional[Path] = None,
         train_args: Optional[dict] = None,
         apply_args: Optional[dict] = None,
