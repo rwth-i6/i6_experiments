@@ -10,10 +10,10 @@ from i6_experiments.common.datasets.tedlium2.lexicon import (
 )
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 
-from i6_experiments.users.luescher.setups.rasr.config.lex_config import (
+from i6_experiments.common.setups.rasr.config.lex_config import (
     LexiconRasrConfig,
 )
-from i6_experiments.users.luescher.setups.rasr.config.lm_config import ArpaLmRasrConfig
+from i6_experiments.common.setups.rasr.config.lm_config import ArpaLmRasrConfig
 
 
 def get_corpus_data_inputs() -> Dict[str, Dict[str, RasrDataInput]]:
