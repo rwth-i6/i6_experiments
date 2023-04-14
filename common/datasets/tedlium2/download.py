@@ -11,7 +11,7 @@ from i6_core.datasets.tedlium2 import (
 )
 
 
-@dataclass()
+@dataclass(frozen=True)
 class TedLium2Data:
     """Class for storing the TedLium2 data"""
 
