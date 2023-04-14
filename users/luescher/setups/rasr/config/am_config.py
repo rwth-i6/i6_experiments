@@ -11,9 +11,17 @@ import i6_core.rasr as rasr
 
 
 class StateTying(Enum):
-    MONOPHONE = "monophone"
+    NONE = "none"
+    DECISION_TREE = "decision-tree"
     CART = "cart"
-    DENSE = "dense"
+    MONOPHONE = "monophone"
+    MONOPHONE_EOW = "monophone-eow"
+    MONOPHONE_DENSE = "monophone-dense"
+    DIPHONE_DENSE = "diphone-dense"
+    NO_TYING_DENSE = "no-tying-dense"
+    NO_TYING = "no-tying"
+    LUT = "lut"
+    LOOKUP = "lookup"
 
     def __str__(self):
         return self.value
