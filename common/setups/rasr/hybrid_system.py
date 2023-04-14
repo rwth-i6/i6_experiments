@@ -219,27 +219,23 @@ class HybridSystem(NnSystem):
 
     def returnn_training(
         self,
-        name,
-        returnn_config,
-        nn_train_args,
+        name: str,
+        returnn_config: returnn.ReturnnConfig,
+        nn_train_args: Union[Dict, ReturnnTrainingJobArgs],
         train_corpus_key,
         cv_corpus_key,
         devtrain_corpus_key=None,
-    ):
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
-        returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
-        if devtrain_corpus_key is not None:
-            returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
-            }
-
-        train_job = returnn.ReturnnTrainingJob(
+    ) -> returnn.ReturnnTrainingJob:
+        train_job = returnn_training(
+            name=name,
             returnn_config=returnn_config,
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            **nn_train_args,
+            training_args=nn_train_args,
+            train_data=self.train_input_data[train_corpus_key],
+            cv_data=self.cv_input_data[cv_corpus_key],
+            additional_data={"devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()}
+            if devtrain_corpus_key is not None
+            else None,
+            register_output=False,
         )
         self._add_output_alias_for_train_job(
             train_job=train_job,
@@ -517,7 +513,7 @@ class HybridSystem(NnSystem):
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
                     )
-                else:
+                elif isinstance(self.train_input_data[trn_c], AllowedReturnnTrainingDataInput):
                     returnn_train_job = self.returnn_training(
                         name=name,
                         returnn_config=step_args.returnn_training_configs[name],
@@ -526,6 +522,8 @@ class HybridSystem(NnSystem):
                         cv_corpus_key=cv_c,
                         devtrain_corpus_key=dvtr_c,
                     )
+                else:
+                    raise NotImplementedError
 
                 returnn_recog_config = step_args.returnn_recognition_configs.get(
                     name, step_args.returnn_training_configs[name]
