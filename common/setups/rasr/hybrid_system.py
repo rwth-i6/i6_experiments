@@ -92,9 +92,15 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.train_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.cv_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.devtrain_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
         self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 
@@ -130,9 +136,9 @@ class HybridSystem(NnSystem):
     def init_system(
         self,
         rasr_init_args: RasrInitArgs,
-        train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]] = None,
+        train_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        cv_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         train_cv_pairing: Optional[List[Tuple[str, ...]]] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
