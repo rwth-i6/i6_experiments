@@ -55,9 +55,12 @@ def get_ls100_oggzip_hdf_data():
     ogg_zip_dict = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)
     ogg_zip_base_args = dict(
         alignments=train_align_job.out_hdf_files,
-        context_window={"classes": 1, "data": 400},
         audio={"features": "raw", "peak_normalization": True, "preemphasis": None},
-        meta_args={"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}},
+        meta_args={
+            "data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")},
+            "context_window": {"classes": 1, "data": 400},
+        },
+        ogg_args={"targets": None},
         acoustic_mixtures=gmm_system.outputs["train-clean-100"]["final"].acoustic_mixtures,
     )
     nn_data_inputs = {}
