@@ -8,6 +8,12 @@ from .download import download_data_dict
 
 @lru_cache()
 def get_text_data_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
+    """
+    gather all the textual data provided within the TedLiumV2 dataset
+
+    :param output_prefix:
+    :return:
+    """
     lm_dir = download_data_dict(output_prefix=output_prefix).lm_dir
 
     text_corpora = [

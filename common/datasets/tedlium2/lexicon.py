@@ -14,6 +14,11 @@ from .download import download_data_dict
 
 @lru_cache()
 def _get_special_lemma_lexicon() -> lexicon.Lexicon:
+    """
+    creates the special lemma used in RASR
+
+    :return:
+    """
     lex = lexicon.Lexicon()
     lex.add_lemma(
         lexicon.Lemma(
@@ -57,6 +62,12 @@ def _get_special_lemma_lexicon() -> lexicon.Lexicon:
 def _get_raw_bliss_lexicon(
     output_prefix: str,
 ) -> tk.Path:
+    """
+    downloads the vocabulary file from the TedLiumV2 dataset and creates a bliss lexicon
+
+    :param output_prefix:
+    :return:
+    """
     vocab = download_data_dict(output_prefix=output_prefix).vocab
 
     convert_lexicon_job = LexiconFromTextFileJob(
@@ -72,6 +83,12 @@ def _get_raw_bliss_lexicon(
 def get_bliss_lexicon(
     output_prefix: str = "datasets",
 ) -> tk.Path:
+    """
+    merges the lexicon with special RASR tokens with the lexicon created from the downloaded TedLiumV2 vocabulary
+
+    :param output_prefix:
+    :return:
+    """
     static_lexicon = _get_special_lemma_lexicon()
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
     static_lexicon_job.add_alias(os.path.join(output_prefix, "static_lexicon_job"))
@@ -97,6 +114,13 @@ def get_g2p_augmented_bliss_lexicon(
     audio_format: str = "wav",
     output_prefix: str = "datasets",
 ) -> tk.Path:
+    """
+    augment the kernel lexicon with unknown words from the training corpus
+
+    :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
+    :param output_prefix:
+    :return:
+    """
     original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
     corpus_name = "train"
     bliss_corpus = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)[corpus_name]

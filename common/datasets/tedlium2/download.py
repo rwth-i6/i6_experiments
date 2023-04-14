@@ -24,6 +24,12 @@ class TedLium2Data:
 
 @lru_cache()
 def download_data_dict(output_prefix: str = "datasets") -> TedLium2Data:
+    """
+    downloads the TedLiumV2 dataset and performs the initial data processing steps
+
+    :param output_prefix:
+    :return:
+    """
     download_tedlium2_job = DownloadTEDLIUM2CorpusJob()
     download_tedlium2_job.add_alias(os.path.join(output_prefix, "download", "raw_corpus_job"))
 
