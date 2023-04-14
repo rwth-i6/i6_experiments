@@ -85,5 +85,4 @@ class NnRecogArgs:
 
 # TODO merge the two NnRecogArgs
 
-
 KeyedRecogArgsType = Dict[str, Union[Dict[str, Any], NnRecogArgs]]
