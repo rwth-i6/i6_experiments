@@ -25,17 +25,17 @@ def _export_datasets(output_prefix: str = "datasets"):
 
 
 def _export_stms(output_prefix: str = "datasets"):
-        stm_dict = get_stm_dict(output_prefix=output_prefix)
-        for name, stm_file in stm_dict.items():
-            tk.register_output(
-                os.path.join(
-                    output_prefix,
-                    TEDLIUM_PREFIX,
-                    "stm",
-                    f"{name}.txt",
-                ),
-                stm_file,
-            )
+    stm_dict = get_stm_dict(output_prefix=output_prefix)
+    for name, stm_file in stm_dict.items():
+        tk.register_output(
+            os.path.join(
+                output_prefix,
+                TEDLIUM_PREFIX,
+                "stm",
+                f"{name}.txt",
+            ),
+            stm_file,
+        )
 
 
 def _export_text_data(output_prefix: str = "datasets"):
