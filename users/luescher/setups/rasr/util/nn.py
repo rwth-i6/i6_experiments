@@ -9,9 +9,10 @@ __all__ = [
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
-from sisyphus import tk
+from sisyphus import tk, delayed_ops
 
 import i6_core.am as am
+import i6_core.lexicon as lexicon
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
@@ -61,6 +62,28 @@ class ReturnnRasrDataInput:
             "sprintTrainerExecPath": "sprint-executables/nn-trainer",
             "sprintConfigStr": "",
             "suppress_load_seqs_print": True,
+        }
+
+    def get_align_returnn_dict(self, allophone_file: Optional[tk.Path] = None, silence_phone: str = "[SILENCE]"):
+        allophone_file = allophone_file if allophone_file is not None else lexicon.StoreAllophonesJob(self.crp).out_allophone_file
+        state_tying_file = self.crp.acoustic_model_config.state_tying.file
+        align_dict = self.alignments
+        segment_list = self.crp.segment_path
+
+        return {
+            "class": "SprintCacheDataset",
+            "data": {
+                "data": {
+                    "filename": align_dict,
+                    "data_type": "align",
+                    "allophone_labeling": {
+                        "silence_phone": silence_phone,
+                        "allophone_file": allophone_file,
+                        "state_tying_file": state_tying_file,
+                    },
+                },
+            },
+            "seq_list_filter_file": segment_list,
         }
 
     def build_crp(

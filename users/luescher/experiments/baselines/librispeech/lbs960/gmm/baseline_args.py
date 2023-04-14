@@ -699,11 +699,12 @@ def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Option
         target_corpus_keys=target_corpus_keys,
         flow="uncached_mfcc+context+lda+vtln+cmllr",
         feature_scorer="train_vtln+sat",
+        scorer_index=-1,
         bliss_lexicon={
             "filename": forced_align_lexicon,
             "normalize_pronunciation": False,
         },
-        rtf=10.0,
+        dump_alignment=True,
     )
 
 
@@ -715,6 +716,7 @@ def get_final_output():
     output_args.define_corpus_type("dev-other", "dev")
     output_args.define_corpus_type("dev-clean_forced-align", "dev")
     output_args.define_corpus_type("dev-other_forced-align", "dev")
+    output_args.define_corpus_type("cv", "dev")
     # output_args.define_corpus_type("test-clean", "test")
     # output_args.define_corpus_type("test-other", "test")
 
