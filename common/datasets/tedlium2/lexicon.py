@@ -94,11 +94,12 @@ def get_bliss_lexicon(
 
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon(
+    audio_format: str = "wav",
     output_prefix: str = "datasets",
 ) -> tk.Path:
     original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
     corpus_name = "train"
-    bliss_corpus = get_bliss_corpus_dict(output_prefix=output_prefix)[corpus_name]
+    bliss_corpus = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)[corpus_name]
 
     g2p_augmenter = G2PBasedOovAugmenter(
         original_bliss_lexicon=original_bliss_lexicon,
