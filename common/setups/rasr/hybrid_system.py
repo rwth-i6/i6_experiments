@@ -1,4 +1,4 @@
-__all__ = ["HybridArgs", "HybridSystem"]
+__all__ = ["HybridSystem", "returnn_training"]
 
 import copy
 import itertools
@@ -27,7 +27,6 @@ from .nn_system import NnSystem
 from .util import (
     RasrInitArgs,
     ReturnnRasrDataInput,
-    OggZipHdfDataInput,
     HybridArgs,
     NnRecogArgs,
     RasrSteps,
