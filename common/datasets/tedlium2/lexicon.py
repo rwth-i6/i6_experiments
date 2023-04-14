@@ -57,7 +57,7 @@ def _get_special_lemma_lexicon() -> lexicon.Lexicon:
 def _get_raw_bliss_lexicon(
     output_prefix: str,
 ) -> tk.Path:
-    vocab = download_data_dict(output_prefix=output_prefix)["vocab"]
+    vocab = download_data_dict(output_prefix=output_prefix).vocab
 
     convert_lexicon_job = LexiconFromTextFileJob(
         text_file=vocab,

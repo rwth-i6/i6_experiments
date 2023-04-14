@@ -23,7 +23,7 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
 
     output_prefix = os.path.join(output_prefix, "Ted-Lium-2")
 
-    bliss_corpus_dict = download_data_dict(output_prefix=output_prefix)["bliss_nist"]
+    bliss_corpus_dict = download_data_dict(output_prefix=output_prefix).bliss_nist
 
     audio_format_options = {
         "wav": {
@@ -76,4 +76,4 @@ def get_corpus_object_dict(audio_format: str = "flac", output_prefix: str = "dat
 
 @lru_cache()
 def get_stm_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
-    return download_data_dict(output_prefix=output_prefix)["stm"]
+    return download_data_dict(output_prefix=output_prefix).stm
