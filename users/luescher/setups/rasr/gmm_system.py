@@ -1237,6 +1237,23 @@ class GmmSystem(RasrSystem):
                     **step_args.sdm_args,
                 )
 
+    def run_forced_align_step(self, step_args):
+        train_corpus_keys = step_args.pop("train_corpus_keys", self.train_corpora)
+        target_corpus_keys = step_args.pop("target_corpus_keys")
+        bliss_lexicon = step_args.pop("bliss_lexicon", None)
+        for corpus in train_corpus_keys:
+            for trg_key in target_corpus_keys:
+                forced_align_trg_key = trg_key + "_forced-align"
+                self.add_overlay(trg_key, forced_align_trg_key)
+                if bliss_lexicon:
+                    self._init_lexicon(forced_align_trg_key, **bliss_lexicon)
+
+                self.forced_align(
+                    target_corpus_key=forced_align_trg_key,
+                    feature_scorer_corpus_key=corpus,
+                    **step_args,
+                )
+
     def run_recognition_step(
         self,
         step_args,
