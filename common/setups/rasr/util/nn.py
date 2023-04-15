@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
 from sisyphus import tk
+from sisyphus.delayed_ops import DelayedFormat
 
 import i6_core.am as am
 import i6_core.rasr as rasr
