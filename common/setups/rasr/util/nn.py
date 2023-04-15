@@ -75,7 +75,7 @@ class ReturnnRasrDataInput:
         feature_flow = returnn.ReturnnRasrTrainingJob.create_flow(self.feature_flow, self.alignments)
         write_feature_flow = rasr.WriteFlowNetworkJob(feature_flow)
         return write_feature_flow.out_flow_file
-    
+
     def get_training_rasr_config(self) -> tk.Path:
         config, post_config = returnn.ReturnnRasrTrainingJob.create_config(
             self.crp,
@@ -91,18 +91,15 @@ class ReturnnRasrDataInput:
         config.neural_network_trainer.feature_extraction.file = self.get_training_feature_flow()
         write_rasr_config = rasr.WriteRasrConfigJob(config, post_config)
         return write_rasr_config.out_config
-    
+
     def get_data_dict(self) -> Dict[str, Union[str, DelayedFormat, tk.Path]]:
         """Returns the data dict for the ExternSprintDataset to be used in a training ReturnnConfig."""
         config_file = self.get_training_rasr_config()
-        config_str = DelayedFormat(
-            "--config={} --*.LOGFILE=nn-trainer.{}.log --*.TASK=1",
-            config_file, self.name
-        )
-        dataset = { 
-            'class'                 : 'ExternSprintDataset',
-            'sprintTrainerExecPath' : rasr.RasrCommand.select_exe(self.crp.nn_trainer_exe, 'nn-trainer'),
-            'sprintConfigStr'       : config_str,
+        config_str = DelayedFormat("--config={} --*.LOGFILE=nn-trainer.{}.log --*.TASK=1", config_file, self.name)
+        dataset = {
+            "class": "ExternSprintDataset",
+            "sprintTrainerExecPath": rasr.RasrCommand.select_exe(self.crp.nn_trainer_exe, "nn-trainer"),
+            "sprintConfigStr": config_str,
         }
         if self.partition_epochs is not None:
             dataset["partitionEpoch"] = self.partition_epochs
