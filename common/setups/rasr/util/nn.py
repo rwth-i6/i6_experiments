@@ -94,7 +94,7 @@ class ReturnnRasrDataInput:
     
     def get_data_dict(self) -> Dict[str, Union[str, DelayedFormat, tk.Path]]:
         """Returns the data dict for the ExternSprintDataset to be used in a training ReturnnConfig."""
-        config_file = self.get_rasr_training_config()
+        config_file = self.get_training_rasr_config()
         config_str = DelayedFormat(
             "--config={} --*.LOGFILE=nn-trainer.{}.log --*.TASK=1",
             config_file, self.name
