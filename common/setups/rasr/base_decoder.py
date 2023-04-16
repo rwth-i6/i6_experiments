@@ -187,7 +187,7 @@ class BaseDecoder:
         tdp_speech: Tdp,
         tdp_silence: Tdp,
         tdp_nonspeech: Optional[Tdp] = None,
-        pronunciation_scale: Optional[float] = None,
+        pronunciation_scale: Optional[Union[float, tk.Variable]] = None,
         altas: Optional[float] = None,
     ) -> Union[str, DelayedBase]:
         """
@@ -215,7 +215,10 @@ class BaseDecoder:
             out_str += f"_tdpnonspeech{tdp_nonspeech}"
 
         if pronunciation_scale is not None:
-            out_str += f"_ps{pronunciation_scale:05.2f}"
+            if isinstance(pronunciation_scale, tk.Variable):
+                out_str += DelayedFormat("_ps{}", pronunciation_scale)
+            else:
+                out_str += f"_ps{pronunciation_scale:05.2f}"
 
         if altas is not None:
             out_str += f"_altas{altas:05.2f}"
