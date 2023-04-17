@@ -183,7 +183,7 @@ class BaseDecoder:
                 self.feature_flows[corpus_key] = features.basic_cache_flow(feature_path)
 
             for job_type in ["search", "lat2ctm", "score", "optlm"]:
-                self.jobs[corpus_key][job_type] = {}
+                self.jobs[corpus_key] = {job_type: {}}
 
     @staticmethod
     def _get_scales_string(
