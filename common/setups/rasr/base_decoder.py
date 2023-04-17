@@ -182,8 +182,6 @@ class BaseDecoder:
                 )
                 self.feature_flows[corpus_key] = features.basic_cache_flow(feature_path)
 
-            self.jobs[corpus_key] = {job_type: {} for job_type in ["search", "lat2ctm", "score", "optlm"]}
-
     @staticmethod
     def _get_scales_string(
         am_scale: Union[float, tk.Variable],
@@ -287,6 +285,8 @@ class BaseDecoder:
                 self.crp[corpus_key].acoustic_model_config.tdp[k].forward = tdp_nonspeech.forward
                 self.crp[corpus_key].acoustic_model_config.tdp[k].skip = tdp_nonspeech.skip
                 self.crp[corpus_key].acoustic_model_config.tdp[k].exit = tdp_nonspeech.exit
+
+        self.jobs[corpus_key] = {job_type: {} for job_type in ["search", "lat2ctm", "score", "optlm"]}
 
         return corpus_key
 
