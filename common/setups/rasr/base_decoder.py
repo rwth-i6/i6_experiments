@@ -78,9 +78,8 @@ class BaseDecoder:
         }
 
         # holds the recognition jobs: search, lat2ctm, score, optlm
-        # Dict[str, Dict[str, Dict[str, Type[tk.Job]]]]
         # self.jobs[CORPUS_KEY][JOB_TYPE][EXP_NAME] = tk.Job
-        self.jobs = {}
+        self.jobs: Dict[str, Dict[str, Dict[str, Type[tk.Job]]]] = {}
 
         self.alias_output_prefix = alias_output_prefix
 
