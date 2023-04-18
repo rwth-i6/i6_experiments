@@ -61,6 +61,13 @@ def run_baseline_gt():
     )
     hybrid_nn_gt_system.run(nn_steps)
 
+
+def run_baseline_scf():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
+
+    gmm_system = run_gmm_system_from_common()
+    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
+    
     # SCF args
     # noinspection PyTypeChecker
     (
