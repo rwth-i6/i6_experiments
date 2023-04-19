@@ -1,4 +1,5 @@
 __all__ = [
+    "RasrTrainingArgs",
     "ReturnnRasrDataInput",
     "OggZipHdfDataInput",
     "HybridArgs",
@@ -6,6 +7,7 @@ __all__ = [
     "NnForcedAlignArgs",
 ]
 
+import copy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
@@ -21,6 +23,22 @@ from i6_core.util import MultiPath
 from .rasr import RasrDataInput
 
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+
+
+class RasrTrainingArgs(TypedDict):
+    """
+    Options for writing a RASR training config. See `ReturnnRasrTrainingJob`.
+    Most of them may be disregarded, i.e. the defaults can be left untouched.
+    """
+
+    partition_epochs: Optional[int]
+    num_classes: Optional[int]
+    disregarded_classes: Optional[tk.Path]
+    class_label_file: Optional[tk.Path]
+    buffer_size: int
+    extra_rasr_config: Optional[rasr.RasrConfig]
+    extra_rasr_post_config: Optional[rasr.RasrConfig]
+    use_python_control: bool
 
 
 class ReturnnRasrDataInput:
@@ -40,15 +58,7 @@ class ReturnnRasrDataInput:
         shuffle_data: bool = True,
         stm: Optional[tk.Path] = None,
         glm: Optional[tk.Path] = None,
-        # parameters for the ExternSprintDataset
-        num_classes: Optional[int] = None,
-        disregarded_classes: Optional[tk.Path] = None,
-        class_label_file: Optional[tk.Path] = None,
-        buffer_size: int = 200 * 1024,
-        partition_epochs: Optional[int] = None,
-        extra_rasr_config: Optional[rasr.RasrConfig] = None,
-        extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
-        use_python_control: bool = True,
+        rasr_training_args: Optional[RasrTrainingArgs] = None,
         **kwargs,
     ):
         self.name = name
@@ -61,48 +71,98 @@ class ReturnnRasrDataInput:
         self.shuffle_data = shuffle_data
         self.stm = stm
         self.glm = glm
+        self.rasr_training_args = rasr_training_args or {}
 
-        self.num_classes = num_classes
-        self.disregarded_classes = disregarded_classes
-        self.class_label_file = class_label_file
-        self.buffer_size = buffer_size
-        self.partition_epochs = partition_epochs
-        self.extra_rasr_config = extra_rasr_config
-        self.extra_rasr_post_config = extra_rasr_post_config
-        self.use_python_control = use_python_control
+    @classmethod
+    def create_training_rasr_config(
+        cls,
+        crp: rasr.CommonRasrParameters,
+        alignment: Optional[tk.Path],
+        num_classes: Optional[int] = None,
+        disregarded_classes: Optional[tk.Path] = None,
+        class_label_file: Optional[tk.Path] = None,
+        buffer_size: int = 200 * 1024,
+        extra_rasr_config: Optional[rasr.RasrConfig] = None,
+        extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+        use_python_control: bool = True,
+        **kwargs,
+    ):
+        config, post_config = rasr.build_config_from_mapping(
+            crp,
+            {
+                "acoustic_model": "neural-network-trainer.model-combination.acoustic-model",
+                "corpus": "neural-network-trainer.corpus",
+                "lexicon": "neural-network-trainer.model-combination.lexicon",
+            },
+            parallelize=(crp.concurrent == 1),
+        )
 
-    def get_training_feature_flow(self) -> tk.Path:
-        feature_flow = returnn.ReturnnRasrTrainingJob.create_flow(self.feature_flow, self.alignments)
+        if use_python_control:
+            config.neural_network_trainer.action = "python-control"
+            config.neural_network_trainer.feature_extraction.file = "feature.flow"
+            config.neural_network_trainer.python_control_enabled = True
+            config.neural_network_trainer.python_control_loop_type = "iterate-corpus"
+            config.neural_network_trainer.extract_alignments = alignment is not None
+            config.neural_network_trainer.soft_alignments = False
+        else:
+            config.neural_network_trainer.action = "supervised-training"
+            config.neural_network_trainer.feature_extraction.file = "dummy.flow"
+            config.neural_network_trainer.aligning_feature_extractor.feature_extraction.file = "feature.flow"
+
+        config.neural_network_trainer.single_precision = True
+        config.neural_network_trainer.silence_weight = 1.0
+        config.neural_network_trainer.weighted_alignment = False
+        config.neural_network_trainer.class_labels.disregard_classes = disregarded_classes
+        config.neural_network_trainer.class_labels.load_from_file = class_label_file
+        config.neural_network_trainer.class_labels.save_to_file = "class.labels"
+
+        config.neural_network_trainer.estimator = "steepest-descent"
+        config.neural_network_trainer.training_criterion = "cross-entropy"
+        config.neural_network_trainer.trainer_output_dimension = num_classes
+        config.neural_network_trainer.buffer_type = "utterance"
+        config.neural_network_trainer.buffer_size = buffer_size
+        config.neural_network_trainer.shuffle = False
+        config.neural_network_trainer.window_size = 1
+        config.neural_network_trainer.window_size_derivatives = 0
+        config.neural_network_trainer.regression_window_size = 5
+
+        config._update(extra_rasr_config)
+        post_config._update(extra_rasr_post_config)
+
+        return config, post_config
+
+    @classmethod
+    def create_training_flow(cls, feature_flow: rasr.FlowNetwork, alignment: tk.Path) -> rasr.FlowNetwork:
+        if alignment is not None:
+            flow = mm.cached_alignment_flow(feature_flow, alignment)
+        else:
+            flow = copy.deepcopy(feature_flow)
+        flow.flags["cache_mode"] = "bundle"
+        return flow
+
+    def get_training_feature_flow_file(self) -> tk.Path:
+        feature_flow = self.create_training_flow(self.feature_flow, self.alignments)
         write_feature_flow = rasr.WriteFlowNetworkJob(feature_flow)
         return write_feature_flow.out_flow_file
 
-    def get_training_rasr_config(self) -> tk.Path:
-        config, post_config = returnn.ReturnnRasrTrainingJob.create_config(
-            self.crp,
-            self.alignments,
-            self.num_classes,
-            self.buffer_size,
-            self.disregarded_classes,
-            self.class_label_file,
-            self.extra_rasr_config,
-            self.extra_rasr_post_config,
-            self.use_python_control,
-        )
-        config.neural_network_trainer.feature_extraction.file = self.get_training_feature_flow()
+    def get_training_rasr_config_file(self) -> tk.Path:
+        config, post_config = self.create_training_rasr_config(self.crp, self.alignments, **self.rasr_training_args)
+        config.neural_network_trainer.feature_extraction.file = self.get_training_feature_flow_file()
         write_rasr_config = rasr.WriteRasrConfigJob(config, post_config)
         return write_rasr_config.out_config
 
     def get_data_dict(self) -> Dict[str, Union[str, DelayedFormat, tk.Path]]:
         """Returns the data dict for the ExternSprintDataset to be used in a training ReturnnConfig."""
-        config_file = self.get_training_rasr_config()
+        config_file = self.get_training_rasr_config_file()
         config_str = DelayedFormat("--config={} --*.LOGFILE=nn-trainer.{}.log --*.TASK=1", config_file, self.name)
         dataset = {
             "class": "ExternSprintDataset",
             "sprintTrainerExecPath": rasr.RasrCommand.select_exe(self.crp.nn_trainer_exe, "nn-trainer"),
             "sprintConfigStr": config_str,
         }
-        if self.partition_epochs is not None:
-            dataset["partitionEpoch"] = self.partition_epochs
+        partition_epochs = self.rasr_training_args.get("partition_epochs", None)
+        if partition_epochs is not None:
+            dataset["partitionEpoch"] = partition_epochs
         return dataset
 
     def build_crp(
