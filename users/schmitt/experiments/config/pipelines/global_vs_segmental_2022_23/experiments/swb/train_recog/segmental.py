@@ -21,6 +21,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           realignment_length_scale: float = 1.,
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
+          import_model_do_initial_realignment: bool = False,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -40,6 +41,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     }
 
     self.retrain_load_checkpoint = retrain_load_checkpoint
+
+    assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
+    self.import_model_do_initial_realignment = import_model_do_initial_realignment
+    if import_model_do_initial_realignment:
+      self.base_alias = "%s_initial_realignment" % self.base_alias
 
   def compare_alignments(
           self,
@@ -203,7 +209,24 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       raise NotImplementedError
 
   def run(self):
-    super().run()
+    if self.import_model_do_initial_realignment:
+      for corpus_key in ("cv", "train"):
+        self.alignments["train"][corpus_key] = self._get_realignment(
+          corpus_key=corpus_key,
+          checkpoint=self.import_model_train_epoch1,
+          length_scale=self.realignment_length_scale,
+          epoch=self.num_epochs[-1],
+          train_alias="import_model")
+
+    train_alias = "train"
+    self.checkpoints["train"] = self.run_training(
+      import_model_train_epoch1=self.import_model_train_epoch1,
+      train_alias=train_alias,
+      cv_alignment=self.alignments["train"]["cv"],
+      train_alignment=self.alignments["train"]["train"]
+    )
+    if self.do_recog:
+      self.run_recog(checkpoints=self.checkpoints["train"])
 
     self.compare_alignments(
       hdf_align_path1=self.alignments["train"]["cv"],
