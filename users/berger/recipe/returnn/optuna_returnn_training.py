@@ -336,8 +336,8 @@ class OptunaReturnnTrainingJob(Job):
             )
 
         if not trial_pruned and return_code == 0:
-            logging.info("Finished trial run normally")
             assert max_epoch == self.num_epochs
+            logging.info("Finished trial run normally")
             study.tell(trial_num, best_score, state=optuna.trial.TrialState.COMPLETE)
             os.link(
                 f"trial-{task_id:03d}/learning_rates",

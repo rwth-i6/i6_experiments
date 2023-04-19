@@ -1,4 +1,4 @@
-__all__ = ["CompileTFGraphJob"]
+__all__ = ["OptunaCompileTFGraphJob"]
 
 from sisyphus import *
 

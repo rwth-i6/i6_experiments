@@ -1,4 +1,5 @@
-from typing import List, Union
+from typing import List, Union, Callable
+import functools
 
 
 def skip_layer(network: dict, layer_name: str) -> None:
@@ -32,9 +33,7 @@ def change_source_name(network: dict, orig_name: str, new_name: Union[str, List[
                 attributes["from"] = new_name
             elif isinstance(from_list, list) and orig_name in from_list:
                 index = from_list.index(orig_name)
-                attributes["from"] = (
-                    from_list[:index] + new_name + from_list[index + 1 :]
-                )
+                attributes["from"] = from_list[:index] + new_name + from_list[index + 1 :]
 
         if "subnetwork" in attributes:
             change_source_name(
@@ -61,3 +60,15 @@ def recursive_update(orig_dict: dict, update: dict):
             orig_dict[k] = v
 
     return orig_dict
+
+
+def lru_cache_with_signature(_func=None, *, maxsize=None, typed=False):
+    def decorator(func):
+        cached_function = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
+        functools.update_wrapper(cached_function, func)
+        return cached_function
+
+    if _func is None:
+        return decorator
+    else:
+        return decorator(_func)

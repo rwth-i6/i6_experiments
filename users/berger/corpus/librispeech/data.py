@@ -1,3 +1,4 @@
+import copy
 from typing import Dict, List, Tuple
 from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 import i6_experiments.common.datasets.librispeech as lbs_dataset
@@ -20,9 +21,11 @@ def get_data_inputs(
     add_all_allophones: bool = False,
     audio_format: str = "wav",
 ) -> Tuple[Dict[str, rasr_util.RasrDataInput], ...]:
-    corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format=audio_format,
-        output_prefix="corpora",
+    corpus_object_dict = copy.deepcopy(
+        lbs_dataset.get_corpus_object_dict(
+            audio_format=audio_format,
+            output_prefix="corpora",
+        )
     )
 
     lm = {
