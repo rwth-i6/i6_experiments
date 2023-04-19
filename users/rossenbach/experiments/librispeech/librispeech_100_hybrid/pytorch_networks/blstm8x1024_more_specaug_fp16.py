@@ -1,16 +1,70 @@
-from random import random
-import torch
 import time
-from typing import Dict, Optional
-from torch import nn
+import torch
+from torch import nn, autocast
 from torch.onnx import export as onnx_export
+from torch.cuda.amp import GradScaler
 from torchaudio.functional import mask_along_axis
 
-from returnn.torch.engine import Engine as TorchEngine
-from returnn.util import NumbersDict
 from returnn.log import log
+from returnn.torch.engine import Engine as TorchEngine
+from returnn.util.basic import NumbersDict
+from returnn.torch.context import get_run_ctx, init_train_step_run_ctx
 
 
+class CustomEngine(TorchEngine):
+    
+    def train_epoch(self):
+        """
+        train one (sub)epoch
+        """
+        print("start", self.get_epoch_str(), "with learning rate", self.learning_rate, "...", file=log.v4)
+
+        self._model.train()
+        init_train_step_run_ctx(device=self._device)
+
+        # Creates a GradScaler once at the beginning of training.
+        scaler = GradScaler()
+
+        accumulated_losses_dict = NumbersDict()
+        step_idx = 0
+        for data in self._train_dataloader:
+            step_time_start = time.time()
+            run_ctx = get_run_ctx()
+            run_ctx.init_step()
+
+            self._updater.get_optimizer().zero_grad()
+            with autocast(device_type='cuda', dtype=torch.bfloat16):
+                self._run_step(data)
+
+            losses_dict = run_ctx.losses
+            total_loss = run_ctx.total_loss()
+
+            scaler.scale(total_loss).backward()
+            scaler.step(self._updater.get_optimizer())
+            scaler.update()
+
+            losses_dict = {
+                "train_loss_" + name: float(loss.loss.detach().cpu().numpy())
+                for name, loss in losses_dict.items()
+            }
+            accumulated_losses_dict += NumbersDict(losses_dict)
+            print("step %i, loss: %f, took: %.3fs" % (
+                step_idx, total_loss.detach().cpu().numpy(), time.time() - step_time_start
+            ), file=log.v4)
+
+            step_idx += 1
+
+        print("Trained %i steps" % step_idx)
+
+        accumulated_losses_dict = accumulated_losses_dict / step_idx
+        self.learning_rate_control.set_epoch_error(self.epoch, dict(accumulated_losses_dict))
+        self.learning_rate_control.save()
+
+        if self.epoch % self._save_model_epoch_interval == 0 or self.epoch == self._final_epoch:
+            self._save_model()
+            self._save_optimizer()
+
+        self.eval_model()
 
 class Model(torch.nn.Module):
 
@@ -77,7 +131,7 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
 
     loss = nn.functional.cross_entropy(logits, targets_masked)
 
-    run_ctx.mark_as_loss(name="ce", loss=loss)
+    run_ctx.mark_as_loss(name="CE", loss=loss)
 
 
 def export(*, model: Model, model_filename: str):
@@ -118,4 +172,5 @@ def export_trace(*, model: Model, model_filename: str):
             "classes": {0: "batch", 1: "time"}
         }
     )
+
 

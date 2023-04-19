@@ -24,8 +24,8 @@ class Model(torch.nn.Module):
     def __init__(self):
         super().__init__()
         target_size=12001
-        attention_dim = 256
-        self.espnet_conformer = Encoder(idim=50, attention_dim=attention_dim, input_layer="linear")
+        attention_dim = 512
+        self.espnet_conformer = Encoder(idim=50, num_blocks=12, attention_dim=attention_dim, attention_heads=8, input_layer="linear")
         self.final_linear = nn.Linear(attention_dim, target_size)
 
     def forward(
@@ -46,8 +46,9 @@ class Model(torch.nn.Module):
         mask = lengths_to_mask(audio_features_len, max_len=audio_features.size()[1])
         mask = torch.unsqueeze(mask, dim=1).to(run_ctx.device)
 
+
         conformer_out, mask = self.espnet_conformer(audio_features_masked_2, mask)
-        
+
         logits = self.final_linear(conformer_out)  # [B, T, F]
         logits_ce_order  = torch.permute(logits, dims=(0, 2, 1))  # CE expects [B, F, T]
         log_probs = torch.log_softmax(logits, dim=2)
@@ -90,22 +91,18 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
 
 
 def export(*, model: Model, model_filename: str):
-    # create new run context
     from returnn.torch import context
     context._run_ctx = context.RunCtx(stage="forward_step", device="cpu")
-    model.eval()
-    dummy_data = torch.randn(1, 30, 50, device="cpu")
-    dummy_data2 = torch.randn(1, 50, 50, device="cpu")
-    #dummy_data_len, _ = torch.sort(torch.randint(low=29, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
-    dummy_data_len = torch.ones((1,), device="cpu", dtype=torch.int32)*30
-    dummy_data2_len = torch.ones((1,), device="cpu", dtype=torch.int32)*40
-    log_probs, logits = model(dummy_data2, dummy_data2_len)
+    dummy_data = torch.randn(1, 30, 50, device="cpu") * 10
+    #dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len = torch.ones((1,)) * 25
+    dummy_data_len2 = torch.ones((1,)) * 25
     scripted_model = torch.jit.optimize_for_inference(torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
-    s_log_probs, s_logits = scripted_model(dummy_data2, dummy_data2_len)
-    print(log_probs)
-    print(s_log_probs)
+    l1 = scripted_model(dummy_data, dummy_data_len)
+    l2 = scripted_model(dummy_data, dummy_data_len2)
+    print(l1)
+    print(l2)
     assert False
-    #scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),
