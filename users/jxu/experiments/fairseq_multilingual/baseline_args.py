@@ -13,14 +13,23 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     Import
 )
 
-def prepare_hdf_dataset(hdf_files, partition_epoch):
+def prepare_hdf_dataset(hdf_files, partition_epoch, num_workers=1, buffer_size=100):
     dataset = {
             'class': "HDFDataset",
             'files': hdf_files,
             'partition_epoch': partition_epoch,
             "seq_ordering": "random"
             }
-    return dataset
+    if num_workers == 1:
+        return dataset
+    else:
+        multi_proc_dataset = {
+                "class": "MultiProcDataset",
+                "dataset": dataset,
+                "num_workers": num_workers,
+                "buffer_size": buffer_size,
+                }
+        return multi_proc_dataset
 
 
 def prepare_zip_dataset(bliss_corpus, segment_file, returnn_python_exe, returnn_root):
@@ -103,14 +112,20 @@ def get_returnn_configs_pytorch(data_train, data_dev, wav2vec2_args, base_config
             "    return model\n",
 
             "def train_step(*, model:wav2vec.Wav2Vec2Model, data, train_ctx, **_kwargs):\n"
-            "   waveforms = torch.squeeze(data[\"data\"])\n"
+            "   waveforms = torch.squeeze(data[\"data\"], dim=-1)\n"
             "   waveforms = waveforms.type(torch.float32)\n"
             "   net_output = model(waveforms)\n"
             "   logits = model.get_logits(net_output).float()\n"
             "   x = net_output[\"x\"]\n"
             "   target = x.new_zeros(x.size(1) * x.size(2), dtype=torch.long)\n"
             "   loss = F.cross_entropy(logits, target, reduction=\"sum\")\n"
-            "   train_ctx.mark_as_loss(name=\"ce\", loss=loss)\n"],
+            "   train_ctx.mark_as_loss(name=\"ce\", loss=loss)\n"
+            "   extra_losses = model.get_extra_losses(net_output)\n"
+            "   sample_size = model.get_targets(data, net_output).numel()\n"
+            "   prob_perplexity_loss = extra_losses[0] * sample_size\n"
+            "   features_pen_loss = extra_losses[1] * sample_size\n"
+            "   train_ctx.mark_as_loss(name=\"prob_perplexity\", loss=prob_perplexity_loss, scale=loss_weights[0])\n"
+            "   train_ctx.mark_as_loss(name=\"features_pen\", loss=features_pen_loss, scale=loss_weights[1])\n"],
     )
 
     return {
