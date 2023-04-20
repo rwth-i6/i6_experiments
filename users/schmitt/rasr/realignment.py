@@ -150,6 +150,10 @@ class RASRRealignmentParallelJob(RasrCommand, Job):
 
     # shutil.copy(tmp_file.name, self.out_alignment_txt.get_path())
 
+  def cleanup_before_run(self, cmd, retry, task_id, *args):
+    util.backup_if_exists("alignment.log.%d" % task_id)
+    util.delete_if_exists("alignment.cache.%d" % task_id)
+
   @classmethod
   def hash(cls, kwargs):
     kwargs.pop("time_rqtm")
