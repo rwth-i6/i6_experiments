@@ -33,11 +33,12 @@ def dump(meta_dataset, vocab1, vocab2, blank_idx1, blank_idx2, name1, name2, seg
       complete_frac = meta_dataset.get_complete_frac(seq_idx)
       print("Progress: %.02f" % (complete_frac * 100))
 
+    seq_tag = meta_dataset.get_tag(seq_idx)
     meta_dataset.load_seqs(seq_idx, seq_idx + 1)
     align1 = meta_dataset.get_data(seq_idx, "align1")
     align2 = meta_dataset.get_data(seq_idx, "data")
 
-    plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2, seq_idx, segment_path)
+    plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2, seq_tag)
 
     seq_idx += 1
 
@@ -58,18 +59,11 @@ def upscale_alignment(align, blank_idx, last_label_rep, time_red):
 
   return np.array(align_upscale)
 
-def plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2, seq_idx, segment_path):
+def plot_aligns(align1, align2, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2, seq_tag):
   import subprocess
   assert len(align1) == len(align2)
 
   time_red = 6
-
-  # get seq_tag from file
-  with open(segment_path, "r") as f:
-    for i, line in enumerate(f):
-      if i == seq_idx:
-        seq_tag = line.strip()
-        break
 
   # get hmm alignment in list format
   hmm_aligns = [subprocess.check_output(
