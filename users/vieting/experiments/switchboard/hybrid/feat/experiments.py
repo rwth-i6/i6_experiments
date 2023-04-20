@@ -45,7 +45,7 @@ def run_baseline_gt():
         returnn_python_exe=RETURNN_EXE,
     )
 
-    nn_args = get_nn_args_baseline(prefix="gt_", num_epochs=260)
+    nn_args = get_nn_args_baseline({"conformer_base": {}}, num_epochs=260, prefix="gt_")
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
