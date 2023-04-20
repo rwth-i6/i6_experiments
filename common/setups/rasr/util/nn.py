@@ -1,5 +1,5 @@
 __all__ = [
-    "RasrTrainingArgs",
+    "ReturnnRasrTrainingArgs",
     "ReturnnRasrDataInput",
     "OggZipHdfDataInput",
     "HybridArgs",
@@ -26,10 +26,19 @@ RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
 
 
 @dataclass(frozen=True)
-class RasrTrainingArgs:
+class ReturnnRasrTrainingArgs:
     """
     Options for writing a RASR training config. See `ReturnnRasrTrainingJob`.
     Most of them may be disregarded, i.e. the defaults can be left untouched.
+
+    :param partition_epochs: if >1, split the full dataset into multiple sub-epochs
+    :param num_classes: number of classes
+    :param disregarded_classes: path to file with list of disregarded classes
+    :param class_label_file: path to file with class labels
+    :param buffer_size: buffer size for data loading
+    :param extra_rasr_config: extra RASR config
+    :param extra_rasr_post_config: extra RASR post config
+    :param use_python_control: whether to use python control, usually True
     """
 
     partition_epochs: Optional[int] = None
@@ -45,6 +54,18 @@ class RasrTrainingArgs:
 class ReturnnRasrDataInput:
     """
     Holds the data for ReturnnRasrTrainingJob.
+
+    :param name: name of the data
+    :param crp: common RASR parameters
+    :param alignments: RASR cache of an alignment
+    :param feature_flow: acoustic feature flow network or dict of feature flow networks
+    :param features: RASR cache of acoustic features
+    :param acoustic_mixtures: path to a RASR acoustic mixture file (used in System classes, not RETURNN training)
+    :param feature_scorers: RASR feature scorers
+    :param shuffle_data: shuffle training segments into bins of similar length. The bins are sorted by length.
+    :param stm: stm file for scoring
+    :param glm: glm file for scoring
+    :param returnn_rasr_training_args: arguments for RETURNN training with RASR
     """
 
     def __init__(
@@ -59,7 +80,7 @@ class ReturnnRasrDataInput:
         shuffle_data: bool = True,
         stm: Optional[tk.Path] = None,
         glm: Optional[tk.Path] = None,
-        rasr_training_args: Optional[RasrTrainingArgs] = None,
+        returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
         **kwargs,
     ):
         self.name = name
@@ -72,16 +93,18 @@ class ReturnnRasrDataInput:
         self.shuffle_data = shuffle_data
         self.stm = stm
         self.glm = glm
-        self.rasr_training_args = rasr_training_args or {}
+        self.returnn_rasr_training_args = returnn_rasr_training_args or ReturnnRasrTrainingArgs()
 
     def get_training_feature_flow_file(self) -> tk.Path:
+        """Returns the feature flow file for the RETURNN training with RASR."""
         feature_flow = returnn.ReturnnRasrTrainingJob.create_flow(self.feature_flow, self.alignments)
         write_feature_flow = rasr.WriteFlowNetworkJob(feature_flow)
         return write_feature_flow.out_flow_file
 
     def get_training_rasr_config_file(self) -> tk.Path:
+        """Returns the RASR config file for the RETURNN training with RASR."""
         config, post_config = returnn.ReturnnRasrTrainingJob.create_config(
-            self.crp, self.alignments, **asdict(self.rasr_training_args)
+            self.crp, self.alignments, **asdict(self.returnn_rasr_training_args)
         )
         config.neural_network_trainer.feature_extraction.file = self.get_training_feature_flow_file()
         write_rasr_config = rasr.WriteRasrConfigJob(config, post_config)
@@ -96,7 +119,7 @@ class ReturnnRasrDataInput:
             "sprintTrainerExecPath": rasr.RasrCommand.select_exe(self.crp.nn_trainer_exe, "nn-trainer"),
             "sprintConfigStr": config_str,
         }
-        partition_epochs = self.rasr_training_args.partition_epochs
+        partition_epochs = self.returnn_rasr_training_args.partition_epochs
         if partition_epochs is not None:
             dataset["partitionEpoch"] = partition_epochs
         return dataset
