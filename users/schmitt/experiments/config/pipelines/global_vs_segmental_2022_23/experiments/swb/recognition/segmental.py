@@ -70,21 +70,20 @@ class SWBSegmentalSearchPipeline(SWBSearchPipeline, ABC):
     super().run()
 
     if self.compare_alignments:
-      for seq_tag in self.tags_for_analysis:
-        for i, (hdf_alias1, hdf1) in enumerate(self.analysis_sequences[:-1]):
-          for j, (hdf_alias2, hdf2) in enumerate(self.analysis_sequences[i+1:]):
-            AlignmentComparer(
-              hdf_align_path1=hdf1,
-              blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
-              name1=hdf_alias1,
-              vocab_path1=self.dependencies.vocab_path,
-              hdf_align_path2=hdf2,
-              blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
-              name2=hdf_alias2,
-              vocab_path2=self.dependencies.vocab_path,
-              seq_tag=seq_tag,
-              corpus_key="cv",
-              base_alias=self.alias).run()
+      for i, (hdf_alias1, hdf1) in enumerate(self.analysis_sequences[:-1]):
+        for j, (hdf_alias2, hdf2) in enumerate(self.analysis_sequences[i+1:]):
+          AlignmentComparer(
+            hdf_align_path1=hdf1,
+            blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
+            name1=hdf_alias1,
+            vocab_path1=self.dependencies.vocab_path,
+            hdf_align_path2=hdf2,
+            blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
+            name2=hdf_alias2,
+            vocab_path2=self.dependencies.vocab_path,
+            seq_tags=self.tags_for_analysis,
+            corpus_key="cv",
+            base_alias=self.alias).run()
 
 
 class ReturnnFrameWiseSimpleBeamSearchPipeline(SWBSegmentalSearchPipeline):

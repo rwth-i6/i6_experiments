@@ -55,19 +55,18 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           align2_name: str,
           align_alias: str):
     base_alias = "%s/%s" % (self.base_alias, align_alias)
-    for seq_tag in default_tags_for_analysis:
-      AlignmentComparer(
-        hdf_align_path1=hdf_align_path1,
-        blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
-        name1=align1_name,
-        vocab_path1=self.dependencies.vocab_path,
-        hdf_align_path2=hdf_align_path2,
-        blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
-        name2=align2_name,
-        vocab_path2=self.dependencies.vocab_path,
-        seq_tag=seq_tag,
-        corpus_key="cv",
-        base_alias=base_alias).run()
+    AlignmentComparer(
+      hdf_align_path1=hdf_align_path1,
+      blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
+      name1=align1_name,
+      vocab_path1=self.dependencies.vocab_path,
+      hdf_align_path2=hdf_align_path2,
+      blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
+      name2=align2_name,
+      vocab_path2=self.dependencies.vocab_path,
+      seq_tags=default_tags_for_analysis,
+      corpus_key="cv",
+      base_alias=base_alias).run()
 
   def plot_att_weights(
           self,
