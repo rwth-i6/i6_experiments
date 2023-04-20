@@ -1,20 +1,25 @@
 import copy
 from sisyphus import tk, gs
 
-from .data import get_corpus_data_inputs_oggzip
-from .baseline_args import get_nn_args as get_nn_args_baseline
-
 import i6_core.rasr as rasr
+from i6_core.features.common import samples_flow
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
+from .data import get_corpus_data_inputs_oggzip
+from .baseline_args import get_nn_args as get_nn_args_baseline
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE
 
 
 def run_gmm_system_from_common():
     from ...gmm.baseline.baseline_config import run_switchboard_baseline_ldc_v5
 
-    system = run_switchboard_baseline_ldc_v5(recognition=False)
+    flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
+    system = run_switchboard_baseline_ldc_v5(recognition=True)
+    system.extract_features(
+        feat_args={"samples": {"feature_flow": flow}},
+        corpus_list=system.dev_corpora + system.test_corpora,
+    )
     return system
 
 

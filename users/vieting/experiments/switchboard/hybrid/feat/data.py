@@ -190,11 +190,11 @@ def get_corpus_data_inputs_oggzip(
         "switchboard.devtrain": nn_devtrain_data,
     }
 
-    # hub5e00 = get_hub5e00()
-    # hub5e00_data = gmm_system.outputs["hub5e00"]["final"].as_returnn_rasr_data_input()
-    # hub5e00_data.stm = hub5e00.stm
-    # hub5e00_data.glm = hub5e00.glm
-    nn_dev_data_inputs = None  # {"hub5e00": hub5e00_data}  # TODO: add hub5e00
+    hub5e00 = get_hub5e00()
+    hub5e00_data = gmm_system.outputs["hub5e00"]["final"].as_returnn_rasr_data_input()
+    hub5e00_data.stm = hub5e00.stm
+    hub5e00_data.glm = hub5e00.glm
+    nn_dev_data_inputs = {"hub5e00": hub5e00_data}
     nn_test_data_inputs = {
         # "test-clean": gmm_system.outputs["test-clean"][
         #    "final"

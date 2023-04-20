@@ -70,8 +70,8 @@ def get_nn_args(
     recognition_args = {
         "hub5e00": {
             "epochs": evaluation_epochs,
-            "feature_flow_key": "gt",
-            "prior_scales": [0.5, 0.6, 0.7, 0.8],
+            "feature_flow_key": "samples",
+            "prior_scales": [0.7, 0.8, 0.9, 1.0],
             "pronunciation_scales": [6.0],
             "lm_scales": [10.0],
             "lm_lookahead": True,
@@ -163,9 +163,14 @@ def get_returnn_config(
     from .network_helpers.reduced_dim import network
     network = copy.deepcopy(network)
     network["features"] = feature_net
-    if not recognition:
+    if recognition:
+        for layer in list(network.keys()):
+            if "aux" in layer:
+                network.pop(layer)
+        network["source"] = {"class": "copy", "from": "features"}
+    else:
         network["source"] = specaug_layer_jingjing(in_layer=["features"])
-    network = fix_network_for_sparse_output(network)
+        network = fix_network_for_sparse_output(network)
 
     prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
