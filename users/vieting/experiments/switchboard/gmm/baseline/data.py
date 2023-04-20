@@ -52,7 +52,10 @@ def get_corpus_data_inputs(use_legacy=True, use_legacy_lexicon=False, normalize_
     # }
 
     temporary_lm = {
-        "filename": tk.Path("/u/vieting/setups/swb/20230406_feat/dependencies/swb.fsh.4gr.voc30k.LM.gz"),
+        "filename": tk.Path(
+          "/u/vieting/setups/swb/20230406_feat/dependencies/swb.fsh.4gr.voc30k.LM.gz",
+          hash_overwrite="/home/tuske/work/ASR/switchboard/corpus/lm/data/mylm/swb.fsh.4gr.voc30k.LM.gz",
+        ),
         "type": "ARPA",
         "scale": 10,
     }
