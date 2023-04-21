@@ -15,6 +15,8 @@ def get_librispeech_data(
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
 ) -> CTCSetupData:
+    # ********** Data inputs **********
+
     train_data_inputs, dev_data_inputs, _ = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
@@ -36,7 +38,7 @@ def get_librispeech_data(
         add_unknown_phoneme_and_mapping=add_unknown,
     )
 
-    # Train data
+    # ********** Train data **********
     train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
     assert train_corpus is not None
 
@@ -57,12 +59,9 @@ def get_librispeech_data(
         "use_cache_manager": True,
     }
 
-    # CV data
+    # ********** CV data **********
     cv_corpus = corpus.MergeCorporaJob(
-        [
-            dev_data_inputs["dev-clean"].corpus_object.corpus_file,
-            dev_data_inputs["dev-other"].corpus_object.corpus_file,
-        ],
+        [dev_data_inputs[key].corpus_object.corpus_file for key in dev_keys],
         name="dev_combine",
         merge_strategy=corpus.MergeStrategy.CONCATENATE,
     ).out_merged_corpus
