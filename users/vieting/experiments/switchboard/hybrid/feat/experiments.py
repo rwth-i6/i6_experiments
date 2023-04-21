@@ -23,7 +23,7 @@ def run_gmm_system_from_common():
     return system
 
 
-def run_baseline_gt():
+def run_test_gt():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
     gmm_system = run_gmm_system_from_common()
@@ -45,7 +45,61 @@ def run_baseline_gt():
         returnn_python_exe=RETURNN_EXE,
     )
 
-    nn_args = get_nn_args_baseline({"conformer_base": {}}, num_epochs=260, prefix="gt_")
+    nn_args = get_nn_args_baseline({"conformer_test_setup": {}}, num_epochs=260, prefix="gt_")
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+
+    # Gammatone NN system
+    hybrid_nn_gt_system = HybridSystem(
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+        rasr_binary_path=RASR_BINARY_PATH,
+    )
+    hybrid_nn_gt_system.init_system(
+        rasr_init_args=rasr_init_args,
+        train_data=nn_train_data_inputs,
+        cv_data=nn_cv_data_inputs,
+        devtrain_data=nn_devtrain_data_inputs,
+        dev_data=nn_dev_data_inputs,
+        test_data=nn_test_data_inputs,
+        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
+    )
+    hybrid_nn_gt_system.run(nn_steps)
+
+
+def run_baseline_gt():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
+
+    gmm_system = run_gmm_system_from_common()
+    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
+
+    # Gammatone args
+    # noinspection PyTypeChecker
+    (
+        nn_train_data_inputs,
+        nn_cv_data_inputs,
+        nn_devtrain_data_inputs,
+        nn_dev_data_inputs,
+        nn_test_data_inputs,
+    ) = get_corpus_data_inputs_oggzip(
+        gmm_system,
+        partition_epoch={"train": 6, "dev": 1},
+        context_window={"classes": 1, "data": 441},
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+    )
+    nn_train_data_inputs["switchboard.train"].seq_ordering = "laplace:.384"
+
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "conformer_bs14k_gt40": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40},
+            ),
+        },
+        num_epochs=260,
+        prefix="gt_"
+    )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
