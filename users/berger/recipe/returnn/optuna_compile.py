@@ -1,5 +1,6 @@
 __all__ = ["OptunaCompileTFGraphJob"]
 
+import inspect
 from sisyphus import *
 
 Path = setup_path(__package__)
@@ -21,8 +22,7 @@ class OptunaCompileTFGraphJob(Job):
 
     def __init__(
         self,
-        returnn_config_generator,
-        returnn_config_generator_kwargs,
+        optuna_returnn_config,
         trial,
         train=0,
         eval=0,
@@ -56,8 +56,7 @@ class OptunaCompileTFGraphJob(Job):
         :param bool|None rec_json_info: whether to enable rec json info for step-by-step graph compilation
         """
         self.returnn_config = None
-        self.returnn_config_generator = returnn_config_generator
-        self.returnn_config_generator_kwargs = returnn_config_generator_kwargs
+        self.optuna_returnn_config = optuna_returnn_config
         self.trial = trial
         self.train = train
         self.eval = eval
@@ -66,8 +65,8 @@ class OptunaCompileTFGraphJob(Job):
         self.verbosity = verbosity
         self.device = device
         self.summaries_tensor_name = summaries_tensor_name
-        self.returnn_python_exe = returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE
-        self.returnn_root = returnn_root if returnn_root is not None else gs.RETURNN_ROOT
+        self.returnn_python_exe = returnn_python_exe
+        self.returnn_root = returnn_root
 
         self.rec_step_by_step = rec_step_by_step
         self.rec_json_info = rec_json_info
@@ -87,13 +86,17 @@ class OptunaCompileTFGraphJob(Job):
             yield Task("run", resume="run", mini_task=True)
 
     def create_files(self):
-        self.returnn_config = self.returnn_config_generator(self.trial.get(), **self.returnn_config_generator_kwargs)
+        self.returnn_config = self.optuna_returnn_config.generate_config(
+            self.trial.get()
+        )
         self.returnn_config.write(self.out_returnn_config.get_path())
 
     def run(self):
         args = [
             tk.uncached_path(self.returnn_python_exe),
-            os.path.join(tk.uncached_path(self.returnn_root), "tools/compile_tf_graph.py"),
+            os.path.join(
+                tk.uncached_path(self.returnn_root), "tools/compile_tf_graph.py"
+            ),
             self.out_returnn_config.get_path(),
             f"--train={self.train}",
             f"--eval={self.eval}",
@@ -133,5 +136,15 @@ class OptunaCompileTFGraphJob(Job):
     @classmethod
     def hash(cls, kwargs):
         c = copy.copy(kwargs)
-        del c["verbosity"]
+        del c["optuna_returnn_config"]
+        c.update(
+            {
+                "returnn_config_generator": inspect.getsource(
+                    kwargs["optuna_returnn_config"].config_generator
+                ),
+                "returnn_config_generator_kwargs": list(
+                    sorted(kwargs["optuna_returnn_config"].config_kwargs)
+                ),
+            }
+        )
         return super().hash(c)

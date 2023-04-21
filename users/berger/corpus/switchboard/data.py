@@ -34,18 +34,14 @@ def get_corpus_object_dict():
 
     corpus_object = CorpusObject()
     swb_audio_path = tk.Path("/u/corpora/speech/switchboard-1/audio")
-    corpus_object.corpus_file = swb_dataset.get_train_bliss_corpus(
-        tk.Path("/u/corpora/speech/switchboard-1/audio")
-    )
+    corpus_object.corpus_file = swb_dataset.get_train_bliss_corpus(tk.Path("/u/corpora/speech/switchboard-1/audio"))
     corpus_object.audio_format = "wav"
     corpus_object.audio_dir = None
     corpus_object.duration = 311.78
     corpus_object_dict["switchboard-300h"] = corpus_object
 
     corpus_object = CorpusObject()
-    corpus_object.corpus_file = tk.Path(
-        "/u/corpora/speech/hub5e_00/xml/hub5e_00.corpus.gz"
-    )
+    corpus_object.corpus_file = tk.Path("/u/corpora/speech/hub5e_00/xml/hub5e_00.corpus.gz")
     corpus_object.audio_format = "wav"
     corpus_object.audio_dir = None
     corpus_object.duration = 3.65

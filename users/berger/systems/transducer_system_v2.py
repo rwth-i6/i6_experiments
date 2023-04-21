@@ -4,7 +4,6 @@ import copy
 import itertools
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import functools
 from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 # -------------------- Recipes --------------------
@@ -32,7 +31,7 @@ Path = tk.setup_path(__package__)
 
 # ----------------- Helper classes -----------------
 # Either returnn config or a function that creates a config out of an optuna trial object
-ReturnnConfigType = Union[returnn.ReturnnConfig, Tuple[Callable, Dict]]
+ReturnnConfigType = Union[returnn.ReturnnConfig, custom_returnn.OptunaReturnnConfig]
 TrainJobType = Union[returnn.ReturnnTrainingJob, custom_returnn.OptunaReturnnTrainingJob]
 ScoreJobType = Union[Type[recognition.ScliteJob], Type[recognition.Hub5ScoreJob]]
 ScoreJob = Union[recognition.ScliteJob, recognition.Hub5ScoreJob]
@@ -281,8 +280,7 @@ class TransducerSystem:
             else:
                 trial = train_job.out_trials[trial_num]
             prior_job = custom_returnn.OptunaReturnnComputePriorJob(
-                returnn_config_generator=prior_config[0],
-                returnn_config_generator_kwargs=prior_config[1],
+                optuna_returnn_config=prior_config,
                 trial=trial,
                 model_checkpoint=checkpoint,
                 returnn_python_exe=self.returnn_python_exe,
@@ -309,7 +307,6 @@ class TransducerSystem:
     ) -> tk.Path:
         train_job = self.train_jobs[train_exp_name]
         rec_step_by_step = "output" if self._is_autoregressive_decoding(label_scorer_type) else None
-        rec_json_info = True if rec_step_by_step else None
         if isinstance(returnn_config, returnn.ReturnnConfig):
             assert isinstance(train_job, returnn.ReturnnTrainingJob)
             graph_compile_job = returnn.CompileTFGraphJob(
@@ -318,7 +315,7 @@ class TransducerSystem:
                 returnn_python_exe=self.returnn_python_exe,
                 epoch=self._get_epoch_value(train_exp_name, epoch, trial_num),
                 rec_step_by_step=rec_step_by_step,
-                rec_json_info=rec_json_info,
+                rec_json_info=bool(rec_step_by_step),
             )
         else:
             assert isinstance(train_job, custom_returnn.OptunaReturnnTrainingJob)
@@ -327,14 +324,13 @@ class TransducerSystem:
             else:
                 trial = train_job.out_trials[trial_num]
             graph_compile_job = custom_returnn.OptunaCompileTFGraphJob(
-                returnn_config_generator=returnn_config[0],
-                returnn_config_generator_kwargs=returnn_config[1],
+                optuna_returnn_config=returnn_config,
                 trial=trial,
                 returnn_root=self.returnn_root,
                 returnn_python_exe=self.returnn_python_exe,
                 epoch=self._get_epoch_value(train_exp_name, epoch, trial_num),
                 rec_step_by_step=rec_step_by_step,
-                rec_json_info=rec_json_info,
+                rec_json_info=bool(rec_step_by_step),
             )
         return graph_compile_job.out_graph
 
@@ -468,8 +464,7 @@ class TransducerSystem:
         else:
             assert isinstance(returnn_config, tuple)
             train_job = custom_returnn.OptunaReturnnTrainingJob(
-                returnn_config_generator=returnn_config[0],
-                returnn_config_generator_kwargs=returnn_config[1],
+                optuna_returnn_config=returnn_config,
                 study_name=train_exp_name,
                 returnn_python_exe=self.returnn_python_exe,
                 returnn_root=self.returnn_root,
