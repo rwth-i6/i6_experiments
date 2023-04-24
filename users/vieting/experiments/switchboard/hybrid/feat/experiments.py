@@ -148,8 +148,8 @@ def run_baseline_scf():
             "conformer_bs7k_scf": dict(
                 returnn_args=dict(batch_size=7000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-                )
-            },
+            )
+        },
         prefix="scf_",
         num_epochs=260,
     )
