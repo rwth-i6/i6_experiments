@@ -145,7 +145,7 @@ def run_baseline_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "conformer_bs14k_gt40": dict(
+            "conformer_bs7k_scf": dict(
                 returnn_args=dict(batch_size=7000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
                 )
