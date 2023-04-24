@@ -16,6 +16,69 @@ class NetworkDict:
       "trainable": self._trainable}
 
 
+class LogMelNetwork(NetworkDict):
+  def __init__(
+          self, output_dims=80, wave_norm=False, frame_size=400, frame_shift=160, fft_size=512, norm=True,
+          output_name="output", **kwargs
+  ):
+    """
+    Log Mel filterbank feature network dict as used by Mohammad
+    """
+    self._network = {}
+    if wave_norm:
+      self._network["wave_norm"] = {"class": "norm", "axes": "T", "from": "data"}
+    self._network.update({
+      "stft": {
+        "class": "stft",
+        "frame_shift": frame_shift,
+        "frame_size": frame_size,
+        "fft_size": fft_size,
+        "from": "wave_norm" if wave_norm else "data",
+      },
+      "abs": {
+        "class": "activation",
+        "from": "stft",
+        "activation": "abs",
+      },
+      "power": {
+        "class": "eval",
+        "from": "abs",
+        "eval": "source(0) ** 2",
+      },
+      "mel_filterbank": {
+        "class": "mel_filterbank",
+        "from": "power",
+        "fft_size": fft_size,
+        "nr_of_filters": output_dims,
+        "n_out": output_dims,
+      },
+      "log": {
+        "from": "mel_filterbank",
+        "class": "activation",
+        "activation": "safe_log",
+        "opts": {"eps": 1e-10},
+      },
+      "log10": {
+        "from": "log",
+        "class": "eval",
+        "eval": "source(0) / 2.3026"
+      },
+      output_name: {
+        "class": "copy",
+        "from": "log10",
+      }
+    })
+    if norm:
+      self._network[output_name] = {
+        "class": "batch_norm",
+        "from": "log10",
+        "momentum": 0.01,
+        "epsilon": 0.001,
+        "update_sample_only_in_training": True,
+        "delay_sample_update": True,
+      }
+
+
 class GammatoneNetwork(NetworkDict):
   """
   Wrapper class for subnetwork that extracts gammatone features
