@@ -11,8 +11,9 @@ RETURNN_CPU_EXE = tk.Path(
     "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_generic_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER"
 )
 
+# old "b96842963caa1b218d1d7cb76d7ed81867079bdf"
 RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn", commit="b96842963caa1b218d1d7cb76d7ed81867079bdf"
+    "https://github.com/rwth-i6/returnn", commit="b8187f47437a368eda8ad369631521515ee5e209"
 ).out_repository
 RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
