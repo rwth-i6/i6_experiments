@@ -12,7 +12,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
 )
-from .network_helpers.features import GammatoneNetwork, ScfNetwork
+from .network_helpers.features import LogMelNetwork, GammatoneNetwork, ScfNetwork, PreemphasisNetwork
 from .specaug_jingjing import (
     specaug_layer_jingjing,
     get_funcs_jingjing,
@@ -94,8 +94,18 @@ def get_nn_args_single(
     peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
-    feature_network_class = {"GammatoneNetwork": GammatoneNetwork, "ScfNetwork": ScfNetwork}[feature_args.pop("class")]
+    preemphasis = feature_args.pop("preemphasis", None)
+    feature_network_class = {
+        "LogMelNetwork": LogMelNetwork,
+        "GammatoneNetwork": GammatoneNetwork,
+        "ScfNetwork": ScfNetwork,
+    }[feature_args.pop("class")]
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
+    if preemphasis:
+        for layer in feature_net["subnetwork"]:
+            if feature_net["subnetwork"][layer].get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = "preemphasis"
+        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
 
     returnn_config = get_returnn_config(
         num_inputs=1,
