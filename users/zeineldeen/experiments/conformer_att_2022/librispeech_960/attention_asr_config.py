@@ -692,16 +692,43 @@ def create_config(
         # filter out blanks from best hyp
         # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
         exp_config["network"]["out_best_"] = {"class": "decide", "from": "output", "target": "bpe_labels_w_blank"}
-        exp_config["network"]["out_best"] = {"class": "reinterpret_data", "from": "out_best_", "set_sparse_dim": 10025}
-        exp_config["network"]["out_best_mask"] = {
-            "class": "compare",
+        exp_config["network"]["out_best"] = {
+            "class": "reinterpret_data",
+            "from": "out_best_",
+            "set_sparse_dim": 10025,
+        }
+        exp_config["network"]["shift_right"] = {
+            "class": "shift_axis",
             "from": "out_best",
+            "axis": "T",
+            "amount": 1,
+            "pad_value": -1,
+        }
+        # reinterpret time axis to work with following layers
+        exp_config["network"]["out_best_time_reinterpret"] = {
+            "class": "reinterpret_data",
+            "from": "out_best",
+            "size_base": "shift_right",  # [B,T|shift_axis]
+        }
+        exp_config["network"]["unique_mask"] = {
+            "class": "compare",
+            "kind": "not_equal",
+            "from": ["out_best_time_reinterpret", "shift_right"],
+        }
+        exp_config["network"]["non_blank_mask"] = {
+            "class": "compare",
+            "from": "out_best_time_reinterpret",
             "value": 10025,
             "kind": "not_equal",
         }
+        exp_config["network"]["out_best_mask"] = {
+            "class": "combine",
+            "kind": "logical_and",
+            "from": ["unique_mask", "non_blank_mask"],
+        }
         exp_config["network"]["out_best_wo_blank"] = {
             "class": "masked_computation",
-            "from": "out_best",
+            "from": "out_best_time_reinterpret",
             "mask": "out_best_mask",
             "unit": {"class": "copy"},
             "target": "bpe_labels",
