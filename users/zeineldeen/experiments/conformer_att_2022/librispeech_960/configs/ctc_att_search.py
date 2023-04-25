@@ -330,7 +330,6 @@ def run_ctc_att_search():
         remove_label=None,
         **kwargs,
     ):
-
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
         for test_set in test_sets:
@@ -757,7 +756,6 @@ def run_ctc_att_search():
     train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
 
     # CTC greedy decoding implemented in returnn using beam search of beam size 1
-    # TODO: fix bug with removing repeated labels before evaluation
     run_ctc_decoding(
         exp_name="test_ctc_greedy",
         train_data=train_data,

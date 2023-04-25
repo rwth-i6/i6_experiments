@@ -697,12 +697,13 @@ def create_config(
             "from": "out_best_",
             "set_sparse_dim": 10025,
         }
+        # shift to the right to create a boolean mask later where it is true if the previous label is equal
         exp_config["network"]["shift_right"] = {
             "class": "shift_axis",
             "from": "out_best",
             "axis": "T",
             "amount": 1,
-            "pad_value": -1,
+            "pad_value": -1,  # to have always True at the first pos
         }
         # reinterpret time axis to work with following layers
         exp_config["network"]["out_best_time_reinterpret"] = {
