@@ -32,8 +32,7 @@ def run_switchboard_baseline_ldc_v5(
 
     final_output_args = OutputArgs("final")
     final_output_args.define_corpus_type("switchboard", "train")
-    if recognition:
-        final_output_args.define_corpus_type("hub5e00", "dev")
+    final_output_args.define_corpus_type("hub5e00", "dev")
     #final_output_args.define_corpus_type("dev-other", "dev")
     # enable this if you want to create features for the following training, e.g. Hybrid
     final_output_args.add_feature_to_extract("gt")

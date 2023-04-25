@@ -56,6 +56,8 @@ def get_train_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
 
   train_config_obj = SegmentalSWBExtendedConfig(
     task="train",
@@ -112,6 +114,8 @@ def get_recog_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
   config = SegmentalSWBExtendedConfig(
     task="search", search_data_opts=data_opts, target="bpe", search_use_recomb=use_recomb, dump_output=dump_output,
     beam_size=beam_size, length_scale=length_scale, **config_params)
@@ -127,6 +131,8 @@ def get_compile_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
 
   return SegmentalSWBExtendedConfig(
     task="eval", feature_stddev=3., length_scale=length_scale, **config_params).get_config()

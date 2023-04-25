@@ -5,6 +5,7 @@ from returnn_common.asr.specaugment import specaugment_v2
 from returnn_common.nn.encoder.base import ISeqDownsamplingEncoder, ISeqFramewiseEncoder
 from ..feature_extraction import FeatureType, make_features
 from ..encoder import EncoderType, make_encoder
+from ..data_augmentation import legacy_specaugment
 from returnn_common import nn
 import i6_core.rasr as rasr
 from i6_core.am.config import acoustic_model_config
@@ -103,6 +104,7 @@ class CTCModel(nn.Module):
         feature_args: dict = {},
         encoder_args: dict = {},
         loss_args: dict = {},
+        legacy_specaug: bool = False,
     ) -> None:
         self.features, self.feature_dim = make_features(feature_type, **feature_args)
 
@@ -113,6 +115,8 @@ class CTCModel(nn.Module):
         self.out_projection = nn.Linear(self.encoder.out_dim, self.out_dim)
 
         self.loss_args = loss_args
+
+        self.legacy_specaug = legacy_specaug
 
     def __call__(
         self,
@@ -134,7 +138,10 @@ class CTCModel(nn.Module):
         x, spatial_dim = x
         assert isinstance(spatial_dim, nn.Dim)
 
-        x = specaugment_v2(x, spatial_dim=spatial_dim, feature_dim=self.feature_dim, **self.specaug_args)
+        if self.legacy_specaug:
+            x = legacy_specaugment(x, spatial_dim=spatial_dim, feature_dim=self.feature_dim, **self.specaug_args)
+        else:
+            x = specaugment_v2(x, spatial_dim=spatial_dim, feature_dim=self.feature_dim, **self.specaug_args)
 
         if isinstance(self.encoder, ISeqFramewiseEncoder):
             x = self.encoder(x, spatial_dim=spatial_dim)

@@ -100,7 +100,13 @@ def get_corpus_data_inputs_oggzip(
 
     all_segments = corpus_recipe.SegmentCorpusJob(
         train_corpus_path, 1
-    ).out_single_segment_files
+    ).out_single_segment_files[1]
+
+    splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+        all_segments, {"train": 1 - cv_size, "cv": cv_size}
+    )
+    train_segments = splitted_segments_job.out_segments["train"]
+    cv_segments = splitted_segments_job.out_segments["cv"]
 
     blacklisted_segments = [
         "switchboard-1/sw02986A/sw2986A-ms98-a-0013",
@@ -111,16 +117,14 @@ def get_corpus_data_inputs_oggzip(
         "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
         "switchboard-1/sw04318A/sw4318A-ms98-a-0024",
     ]
-    filtered_segments = corpus_recipe.FilterSegmentsByListJob(
-        segment_files=all_segments,
+    train_segments = corpus_recipe.FilterSegmentsByListJob(
+        segment_files={1: train_segments},
         filter_list=blacklisted_segments,
     ).out_single_segment_files[1]
-
-    splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
-        filtered_segments, {"train": 1 - cv_size, "cv": cv_size}
-    )
-    train_segments = splitted_segments_job.out_segments["train"]
-    cv_segments = splitted_segments_job.out_segments["cv"]
+    cv_segments = corpus_recipe.FilterSegmentsByListJob(
+        segment_files={1: cv_segments},
+        filter_list=blacklisted_segments,
+    ).out_single_segment_files[1]
     devtrain_segments = text.TailJob(
         train_segments, num_lines=300, zip_output=False
     ).out
@@ -135,7 +139,7 @@ def get_corpus_data_inputs_oggzip(
         data_type=np.int16,
         returnn_root=returnn_root,
     )
-    segments = corpus_recipe.SplitSegmentFileJob(all_segments[1], concurrent=20).out_segment_path
+    segments = corpus_recipe.SplitSegmentFileJob(all_segments, concurrent=20).out_segment_path
     gt_caches = gmm_system.outputs["switchboard"]["final"].features["gt"].hidden_paths
     gt_cache_bundle = gt_caches[1].creator.out_feature_bundle["gt"]
     ogg_zip_job = BlissToOggZipJob(
@@ -190,11 +194,11 @@ def get_corpus_data_inputs_oggzip(
         "switchboard.devtrain": nn_devtrain_data,
     }
 
-    # hub5e00 = get_hub5e00()
-    # hub5e00_data = gmm_system.outputs["hub5e00"]["final"].as_returnn_rasr_data_input()
-    # hub5e00_data.stm = hub5e00.stm
-    # hub5e00_data.glm = hub5e00.glm
-    nn_dev_data_inputs = None  # {"hub5e00": hub5e00_data}  # TODO: add hub5e00
+    hub5e00 = get_hub5e00()
+    hub5e00_data = gmm_system.outputs["hub5e00"]["final"].as_returnn_rasr_data_input()
+    hub5e00_data.stm = hub5e00.stm
+    hub5e00_data.glm = hub5e00.glm
+    nn_dev_data_inputs = {"hub5e00": hub5e00_data}
     nn_test_data_inputs = {
         # "test-clean": gmm_system.outputs["test-clean"][
         #    "final"

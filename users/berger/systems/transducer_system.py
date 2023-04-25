@@ -246,7 +246,7 @@ class TransducerSystem(NnSystem):
         rec_step_by_step = (
             "output" if self.autoregressive_decoding(label_scorer_type) else None
         )
-        rec_json_info = True if rec_step_by_step else None
+        rec_json_info = bool(rec_step_by_step)
         graph_compile_job = self.jobs["general"].setdefault(
             f"{name}_compile",
             CompileTFGraphJob(
@@ -267,7 +267,6 @@ class TransducerSystem(NnSystem):
         output_tensor_name: str = "output/output_batch_major",
         append=False,
     ) -> FlowNetwork:
-
         # tf flow (model scoring done in tf flow node) #
         tf_flow = rasr.FlowNetwork()
         tf_flow.add_input("input-features")
@@ -853,7 +852,6 @@ class TransducerSystem(NnSystem):
         **kwargs,
     ):
         with tk.block(name):
-
             native_lstm_job = CompileNativeOpJob(
                 "NativeLstm2",
                 returnn_root=self.returnn_root,
@@ -879,7 +877,6 @@ class TransducerSystem(NnSystem):
             for pron, lm, prior, epoch in itertools.product(
                 pronunciation_scales, lm_scales, prior_scales, epochs
             ):
-
                 assert epoch in checkpoints.keys()
                 prior_file = None
                 if prior != 0:

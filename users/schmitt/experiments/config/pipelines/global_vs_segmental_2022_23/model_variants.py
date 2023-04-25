@@ -1,6 +1,8 @@
 import copy
 import numpy as np
 
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_ROOT
+
 
 def build_alias(**kwargs):
   alias = ""
@@ -250,14 +252,15 @@ default_variant_transducer = dict(
   gradient_noise=0.0, nadam=False, batch_size=10000, specaugment="albert", dynamic_lr=False, ctc_aux_loss=True,
   length_model_loss_scale=1., use_time_sync_loop=True, use_eos=False, use_glob_win=False, use_zoneout=False,
   lr_measure="dev_error_output/label_prob", conf_use_blstm=False, conf_batch_norm=True, max_seqs=200, conf_num_blocks=12,
-  learning_rates=None, conf_l2=None, conf_dropout=0.03
+  learning_rates=None, conf_l2=None, conf_dropout=0.03, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT
 )
 
 default_variant_enc_dec = dict(
   model_type="glob", att_num_heads=1, lstm_dim=1024, label_type="bpe", time_red=[3, 2],
   glob_model_type="old", pretrain_reps=None, weight_dropout=0.0, with_state_vector=True, att_ctx_reg=False,
   with_weight_feedback=True, prev_target_in_readout=True, use_l2=True, att_ctx_with_bias=False, focal_loss=0.0,
-  pretrain_type="best", epoch_split=6, enc_type="lstm", pretrain=True, config_builder="old")
+  pretrain_type="best", epoch_split=6, enc_type="lstm", pretrain=True, config_builder="old",
+  returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_ROOT)
 
 models = {
   "segmental": {

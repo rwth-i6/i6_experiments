@@ -58,7 +58,7 @@ class DumpPhonemeAlignJob(Job):
 
 class CompareAlignmentsJob(Job):
   def __init__(
-    self, hdf_align1, hdf_align2, seq_tag, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2,
+    self, hdf_align1, hdf_align2, seq_tags, blank_idx1, blank_idx2, vocab1, vocab2, name1, name2,
     time_rqtm=1, mem_rqmt=2, returnn_python_exe=None,
     returnn_root=None):
     self.align1_name = name1
@@ -67,7 +67,7 @@ class CompareAlignmentsJob(Job):
     self.vocab1 = vocab1
     self.blank_idx2 = blank_idx2
     self.blank_idx1 = blank_idx1
-    self.seq_tag = seq_tag
+    self.seq_tags = seq_tags
     self.hdf_align2 = hdf_align2
     self.hdf_align1 = hdf_align1
     self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
@@ -83,7 +83,8 @@ class CompareAlignmentsJob(Job):
 
   def run(self):
     with open("seq_file", "w+") as f:
-      f.write(self.seq_tag + "\n")
+      for tag in self.seq_tags:
+        f.write(tag + "\n")
     command = [
       self.returnn_python_exe, os.path.join(tools_dir, "compare_aligns.py"),
       self.hdf_align1.get_path(), self.hdf_align2.get_path(), "--segment_path", "seq_file",

@@ -77,6 +77,10 @@ class BaseDecoder:
             "mfcc": features.MfccJob,
         }
 
+        # holds the recognition jobs: search, lat2ctm, score, optlm
+        # self.jobs[CORPUS_KEY][JOB_TYPE][EXP_NAME] = tk.Job
+        self.jobs: Dict[str, Dict[str, Dict[str, Type[tk.Job]]]] = {}
+
         self.alias_output_prefix = alias_output_prefix
 
     def init_base_crp(
@@ -178,6 +182,9 @@ class BaseDecoder:
                 )
                 self.feature_flows[corpus_key] = features.basic_cache_flow(feature_path)
 
+            for job_type in ["search", "lat2ctm", "score", "optlm"]:
+                self.jobs[corpus_key][job_type] = {}
+
     @staticmethod
     def _get_scales_string(
         am_scale: Union[float, tk.Variable],
@@ -187,7 +194,7 @@ class BaseDecoder:
         tdp_speech: Tdp,
         tdp_silence: Tdp,
         tdp_nonspeech: Optional[Tdp] = None,
-        pronunciation_scale: Optional[float] = None,
+        pronunciation_scale: Optional[Union[float, tk.Variable]] = None,
         altas: Optional[float] = None,
     ) -> Union[str, DelayedBase]:
         """
@@ -215,7 +222,10 @@ class BaseDecoder:
             out_str += f"_tdpnonspeech{tdp_nonspeech}"
 
         if pronunciation_scale is not None:
-            out_str += f"_ps{pronunciation_scale:05.2f}"
+            if isinstance(pronunciation_scale, tk.Variable):
+                out_str += DelayedFormat("_ps{}", pronunciation_scale)
+            else:
+                out_str += f"_ps{pronunciation_scale:05.2f}"
 
         if altas is not None:
             out_str += f"_altas{altas:05.2f}"
@@ -320,6 +330,10 @@ class BaseDecoder:
             scorer_job.out_report_dir,
         )
 
+        self.jobs[corpus_key]["search"][name] = search_job
+        self.jobs[corpus_key]["lat2ctm"][name] = lat_2_ctm_job
+        self.jobs[corpus_key]["score"][name] = scorer_job
+
         return search_job, lat_2_ctm_job, scorer_job
 
     def _optimize_scales(
@@ -347,6 +361,8 @@ class BaseDecoder:
             **optimize_args,
         )
         opt_job.add_alias(f"{self.alias_output_prefix}optimize_{corpus_key}/{name}")
+
+        self.jobs[corpus_key]["optlm"][name] = opt_job
 
         best_pron_scale = opt_job.out_best_am_score
         best_lm_scale = opt_job.out_best_lm_score
@@ -463,7 +479,7 @@ class BaseDecoder:
                         altas=altas,
                     )
 
-                    self._recog(
+                    opt_search_job, opt_lat_2_ctm_job, opt_scorer_job = self._recog(
                         name=f"{name}-opt",
                         corpus_key=optimized_corpus_key,
                         feature_scorer=feature_scorer,

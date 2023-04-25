@@ -1,3 +1,5 @@
+__all__ = ["ReturnnRasrSearchJob"]
+
 from sisyphus import *
 
 Path = setup_path(__package__)
@@ -65,15 +67,9 @@ class ReturnnRasrSearchJob(Job):
 
         self.model_checkpoint = model_checkpoint
 
-        self.returnn_python_exe = (
-            returnn_python_exe
-            if returnn_python_exe is not None
-            else gs.RETURNN_PYTHON_EXE
-        )
+        self.returnn_python_exe = returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE
 
-        self.returnn_root = (
-            returnn_root if returnn_root is not None else gs.RETURNN_ROOT
-        )
+        self.returnn_root = returnn_root if returnn_root is not None else gs.RETURNN_ROOT
 
         self.rasr_exe = rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer")
 
@@ -187,9 +183,7 @@ class ReturnnRasrSearchJob(Job):
 
         search_data = {
             "class": "ExternSprintDataset",
-            "sprintTrainerExecPath": rasr.RasrCommand.select_exe(
-                crp.nn_trainer_exe, "nn-trainer"
-            ),
+            "sprintTrainerExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
             "sprintConfigStr": "--config=rasr.eval.config --*.LOGFILE=nn-trainer.eval.log --*.TASK=1",
             "partitionEpoch": 1,
         }
@@ -224,9 +218,7 @@ class ReturnnRasrSearchJob(Job):
         return flow
 
     @classmethod
-    def create_config(
-        cls, crp, buffer_size, extra_rasr_config, extra_rasr_post_config, **kwargs
-    ):
+    def create_config(cls, crp, buffer_size, extra_rasr_config, extra_rasr_post_config, **kwargs):
         config, post_config = rasr.build_config_from_mapping(
             crp,
             {

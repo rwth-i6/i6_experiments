@@ -11,6 +11,7 @@ from returnn.util import NumbersDict
 from returnn.log import log
 
 
+
 class Model(torch.nn.Module):
 
     def __init__(self):

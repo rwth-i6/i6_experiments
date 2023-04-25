@@ -1,12 +1,16 @@
+__all__ = ["OptunaReturnnComputePriorJob"]
+
 import copy
+import inspect
 import os
 import i6_core.util as util
 import numpy as np
 import subprocess as sp
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
-from typing import Callable, Optional, Dict, Any
+from typing import Optional, Dict, Any
 from sisyphus import Task, tk, Job
+from .optuna_config import OptunaReturnnConfig
 
 
 class OptunaReturnnComputePriorJob(Job):
@@ -18,10 +22,9 @@ class OptunaReturnnComputePriorJob(Job):
         self,
         model_checkpoint: Checkpoint,
         trial: tk.Variable,
-        returnn_config_generator: Callable,
+        optuna_returnn_config: OptunaReturnnConfig,
         returnn_python_exe: tk.Path,
         returnn_root: tk.Path,
-        returnn_config_generator_kwargs: Dict = {},
         prior_data: Optional[Dict[str, Any]] = None,
         *,
         log_verbosity: int = 3,
@@ -53,8 +56,7 @@ class OptunaReturnnComputePriorJob(Job):
 
         self.trial = trial
 
-        self.returnn_config_generator = returnn_config_generator
-        self.returnn_config_generator_kwargs = returnn_config_generator_kwargs
+        self.optuna_returnn_config = optuna_returnn_config
 
         self.prior_data = prior_data
 
@@ -77,9 +79,7 @@ class OptunaReturnnComputePriorJob(Job):
         yield Task("plot", resume="plot", mini_task=True)
 
     def create_files(self):
-        self.returnn_config = self.returnn_config_generator(
-            self.trial.get(), **self.returnn_config_generator_kwargs
-        )
+        self.returnn_config = self.optuna_returnn_config.generate_config(self.trial.get())  # type: ignore
         self.returnn_config = self.create_returnn_config(
             returnn_config=self.returnn_config, **self.returnn_config_kwargs
         )
@@ -177,10 +177,12 @@ class OptunaReturnnComputePriorJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": kwargs["returnn_config_generator"],
-            "returnn_config_generator_kwargs": kwargs[
-                "returnn_config_generator_kwargs"
-            ],
+            "returnn_config_generator": inspect.getsource(
+                kwargs["optuna_returnn_config"].config_generator
+            ),
+            "returnn_config_generator_kwargs": list(
+                sorted(kwargs["optuna_returnn_config"].config_kwargs)
+            ),
             "model_checkpoint": kwargs["model_checkpoint"],
             "trial": kwargs["trial"],
             "returnn_python_exe": kwargs["returnn_python_exe"],

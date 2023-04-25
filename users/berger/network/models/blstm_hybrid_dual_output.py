@@ -28,11 +28,18 @@ def make_blstm_hybrid_dual_output_model(
     network = {}
     python_code = []
 
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+        padding = 80
+    else:
+        frame_size = 1024
+        padding = 160
+
     from_list, dim_tags = add_speech_separation(
-        network, from_list="data", trainable=not freeze_separator
+        network, from_list="data", frame_size=frame_size, trainable=not freeze_separator
     )
     sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", padding=(80, 0), **gt_args
+        network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
     use_mixed_input = (
@@ -41,7 +48,7 @@ def make_blstm_hybrid_dual_output_model(
     )
     if use_mixed_input:
         mix_features, python_code = add_gt_feature_extraction(
-            network, from_list="data", name="gt_mix", padding=(80, 0), **gt_args
+            network, from_list="data", name="gt_mix", padding=(padding, 0), **gt_args
         )
 
     network["targets_merged"] = {
@@ -71,7 +78,6 @@ def make_blstm_hybrid_dual_output_model(
         )
 
     if use_mixed_input:
-
         enc_mix, _ = add_blstm_stack(
             network, from_list=mix_features, name="lstm_mix", **blstm_mix_args
         )
@@ -167,7 +173,6 @@ def make_blstm_hybrid_dual_output_recog_model(
     blstm_mix_args: Dict = {},
     blstm_01_mix_args: Dict = {},
 ) -> Tuple[Dict, Union[str, List], Dict[str, Dim]]:
-
     network = {}
     python_code = []
 
@@ -182,7 +187,14 @@ def make_blstm_hybrid_dual_output_recog_model(
             network, from_list=from_list, name="gt_mix", **gt_args
         )
 
-    from_list, dim_tags = add_speech_separation(network, from_list=from_list)
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+    else:
+        frame_size = 1024
+
+    from_list, dim_tags = add_speech_separation(
+        network, frame_size=frame_size, from_list=from_list
+    )
 
     network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
         "output"
@@ -263,11 +275,18 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
     network = {}
     python_code = []
 
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+        padding = 80
+    else:
+        frame_size = 1024
+        padding = 160
+
     from_list, dim_tags = add_speech_separation(
-        network, from_list="data", trainable=not freeze_separator
+        network, from_list="data", frame_size=frame_size, trainable=not freeze_separator
     )
     sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", padding=(80, 0), **gt_args
+        network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
     use_mixed_input = (
@@ -277,7 +296,7 @@ def make_blstm_hybrid_dual_output_combine_enc_model(
     assert use_mixed_input
 
     mix_features, python_code = add_gt_feature_extraction(
-        network, from_list="data", name="gt_mix", padding=(80, 0), **gt_args
+        network, from_list="data", name="gt_mix", padding=(padding, 0), **gt_args
     )
 
     network["targets_merged"] = {
@@ -441,7 +460,6 @@ def make_blstm_hybrid_dual_output_combine_enc_recog_model(
     blstm_01_mix_args: Dict = {},
     blstm_combine_args: Dict = {},
 ) -> Tuple[Dict, Union[str, List], Dict[str, Dim]]:
-
     network = {}
     python_code = []
 
@@ -457,7 +475,14 @@ def make_blstm_hybrid_dual_output_combine_enc_recog_model(
         network, from_list=from_list, name="gt_mix", **gt_args
     )
 
-    from_list, dim_tags = add_speech_separation(network, from_list=from_list)
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+    else:
+        frame_size = 1024
+
+    from_list, dim_tags = add_speech_separation(
+        network, frame_size=frame_size, from_list=from_list
+    )
 
     network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
         "default_permutation"
@@ -591,11 +616,18 @@ def make_blstm_hybrid_dual_output_soft_context_model(
     network = {}
     python_code = []
 
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+        padding = 80
+    else:
+        frame_size = 1024
+        padding = 160
+
     from_list, dim_tags = add_speech_separation(
-        network, from_list="data", trainable=not freeze_separator
+        network, from_list="data", frame_size=frame_size, trainable=not freeze_separator
     )
     sep_features, python_code = add_gt_feature_extraction(
-        network, from_list=from_list, name="gt_sep", padding=(80, 0), **gt_args
+        network, from_list=from_list, name="gt_sep", padding=(padding, 0), **gt_args
     )
 
     use_mixed_input = (
@@ -604,7 +636,7 @@ def make_blstm_hybrid_dual_output_soft_context_model(
     )
     if use_mixed_input:
         mix_features, python_code = add_gt_feature_extraction(
-            network, from_list="data", name="gt_mix", padding=(80, 0), **gt_args
+            network, from_list="data", name="gt_mix", padding=(padding, 0), **gt_args
         )
 
     network["targets_merged"] = {
@@ -788,7 +820,6 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
     blstm_context_args: Dict = {},
     use_logits: bool = False,
 ) -> Tuple[Dict, Union[str, List], Dict[str, Dim]]:
-
     network = {}
     python_code = []
 
@@ -803,7 +834,14 @@ def make_blstm_hybrid_dual_output_soft_context_recog_model(
             network, from_list=from_list, name="gt_mix", **gt_args
         )
 
-    from_list, dim_tags = add_speech_separation(network, from_list=from_list)
+    if gt_args.get("sample_rate", 8000) == 8000:
+        frame_size = 512
+    else:
+        frame_size = 1024
+
+    from_list, dim_tags = add_speech_separation(
+        network, frame_size=frame_size, from_list=from_list
+    )
 
     network["speech_separator"]["subnetwork"]["separated_stft_pit"]["subnetwork"][
         "default_permutation"

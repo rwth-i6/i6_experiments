@@ -46,6 +46,10 @@ class TrainRecogPipeline(ABC):
       assert epoch in self.num_epochs, "Cannot do RETURNN recog on epoch %d because it is not set in num_epochs"
 
     self.base_alias = base_alias
+    if import_model_train_epoch1_alias is None:
+      self.base_alias = "%s/%s" % (self.base_alias, "no_import")
+    else:
+      self.base_alias = "%s/import_%s" % (self.base_alias, self.import_model_train_epoch1_alias)
 
     self.checkpoints = {}
 
@@ -58,7 +62,7 @@ class TrainRecogPipeline(ABC):
     pass
 
   def run(self):
-    train_alias = "train" if self.import_model_train_epoch1 is None else ("train_import_%s" % self.import_model_train_epoch1_alias)
+    train_alias = "train"
     self.checkpoints["train"] = self.run_training(
       import_model_train_epoch1=self.import_model_train_epoch1,
       train_alias=train_alias
