@@ -1,5 +1,4 @@
 import copy, os
-import math
 
 from sisyphus import *
 import numpy
@@ -14,21 +13,17 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
     apply_fairseq_init_to_transformer_decoder,
-    reset_params_init,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.data import (
     build_training_datasets,
     build_test_dataset,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.default_tools import (
-    RETURNN_EXE,
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
-    NICK_LOGMEL_RETURNN_ROOT,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.feature_extraction_net import (
     log10_net_10ms,
-    log10_net_10ms_long_bn,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.swb_300.pipeline import (
     training,
@@ -425,7 +420,9 @@ def conformer_baseline():
         )
         return train_job, train_data
 
-    def compute_features_stats(bpe_size=500, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs):
+    def compute_features_stats(
+        output_dirname, feat_dim, bpe_size=500, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
+    ):
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -466,14 +463,16 @@ def conformer_baseline():
             time_rqmt=72,
             eval_mode=True if model_checkpoint else False,
         )
-        dump_features_job.add_alias("swb_stats/dump_train_log_mel_features")
-        tk.register_output("swb_stats/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename])
+        dump_features_job.add_alias(f"swb_stats/{output_dirname}/dump_train_log_mel_features")
+        tk.register_output(
+            f"swb_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
+        )
 
         # Extract features stats from HDFDataset
         extract_stats_returnn_config = ReturnnConfig(
             {
                 "extern_data": {
-                    "data": {"dim": 80},
+                    "data": {"dim": feat_dim},
                 },
                 "train": {
                     "class": "HDFDataset",
@@ -490,12 +489,12 @@ def conformer_baseline():
             returnn_python_exe=RETURNN_CPU_EXE,
             returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
         )
-        extract_mean_stddev_job.add_alias("swb_stats/extract_mean_stddev")
+        extract_mean_stddev_job.add_alias(f"swb_stats/{output_dirname}/extract_mean_stddev")
 
-        tk.register_output("swb_stats/mean_var", extract_mean_stddev_job.out_mean)
-        tk.register_output("swb_stats/std_dev_var", extract_mean_stddev_job.out_std_dev)
-        tk.register_output("swb_stats/mean_file", extract_mean_stddev_job.out_mean_file)
-        tk.register_output("swb_stats/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
+        tk.register_output(f"swb_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
+        tk.register_output(f"swb_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
+        tk.register_output(f"swb_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
+        tk.register_output(f"swb_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
 
         return (
             extract_mean_stddev_job.out_mean,
@@ -732,6 +731,9 @@ def conformer_baseline():
 
     # --------------------------- Experiments --------------------------- #
 
+    # - better with global norm
+    # - converge better when not reducing depthwise conv kernel size during pretraining but final WER is worse
+
     oclr_args = copy.deepcopy(lstm_dec_exp_args)
     oclr_args["oclr_opts"] = {
         "peak_lr": 9e-4,
@@ -743,7 +745,9 @@ def conformer_baseline():
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args["encoder_args"].use_sqrd_relu = True
 
-    _, _, mean, stddev = compute_features_stats()
+    _, _, mean, stddev = compute_features_stats(
+        output_dirname="logmel_50", feat_dim=80
+    )  # I found later that feat_dim does not matter. 80 is used here to not break hashes
 
     base_v1_args = copy.deepcopy(oclr_args)
     base_v1_args["global_stats"] = (mean, stddev)
@@ -798,17 +802,17 @@ def conformer_baseline():
         train_args=args,
     )
 
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["oclr_opts"]["n_step"] = 2082
-    args["max_seq_length"] = 100
-    run_default_exp(
-        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_maxSeqLen100_step2082",
-        train_args=args,
-    )
+    # args = copy.deepcopy(base_12l_reduce_0_7_args)
+    # args["oclr_opts"]["n_step"] = 2082
+    # args["max_seq_length"] = 100
+    # run_default_exp(
+    #     f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_maxSeqLen100_step2082",
+    #     train_args=args,
+    # )
 
     # TODO: more layers
     # 12, 0.7 dim: 48M, full dim: 87M
-    for enc_layers in [14, 16]:
+    for enc_layers in [16]:
         args = copy.deepcopy(base_12l_reduce_0_7_args)
         args["encoder_args"].num_blocks = enc_layers
         if enc_layers >= 16:
@@ -833,32 +837,25 @@ def conformer_baseline():
             )
 
     # TODO: shuff
-    for shuff in ["laplace:.40", "laplace:.42"]:
-        run_default_exp(
-            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_shuff{shuff}",
-            train_args=base_12l_reduce_0_7_args,
-            seq_ordering=shuff,
-        )
+    # for shuff in ["laplace:.40", "laplace:.42"]:
+    #     run_default_exp(
+    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_shuff{shuff}",
+    #         train_args=base_12l_reduce_0_7_args,
+    #         seq_ordering=shuff,
+    #     )
 
     # TODO: fix depthwise conv kernel size during pretraining
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    run_default_exp(
-        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_woDepthwiseConvPre",
-        train_args=args,
-    )
+    # worse
+    # args = copy.deepcopy(base_12l_reduce_0_7_args)
+    # args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    # run_default_exp(
+    #     f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_woDepthwiseConvPre",
+    #     train_args=args,
+    # )
     args = copy.deepcopy(base_v1_args)
     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
     run_default_exp(
         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{1.0}_woDepthwiseConvPre",
-        train_args=args,
-    )
-
-    # TODO: without global norm
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["global_stats"] = None
-    run_default_exp(
-        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_woGlobalNorm",
         train_args=args,
     )
 
@@ -868,6 +865,10 @@ def conformer_baseline():
         new_feat_net = copy.deepcopy(log10_net_10ms)
         new_feat_net["mel_filterbank"]["nr_of_filters"] = dim
         new_feat_net["mel_filterbank"]["n_out"] = dim
+        _, _, mean, stddev = compute_features_stats(
+            feature_extraction_net=new_feat_net, feat_dim=dim, output_dirname=f"logmel_{dim}"
+        )
+        args["global_stats"] = (mean, stddev)
         run_default_exp(
             f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_featDim{dim}",
             train_args=args,
@@ -899,12 +900,91 @@ def conformer_baseline():
         train_args=args,
     )
 
-    # TODO: tune batch size
-    # default is 15k + accum2 (30k)
+    # TODO: less reps
+    for reps in [2, 3, 4]:
+        args = copy.deepcopy(base_v1_args)
+        args["pretrain_reps"] = reps
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{1.0}_woDepthwiseConvPre_preReps{reps}",
+            train_args=args,
+        )
+
+        args = copy.deepcopy(base_12l_reduce_0_7_args)
+        args["pretrain_reps"] = reps
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen{75}_dimReduce{0.7}_woDepthwiseConvPre_preReps{reps}",
+            train_args=args,
+        )
+
+        args = copy.deepcopy(base_12l_reduce_0_7_args)
+        args["pretrain_reps"] = reps
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen{75}_dimReduce{0.7}_preReps{reps}",
+            train_args=args,
+        )
+
+    # TODO: without initial bs pre + no depthwise conv pre
+    for i, tmp_args in enumerate([base_12l_reduce_0_7_args, base_v1_args]):
+        args = copy.deepcopy(tmp_args)
+        args["pretrain_opts"]["initial_batch_size"] = None
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        reduce_dim = 0.7 if i == 0 else 1.0
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{reduce_dim}_ep{300}_woPreInitBs_woDepthwiseConvPre",
+            train_args=args,
+        )
+
+    # TODO: epoch-based OCLR
     args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["batch_size"] = 30_000 * 80
-    args["accum_grad"] = 1
+    args.pop("oclr_opts")
+    args["learning_rates_list"] = (
+        list(numpy.linspace(1e-4, 1e-3, 135))
+        + list(numpy.linspace(1e-3, 1e-4, 135))
+        + list(numpy.linspace(1e-4, 1e-6, 30))
+    )
     run_default_exp(
-        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_ep{300}_bs{30_000}_accum1",
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_ep{300}_epochOCLR",
         train_args=args,
     )
+
+    for reduce_factor in [0.75, 0.8]:
+        args = get_modified_base_args(base_v1_args, num_blocks=12, dim_reduce_factor=reduce_factor)
+        args["max_seq_length"] = None
+        args["oclr_opts"]["n_step"] = 2085
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{reduce_factor}_ep{300}",
+            train_args=args,
+        )
+
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["decoder_args"].use_zoneout_output = True
+    run_default_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_ep{300}_fixedZoneout",
+        train_args=args,
+    )
+
+    # TODO: long training
+    # for peak_lr in [7e-4, 8e-4, 9e-4, 2e-3]:
+    #     args = copy.deepcopy(base_12l_reduce_0_7_args)
+    #     args["max_seq_length"] = None
+    #     args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+    #     args["oclr_opts"]["total_ep"] = 600
+    #     args["oclr_opts"]["peak_lr"] = peak_lr
+    #     run_default_exp(
+    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_noMaxSeqLen_dimReduce{0.7}_ep{600}_peakLR{peak_lr}",
+    #         train_args=args,
+    #         num_epochs=600,
+    #     )
+
+    # for reps in [1, 2, 3, 4, 5]:
+    #     args = copy.deepcopy(base_12l_reduce_0_7_args)
+    #     args["oclr_opts"]["n_step"] = 2085
+    #     args["max_seq_length"] = None
+    #     args["pretrain_reps"] = reps
+    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #     run_default_exp(
+    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_noMaxSeqLen_woDepthwiseConvPre_preReps{reps}",
+    #         train_args=args,
+    #     )
