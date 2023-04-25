@@ -95,6 +95,15 @@ def run_baseline_gt():
             "conformer_bs14k_gt40": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40},
+            "lm80_fft256": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={
+                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+                },
+            ),
+            "lm80_fft512": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "LogMelNetwork", "wavenorm": True, "frame_shift": 80},
             ),
         },
         num_epochs=260,
