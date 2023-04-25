@@ -16,6 +16,26 @@ class NetworkDict:
       "trainable": self._trainable}
 
 
+class PreemphasisNetwork(NetworkDict):
+  def __init__(self, alpha, output_name="output"):
+    """
+    Network for preemphasis of audio signal
+    """
+    self._network = {
+      "shift_0": {"axis": "T", "class": "slice", "slice_end": -1},
+      "shift_0_mul": {"class": "eval", "from": "shift_0", "eval": f"source(0) * {alpha}"},
+      "shift_1_raw": {"axis": "T", "class": "slice", "slice_start": 1},
+      "shift_1": {
+        "class": "reinterpret_data",
+        "enforce_batch_major": True,
+        "from": ["shift_1_raw"],
+        "set_axes": {"T": "time"},
+        "size_base": "shift_0",
+      },
+      output_name: {"class": "combine", "from": ["shift_1", "shift_0"], "kind": "sub"},
+    }
+
+
 class LogMelNetwork(NetworkDict):
   def __init__(
           self, output_dims=80, wave_norm=False, frame_size=400, frame_shift=160, fft_size=512, norm=True,
