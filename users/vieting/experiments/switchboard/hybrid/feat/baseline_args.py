@@ -90,7 +90,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
 
 def get_nn_args_single(
-    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None, extra_exps=False,
+    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
@@ -101,7 +101,6 @@ def get_nn_args_single(
         num_inputs=1,
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
-        extra_exps=extra_exps,
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
@@ -113,7 +112,6 @@ def get_nn_args_single(
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
         recognition=True,
-        extra_exps=extra_exps,
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
@@ -149,7 +147,7 @@ def get_returnn_config(
     batch_size: int = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
-    extra_exps: bool = False,
+    extra_args: Optional[Dict[str, Any]] = None,
 ):
     base_config = {
         "extern_data": {
@@ -209,6 +207,7 @@ def get_returnn_config(
             "newbob_multi_update_interval": 1,
         }
     )
+    conformer_base_config.update(extra_args or {})
 
     def make_returnn_config(
         config,
