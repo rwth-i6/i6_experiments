@@ -144,9 +144,14 @@ def run_baseline_scf():
     )
 
     nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "conformer_bs7k_scf": dict(
+                returnn_args=dict(batch_size=7000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            )
+        },
         prefix="scf_",
         num_epochs=260,
-        feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
