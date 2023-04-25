@@ -103,9 +103,12 @@ class GammatoneNetwork(NetworkDict):
   """
   Wrapper class for subnetwork that extracts gammatone features
   """
-  def __init__(self, output_dim=50, sample_rate=16000, gt_filterbank_size=0.04, gt_filterbank_padding="valid",
+  def __init__(
+    self, output_dim=50, sample_rate=16000, freq_max=7500., freq_min=100.,
+    gt_filterbank_size=0.04, gt_filterbank_padding="valid",
     temporal_integration_size=0.025, temporal_integration_strides=None, temporal_integration_padding="valid",
-    normalization="time", trainable=False, **kwargs):
+    normalization="time", trainable=False, **kwargs
+  ):
     """
     :param int output_dim: gammatone feature output dimension
     :param int|float sample_rate: sampling rate of input waveform
@@ -122,6 +125,7 @@ class GammatoneNetwork(NetworkDict):
     """
     assert gt_filterbank_padding in ["valid", "same"] or isinstance(gt_filterbank_padding, int), "Unknown padding"
     assert temporal_integration_padding in ["valid", "same"], "Unknown padding"
+    assert freq_max < sample_rate / 2, "Likely a misconfiguration"
     temporal_integration_size = int(temporal_integration_size * sample_rate)
     temporal_integration_strides = temporal_integration_strides or sample_rate // 100
 
@@ -136,6 +140,8 @@ class GammatoneNetwork(NetworkDict):
           "num_channels": output_dim,
           "length": gt_filterbank_size,
           "sample_rate": sample_rate,
+          "freq_max": freq_max,
+          "freq_min": freq_min,
         },
         "n_out": output_dim,
         "padding": gt_filterbank_padding,
