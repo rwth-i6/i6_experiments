@@ -473,6 +473,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     label_smoothing: float = 0.1
 
+    use_zoneout_output: bool = False
+
 
 def create_config(
     training_datasets,
