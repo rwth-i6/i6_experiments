@@ -25,7 +25,7 @@ import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 
-
+#common modules
 from i6_experiments.common.setups.rasr.nn_system import (
     NnSystem
 )
@@ -40,8 +40,24 @@ from i6_experiments.common.setups.rasr.util import (
 )
 
 
+#user based modules
+from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
+    get_lexicon_args,
+    get_tdp_values,
+)
 
+from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
+    FactoredHybridBaseDecoder
+)
+
+from i6_experiments.users.raissi.setups.common.util.hdf import (
+    SprintFeatureToHdf
+)
+
+
+#From here to be checked
 #get_recog_ctx_args*() functions are imported here
+"""
 from i6_experiments.users.raissi.experiments.librispeech.search.recognition_args import *
 from i6_experiments.users.raissi.setups.common.helpers.estimate_povey_like_prior_fh import *
 
@@ -85,6 +101,7 @@ from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
     FactoredHybridBaseDecoder
 )
+"""
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
@@ -187,7 +204,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
         #keys when you have different dev and test sets
         self.train_key = None  # "train-baseline"
-    def set_crp_pairings(self, dev_key='dev-baseline', test_key='test-baseline'):
+    def set_crp_pairings(self, dev_key, test_key):
         #have a dict of crp_names so that you can refer to your data as you want
         keys = self.corpora.keys()
         if self.train_key is None:
@@ -392,7 +409,6 @@ class FactoredHybridBaseSystem(NnSystem):
         return corpus_recipe.SegmentCorpusJob(
             bliss_corpus=corpus_path,
             num_segments=1,
-            remove_prefix=remove_prefix,
         ).out_single_segment_files[1]
 
     def _get_merged_corpus_for_train(self, train_corpus, cv_corpus, name="loss-corpus"):
@@ -797,83 +813,152 @@ class FactoredHybridBaseSystem(NnSystem):
         self.set_graph_for_experiment(experiment_key)
 
     # ---------------------Prior Estimation--------------
-    def get_hdf_path(self, hdf_key):
+    def get_hdf_path(self, hdf_key: typing.Optional[str]):
         if hdf_key is not None:
             assert hdf_key in self.hdfs.keys()
             return self.hdfs[hdf_key]
 
         if self.train_key not in self.hdfs.keys():
-            self.create_hdf(crp_name=self.train_key)
+            self.create_hdf()
 
         return self.hdfs[self.train_key]
 
-    def create_hdf(self, with_alignment=False, crp_name=None):
-        crp_name = self.crp_names['train'] if crp_name is None else crp_name
-        gammaton_features_paths = self.feature_caches[crp_name]['gt'].hidden_paths
-        feature_caches = [gammaton_features_paths[i] for i in
-                          range(1, len(gammaton_features_paths.keys()) + 1)]
-        if with_alignment:
-            alignment_paths = self.alignments[crp_name].get_path().split('.bundle')[0]
-            alignment_caches = [tk.Path(f"{alignment_paths}.{i}") for i in
-                          range(1, len(gammaton_features_paths.keys()) + 1)]
-            store_allophones = StoreAllophonesJob(self.crp[crp_name])
-            dump_statetying  = DumpStateTyingJob(self.crp[crp_name])
-            tk.register_output(f'train/{crp_name}-allophones', store_allophones.out_allophone_file)
-            tk.register_output(f'train/{crp_name}-state-tying', dump_statetying.out_state_tying)
+    def create_hdf(self):
+        gammatone_features_paths: MultiPath = self.feature_caches[self.train_key]["gt"]
+        hdf_job = SprintFeatureToHdf(
+            feature_caches=gammatone_features_paths,
+        )
 
-            hdfJob = RasrFeatureAndAlignmentToHDF(feature_caches=feature_caches,
-                                                  alignment_caches=alignment_caches,
-                                                  allophones=store_allophones.out_allophone_file,
-                                                  state_tying=dump_statetying.out_state_tying)
-        else:
-            hdfJob = RasrFeatureToHDF(feature_caches)
-        self.hdfs[crp_name] = hdfJob.hdf_files
+        self.hdfs[self.train_key] = hdf_job.out_hdf_files
 
-        hdfJob.add_alias(f"hdf/{crp_name}")
-        tk.register_output(f"hdf/{crp_name}.hdf.1", self.hdfs[crp_name][0])
+        hdf_job.add_alias(f"hdf/{self.train_key}")
+
+        return hdf_job
 
     # -------------------- Decoding --------------------
+    def _compute_returnn_rasr_priors(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        share: float,
+        time_rqmt: typing.Optional[int] = None,
+    ):
+        self.set_graph_for_experiment(key)
 
-    def set_mono_priors(self, key, epoch, tf_library=None, tm=None, nStateClasses=None, hdf_key='960'):
-        if nStateClasses is None:
-            nStateClasses = self.label_info.get_n_state_classes()
+        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
 
-        if tm is None:
-            tm = self.tf_map
+        train_data = self.train_input_data[train_corpus_key]
+        dev_data = self.cv_input_data[dev_corpus_key]
 
-        if tf_library is None:
-            tf_library = self.tf_library
+        train_crp = train_data.get_crp()
+        dev_crp = dev_data.get_crp()
 
-        name = f"{self.experiments[key]['name']}-epoch-{epoch}"
-        model_checkpoint = self._get_model_checkpoint(
-            self.experiments[key]["train_job"], epoch
-        )
-        graph = self.experiments[key]["graph"]["inference"]
+        if share != 1.0:
+            train_crp = copy.deepcopy(train_crp)
+            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+                segment_file=train_crp.segment_path,
+                split={"priors": share, "rest": 1 - share},
+                shuffle=True,
+            )
+            train_crp.segment_path = segment_job.out_segments["priors"]
 
-        hdf_paths = self.get_hdf_path(hdf_key)
+        # assert train_data.feature_flow == dev_data.feature_flow
+        # assert train_data.features == dev_data.features
+        # assert train_data.alignments == dev_data.alignments
 
-        estimateJob = EstimateMonophonePriors_(graph=graph,
-                                               model=model_checkpoint,
-                                               dataPaths=hdf_paths,
-                                               datasetIndices=list(range(len(hdf_paths) // 3)),
-                                               libraryPath=tf_library,
-                                               nStates=nStateClasses,
-                                               tensorMap=tm,
-                                               gpu=1)
-        if name is not None:
-            estimateJob.add_alias(f"priors/priors-{name}")
-
-        xmlJob = DumpXmlForMonophone(estimateJob.priorFiles,
-                                     estimateJob.numSegments,
-
-                                     nStates=nStateClasses)
-        priorFiles = [xmlJob.centerPhonemeXml]
-        if name is not None:
-            xmlName = f"priors/{name}-xmlpriors"
+        if train_data.feature_flow is not None:
+            feature_flow = train_data.feature_flow
         else:
-            xmlName = "mono-prior"
-        tk.register_output(xmlName, priorFiles[0])
-        self.experiments[key]["priors"] = priorFiles
+            if isinstance(train_data.features, rasr.FlagDependentFlowAttribute):
+                feature_path = train_data.features
+            elif isinstance(train_data.features, (MultiPath, MultiOutputPath)):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "task_dependent": train_data.features,
+                    },
+                )
+            elif isinstance(train_data.features, tk.Path):
+                feature_path = rasr.FlagDependentFlowAttribute(
+                    "cache_mode",
+                    {
+                        "bundle": train_data.features,
+                    },
+                )
+            else:
+                raise NotImplementedError
+
+            feature_flow = features.basic_cache_flow(feature_path)
+            if isinstance(train_data.features, tk.Path):
+                feature_flow.flags = {"cache_mode": "bundle"}
+
+        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
+            alignments = copy.deepcopy(train_data.alignments)
+            net = rasr.FlowNetwork()
+            net.flags = {"cache_mode": "bundle"}
+            alignments = alignments.get(net)
+        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
+            raise NotImplementedError
+        elif isinstance(train_data.alignments, tk.Path):
+            alignments = train_data.alignments
+        else:
+            raise NotImplementedError
+
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        prior_job = returnn.ReturnnRasrComputePriorJobV2(
+            train_crp=train_crp,
+            dev_crp=dev_crp,
+            model_checkpoint=model_checkpoint,
+            feature_flow=feature_flow,
+            alignment=alignments,
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            mem_rqmt=12,
+            time_rqmt=time_rqmt if time_rqmt is not None else 12,
+        )
+
+        return prior_job
+
+    def set_mono_priors_returnn_rasr(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: Optional[returnn.ReturnnConfig] = None,
+        output_layer_name: str = "output",
+        data_share: float = 0.1,
+    ):
+        self.set_graph_for_experiment(key)
+
+        name = f"{self.experiments[key]['name']}/e{epoch}"
+
+        if returnn_config is None:
+            returnn_config = self.experiments[key]["returnn_config"]
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        config = copy.deepcopy(returnn_config)
+        config.config["forward_output_layer"] = output_layer_name
+
+        job = self._compute_returnn_rasr_priors(
+            key,
+            epoch,
+            train_corpus_key=train_corpus_key,
+            dev_corpus_key=dev_corpus_key,
+            returnn_config=config,
+            share=data_share,
+        )
+
+        job.add_alias(f"priors/{name}/c")
+        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
+
+        s.experiments[key]['priors'] = [job.out_prior_xml_file]
+
 
     def set_diphone_priors(self, key, epoch, tf_library=None, nStateClasses=None, nContexts=None,
                            gpu=1, time=20, isSilMapped=True, hdf_key=None):
