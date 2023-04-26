@@ -741,22 +741,13 @@ def run_ctc_att_search():
     oclr_args["encoder_args"].input_layer = "conv-6"
     oclr_args["encoder_args"].use_sqrd_relu = True
 
-    # Wo LM with best
-    #
-    # dev-clean  2.28
-    # dev-other  5.63
-    # test-clean  2.48
-    # test-other  5.71
-    #
-    # with Avg:
-    # dev-clean 2.28
-    # dev-other 5.60
-    # test-clean 2.48
-    # test-other 5.75
+    # Wo LM with best: 2.28/5.63/2.48/5.71
+    # Wo LM with avg:  2.28/5.60/2.48/5.75
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
     train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)
 
     # CTC greedy decoding implemented in returnn using beam search of beam size 1
+    # dev-other: 6.9 without LM.
     run_ctc_decoding(
         exp_name="test_ctc_greedy",
         train_data=train_data,
@@ -769,11 +760,7 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    # Att baseline with avg checkpoint:
-    # dev-clean 2.27
-    # dev-other 5.39
-    # test-clean 2.41
-    # test-other 5.51
+    # Att baseline with avg checkpoint: 2.27/5.39/2.41/5.51
     retrain_args = copy.deepcopy(oclr_args)
     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
     retrain_args["learning_rates_list"] = [1e-4] * 20 + list(numpy.linspace(1e-4, 1e-6, 580))
@@ -784,6 +771,7 @@ def run_ctc_att_search():
         num_epochs=600,
     )
 
+    # 2.86/6.7/3.07/6.96
     run_ctc_decoding(
         exp_name="test_ctc_greedy_best",
         train_data=train_data,
