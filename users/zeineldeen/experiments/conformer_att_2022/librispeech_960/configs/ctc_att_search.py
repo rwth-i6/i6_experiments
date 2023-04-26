@@ -331,12 +331,13 @@ def run_ctc_att_search():
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
-
+        args = copy.deepcopy(search_args)
+        args["ctc_greedy_decode"] = True
         for test_set in test_sets:
             run_single_search(
                 exp_name=exp_name + f"/{test_set}",
                 train_data=train_data,
-                search_args=search_args,
+                search_args=args,
                 checkpoint=checkpoint,
                 feature_extraction_net=feature_extraction_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
@@ -760,7 +761,7 @@ def run_ctc_att_search():
         exp_name="test_ctc_greedy",
         train_data=train_data,
         checkpoint=train_job_avg_ckpt["base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"],
-        search_args={"ctc_greedy_decode": True, **oclr_args},
+        search_args=oclr_args,
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-other"],
@@ -789,7 +790,7 @@ def run_ctc_att_search():
         checkpoint=train_job_avg_ckpt[
             f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
         ],
-        search_args={"ctc_greedy_decode": True, **oclr_args},
+        search_args=oclr_args,
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
