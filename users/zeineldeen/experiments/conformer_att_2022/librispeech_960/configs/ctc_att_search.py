@@ -334,7 +334,7 @@ def run_ctc_att_search():
 
         for test_set in test_sets:
             run_single_search(
-                exp_name=exp_name,
+                exp_name=exp_name + f"/{test_set}",
                 train_data=train_data,
                 search_args=search_args,
                 checkpoint=checkpoint,
@@ -764,6 +764,35 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-other"],
+        remove_label="<s>",  # blanks are removed in the network
+        use_sclite=True,
+    )
+
+    # Att baseline with avg checkpoint:
+    # dev-clean 2.27
+    # dev-other 5.39
+    # test-clean 2.41
+    # test-other 5.51
+    retrain_args = copy.deepcopy(oclr_args)
+    retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+    retrain_args["learning_rates_list"] = [1e-4] * 20 + list(numpy.linspace(1e-4, 1e-6, 580))
+    retrain_args["lr_decay"] = 0.95
+    train_j, train_data = run_exp(
+        exp_name=name + f"_retrain1_const20_linDecay580_{1e-4}",
+        train_args=retrain_args,
+        num_epochs=600,
+    )
+
+    run_ctc_decoding(
+        exp_name="test_ctc_greedy_best",
+        train_data=train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args={"ctc_greedy_decode": True, **oclr_args},
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
         remove_label="<s>",  # blanks are removed in the network
         use_sclite=True,
     )

@@ -802,26 +802,6 @@ def conformer_baseline():
         train_args=args,
     )
 
-    # args = copy.deepcopy(base_12l_reduce_0_7_args)
-    # args["oclr_opts"]["n_step"] = 2082
-    # args["max_seq_length"] = 100
-    # run_default_exp(
-    #     f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_maxSeqLen100_step2082",
-    #     train_args=args,
-    # )
-
-    # TODO: more layers
-    # 12, 0.7 dim: 48M, full dim: 87M
-    for enc_layers in [16]:
-        args = copy.deepcopy(base_12l_reduce_0_7_args)
-        args["encoder_args"].num_blocks = enc_layers
-        if enc_layers >= 16:
-            args["recursion_limit"] = 4000
-        run_default_exp(
-            f"base_conf_{enc_layers}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_maxSeqLen75_dimReduce{0.7}",
-            train_args=args,
-        )
-
     # TODO: longer training
     for ep in [100 * 6, 150 * 6, 200 * 6]:
         for max_seq_len, n_step in [(75, 2012), (100, 2082), (None, 2085)]:
@@ -835,14 +815,6 @@ def conformer_baseline():
                 train_args=args,
                 num_epochs=ep,
             )
-
-    # TODO: shuff
-    # for shuff in ["laplace:.40", "laplace:.42"]:
-    #     run_default_exp(
-    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_shuff{shuff}",
-    #         train_args=base_12l_reduce_0_7_args,
-    #         seq_ordering=shuff,
-    #     )
 
     # TODO: fix depthwise conv kernel size during pretraining
     # worse
@@ -858,22 +830,6 @@ def conformer_baseline():
         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{1.0}_woDepthwiseConvPre",
         train_args=args,
     )
-
-    # TODO: feature dim. default is 50
-    for dim in [40, 60, 80]:
-        args = copy.deepcopy(base_12l_reduce_0_7_args)
-        new_feat_net = copy.deepcopy(log10_net_10ms)
-        new_feat_net["mel_filterbank"]["nr_of_filters"] = dim
-        new_feat_net["mel_filterbank"]["n_out"] = dim
-        _, _, mean, stddev = compute_features_stats(
-            feature_extraction_net=new_feat_net, feat_dim=dim, output_dirname=f"logmel_{dim}"
-        )
-        args["global_stats"] = (mean, stddev)
-        run_default_exp(
-            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLen75_dimReduce{0.7}_featDim{dim}",
-            train_args=args,
-            feature_extraction_net=new_feat_net,
-        )
 
     # TODO: avg-OCLR epoch-based
     args = copy.deepcopy(base_12l_reduce_0_7_args)
@@ -965,26 +921,71 @@ def conformer_baseline():
         train_args=args,
     )
 
-    # TODO: long training
-    # for peak_lr in [7e-4, 8e-4, 9e-4, 2e-3]:
-    #     args = copy.deepcopy(base_12l_reduce_0_7_args)
-    #     args["max_seq_length"] = None
-    #     args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
-    #     args["oclr_opts"]["total_ep"] = 600
-    #     args["oclr_opts"]["peak_lr"] = peak_lr
-    #     run_default_exp(
-    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_noMaxSeqLen_dimReduce{0.7}_ep{600}_peakLR{peak_lr}",
-    #         train_args=args,
-    #         num_epochs=600,
-    #     )
+    args = copy.deepcopy(base_v1_args)
+    args["pretrain_reps"] = 3
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    args["max_seq_length"] = None
+    args["oclr_opts"]["n_step"] = 2085
+    run_default_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{1.0}_woDepthwiseConvPre_preReps{3}",
+        train_args=args,
+    )
 
-    # for reps in [1, 2, 3, 4, 5]:
-    #     args = copy.deepcopy(base_12l_reduce_0_7_args)
-    #     args["oclr_opts"]["n_step"] = 2085
-    #     args["max_seq_length"] = None
-    #     args["pretrain_reps"] = reps
-    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    #     run_default_exp(
-    #         f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{1e-3}_bpe500_dimReduce{0.7}_noMaxSeqLen_woDepthwiseConvPre_preReps{reps}",
-    #         train_args=args,
-    #     )
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["pretrain_reps"] = 3
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    args["max_seq_length"] = None
+    args["oclr_opts"]["n_step"] = 2085
+    run_default_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{0.7}_woDepthwiseConvPre_preReps{3}",
+        train_args=args,
+    )
+
+    # TODO: tune LR for longer training
+    for peak_lr in [7e-4, 8e-4, 9e-4, 2e-3]:
+        args = copy.deepcopy(base_12l_reduce_0_7_args)
+        args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+        args["oclr_opts"]["total_ep"] = 600
+        args["max_seq_length"] = None
+        args["oclr_opts"]["n_step"] = 2085
+        args["oclr_opts"]["peak_lr"] = peak_lr
+        run_default_exp(
+            f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_peak{peak_lr}_bpe500_maxSeqLen{None}_dimReduce{0.7}_ep{600}",
+            train_args=args,
+            num_epochs=600,
+        )
+
+    # TODO: more regularizations
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["pretrain_reps"] = 3
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    args["max_seq_length"] = None
+
+    args["encoder_args"].att_dropout = 0.2
+    args["encoder_args"].dropout = 0.2
+
+    args["decoder_args"].use_zoneout_output = True  # should be more regs
+    args["oclr_opts"]["n_step"] = 2085
+    args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+    args["oclr_opts"]["total_ep"] = 600
+
+    run_default_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{0.7}_woDepthwiseConvPre_preReps{3}_drop{0.2}_fixedZoneout_ep600",
+        train_args=args,
+        num_epochs=600,
+    )
+
+    args = copy.deepcopy(base_12l_reduce_0_7_args)
+    args["pretrain_reps"] = 3
+    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    args["max_seq_length"] = None
+    args["decoder_args"].use_zoneout_output = True  # should be more regs
+    args["oclr_opts"]["n_step"] = 2085
+    args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+    args["oclr_opts"]["total_ep"] = 600
+    args["speed_pert_version"] = 4
+    run_default_exp(
+        f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{0.7}_woDepthwiseConvPre_preReps{3}_speedPertV4_fixedZoneout_ep600",
+        train_args=args,
+        num_epochs=600,
+    )
