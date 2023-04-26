@@ -317,7 +317,7 @@ def add_speech_separation(
                 "class": "pad",
                 "from": "separated_waveforms",
                 "axes": "T",
-                "padding": (0, frame_shift),
+                "padding": (0, frame_size // 4),
             },
             "separated_waveforms_padded_gather": {
                 "class": "gather",

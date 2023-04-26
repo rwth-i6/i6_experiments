@@ -147,6 +147,10 @@ class RASRDecodingJobParallel(RasrCommand, Job):
     shutil.move(
       "lattice.cache.%d" % task_id, self.out_single_lattice_caches[task_id].get_path())
 
+  def cleanup_before_run(self, cmd, retry, task_id, *args):
+    util.backup_if_exists("lattice.log.%d" % task_id)
+    util.delete_if_exists("lattice.cache.%d" % task_id)
+
   def create_trace_file(self):
     with open(self.out_best_traces.get_path(), "w+") as f1:
       for i in range(1, self.crp.concurrent + 1):

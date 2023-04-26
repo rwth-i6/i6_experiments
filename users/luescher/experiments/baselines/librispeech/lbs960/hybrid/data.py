@@ -2,7 +2,7 @@ from i6_core import corpus as corpus_recipe
 from i6_core import text
 
 from i6_experiments.common.datasets.librispeech import durations, num_segments
-from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
+from i6_experiments.users.luescher.setups.rasr.gmm_system import GmmSystem
 #from i6_experiments.common.setups.rasr.util.nn import SingleHdfDataInput
 
 from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.baseline_args import get_align_dev_args
@@ -14,8 +14,8 @@ from .default_tools import RETURNN_EXE, RETURNN_RC_ROOT
 
 def get_corpus_data_inputs(gmm_system: GmmSystem):
     train_corpus_path = gmm_system.corpora["train-other-960"].corpus_file
-    dev_clean_corpus_path = gmm_system.corpora["clean"].corpus_file
-    dev_other_corpus_path = gmm_system.corpora["other"].corpus_file
+    dev_clean_corpus_path = gmm_system.corpora["dev-clean"].corpus_file
+    dev_other_corpus_path = gmm_system.corpora["dev-other"].corpus_file
 
     total_train_num_segments = num_segments["train-other-960"]
     total_dev_clean_num_segments = num_segments["dev-clean"]
@@ -33,7 +33,7 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
         dev_other_corpus_path, 1
     ).out_single_segment_files[1]
 
-    dev_train_size = 1000 / total_train_num_segments
+    dev_train_size = 500 / total_train_num_segments
     cv_clean_size = 150 / total_dev_clean_num_segments
     cv_other_size = 150 / total_dev_other_num_segments
 
@@ -64,6 +64,10 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
         corpus_recipe.MergeStrategy.FLAT,
     ).out_merged_corpus
 
+    cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(
+        merged_dev_corpus_path, cv_segments
+    ).out_corpus
+
     # ******************** NN Init ********************
 
     nn_train_data = nn_devtrain_data = gmm_system.outputs["train-other-960"][
@@ -78,19 +82,37 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
         "train-other-960.devtrain": nn_devtrain_data,
     }
 
+    gmm_system.add_overlay("dev-other", "cv")
+    gmm_system.crp["cv"].corpus_config.file = cv_corpus_path
+    gmm_system.crp["cv"].segment_path = cv_segments
+    gmm_system.crp["cv"].concurrent = 1
+    gmm_system.feature_bundles["cv"] = text.PipelineJob(
+        [
+            gmm_system.feature_bundles["dev-clean"],
+            gmm_system.feature_bundles["dev-other"]
+        ],
+        [],
+        mini_task=True,
+    ).out
+    gmm_system.add_overlay("train-other-960", "devtrain")
+    gmm_system.crp["devtrain"].segment_path = devtrain_segments
+
     forced_align_args = get_align_dev_args()
     gmm_system.run_forced_align_step(forced_align_args)
 
-    merge_alignments_job = ArchiverJob()  # TODO
+    forced_align_args = get_align_dev_args(name="cv", target_corpus_keys=["cv"])
+    gmm_system.run_forced_align_step(forced_align_args)
+
+    # merge_alignments_job = ArchiverJob()  # TODO
 
     nn_cv_data = gmm_system.outputs["dev-other"]["final"].as_returnn_rasr_data_input()
     nn_cv_data.update_crp_with(
-        corpus_file=merged_dev_corpus_path,
-        corpus_duration=durations["dev-clean"] + durations["dev-other"],
+        corpus_file=cv_corpus_path,
+        corpus_duration=(durations["dev-clean"] + durations["dev-other"]) * (cv_clean_size + cv_other_size),
         segment_path=cv_segments,
         concurrent=1,
     )
-    nn_cv_data.alignments = None  # TODO
+    nn_cv_data.alignments = gmm_system.alignments["cv_forced"]["cv"]
     nn_cv_data_inputs = {
         "dev-clean-other.cv": nn_cv_data,
     }

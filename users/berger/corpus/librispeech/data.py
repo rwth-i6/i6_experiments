@@ -1,4 +1,6 @@
+import copy
 from typing import Dict, List, Tuple
+from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
 from i6_experiments.users.berger.recipe.lexicon.modification import (
@@ -16,12 +18,14 @@ def get_data_inputs(
     add_unknown_phoneme_and_mapping: bool = True,
     ctc_lexicon: bool = False,
     use_augmented_lexicon: bool = True,
-    add_all_allophones: bool = True,
+    add_all_allophones: bool = False,
     audio_format: str = "wav",
 ) -> Tuple[Dict[str, rasr_util.RasrDataInput], ...]:
-    corpus_object_dict = lbs_dataset.get_corpus_object_dict(
-        audio_format=audio_format,
-        output_prefix="corpora",
+    corpus_object_dict = copy.deepcopy(
+        lbs_dataset.get_corpus_object_dict(
+            audio_format=audio_format,
+            output_prefix="corpora",
+        )
     )
 
     lm = {
@@ -55,6 +59,13 @@ def get_data_inputs(
         "add_all": add_all_allophones,
         "add_from_lexicon": not add_all_allophones,
     }
+
+    if not add_unknown_phoneme_and_mapping:
+        for key in [train_key, *dev_keys]:
+            corpus_object = corpus_object_dict[key]
+            corpus_object.corpus_file = FilterCorpusRemoveUnknownWordSegmentsJob(
+                corpus_object.corpus_file, bliss_lexicon, all_unknown=False
+            ).out_corpus
 
     train_data_inputs = {}
     dev_data_inputs = {}

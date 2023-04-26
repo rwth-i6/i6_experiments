@@ -1,7 +1,7 @@
 __all__ = ["G2PBasedOovAugmenter"]
 
 import os
-from typing import Optional
+from typing import Optional, Union
 
 from sisyphus import tk
 
@@ -24,8 +24,8 @@ class G2PBasedOovAugmenter:
 
     def __init__(
         self,
-        original_bliss_lexicon: str,
-        train_lexicon: Optional[str] = None,
+        original_bliss_lexicon: Union[str, Path],
+        train_lexicon: Optional[Union[str, Path]] = None,
         g2p_model_path: Optional[Path] = None,
         train_args: Optional[dict] = None,
         apply_args: Optional[dict] = None,

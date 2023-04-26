@@ -1,4 +1,4 @@
-__all__ = ["LabelInfo", "PhoneticContext", "PhonemeStateClasses"]
+__all__ = ["LabelInfo", "PhoneticContext", "PhonemeStateClasses", "RasrStateTying"]
 
 from enum import Enum
 from dataclasses import dataclass

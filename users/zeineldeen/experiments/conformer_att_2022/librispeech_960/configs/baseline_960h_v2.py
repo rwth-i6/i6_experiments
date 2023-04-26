@@ -166,6 +166,7 @@ def conformer_baseline():
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
+            **kwargs,
         )
 
     def run_lm_fusion(
@@ -735,12 +736,18 @@ def conformer_baseline():
         bpe_size=BPE_1K,
     )
 
-    # Wo LM:
+    # Wo LM with best
     #
     # dev-clean  2.28
     # dev-other  5.63
     # test-clean  2.48
     # test-other  5.71
+    #
+    # with Avg:
+    # dev-clean 2.28
+    # dev-other 5.60
+    # test-clean 2.48
+    # test-other 5.75
 
     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
     train_j, train_data = run_exp(name, train_args=oclr_args, num_epochs=2035)

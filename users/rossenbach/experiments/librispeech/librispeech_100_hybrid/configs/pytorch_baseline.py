@@ -72,6 +72,67 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "cpu": 2,
             "parallelize_conversion": True,
         },
+        "dev-other-dynqant": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "gt",
+            "prior_scales": [0.3],
+            "pronunciation_scales": [6.0],
+            "lm_scales": [20.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 12.0,
+                "beam-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 5,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "quantize_dynamic": True,
+            "training_whitelist": ["blstm_oclr_v2_trace", "blstm_oclr_v2"]
+        },
+        "dev-other-nolen-dynqant": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "gt",
+            "prior_scales": [0.3],
+            "pronunciation_scales": [6.0],
+            "lm_scales": [20.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 12.0,
+                "beam-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 5,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "quantize_dynamic": True,
+            "needs_features_size": False,
+            "training_whitelist": ["torchaudio_conformer"]
+        },
     }
     test_recognition_args = None
 
@@ -165,7 +226,7 @@ def get_pytorch_returnn_configs(
             serializer_objects.insert(0, ExternalImport(espnet_path))
         if use_custom_engine:
             pytorch_engine = Import(
-                PACKAGE + ".pytorch_networks.%s.Engine" % model_type
+                PACKAGE + ".pytorch_networks.%s.CustomEngine" % model_type
             )
             serializer_objects.append(pytorch_engine)
         if recognition:
@@ -202,7 +263,15 @@ def get_pytorch_returnn_configs(
         #"blstm_oclr_v1": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024"}),
         #"blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}),
         #"blstm_oclr_v2_custom": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_custom_engine"}, use_custom_engine=True),
+        "blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=False),
+        "torchaudio_conformer": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer"}, use_tracing=False),# here the config is wrong, it does use tracing
+        "torchaudio_conformer_subsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample"}, use_tracing=True),#
+        # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
+        # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
+        "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#
         "blstm_oclr_v2_trace": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=True),#
-        "espnet_conformer_test": construct_from_net_kwargs(blstm_base_config, {"model_type": "espnet_conformer_test"},
-                                                         use_espnet=True),  #
+        "espnet_conformer_test": construct_from_net_kwargs(blstm_base_config, {"model_type": "espnet_conformer_test"},use_espnet=True),  #
+        "espnet_conformer_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_test"}, use_espnet=True),
+        "espnet_conformer_large_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_large"},
+                                                             use_espnet=True),
     }

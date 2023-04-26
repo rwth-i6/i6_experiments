@@ -23,12 +23,13 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
 
     self.dependencies = dependencies
 
-  def run_training(self) -> Dict[int, Checkpoint]:
+  def run_training(self, import_model_train_epoch1: Optional[Checkpoint], train_alias: str) -> Dict[int, Checkpoint]:
     return GlobalTrainExperiment(
       dependencies=self.dependencies,
       variant_params=self.variant_params,
       num_epochs=self.num_epochs,
-      base_alias=self.base_alias).run_training()
+      base_alias=self.base_alias,
+      import_model_train_epoch1=import_model_train_epoch1).run_training()
 
   def run_recog(self, checkpoints: Dict[int, Checkpoint]):
     for i, (epoch, checkpoint) in enumerate(checkpoints.items()):

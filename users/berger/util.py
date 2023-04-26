@@ -1,4 +1,7 @@
-from typing import List, Union
+from dataclasses import dataclass
+from typing import List, Union, Callable, Optional
+import functools
+from sisyphus import tk
 
 
 def skip_layer(network: dict, layer_name: str) -> None:
@@ -32,9 +35,7 @@ def change_source_name(network: dict, orig_name: str, new_name: Union[str, List[
                 attributes["from"] = new_name
             elif isinstance(from_list, list) and orig_name in from_list:
                 index = from_list.index(orig_name)
-                attributes["from"] = (
-                    from_list[:index] + new_name + from_list[index + 1 :]
-                )
+                attributes["from"] = from_list[:index] + new_name + from_list[index + 1 :]
 
         if "subnetwork" in attributes:
             change_source_name(
@@ -61,3 +62,40 @@ def recursive_update(orig_dict: dict, update: dict):
             orig_dict[k] = v
 
     return orig_dict
+
+
+def lru_cache_with_signature(_func=None, *, maxsize=None, typed=False):
+    def decorator(func: Callable):
+        cached_function = functools.lru_cache(maxsize=maxsize, typed=typed)(func)
+        functools.update_wrapper(cached_function, func)
+        return cached_function
+
+    if _func is None:
+        return decorator
+    else:
+        return decorator(_func)
+
+
+@dataclass
+class ToolPaths:
+    returnn_root: tk.Path
+    returnn_python_exe: tk.Path
+    rasr_binary_path: tk.Path
+    returnn_common_root: tk.Path
+    blas_lib: tk.Path
+    rasr_python_exe: tk.Path = None  # type: ignore
+
+    def __post_init__(self) -> None:
+        if self.rasr_python_exe is None:   
+            self.rasr_python_exe = self.returnn_python_exe
+
+
+default_tools = ToolPaths(
+    returnn_root=tk.Path("/u/berger/software/returnn"),
+    returnn_python_exe=tk.Path("/work/tools/asr/python/3.8.0_tf_2.3-v1-generic+cuda10.1/bin/python3.8"),
+    rasr_binary_path=tk.Path("/u/berger/software/rasr/arch/linux-x86_64-standard"),
+    returnn_common_root=tk.Path("/u/berger/software/returnn_common"),
+    blas_lib=tk.Path(
+        "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"
+    ),
+)

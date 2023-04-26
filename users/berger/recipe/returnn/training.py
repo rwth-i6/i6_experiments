@@ -1,3 +1,5 @@
+__all__ = ["GetBestEpochJob", "GetBestCheckpointJob"]
+
 import os
 import shutil
 from typing import Dict, Generator, Optional
@@ -15,9 +17,7 @@ class GetBestEpochJob(Job):
     starting with "dev_score" otherwise.
     """
 
-    def __init__(
-        self, learning_rates: tk.Path, score_key: Optional[str] = None
-    ) -> None:
+    def __init__(self, learning_rates: tk.Path, score_key: Optional[str] = None) -> None:
         """
         :param Path learning_rates: learning_rates output from a RETURNNTrainingJob
         :param str score_key: a key from the learning rate file that is used to sort the models
@@ -78,9 +78,7 @@ class GetBestEpochJob(Job):
 
         score_key = self.get_score_key(data)
 
-        self.out_epoch.set(
-            min(data, key=lambda ep: data[ep]["error"].get(score_key, inf_score))
-        )
+        self.out_epoch.set(min(data, key=lambda ep: data[ep]["error"].get(score_key, inf_score)))
 
     def tasks(self) -> Generator[Task, None, None]:
         yield Task("run", mini_task=True)
@@ -119,18 +117,14 @@ class GetBestCheckpointJob(GetBestEpochJob):
             try:
                 os.link(
                     os.path.join(self.model_dir.get_path(), f"{base_name}.{suffix}"),
-                    os.path.join(
-                        self.out_model_dir.get_path(), f"{base_name}.{suffix}"
-                    ),
+                    os.path.join(self.out_model_dir.get_path(), f"{base_name}.{suffix}"),
                 )
             except OSError:
                 # the hardlink will fail when there was an imported job on a different filesystem,
                 # thus do a copy instead then
                 shutil.copy(
                     os.path.join(self.model_dir.get_path(), f"{base_name}.{suffix}"),
-                    os.path.join(
-                        self.out_model_dir.get_path(), f"{base_name}.{suffix}"
-                    ),
+                    os.path.join(self.out_model_dir.get_path(), f"{base_name}.{suffix}"),
                 )
 
             os.symlink(

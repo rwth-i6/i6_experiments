@@ -52,7 +52,10 @@ def get_corpus_data_inputs(use_legacy=True, use_legacy_lexicon=False, normalize_
     # }
 
     temporary_lm = {
-        "filename": tk.Path("/u/vieting/setups/swb/20230406_feat/dependencies/swb.fsh.4gr.voc30k.LM.gz"),
+        "filename": tk.Path(
+          "/u/vieting/setups/swb/20230406_feat/dependencies/swb.fsh.4gr.voc30k.LM.gz",
+          hash_overwrite="/home/tuske/work/ASR/switchboard/corpus/lm/data/mylm/swb.fsh.4gr.voc30k.LM.gz",
+        ),
         "type": "ARPA",
         "scale": 10,
     }
@@ -91,8 +94,8 @@ def get_corpus_data_inputs(use_legacy=True, use_legacy_lexicon=False, normalize_
     hub5e01 = get_hub5e01()
     hub5e01_corpus_object = get_hub5e01_corpus_object()
 
-    rt03s = get_rt03s()
-    rt03s_corpus_object = get_rt03s_corpus_object()
+    # rt03s = get_rt03s()
+    # rt03s_corpus_object = get_rt03s_corpus_object()
 
     dev_data_inputs["hub5e00"] = RasrDataInput(
         corpus_object=hub5e00_corpus_object,
@@ -112,14 +115,14 @@ def get_corpus_data_inputs(use_legacy=True, use_legacy_lexicon=False, normalize_
         glm=hub5e01.glm,
     )
 
-    test_data_inputs["rt03s"] = RasrDataInput(
-        corpus_object=rt03s_corpus_object,
-        lexicon=lexicon,
-        lm=temporary_lm,
-        concurrent=10,
-        stm=rt03s.stm,
-        glm=rt03s.glm,
-    )
+    # test_data_inputs["rt03s"] = RasrDataInput(
+    #     corpus_object=rt03s_corpus_object,
+    #     lexicon=lexicon,
+    #     lm=temporary_lm,
+    #     concurrent=10,
+    #     stm=rt03s.stm,
+    #     glm=rt03s.glm,
+    # )
     # for dev_key in ["dev-clean", "dev-other"]:
     #     dev_data_inputs[dev_key] = RasrDataInput(
     #         corpus_object=corpus_object_dict[dev_key],

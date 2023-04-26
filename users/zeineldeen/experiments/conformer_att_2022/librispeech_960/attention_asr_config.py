@@ -1,3 +1,5 @@
+import os.path
+
 import numpy
 import copy
 from typing import Any, Dict, Optional
@@ -131,6 +133,7 @@ def pretrain_layers_and_dims(
     second_bs_idx=None,
     enc_dec_share_grow_frac=True,
     repeat_first=True,
+    ignored_keys_for_reduce_dim=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -215,6 +218,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
+            if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                continue
             encoder_args_copy[key] = (
                 int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
@@ -237,6 +242,8 @@ def pretrain_layers_and_dims(
                 decoder_keys += ["conv_kernel_size"]
 
             for key in decoder_keys:
+                if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                    continue
                 decoder_args_copy[key] = (
                     int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
@@ -283,7 +290,6 @@ def pretrain_layers_and_dims(
         assert encoder_args["with_ctc"], "CTC loss is not enabled."
         net_dict["output"] = {"class": "copy", "from": "ctc"}
         net_dict["decision"]["target"] = "bpe_labels_w_blank"
-        net_dict["decision"]["loss_opts"] = {"ctc_decode": True}
     else:
         net_dict.update(decoder_model.network.get_net())
 
@@ -467,6 +473,8 @@ class RNNDecoderArgs(DecoderArgs):
 
     label_smoothing: float = 0.1
 
+    use_zoneout_output: bool = False
+
 
 def create_config(
     training_datasets,
@@ -485,6 +493,7 @@ def create_config(
     accum_grad=2,
     pretrain_reps=5,
     max_seq_length=75,
+    max_seqs=200,
     noam_opts=None,
     warmup_lr_opts=None,
     with_pretrain=True,
@@ -516,6 +525,7 @@ def create_config(
     global_stats=None,
     speed_pert_version=1,
     specaug_version=1,
+    ctc_greedy_decode=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -536,7 +546,7 @@ def create_config(
         "accum_grad_multiple_step": accum_grad,
         "gradient_noise": gradient_noise,
         "batch_size": batch_size,
-        "max_seqs": 200,
+        "max_seqs": max_seqs,
         "truncation": -1,
     }
     # default: Adam optimizer
@@ -674,6 +684,83 @@ def create_config(
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
 
+    if ctc_greedy_decode:
+        # create bpe labels with blank extern data
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+        # filter out blanks from best hyp
+        # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
+        exp_config["network"]["out_best_"] = {"class": "decide", "from": "output", "target": "bpe_labels_w_blank"}
+        exp_config["network"]["out_best"] = {
+            "class": "reinterpret_data",
+            "from": "out_best_",
+            "set_sparse_dim": 10025,
+        }
+        # shift to the right to create a boolean mask later where it is true if the previous label is equal
+        exp_config["network"]["shift_right"] = {
+            "class": "shift_axis",
+            "from": "out_best",
+            "axis": "T",
+            "amount": 1,
+            "pad_value": -1,  # to have always True at the first pos
+        }
+        # reinterpret time axis to work with following layers
+        exp_config["network"]["out_best_time_reinterpret"] = {
+            "class": "reinterpret_data",
+            "from": "out_best",
+            "size_base": "shift_right",  # [B,T|shift_axis]
+        }
+        exp_config["network"]["unique_mask"] = {
+            "class": "compare",
+            "kind": "not_equal",
+            "from": ["out_best_time_reinterpret", "shift_right"],
+        }
+        exp_config["network"]["non_blank_mask"] = {
+            "class": "compare",
+            "from": "out_best_time_reinterpret",
+            "value": 10025,
+            "kind": "not_equal",
+        }
+        exp_config["network"]["out_best_mask"] = {
+            "class": "combine",
+            "kind": "logical_and",
+            "from": ["unique_mask", "non_blank_mask"],
+        }
+        exp_config["network"]["out_best_wo_blank"] = {
+            "class": "masked_computation",
+            "from": "out_best_time_reinterpret",
+            "mask": "out_best_mask",
+            "unit": {"class": "copy"},
+            "target": "bpe_labels",
+        }
+        exp_config["network"]["edit_distance"] = {
+            "class": "copy",
+            "from": "out_best_wo_blank",
+            "only_on_search": True,
+            "loss": "edit_distance",
+            "target": "bpe_labels",
+        }
+
+        exp_config["network"].pop(exp_config["search_output_layer"], None)
+        exp_config["search_output_layer"] = "out_best_wo_blank"
+
+        # time-sync search
+        assert exp_config["network"]["output"]["class"] == "rec"
+        exp_config["network"]["output"]["from"] = "ctc"  # [B,T,V+1]
+        exp_config["network"]["output"]["target"] = "bpe_labels_w_blank"
+
+        exp_config["network"]["output"]["unit"].pop("end", None)
+        exp_config["network"]["output"].pop("max_seq_len", None)
+
+        exp_config["network"]["output"]["unit"]["output"] = {
+            "class": "choice",
+            "target": "bpe_labels_w_blank",
+            "beam_size": 1,  # TODO: make it generic. we need recombination?
+            "from": "data:source",
+            "initial_output": 0,
+        }
+
     # -------------------------- end network -------------------------- #
 
     # add hyperparmas
@@ -716,6 +803,9 @@ def create_config(
             raise ValueError("Invalid speed_pert_version")
 
     if feature_extraction_net and global_stats:
+        assert os.path.exists(global_stats[0]) and os.path.exists(
+            global_stats[1]
+        ), "global_stats files do not exist. Please run compute_feature_stats first without training."
         exp_config["network"]["log10_"] = copy.deepcopy(exp_config["network"]["log10"])
         exp_config["network"]["global_mean"] = {
             "class": "eval",

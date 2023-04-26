@@ -82,6 +82,7 @@ class RNABPESilBase(SegmentalLabelDefinition, BPE):
 
     alignment_paths["devtrain"] = alignment_paths["train"]
     alignment_paths["cv300"] = alignment_paths["cv"]
+    alignment_paths["cv_test"] = alignment_paths["cv"]
 
     return alignment_paths
 
@@ -175,6 +176,7 @@ class RNABPESil(SegmentalLabelDefinition, BPE):
       "cv": self.reduce_alignment_jobs["cv"].out_align}
 
     alignment_paths["cv300"] = alignment_paths["cv"]
+    alignment_paths["cv_test"] = alignment_paths["cv"]
     alignment_paths["devtrain"] = alignment_paths["train"]
 
     return alignment_paths
@@ -247,6 +249,7 @@ class RNABPESplitSil(SegmentalLabelDefinition, BPE):
 
     alignment_paths["devtrain"] = alignment_paths["train"]
     alignment_paths["cv300"] = alignment_paths["cv"]
+    alignment_paths["cv_test"] = alignment_paths["cv"]
 
     return alignment_paths
 

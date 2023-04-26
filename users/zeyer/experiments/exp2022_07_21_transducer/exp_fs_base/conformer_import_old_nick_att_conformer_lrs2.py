@@ -18,7 +18,7 @@ from i6_core.returnn.training import Checkpoint
 from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelWithCheckpoint
 from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.returnn.convert_ckpt import ConvertCheckpointJob
+from i6_experiments.users.zeyer.returnn.convert_ckpt_rc import ConvertCheckpointToRcJob
 
 
 # Can be excluded now. The test was successful. This version exactly reproduces the old model.
@@ -34,7 +34,7 @@ def sis_run_with_prefix(prefix_name: str):
     task = get_switchboard_task_bpe1k()
 
     epoch = 300
-    new_chkpt = ConvertCheckpointJob(
+    new_chkpt = ConvertCheckpointToRcJob(
         checkpoint=Checkpoint(
             index_path=tk.Path(
                 f"/u/zeyer/setups/combined/2021-05-31"
@@ -324,7 +324,7 @@ def test_import():
         return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
 
     print("*** Convert old model to new model")
-    converter = ConvertCheckpointJob(
+    converter = ConvertCheckpointToRcJob(
         checkpoint=Checkpoint(index_path=tk.Path(ckpt_dir + "/old_model/model.index")),
         make_model_func=_make_new_model,
         map_func=map_param_func_v2,

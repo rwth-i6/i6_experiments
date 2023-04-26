@@ -119,9 +119,7 @@ class WSJCartQuestions(CartQuestions):
                         "questions": [
                             {
                                 "type": "for-each-value",
-                                "questions": [
-                                    {"type": "question", "description": "context-phone"}
-                                ],
+                                "questions": [{"type": "question", "description": "context-phone"}],
                             },
                             {
                                 "type": "question",

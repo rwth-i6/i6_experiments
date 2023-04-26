@@ -1,6 +1,7 @@
 __all__ = ["run", "run_single"]
 
 import copy
+from dataclasses import dataclass
 import itertools
 import typing
 
@@ -46,6 +47,7 @@ from .config import (
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
+    SCRATCH_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
@@ -60,26 +62,57 @@ RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
 train_key = "train-other-960"
 
 
+@dataclass(frozen=True)
+class Experiment:
+    alignment: tk.Path
+    alignment_name: str
+    lr: str
+    dc_detection: bool
+    tune_decoding: bool
+
+    focal_loss: float = CONF_FOCAL_LOSS
+
+
 def run(returnn_root: tk.Path):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
+    scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
-        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v6"),
-        (CONF_FOCAL_LOSS, "GMMtri", tri_gmm_align, "v7"),
-    ]
-    for fl, a_name, a, lr in configs:
-        run_single(
-            alignment=a,
-            alignment_name=a_name,
-            focal_loss=fl,
-            returnn_root=returnn_root,
+        Experiment(
+            alignment=tri_gmm_align,
+            alignment_name="GMMtri",
+            dc_detection=False,
+            lr="v6",
             tune_decoding=False,
-            lr=lr,
+        ),
+        Experiment(
+            alignment=tri_gmm_align,
+            alignment_name="GMMtri",
+            dc_detection=False,
+            lr="v7",
+            tune_decoding=True,
+        ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            dc_detection=True,
+            lr="v7",
+            tune_decoding=True,
+        ),
+    ]
+    for exp in configs:
+        run_single(
+            alignment=exp.alignment,
+            alignment_name=exp.alignment_name,
+            focal_loss=exp.focal_loss,
+            returnn_root=returnn_root,
+            tune_decoding=exp.tune_decoding,
+            lr=exp.lr,
         )
 
 
@@ -280,5 +313,27 @@ def run_single(
             rerun_after_opt_lm=True,
             calculate_stats=True,
         )
+
+        if tune_decoding:
+            best_config = recognizer.recognize_optimize_scales(
+                label_info=s.label_info,
+                search_parameters=recog_args,
+                num_encoder_output=conf_model_dim,
+                prior_scales=list(
+                    itertools.product(
+                        np.linspace(0.1, 0.5, 5),
+                        np.linspace(0.0, 0.4, 5),
+                    )
+                ),
+                tdp_scales=np.linspace(0.2, 0.6, 5),
+            )
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=best_config,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+                name_override="best/4gram",
+            )
 
     return s

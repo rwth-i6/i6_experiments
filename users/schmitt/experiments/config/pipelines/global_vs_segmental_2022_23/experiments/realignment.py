@@ -32,7 +32,9 @@ class RasrRealignmentExperiment:
           time_rqmt: int,
           mem_rqmt: int,
           label_pruning: float,
-          concurrent: int = 1,
+          label_pruning_limit: int,
+          concurrent: int,
+          use_gpu: bool
   ):
 
     self.concurrent = concurrent
@@ -41,6 +43,7 @@ class RasrRealignmentExperiment:
     self.max_segment_len = max_segment_len
     self.length_norm = length_norm
     self.label_pruning = label_pruning
+    self.label_pruning_limit = label_pruning_limit
     self.corpus_key = corpus_key
     self.variant_params = variant_params
     self.dependencies = dependencies
@@ -51,6 +54,7 @@ class RasrRealignmentExperiment:
 
     self.time_rqmt = time_rqmt
     self.mem_rqmt = mem_rqmt
+    self.use_gpu = use_gpu
 
   def _get_realignment_config(self) -> Tuple[CommonRasrParameters, RasrConfig]:
     return RasrConfigBuilder.get_realignment_config(
@@ -63,7 +67,7 @@ class RasrRealignmentExperiment:
       blank_label_index=self.dependencies.model_hyperparameters.blank_idx,
       start_label_index=self.dependencies.model_hyperparameters.sos_idx,
       label_pruning=self.label_pruning,
-      label_pruning_limit=5000,
+      label_pruning_limit=self.label_pruning_limit,
       label_recombination_limit=-1,
       label_file=self.dependencies.rasr_format_paths.label_file_path,
       allophone_path=self.dependencies.rasr_format_paths.allophone_path,
@@ -93,7 +97,7 @@ class RasrRealignmentExperiment:
       time_rqtm=self.time_rqmt,
       am_model_trainer_config=realignment_config,
       blank_allophone_state_idx=self.dependencies.rasr_format_paths.blank_allophone_state_idx,
-      use_gpu=True)
+      use_gpu=self.use_gpu)
     realignment_job.add_alias("%s/realign" % self.base_alias)
 
     extraction_config, extraction_post_config = RasrConfigBuilder.get_alignment_extraction_config(

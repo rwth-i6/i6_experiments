@@ -12,12 +12,9 @@ from dataclasses import dataclass
 import typing
 
 from sisyphus import tk
-from sisyphus.delayed_ops import DelayedBase
 
+from ...common.tdp import Float, TDP
 from ..factored import PhoneticContext
-
-
-Float = typing.Union[float, tk.Variable, DelayedBase]
 
 
 @dataclass(eq=True, frozen=True)
@@ -120,9 +117,6 @@ def default_posterior_scales() -> PosteriorScales:
         "right-context-scale": 1.0,
         "center-state-scale": 1.0,
     }
-
-
-TDP = typing.Union[Float, str]
 
 
 @dataclass(eq=True, frozen=True)

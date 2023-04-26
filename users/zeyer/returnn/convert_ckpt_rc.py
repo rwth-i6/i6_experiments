@@ -16,9 +16,10 @@ if TYPE_CHECKING:
     from returnn_common import nn
 
 
-class ConvertCheckpointJob(Job):
+class ConvertCheckpointToRcJob(Job):
     """
-    Convert the given checkpoint.
+    Convert the given checkpoint
+    to a RETURNN-common model (TF-based).
     """
 
     def __init__(
@@ -43,7 +44,7 @@ class ConvertCheckpointJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        import numpy
+        """run"""
         from returnn_common import nn
         from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
         import tensorflow as tf

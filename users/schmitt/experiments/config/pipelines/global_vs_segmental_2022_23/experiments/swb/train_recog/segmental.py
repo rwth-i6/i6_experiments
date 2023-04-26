@@ -21,6 +21,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           realignment_length_scale: float = 1.,
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
+          import_model_do_initial_realignment: bool = False,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -41,6 +42,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
 
     self.retrain_load_checkpoint = retrain_load_checkpoint
 
+    assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
+    self.import_model_do_initial_realignment = import_model_do_initial_realignment
+    if import_model_do_initial_realignment:
+      self.base_alias = "%s_initial_realignment" % self.base_alias
+
   def compare_alignments(
           self,
           hdf_align_path1: Path,
@@ -49,19 +55,18 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           align2_name: str,
           align_alias: str):
     base_alias = "%s/%s" % (self.base_alias, align_alias)
-    for seq_tag in default_tags_for_analysis:
-      AlignmentComparer(
-        hdf_align_path1=hdf_align_path1,
-        blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
-        name1=align1_name,
-        vocab_path1=self.dependencies.vocab_path,
-        hdf_align_path2=hdf_align_path2,
-        blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
-        name2=align2_name,
-        vocab_path2=self.dependencies.vocab_path,
-        seq_tag=seq_tag,
-        corpus_key="cv",
-        base_alias=base_alias).run()
+    AlignmentComparer(
+      hdf_align_path1=hdf_align_path1,
+      blank_idx1=self.dependencies.model_hyperparameters.blank_idx,
+      name1=align1_name,
+      vocab_path1=self.dependencies.vocab_path,
+      hdf_align_path2=hdf_align_path2,
+      blank_idx2=self.dependencies.model_hyperparameters.blank_idx,
+      name2=align2_name,
+      vocab_path2=self.dependencies.vocab_path,
+      seq_tags=default_tags_for_analysis,
+      corpus_key="cv",
+      base_alias=base_alias).run()
 
   def plot_att_weights(
           self,
@@ -114,7 +119,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       base_alias=base_alias,
       length_scale=length_scale)
 
-  def run_standard_recog(self, calc_search_errors: bool, checkpoints: Dict[int, Checkpoint], train_alias: str):
+  def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
@@ -125,7 +130,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
-        calc_search_errors=calc_search_errors,
+        use_recomb=False,
+        calc_search_errors=True,
         search_error_corpus_key="cv",
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
@@ -140,12 +146,29 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
-        calc_search_errors=calc_search_errors,
+        calc_search_errors=True,
         search_error_corpus_key="cv",
         label_pruning_limit=12,
         word_end_pruning_limit=12,
         max_segment_len=20,
         concurrent=4,
+        cv_realignment=self._get_realignment(
+          corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
+
+  def run_returnn_recog_w_recomb(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+    for epoch in self.returnn_recog_epochs:
+      checkpoint = checkpoints[epoch]
+      base_alias = "%s/%s/epoch_%d/returnn_w_recomb" % (self.base_alias, train_alias, epoch)
+
+      run_returnn_simple_segmental_decoding(
+        dependencies=self.dependencies,
+        variant_params=self.variant_params,
+        base_alias=base_alias,
+        checkpoint=checkpoint,
+        test_corpora_keys=["dev"],
+        use_recomb=True,
+        calc_search_errors=True,
+        search_error_corpus_key="cv",
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
 
@@ -176,16 +199,40 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
 
   def run_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str = "train"):
     if self.recog_type == "standard":
-      self.run_standard_recog(calc_search_errors=True, checkpoints=checkpoints, train_alias=train_alias)
-    elif self.recog_type == "standard_wo_search_errors":
-      self.run_standard_recog(calc_search_errors=False, checkpoints=checkpoints, train_alias=train_alias)
+      self.run_standard_recog(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "returnn_w_recomb":
+      self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:
       raise NotImplementedError
 
   def run(self):
-    super().run()
+    if self.import_model_do_initial_realignment:
+      for corpus_key in ("cv", "train"):
+        self.alignments["train"][corpus_key] = self._get_realignment(
+          corpus_key=corpus_key,
+          checkpoint=self.import_model_train_epoch1,
+          length_scale=self.realignment_length_scale,
+          epoch=self.num_epochs[-1],
+          train_alias="import_model")
+
+    train_alias = "train"
+    self.checkpoints["train"] = self.run_training(
+      import_model_train_epoch1=self.import_model_train_epoch1,
+      train_alias=train_alias,
+      cv_alignment=self.alignments["train"]["cv"],
+      train_alignment=self.alignments["train"]["train"]
+    )
+    if self.do_recog:
+      self.run_recog(checkpoints=self.checkpoints["train"])
+
+    self.compare_alignments(
+      hdf_align_path1=self.alignments["train"]["cv"],
+      align1_name="ground-truth",
+      hdf_align_path2=self.alignments["train"]["cv"],
+      align2_name="ground-truth",
+      align_alias="train/ground-truth-alignment")
 
     for retrain_iter in range(self.num_retrain):
       cur_train_alias = "train" if retrain_iter == 0 else ("retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter, self.num_epochs[-1], self.realignment_length_scale))

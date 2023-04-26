@@ -40,6 +40,7 @@ class BPELabels(BPE, GlobalLabelDefinition):
         alignment=alignment, blank_idx=self.rna_ref.model_hyperparameters.blank_idx, time_rqmt=1).out_labels
       for corpus_key, alignment in self.rna_ref.alignment_paths.items()}
     label_paths["cv300"] = label_paths["cv"]
+    label_paths["cv_test"] = label_paths["cv"]
 
     return label_paths
 

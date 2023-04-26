@@ -90,9 +90,22 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
 
 
 def export(*, model: Model, model_filename: str):
+    # create new run context
+    from returnn.torch import context
+    context._run_ctx = context.RunCtx(stage="forward_step", device="cpu")
+    model.eval()
     dummy_data = torch.randn(1, 30, 50, device="cpu")
-    dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data2 = torch.randn(1, 50, 50, device="cpu")
+    #dummy_data_len, _ = torch.sort(torch.randint(low=29, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len = torch.ones((1,), device="cpu", dtype=torch.int32)*30
+    dummy_data2_len = torch.ones((1,), device="cpu", dtype=torch.int32)*40
+    log_probs, logits = model(dummy_data2, dummy_data2_len)
     scripted_model = torch.jit.optimize_for_inference(torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
+    s_log_probs, s_logits = scripted_model(dummy_data2, dummy_data2_len)
+    print(log_probs)
+    print(s_log_probs)
+    assert False
+    #scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),

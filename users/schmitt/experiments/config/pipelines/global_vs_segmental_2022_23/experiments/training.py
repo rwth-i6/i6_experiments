@@ -1,10 +1,11 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general._globals import RETURNN_EXE, RETURNN_ROOT
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_ROOT
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_train_config as get_segmental_train_config
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.global_ import get_train_config as get_global_train_config
 
 from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint
+from i6_core.returnn.config import ReturnnConfig
 
 from sisyphus import *
 
@@ -19,11 +20,15 @@ class TrainExperiment(ABC):
           dependencies: LabelDefinition,
           num_epochs: List[int],
           variant_params: Dict,
-          base_alias: str
+          base_alias: str,
+          import_model_train_epoch1: Optional[Checkpoint] = None,
   ):
     self.dependencies = dependencies
     self.variant_params = variant_params
     self.num_epochs = num_epochs
+    self.import_model_train_epoch1 = import_model_train_epoch1
+    self.returnn_python_exe = self.variant_params["config"]["returnn_python_exe"]
+    self.returnn_root = self.variant_params["config"]["returnn_root"]
 
     self.alias = "%s/train" % base_alias
 
@@ -38,8 +43,8 @@ class TrainExperiment(ABC):
       num_epochs=self.num_epochs[-1],
       keep_epochs=self.num_epochs,
       log_verbosity=5,
-      returnn_python_exe=RETURNN_EXE,
-      returnn_root=RETURNN_ROOT,
+      returnn_python_exe=self.returnn_python_exe,
+      returnn_root=self.returnn_root,
       mem_rqmt=24,
       time_rqmt=30)
     train_job.add_alias(self.alias)
@@ -60,7 +65,6 @@ class SegmentalTrainExperiment(TrainExperiment):
           cv_alignment: Optional[Path] = None,
           train_alignment: Optional[Path] = None,
           length_scale: float = 1.0,
-          import_model_train_epoch1: Optional[Checkpoint] = None,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -74,8 +78,6 @@ class SegmentalTrainExperiment(TrainExperiment):
       "train": train_alignment,
       "devtrain": train_alignment,
       "cv": cv_alignment} if cv_alignment is not None else None
-
-    self.import_model_train_epoch1 = import_model_train_epoch1
 
   @property
   def returnn_config(self):
@@ -96,4 +98,8 @@ class GlobalTrainExperiment(TrainExperiment):
 
   @property
   def returnn_config(self):
-    return get_global_train_config(self.dependencies, self.variant_params, load=None)
+    return get_global_train_config(
+      self.dependencies,
+      self.variant_params,
+      load=None,
+      import_model_train_epoch1=self.import_model_train_epoch1)

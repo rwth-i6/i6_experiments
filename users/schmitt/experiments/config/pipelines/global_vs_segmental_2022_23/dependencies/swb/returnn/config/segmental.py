@@ -3,8 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.corpora.corpora import SWBCorpora
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
-from i6_experiments.users.schmitt.experiments.swb.transducer.config import SegmentalSWBExtendedConfig
-# from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.transducer.config import SegmentalSWBExtendedConfig
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.config import SegmentalSWBExtendedConfig
 
 from i6_experiments.users.schmitt.chunking import chunking as chunking_func
 
@@ -56,6 +55,8 @@ def get_train_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
 
   train_config_obj = SegmentalSWBExtendedConfig(
     task="train",
@@ -104,9 +105,16 @@ def get_recog_config(
 
   config_params = copy.deepcopy(variant_params["config"])
 
+  # quick fix: the vocab variable in the config needs to be set to the vocab_dict when using recomb
+  # TODO: fix
+  if use_recomb:
+    config_params["vocab"] = dependencies.vocab_dict
+
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
   config = SegmentalSWBExtendedConfig(
     task="search", search_data_opts=data_opts, target="bpe", search_use_recomb=use_recomb, dump_output=dump_output,
     beam_size=beam_size, length_scale=length_scale, **config_params)
@@ -122,6 +130,8 @@ def get_compile_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
+  del config_params["returnn_python_exe"]
+  del config_params["returnn_root"]
 
   return SegmentalSWBExtendedConfig(
     task="eval", feature_stddev=3., length_scale=length_scale, **config_params).get_config()

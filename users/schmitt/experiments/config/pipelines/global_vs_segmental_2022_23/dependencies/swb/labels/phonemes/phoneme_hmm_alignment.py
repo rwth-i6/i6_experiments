@@ -56,6 +56,7 @@ class HMMPhoneme(SegmentalLabelDefinition, Phonemes):
       "cv": self._get_dump_phoneme_align_job(corpus_key="cv").out_align}
 
     alignment_paths["cv300"] = alignment_paths["cv"]
+    alignment_paths["cv_test"] = alignment_paths["cv"]
 
     return alignment_paths
 

@@ -32,6 +32,7 @@ class RNABPE(BPE, SegmentalLabelDefinition):
         cached=True)}
 
     alignment_paths["cv300"] = alignment_paths["cv"]
+    alignment_paths["cv_test"] = alignment_paths["cv"]
 
     return alignment_paths
 
