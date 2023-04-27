@@ -1,8 +1,8 @@
-import json
-
 from i6_core.returnn.config import CodeWrapper
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1 import conformer
-from sisyphus.delayed_ops import DelayedFunction
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental import \
+  conformer
+
+
 # from returnn.tf.util.data import Dim
 
 def get_alignment_net_dict(pretrain_idx):
@@ -258,7 +258,7 @@ def get_extended_net_dict(
   pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type, enc_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
-  exclude_sil_from_label_ctx,
+  exclude_sil_from_label_ctx, att_weights_kl_div_scale,
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
@@ -414,6 +414,8 @@ def get_extended_net_dict(
     elif enc_type == "conf-wei":
       net_dict = conformer.get_conformer_encoder_wei(
         use_blstm=conf_use_blstm, batch_norm=conf_batch_norm, num_blocks=conf_num_blocks)
+    elif enc_type == "conf-mohammad-11-7":
+      net_dict = conformer.get_conformer_encoder_mohammad_11_7()
     else:
       assert enc_type == "conf-tim"
       net_dict = conformer.get_conformer_encoder_tim(dropout=conf_dropout, l2=conf_l2)
@@ -692,6 +694,57 @@ def get_extended_net_dict(
           },
         })
         net_dict["label_model"]["from"] = "data:label_ground_truth_w_eos"
+      if att_weights_kl_div_scale != 0. and task == "train":
+        assert att_weights_kl_div_scale > 0.0
+        net_dict["label_model"]["unit"].update({
+          "segment_lens_float32": {
+            "class": "cast",
+            "dtype": "float32",
+            "from": "segment_lens_clipped",
+          },
+          "segment_lens_clipping_mask": {
+            "class": "compare",
+            "from": "segment_lens",
+            "value": 0,
+            "kind": "equal"
+          },
+          "segment_lens_clipped": {
+            "class": "switch",
+            "condition": "segment_lens_clipping_mask",
+            "true_from": 1,
+            "false_from": "segment_lens"
+          },
+          "att_weights0_clipping_mask": {
+            "class": "compare",
+            "from": "att_weights0",
+            "value": 0.,
+            "kind": "equal"
+          },
+          "att_weights0_clipped": {
+            "class": "switch",
+            "condition": "att_weights0_clipping_mask",
+            "true_from": 1.,
+            "false_from": "att_weights0"
+          },
+          "att_weights_kl_before_sum": {
+            "class": "eval",
+            "eval": "source(0) * tf.math.log(source(0)/source(1))",
+            "from": ["att_weights0_clipped", "att_weights_uniform"],
+          },
+          "att_weights_kl_div": {
+            "axis": "stag:att_t",
+            "class": "reduce",
+            "loss": "as_is",
+            "loss_opts": {"scale": att_weights_kl_div_scale},
+            "from": "att_weights_kl_before_sum",
+            "mode": "sum",
+          },
+          "att_weights_uniform": {
+            "class": "eval",
+            "eval": "tf.cast(1 / source(0), 'float32')",
+            "from": "segment_lens_float32",
+          },
+        })
     else:
       # in case of search, emit log prob needs to be added to the label log prob
       # if there is a label dep length model, we first concat the silence log prob with the label log prob

@@ -1,6 +1,6 @@
 from i6_experiments.users.schmitt.experiments.swb.transducer.network import custom_construction_algo, new_custom_construction_algo
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.network import get_global_import_net_dict, get_extended_net_dict
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.attention import add_attention
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental.network import get_global_import_net_dict, get_extended_net_dict
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental.attention import add_attention
 from i6_experiments.users.schmitt.experiments.swb.dataset import *
 from i6_experiments.users.schmitt.recombination import *
 from i6_experiments.users.schmitt.conformer_pretrain import *
@@ -8,8 +8,6 @@ from i6_experiments.users.schmitt.rna import *
 from i6_experiments.users.schmitt.specaugment import *
 from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.vocab import *
-from i6_experiments.users.schmitt.switchout import *
-from i6_experiments.users.schmitt.targetb import *
 from i6_experiments.users.schmitt.dynamic_lr import *
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
@@ -161,7 +159,7 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
     self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax, enc_type,
     att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
     att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
-    length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx,
+    length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx, att_weights_kl_div_scale,
     scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
     hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
     fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
@@ -256,7 +254,8 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
         specaugment=specaugment, ctc_aux_loss=ctc_aux_loss, length_model_loss_scale=length_model_loss_scale,
         use_time_sync_loop=use_time_sync_loop, use_eos=use_eos, conf_use_blstm=conf_use_blstm,
         conf_batch_norm=conf_batch_norm, conf_num_blocks=conf_num_blocks, use_zoneout=use_zoneout,
-        conf_dropout=conf_dropout, conf_l2=conf_l2, behavior_version=behavior_version, force_eos=force_eos)
+        conf_dropout=conf_dropout, conf_l2=conf_l2, behavior_version=behavior_version, force_eos=force_eos,
+        att_weights_kl_div_scale=att_weights_kl_div_scale)
       if use_attention:
         self.network = add_attention(
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
@@ -300,5 +299,5 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
     if self.task == "search":
       self.extern_data[self.target] = {"dim": self.target_num_labels, "sparse": True}
 
-    if enc_type == "conf-wei":
+    if enc_type == "conf-wei" or enc_type == "conf-mohammad-11-7":
       self.import_prolog += ["import sys", "sys.setrecursionlimit(4000)"]
