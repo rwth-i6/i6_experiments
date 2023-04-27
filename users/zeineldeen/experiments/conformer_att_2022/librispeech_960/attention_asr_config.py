@@ -347,6 +347,7 @@ class ConformerEncoderArgs(EncoderArgs):
 
     # other regularization
     l2: float = 0.0001
+    frontend_conv_l2: float = 0.0001
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
 
@@ -416,6 +417,7 @@ class ConformerDecoderArgs(DecoderArgs):
 
     # other regularization
     l2: float = 0.0001
+    frontend_conv_l2: float = 0.0001
     rel_pos_clipping: int = 16
     label_smoothing: float = 0.1
     apply_embed_weight: bool = False
@@ -526,6 +528,9 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_greedy_decode=False,
+    joint_ctc_att_decode=False,
+    joint_att_scale=1.0,
+    joint_ctc_scale=1.0,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -761,6 +766,23 @@ def create_config(
             "initial_output": 0,
         }
 
+    if joint_ctc_att_decode:
+        from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+            add_joint_ctc_att_subnet,
+            add_filter_blank_and_merge_labels_layers,
+        )
+
+        # create bpe labels with blank extern data
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+
+        # TODO: this is just for debugging. find a better way to do it later.
+        add_joint_ctc_att_subnet(exp_config["network"], att_scale=joint_att_scale, ctc_scale=joint_ctc_scale)
+        add_filter_blank_and_merge_labels_layers(exp_config["network"])
+
+        exp_config["network"].pop(exp_config["search_output_layer"], None)
+        exp_config["search_output_layer"] = "out_best_wo_blank"
+
     # -------------------------- end network -------------------------- #
 
     # add hyperparmas
@@ -900,6 +922,9 @@ def create_config(
 
     if config_override:
         exp_config.update(config_override)
+
+    if joint_ctc_att_decode:
+        python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
 
     returnn_config = ReturnnConfig(
         exp_config,
