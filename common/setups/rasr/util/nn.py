@@ -211,7 +211,7 @@ class ReturnnRasrDataInput:
             self.crp.corpus_config.segment_order_shuffle = True
             self.crp.corpus_config.segment_order_sort_by_time_length = True
             self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size = (
-                self.crp.corpus_config.segment_order_sort_by_time_length_chunk_size
+                self.segment_order_sort_by_time_length_chunk_size
             )
 
         return self.crp
