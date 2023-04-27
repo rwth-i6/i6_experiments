@@ -1,5 +1,6 @@
 # from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.global_enc_dec import network
-from i6_experiments.users.schmitt.experiments.swb.global_enc_dec import network
+from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.network import custom_construction_algo, new_custom_construction_algo, best_custom_construction_algo
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.global_ import get_best_net_dict, get_new_net_dict, get_net_dict, get_net_dict_like_seg_model
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.dataset import *
 # from i6_experiments.users.schmitt.experiments.swb.dataset import *
 from i6_experiments.users.schmitt.conformer_pretrain import *
@@ -76,34 +77,34 @@ class GlobalEncoderDecoderConfig:
     self.batch_size = 10000 if self.task == "train" else 4000
 
     if glob_model_type == "new":
-      get_net_dict = network.get_new_net_dict
+      get_net_dict_func = get_new_net_dict
     elif glob_model_type == "like-seg":
-      get_net_dict = network.get_net_dict_like_seg_model
+      get_net_dict_func = get_net_dict_like_seg_model
     elif glob_model_type == "best":
-      get_net_dict = network.get_best_net_dict
+      get_net_dict_func = get_best_net_dict
     else:
-      get_net_dict = network.get_net_dict
+      get_net_dict_func = get_net_dict
 
     if pretrain_type == "new":
       custom_construction_algo_str = "new_custom_construction_algo"
-      custom_construction_algo = network.new_custom_construction_algo
+      custom_construction_algo_func = new_custom_construction_algo
     elif pretrain_type == "like-seg":
       custom_construction_algo_str = "custom_construction_algo"
-      custom_construction_algo = network.custom_construction_algo
+      custom_construction_algo_func = custom_construction_algo
     elif pretrain_type == "mohammad-conf":
-      custom_construction_algo = custom_construction_algo_mohammad_conf
+      custom_construction_algo_func = custom_construction_algo_mohammad_conf
       custom_construction_algo_str = "custom_construction_algo_mohammad_conf"
     else:
       assert pretrain_type == "best"
-      custom_construction_algo = network.best_custom_construction_algo
+      custom_construction_algo_func = best_custom_construction_algo
       custom_construction_algo_str = "best_custom_construction_algo"
 
     self.import_prolog = ["from returnn.tf.util.data import DimensionTag", "import os", "import numpy as np",
                           "from subprocess import check_output, CalledProcessError"]
-    self.function_prolog = [custom_construction_algo, _mask, random_mask, transform]
+    self.function_prolog = [custom_construction_algo_func, _mask, random_mask, transform]
 
     if glob_model_type == "best":
-      self.network = get_net_dict(
+      self.network = get_net_dict_func(
         lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim, beam_size=beam_size, sos_idx=sos_idx,
         feature_stddev=feature_stddev, weight_dropout=weight_dropout, with_state_vector=with_state_vector,
         with_weight_feedback=with_weight_feedback, prev_target_in_readout=prev_target_in_readout, sil_idx=sil_idx,
@@ -111,7 +112,7 @@ class GlobalEncoderDecoderConfig:
         use_l2=use_l2, att_ctx_with_bias=att_ctx_with_bias, focal_loss=focal_loss, att_ctx_reg=att_ctx_reg,
         enc_type=enc_type)
     else:
-      self.network = get_net_dict(lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim,
+      self.network = get_net_dict_func(lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim,
         beam_size=beam_size, sos_idx=sos_idx, time_red=time_red, l2=0.0001, learning_rate=self.learning_rate,
         feature_stddev=feature_stddev, target=label_name, task=task)
 
