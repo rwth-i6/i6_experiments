@@ -5,7 +5,6 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 # from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.global_ import GlobalEncoderDecoderConfig
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.global_ import GlobalNetworkBuilder
 
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
@@ -101,9 +100,6 @@ def get_train_config(
     **config_params).get_config()
 
   returnn_config = update_global_att_config_to_match_seg_att_config(returnn_config)
-
-  if config_builder == "new":
-    returnn_config.config["network"] = GlobalNetworkBuilder().get_net_dict()
 
   return returnn_config
 
