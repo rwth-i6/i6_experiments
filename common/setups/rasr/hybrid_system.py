@@ -105,7 +105,6 @@ class HybridSystem(NnSystem):
         self.extern_rasrs = {}  # TODO remove?
 
         self.nn_configs = {}
-        self.nn_models = {}  # TODO remove?
         self.nn_checkpoints = {}
         self.tf_flows = {}
 
@@ -118,7 +117,6 @@ class HybridSystem(NnSystem):
     ):
         train_job.add_alias(f"train_nn/{train_corpus_key}_{cv_corpus_key}/{name}_train")
         self.jobs[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job
-        self.nn_models[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_models
         self.nn_checkpoints[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_checkpoints
         self.nn_configs[f"{train_corpus_key}_{cv_corpus_key}"][name] = train_job.out_returnn_config_file
         tk.register_output(
