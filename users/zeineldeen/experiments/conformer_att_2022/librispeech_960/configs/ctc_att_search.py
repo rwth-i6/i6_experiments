@@ -144,8 +144,8 @@ def run_ctc_att_search():
         recog_dataset,
         recog_ref,
         recog_bliss,
-        mem_rqmt=8,
-        time_rqmt=4,
+        mem_rqmt: float = 8,
+        time_rqmt: float = 4,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -326,14 +326,14 @@ def run_ctc_att_search():
         feature_extraction_net,
         bpe_size,
         test_sets: list,
-        time_rqmt=1,
+        time_rqmt: float = 1.0,
         remove_label=None,
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
         for test_set in test_sets:
             run_single_search(
-                exp_name=exp_name + f"/{test_set}",
+                exp_name=exp_name + f"/recogs/{test_set}",
                 train_data=train_data,
                 search_args=search_args,
                 checkpoint=checkpoint,
@@ -784,7 +784,7 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for att_scale in [1.0, 0.7, 0.5]:
+    for att_scale in [1.0, 0.7, 0.5, 0.0]:
         ctc_scale = 1 - att_scale
         run_decoding(
             exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}",
@@ -803,4 +803,5 @@ def run_ctc_att_search():
             test_sets=["dev-other"],
             remove_label="<s>",  # blanks are removed in the network
             use_sclite=True,
+            time_rqmt=0.2,
         )
