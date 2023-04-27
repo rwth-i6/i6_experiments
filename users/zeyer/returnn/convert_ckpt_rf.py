@@ -58,7 +58,7 @@ class ConvertTfCheckpointToRfPtJob(Job):
         from returnn.util.basic import model_epoch_from_filename
         from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
         import torch
-        from glob import glob
+        import numpy
 
         reader = CheckpointReader(self.in_checkpoint.ckpt_path)
         print("Input checkpoint:")
@@ -81,8 +81,8 @@ class ConvertTfCheckpointToRfPtJob(Job):
 
             value = self.map_func(reader, name, param)
             assert isinstance(value, numpy.ndarray)
-            assert isinstance(param.raw_tensor, torch.nn.Parameter)
-            param.raw_tensor[:] = value
+            # noinspection PyProtectedMember
+            param._raw_backend.set_parameter_initial_value(param, value)
 
         epoch = self.epoch
         if epoch is None:
@@ -97,6 +97,7 @@ class ConvertTfCheckpointToRfPtJob(Job):
 
         pt_model = rf_module_to_pt_module(model)
 
+        os.makedirs(self._out_model_dir.get_path(), exist_ok=True)
         torch.save(
             {"model": pt_model.state_dict(), "epoch": epoch, "step": step},
             self._out_model_dir.get_path() + "/" + ckpt_name + ".pt",
