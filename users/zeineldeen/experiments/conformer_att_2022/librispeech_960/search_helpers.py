@@ -278,15 +278,15 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
             },  # [B,V+1]
             "output": {
                 "class": "choice",
-                "target": "bpe_labels_w_blank",
+                "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
                 "beam_size": 12,
-                "from": "p_comb_sigma_prime",
+                "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores",
                 "input_type": "log_prob",
                 "initial_output": 0,
                 "length_normalization": length_normalization,
             },
         },
-        "target": "bpe_labels_w_blank",
+        "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
     }
 
 

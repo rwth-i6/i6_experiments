@@ -699,21 +699,19 @@ def create_config(
         # create bpe labels with blank extern data
         exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
+
+        create_ctc_greedy_decoder(exp_config["network"])
 
         # filter out blanks from best hyp
         # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
         add_filter_blank_and_merge_labels_layers(exp_config["network"])
-
-        create_ctc_greedy_decoder(exp_config["network"])
+        exp_config["network"].pop(exp_config["search_output_layer"], None)
+        exp_config["search_output_layer"] = "out_best_wo_blank"
 
     if joint_ctc_att_decode:
         # create bpe labels with blank extern data
         exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
 
         # TODO: this is just for debugging. find a better way to do it later.
         add_joint_ctc_att_subnet(
@@ -722,7 +720,12 @@ def create_config(
             ctc_scale=joint_ctc_scale,
             length_normalization=length_normalization,
         )
-        add_filter_blank_and_merge_labels_layers(exp_config["network"])
+        if joint_ctc_scale > 0.0:
+            add_filter_blank_and_merge_labels_layers(exp_config["network"])
+            exp_config["network"].pop(exp_config["search_output_layer"], None)
+            exp_config["search_output_layer"] = "out_best_wo_blank"
+        else:
+            pass  # use decision layer as before
 
     # -------------------------- end network -------------------------- #
 
