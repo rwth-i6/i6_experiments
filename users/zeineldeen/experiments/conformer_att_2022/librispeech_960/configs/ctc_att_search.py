@@ -318,7 +318,7 @@ def run_ctc_att_search():
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
                 )
 
-    def run_ctc_decoding(
+    def run_decoding(
         exp_name,
         train_data,
         checkpoint,
@@ -331,13 +331,11 @@ def run_ctc_att_search():
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
-        args = copy.deepcopy(search_args)
-        args["ctc_greedy_decode"] = True
         for test_set in test_sets:
             run_single_search(
                 exp_name=exp_name + f"/{test_set}",
                 train_data=train_data,
-                search_args=args,
+                search_args=search_args,
                 checkpoint=checkpoint,
                 feature_extraction_net=feature_extraction_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
@@ -748,11 +746,11 @@ def run_ctc_att_search():
 
     # CTC greedy decoding implemented in returnn using beam search of beam size 1
     # dev-other: 6.9 without LM.
-    run_ctc_decoding(
+    run_decoding(
         exp_name="test_ctc_greedy",
         train_data=train_data,
         checkpoint=train_job_avg_ckpt["base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"],
-        search_args=oclr_args,
+        search_args={"ctc_greedy_decode": True, **oclr_args},
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-other"],
@@ -772,16 +770,37 @@ def run_ctc_att_search():
     )
 
     # 2.86/6.7/3.07/6.96
-    run_ctc_decoding(
+    run_decoding(
         exp_name="test_ctc_greedy_best",
         train_data=train_data,
         checkpoint=train_job_avg_ckpt[
             f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
         ],
-        search_args=oclr_args,
+        search_args={"ctc_greedy_decode": True, **oclr_args},
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
         remove_label="<s>",  # blanks are removed in the network
         use_sclite=True,
     )
+
+    for att_scale in [1.0, 0.7, 0.5]:
+        ctc_scale = 1 - att_scale
+        run_decoding(
+            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}",
+            train_data=train_data,
+            checkpoint=train_job_avg_ckpt[
+                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+            ],
+            search_args={
+                "joint_ctc_att_decode": True,
+                "joint_att_scale": att_scale,
+                "joint_ctc_scale": ctc_scale,
+                **oclr_args,
+            },
+            feature_extraction_net=log10_net_10ms,
+            bpe_size=BPE_10K,
+            test_sets=["dev-other"],
+            remove_label="<s>",  # blanks are removed in the network
+            use_sclite=True,
+        )
