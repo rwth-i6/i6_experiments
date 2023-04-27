@@ -228,6 +228,8 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale):
                 "position": 10025,
                 "axis": "f",
             },  # [B]
+            # p_ctc_sigma' (blank | ...)
+            "blank_prob": {"class": "gather", "from": "data:source", "position": 10025, "axis": "f"},
             # p_comb_sigma' for labels which is defined as:
             # (1 - p_ctc_sigma'(label | ...)) * p_comb_sigma(label | ...)
             # here is not log-space
@@ -235,7 +237,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale):
             "1_minus_blank": {
                 "class": "combine",
                 "kind": "sub",
-                "from": ["one", "blank_log_prob"],
+                "from": ["one", "blank_prob"],
             },
             "1_minus_blank_log": {
                 "class": "activation",
