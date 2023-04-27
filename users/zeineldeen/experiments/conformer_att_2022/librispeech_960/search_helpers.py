@@ -2,6 +2,14 @@ from i6_core.returnn.config import CodeWrapper
 
 
 def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
+    """
+    Add layers for joint CTC and att search.
+
+    :param dict net: network dict
+    :param float att_scale: attention score scale
+    :param float ctc_scale: ctc score scale
+    :param bool length_normalization: if set, apply length normalization to beam search scores
+    """
     net["output"] = {
         "class": "rec",
         "from": "ctc",  # [B,T,V+1]
@@ -283,6 +291,11 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
 
 
 def add_filter_blank_and_merge_labels_layers(net):
+    """
+    Add layers to filter out blank and merge repeated labels of a CTC output sequence.
+    :param dict net: network dict
+    """
+
     net["out_best_"] = {"class": "decide", "from": "output", "target": "bpe_labels_w_blank"}
     net["out_best"] = {
         "class": "reinterpret_data",
@@ -332,4 +345,30 @@ def add_filter_blank_and_merge_labels_layers(net):
         "only_on_search": True,
         "loss": "edit_distance",
         "target": "bpe_labels",
+    }
+
+
+def create_ctc_greedy_decoder(net):
+    """
+    Create a greedy decoder for CTC.
+
+    :param dict net: network dict
+    """
+
+    # time-sync search
+    assert net["output"]["class"] == "rec"
+    net["output"]["from"] = "ctc"  # [B,T,V+1]
+    net["output"]["target"] = "bpe_labels_w_blank"
+
+    # used for label-sync search
+    net["output"]["unit"].pop("end", None)
+    net["output"].pop("max_seq_len", None)
+
+    # can be also done simply via tf.argmax but it is anw fast
+    net["output"]["unit"]["output"] = {
+        "class": "choice",
+        "target": "bpe_labels_w_blank",
+        "beam_size": 1,
+        "from": "data:source",
+        "initial_output": 0,
     }
