@@ -4,11 +4,12 @@ import copy
 
 from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
+    ReturnnRasrTrainingArgs,
 )
 
 class SystemInput:
     """
-    holds all the information generated as output to the GMM pipeline
+    holds all the information generated as input to the system ndependently from a previous GMM system
     """
 
     def __init__(self):
@@ -19,7 +20,8 @@ class SystemInput:
         ] = {}
         self.alignments: Optional[
             Union[tk.Path, MultiPath, rasr.FlagDependentFlowAttribute]
-        ] = None
+        ] = None,
+        self.returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None
 
     def as_returnn_rasr_data_input(
         self,
@@ -27,8 +29,7 @@ class SystemInput:
         *,
         feature_flow_key: str = "gt",
         shuffle_data: bool = False,
-        segment_order_sort_by_time_length: bool = False,
-        chunk_size=348,
+        returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
     ):
         """
         Independently from an existing system, stores all info that can be used for bootstrapping
@@ -47,6 +48,5 @@ class SystemInput:
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
             shuffle_data=shuffle_data,
-            chunk_size=chunk_size,
-            segment_order_sort_by_time_length=segment_order_sort_by_time_length,
+            returnn_rasr_training_args=returnn_rasr_training_args,
         )
