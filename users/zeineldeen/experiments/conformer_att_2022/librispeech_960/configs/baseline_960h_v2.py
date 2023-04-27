@@ -12,20 +12,17 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
     apply_fairseq_init_to_transformer_decoder,
-    reset_params_init,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.data import (
     build_training_datasets,
     build_test_dataset,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.default_tools import (
-    RETURNN_EXE,
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
     log10_net_10ms,
-    log10_net_10ms_long_bn,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.pipeline import (
     training,
@@ -635,6 +632,7 @@ def conformer_baseline():
         dropout=0.1,
         att_dropout=0.1,
         l2=0.0001,
+        frontend_conv_l2=0.0001,
     )
     apply_fairseq_init_to_conformer(conformer_enc_args)
     conformer_enc_args.ctc_loss_scale = 1.0
