@@ -56,7 +56,7 @@ def get_train_config(
         dependencies: GlobalLabelDefinition,
         variant_params: Dict,
         load: Optional[Checkpoint],
-        import_model_train_epoch1: Optional[Checkpoint]
+        import_model_train_epoch1: Optional[Checkpoint] = None
   ) -> ReturnnConfig:
   data_opts = {}
   for corpus_key in SWBCorpora.train_corpus_keys:
