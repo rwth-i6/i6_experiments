@@ -1,7 +1,7 @@
 from i6_core.returnn.config import CodeWrapper
 
 
-def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization=True):
+def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
     net["output"] = {
         "class": "rec",
         "from": "ctc",  # [B,T,V+1]
