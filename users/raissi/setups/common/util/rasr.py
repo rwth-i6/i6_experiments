@@ -30,6 +30,7 @@ class SystemInput:
         *,
         feature_flow_key: str = "gt",
         shuffling_parameters: Dict = False,
+
         returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
     ):
         """
