@@ -531,6 +531,7 @@ def create_config(
     joint_ctc_att_decode=False,
     joint_att_scale=1.0,
     joint_ctc_scale=1.0,
+    length_normalization=True,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -777,7 +778,12 @@ def create_config(
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
         # TODO: this is just for debugging. find a better way to do it later.
-        add_joint_ctc_att_subnet(exp_config["network"], att_scale=joint_att_scale, ctc_scale=joint_ctc_scale)
+        add_joint_ctc_att_subnet(
+            exp_config["network"],
+            att_scale=joint_att_scale,
+            ctc_scale=joint_ctc_scale,
+            length_normalization=length_normalization,
+        )
         add_filter_blank_and_merge_labels_layers(exp_config["network"])
 
         exp_config["network"].pop(exp_config["search_output_layer"], None)

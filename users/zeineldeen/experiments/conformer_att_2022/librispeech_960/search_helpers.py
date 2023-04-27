@@ -1,7 +1,7 @@
 from i6_core.returnn.config import CodeWrapper
 
 
-def add_joint_ctc_att_subnet(net, att_scale, ctc_scale):
+def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization=True):
     net["output"] = {
         "class": "rec",
         "from": "ctc",  # [B,T,V+1]
@@ -244,15 +244,29 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale):
                 "activation": "safe_log",
                 "from": "1_minus_blank",
             },
+            "scaled_1_minus_blank_log": {
+                "class": "eval",
+                "from": "1_minus_blank_log",
+                "eval": f"{ctc_scale} * source(0)",
+            },
             "p_comb_sigma_prime_label": {
                 "class": "combine",
                 "kind": "add",
-                "from": ["1_minus_blank_log", "combined_att_ctc_scores"],
+                "from": ["scaled_1_minus_blank_log", "combined_att_ctc_scores"],
             },
-            "blank_log_prob_expand": {"class": "expand_dims", "from": "blank_log_prob", "axis": "f"},  # [B,1]
+            "scaled_blank_log_prob": {
+                "class": "eval",
+                "from": "blank_log_prob",
+                "eval": f"{ctc_scale} * source(0)",
+            },
+            "scaled_blank_log_prob_expand": {
+                "class": "expand_dims",
+                "from": "scaled_blank_log_prob",
+                "axis": "f",
+            },  # [B,1]
             "p_comb_sigma_prime": {
                 "class": "concat",
-                "from": [("p_comb_sigma_prime_label", "f"), ("blank_log_prob_expand", "f")],
+                "from": [("p_comb_sigma_prime_label", "f"), ("scaled_blank_log_prob_expand", "f")],
             },  # [B,V+1]
             "output": {
                 "class": "choice",
@@ -261,6 +275,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale):
                 "from": "p_comb_sigma_prime",
                 "input_type": "log_prob",
                 "initial_output": 0,
+                "length_normalization": length_normalization,
             },
         },
         "target": "bpe_labels_w_blank",
