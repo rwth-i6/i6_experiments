@@ -4,7 +4,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 # from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.global_ import GlobalEncoderDecoderConfig
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.global_ import GlobalNetworkBuilder
 
 from i6_core.returnn.training import Checkpoint
