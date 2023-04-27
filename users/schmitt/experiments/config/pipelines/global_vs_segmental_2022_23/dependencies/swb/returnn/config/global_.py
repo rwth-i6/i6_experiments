@@ -128,6 +128,7 @@ def get_recog_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["config_builder"]
 
   returnn_config = GlobalEncoderDecoderConfig(
     task="search", search_data_opts=data_opts, dump_output=dump_output,
