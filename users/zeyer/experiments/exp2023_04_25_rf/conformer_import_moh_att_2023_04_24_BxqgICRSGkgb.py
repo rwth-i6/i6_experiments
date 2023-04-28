@@ -407,10 +407,10 @@ def test_import():
 
     print("*** Construct TF graph for old model")
     n_batch = 3
-    n_time = 7
+    n_time = 1231  # raw sample level
+    x_sizes = [n_time, n_time - 100, n_time - 200]
     rnd = numpy.random.RandomState(42)
     x_np = rnd.rand(n_batch, n_time).astype("float32")
-    x_sizes = [7, 5, 4]
 
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
@@ -611,6 +611,14 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
+        # log mel filterbank features
+        source, in_spatial_dim, in_dim_ = rf.stft(
+            source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512
+        )
+        source = rf.abs(source) ** 2.0
+        source = rf.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
+        source = rf.safe_log(source, eps=1e-10) / 2.3026
+        # TODO specaug
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
