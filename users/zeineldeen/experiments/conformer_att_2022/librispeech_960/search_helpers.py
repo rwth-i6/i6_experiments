@@ -14,13 +14,20 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
         "class": "rec",
         "from": "ctc",  # [B,T,V+1]
         "unit": {
-            "is_not_blank_mask": {
+            "is_prev_out_not_blank_mask": {
                 "class": "compare",
                 "kind": "not_equal",
-                "from": "prev:output",  # TODO: is this correct?
+                "from": "prev:output",
                 "value": 10025,
             },
-            "out_non_blank": {
+            "is_curr_out_not_blank_mask": {
+                "class": "compare",
+                "kind": "not_equal",
+                "from": "output",
+                "value": 10025,
+            },
+            # reinterpreted for target_embed
+            "output_reinterpret": {
                 "class": "reinterpret_data",
                 "from": "output",
                 "set_sparse": True,
@@ -28,7 +35,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
             },
             "trigg_att": {
                 "class": "subnetwork",
-                "from": "out_non_blank",  # reinterpreted for target_embed
+                "from": [],
                 "n_out": 10025,
                 "name_scope": "",
                 "subnetwork": {
@@ -36,7 +43,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                         "class": "linear",
                         "activation": None,
                         "with_bias": False,
-                        "from": "data",
+                        "from": "base:output_reinterpret",
                         "n_out": 640,
                         "L2": 0.0001,
                         "initial_output": 0,
@@ -49,7 +56,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                     },
                     "target_embed": {
                         "class": "switch",
-                        "condition": "base:is_not_blank_mask",
+                        "condition": "base:is_curr_out_not_blank_mask",
                         "true_from": "_target_embed",
                         "false_from": "prev:target_embed",
                     },
@@ -73,7 +80,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                     },
                     "accum_att_weights": {
                         "class": "switch",
-                        "condition": "base:is_not_blank_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_accum_att_weights",
                         "false_from": "prev:accum_att_weights",
                         "out_type": {"dim": 1, "shape": (None, 1)},
@@ -134,7 +141,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                     },
                     "s": {
                         "class": "switch",
-                        "condition": "base:is_not_blank_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s",
                         "false_from": "prev:s",
                     },
@@ -146,7 +153,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                     },
                     "s_c": {
                         "class": "switch",
-                        "condition": "base:is_not_blank_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s_c",
                         "false_from": "prev:s_c",
                     },
@@ -158,7 +165,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization):
                     },
                     "s_h": {
                         "class": "switch",
-                        "condition": "base:is_not_blank_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s_h",
                         "false_from": "prev:s_h",
                     },
