@@ -537,6 +537,7 @@ def create_config(
     joint_att_scale=1.0,
     joint_ctc_scale=1.0,
     length_normalization=True,
+    check_repeat=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -719,6 +720,7 @@ def create_config(
             att_scale=joint_att_scale,
             ctc_scale=joint_ctc_scale,
             length_normalization=length_normalization,
+            check_repeat=check_repeat,
         )
         if joint_ctc_scale > 0.0:
             add_filter_blank_and_merge_labels_layers(exp_config["network"])
