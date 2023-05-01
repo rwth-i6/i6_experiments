@@ -298,20 +298,18 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
         "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
     }
     if check_repeat:
-        net["output"]["unit"]["prev_out"] = {"class": "copy", "from": "prev:output", "initial_output": 0}
-        net["output"]["unit"]["prev_prev_out"] = {"class": "copy", "from": "prev:prev_out", "initial_output": 0}
         net["output"]["unit"]["not_repeat_mask"] = {
             "class": "compare",
-            "from": ["prev_out", "prev_prev_out"],
+            "from": ["output", "prev:output"],
             "kind": "not_equal",
         }
-        net["output"]["unit"]["is_prev_out_not_blank_mask_"] = copy.deepcopy(
-            net["output"]["unit"]["is_prev_out_not_blank_mask"]
+        net["output"]["unit"]["is_curr_out_not_blank_mask_"] = copy.deepcopy(
+            net["output"]["unit"]["is_curr_out_not_blank_mask"]
         )
-        net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
+        net["output"]["unit"]["is_curr_out_not_blank_mask"] = {
             "class": "combine",
             "kind": "logical_and",
-            "from": ["is_prev_out_not_blank_mask_", "not_repeat_mask"],
+            "from": ["is_curr_out_not_blank_mask_", "not_repeat_mask"],
         }
 
 
