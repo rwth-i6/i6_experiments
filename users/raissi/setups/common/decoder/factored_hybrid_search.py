@@ -1,9 +1,13 @@
 __all__ = ["FactoredHybridBaseDecoder"]
 
 import copy
+import typing
+
+from dataclasses import dataclass
 from IPython import embed
 
-from sisyphus import *
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
 
 Path = tk.Path
 
@@ -16,23 +20,36 @@ import i6_core.corpus as corpus_recipes
 
 
 
-from i6_experiments.users.raissi.setups.common.decoder.rtf import (
-    ExtractSearchStatisticsJob
+#from i6_experiments.users.raissi.setups.common.decoder.rtf import (
+#    ExtractSearchStatisticsJob
+#)
+
+class ExtractSearchStatisticsJob():
+    def __init__(self):
+        self.dummy = 'I am dummy, figure out the job'
+
+
+from i6_experiments.users.raissi.setups.common.util.tdp import (
+    TDP,
+    Float,
+    format_tdp_val,
+    format_tdp
 )
+
+from i6_experiments.users.raissi.setups.common.data.factored_label import (
+    LabelInfo,
+    PhoneticContext,
+)
+
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_feature_scorer import (
     FactoredHybridFeatureScorer
 )
 
-
-TDP = typing.Union[Float, str]
-
-
-def format_tdp_val(val) -> str:
-    return "inf" if val == "infinity" else f"{val}"
-
-
-def format_tdp(tdp) -> str:
-    return ",".join(format_tdp_val(v) for v in tdp)
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PosteriorScales,
+    SearchParameters
+)
 
 
 @dataclass(eq=True, frozen=True)
