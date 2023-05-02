@@ -4,8 +4,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 # from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.global_ import GlobalNetworkBuilder
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.global_ import GlobalEncoderDecoderConfig
 
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
@@ -56,7 +55,7 @@ def get_train_config(
         dependencies: GlobalLabelDefinition,
         variant_params: Dict,
         load: Optional[Checkpoint],
-        import_model_train_epoch1: Optional[Checkpoint]
+        import_model_train_epoch1: Optional[Checkpoint] = None
   ) -> ReturnnConfig:
   data_opts = {}
   for corpus_key in SWBCorpora.train_corpus_keys:
@@ -102,9 +101,6 @@ def get_train_config(
 
   returnn_config = update_global_att_config_to_match_seg_att_config(returnn_config)
 
-  if config_builder == "new":
-    returnn_config.config["network"] = GlobalNetworkBuilder().get_net_dict()
-
   return returnn_config
 
 
@@ -128,6 +124,7 @@ def get_recog_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["config_builder"]
 
   returnn_config = GlobalEncoderDecoderConfig(
     task="search", search_data_opts=data_opts, dump_output=dump_output,

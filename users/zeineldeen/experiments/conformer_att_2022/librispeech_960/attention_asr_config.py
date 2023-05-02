@@ -10,6 +10,11 @@ from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder impo
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
 from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import ExternalLMDecoder
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+    add_joint_ctc_att_subnet,
+    add_filter_blank_and_merge_labels_layers,
+    create_ctc_greedy_decoder,
+)
 
 from i6_experiments.users.zeineldeen import data_aug
 from i6_experiments.users.zeineldeen.data_aug import specaugment
@@ -347,6 +352,7 @@ class ConformerEncoderArgs(EncoderArgs):
 
     # other regularization
     l2: float = 0.0001
+    frontend_conv_l2: float = 0.0001
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
 
@@ -416,6 +422,7 @@ class ConformerDecoderArgs(DecoderArgs):
 
     # other regularization
     l2: float = 0.0001
+    frontend_conv_l2: float = 0.0001
     rel_pos_clipping: int = 16
     label_smoothing: float = 0.1
     apply_embed_weight: bool = False
@@ -526,6 +533,11 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_greedy_decode=False,
+    joint_ctc_att_decode=False,
+    joint_att_scale=1.0,
+    joint_ctc_scale=1.0,
+    length_normalization=True,
+    check_repeat=False,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -689,77 +701,33 @@ def create_config(
         exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
+        create_ctc_greedy_decoder(exp_config["network"])
+
         # filter out blanks from best hyp
         # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
-        exp_config["network"]["out_best_"] = {"class": "decide", "from": "output", "target": "bpe_labels_w_blank"}
-        exp_config["network"]["out_best"] = {
-            "class": "reinterpret_data",
-            "from": "out_best_",
-            "set_sparse_dim": 10025,
-        }
-        # shift to the right to create a boolean mask later where it is true if the previous label is equal
-        exp_config["network"]["shift_right"] = {
-            "class": "shift_axis",
-            "from": "out_best",
-            "axis": "T",
-            "amount": 1,
-            "pad_value": -1,  # to have always True at the first pos
-        }
-        # reinterpret time axis to work with following layers
-        exp_config["network"]["out_best_time_reinterpret"] = {
-            "class": "reinterpret_data",
-            "from": "out_best",
-            "size_base": "shift_right",  # [B,T|shift_axis]
-        }
-        exp_config["network"]["unique_mask"] = {
-            "class": "compare",
-            "kind": "not_equal",
-            "from": ["out_best_time_reinterpret", "shift_right"],
-        }
-        exp_config["network"]["non_blank_mask"] = {
-            "class": "compare",
-            "from": "out_best_time_reinterpret",
-            "value": 10025,
-            "kind": "not_equal",
-        }
-        exp_config["network"]["out_best_mask"] = {
-            "class": "combine",
-            "kind": "logical_and",
-            "from": ["unique_mask", "non_blank_mask"],
-        }
-        exp_config["network"]["out_best_wo_blank"] = {
-            "class": "masked_computation",
-            "from": "out_best_time_reinterpret",
-            "mask": "out_best_mask",
-            "unit": {"class": "copy"},
-            "target": "bpe_labels",
-        }
-        exp_config["network"]["edit_distance"] = {
-            "class": "copy",
-            "from": "out_best_wo_blank",
-            "only_on_search": True,
-            "loss": "edit_distance",
-            "target": "bpe_labels",
-        }
-
+        add_filter_blank_and_merge_labels_layers(exp_config["network"])
         exp_config["network"].pop(exp_config["search_output_layer"], None)
         exp_config["search_output_layer"] = "out_best_wo_blank"
 
-        # time-sync search
-        assert exp_config["network"]["output"]["class"] == "rec"
-        exp_config["network"]["output"]["from"] = "ctc"  # [B,T,V+1]
-        exp_config["network"]["output"]["target"] = "bpe_labels_w_blank"
+    if joint_ctc_att_decode:
+        # create bpe labels with blank extern data
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
-        exp_config["network"]["output"]["unit"].pop("end", None)
-        exp_config["network"]["output"].pop("max_seq_len", None)
-
-        exp_config["network"]["output"]["unit"]["output"] = {
-            "class": "choice",
-            "target": "bpe_labels_w_blank",
-            "beam_size": 1,  # TODO: make it generic. we need recombination?
-            "from": "data:source",
-            "initial_output": 0,
-        }
+        # TODO: this is just for debugging. find a better way to do it later.
+        add_joint_ctc_att_subnet(
+            exp_config["network"],
+            att_scale=joint_att_scale,
+            ctc_scale=joint_ctc_scale,
+            length_normalization=length_normalization,
+            check_repeat=check_repeat,
+        )
+        if joint_ctc_scale > 0.0:
+            add_filter_blank_and_merge_labels_layers(exp_config["network"])
+            exp_config["network"].pop(exp_config["search_output_layer"], None)
+            exp_config["search_output_layer"] = "out_best_wo_blank"
+        else:
+            pass  # use decision layer as before
 
     # -------------------------- end network -------------------------- #
 
@@ -900,6 +868,9 @@ def create_config(
 
     if config_override:
         exp_config.update(config_override)
+
+    if joint_ctc_att_decode:
+        python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
 
     returnn_config = ReturnnConfig(
         exp_config,

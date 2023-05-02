@@ -20,6 +20,7 @@ class ConformerEncoder:
         input="data",
         input_layer="lstm-6",
         input_layer_conv_act="relu",
+        frontend_conv_l2=0.0,
         num_blocks=16,
         conv_kernel_size=32,
         specaug=True,
@@ -98,6 +99,7 @@ class ConformerEncoder:
         self.input = input
         self.input_layer = input_layer
         self.input_layer_conv_act = input_layer_conv_act
+        self.frontend_conv_l2 = frontend_conv_l2
 
         self.num_blocks = num_blocks
         self.conv_kernel_size = conv_kernel_size
@@ -493,7 +495,7 @@ class ConformerEncoder:
                 "conv_out",
                 data,
                 hwpc_sizes=[((3, 3), (1, 2), 32)],
-                l2=self.l2,
+                l2=self.frontend_conv_l2,
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
@@ -503,7 +505,7 @@ class ConformerEncoder:
                 "conv_merged",
                 conv_input,
                 hwpc_sizes=[((3, 3), (2, 1), 64), ((3, 3), (2, 1), 64)],
-                l2=self.l2,
+                l2=self.frontend_conv_l2,
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 use_striding=True,
@@ -516,7 +518,7 @@ class ConformerEncoder:
                 "conv_out",
                 data,
                 hwpc_sizes=[((3, 3), (1, 2), 32)],
-                l2=self.l2,
+                l2=self.frontend_conv_l2,
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
@@ -526,7 +528,7 @@ class ConformerEncoder:
                 "conv_merged",
                 conv_input,
                 hwpc_sizes=[((3, 3), (3, 1), 64), ((3, 3), (2, 1), 64)],
-                l2=self.l2,
+                l2=self.frontend_conv_l2,
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 use_striding=True,
