@@ -76,20 +76,20 @@ trafo_10k_lm_opts = {
     "name": "trafo",
 }
 
-bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
-trafo_5k_lm_opts = {
-    "lm_subnet": bpe5k_lm.combination_network,
-    "load_on_init_opts": {
-        "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
-        "params_prefix": "",
-        "load_if_prefix": "lm_output/",
-    },
-    "name": "trafo",
-}
+# bpe5k_lm = get_lm("ls960_trafo24_bs3000_5ep_5kbpe")  # type: ZeineldeenLM
+# trafo_5k_lm_opts = {
+#     "lm_subnet": bpe5k_lm.combination_network,
+#     "load_on_init_opts": {
+#         "filename": get_best_checkpoint(bpe5k_lm.train_job, key="dev_score_output/output"),
+#         "params_prefix": "",
+#         "load_if_prefix": "lm_output/",
+#     },
+#     "name": "trafo",
+# }
 
 trafo_lm_opts_map = {
     BPE_10K: trafo_10k_lm_opts,
-    BPE_5K: trafo_5k_lm_opts,
+#    BPE_5K: trafo_5k_lm_opts,
 }
 
 
@@ -144,8 +144,8 @@ def run_ctc_att_search():
         recog_dataset,
         recog_ref,
         recog_bliss,
-        mem_rqmt=8,
-        time_rqmt=4,
+        mem_rqmt: float = 8,
+        time_rqmt: float = 4,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -326,14 +326,14 @@ def run_ctc_att_search():
         feature_extraction_net,
         bpe_size,
         test_sets: list,
-        time_rqmt=1,
+        time_rqmt: float = 1.0,
         remove_label=None,
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
         for test_set in test_sets:
             run_single_search(
-                exp_name=exp_name + f"/{test_set}",
+                exp_name=exp_name + f"/recogs/{test_set}",
                 train_data=train_data,
                 search_args=search_args,
                 checkpoint=checkpoint,
@@ -784,10 +784,10 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for att_scale in [1.0, 0.7, 0.5]:
-        ctc_scale = 1 - att_scale
+    for att_scale in [0.3]:
+        ctc_scale = 1
         run_decoding(
-            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}",
+            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_norepeat",
             train_data=train_data,
             checkpoint=train_job_avg_ckpt[
                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
@@ -796,6 +796,8 @@ def run_ctc_att_search():
                 "joint_ctc_att_decode": True,
                 "joint_att_scale": att_scale,
                 "joint_ctc_scale": ctc_scale,
+                "check_repeat": True, # remove
+                "max_seqs": 1,  # batch size 1
                 **oclr_args,
             },
             feature_extraction_net=log10_net_10ms,
@@ -803,4 +805,5 @@ def run_ctc_att_search():
             test_sets=["dev-other"],
             remove_label="<s>",  # blanks are removed in the network
             use_sclite=True,
+            time_rqmt=0.2,
         )
