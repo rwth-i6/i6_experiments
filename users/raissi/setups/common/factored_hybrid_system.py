@@ -5,7 +5,8 @@ import itertools
 import sys
 
 from dataclasses import asdict
-from typing import Dict, List, Optional, Tuple, Union
+from enum import Enum
+from typing import Dict, List, Optional, Tuple, TypedDict, Union
 
 # -------------------- Sisyphus --------------------
 
@@ -41,13 +42,21 @@ from i6_experiments.common.setups.rasr.util import (
 
 
 #user based modules
-from i6_experiments.users.raissi.setups.hykist.util.pipeline_helpers import (
+from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
     get_lexicon_args,
     get_tdp_values,
 )
 
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo
+
 from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search import (
     FactoredHybridBaseDecoder
+)
+
+from i6_experiments.users.raissi.setups.common.decoder.config import (
+    PriorInfo,
+    PosteriorScales,
+    SearchParameters
 )
 
 from i6_experiments.users.raissi.setups.common.util.hdf import (
@@ -107,25 +116,32 @@ from i6_experiments.users.raissi.setups.common.decoder.factored_hybrid_search im
 Path = tk.setup_path(__package__)
 
 
+class TrainingCriterion(Enum):
+    """The training criterion."""
+    viterbi = "viterbi"
+    fullsum = "fullsum"
+    mmi = "mmi"
 
-class ExtraReturnnCode(typing.TypedDict):
+    def __str__(self):
+        return self.value
+
+
+class ExtraReturnnCode(TypedDict):
     epilog: str
     prolog: str
 
+class Graphs(TypedDict):
+    train: Optional[tk.Path]
+    inference: Optional[tk.Path]
 
-class Graphs(typing.TypedDict):
-    train: typing.Optional[tk.Path]
-    inference: typing.Optional[tk.Path]
-
-
-class Experiment(typing.TypedDict, total=False):
+class Experiment(TypedDict, total=False):
     extra_returnn_code: ExtraReturnnCode
     name: str
     graph: Graphs
-    priors: typing.Optional[PriorInfo]
-    prior_job: typing.Optional[returnn.ReturnnRasrComputePriorJobV2]
-    returnn_config: typing.Optional[returnn.ReturnnConfig]
-    train_job: typing.Optional[returnn.ReturnnRasrTrainingJob]
+    priors: Optional[PriorInfo]
+    prior_job: Optional[returnn.ReturnnRasrComputePriorJobV2]
+    returnn_config: Optional[returnn.ReturnnConfig]
+    train_job: Optional[returnn.ReturnnRasrTrainingJob]
 
 # -------------------- Systems --------------------
 class FactoredHybridBaseSystem(NnSystem):
@@ -183,7 +199,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
         #data and pipeline related
         self.inputs = {}
-        self.experiments: typing.Dict[str, Experiment] = {}
+        self.experiments: Dict[str, Experiment] = {}
 
         # train information
         self.nn_feature_type = 'gt' #Gammatones
@@ -193,6 +209,7 @@ class FactoredHybridBaseSystem(NnSystem):
                                    }
 
         # extern classes and objects
+        self.training_criterion: TrainingCriterion = TrainingCriterion.fullsum
         self.trainers    = {'returnn': returnn.ReturnnTrainingJob, 'rasr-returnn': returnn.ReturnnRasrTrainingJob}
         self.recognizers = {'count_lm': FactoredHybridBaseDecoder}
         self.aligners    = {}
@@ -339,8 +356,7 @@ class FactoredHybridBaseSystem(NnSystem):
                 if self.train_key is None:
                     self.train_key = corpus_key
                 else:
-                    assert (self.train_key == corpus_key,
-                            f"You already set the train key to be {self.train_key}, you cannot have more than one train key")
+                    assert self.train_key == corpus_key, f"You already set the train key to be {self.train_key}, you cannot have more than one train key"
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self._get_system_input(
@@ -427,7 +443,7 @@ class FactoredHybridBaseSystem(NnSystem):
 
     def _add_output_alias_for_train_job(
             self,
-            train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob, ReturnnRasrTrainingBWJob],
+            train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
             name: str,
     ):
         train_job.add_alias(f"train/nn_{name}")
@@ -494,7 +510,7 @@ class FactoredHybridBaseSystem(NnSystem):
     def init_system(self, label_info_additional_args=None):
 
         if self.native_lstm2_path is None:
-            self.set_native_lstm_path()
+            self._set_native_lstm_path()
 
         if label_info_additional_args is not None:
             for k, v in label_info_additional_args.items():
@@ -813,7 +829,7 @@ class FactoredHybridBaseSystem(NnSystem):
         self.set_graph_for_experiment(experiment_key)
 
     # ---------------------Prior Estimation--------------
-    def get_hdf_path(self, hdf_key: typing.Optional[str]):
+    def get_hdf_path(self, hdf_key: Optional[str]):
         if hdf_key is not None:
             assert hdf_key in self.hdfs.keys()
             return self.hdfs[hdf_key]
@@ -844,7 +860,7 @@ class FactoredHybridBaseSystem(NnSystem):
         dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
-        time_rqmt: typing.Optional[int] = None,
+        time_rqmt: Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
