@@ -1,7 +1,7 @@
 # from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.global_enc_dec import network
 from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.network import custom_construction_algo, new_custom_construction_algo, best_custom_construction_algo
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.global_ import get_best_net_dict, get_new_net_dict, get_net_dict, get_net_dict_like_seg_model
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.dataset import *
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.dataset.legacy_v1 import *
 # from i6_experiments.users.schmitt.experiments.swb.dataset import *
 from i6_experiments.users.schmitt.conformer_pretrain import *
 from i6_experiments.users.schmitt.specaugment import *

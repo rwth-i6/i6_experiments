@@ -1,7 +1,7 @@
 from i6_experiments.users.schmitt.experiments.swb.transducer.network import custom_construction_algo, new_custom_construction_algo
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental.network import get_global_import_net_dict, get_extended_net_dict
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental.attention import add_attention
-from i6_experiments.users.schmitt.experiments.swb.dataset import *
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.dataset.legacy_v1 import *
 from i6_experiments.users.schmitt.recombination import *
 from i6_experiments.users.schmitt.conformer_pretrain import *
 from i6_experiments.users.schmitt.rna import *
