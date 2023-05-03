@@ -1,5 +1,6 @@
 import re
 from typing import Dict, Generator, Iterable, List, Optional, Tuple
+from i6_core.corpus.filter import FilterCorpusRemoveUnknownWordSegmentsJob
 from i6_core.text.label.subword_nmt.train import ReturnnTrainBpeJob
 from i6_core.tools.git import CloneGitRepositoryJob
 
@@ -12,6 +13,7 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
     EnsureSilenceFirstJob,
     DeleteEmptyOrthJob,
     EnsureUnknownPronunciationOrthJob,
+    MakeBlankLexiconJob,
 )
 from i6_core.meta.system import CorpusObject
 from i6_core.lib.corpus import Corpus
@@ -91,6 +93,7 @@ class PreprocessWSJTranscriptionsJob(Job):
         corpus.load(self.corpus_file.get_path())
 
         for segment in corpus.segments():
+            assert segment.orth is not None
             segment.orth = process_string(segment.orth)
             if self.lm_cleaning:
                 segment.orth = lm_cleaning(segment.orth)
@@ -292,22 +295,22 @@ def get_corpus_object_dict():
 
 
 def get_data_inputs(
-    train_keys: List[str] = ["train_si284"],
+    train_key: str = "train_si284",
+    cv_key: str = "cv_dev93",
     dev_keys: List[str] = ["cv_dev93"],
     test_keys: List[str] = ["test_eval92"],
-    align_keys: List[str] = [],
     freq: int = 16,
     lm_name: str = "5k_3gram",
     recog_lex_name: str = "nab-64k",
-    delete_empty_orth: bool = False,
+    ctc_lexicon: bool = False,
     preprocessing: bool = True,
     lm_cleaning: bool = False,
     add_all_allophones: bool = True,
-) -> Tuple[Dict[str, rasr_util.RasrDataInput], ...]:
+) -> Tuple[rasr_util.RasrDataInput, rasr_util.RasrDataInput, Dict[str, rasr_util.RasrDataInput], Dict[str, rasr_util.RasrDataInput]]:
     corpus_object_dict = get_corpus_object_dict()
 
     for name, (corpus_object, _) in corpus_object_dict.items():
-        if preprocessing or "train" in name:
+        if preprocessing and (f"{train_key}_{freq}kHz" == name or f"{cv_key}_{freq}kHz" == name):
             corpus_object.corpus_file = PreprocessWSJTranscriptionsJob(
                 corpus_object.corpus_file,
                 lm_cleaning=lm_cleaning,
@@ -326,11 +329,12 @@ def get_data_inputs(
     }
 
     train_lexicon_path = tk.Path(f"{dep_dir}/lexicon/wsj01-train.lexicon.gz")
-    train_lexicon_path = PreprocessWSJLexiconJob(train_lexicon_path, lm_cleaning).out_lexicon_file
+    if preprocessing:
+        train_lexicon_path = PreprocessWSJLexiconJob(train_lexicon_path, lm_cleaning).out_lexicon_file
     train_lexicon_path = EnsureSilenceFirstJob(train_lexicon_path).out_lexicon
-    train_lexicon_path = EnsureUnknownPronunciationOrthJob(train_lexicon_path).out_lexicon
-    if delete_empty_orth:
+    if ctc_lexicon:
         train_lexicon_path = DeleteEmptyOrthJob(train_lexicon_path).out_lexicon
+        train_lexicon_path = MakeBlankLexiconJob(train_lexicon_path).out_lexicon
 
     train_bliss_lexicon = {
         "filename": train_lexicon_path,
@@ -340,8 +344,9 @@ def get_data_inputs(
     }
     recog_lexicon_path = tk.Path(f"{dep_dir}/lexicon/{recog_lex_name}.lexicon.gz")
     recog_lexicon_path = EnsureSilenceFirstJob(recog_lexicon_path).out_lexicon
-    if delete_empty_orth:
+    if ctc_lexicon:
         recog_lexicon_path = DeleteEmptyOrthJob(recog_lexicon_path).out_lexicon
+        recog_lexicon_path = MakeBlankLexiconJob(recog_lexicon_path).out_lexicon
     recog_bliss_lexicon = {
         "filename": recog_lexicon_path,
         "normalize_pronunciation": False,
@@ -349,18 +354,26 @@ def get_data_inputs(
         "add_from_lexicon": not add_all_allophones,
     }
 
-    train_data_inputs = {}
     dev_data_inputs = {}
     test_data_inputs = {}
-    align_data_inputs = {}
 
-    for train_key in train_keys:
-        corpus_object, concurrency = corpus_object_dict[f"{train_key}_{freq}kHz"]
-        train_data_inputs[train_key] = rasr_util.RasrDataInput(
-            corpus_object=corpus_object,
-            concurrent=concurrency,
-            lexicon=train_bliss_lexicon,
-        )
+    corpus_object, concurrency = corpus_object_dict[f"{train_key}_{freq}kHz"]
+    train_data_input = rasr_util.RasrDataInput(
+        corpus_object=corpus_object,
+        concurrent=concurrency,
+        lexicon=train_bliss_lexicon,
+    )
+
+    corpus_object, concurrency = corpus_object_dict[f"{cv_key}_{freq}kHz"]
+    corpus_object.corpus_file = FilterCorpusRemoveUnknownWordSegmentsJob(
+        corpus_object.corpus_file, train_bliss_lexicon["filename"], all_unknown=False
+    ).out_corpus
+    cv_data_input = rasr_util.RasrDataInput(
+        corpus_object=corpus_object,
+        concurrent=concurrency,
+        lexicon=train_bliss_lexicon,
+        lm=lm,
+    )
 
     for dev_key in dev_keys:
         corpus_object, concurrency = corpus_object_dict[f"{dev_key}_{freq}kHz"]
@@ -380,15 +393,7 @@ def get_data_inputs(
             lm=lm,
         )
 
-    for align_key in align_keys:
-        corpus_object, concurrency = corpus_object_dict[f"{align_key}_{freq}kHz"]
-        align_data_inputs[f"{align_key}_align"] = rasr_util.RasrDataInput(
-            corpus_object=corpus_object,
-            concurrent=concurrency,
-            lexicon=train_bliss_lexicon,
-        )
-
-    return train_data_inputs, dev_data_inputs, test_data_inputs, align_data_inputs
+    return train_data_input, cv_data_input, dev_data_inputs, test_data_inputs
 
 
 def get_final_gmm_output(

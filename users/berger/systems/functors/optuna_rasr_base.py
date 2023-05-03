@@ -13,7 +13,10 @@ from .rasr_base import RasrFunctor
 class OptunaRasrFunctor(RasrFunctor, ABC):
     @lru_cache_with_signature
     def _get_epoch_value(
-        self, train_job: returnn.OptunaReturnnTrainingJob, epoch: types.EpochType, trial_num: Optional[int] = None
+        self,
+        train_job: returnn.OptunaReturnnTrainingJob,
+        epoch: types.EpochType,
+        trial_num: Optional[int] = None,
     ) -> Union[int, tk.Variable]:
         if epoch != "best":
             return epoch
@@ -36,7 +39,9 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
             trial = train_job.out_best_trial
         else:
             trial = train_job.out_trials[trial_num]
-        rec_step_by_step = "output" if self._is_autoregressive_decoding(label_scorer_type) else None
+        rec_step_by_step = (
+            "output" if self._is_autoregressive_decoding(label_scorer_type) else None
+        )
         graph_compile_job = returnn.OptunaCompileTFGraphJob(
             returnn_config,
             trial=trial,
@@ -55,7 +60,6 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
         epoch: types.EpochType,
         trial_num: Optional[int] = None,
     ) -> Checkpoint:
-
         if trial_num is None:
             if epoch == "best":
                 return returnn.GetBestCheckpointJob(
@@ -95,9 +99,11 @@ class OptunaRasrFunctor(RasrFunctor, ABC):
 
     @lru_cache_with_signature
     def _get_trial_value(
-        self, train_job: returnn.OptunaReturnnTrainingJob, trial_num: Optional[int] = None
+        self,
+        train_job: returnn.OptunaReturnnTrainingJob,
+        trial_num: Optional[int] = None,
     ) -> Union[int, tk.Variable]:
         if trial_num is not None:
             return trial_num
 
-        return train_job.out_best_trial
+        return train_job.out_best_trial_num
