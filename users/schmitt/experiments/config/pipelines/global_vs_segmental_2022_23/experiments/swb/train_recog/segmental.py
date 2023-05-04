@@ -22,6 +22,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
           import_model_do_initial_realignment: bool = False,
+          import_model_is_global: bool = False,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -46,6 +47,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     self.import_model_do_initial_realignment = import_model_do_initial_realignment
     if import_model_do_initial_realignment:
       self.base_alias = "%s_initial_realignment" % self.base_alias
+
+    assert not import_model_is_global or self.import_model_train_epoch1 is not None, "Setting 'import_model_is_global' does not have an effect when not importing a model"
+    self.import_model_is_global = import_model_is_global
 
   def compare_alignments(
           self,
@@ -109,7 +113,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           epoch: int,
           checkpoint: Checkpoint,
           length_scale: float,
-          train_alias: str) -> Path:
+          train_alias: str,
+          remove_length_model: bool = False) -> Path:
     base_alias = "%s/%s/epoch_%d" % (self.base_alias, train_alias, epoch)
     return run_rasr_segmental_realignment(
       dependencies=self.dependencies,
@@ -117,16 +122,19 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint=checkpoint,
       corpus_key=corpus_key,
       base_alias=base_alias,
-      length_scale=length_scale)
+      length_scale=length_scale,
+      remove_length_model=remove_length_model)
 
   def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_returnn_simple_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
@@ -140,9 +148,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_rasr_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
@@ -160,9 +170,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/returnn_w_recomb" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_returnn_simple_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
@@ -171,6 +183,34 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         search_error_corpus_key="cv",
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
+
+  def run_rasr_recog_wo_length_model(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+    for epoch in self.rasr_recog_epochs:
+      checkpoint = checkpoints[epoch]
+      base_alias = "%s/%s/epoch_%d/rasr_recog_wo_length_model" % (self.base_alias, train_alias, epoch)
+
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
+      run_rasr_segmental_decoding(
+        dependencies=self.dependencies,
+        variant_params=variant_params,
+        base_alias=base_alias,
+        checkpoint=checkpoint,
+        test_corpora_keys=["dev"],
+        calc_search_errors=True,
+        search_error_corpus_key="cv",
+        label_pruning_limit=12,
+        word_end_pruning_limit=12,
+        max_segment_len=20,
+        concurrent=4,
+        length_scale=0.,
+        length_norm=True,
+        cv_realignment=self._get_realignment(
+          corpus_key="cv",
+          checkpoint=checkpoint,
+          length_scale=0.,
+          epoch=epoch,
+          train_alias=train_alias))
 
   def run_huge_beam_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     last_epoch, last_checkpoint = list(checkpoints.items())[-1]
@@ -202,6 +242,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       self.run_standard_recog(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "returnn_w_recomb":
       self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "rasr_wo_length_model":
+      self.run_rasr_recog_wo_length_model(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:
@@ -215,7 +257,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint=self.import_model_train_epoch1,
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
-          train_alias="import_model")
+          train_alias="import_model",
+          remove_length_model=self.import_model_is_global)
 
     train_alias = "train"
     self.checkpoints["train"] = self.run_training(

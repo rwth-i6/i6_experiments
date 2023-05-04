@@ -1,6 +1,6 @@
 from i6_core.returnn.config import CodeWrapper
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental import \
-  conformer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1 import \
+    conformer
 
 
 # from returnn.tf.util.data import Dim
@@ -258,7 +258,7 @@ def get_extended_net_dict(
   pretrain_idx, learning_rate, num_epochs, enc_val_dec_factor, length_model_type, enc_type,
   target_num_labels, targetb_num_labels, targetb_blank_idx, target, task, scheduled_sampling, lstm_dim,
   l2, beam_size, length_model_inputs, prev_att_in_state, use_att, prev_target_in_readout,
-  exclude_sil_from_label_ctx, att_weights_kl_div_scale,
+  exclude_sil_from_label_ctx, att_weights_kl_div_scale, set_dim_tag_correctly,
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
@@ -305,12 +305,16 @@ def get_extended_net_dict(
       "segment_starts_masked": {
         "class": "masked_computation", "from": "output/segment_starts", "mask": "is_label",
         "register_as_extern_data": "segment_starts_masked" if use_time_sync_loop else None,
-        "out_spatial_dim": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="label-axis")'), "unit": {
+        "out_spatial_dim": CodeWrapper(
+          'Dim(kind=Dim.Types.Spatial, description="label-axis")') if not set_dim_tag_correctly else CodeWrapper(
+          'Dim(kind=Dim.Types.Spatial, description="label-axis", dimension=None)'), "unit": {
           "class": "copy", "from": "data"}},
       "segment_lens_masked": {
         "class": "masked_computation", "from": "output/segment_lens", "mask": "is_label",
         "register_as_extern_data": "segment_lens_masked" if use_time_sync_loop else None,
-        "out_spatial_dim": CodeWrapper('Dim(kind=Dim.Types.Spatial, description="label-axis")'),
+        "out_spatial_dim": CodeWrapper(
+          'Dim(kind=Dim.Types.Spatial, description="label-axis")') if not set_dim_tag_correctly else CodeWrapper(
+          'Dim(kind=Dim.Types.Spatial, description="label-axis", dimension=None)'),
         "unit": {
           "class": "copy", "from": "data"}},
       "label_ground_truth_masked0": {

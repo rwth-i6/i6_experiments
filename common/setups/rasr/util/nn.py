@@ -77,7 +77,7 @@ class ReturnnRasrDataInput:
         features: Optional[Union[RasrCacheTypes, Dict[str, RasrCacheTypes]]] = None,
         acoustic_mixtures: Optional[Union[tk.Path, str]] = None,
         feature_scorers: Optional[Dict[str, Type[rasr.FeatureScorer]]] = None,
-        shuffling_paramters: Optional[Dict] = None,
+        shuffling_parameters: Optional[Dict] = None,
         stm: Optional[tk.Path] = None,
         glm: Optional[tk.Path] = None,
         returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
@@ -90,7 +90,7 @@ class ReturnnRasrDataInput:
         self.features = features
         self.acoustic_mixtures = acoustic_mixtures
         self.feature_scorers = feature_scorers
-        self.shuffling_parameters = shuffling_paramters
+        self.shuffling_parameters = shuffling_parameters
         self.stm = stm
         self.glm = glm
         self.returnn_rasr_training_args = returnn_rasr_training_args or ReturnnRasrTrainingArgs()

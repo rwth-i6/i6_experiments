@@ -17,7 +17,11 @@ Path = tk.setup_path(__package__)
 
 
 class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
-    def __init__(self, tool_paths: ToolPaths) -> None:
+    def __init__(
+        self,
+        tool_paths: ToolPaths,
+        summary_keys: Optional[List[types.SummaryKey]] = None,
+    ) -> None:
         self._tool_paths = tool_paths
 
         # Build base crp
@@ -40,7 +44,10 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         # corpus-key mapped to CorpusInfo object
         self._corpus_info: Dict[str, types.CorpusInfo] = {}
 
-        self.summary_report = custom_summary.SummaryReport()
+        self.summary_report = custom_summary.SummaryReport(
+            [key.value for key in (summary_keys or types.SummaryKey)],
+            types.SummaryKey.WER.value,
+        )
 
         self._functors = self._initialize_functors()
 
@@ -48,22 +55,23 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     def _initialize_functors(self) -> Functors[types.TrainJobType, types.ConfigType]:
         ...
 
-    def init_system(
+    def add_experiment_configs(
+        self, returnn_configs: Dict[str, types.ReturnnConfigs[types.ConfigType]]
+    ) -> None:
+        self._returnn_configs.update(returnn_configs)
+
+    def init_corpora(
         self,
-        returnn_configs: Dict[str, types.ReturnnConfigs[types.ConfigType]],
         align_keys: List[str] = [],
         dev_keys: List[str] = [],
         test_keys: List[str] = [],
         corpus_data: Dict[str, RasrDataInput] = {},
-        summary_keys: Optional[List[types.SummaryKey]] = None,
         am_args: Dict = {},
         scorer_type: types.ScoreJobType = recognition.ScliteJob,
         stm_kwargs: Dict = {},
         score_kwargs: Dict = {},
     ) -> None:
-        self._returnn_configs = returnn_configs
-
-        all_keys = set(align_keys + dev_keys + test_keys)
+        all_keys = align_keys + dev_keys + test_keys
         assert all(key in corpus_data for key in all_keys)
 
         self._align_corpora = align_keys
@@ -72,7 +80,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
 
         for key, data in corpus_data.items():
             assert data.corpus_object.corpus_file is not None
-            crp = self._get_crp(data, am_args)
+            crp = self._get_crp_for_data_input(data, am_args, base_crp=self._base_crp)
             corpus_info = types.CorpusInfo(data, crp)
             if key in dev_keys + test_keys:
                 corpus_info.scorer = self._get_scorer(
@@ -83,15 +91,13 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
                 )
             self._corpus_info[key] = corpus_info
 
-        self.summary_report = custom_summary.SummaryReport(
-            [key.value for key in (summary_keys or types.SummaryKey)],
-            types.SummaryKey.WER.value,
-        )
-
-    def _get_crp(
-        self, data: RasrDataInput, am_args: Dict = {}
+    @staticmethod
+    def _get_crp_for_data_input(
+        data: RasrDataInput,
+        am_args: Dict = {},
+        base_crp: Optional[rasr.CommonRasrParameters] = None,
     ) -> rasr.CommonRasrParameters:
-        crp = rasr.CommonRasrParameters(self._base_crp)
+        crp = rasr.CommonRasrParameters(base_crp)
 
         rasr.crp_set_corpus(crp, data.corpus_object)
         crp.concurrent = data.concurrent
@@ -134,7 +140,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         for train_exp_name, configs in self._returnn_configs.items():
             named_train_config = types.NamedConfig(train_exp_name, configs.train_config)
             self._train_jobs[train_exp_name] = self._functors.train(
-                named_train_config, **kwargs
+                train_config=named_train_config, **kwargs
             )
 
     def run_recogs_for_corpora(
@@ -151,10 +157,10 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
             for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
                 named_recog_config = types.NamedConfig(recog_exp_name, recog_config)
                 recog_results = self._functors.recognize(
-                    named_train_job,
-                    returnn_configs.prior_config,
-                    named_recog_config,
-                    named_corpus,
+                    train_job=named_train_job,
+                    prior_config=returnn_configs.prior_config,
+                    recog_config=named_recog_config,
+                    recog_corpus=named_corpus,
                     **kwargs,
                 )
                 self.summary_report.add_rows(recog_results)
@@ -177,7 +183,12 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
             named_train_job = types.NamedTrainJob(train_exp_name, train_job)
             for c_key in self._align_corpora:
                 named_corpus = types.NamedCorpusInfo(c_key, self._corpus_info[c_key])
+                prior_config = self._returnn_configs[train_exp_name].prior_config
                 align_config = self._returnn_configs[train_exp_name].align_config
                 self._functors.align(
-                    named_train_job, align_config, named_corpus, **kwargs
+                    train_job=named_train_job,
+                    prior_config=prior_config,
+                    align_config=align_config,
+                    align_corpus=named_corpus,
+                    **kwargs,
                 )

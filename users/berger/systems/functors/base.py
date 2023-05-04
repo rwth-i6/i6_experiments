@@ -7,7 +7,9 @@ from .. import types
 
 class AbstractTrainFunctor(ABC, Generic[types.TrainJobType, types.ConfigType]):
     @abstractmethod
-    def __call__(self, train_config: types.NamedConfig[types.ConfigType], **kwargs) -> types.TrainJobType:
+    def __call__(
+        self, train_config: types.NamedConfig[types.ConfigType], **kwargs
+    ) -> types.TrainJobType:
         ...
 
 
@@ -29,6 +31,7 @@ class AbstractAlignmentFunctor(ABC, Generic[types.TrainJobType, types.ConfigType
     def __call__(
         self,
         train_job: types.NamedTrainJob[types.TrainJobType],
+        prior_config: types.ConfigType,
         align_config: types.ConfigType,
         align_corpus: types.NamedCorpusInfo,
         **kwargs,

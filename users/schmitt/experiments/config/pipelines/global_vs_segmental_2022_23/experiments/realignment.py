@@ -3,9 +3,10 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_compile_config as get_segmental_compile_config
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_train_config as get_segmental_train_config
 
 from i6_experiments.users.schmitt.rasr.realignment import RASRRealignmentParallelJob
-from i6_experiments.users.schmitt.alignment.alignment import DumpAlignmentFromTxtJobV2
+from i6_experiments.users.schmitt.alignment.alignment import DumpAlignmentFromTxtJobV2, ChooseBestAlignmentJob
 
 from i6_core.rasr.config import RasrConfig
 from i6_core.rasr.crp import CommonRasrParameters
@@ -34,7 +35,8 @@ class RasrRealignmentExperiment:
           label_pruning: float,
           label_pruning_limit: int,
           concurrent: int,
-          use_gpu: bool
+          use_gpu: bool,
+          remove_length_model: bool
   ):
 
     self.concurrent = concurrent
@@ -48,7 +50,10 @@ class RasrRealignmentExperiment:
     self.variant_params = variant_params
     self.dependencies = dependencies
 
-    self.returnn_config = get_segmental_compile_config(self.variant_params, length_scale=length_scale)
+    self.returnn_config = get_segmental_compile_config(
+      self.variant_params,
+      length_scale=length_scale,
+      remove_length_model=remove_length_model)
 
     self.base_alias = base_alias
 
@@ -117,3 +122,58 @@ class RasrRealignmentExperiment:
     dump_align_from_txt_job.add_alias("%s/realign_hdf" % self.base_alias)
 
     return dump_align_from_txt_job.out_hdf_align
+
+
+class BestAlignmentChooser:
+  def __init__(
+          self,
+          dependencies: SegmentalLabelDefinition,
+          variant_params: Dict,
+          checkpoint: Checkpoint,
+          align1_hdf_path: Path,
+          align2_hdf_path: Path,
+          corpus_key: str,
+          base_alias: str,
+          length_scale: float,
+          mem_rqmt: int,
+          time_rqmt: int
+  ):
+    self.base_alias = base_alias
+    self.corpus_key = corpus_key
+    self.align2_hdf_path = align2_hdf_path
+    self.align1_hdf_path = align1_hdf_path
+    self.checkpoint = checkpoint
+    self.variant_params = variant_params
+    self.dependencies = dependencies
+    self.length_scale = length_scale
+
+    self.label_name = "alignment"
+
+    self.returnn_config = get_segmental_train_config(
+      dependencies=dependencies,
+      alignments=None,
+      variant_params=variant_params,
+      load=checkpoint,
+      length_scale=length_scale
+    )
+
+    self.mem_rqmt = mem_rqmt
+    self.time_rqmt = time_rqmt
+
+    self.alias = "%s/choose_best_align_%s" % (base_alias, corpus_key)
+
+  def run(self):
+    choose_best_align_job = ChooseBestAlignmentJob(
+      returnn_config=self.returnn_config,
+      rasr_config_path=self.dependencies.rasr_config_paths["feature_extraction"][self.corpus_key],
+      rasr_nn_trainer_exe=RasrExecutables.nn_trainer_path,
+      segment_path=self.dependencies.segment_paths[self.corpus_key],
+      align1_hdf_path=self.align1_hdf_path,
+      align2_hdf_path=self.align2_hdf_path,
+      label_name=self.label_name,
+      blank_idx=self.dependencies.model_hyperparameters.blank_idx,
+      mem_rqmt=self.mem_rqmt,
+      time_rqmt=self.time_rqmt
+    )
+    choose_best_align_job.add_alias(self.alias)
+    tk.register_output(self.alias, choose_best_align_job.out_hdf_align)

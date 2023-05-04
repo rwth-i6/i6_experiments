@@ -29,7 +29,8 @@ def run_rasr_segmental_realignment(
         length_norm: bool = False,
         tags_for_analysis: List[str] = default_tags_for_analysis,
         label_pruning_limit: int = None,
-        time_rqmt: int = None
+        time_rqmt: int = None,
+        remove_length_model: bool = False
 ):
   """
   Set rqmts and maximum segment length here, depending on the corpus and whether silence is used. Realignment with
@@ -82,7 +83,8 @@ def run_rasr_segmental_realignment(
     mem_rqmt=mem_rqmt,
     label_pruning=label_pruning,
     label_pruning_limit=label_pruning_limit,
-    use_gpu=True
+    use_gpu=True,
+    remove_length_model=remove_length_model
   ).run()
 
   if corpus_key.startswith("cv"):

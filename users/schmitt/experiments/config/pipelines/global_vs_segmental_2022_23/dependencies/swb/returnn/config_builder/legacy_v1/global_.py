@@ -1,7 +1,7 @@
 # from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.global_enc_dec import network
 from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.network import custom_construction_algo, new_custom_construction_algo, best_custom_construction_algo
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.global_ import get_best_net_dict, get_new_net_dict, get_net_dict, get_net_dict_like_seg_model
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.swb.dataset import *
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.dataset.legacy_v1 import *
 # from i6_experiments.users.schmitt.experiments.swb.dataset import *
 from i6_experiments.users.schmitt.conformer_pretrain import *
 from i6_experiments.users.schmitt.specaugment import *
@@ -20,7 +20,7 @@ class GlobalEncoderDecoderConfig:
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
           use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best", att_ctx_reg=False,
-          import_model_train_epoch1=None):
+          import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone"):
 
     self.post_config = post_config
 
@@ -69,12 +69,17 @@ class GlobalEncoderDecoderConfig:
 
     self.extern_data = {
       "data": {
-        "dim": 40,
+        "dim": 40 if features == "gammatone" else 1,
         "same_dim_tags_as": {"t": CodeWrapper("DimensionTag(kind=DimensionTag.Types.Spatial, description='time')")}},
       label_name: {
         "dim": self.target_num_labels, "sparse": True}}
+    if set_dim_tag_correctly:
+      self.extern_data["data"]["same_dim_tags_as"]["t"] = CodeWrapper(
+        "DimensionTag(kind=DimensionTag.Types.Spatial, description='time', dimension=None)")
 
     self.batch_size = 10000 if self.task == "train" else 4000
+    if features == "raw":
+      self.batch_size *= 80
 
     if glob_model_type == "new":
       get_net_dict_func = get_new_net_dict
@@ -102,6 +107,9 @@ class GlobalEncoderDecoderConfig:
     self.import_prolog = ["from returnn.tf.util.data import DimensionTag", "import os", "import numpy as np",
                           "from subprocess import check_output, CalledProcessError"]
     self.function_prolog = [custom_construction_algo_func, _mask, random_mask, transform]
+
+    if self.task == "train" and enc_type == "conf-mohammad-11-7":
+      self.function_prolog += [speed_pert]
 
     if glob_model_type == "best":
       self.network = get_net_dict_func(
@@ -137,6 +145,9 @@ class GlobalEncoderDecoderConfig:
         'construction_algo': CodeWrapper(custom_construction_algo_str)}
       if pretrain_reps is not None:
         self.pretrain["repetitions"] = pretrain_reps
+
+    if enc_type == "conf-wei" or enc_type == "conf-mohammad-11-7":
+      self.import_prolog += ["import sys", "sys.setrecursionlimit(4000)"]
 
   def get_config(self):
     config_dict = {k: v for k, v in self.__dict__.items() if

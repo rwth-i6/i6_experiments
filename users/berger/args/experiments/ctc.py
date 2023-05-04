@@ -5,6 +5,7 @@ from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_lookahead_options,
     get_seq2seq_search_parameters,
 )
+from i6_experiments.users.berger.util import recursive_update
 
 
 ctc_loss_am_args = {
@@ -31,8 +32,7 @@ def get_ctc_train_args(**kwargs) -> Dict:
         "time_rqmt": 168,
         "mem_rqmt": 16,
     }
-    default_args.update(kwargs)
-    return default_args
+    return recursive_update(default_args, kwargs)
 
 
 def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
@@ -68,8 +68,8 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "rtf": 5,
         "mem": 8,
     }
-    default_args.update(kwargs)
-    return default_args
+ 
+    return recursive_update(default_args, kwargs)
 
 
 def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
@@ -94,5 +94,4 @@ def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         },
     }
 
-    default_args.update(kwargs)
-    return default_args
+    return recursive_update(default_args, kwargs)

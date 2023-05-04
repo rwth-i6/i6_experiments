@@ -11,6 +11,7 @@ from i6_core.returnn.training import Checkpoint
 from abc import abstractmethod, ABC
 from typing import Dict, List, Type, Optional, Tuple
 from sisyphus import Path
+import copy
 
 
 class TrainRecogPipeline(ABC):
@@ -53,6 +54,24 @@ class TrainRecogPipeline(ABC):
 
     self.checkpoints = {}
 
+  def _remove_pretrain_from_config(self, epoch: int):
+    """
+    This is a bit of a dirty fix. The pretraining of our models normally lasts for 30 epochs. This means that if a
+    model checkpoint from a lower epoch is loaded, the recognition config creates the corresponding pretraining
+    network (with lower dimensions than the network after pretraining). However, if, for example, we load a checkpoint
+    in training and only train for, let's say, 12 more epochs without pretraining, than the 12-epoch-checkpoint
+    has full dimensionality which does not match the pretrain network construction during recognition. In the
+    future, I am going to exclude the pretraining in general from all recognition configs but right now this would
+    change the hashes.
+    """
+    variant_params = copy.deepcopy(self.variant_params)
+    config_params = copy.deepcopy(variant_params["config"])
+    if epoch < 33:
+      config_params["pretrain"] = False
+    variant_params["config"] = config_params
+
+    return variant_params
+
   @abstractmethod
   def run_recog(self, checkpoints: Dict[int, Checkpoint]):
     pass
@@ -61,11 +80,6 @@ class TrainRecogPipeline(ABC):
   def run_training(self, import_model_train_epoch1: Optional[Checkpoint], train_alias: str) -> Dict[int, Checkpoint]:
     pass
 
+  @abstractmethod
   def run(self):
-    train_alias = "train"
-    self.checkpoints["train"] = self.run_training(
-      import_model_train_epoch1=self.import_model_train_epoch1,
-      train_alias=train_alias
-    )
-    if self.do_recog:
-      self.run_recog(checkpoints=self.checkpoints["train"])
+    pass

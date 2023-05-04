@@ -9,7 +9,12 @@ def label_alignment_flow(feature_net, alignment_cache_path=None):
     :param alignment_cache_path:
     :return:
     """
-    assert "features" in feature_net.get_output_ports()
+    if "features" in feature_net.get_output_ports():
+        out_link_name = "features"
+    else:
+        assert "samples" in feature_net.get_output_ports()
+        out_link_name = "samples"
+
     net = FlowNetwork()
     net.add_output("alignments")
     net.add_param(["id", "orthography", "TASK"])
@@ -19,7 +24,7 @@ def label_alignment_flow(feature_net, alignment_cache_path=None):
     net.interconnect_outputs(feature_net, mapping)
 
     aggregate = net.add_node("generic-aggregation-vector-f32", "aggregate")
-    net.link(mapping[feature_net.get_output_links("features").pop()], aggregate)
+    net.link(mapping[feature_net.get_output_links(out_link_name).pop()], aggregate)
 
     alignment = net.add_node(
         "speech-label-alignment",

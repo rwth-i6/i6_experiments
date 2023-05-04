@@ -3,7 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.corpora.corpora import SWBCorpora
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.config import SegmentalSWBExtendedConfig
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.segmental import SegmentalSWBExtendedConfig
 
 from i6_experiments.users.schmitt.chunking import chunking as chunking_func
 
@@ -14,6 +14,17 @@ import copy
 
 from typing import Dict, Optional
 from sisyphus import Path
+
+
+def remove_length_model_from_network(returnn_config: ReturnnConfig):
+  returnn_config.config["network"]["output"]["unit"].update({
+    "emit_prob0_0": {
+      "class": "constant", "value": 1., "with_batch_dim": True},
+    "emit_prob0": {
+      "class": "expand_dims", "from": "emit_prob0_0", "axis": "f"},
+  })
+
+  return returnn_config
 
 
 def get_train_config(
@@ -30,7 +41,8 @@ def get_train_config(
       "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
       "segment_file": dependencies.segment_paths[corpus_key],
       "alignment": dependencies.alignment_paths[corpus_key] if alignments is None else alignments[corpus_key],
-      "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path
+      "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "features": variant_params["config"]["features"],
+      "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
     }
 
     if corpus_key == "train":
@@ -57,6 +69,7 @@ def get_train_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  do_chunk_fix = config_params.pop("do_chunk_fix")
 
   train_config_obj = SegmentalSWBExtendedConfig(
     task="train",
@@ -73,7 +86,7 @@ def get_train_config(
   This is a custom chunking implementation: it only yields a chunk, if it does not only consist of blanks.
   This is done because the label-sync training loop breaks, if a sequence only contains blanks.
   """
-  if "chunking" in train_config_obj.config:
+  if "chunking" in train_config_obj.config and do_chunk_fix:
     chunk_size_data = train_config_obj.config["chunking"][0]["data"]
     chunk_size_align = train_config_obj.config["chunking"][0]["alignment"]
     chunk_step_data = train_config_obj.config["chunking"][1]["data"]
@@ -100,7 +113,8 @@ def get_recog_config(
   # create params for the dataset creation in RETURNN
   data_opts = {
     "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
-    "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict
+    "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict,
+    "features": variant_params["config"]["features"], "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
   }
 
   config_params = copy.deepcopy(variant_params["config"])
@@ -115,6 +129,7 @@ def get_recog_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["do_chunk_fix"]
   config = SegmentalSWBExtendedConfig(
     task="search", search_data_opts=data_opts, target="bpe", search_use_recomb=use_recomb, dump_output=dump_output,
     beam_size=beam_size, length_scale=length_scale, **config_params)
@@ -122,7 +137,9 @@ def get_recog_config(
 
 
 def get_compile_config(
-        variant_params: Dict, length_scale: float
+        variant_params: Dict,
+        length_scale: float,
+        remove_length_model: bool = False
 ) -> ReturnnConfig:
 
   config_params = copy.deepcopy(variant_params["config"])
@@ -132,6 +149,12 @@ def get_compile_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["do_chunk_fix"]
 
-  return SegmentalSWBExtendedConfig(
+  returnn_config = SegmentalSWBExtendedConfig(
     task="eval", feature_stddev=3., length_scale=length_scale, **config_params).get_config()
+
+  if remove_length_model:
+    returnn_config = remove_length_model_from_network(returnn_config)
+
+  return returnn_config

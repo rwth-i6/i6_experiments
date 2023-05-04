@@ -113,6 +113,7 @@ class OptunaReturnnTrainingJob(Job):
         self.out_trial_scores = {
             i: self.output_var(f"trial-{i:03d}/score") for i in range(self.num_trials)
         }
+        self.out_best_trial_num = self.output_var("best_trial_num")
         self.out_best_trial = self.output_var("best_trial", pickle=True)
         self.out_best_params = self.output_var("best_params")
         self.out_best_score = self.output_var("best_score")
@@ -356,7 +357,7 @@ class OptunaReturnnTrainingJob(Job):
         max_epoch = 0
         best_score = float("inf")
         trial_pruned = False
-        while return_code := training_process.poll() is None:
+        while training_process.poll() is None:
             time.sleep(30)
             try:
                 lr_data = self.parse_lr_file(task_id)
@@ -388,8 +389,7 @@ class OptunaReturnnTrainingJob(Job):
                 self.out_trial_learning_rates[task_id].get_path(),
             )
 
-        if not trial_pruned and return_code == 0:
-            assert max_epoch == self.num_epochs
+        if not trial_pruned and max_epoch == self.num_epochs:
             logging.info("Finished trial run normally")
             study.tell(trial_num, best_score, state=optuna.trial.TrialState.COMPLETE)
             os.link(
@@ -397,9 +397,9 @@ class OptunaReturnnTrainingJob(Job):
                 self.out_trial_learning_rates[task_id].get_path(),
             )
 
-        if not trial_pruned and return_code != 0:
+        if not trial_pruned and max_epoch != self.num_epochs:
             logging.info("Training had an error")
-            raise sp.CalledProcessError(return_code, cmd=run_cmd)
+            raise sp.CalledProcessError(-1, cmd=run_cmd)
 
     def select_best_trial(self) -> None:
         study = optuna.load_study(
@@ -410,6 +410,7 @@ class OptunaReturnnTrainingJob(Job):
         self.out_best_score.set(study.best_value)
         for task_id, trial_num in self.out_trial_nums.items():
             if trial_num.get() == study.best_trial.number:
+                self.out_best_trial_num.set(task_id)
                 self.link_to_final_output(task_id=task_id)
                 break
 

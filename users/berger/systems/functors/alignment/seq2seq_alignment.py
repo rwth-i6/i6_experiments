@@ -51,8 +51,6 @@ class Seq2SeqAlignmentFunctor(
 
             checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch)
 
-            crp.language_model_config.scale = lm_scale  # type: ignore
-
             if label_scorer_args.get("use_prior", False) and prior_scale:
                 prior_file = self._get_prior_file(
                     prior_config=prior_config, checkpoint=checkpoint, **prior_args

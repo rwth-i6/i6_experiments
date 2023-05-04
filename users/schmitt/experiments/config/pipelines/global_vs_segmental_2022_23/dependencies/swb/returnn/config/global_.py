@@ -62,7 +62,8 @@ def get_train_config(
     data_opts[corpus_key] = {
       "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
       "segment_file": dependencies.segment_paths[corpus_key], "label_hdf": dependencies.label_paths[corpus_key],
-      "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "label_name": "bpe"
+      "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "label_name": "bpe",
+      "raw_audio_path": dependencies.raw_audio_paths[corpus_key], "features": variant_params["config"]["features"],
     }
     if corpus_key == "train":
       data_opts[corpus_key].update({
@@ -114,7 +115,8 @@ def get_recog_config(
   # create params for the dataset creation in RETURNN
   data_opts = {
     "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
-    "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict
+    "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict,
+    "features": variant_params["config"]["features"], "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
   }
 
   config_params = copy.deepcopy(variant_params["config"])
