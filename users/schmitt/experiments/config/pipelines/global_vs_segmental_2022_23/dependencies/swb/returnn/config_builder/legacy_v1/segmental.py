@@ -173,6 +173,9 @@ class SegmentalSWBExtendedConfig:
       custom_construction_algo_str = "new_custom_construction_algo"
 
     self.function_prolog += [custom_construction_algo_func]
+
+    if self.task == "train" and enc_type == "conf-mohammad-11-7":
+      self.function_prolog += [speed_pert]
     # if self.task == "train":
     #   self.function_prolog += [
     #     switchout_target,

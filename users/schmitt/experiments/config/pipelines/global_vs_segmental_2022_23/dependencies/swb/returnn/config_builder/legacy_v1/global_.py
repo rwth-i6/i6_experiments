@@ -108,6 +108,9 @@ class GlobalEncoderDecoderConfig:
                           "from subprocess import check_output, CalledProcessError"]
     self.function_prolog = [custom_construction_algo_func, _mask, random_mask, transform]
 
+    if self.task == "train" and enc_type == "conf-mohammad-11-7":
+      self.function_prolog += [speed_pert]
+
     if glob_model_type == "best":
       self.network = get_net_dict_func(
         lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim, beam_size=beam_size, sos_idx=sos_idx,
