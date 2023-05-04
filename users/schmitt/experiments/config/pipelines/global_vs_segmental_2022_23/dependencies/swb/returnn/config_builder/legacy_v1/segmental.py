@@ -171,12 +171,13 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
     specaugment="albert", dynamic_lr=False, ctc_aux_loss=True, length_model_loss_scale=1., use_time_sync_loop=True,
     use_eos=False, use_glob_win=False, conf_use_blstm=False, conf_batch_norm=True, conf_num_blocks=12,
     use_zoneout=False, conf_dropout=0.03, conf_l2=None, behavior_version=None, nadam=False, force_eos=False,
-    import_model_train_epoch1=None,
-    **kwargs):
+    import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone", **kwargs):
 
     super().__init__(nadam=nadam, *args, **kwargs)
 
     self.batch_size = batch_size if self.task == "train" else 4000
+    if features == "raw":
+      self.batch_size *= 80
     # chunk_size = 60
     if chunk_size is not None:
       self.chunking = ({
@@ -255,7 +256,7 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
         use_time_sync_loop=use_time_sync_loop, use_eos=use_eos, conf_use_blstm=conf_use_blstm,
         conf_batch_norm=conf_batch_norm, conf_num_blocks=conf_num_blocks, use_zoneout=use_zoneout,
         conf_dropout=conf_dropout, conf_l2=conf_l2, behavior_version=behavior_version, force_eos=force_eos,
-        att_weights_kl_div_scale=att_weights_kl_div_scale)
+        att_weights_kl_div_scale=att_weights_kl_div_scale, set_dim_tag_correctly=set_dim_tag_correctly)
       if use_attention:
         self.network = add_attention(
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
@@ -266,7 +267,7 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
           EncValuePerHeadDim=int(lstm_dim * 2 // att_num_heads), l2=0.0001, AttentionDropout=weight_dropout,
           EncKeyPerHeadDim=int(lstm_dim // att_num_heads), att_query=att_query, ctx_with_bias=att_ctx_with_bias,
           segment_center_window_size=segment_center_window_size, use_time_sync_loop=use_time_sync_loop,
-          use_glob_win=use_glob_win, behavior_version=behavior_version)
+          use_glob_win=use_glob_win, behavior_version=behavior_version, set_dim_tag_correctly=set_dim_tag_correctly)
     else:
       assert network_type in ["global_import", "global_import_w_feedback", "global_import_wo_feedback_wo_state_vector"]
       if network_type in [

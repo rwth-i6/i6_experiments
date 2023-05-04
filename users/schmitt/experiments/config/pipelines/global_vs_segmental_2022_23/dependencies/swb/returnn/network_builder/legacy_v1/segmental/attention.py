@@ -28,7 +28,8 @@ def add_attention(
   net_dict, att_seg_emb_size, att_seg_use_emb, att_win_size, task, EncValueTotalDim, EncValueDecFactor, EncKeyTotalDim,
   att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area, att_ctx_reg,
   AttNumHeads, EncValuePerHeadDim, l2, EncKeyPerHeadDim, AttentionDropout, att_query, ctx_with_bias,
-  segment_center_window_size=None, use_time_sync_loop=False, use_glob_win=False, behavior_version=None):
+  set_dim_tag_correctly,
+  segment_center_window_size=None, use_time_sync_loop=False, use_glob_win=False, behavior_version=None,):
   """This function expects a network dictionary of an "extended transducer" model and adds a self-attention mechanism
   according to some parameters set in the returnn config.
 
@@ -265,7 +266,10 @@ def add_attention(
             "n_out": EncValueTotalDim // EncValueDecFactor, "L2": l2, "dropout": 0.2},
         })
 
-    att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+    if not set_dim_tag_correctly:
+      att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+    else:
+      att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t", dimension=None)')
 
     add_global_without_weight_feedback()
 
@@ -366,7 +370,10 @@ def add_attention(
 
     """Segmental Attention: a segment is defined as current frame + all previous blank frames"""
     if att_area == "seg":
-      att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+      if not set_dim_tag_correctly:
+        att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+      else:
+        att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t", dimension=None)')
 
       # add the base attention mechanism here. The variations below define the segment boundaries (segment_starts and
       # segment_lens)
@@ -504,7 +511,10 @@ def add_attention(
     #       "class": "switch", "condition": "prev:output_is_not_blank", "true_from": "att1", "false_from": "att1"}})
 
   def add_pooling():
-    att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+    if not set_dim_tag_correctly:
+      att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t")')
+    else:
+      att_time_tag = CodeWrapper('Dim(kind=Dim.Types.Spatial, description="att_t", dimension=None)')
     readout_level_dict.update({
       "segments0": {  # [B,t_sliced,D]
         "class": "slice_nd", "from": "base:encoder", "start": "segment_starts", "size": "segment_lens"},

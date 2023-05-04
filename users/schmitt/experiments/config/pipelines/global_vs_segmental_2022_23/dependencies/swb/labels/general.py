@@ -22,6 +22,7 @@ class LabelDefinition(ABC):
     self.test_stm_paths = SWBCorpora.test_stm_paths
     self.corpus_keys = SWBCorpora.corpus_keys
     self.corpus_paths = SWBCorpora.corpus_paths
+    self.raw_audio_paths = SWBCorpora.raw_audio_paths
 
   @property
   @abstractmethod

@@ -28,6 +28,18 @@ class SWBCorpora:
   feature_cache_paths["cv_test"] = feature_cache_paths["train"]
   feature_cache_paths["dev400"] = feature_cache_paths["dev"]
 
+  raw_audio_paths = {
+    "train": Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip", cached=True),
+    "dev": Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip", cached=True),
+    "hub5e_01": Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip", cached=True),
+    "rt03s": Path("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip", cached=True),
+  }
+  raw_audio_paths["devtrain"] = raw_audio_paths["train"]
+  raw_audio_paths["cv"] = raw_audio_paths["train"]
+  raw_audio_paths["cv300"] = raw_audio_paths["train"]
+  raw_audio_paths["cv_test"] = raw_audio_paths["train"]
+  raw_audio_paths["dev400"] = raw_audio_paths["dev"]
+
   segment_paths = {
     "dev": SegmentCorpusJob(corpus_paths["dev"], 1).out_single_segment_files[1],
     "hub5e_01": SegmentCorpusJob(corpus_paths["hub5e_01"], 1).out_single_segment_files[1],

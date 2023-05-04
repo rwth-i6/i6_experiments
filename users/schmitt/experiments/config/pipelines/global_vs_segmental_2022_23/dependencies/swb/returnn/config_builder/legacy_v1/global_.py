@@ -20,7 +20,7 @@ class GlobalEncoderDecoderConfig:
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
           use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best", att_ctx_reg=False,
-          import_model_train_epoch1=None):
+          import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone"):
 
     self.post_config = post_config
 
@@ -69,12 +69,17 @@ class GlobalEncoderDecoderConfig:
 
     self.extern_data = {
       "data": {
-        "dim": 40,
+        "dim": 40 if features == "gammatone" else 1,
         "same_dim_tags_as": {"t": CodeWrapper("DimensionTag(kind=DimensionTag.Types.Spatial, description='time')")}},
       label_name: {
         "dim": self.target_num_labels, "sparse": True}}
+    if set_dim_tag_correctly:
+      self.extern_data["data"]["same_dim_tags_as"]["t"] = CodeWrapper(
+        "DimensionTag(kind=DimensionTag.Types.Spatial, description='time', dimension=None)")
 
     self.batch_size = 10000 if self.task == "train" else 4000
+    if features == "raw":
+      self.batch_size *= 80
 
     if glob_model_type == "new":
       get_net_dict_func = get_new_net_dict
