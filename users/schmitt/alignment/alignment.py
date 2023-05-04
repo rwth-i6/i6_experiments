@@ -3,6 +3,9 @@ from sisyphus import *
 from recipe.i6_core.util import create_executable
 from recipe.i6_core.rasr.config import build_config_from_mapping
 from recipe.i6_core.rasr.command import RasrCommand
+from i6_core.returnn.config import ReturnnConfig
+
+from sisyphus import Path
 
 import subprocess
 import tempfile
@@ -523,6 +526,63 @@ class DumpAlignmentFromTxtJobV2(Job):
       "--rasr_config_file", "rasr.config",
       "--num_classes", str(self.num_classes),
       "--returnn-root", self.returnn_root
+    ]
+
+    create_executable("rnn.sh", command)
+    subprocess.check_call(["./rnn.sh"])
+
+    shutil.move("out_hdf_align", self.out_hdf_align.get_path())
+
+
+class ChooseBestAlignmentJob(Job):
+  def __init__(
+          self,
+          returnn_config: ReturnnConfig,
+          rasr_config_path: Path,
+          rasr_nn_trainer_exe: Path,
+          segment_path: Path,
+          align1_hdf_path: Path,
+          align2_hdf_path: Path,
+          label_name: str,
+          blank_idx: int,
+          mem_rqmt: int,
+          time_rqmt: int,
+          returnn_python_exe=None,
+          returnn_root=None):
+    self.returnn_python_exe = (returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE)
+    self.returnn_root = (returnn_root if returnn_root is not None else gs.RETURNN_ROOT)
+
+    self.rasr_config_path = rasr_config_path
+    self.returnn_config = returnn_config
+    self.rasr_nn_trainer_exe = rasr_nn_trainer_exe
+    self.segment_path = segment_path
+    self.align1_hdf_path = align1_hdf_path
+    self.align2_hdf_path = align2_hdf_path
+    self.label_name = label_name
+    self.blank_idx = blank_idx
+
+    self.mem_rqmt = mem_rqmt
+    self.time_rqmt = time_rqmt
+
+    self.out_hdf_align = self.output_path("out_hdf_align")
+
+  def tasks(self):
+    yield Task("run", rqmt={"cpu": 1, "gpu": 1, "mem": self.mem_rqmt, "time": self.time_rqmt})
+
+  def run(self):
+    self.returnn_config.write("returnn.config")
+    command = [
+      self.returnn_python_exe,
+      os.path.join(tools_dir, "choose_best_align.py"),
+      "returnn.config",
+      "--rasr_config_path", self.rasr_config_path.get_path(),
+      "--rasr_nn_trainer_exe", self.rasr_nn_trainer_exe.get_path(),
+      "--segment_path", self.segment_path.get_path(),
+      "--align1_hdf_path", self.align1_hdf_path.get_path(),
+      "--align2_hdf_path", self.align2_hdf_path.get_path(),
+      "--label_name", self.label_name,
+      "--blank_idx", str(self.blank_idx),
+      "--returnn_root", self.returnn_root
     ]
 
     create_executable("rnn.sh", command)
