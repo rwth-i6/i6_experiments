@@ -14,13 +14,31 @@ from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
 import numpy as np
 
-class SegmentalSWBBaseConfig:
-  def __init__(self, vocab,
-               target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40, beam_size=12,
-               epoch_split=6, rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
-               _attention_type=0, post_config={}, task="train", num_epochs=150, min_learning_rate=0.001/50.,
-               search_output_layer="decision", max_seqs=200, gradient_clip=0, gradient_noise=0.0, nadam=False,
-               newbob_learning_rate_decay=.7, newbob_multi_num_epochs=6, lr_measure="dev_error_output/label_prob"):
+
+class SegmentalSWBExtendedConfig:
+  def __init__(
+    self, vocab, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax, enc_type,
+    att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
+    att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
+    length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx, att_weights_kl_div_scale,
+    scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
+    hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout=False, weight_dropout=0.1,
+    fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
+    network_type="default", global_length_var=None, chunk_size=60, segment_center_window_size=None,
+    train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
+    search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
+    label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
+    label_model_focal_loss=2.0, import_model=None, learning_rates=None, length_scale=1., batch_size=10000,
+    specaugment="albert", dynamic_lr=False, ctc_aux_loss=True, length_model_loss_scale=1., use_time_sync_loop=True,
+    use_eos=False, use_glob_win=False, conf_use_blstm=False, conf_batch_norm=True, conf_num_blocks=12,
+    use_zoneout=False, conf_dropout=0.03, conf_l2=None, behavior_version=None, nadam=False, force_eos=False,
+    import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone",
+
+    target="orth_classes", target_num_labels=1030, targetb_blank_idx=0, data_dim=40, beam_size=12,
+    epoch_split=6, rasr_config="/u/schmitt/experiments/transducer/config/rasr-configs/merged.config",
+    _attention_type=0, post_config={}, task="train", num_epochs=150, min_learning_rate=0.001/50.,
+    search_output_layer="decision", max_seqs=200, gradient_clip=0, gradient_noise=0.0,
+    newbob_learning_rate_decay=.7, newbob_multi_num_epochs=6, lr_measure="dev_error_output/label_prob"):
 
     self.post_config = post_config
 
@@ -38,24 +56,29 @@ class SegmentalSWBBaseConfig:
 
     self.extern_data = {
       "data": {
-        "dim": data_dim,
+        "dim": 40 if features == "gammatone" else 1,
         "same_dim_tags_as": {"t": CodeWrapper("Dim(kind=Dim.Types.Spatial, description='time')")}},
       "alignment": {
         "dim": self.targetb_num_labels, "sparse": True,
         "same_dim_tags_as": {
           "t": CodeWrapper("Dim(kind=Dim.Types.Spatial, description='output-len')")}}}
+    if set_dim_tag_correctly:
+      self.extern_data["data"]["same_dim_tags_as"]["t"] = CodeWrapper(
+        "Dim(kind=Dim.Types.Spatial, description='time', dimension=None)")
+      self.extern_data["alignment"]["same_dim_tags_as"]["t"] = CodeWrapper(
+        "Dim(kind=Dim.Types.Spatial, description='time', dimension=None)")
     if task != "train":
       self.extern_data["targetb"] = {"dim": self.targetb_num_labels, "sparse": True,
-                                              "available_for_inference": False}
+                                     "available_for_inference": False}
 
     # other options
     self.network = {}
     self.use_tensorflow = True
     if self.task == "train":
-        self.beam_size = 4
+      self.beam_size = 4
     else:
-        self.num_epochs = num_epochs
-        self.beam_size = beam_size
+      self.num_epochs = num_epochs
+      self.beam_size = beam_size
     self.learning_rate = 0.001
     self.min_learning_rate = min_learning_rate
     self.search_output_layer = search_output_layer
@@ -89,91 +112,8 @@ class SegmentalSWBBaseConfig:
     self.import_prolog = ["from returnn.tf.util.data import Dim", "import os", "import numpy as np",
                           "from subprocess import check_output, CalledProcessError"]
 
-  def get_config(self):
-    config_dict = {k: v for k, v in self.__dict__.items() if
-                   not (k.endswith("_prolog") or k.endswith("_epilog") or k == "post_config")}
-    prolog = [prolog_item for k, prolog_list in self.__dict__.items() if k.endswith("_prolog") for prolog_item in
-              prolog_list]
-    epilog = [epilog_item for k, epilog_list in self.__dict__.items() if k.endswith("_epilog") for epilog_item in
-              epilog_list]
-    # print(epilog)
-    post_config = self.post_config
 
-    return ReturnnConfig(config=config_dict, post_config=post_config, python_prolog=prolog, python_epilog=epilog)
-
-  def set_for_search(self, dataset_key):
-    self.extern_data["targetb"] = {"dim": self.targetb_num_labels, "sparse": True, "available_for_inference": False}
-    self.dataset_epilog += ["search_data = get_dataset_dict('%s')" % dataset_key]
-    self.batch_size = 4000
-    self.beam_size = 12
-
-  def set_config_for_search(self, config: ReturnnConfig, dataset_key):
-    config.config["extern_data"]["targetb"] = {"dim": self.targetb_num_labels, "sparse": True,
-                                              "available_for_inference": False}
-    # index = config.python_epilog.index("eval_datasets = {'devtrain': get_dataset_dict('devtrain')}")
-    config.python_epilog += ["search_data = get_dataset_dict('%s')" % dataset_key]
-    # config.python_epilog.insert(index+1, "search_data = get_dataset_dict('%s')" % dataset_key)
-    config.config.update({
-      "batch_size": 4000,
-      "beam_size": 12
-    })
-
-  def update(self, **kwargs):
-    self.__dict__.update(kwargs)
-
-    if "EncKeyTotalDim" in kwargs:
-      self.EncKeyPerHeadDim = self.EncKeyTotalDim // self.AttNumHeads
-    if "AttNumHeads" in kwargs:
-      self.EncKeyPerHeadDim = self.EncKeyTotalDim // self.AttNumHeads
-      self.EncValuePerHeadDim = self.EncValueTotalDim // self.AttNumHeads
-
-
-class SegmentalSWBAlignmentConfig(SegmentalSWBBaseConfig):
-  def __init__(self, *args, **kwargs):
-
-    super().__init__(*args, **kwargs)
-
-    self.extern_data["align_score"] = {"shape": (1,), "dtype": "float32"}
-    self.extern_data[self.target] = {"dim": self.target_num_labels, "sparse": True}
-
-    self.function_prolog += [
-      rna_loss,
-      rna_alignment,
-      rna_alignment_out,
-      rna_loss_out,
-      get_alignment_net_dict,
-      custom_construction_algo_alignment
-    ]
-
-    self.network_prolog = [
-      "get_net_dict = get_alignment_net_dict",
-      "custom_construction_algo = custom_construction_algo_alignment"]
-
-    self.network_epilog = [
-      "network = get_net_dict(pretrain_idx=None)",
-      "pretrain = {'copy_param_mode': 'subset', 'construction_algo': custom_construction_algo}"]
-
-
-class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
-  def __init__(
-    self, *args, att_seg_emb_size, att_seg_use_emb, att_win_size, lstm_dim, direct_softmax, enc_type,
-    att_weight_feedback, att_type, att_seg_clamp_size, att_seg_left_size, att_seg_right_size, att_area,
-    att_num_heads, length_model_inputs, label_smoothing, prev_att_in_state, fast_rec_full, pretrain_reps,
-    length_model_type, att_ctx_with_bias, att_ctx_reg, exclude_sil_from_label_ctx, att_weights_kl_div_scale,
-    scheduled_sampling, use_attention, emit_extra_loss, efficient_loss, time_red, ctx_size="full",
-    hybrid_hmm_like_label_model=False, att_query="lm", prev_target_in_readout, weight_dropout,
-    fast_rec=False, pretrain=True, sep_sil_model=None, sil_idx=None, sos_idx=0, pretraining="old",
-    network_type="default", global_length_var=None, chunk_size=60, segment_center_window_size=None,
-    train_data_opts=None, cv_data_opts=None, devtrain_data_opts=None, search_data_opts=None,
-    search_use_recomb=False, feature_stddev=None, recomb_bpe_merging=True, dump_output=False,
-    label_dep_length_model=False, label_dep_means=None, max_seg_len=None, length_model_focal_loss=2.0,
-    label_model_focal_loss=2.0, import_model=None, learning_rates=None, length_scale=1., batch_size=10000,
-    specaugment="albert", dynamic_lr=False, ctc_aux_loss=True, length_model_loss_scale=1., use_time_sync_loop=True,
-    use_eos=False, use_glob_win=False, conf_use_blstm=False, conf_batch_norm=True, conf_num_blocks=12,
-    use_zoneout=False, conf_dropout=0.03, conf_l2=None, behavior_version=None, nadam=False, force_eos=False,
-    import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone", **kwargs):
-
-    super().__init__(nadam=nadam, *args, **kwargs)
+    ##########################################################################
 
     self.batch_size = batch_size if self.task == "train" else 4000
     if features == "raw":
@@ -302,3 +242,15 @@ class SegmentalSWBExtendedConfig(SegmentalSWBBaseConfig):
 
     if enc_type == "conf-wei" or enc_type == "conf-mohammad-11-7":
       self.import_prolog += ["import sys", "sys.setrecursionlimit(4000)"]
+
+  def get_config(self):
+    config_dict = {k: v for k, v in self.__dict__.items() if
+                   not (k.endswith("_prolog") or k.endswith("_epilog") or k == "post_config")}
+    prolog = [prolog_item for k, prolog_list in self.__dict__.items() if k.endswith("_prolog") for prolog_item in
+              prolog_list]
+    epilog = [epilog_item for k, epilog_list in self.__dict__.items() if k.endswith("_epilog") for epilog_item in
+              epilog_list]
+    # print(epilog)
+    post_config = self.post_config
+
+    return ReturnnConfig(config=config_dict, post_config=post_config, python_prolog=prolog, python_epilog=epilog)
