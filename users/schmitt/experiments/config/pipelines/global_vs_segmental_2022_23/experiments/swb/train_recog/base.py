@@ -80,11 +80,6 @@ class TrainRecogPipeline(ABC):
   def run_training(self, import_model_train_epoch1: Optional[Checkpoint], train_alias: str) -> Dict[int, Checkpoint]:
     pass
 
+  @abstractmethod
   def run(self):
-    train_alias = "train"
-    self.checkpoints["train"] = self.run_training(
-      import_model_train_epoch1=self.import_model_train_epoch1,
-      train_alias=train_alias
-    )
-    if self.do_recog:
-      self.run_recog(checkpoints=self.checkpoints["train"])
+    pass

@@ -45,3 +45,13 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
         test_corpora_keys=["dev"],
         calc_search_errors=True,
         search_error_corpus_key="cv")
+
+  def run(self):
+    train_alias = "train"
+    self.checkpoints["train"] = self.run_training(
+      import_model_train_epoch1=self.import_model_train_epoch1,
+      initial_lr=self.import_model_train_epoch1_initial_lr if self.,
+      train_alias=train_alias,
+    )
+    if self.do_recog:
+      self.run_recog(checkpoints=self.checkpoints["train"])
