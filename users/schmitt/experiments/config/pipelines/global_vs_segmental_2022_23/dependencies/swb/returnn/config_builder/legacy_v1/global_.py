@@ -143,6 +143,9 @@ class GlobalEncoderDecoderConfig:
       if pretrain_reps is not None:
         self.pretrain["repetitions"] = pretrain_reps
 
+    if enc_type == "conf-wei" or enc_type == "conf-mohammad-11-7":
+      self.import_prolog += ["import sys", "sys.setrecursionlimit(4000)"]
+
   def get_config(self):
     config_dict = {k: v for k, v in self.__dict__.items() if
                    not (k.endswith("_prolog") or k.endswith("_epilog") or k == "post_config")}
