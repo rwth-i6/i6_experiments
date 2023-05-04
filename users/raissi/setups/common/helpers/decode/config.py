@@ -1,6 +1,3 @@
-#again some other cool config file
-
-
 CONF_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     DecodingTensorMap.default(),
     in_encoder_output="length_masked/strided_slice",

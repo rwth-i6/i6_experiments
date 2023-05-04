@@ -2,7 +2,8 @@ from typing import Array
 
 
 def blstm_network(
-    layers: Array = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False
+    layers: Array = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False,
+    transform_func_name: str = 'transform',
 ):
     num_layers = len(layers)
     assert num_layers > 0
@@ -12,7 +13,7 @@ def blstm_network(
     if specaugment:
         result["source"] = {
             "class": "eval",
-            "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data={as_data}), network=self.network)",
+            "eval": f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={as_data}), network=self.network)",
         }
         input_first_layer = "source"
     else:
