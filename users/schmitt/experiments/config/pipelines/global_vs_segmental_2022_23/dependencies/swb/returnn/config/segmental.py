@@ -58,6 +58,7 @@ def get_train_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  do_chunk_fix = config_params.pop("do_chunk_fix")
 
   train_config_obj = SegmentalSWBExtendedConfig(
     task="train",
@@ -74,7 +75,7 @@ def get_train_config(
   This is a custom chunking implementation: it only yields a chunk, if it does not only consist of blanks.
   This is done because the label-sync training loop breaks, if a sequence only contains blanks.
   """
-  if "chunking" in train_config_obj.config:
+  if "chunking" in train_config_obj.config and do_chunk_fix:
     chunk_size_data = train_config_obj.config["chunking"][0]["data"]
     chunk_size_align = train_config_obj.config["chunking"][0]["alignment"]
     chunk_step_data = train_config_obj.config["chunking"][1]["data"]
@@ -117,6 +118,7 @@ def get_recog_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["do_chunk_fix"]
   config = SegmentalSWBExtendedConfig(
     task="search", search_data_opts=data_opts, target="bpe", search_use_recomb=use_recomb, dump_output=dump_output,
     beam_size=beam_size, length_scale=length_scale, **config_params)
