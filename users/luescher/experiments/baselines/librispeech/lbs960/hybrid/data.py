@@ -1,9 +1,13 @@
+from typing import Dict, Tuple
+
 from i6_core import corpus as corpus_recipe
 from i6_core import text
 
 from i6_experiments.common.datasets.librispeech import durations, num_segments
 from i6_experiments.users.luescher.setups.rasr.gmm_system import GmmSystem
-#from i6_experiments.common.setups.rasr.util.nn import SingleHdfDataInput
+from i6_experiments.users.luescher.setups.rasr.util.nn.data import HdfDataInput, RasrDataInput
+
+# from i6_experiments.common.setups.rasr.util.nn import SingleHdfDataInput
 
 from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.baseline_args import get_align_dev_args
 
@@ -12,7 +16,28 @@ from experimental.rasr.archiver import ArchiverJob
 from .default_tools import RETURNN_EXE, RETURNN_RC_ROOT
 
 
-def get_corpus_data_inputs(gmm_system: GmmSystem):
+def get_corpus_data_inputs(
+    gmm_system: GmmSystem,
+) -> Tuple[
+    Dict[str, HdfDataInput],
+    Dict[str, HdfDataInput],
+    Dict[str, HdfDataInput],
+    Dict[str, RasrDataInput],
+    Dict[str, RasrDataInput],
+]:
+    """
+    get corpus files and split via segment files
+
+    5 data dicts as output
+    - train: full train
+    - cv: subset from dev-clean and dev-other
+    - devtrain: subset from train
+    - dev
+    - test
+
+    :param gmm_system:
+    :return:
+    """
     train_corpus_path = gmm_system.corpora["train-other-960"].corpus_file
     dev_clean_corpus_path = gmm_system.corpora["dev-clean"].corpus_file
     dev_other_corpus_path = gmm_system.corpora["dev-other"].corpus_file
@@ -21,17 +46,11 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
     total_dev_clean_num_segments = num_segments["dev-clean"]
     total_dev_other_num_segments = num_segments["dev-other"]
 
-    all_train_segments = corpus_recipe.SegmentCorpusJob(
-        train_corpus_path, 1
-    ).out_single_segment_files[1]
+    all_train_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
 
-    all_dev_clean_segments = corpus_recipe.SegmentCorpusJob(
-        dev_clean_corpus_path, 1
-    ).out_single_segment_files[1]
+    all_dev_clean_segments = corpus_recipe.SegmentCorpusJob(dev_clean_corpus_path, 1).out_single_segment_files[1]
 
-    all_dev_other_segments = corpus_recipe.SegmentCorpusJob(
-        dev_other_corpus_path, 1
-    ).out_single_segment_files[1]
+    all_dev_other_segments = corpus_recipe.SegmentCorpusJob(dev_other_corpus_path, 1).out_single_segment_files[1]
 
     dev_train_size = 500 / total_train_num_segments
     cv_clean_size = 150 / total_dev_clean_num_segments
@@ -54,9 +73,7 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
     dev_clean_segments = splitted_dev_clean_segments_job.out_segments["cv"]
     dev_other_segments = splitted_dev_other_segments_job.out_segments["cv"]
 
-    cv_segments = text.PipelineJob(
-        [dev_clean_segments, dev_other_segments], [], mini_task=True
-    ).out
+    cv_segments = text.PipelineJob([dev_clean_segments, dev_other_segments], [], mini_task=True).out
 
     merged_dev_corpus_path = corpus_recipe.MergeCorporaJob(
         [dev_clean_corpus_path, dev_other_corpus_path],
@@ -64,15 +81,11 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
         corpus_recipe.MergeStrategy.FLAT,
     ).out_merged_corpus
 
-    cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(
-        merged_dev_corpus_path, cv_segments
-    ).out_corpus
+    cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(merged_dev_corpus_path, cv_segments).out_corpus
 
     # ******************** NN Init ********************
 
-    nn_train_data = nn_devtrain_data = gmm_system.outputs["train-other-960"][
-        "final"
-    ].as_returnn_rasr_data_input()
+    nn_train_data = nn_devtrain_data = gmm_system.outputs["train-other-960"]["final"].as_returnn_rasr_data_input()
     nn_train_data.update_crp_with(concurrent=1)
     nn_train_data_inputs = {
         "train-other-960.train": nn_train_data,
@@ -87,10 +100,7 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
     gmm_system.crp["cv"].segment_path = cv_segments
     gmm_system.crp["cv"].concurrent = 1
     gmm_system.feature_bundles["cv"] = text.PipelineJob(
-        [
-            gmm_system.feature_bundles["dev-clean"],
-            gmm_system.feature_bundles["dev-other"]
-        ],
+        [gmm_system.feature_bundles["dev-clean"], gmm_system.feature_bundles["dev-other"]],
         [],
         mini_task=True,
     ).out
@@ -121,9 +131,7 @@ def get_corpus_data_inputs(gmm_system: GmmSystem):
         # "dev-clean": gmm_system.outputs["dev-clean"][
         #    "final"
         # ].as_returnn_rasr_data_input(),
-        "dev-other": gmm_system.outputs["dev-other"][
-            "final"
-        ].as_returnn_rasr_data_input(),
+        "dev-other": gmm_system.outputs["dev-other"]["final"].as_returnn_rasr_data_input(),
     }
     nn_test_data_inputs = {
         # "test-clean": gmm_system.outputs["test-clean"][
