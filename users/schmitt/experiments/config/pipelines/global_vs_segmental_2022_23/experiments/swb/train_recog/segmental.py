@@ -184,6 +184,34 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
 
+  def run_rasr_recog_wo_length_model(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+    for epoch in self.rasr_recog_epochs:
+      checkpoint = checkpoints[epoch]
+      base_alias = "%s/%s/epoch_%d/rasr_recog_wo_length_model" % (self.base_alias, train_alias, epoch)
+
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
+      run_rasr_segmental_decoding(
+        dependencies=self.dependencies,
+        variant_params=variant_params,
+        base_alias=base_alias,
+        checkpoint=checkpoint,
+        test_corpora_keys=["dev"],
+        calc_search_errors=True,
+        search_error_corpus_key="cv",
+        label_pruning_limit=12,
+        word_end_pruning_limit=12,
+        max_segment_len=20,
+        concurrent=4,
+        length_scale=0.,
+        length_norm=True,
+        cv_realignment=self._get_realignment(
+          corpus_key="cv",
+          checkpoint=checkpoint,
+          length_scale=0.,
+          epoch=epoch,
+          train_alias=train_alias))
+
   def run_huge_beam_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     last_epoch, last_checkpoint = list(checkpoints.items())[-1]
     base_alias = "%s/%s/epoch_%d/huge_beam_recog" % (self.base_alias, train_alias, last_epoch)
@@ -214,6 +242,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       self.run_standard_recog(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "returnn_w_recomb":
       self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "rasr_wo_length_model":
+      self.run_rasr_recog_wo_length_model(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:
