@@ -34,7 +34,8 @@ class RasrRealignmentExperiment:
           label_pruning: float,
           label_pruning_limit: int,
           concurrent: int,
-          use_gpu: bool
+          use_gpu: bool,
+          remove_length_model: bool
   ):
 
     self.concurrent = concurrent
@@ -48,7 +49,10 @@ class RasrRealignmentExperiment:
     self.variant_params = variant_params
     self.dependencies = dependencies
 
-    self.returnn_config = get_segmental_compile_config(self.variant_params, length_scale=length_scale)
+    self.returnn_config = get_segmental_compile_config(
+      self.variant_params,
+      length_scale=length_scale,
+      remove_length_model=remove_length_model)
 
     self.base_alias = base_alias
 

@@ -22,6 +22,7 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
           import_model_do_initial_realignment: bool = False,
+          import_model_is_global: bool = False,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -46,6 +47,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     self.import_model_do_initial_realignment = import_model_do_initial_realignment
     if import_model_do_initial_realignment:
       self.base_alias = "%s_initial_realignment" % self.base_alias
+
+    assert not import_model_is_global or self.import_model_train_epoch1 is not None, "Setting 'import_model_is_global' does not have an effect when not importing a model"
+    self.import_model_is_global = import_model_is_global
 
   def compare_alignments(
           self,
@@ -109,7 +113,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           epoch: int,
           checkpoint: Checkpoint,
           length_scale: float,
-          train_alias: str) -> Path:
+          train_alias: str,
+          remove_length_model: bool = False) -> Path:
     base_alias = "%s/%s/epoch_%d" % (self.base_alias, train_alias, epoch)
     return run_rasr_segmental_realignment(
       dependencies=self.dependencies,
@@ -117,7 +122,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint=checkpoint,
       corpus_key=corpus_key,
       base_alias=base_alias,
-      length_scale=length_scale)
+      length_scale=length_scale,
+      remove_length_model=remove_length_model)
 
   def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
@@ -215,7 +221,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint=self.import_model_train_epoch1,
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
-          train_alias="import_model")
+          train_alias="import_model",
+          remove_length_model=self.import_model_is_global)
 
     train_alias = "train"
     self.checkpoints["train"] = self.run_training(

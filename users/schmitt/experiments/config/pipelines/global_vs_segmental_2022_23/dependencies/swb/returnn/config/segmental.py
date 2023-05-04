@@ -16,6 +16,17 @@ from typing import Dict, Optional
 from sisyphus import Path
 
 
+def remove_length_model_from_network(returnn_config: ReturnnConfig):
+  returnn_config.config["network"]["output"]["unit"].update({
+    "emit_prob0_0": {
+      "class": "constant", "value": 1., "with_batch_dim": True},
+    "emit_prob0": {
+      "class": "expand_dims", "from": "emit_prob0_0", "axis": "f"},
+  })
+
+  return returnn_config
+
+
 def get_train_config(
         dependencies: SegmentalLabelDefinition,
         alignments: Optional[Dict[str, Path]],
@@ -126,7 +137,9 @@ def get_recog_config(
 
 
 def get_compile_config(
-        variant_params: Dict, length_scale: float
+        variant_params: Dict,
+        length_scale: float,
+        remove_length_model: bool = False
 ) -> ReturnnConfig:
 
   config_params = copy.deepcopy(variant_params["config"])
@@ -136,6 +149,12 @@ def get_compile_config(
   del config_params["model_type"]
   del config_params["returnn_python_exe"]
   del config_params["returnn_root"]
+  del config_params["do_chunk_fix"]
 
-  return SegmentalSWBExtendedConfig(
+  returnn_config = SegmentalSWBExtendedConfig(
     task="eval", feature_stddev=3., length_scale=length_scale, **config_params).get_config()
+
+  if remove_length_model:
+    returnn_config = remove_length_model_from_network(returnn_config)
+
+  return returnn_config
