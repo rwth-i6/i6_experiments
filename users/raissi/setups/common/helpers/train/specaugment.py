@@ -207,6 +207,7 @@ def transform(x, network):
     x = network.cond_on_train(get_masked, lambda: x)
 
     return x
+<<<<<<< HEAD
 
 
 
@@ -402,3 +403,5 @@ def transform(data, network):
 """
     return mask_code_blstm
 
+=======
+>>>>>>> 8754e54c (wip added conformer and blstm configs)

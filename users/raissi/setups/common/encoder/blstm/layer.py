@@ -2,8 +2,12 @@ from typing import Array
 
 
 def blstm_network(
+<<<<<<< HEAD
     layers: Array = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False,
     transform_func_name: str = 'transform',
+=======
+    layers: Array = 6 * [512], dropout: float = 0.1, l2: float = 0.1, specaugment: bool = True, as_data: bool = False
+>>>>>>> 8754e54c (wip added conformer and blstm configs)
 ):
     num_layers = len(layers)
     assert num_layers > 0
@@ -13,7 +17,11 @@ def blstm_network(
     if specaugment:
         result["source"] = {
             "class": "eval",
+<<<<<<< HEAD
             "eval": f"self.network.get_config().typed_value('{transform_func_name}')(source(0, as_data={as_data}), network=self.network)",
+=======
+            "eval": f"self.network.get_config().typed_value('transform')(source(0, as_data={as_data}), network=self.network)",
+>>>>>>> 8754e54c (wip added conformer and blstm configs)
         }
         input_first_layer = "source"
     else:
@@ -45,6 +53,7 @@ def blstm_network(
     }
 
     return result
+<<<<<<< HEAD
 
 
 def add_subsmapling_via_max_pooling(network_dict: Dict, pool_factor: int=2, num_layers: int=None)-> Dict:
@@ -81,3 +90,5 @@ def add_subsampling_via_feature_stacking(network_dict: Dict, stride_factor: int 
         network_dict[f"{pre_name}_1"]["from"] = ["feature_stacking_merged"]
 
     return network_dict
+=======
+>>>>>>> 8754e54c (wip added conformer and blstm configs)

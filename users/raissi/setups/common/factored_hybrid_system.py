@@ -40,6 +40,18 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
 )
 
+import i6_experiments.users.raissi.setups.common.encoder.blstm as blstm_setup
+import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_setup
+import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
+import i6_experiments.users.raissi.common.helpers.train as train_helpers
+
+from i6_experiments.users.raissi.setups.common.specaugment import (
+    mask as sa_mask,
+    random_mask as sa_random_mask,
+    summary as sa_summary,
+    transform as sa_transform,
+)
+
 
 #user based modules
 from i6_experiments.users.raissi.setups.common.data.pipeline_helpers import (
@@ -154,11 +166,12 @@ class FactoredHybridBaseSystem(NnSystem):
             returnn_root: Optional[str] = None,
             returnn_python_home: Optional[str] = None,
             returnn_python_exe: Optional[tk.Path] = None,
-            rasr_binary_path: Optional[tk.Path] = tk.Path(('/').join([gs.RASR_ROOT, 'arch', 'linux-x86_64-standard'])),
+            rasr_binary_path: Optional[tk.Path] = None,
             rasr_init_args:   RasrInitArgs = None,
             train_data: Dict[str, RasrDataInput] = None,
             dev_data:   Dict[str, RasrDataInput] = None,
             test_data:  Dict[str, RasrDataInput] = None,
+            initial_nn_args: Dict = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -203,10 +216,20 @@ class FactoredHybridBaseSystem(NnSystem):
 
         # train information
         self.nn_feature_type = 'gt' #Gammatones
-        self.initial_train_args = {'time_rqmt': 168,
-                                   'mem_rqmt': 40,
-                                   'log_verbosity': 3,
-                                   }
+        self.initial_nn_args = {'num_input': None,
+                                'partition_epochs': None,
+                                'time_rqmt': 168,
+                                'mem_rqmt': 40,
+                                'log_verbosity': 3,}
+
+        self.initial_nn_args.update(**initial_nn_args)
+
+        self.partition_epochs = {'train': 6, 'cv': 1}
+        self.shuffling_params = {
+            "shuffle_data": True,
+            "segment_order_sort_by_time_length_chunk_size": 348,
+        }
+        self.fullsum_log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
 
         # extern classes and objects
         self.training_criterion: TrainingCriterion = TrainingCriterion.fullsum
@@ -501,9 +524,7 @@ class FactoredHybridBaseSystem(NnSystem):
             returnn_cfg.config['network'][f'{o}-output']['from'] = source
         return returnn_cfg
 
-    def set_local_flf_tool(self, path=None):
-        if path is None:
-            path = "/u/raissi/dev/rasr_tf14py38_private/src/Tools/Flf/flf-tool.linux-x86_64-standard"
+    def set_local_flf_tool_for_decoding(self, path=None):
         self.csp["base"].flf_tool_exe = path
 
     # --------------------- Init procedure -----------------
@@ -557,14 +578,18 @@ class FactoredHybridBaseSystem(NnSystem):
                 self._update_crp_am_setting(crp_key=self.crp_names[crp_k], tdp_type=types['eval'],
                                             add_base_allophones=add_base_allophones)
 
-    def set_rasr_returnn_input_datas(self, input_key, chunk_size):
+    def set_rasr_returnn_input_datas(self, input_key: str, is_cv_separate_from_train=False):
         for k in self.corpora.keys():
             assert self.inputs[k] is not None
             assert self.inputs[k][input_key] is not None
 
+        if is_cv_separate_from_train:
+            f = self.prepare_rasr_train_data_with_separate_cv
+        else: f = self.prepare_rasr_train_data_with_cv_from_train
+
         nn_train_data_inputs, \
         nn_cv_data_inputs, \
-        nn_devtrain_data_inputs = self.prepare_train_data_with_cv_from_train(input_key, chunk_size)
+        nn_devtrain_data_inputs = f(input_key)
 
         nn_dev_data_inputs = {
             self.crp_names['dev']: self.inputs[self.crp_names['dev']][input_key].as_returnn_rasr_data_input(),
@@ -574,23 +599,23 @@ class FactoredHybridBaseSystem(NnSystem):
         self.crp_names['test']: self.inputs[self.crp_names['test']][input_key].as_returnn_rasr_data_input(),
 
         }
-
         self._init_datasets(
             train_data=nn_train_data_inputs,
             cv_data=nn_cv_data_inputs,
             devtrain_data=nn_devtrain_data_inputs,
             dev_data=nn_dev_data_inputs,
             test_data=nn_test_data_inputs)
+
         label_info_args = {
             'n_states_per_phone': self.label_info.n_states_per_phone,
             'n_contexts': self.label_info.n_contexts}
         self.initial_nn_args.update(label_info_args)
 
     # ----- data preparation for train-----------------------------------------------------
-
-    def prepare_rasr_train_data_with_cv_from_train(self, input_key, chunk_size=1152, cv_num_segments=100):
+    def prepare_rasr_train_data_with_cv_from_train(self, input_key: str, cv_num_segments: int=100):
         #from i6_experiments.common.datasets.librispeech.constants import num_segments
         #ToDo: decide how you want to set the number of segments
+        print("WARNING: hardcoded number of segments")
 
         key = train_key if train_key is not None else self.train_key
         train_corpus_path = self.corpora[key].corpus_file
@@ -610,9 +635,7 @@ class FactoredHybridBaseSystem(NnSystem):
         ).out
 
         # ******************** NN Init ********************
-        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
-                                                                                        segment_order_sort_by_time_length=True,
-                                                                                        chunk_size=chunk_size)
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffling_parameters=self.shuffling_params)
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
 
@@ -627,8 +650,9 @@ class FactoredHybridBaseSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
 
-    def prepare_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', chunk_size=1152, configure_rasr_automaton=False):
+    def prepare_rasr_train_data_with_separate_cv(self, input_key, cv_corpus_key='dev-other', configure_rasr_automaton=False):
         train_corpus_key = self.train_key
+        self.input_key = input_key
 
         train_corpus = self.corpora[train_corpus_key].corpus_file
         cv_corpus    = self.corpora[cv_corpus_key].corpus_file
@@ -656,14 +680,15 @@ class FactoredHybridBaseSystem(NnSystem):
             self.crp[self.crp_names['bw']] = crp_bw
 
 
-
-        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(shuffle_data=True,
-                                                                                          segment_order_sort_by_time_length=True,
-                                                                                          chunk_size=chunk_size)
+        nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            shuffling_parameters=self.shuffling_params,
+            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs['train']),
+        )
         nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names['train']: nn_train_data}
 
-        nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input()
+        nn_cv_data = self.inputs[cv_corpus_key][input_key].as_returnn_rasr_data_input(
+            returnn_rasr_training_args=ReturnnRasrTrainingArgs(partition_epochs=self.partition_epochs['cv']))
         nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names['cvtrain']: nn_cv_data}
 
@@ -674,7 +699,55 @@ class FactoredHybridBaseSystem(NnSystem):
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-    # -------------------- Training --------------------
+    # -------------------------------------------- Training --------------------------------------------------------
+    def set_standard_prolog_and_epilog_to_config(self, config: Dict):
+        #this is not a returnn config, but the dict params
+        assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
+        time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
+
+        config["extern_data"] = {
+            "data": {
+                "dim": self.initial_nn_args["num_input"],
+                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            },
+            **extern_data.get_extern_data_config(label_info=self.label_info, time_tag_name=time_tag_name),
+        }
+        #these two are gonna get popped and stored during returnn config object creation
+        config["python_prolog"] = {"numpy": "import numpy as np",
+                                   "time": time_prolog}
+        config["python_epilog"] = {
+            "functions": [
+                sa_mask,
+                sa_random_mask,
+                sa_summary,
+                sa_transform,
+            ],
+        }
+
+        return config
+
+    #-------------encoder architectures -------------------------------
+    def get_blstm_network(self, **kwargs):
+        #this is without any loss and output layers
+        network = blstm_setup.blstm_network(**kwargs)
+        if self.training_criterion != TrainingCriterion.fullsum:
+            network = augment_net_with_label_pops(network, label_info=self.label_info)
+        return network
+
+    def get_conformer_network(self, chunking, conf_model_dim, aux_loss_args):
+        # this only includes auxilaury losses
+        network_builder = conformer_setup.get_best_conformer_network(
+            conf_model_dim,
+            chunking=chunking,
+            focal_loss_factor=aux_loss_args["focal_loss_factor"],
+            label_smoothing=aux_loss_args["label_smoothing"],
+            num_classes=s.label_info.get_n_of_dense_classes(),
+        )
+        network = network_builder.network
+        if self.training_criterion != TrainingCriterion.fullsum:
+            network = augment_net_with_label_pops(network, label_info=s.label_info)
+        return network
+
     def returnn_training(
             self,
             name,
@@ -685,6 +758,12 @@ class FactoredHybridBaseSystem(NnSystem):
             devtrain_corpus_key=None,
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        if self.inputs[self.train_key][self.input_key][self.crp_names['train']].alignments is None:
+            returnn_config = fh_augmenter.add_fast_bw_layer(crp=bw_crp,
+                                                             returnn_config=returnn_config,
+                                                             log_linear_scales=self.fullsum_log_linear_scales,
+                                                             )
 
         returnn_config.config["train"] = self.train_input_data[
             train_corpus_key
@@ -707,6 +786,8 @@ class FactoredHybridBaseSystem(NnSystem):
             train_job=train_job,
             name=name,
         )
+
+        embed()
 
         return train_job
 
