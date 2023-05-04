@@ -1,4 +1,6 @@
-from recipe.i6_experiments.users.schmitt.experiments.swb.transducer import conformer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1 import \
+  conformer
+
 
 def get_net_dict(
   lstm_dim, att_num_heads, att_key_dim, beam_size, sos_idx, l2, learning_rate, time_red, feature_stddev, target, task):
@@ -575,6 +577,8 @@ def get_best_net_dict(
 
       "encoder": {"class": "copy", "from": ["lstm5_fw", "lstm5_bw"]},  # dim: EncValueTotalDim
     })
+  elif enc_type == "conf-mohammad-11-7":
+    net_dict.update(conformer.get_conformer_encoder_mohammad_11_7())
   else:
     assert enc_type == "conf-wei"
     net_dict.update(conformer.get_conformer_encoder_wei(use_blstm=True, batch_norm=True))

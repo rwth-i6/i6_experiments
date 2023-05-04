@@ -1,6 +1,6 @@
 from i6_core.returnn.config import CodeWrapper
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.segmental import \
-  conformer
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1 import \
+    conformer
 
 
 # from returnn.tf.util.data import Dim

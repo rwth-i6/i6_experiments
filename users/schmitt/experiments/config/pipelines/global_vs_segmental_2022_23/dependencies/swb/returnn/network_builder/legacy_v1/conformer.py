@@ -595,6 +595,10 @@ def get_conformer_encoder_wei(use_blstm=False, batch_norm=True, num_blocks=12):
 
 
 def get_conformer_encoder_mohammad_11_7():
+  """
+  Mohammad best checkpoint: /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.McnkI5pl8taD/output/models/epoch.900
+  TODO: check if importing Mohammad's checkpoint leads to the same result: 11.7WER on Hub5'00
+  """
   network = {
     "source": {
       "class": "eval",
@@ -3357,7 +3361,7 @@ def get_conformer_encoder_mohammad_11_7():
       "frame_shift": 80,
       "frame_size": 200,
       "fft_size": 256,
-      "from": "data:audio_features",
+      "from": "data:data",
     },
     "abs": {"class": "activation", "from": "stft", "activation": "abs"},
     "power": {"class": "eval", "from": "abs", "eval": "source(0) ** 2"},
