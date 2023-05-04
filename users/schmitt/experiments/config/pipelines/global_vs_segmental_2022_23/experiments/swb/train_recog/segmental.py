@@ -130,9 +130,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_returnn_simple_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
@@ -146,9 +148,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/standard_recog" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_rasr_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
@@ -166,9 +170,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/returnn_w_recomb" % (self.base_alias, train_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_returnn_simple_segmental_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],

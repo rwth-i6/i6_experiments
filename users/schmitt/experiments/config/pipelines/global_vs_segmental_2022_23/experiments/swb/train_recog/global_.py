@@ -35,9 +35,11 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
     for i, (epoch, checkpoint) in enumerate(checkpoints.items()):
       base_alias = "%s/epoch_%d" % (self.base_alias, epoch)
 
+      variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
       run_returnn_label_sync_decoding(
         dependencies=self.dependencies,
-        variant_params=self.variant_params,
+        variant_params=variant_params,
         base_alias=base_alias,
         checkpoint=checkpoint,
         test_corpora_keys=["dev"],
