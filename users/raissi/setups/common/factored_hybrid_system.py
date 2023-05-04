@@ -45,7 +45,8 @@ import i6_experiments.users.raissi.setups.common.encoder.conformer as conformer_
 import i6_experiments.users.raissi.setups.common.helpers.network.augment as fh_augmenter
 import i6_experiments.users.raissi.common.helpers.train as train_helpers
 
-from i6_experiments.users.raissi.setups.common.specaugment import (
+
+from i6_experiments.users.raissi.setups.common.helpers.train.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
@@ -216,8 +217,11 @@ class FactoredHybridBaseSystem(NnSystem):
 
         # train information
         self.nn_feature_type = 'gt' #Gammatones
+        # mostly used as placeholders and info to the user about what is necessary
         self.initial_nn_args = {'num_input': None,
                                 'partition_epochs': None,
+                                "num_epochs": None,
+                                "keep_epochs": None,
                                 'time_rqmt': 168,
                                 'mem_rqmt': 40,
                                 'log_verbosity': 3,}
@@ -277,13 +281,6 @@ class FactoredHybridBaseSystem(NnSystem):
             "decode_job": {"runner": None, "args": None},
             "extra_returnn_code": {"epilog": "", "prolog": ""}
         }
-
-
-    def set_returnn_config_for_experiment(self, key, returnn_config):
-        assert key in self.experiments.keys()
-        self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------- Internal helpers --------------------
     def _init_datasets(
@@ -747,6 +744,30 @@ class FactoredHybridBaseSystem(NnSystem):
         if self.training_criterion != TrainingCriterion.fullsum:
             network = augment_net_with_label_pops(network, label_info=s.label_info)
         return network
+
+    #-------------------------------------------------------------------------
+    def set_returnn_config_for_experiment(self, key: str, config_dict: Dict):
+        assert key in self.experiments.keys()
+        assert num_epochs in self.initial_nn_args, "set the number of epochs in the nn args"
+        python_prolog = config_dict.pop('python_prolog') if 'python_prolog' in config_dict else None
+        python_epilog = config_dict.pop('python_epilog') if 'python_epilog' in config_dict else None
+
+        base_post_config = {
+            "cleanup_old_models": {
+                "keep_best_n": 3,
+                "keep": self.initial_nn_args["keep_epochs"],
+            },
+        }
+        returnn_config = returnn.ReturnnConfig(
+            config=config_dict,
+            post_config=base_post_config,
+            hash_full_python_code=True,
+            python_prolog=python_prolog,
+            python_epilog=python_epilog,
+        )
+        self.experiments[key]["returnn_config"] = returnn_config
+        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
+        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     def returnn_training(
             self,

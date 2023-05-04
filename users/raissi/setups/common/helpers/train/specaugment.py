@@ -207,7 +207,6 @@ def transform(x, network):
     x = network.cond_on_train(get_masked, lambda: x)
 
     return x
-<<<<<<< HEAD
 
 
 
@@ -319,6 +318,7 @@ def get_funcs_jingjing():
         if k in ["_mask", "_random_mask", "specaugment_eval_func"]:
             funcs.append(v)
     return funcs
+<<<<<<< HEAD
 
 
 #---------------------------- tina Legacy BLSTM -------------------------------------------------
@@ -403,5 +403,3 @@ def transform(data, network):
 """
     return mask_code_blstm
 
-=======
->>>>>>> 8754e54c (wip added conformer and blstm configs)
