@@ -1,16 +1,17 @@
 import copy
-import typing
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from i6_experiments.users.raissi.common.data.factored_label import (
-    LabelInfo,
-    PhonemeStateClasses,
-    PhoneticContext
-)
+from sisyphus import tk
+
+import i6_core.rasr as rasr
+import i6_core.returnn as returnn
+
+from i6_experiments.users.raissi.setups.common.data.factored_label import LabelInfo, PhonemeStateClasses, PhoneticContext
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
-Layer = typing.Dict[str, typing.Any]
-Network = typing.Dict[str, Layer]
+Layer = Dict[str, Any]
+Network = Dict[str, Layer]
 
 
 def add_mlp(
@@ -18,9 +19,9 @@ def add_mlp(
     layer_name: str,
     size: int,
     *,
-    source_layer: typing.Union[str, typing.List[str]] = "encoder-output",
+    source_layer: Union[str, List[str]] = "encoder-output",
     prefix: str = "",
-    l2: typing.Optional[float] = None,
+    l2: Optional[float] = None,
     init: str = DEFAULT_INIT,
 ) -> str:
     l_one_name = f"{prefix}linear1-{layer_name}"
@@ -49,7 +50,7 @@ def add_mlp(
     return l_two_name
 
 
-def get_embedding_layer(source: typing.Union[str, typing.List[str]], dim: int, l2=0.01):
+def get_embedding_layer(source: Union[str, List[str]], dim: int, l2=0.01):
     return {
         "with_bias": False,
         "L2": l2,
@@ -65,7 +66,7 @@ def pop_phoneme_state_classes(
     network: Network,
     labeling_input: str,
     remaining_classes: int,
-) -> typing.Tuple[Network, str, int]:
+) -> Tuple[Network, str, int]:
     if label_info.phoneme_state_classes == PhonemeStateClasses.boundary:
         class_layer_name = "boundaryClass"
         labeling_output = "popBoundary"
@@ -184,7 +185,7 @@ def augment_net_with_monophone_outputs(
     *,
     add_mlps=True,
     use_multi_task=True,
-    final_ctx_type: typing.Optional[PhoneticContext] = None,
+    final_ctx_type: Optional[PhoneticContext] = None,
     focal_loss_factor=2.0,
     label_smoothing=0.0,
     l2=None,
@@ -562,3 +563,123 @@ def augment_net_with_triphone_outputs(
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
+
+
+def add_fast_bw_layer(
+    crp: rasr.CommonRasrParameters,
+    returnn_config: returnn.ReturnnConfig,
+    log_linear_scales: Dict = None,
+    import_model: [tk.Path, str] = None,
+    reference_layer: str = "center-output",
+    label_prior: Optional[returnn.CodeWrapper] = None,
+    extra_rasr_config: Optional[rasr.RasrConfig] = None,
+    extra_rasr_post_config: Optional[rasr.RasrConfig] = None,
+)-> returnn.ReturnnConfig:
+
+
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    transition_types = ["*", "silence"]
+    if crp.acoustic_model_config.tdp.tying_type == "global-and-nonword":
+        for nw in [0, 1]:
+            transition_types.append(f"nonword-{nw}")
+    for t in transition_types:
+        crp.acoustic_model_config.tdp[t].exit = 0.0
+
+    if log_linear_scales is None:
+        log_linear_scales = {"label_posterior_scale": 0.3, "transition_scale": 0.3}
+    if "label_prior_scale" in log_linear_scales:
+        assert prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
+
+    inputs = []
+    out_denot = out.split("-")[0]
+    # prior calculation
+
+    if label_prior is not None:
+        #Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
+        prior_name = ("_").join(["label_prior", reference_layer_denot])
+        returnn_config.config["network"][prior_name] = {"class": "constant", "dtype": "float32", "value": label_prior}
+        comb_name = ("_").join(["comb-prior", out_denot])
+        inputs.append(comb_name)
+        returnn_config.config["network"][comb_name] = {
+            "class": "combine",
+            "kind": "eval",
+            "eval": "am_scale*( safe_log(source(0)) - (safe_log(source(1)) * prior_scale) )",
+            "eval_locals": {"am_scale": log_linear_scales["label_posterior_scale"], "prior_scale": log_linear_scales["label_prior_scale"]},
+            "from": [reference_layer, prior_name],
+        }
+    else:
+        comb_name = ("_").join(["multiply-scale", out_denot])
+        inputs.append(comb_name)
+        crnn_config.config["network"][comb_name] = {
+            "class": "combine",
+            "kind": "eval",
+            "eval": "am_scale*(safe_log(source(0)))",
+            "eval_locals": {"am_scale": log_linear_scales["label_posterior_scale"]},
+            "from": [reference_layer],
+        }
+
+    returnn_config.config["network"]["output_bw"] = {
+        "class": "copy",
+        "from": reference_layer,
+        "loss": "via_layer",
+        "loss_opts": {"align_layer": "fast_bw", "loss_wrt_to_act_in": "softmax"},
+        "loss_scale": 1.0,
+    }
+
+    returnn_config.config["network"]["fast_bw"] = {
+        "class": "fast_bw",
+        "align_target": "sprint",
+        "from": inputs,
+        "tdp_scale": log_linear_scales["transition_scale"],
+    }
+
+    if "chunking" in returnn_config.config:
+        del returnn_config.config["chunking"]
+    if "pretrain" in returnn_config.config and import_model is not None:
+        del returnn_config.config["pretrain"]
+
+    # start training from existing model
+    if import_model is not None:
+        returnn_config.config["import_model_train_epoch1"] = import_model
+
+    # Create additional Rasr config file for the automaton
+    mapping = {
+        "corpus": "neural-network-trainer.corpus",
+        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
+        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
+    }
+    config, post_config = sp.build_config_from_mapping(crp, mapping)
+    post_config["*"].output_channel.file = "fastbw.log"
+
+    # Define action
+    config.neural_network_trainer.action = "python-control"
+    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
+        False
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
+        False
+    )
+    # neural_network_trainer.alignment_fsa_exporter
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
+        True
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
+        True
+    )
+
+    # additional config
+    config._update(extra_rasr_config)
+    post_config._update(extra_rasr_post_config)
+
+    automaton_config = WriteRasrConfigJob(config, post_config).out_config
+
+    returnn_config.config["network"]["fast_bw"]["sprint_opts"] = {
+        "sprintExecPath": RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
+        "sprintConfigStr": f"--config={automaton_config}",
+        "sprintControlConfig": {"verbose": True},
+        "usePythonSegmentOrder": False,
+        "numInstances": 1,
+    }
+
+    return returnn_config

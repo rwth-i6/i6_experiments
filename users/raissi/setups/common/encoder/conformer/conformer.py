@@ -1,24 +1,27 @@
-__all__ = ["get_best_model_config"]
+__all__ = ["get_best_conformer_network"]
 
-import typing
+from typing import Optional
 
-from ...common.conformer.best_conformer import get_best_model_config as get_cfg, Size
+
+from i6_experiments.users.raissi.common.encoder.conformer.best_conformer import get_best_model_config, Size
 from i6_experiments.users.raissi.common.helpers.network.augment import Network
+from i6_experiments.users.raissi.common.helpers.train import returnn_time_tag
 
-
-def get_best_model_config(
+def get_best_conformer_network(
     size: typing.Union[Size, int],
     num_classes: int,
-    time_tag_name: str,
     *,
-    chunking: typing.Optional[str] = None,
-    focal_loss_factor: typing.Optional[float] = None,
-    int_loss_at_layer: typing.Optional[int] = None,
-    int_loss_scale: typing.Optional[float] = None,
+    time_tag_name: Optional[str] = None,
+    chunking: Optional[str] = None,
+    focal_loss_factor: Optional[float] = None,
+    int_loss_at_layer: Optional[int] = None,
+    int_loss_scale: Optional[float] = None,
     label_smoothing: float = 0.2,
     leave_cart_output: bool = False,
     target: str = "classes",
 ) -> Network:
+    if time_tag_name is None:
+        _, time_tag_name = returnn_time_tag.get_shared_time_tag()
     conformer_net = get_cfg(
         num_classes=num_classes,
         size=size,

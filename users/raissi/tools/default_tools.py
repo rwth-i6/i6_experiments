@@ -15,11 +15,18 @@ from i6_experiments.common.tools.sctk import compile_sctk
 
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
-assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
-RASR_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
+#RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+rasr_path_tf1 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf1_conformer", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF1")
+rasr_path_tf2 = tk.Path("/u/raissi/dev/rasr_github/rasr_tf2", hash_overwrite="CONFORMER_DEFAULT_RASR_BINARY_PATH_TF2")
+RASR_BINARY_PATHS = {'TF1': rasr_path_tf1, 'TF2': rasr_path_tf2}
+
+
+returnn_launcher_tf1 = tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF1")
+returnn_launcher_tf2 = tk.Path("/u/raissi/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER_TF1")
+RETURNN_LAUNCHERS = {'TF1': returnn_launcher_tf1, 'TF2': returnn_launcher_tf2}
+
 
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 # SCTK_BINARY_PATH = compile_sctk()  # use most recent SCTK
-SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
+SCTK_BINARY_PATH.hash_overwrite = "DEFAULT_SCTK_BINARY_PATH"

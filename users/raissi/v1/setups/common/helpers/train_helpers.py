@@ -128,7 +128,7 @@ def get_diphone_returnn_config(num_classes, ph_emb_size, st_emb_size, mlp_l2=0.0
 
 
 
-def get_monophone_for_bw_returnn_config(num_classes=126, addMLPs=False, mlpL2=0.0001,
+def get_monophone_for_bw_returnn_config(num_classes, addMLPs=False, mlpL2=0.0001,
                                         finalContextType=None, **returnn_args):
     ctxMapper = ContextMapper()
     contextType = ContextEnum(ctxMapper.get_enum(1))

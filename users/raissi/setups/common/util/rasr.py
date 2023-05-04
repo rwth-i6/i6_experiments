@@ -1,6 +1,7 @@
 __all__ = ["SystemInput"]
 
 import copy
+from typing import Dict
 
 from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
@@ -28,7 +29,7 @@ class SystemInput:
         name: str = "init",
         *,
         feature_flow_key: str = "gt",
-        shuffle_data: bool = False,
+        shuffling_parameters: Dict = False,
         returnn_rasr_training_args: Optional[ReturnnRasrTrainingArgs] = None,
     ):
         """
@@ -47,6 +48,6 @@ class SystemInput:
             alignments=self.alignments,
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
-            shuffle_data=shuffle_data,
+            shuffling_parameters=shuffling_parameters,
             returnn_rasr_training_args=returnn_rasr_training_args,
         )
