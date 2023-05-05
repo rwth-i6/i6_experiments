@@ -127,7 +127,8 @@ class ActivateCondaEnvJob(Job):
     Create a conda python launcher script.
     """
 
-    def __init__(self, env_name: str):
+    def __init__(self, conda_dir: tk.Path, env_name: str):
+        self.conda_dir = conda_dir
         self.env_name = env_name
         self.out_env_exe = self.output_path("conda_env.sh")
 
@@ -135,4 +136,13 @@ class ActivateCondaEnvJob(Job):
         yield Task("run", mini_task=True)
 
     def run(self):
-        create_executable(self.out_env_exe.get_path(), ["activate", self.env_name, "&&", "python3", "$*"],)
+        create_executable(
+            self.out_env_exe.get_path(),
+            [
+                "set -ueo pipefail\n",
+                f'PATH="{self.conda_dir.join_right("bin").get_path()}:$PATH"\n',
+                f"source activate {self.env_name}\n",
+                "python3",
+                "$*",
+            ],
+        )
