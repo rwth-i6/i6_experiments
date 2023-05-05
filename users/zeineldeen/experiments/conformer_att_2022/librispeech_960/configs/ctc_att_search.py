@@ -430,6 +430,7 @@ def run_ctc_att_search():
             test_dataset_tuples,
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
+            use_sclite=True,
         )
 
     def run_exp(
@@ -784,24 +785,62 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for att_scale in [1.0, 0.7, 0.5, 0.0]:
-        ctc_scale = 1 - att_scale
-        run_decoding(
-            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}",
-            train_data=train_data,
-            checkpoint=train_job_avg_ckpt[
-                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-            ],
-            search_args={
-                "joint_ctc_att_decode": True,
-                "joint_att_scale": att_scale,
-                "joint_ctc_scale": ctc_scale,
-                **oclr_args,
-            },
-            feature_extraction_net=log10_net_10ms,
-            bpe_size=BPE_10K,
-            test_sets=["dev-other"],
-            remove_label="<s>",  # blanks are removed in the network
-            use_sclite=True,
-            time_rqmt=0.2,
-        )
+    for beam_size in [1, 12, 32, 64, 128]:
+        for ctc_scale in [1.0, 0.0]:
+            for att_scale in [0.1, 0.3, 0.5, 0.8, 1.0]:
+                if beam_size == 1 and ctc_scale != 0.0:
+                    continue
+                exp_name = (
+                    f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_checkRep_beam{beam_size}"
+                )
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args={
+                        "joint_ctc_att_decode": True,
+                        "joint_att_scale": att_scale,
+                        "joint_ctc_scale": ctc_scale,
+                        "check_repeat": True,
+                        "beam_size": beam_size,
+                        "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
+                        **oclr_args,
+                    },
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label="<s>",  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )
+
+    for beam_size in [1, 12, 32, 64, 128]:
+        for att_scale in [0.7, 0.5, 0.3, 0.1]:
+            ctc_scale = 1 - att_scale
+            exp_name = (
+                f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_checkRep_beam{beam_size}"
+            )
+            run_decoding(
+                exp_name=exp_name,
+                train_data=train_data,
+                checkpoint=train_job_avg_ckpt[
+                    f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                ],
+                search_args={
+                    "joint_ctc_att_decode": True,
+                    "joint_att_scale": att_scale,
+                    "joint_ctc_scale": ctc_scale,
+                    "check_repeat": True,
+                    "beam_size": beam_size,
+                    "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
+                    **oclr_args,
+                },
+                feature_extraction_net=log10_net_10ms,
+                bpe_size=BPE_10K,
+                test_sets=["dev-other"],
+                remove_label="<s>",  # blanks are removed in the network
+                use_sclite=True,
+                time_rqmt=1.0 if beam_size <= 128 else 1.5,
+            )
