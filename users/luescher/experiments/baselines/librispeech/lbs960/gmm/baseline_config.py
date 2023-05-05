@@ -14,8 +14,8 @@ import i6_experiments.users.luescher.setups.rasr.util as rasr_util
 
 # ******************** (relative) imports for files that should be copied for new setups ********************
 
-from i6_experiments.users.luescher.baselines.librispeech.data import get_corpus_data_inputs
-from i6_experiments.users.luescher.baselines.librispeech.default_tools import RASR_BINARY_PATH
+from i6_experiments.users.luescher.experiments.baselines.librispeech.data import get_corpus_data_inputs
+from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import RASR_BINARY_PATH
 from . import baseline_args
 
 
@@ -31,7 +31,7 @@ def run_librispeech_960_gmm_baseline():
 
     rasr_init_args = baseline_args.get_init_args()
     mono_args = baseline_args.get_monophone_args()
-    cart_args = baseline_args.get_cart_args(max_leaves=9001)
+    cart_args = baseline_args.get_cart_args(max_leaves=9001, add_unknown=True)
     tri_args = baseline_args.get_triphone_args()
     vtln_args = baseline_args.get_vtln_args()
     sat_args = baseline_args.get_sat_args()
