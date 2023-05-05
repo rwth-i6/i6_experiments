@@ -3,7 +3,7 @@ import copy
 from i6_core.returnn.config import CodeWrapper
 
 
-def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, check_repeat=False):
+def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, check_repeat=False, beam_size=12):
     """
     Add layers for joint CTC and att search.
 
@@ -288,7 +288,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
             "output": {
                 "class": "choice",
                 "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
-                "beam_size": 12,
+                "beam_size": beam_size,
                 "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores",
                 "input_type": "log_prob",
                 "initial_output": 0,
