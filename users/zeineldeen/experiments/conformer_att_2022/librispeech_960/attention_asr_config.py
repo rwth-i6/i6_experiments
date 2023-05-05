@@ -2,7 +2,7 @@ import os.path
 
 import numpy
 import copy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
@@ -139,6 +139,7 @@ def pretrain_layers_and_dims(
     enc_dec_share_grow_frac=True,
     repeat_first=True,
     ignored_keys_for_reduce_dim=None,
+    extra_net_dict_override=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -181,6 +182,9 @@ def pretrain_layers_and_dims(
             assert second_bs_idx is not None
             if idx < second_bs_idx:
                 extra_net_dict["#config"]["batch_size"] = second_bs
+
+    if extra_net_dict_override:
+        extra_net_dict["#config"].update(extra_net_dict_override)
 
     if repeat_first:
         idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
@@ -358,6 +362,12 @@ class ConformerEncoderArgs(EncoderArgs):
 
     use_sqrd_relu: bool = False
 
+    # weight noise
+    weight_noise: Optional[float] = None
+    weight_noise_layers: Optional[List[str]] = None
+
+    convolution_first: bool = False
+
 
 class DecoderArgs:
     pass
@@ -514,6 +524,7 @@ def create_config(
     recog_epochs=None,
     prior_lm_opts=None,
     gradient_noise=0.0,
+    param_variational_noise=None,
     adamw=False,
     retrain_checkpoint=None,
     decouple_constraints_factor=0.025,
@@ -526,7 +537,7 @@ def create_config(
     config_override=None,
     freeze_bn=False,
     keep_all_epochs=False,
-    allow_lr_scheduling=True,
+    allow_lr_scheduling_for_retrain=False,
     learning_rates_list=None,
     min_lr=None,
     global_stats=None,
@@ -538,6 +549,8 @@ def create_config(
     joint_ctc_scale=1.0,
     length_normalization=True,
     check_repeat=False,
+    staged_hyperparams: dict = None,
+    keep_best_n=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -561,6 +574,10 @@ def create_config(
         "max_seqs": max_seqs,
         "truncation": -1,
     }
+    if param_variational_noise:
+        assert isinstance(param_variational_noise, float)
+        hyperparams["param_variational_noise"] = param_variational_noise  # applied to all params
+
     # default: Adam optimizer
     hyperparams["adam"] = True
     hyperparams["optimizer_epsilon"] = 1e-8
@@ -579,18 +596,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    if noam_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    elif warmup_lr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    elif oclr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
@@ -721,6 +738,7 @@ def create_config(
             ctc_scale=joint_ctc_scale,
             length_normalization=length_normalization,
             check_repeat=check_repeat,
+            beam_size=beam_size,
         )
         if joint_ctc_scale > 0.0:
             add_filter_blank_and_merge_labels_layers(exp_config["network"])
@@ -863,6 +881,10 @@ def create_config(
     if keep_all_epochs:
         exp_post_config["cleanup_old_models"] = False
 
+    # it is 4 by default
+    if keep_best_n:
+        exp_post_config["keep_best_n"] = keep_best_n
+
     if extra_str:
         extra_python_code += "\n" + extra_str
 
@@ -871,6 +893,15 @@ def create_config(
 
     if joint_ctc_att_decode:
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+
+    # modify hyperparameters based on epoch
+    if staged_hyperparams:
+        for ep, v in staged_hyperparams.items():
+            base_net = copy.deepcopy(exp_config["network"])
+            base_net["#config"] = v
+            assert ep not in staged_hyperparams
+            assert ep > max(staged_hyperparams.keys())
+            staged_network_dict[ep] = base_net
 
     returnn_config = ReturnnConfig(
         exp_config,

@@ -67,6 +67,9 @@ class ConformerEncoder:
         use_causal_layers=False,
         conv_alternative_name: Optional[str] = None,
         fix_merge_dims=False,
+        weight_noise=None,
+        weight_noise_layers=None,
+        convolution_first=False,
     ):
         """
         :param str input: input layer name
@@ -199,6 +202,15 @@ class ConformerEncoder:
         self.conv_alternative_name = conv_alternative_name
         self.fix_merge_dims = fix_merge_dims
 
+        self.weight_noise = weight_noise
+        self.weight_noise_layers = weight_noise_layers
+        if self.weight_noise_layers is None:
+            self.weight_noise_layers = []
+        for layer in self.weight_noise_layers:
+            assert layer in ["mhsa", "conv", "frontend_conv"]
+
+        self.convolution_first = convolution_first
+
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
         Add Feed Forward Module:
@@ -292,6 +304,7 @@ class ConformerEncoder:
             key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
             l2=self.self_att_l2,
             attention_left_only=self.use_causal_layers,
+            param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
         )
 
         mhsa_linear = self.network.add_linear_layer(
@@ -426,16 +439,23 @@ class ConformerEncoder:
             prefix_name = "conformer_block_%02i" % i
         ff_module1 = self._create_ff_module(prefix_name, 1, source, i)
 
-        if self.no_mhsa_module:
-            mhsa = ff_module1  # use FF1 module output as input to conv module
+        if self.convolution_first:
+            # TODO: experimenting only. change names later.
+            conv_module_ = self._create_convolution_module(prefix_name, ff_module1, i)
+            conv_module = self._create_mhsa_module(prefix_name, conv_module_, i)
         else:
-            mhsa_input = ff_module1
-            if self.sandwich_conv:
-                conv_module1 = self._create_convolution_module(prefix_name + "_sandwich", ff_module1, i, half_step=True)
-                mhsa_input = conv_module1
-            mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
+            if self.no_mhsa_module:
+                mhsa = ff_module1  # use FF1 module output as input to conv module
+            else:
+                mhsa_input = ff_module1
+                if self.sandwich_conv:
+                    conv_module1 = self._create_convolution_module(
+                        prefix_name + "_sandwich", ff_module1, i, half_step=True
+                    )
+                    mhsa_input = conv_module1
+                mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
 
-        conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
+            conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
 
         ff_module2 = self._create_ff_module(prefix_name, 2, conv_module, i)
         res = ff_module2
@@ -499,6 +519,7 @@ class ConformerEncoder:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
+                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -512,6 +533,7 @@ class ConformerEncoder:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
+                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
             )
         elif self.input_layer == "conv-6":
             conv_input = self.network.add_conv_block(
@@ -522,6 +544,7 @@ class ConformerEncoder:
                 activation=self.input_layer_conv_act,
                 init=self.start_conv_init,
                 merge_out=False,
+                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
             )
 
             subsampled_input = self.network.add_conv_block(
@@ -535,6 +558,7 @@ class ConformerEncoder:
                 split_input=False,
                 prefix_name="subsample_",
                 merge_out_fixed=self.fix_merge_dims,
+                param_variational_noise=self.weight_noise if "frontend_conv" in self.weight_noise_layers else None,
             )
 
         assert subsampled_input is not None
