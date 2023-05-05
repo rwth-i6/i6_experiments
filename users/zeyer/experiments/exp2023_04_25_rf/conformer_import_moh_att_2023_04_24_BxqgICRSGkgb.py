@@ -2,8 +2,10 @@
 """
 
 from __future__ import annotations
+
 from typing import Optional, Any, Tuple, Dict, Sequence
 import numpy
+import sys
 
 from sisyphus import tk
 
@@ -343,10 +345,14 @@ def _convert_tf_lstm_to_native_lstm_bias(old_bias: numpy.ndarray, *, forget_gate
 
 # See comment below, use `py = test_import` to easily run this.
 def test_import():
+    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer
+    from pprint import pprint
+
     # Pick some layers to check outputs for equality.
+    # See the func tracing logic below, entries in captured_tensors.
     _layer_mapping = {
-        "source_linear": "encoder/input_projection",
-        "conformer_block_01_ffmod_1_drop2": "encoder/layers/0/ffn1",
+        "source_linear": (ConformerEncoder.__call__, 0, "x_subsample", 0),
+        "conformer_block_01_ffmod_1_half_step": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
         "conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
         "conformer_block_01_self_att_res": "encoder/layers/0/add_0",
         "conformer_block_01_conv_mod_ln": "encoder/layers/0/conv_layer_norm",
@@ -458,13 +464,12 @@ def test_import():
     print("*** Create new model")
     new_model = _make_new_model()
 
+    rf.init_forward_step_run_ctx()
     batch_dim.dyn_size_ext = rf.convert_to_tensor(n_batch, dims=())
     batch_dim.batch = None
     time_dim.dyn_size_ext = rf.convert_to_tensor(numpy.array(x_sizes), dims=[batch_dim])
     time_dim.batch = None
     x = rf.convert_to_tensor(x_np, dims=[batch_dim, time_dim])
-    y = new_model.encode(x, in_spatial_dim=time_dim)[0]["enc"]
-    y.mark_as_default_output()
 
     import torch
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
@@ -474,22 +479,62 @@ def test_import():
     checkpoint_state = torch.load(ckpt_dir + "/new_model/model.pt")
     pt_module.load_state_dict(checkpoint_state["model"])
 
-    print("*** Forwarding ...")
-    fetches = {}
-    for old_layer_name, new_layer_name in _layer_mapping.items():
-        layer = net.get_layer(new_layer_name)
-        old_out = old_model_outputs_data[old_layer_name]
-        assert old_out.batch_ndim == layer.output.batch_ndim
-        mapped_axes = layer.output.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
-        out = layer.output.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
-        fetches["layer:" + old_layer_name] = out.placeholder
-        for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext:
-                old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
-                fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
-    new_model_outputs_fetch = fetches  # TODO?
+    print("*** Forwarding with tracing ...")
 
-    for old_layer_name, new_layer_name in _layer_mapping.items():
+    funcs_to_trace_list = [
+        Model.encode,
+        ConformerEncoder.__call__,
+        ConformerEncoderLayer.__call__,
+    ]
+    code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+    prev_locals: Optional[Dict[str, Any]] = None
+    captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
+
+    def _trace_func(frame, event, arg):
+        """
+        Trace func to get intermediate outputs.
+        """
+        nonlocal prev_locals
+        func = code_obj_to_func.get(frame.f_code)
+        if func:
+            if event == "call":
+                prev_locals = None
+                captured_tensors.setdefault(func, []).append({})
+            if prev_locals is not None:
+                for k, v in frame.f_locals.items():
+                    if not isinstance(v, Tensor):
+                        continue
+                    if k not in prev_locals or v is not prev_locals[k]:
+                        print(f"{func.__qualname__} tensor var changed: {k} = {v}")
+                        captured_tensors[func][-1].setdefault(k, []).append(v)
+            if event == "return":
+                prev_locals = None
+            else:
+                prev_locals = dict(frame.f_locals)
+            return _trace_func
+
+    sys.settrace(_trace_func)
+    y = new_model.encode(x, in_spatial_dim=time_dim)[0]["enc"]
+    sys.settrace(None)
+    pprint(captured_tensors)
+    y.mark_as_default_output()
+
+    print("*** Getting values from trace ...")
+    fetches = {}
+    for old_layer_name, new_var_path in _layer_mapping.items():
+        new_out = captured_tensors
+        for k in new_var_path:
+            new_out = new_out[k]
+        assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
+        old_out = old_model_outputs_data[old_layer_name]
+        assert old_out.batch_ndim == new_out.batch_ndim
+        mapped_axes = new_out.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
+        out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
+        fetches["layer:" + old_layer_name] = out.placeholder
+    new_model_outputs_fetch = fetches
+
+    print("*** Comparing ...")
+    for old_layer_name, new_var_path in _layer_mapping.items():
         out = old_model_outputs_data[old_layer_name]
         for i, tag in enumerate(out.dim_tags):
             if tag.dyn_size_ext:
@@ -507,7 +552,7 @@ def test_import():
                     idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
                     old_v[idx] = 0
                     new_v[idx] = 0
-        print("* Comparing", old_layer_name, "vs", new_layer_name)
+        print("* Comparing", old_layer_name, "vs", new_var_path)
         numpy.testing.assert_almost_equal(old_v, new_v, decimal=5)
 
     print("*** Done, all correct (!), exit now ***")
