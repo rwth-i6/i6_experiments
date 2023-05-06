@@ -345,29 +345,32 @@ def _convert_tf_lstm_to_native_lstm_bias(old_bias: numpy.ndarray, *, forget_gate
 
 # See comment below, use `py = test_import` to easily run this.
 def test_import():
-    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer
+    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
     _layer_mapping = {
-        "source_linear": (ConformerEncoder.__call__, 0, "x_subsample", 0),
+        "source": (Model.encode, 0, "source", -1),
+        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
+        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
         "conformer_block_01_ffmod_1_half_step": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
-        "conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
-        "conformer_block_01_self_att_res": "encoder/layers/0/add_0",
-        "conformer_block_01_conv_mod_ln": "encoder/layers/0/conv_layer_norm",
-        "conformer_block_01_conv_mod_glu": "encoder/layers/0/conv_block/gating",
-        "conformer_block_01_conv_mod_depthwise_conv2": "encoder/layers/0/conv_block/depthwise_conv",
-        "conformer_block_01_conv_mod_bn": "encoder/layers/0/conv_block/norm",
-        "conformer_block_01_conv_mod_pointwise_conv2": "encoder/layers/0/conv_block",
-        "conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
-        "conformer_block_01_ffmod_2_ln": "encoder/layers/0/ffn2_layer_norm",
-        "conformer_block_01_ffmod_2_ff1": "encoder/layers/0/ffn2/linear_ff",
-        # "conformer_block_01_ffmod_2_square_relu": "encoder/layers/0/ffn2/swish",
-        "conformer_block_01_ffmod_2_drop2": "encoder/layers/0/ffn2",
-        "conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
-        "conformer_block_01": "encoder/layers/0",
-        "encoder": "encoder",
+        # TODO...
+        # "conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
+        # "conformer_block_01_self_att_res": "encoder/layers/0/add_0",
+        # "conformer_block_01_conv_mod_ln": "encoder/layers/0/conv_layer_norm",
+        # "conformer_block_01_conv_mod_glu": "encoder/layers/0/conv_block/gating",
+        # "conformer_block_01_conv_mod_depthwise_conv2": "encoder/layers/0/conv_block/depthwise_conv",
+        # "conformer_block_01_conv_mod_bn": "encoder/layers/0/conv_block/norm",
+        # "conformer_block_01_conv_mod_pointwise_conv2": "encoder/layers/0/conv_block",
+        # "conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
+        # "conformer_block_01_ffmod_2_ln": "encoder/layers/0/ffn2_layer_norm",
+        # "conformer_block_01_ffmod_2_ff1": "encoder/layers/0/ffn2/linear_ff",
+        # # "conformer_block_01_ffmod_2_square_relu": "encoder/layers/0/ffn2/swish",
+        # "conformer_block_01_ffmod_2_drop2": "encoder/layers/0/ffn2",
+        # "conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
+        # "conformer_block_01": "encoder/layers/0",
+        # "encoder": "encoder",
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -439,7 +442,9 @@ def test_import():
             old_model_outputs_data[old_layer_name] = out
             fetches["layer:" + old_layer_name] = out.placeholder
             for i, tag in enumerate(out.dim_tags):
-                if tag.dyn_size_ext:
+                if tag.is_batch_dim():
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
+                elif tag.dyn_size_ext:
                     old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
                     fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
@@ -485,32 +490,27 @@ def test_import():
         Model.encode,
         ConformerEncoder.__call__,
         ConformerEncoderLayer.__call__,
+        ConformerConvSubsample.__call__,
     ]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
-    prev_locals: Optional[Dict[str, Any]] = None
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
 
     def _trace_func(frame, event, arg):
         """
         Trace func to get intermediate outputs.
         """
-        nonlocal prev_locals
         func = code_obj_to_func.get(frame.f_code)
         if func:
             if event == "call":
-                prev_locals = None
                 captured_tensors.setdefault(func, []).append({})
-            if prev_locals is not None:
+            else:
                 for k, v in frame.f_locals.items():
                     if not isinstance(v, Tensor):
                         continue
-                    if k not in prev_locals or v is not prev_locals[k]:
+                    prev = captured_tensors[func][-1].get(k, None)
+                    if prev is None or prev[-1] is not v:
                         print(f"{func.__qualname__} tensor var changed: {k} = {v}")
                         captured_tensors[func][-1].setdefault(k, []).append(v)
-            if event == "return":
-                prev_locals = None
-            else:
-                prev_locals = dict(frame.f_locals)
             return _trace_func
 
     sys.settrace(_trace_func)
@@ -523,14 +523,21 @@ def test_import():
     fetches = {}
     for old_layer_name, new_var_path in _layer_mapping.items():
         new_out = captured_tensors
-        for k in new_var_path:
-            new_out = new_out[k]
+        try:
+            for k in new_var_path:
+                new_out = new_out[k]
+        except KeyError as exc:
+            raise Exception(f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}")
         assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
         old_out = old_model_outputs_data[old_layer_name]
         assert old_out.batch_ndim == new_out.batch_ndim
         mapped_axes = new_out.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
         out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
-        fetches["layer:" + old_layer_name] = out.placeholder
+        fetches["layer:" + old_layer_name] = out.raw_tensor
+        for i, tag in enumerate(out.dim_tags):
+            if tag.dyn_size_ext:
+                fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.raw_tensor
+    fetches = {k: v.detach().cpu().numpy() for (k, v) in fetches.items()}
     new_model_outputs_fetch = fetches
 
     print("*** Comparing ...")
@@ -544,7 +551,7 @@ def test_import():
         old_v = old_model_outputs_fetch["layer:" + old_layer_name]
         new_v = new_model_outputs_fetch["layer:" + old_layer_name]
         for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext:
+            if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
                 assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
                 assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
                 size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
@@ -553,7 +560,7 @@ def test_import():
                     old_v[idx] = 0
                     new_v[idx] = 0
         print("* Comparing", old_layer_name, "vs", new_var_path)
-        numpy.testing.assert_almost_equal(old_v, new_v, decimal=5)
+        numpy.testing.assert_almost_equal(old_v, new_v, decimal=5, err_msg=f"{old_layer_name}/{new_var_path} mismatch")
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
