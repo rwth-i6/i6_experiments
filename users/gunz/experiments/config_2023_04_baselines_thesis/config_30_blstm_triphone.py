@@ -3,7 +3,6 @@ __all__ = ["run", "run_single"]
 import copy
 from dataclasses import dataclass
 import itertools
-import typing
 
 import numpy as np
 import os
@@ -18,8 +17,8 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
@@ -42,6 +41,7 @@ from .config import (
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
+    FROM_SCRATCH_CV_INFO,
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
@@ -106,8 +106,8 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             dc_detection=True,
             lr="v7",
-            own_priors=True,
-            tune_decoding=True,
+            own_priors=False,
+            tune_decoding=False,
         ),
     ]
     for exp in configs:
@@ -160,7 +160,10 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
+    if alignment_name == "scratch":
+        s.cv_info = FROM_SCRATCH_CV_INFO
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -172,7 +175,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=False,
+        is_cv_separate_from_train=alignment_name == "scratch",
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )

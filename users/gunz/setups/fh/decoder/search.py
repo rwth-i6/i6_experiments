@@ -116,6 +116,7 @@ def get_feature_scorer(
     state_dependent_tdp_file: typing.Optional[typing.Union[str, tk.Path]] = None,
     is_min_duration=False,
     is_multi_encoder_output=False,
+    set_is_batch_major=False,
 ):
     if isinstance(prior_info, PriorInfo):
         assert prior_info.center_state_prior is not None and prior_info.center_state_prior.file is not None
@@ -150,6 +151,7 @@ def get_feature_scorer(
         is_min_duration=is_min_duration,
         use_word_end_classes=label_info.phoneme_state_classes.use_word_end(),
         use_boundary_classes=label_info.phoneme_state_classes.use_boundary(),
+        set_is_batch_major=set_is_batch_major,
     )
 
 
@@ -176,6 +178,7 @@ class FHDecoder:
         recompile_graph_for_feature_scorer=False,
         in_graph_acoustic_scoring=False,
         corpus_duration: typing.Optional[float] = 5.12,  # dev-other
+        set_batch_major_for_feature_scorer=False,
     ):
         assert not (recompile_graph_for_feature_scorer and in_graph_acoustic_scoring)
 
@@ -189,6 +192,7 @@ class FHDecoder:
         self.tdp = {}
         self.silence_id = silence_id
         self.corpus_duration = corpus_duration
+        self.set_batch_major = set_batch_major_for_feature_scorer
 
         self.tensor_map = (
             dataclasses.replace(DecodingTensorMap.default(), **tensor_map)
@@ -619,6 +623,9 @@ class FHDecoder:
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        pre_path: str = "decoding",
+        rtf_cpu: float = 16,
+        rtf_gpu: float = 4,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -639,8 +646,10 @@ class FHDecoder:
             name_prefix=name_prefix,
             is_nn_lm=False,
             lm_config=None,
-            pre_path="",
+            pre_path=pre_path,
             crp_update=crp_update,
+            rtf_cpu=rtf_cpu,
+            rtf_gpu=rtf_gpu,
         )
 
     def recognize_optimize_scales(
@@ -837,6 +846,8 @@ class FHDecoder:
         cpu_rqmt: typing.Optional[int] = None,
         mem_rqmt: typing.Optional[int] = None,
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        rtf_gpu: typing.Optional[float] = None,
+        rtf_cpu: typing.Optional[float] = None,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -859,6 +870,8 @@ class FHDecoder:
             search_parameters=search_parameters,
             use_estimated_tdps=use_estimated_tdps,
             crp_update=crp_update,
+            rtf_cpu=rtf_cpu,
+            rtf_gpu=rtf_gpu,
         )
 
     def recognize(
@@ -885,6 +898,8 @@ class FHDecoder:
         mem_rqmt: typing.Optional[int] = None,
         cpu_rqmt: typing.Optional[int] = None,
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
+        rtf_cpu: typing.Optional[float] = None,
+        rtf_gpu: typing.Optional[float] = None,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
             assert len(search_parameters.tdp_speech) == 4
@@ -1043,6 +1058,7 @@ class FHDecoder:
             state_dependent_tdp_file=search_parameters.state_dependent_tdps,
             is_min_duration=is_min_duration,
             is_multi_encoder_output=self.is_multi_encoder_output,
+            set_is_batch_major=self.set_batch_major,
         )
 
         pre_path = (
@@ -1056,6 +1072,7 @@ class FHDecoder:
         if crp_update is not None:
             crp_update(search_crp)
 
+        use_gpu = gpu if gpu is not None else self.gpu
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
             feature_flow=self.featureScorerFlow,
@@ -1063,8 +1080,8 @@ class FHDecoder:
             search_parameters=sp,
             lm_lookahead=True,
             eval_best_in_lattice=True,
-            use_gpu=gpu if gpu is not None else self.gpu,
-            rtf=rqms["rtf"],
+            use_gpu=use_gpu,
+            rtf=rtf_gpu if rtf_gpu is not None and self.gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=4 if cpu_rqmt is None else cpu_rqmt,
             model_combination_config=model_combination_config,
@@ -1072,6 +1089,9 @@ class FHDecoder:
             extra_config=adv_search_extra_config,
             extra_post_config=None,
         )
+        if not use_gpu:
+            # newer CPUs that support OpenFST v1.6
+            search.rqmt["qsub_args"] = "-l qname=*7D*"
 
         if add_sis_alias_and_output:
             search.add_alias(f"{pre_path}/{name}")

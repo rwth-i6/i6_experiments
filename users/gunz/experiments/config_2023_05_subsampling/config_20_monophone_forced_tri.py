@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import random
 from dataclasses import dataclass
 import itertools
 
@@ -13,12 +14,14 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import lexicon, rasr, returnn, text
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.hdf import RasrFeaturesToHdf, RasrForcedTriphoneAlignmentToHDF
 from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.cache_epilog import hdf_dataset_cache_epilog
+from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -30,9 +33,9 @@ from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
-    augment_net_with_diphone_outputs,
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
+    SubsamplingInfo,
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
@@ -44,11 +47,12 @@ from .config import (
     CONF_SA_CONFIG,
     FROM_SCRATCH_CV_INFO,
     L2,
-    RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
-    SCRATCH_ALIGNMENT,
+    TEST_EPOCH,
+    ZHOU_ALLOPHONES,
+    ZHOU_SUBSAMPLED_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
@@ -68,8 +72,10 @@ class Experiment:
     alignment: tk.Path
     alignment_name: str
     lr: str
+    multitask: bool
     dc_detection: bool
     run_performance_study: bool
+    subsampling_factor: int
     tune_decoding: bool
 
     focal_loss: float = CONF_FOCAL_LOSS
@@ -81,33 +87,18 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
+    scratch_align = tk.Path(ZHOU_SUBSAMPLED_ALIGNMENT, cached=True)
 
     configs = [
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v6",
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v7",
-            run_performance_study=True,
-            tune_decoding=True,
-        ),
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=True,
             lr="v7",
+            multitask=True,
             run_performance_study=False,
-            tune_decoding=True,
+            subsampling_factor=4,
+            tune_decoding=False,
         ),
     ]
     for exp in configs:
@@ -116,10 +107,12 @@ def run(returnn_root: tk.Path):
             alignment_name=exp.alignment_name,
             dc_detection=exp.dc_detection,
             focal_loss=exp.focal_loss,
+            lr=exp.lr,
+            multitask=exp.multitask,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
+            subsampling_factor=exp.subsampling_factor,
             tune_decoding=exp.tune_decoding,
-            lr=exp.lr,
         )
 
 
@@ -130,15 +123,17 @@ def run_single(
     dc_detection: bool,
     focal_loss: float,
     lr: str,
+    multitask: bool,
     returnn_root: tk.Path,
     run_performance_study: bool,
+    subsampling_factor: int,
     tune_decoding: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-lr:{lr}-ss:{subsampling_factor}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -161,10 +156,16 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
-    s.do_not_set_returnn_python_exe_for_graph_compiles = True
+
+    for crp in s.crp.values():
+        crp.lm_util_exe = tk.Path("/u/mgunz/src/fh_rasr/arch/linux-x86_64-standard/lm-util.linux-x86_64-standard")
+
     s.train_key = train_key
     if alignment_name == "scratch":
         s.cv_info = FROM_SCRATCH_CV_INFO
+    s.base_allophones = ZHOU_ALLOPHONES
+    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
+
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -183,6 +184,7 @@ def run_single(
     s._update_am_setting_for_all_crps(
         train_tdp_type="default",
         eval_tdp_type="default",
+        add_base_allophones=True,
     )
 
     # ---------------------- returnn config---------------
@@ -196,9 +198,15 @@ def run_single(
         label_smoothing=CONF_LABEL_SMOOTHING,
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
+        upsample_by_transposed_conv=False,
+        feature_stacking_size=subsampling_factor,
     )
     network = network_builder.network
-    network = augment_net_with_label_pops(network, label_info=s.label_info)
+    network = augment_net_with_label_pops(
+        network,
+        label_info=s.label_info,
+        classes_subsampling_info=SubsamplingInfo(factor=subsampling_factor, time_tag_name=time_tag_name),
+    )
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
@@ -208,16 +216,7 @@ def run_single(
         l2=L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
-        use_multi_task=True,
-    )
-    network = augment_net_with_diphone_outputs(
-        network,
-        encoder_output_len=conf_model_dim,
-        label_smoothing=CONF_LABEL_SMOOTHING,
-        l2=L2,
-        ph_emb_size=s.label_info.ph_emb_size,
-        st_emb_size=s.label_info.st_emb_size,
-        use_multi_task=True,
+        use_multi_task=multitask,
     )
     network = aux_loss.add_intermediate_loss(
         network,
@@ -229,7 +228,53 @@ def run_single(
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
         time_tag_name=time_tag_name,
+        upsampling=False,
     )
+
+    tying_crp = s.train_input_data[s.crp_names["train"]].get_crp()
+    tying_crp.acoustic_model_config.allophones.add_all = True
+    tying = lexicon.DumpStateTyingJob(tying_crp).out_state_tying
+    with open(FROM_SCRATCH_CV_INFO["features_tkpath_train"], "rt") as feature_bundle:
+        feature_caches = [tk.Path(line.strip()) for line in feature_bundle.readlines()]
+
+    alignment = RasrForcedTriphoneAlignmentToHDF(
+        alignment_bundle=alignment,
+        allophones=tk.Path(ZHOU_ALLOPHONES),
+        num_tied_classes=s.label_info.get_n_of_dense_classes(),
+        state_tying=tying,
+    )
+    features = RasrFeaturesToHdf(feature_caches=feature_caches)
+
+    rng = random.Random(1337)
+    dev_i = rng.randrange(0, len(features.out_hdf_files))
+
+    train_hdfs = copy.copy(features.out_hdf_files)
+    dev_hdf = train_hdfs.pop(dev_i)
+
+    seqs = copy.copy(features.out_single_segment_files)
+    dev_seq = seqs.pop(dev_i)
+
+    feature_seq = text.ConcatenateJob(seqs, out_name="segments", zip_out=True).out
+
+    dataset_cfg = {
+        "class": "MetaDataset",
+        "data_map": {
+            "data": ("audio", "features"),
+            "classes": ("alignment", "classes"),
+        },
+        "seq_ordering": f"random:133769420",
+    }
+    alignment_hdf_config = {
+        "class": "NextGenHDFDataset",
+        "input_stream_name": "classes",
+        "files": [alignment.out_hdf_file],
+        "use_lazy_data_integrity_checks": True,
+    }
+    features_hdf_config = {
+        "class": "NextGenHDFDataset",
+        "input_stream_name": "features",
+        "use_lazy_data_integrity_checks": True,
+    }
 
     base_config = {
         **s.initial_nn_args,
@@ -243,20 +288,35 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": CONF_CHUNKING,
+        "chunking": subsample_chunking(CONF_CHUNKING, subsampling_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
         "network": network,
         "extern_data": {
-            "data": {
-                "dim": 50,
-                "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)},
+            "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
+            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=None),
+        },
+        "train": {
+            **dataset_cfg,
+            "datasets": {
+                "audio": {**features_hdf_config, "files": train_hdfs},
+                "alignment": alignment_hdf_config,
             },
-            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
+            "partition_epoch": partition_epochs["train"],
+            "seq_list_file": feature_seq,
+        },
+        "dev": {
+            **dataset_cfg,
+            "datasets": {
+                "audio": {**features_hdf_config, "files": [dev_hdf]},
+                "alignment": alignment_hdf_config,
+            },
+            "partition_epoch": partition_epochs["dev"],
+            "seq_list_file": dev_seq,
         },
     }
-    keep_epochs = [550, num_epochs]
+    keep_epochs = [TEST_EPOCH, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -278,6 +338,7 @@ def run_single(
                 sa_summary,
                 sa_transform,
             ],
+            "cache": hdf_dataset_cache_epilog,
         },
     )
 
@@ -286,23 +347,21 @@ def run_single(
 
     train_args = {
         **s.initial_train_args,
-        "returnn_config": returnn_config,
         "num_epochs": num_epochs,
-        "partition_epochs": partition_epochs,
     }
+    s.returnn_training(experiment_key="fh", returnn_config=returnn_config, nn_train_args=train_args, on_2080=False)
 
-    s.returnn_rasr_training(
-        experiment_key="fh",
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        nn_train_args=train_args,
-        on_2080=False,
-    )
-    s.set_diphone_priors_returnn_rasr(
+    s.set_graph_for_experiment("fh")
+
+    prior_config = copy.deepcopy(returnn_config)
+    for k in ["train", "dev"]:
+        prior_config.config[k] = {"reduce_target_factor": subsampling_factor}
+    s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
+        returnn_config=prior_config,
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
@@ -310,20 +369,32 @@ def run_single(
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.diphone,
+            context_type=PhoneticContext.monophone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=True,
         )
-        for cfg in [recog_args, recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4)]:
+
+        recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
+
+        for pC, tdp_simple, tdp_scale in itertools.product([0.5, 0.7], [True, False], [0.0, 0.2, 0.4, 0.6, 0.8]):
+            cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
+
+            if tdp_simple:
+                sil_non_w_tdp = (0.0, 0.0, "infinity", 20.0)
+                cfg = dataclasses.replace(
+                    cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
+                )
+
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
+                rtf_cpu=4,
             )
 
         if tune_decoding:
@@ -331,12 +402,7 @@ def run_single(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
-                prior_scales=list(
-                    itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 5),
-                    )
-                ),
+                prior_scales=np.linspace(0.0, 0.6, 7),
                 tdp_scales=np.linspace(0.2, 0.6, 5),
             )
             recognizer.recognize_count_lm(
@@ -347,30 +413,5 @@ def run_single(
                 calculate_stats=True,
                 name_override="best/4gram",
             )
-
-        if run_performance_study:
-            for altas, beam in [
-                *itertools.product([2, 4, 6, 8, 12], [14, 16, 18]),
-                (0, 16),
-                (0, 18),
-                (0, 20),
-                (2, 16),
-                (2, 18),
-                (2, 20),
-                (4, 16),
-                (4, 18),
-                (4, 20),
-            ]:
-                recognizer.recognize_count_lm(
-                    calculate_stats=True,
-                    gpu=True,
-                    label_info=s.label_info,
-                    name_override=f"altas{altas}-beam{beam}",
-                    num_encoder_output=conf_model_dim,
-                    opt_lm_am=False,
-                    pre_path="decoding-perf",
-                    search_parameters=dataclasses.replace(recog_args, altas=altas if altas > 0 else None, beam=beam),
-                    rtf_gpu=1.3,
-                )
 
     return s

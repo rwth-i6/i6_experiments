@@ -1,5 +1,8 @@
 import copy
+from dataclasses import dataclass
 import typing
+
+from i6_core import returnn
 
 from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext
 
@@ -98,11 +101,33 @@ def pop_phoneme_state_classes(
     return network, labeling_output, rem_dim
 
 
-def augment_net_with_label_pops(network: Network, label_info: LabelInfo) -> Network:
+@dataclass(frozen=True, eq=True)
+class SubsamplingInfo:
+    factor: int
+    time_tag_name: str
+
+
+def augment_net_with_label_pops(
+    network: Network, label_info: LabelInfo, classes_subsampling_info: typing.Optional[SubsamplingInfo] = None
+) -> Network:
     labeling_input = "data:classes"
     remaining_label_dim = label_info.get_n_of_dense_classes()
 
     network = copy.deepcopy(network)
+
+    if classes_subsampling_info is not None:
+        # This layer sets the time step ratio between the input and the output of the NN.
+
+        network["classes_"] = {
+            "class": "reinterpret_data",
+            "set_dim_tags": {
+                "T": returnn.CodeWrapper(
+                    f"{classes_subsampling_info.time_tag_name}.ceildiv_right({classes_subsampling_info.factor})"
+                )
+            },
+            "from": labeling_input,
+        }
+        labeling_input = "classes_"
 
     network["futureLabel"] = {
         "class": "eval",
