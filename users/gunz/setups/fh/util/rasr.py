@@ -51,6 +51,6 @@ class SystemInput:
             chunk_size=chunk_size,
             shuffling_parameters={
                 "shuffle_data": shuffle_data,
-                "segment_order_sort_by_time_length": segment_order_sort_by_time_length,
+                "segment_order_sort_by_time_length_chunk_size": segment_order_sort_by_time_length,
             },
         )
