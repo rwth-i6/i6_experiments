@@ -291,7 +291,9 @@ def run_single(
             )
         )
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(
+        [max(keep_epochs)], ["dev-other"] if lr != "v13" else ["dev-other", "dev-clean", "test-clean", "test-other"]
+    ):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.triphone_forward,
