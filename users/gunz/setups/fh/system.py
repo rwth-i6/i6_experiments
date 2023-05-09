@@ -550,7 +550,7 @@ class FactoredHybridSystem(NnSystem):
                 )
 
     # ----- data preparation for train-----------------------------------------------------
-    def prepare_train_data_with_cv_from_train(self, input_key, chunk_size=1152):
+    def prepare_train_data_with_cv_from_train(self, input_key):
         train_corpus_path = self.corpora[self.train_key].corpus_file
         total_train_num_segments = num_segments[self.train_key]
         cv_size = 3000 / total_train_num_segments
@@ -573,22 +573,27 @@ class FactoredHybridSystem(NnSystem):
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
             shuffle_data=True,
             segment_order_sort_by_time_length=True,
-            chunk_size=chunk_size,
         )
         nn_train_data.update_crp_with(segment_path=train_segments, concurrent=1)
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
-        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            shuffle_data=True,
+            segment_order_sort_by_time_length=True,
+        )
         nn_cv_data.update_crp_with(segment_path=cv_segments, concurrent=1)
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            shuffle_data=True,
+            segment_order_sort_by_time_length=True,
+        )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
-    def prepare_train_data_with_separate_cv(self, input_key, chunk_size=1152):
+    def prepare_train_data_with_separate_cv(self, input_key):
         # Example CV info
         #
         # self.cv_info = {
@@ -634,7 +639,6 @@ class FactoredHybridSystem(NnSystem):
         nn_train_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
             shuffle_data=True,
             segment_order_sort_by_time_length=True,
-            chunk_size=chunk_size,
         )
 
         nn_train_data.update_crp_with(corpus_file=train_corpus, segment_path=train_segments, concurrent=1)
@@ -687,7 +691,7 @@ class FactoredHybridSystem(NnSystem):
         else:
             f = self.prepare_train_data_with_cv_from_train
 
-        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(input_key, chunk_size)
+        nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs = f(input_key)
 
         nn_dev_data_inputs = {
             self.crp_names["dev-clean"]: self.inputs["dev-clean"][input_key].as_returnn_rasr_data_input(),
