@@ -92,9 +92,33 @@ def run_baseline_gt():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "conformer_bs14k_gt40": dict(
+            # comment out because hash changed because freq_max and freq_min are added for GT
+            # "gt40": dict(
+            #     returnn_args=dict(batch_size=14000),
+            #     feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40},
+            # ),
+            # "gt40_win640": dict(
+            #     returnn_args=dict(batch_size=14000),
+            #     feature_args={
+            #         "class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40, "gt_filterbank_size": 0.08,
+            #         "temporal_integration_size": 0.05,
+            #     },
+            # ),
+            # "gt50": dict(
+            #     returnn_args=dict(batch_size=14000),
+            #     feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 50},
+            # ),
+            # "gt40_minchunk2": dict(
+            #     returnn_args=dict(batch_size=14000, extra_args=dict(min_chunk_size={"classes": 2, "data": 160})),
+            #     feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40},
+            # ),
+            "gt40_pe": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "GammatoneNetwork", "sample_rate": 8000, "output_dim": 40},
+                feature_args={
+                    "class": "GammatoneNetwork", "sample_rate": 8000, "freq_max": 3800., "output_dim": 40,
+                    "preemphasis": 1.0,
+                },
+            ),
             "lm80_fft256": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={
@@ -107,7 +131,7 @@ def run_baseline_gt():
             ),
         },
         num_epochs=260,
-        prefix="gt_"
+        prefix="conformer_bs14k_"
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
