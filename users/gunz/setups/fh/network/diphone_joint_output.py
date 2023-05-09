@@ -41,7 +41,6 @@ def augment_to_joint_diphone_softmax(
 
     center_state_spatial_dim_variable_name = "__center_state_spatial"
     center_state_feature_dim_variable_name = "__center_state_feature"
-    left_context_repetition_spatial_dim_variable_name = "__left_context_spatial"
 
     dim_prolog = dedent(
         f"""
@@ -49,12 +48,10 @@ def augment_to_joint_diphone_softmax(
 
         {center_state_spatial_dim_variable_name} = FeatureDim("contexts-L", {label_info.n_contexts})
         {center_state_feature_dim_variable_name} = FeatureDim("L", {label_info.n_contexts})
-        {left_context_repetition_spatial_dim_variable_name} = FeatureDim("repeat-L", {label_info.get_n_state_classes()})
         """
     )
     c_spatial_dim = returnn.CodeWrapper(center_state_spatial_dim_variable_name)
     c_range_dim = returnn.CodeWrapper(center_state_feature_dim_variable_name)
-    l_spatial_dim = returnn.CodeWrapper(left_context_repetition_spatial_dim_variable_name)
 
     network = returnn_config.config["network"]
 
@@ -71,7 +68,7 @@ def augment_to_joint_diphone_softmax(
         network[softmax_layer] = {
             **network[softmax_layer],
             "class": "linear",
-            "activation": "log_softmax",
+            "activation": "log_softmax" if log_softmax else "softmax",
         }
 
     # Preparation of expanded center-state
@@ -103,14 +100,13 @@ def augment_to_joint_diphone_softmax(
         "class": "expand_dims",
         "from": left_context_softmax_layer,
         "axis": "feature",
-        "dim": l_spatial_dim,
     }
 
     # Compute scores and flatten output
     network[f"{out_joint_score_layer}_scores"] = {
         "class": "combine",
         "from": [center_state_softmax_layer, f"{left_context_softmax_layer}_expanded"],
-        "kind": "add",  # log space
+        "kind": "add" if log_softmax else "mul",
     }
     network[out_joint_score_layer] = {
         "class": "merge_dims",
@@ -118,14 +114,6 @@ def augment_to_joint_diphone_softmax(
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
     }
-
-    if not log_softmax:
-        network[f"{out_joint_score_layer}_normalized"] = network[out_joint_score_layer]
-        network[out_joint_score_layer] = {
-            "class": "activation",
-            "activation": "exp",
-            "from": f"{out_joint_score_layer}_normalized",
-        }
 
     network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
 
