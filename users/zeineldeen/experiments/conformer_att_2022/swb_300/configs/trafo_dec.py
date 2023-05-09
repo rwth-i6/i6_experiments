@@ -741,7 +741,7 @@ def conformer_baseline():
     # - converge better when not reducing depthwise conv kernel size during pretraining but final WER is worse
     # - much better with larger batch size initially
 
-    oclr_args = copy.deepcopy(lstm_dec_exp_args)
+    oclr_args = copy.deepcopy(trafo_dec_exp_args)
     oclr_args["oclr_opts"] = {
         "peak_lr": 9e-4,
         "final_lr": 1e-6,
@@ -802,336 +802,88 @@ def conformer_baseline():
         )
 
     base_12l_reduce_0_7_args = get_modified_base_args(base_v1_args, 12, 0.7)
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_maxSeqLen75_ep{300}",
-        train_args=base_12l_reduce_0_7_args,
-        num_epochs=300,
-    )
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}",
-        train_args=args,
-        num_epochs=300,
-    )
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
-    args["oclr_opts"]["total_ep"] = 600
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{600}",
-        train_args=args,
-        num_epochs=600,
-    )
-    # TODO: specaug v2
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["specaug_version"] = 2
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_specaug2",
-        train_args=args,
-        num_epochs=300,
-    )
 
-    # TODO: without CTC
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["encoder_args"].with_ctc = False
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_noCTC",
-        train_args=args,
-        num_epochs=300,
-    )
-
-    # base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLenNone_dimReduce0.7_ep900
-    # hub5e00: 11.7 - hub5e01: 10.6 - rt03s: 12.2 - ckpt: avg
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}",
-        train_args=args,
-        num_epochs=900,
-    )
-    # for peak_lr in [5e-4, 8e-4, 1e-3]:
-    #     for ep in [300, 600, 900]:
-    #         retrain_args = copy.deepcopy(args)
-    #         retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #         retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #         retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-    #         retrain_args["oclr_opts"]["total_ep"] = ep
-    #         retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #         run_default_exp(
-    #             f"base1_conf_{12}l_lstm_1l_conv{6}_peak{peak_lr}_ep{ep}_retrain1",
-    #             train_args=retrain_args,
-    #             num_epochs=ep,
-    #         )
-    #
-    # # TODO: retrain with more speed perturbation
-    # for peak_lr in [1e-3, 2e-3]:
-    #     retrain_args = copy.deepcopy(args)
-    #     retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #     retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #     retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * 300)
-    #     retrain_args["oclr_opts"]["total_ep"] = 300
-    #     retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #
-    #     retrain_args["encoder_args"].frontend_conv_l2 = 1e-2
-    #     retrain_args["encoder_args"].att_dropout = 0.3
-    #     retrain_args["encoder_args"].dropout = 0.3
-    #     retrain_args["gradient_noise"] = 0.01
-    #
-    #     # more
-    #     retrain_args["speed_pert_version"] = 3
-    #
-    #     run_default_exp(
-    #         f"base1_conf_{12}l_lstm_1l_conv{6}_peak{peak_lr}_ep{300}_drop{0.3}_speedPertV3_convL2{1e-2}_gradNoise{0.01}_retrain1",
-    #         train_args=retrain_args,
-    #         num_epochs=300,
-    #     )
-
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    # retrain_args["allow_lr_scheduling_for_retrain"] = True
-    # retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * 300)
-    # retrain_args["oclr_opts"]["total_ep"] = 300
-    # retrain_args["oclr_opts"]["peak_lr"] = 1e-3
-    #
-    # retrain_args["encoder_args"].frontend_conv_l2 = 1e-2
-    # retrain_args["encoder_args"].att_dropout = 0.3
-    # retrain_args["encoder_args"].dropout = 0.3
-    # retrain_args["gradient_noise"] = 0.01
-    #
-    # # more
-    # retrain_args["specaug_version"] = 2
-    #
-    # run_default_exp(
-    #     f"base1_conf_{12}l_lstm_1l_conv{6}_peak{1e-3}_ep{300}_drop{0.3}_specaug2_convL2{1e-2}_gradNoise{0.01}_retrain1",
-    #     train_args=retrain_args,
-    #     num_epochs=300,
-    # )
-
-    # # retrain
-    # for ep in [300]:
-    #     for peak_lr in [1e-3]:
-    #         for drop in [0.1, 0.2, 0.3]:
-    #             for dec_att_drop in [0.0, drop]:
-    #                 retrain_args = copy.deepcopy(base_12l_reduce_0_7_args)
-    #                 retrain_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-    #                 retrain_args["oclr_opts"]["total_ep"] = ep
-    #                 retrain_args["oclr_opts"]["peak_lr"] = peak_lr
-    #                 retrain_args["max_seq_length"] = None
-    #                 retrain_args["oclr_opts"]["n_step"] = 2085
-    #
-    #                 # add regularization
-    #                 retrain_args["encoder_args"].att_dropout = drop
-    #                 retrain_args["encoder_args"].dropout = drop
-    #                 retrain_args["decoder_args"].embed_dropout = drop
-    #
-    #                 retrain_args["decoder_args"].att_dropout = dec_att_drop
-    #                 retrain_args["decoder_args"].use_zoneout_output = True
-    #
-    #                 retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[f"base1_conf_{12}l_lstm_1l_conv{6}_ep{900}"]
-    #
-    #                 retrain_args["allow_lr_scheduling_for_retrain"] = True
-    #
-    #                 name = f"base1_conf_{12}l_lstm_1l_conv{6}_ep{ep}_drop{drop}_decAttDrop{dec_att_drop}_fixedZoneout"
-    #                 name += "_retrain1"
-    #                 run_default_exp(
-    #                     name=name,
-    #                     train_args=retrain_args,
-    #                     num_epochs=ep,
-    #                 )
-
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["pretrain_reps"] = 3
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_woDepthwiseConvPre_preReps{3}_fixedZoneout_ep900",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    args = copy.deepcopy(base_v1_args)
-    args["pretrain_reps"] = 3
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_dimReduce{1.0}_woDepthwiseConvPre_preReps{3}_fixedZoneout_ep900",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["decoder_args"].use_zoneout_output = True  # should be more regs
-    args["oclr_opts"]["n_step"] = 2085
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep600",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    # TODO: gradient noise
-    for disable_in_pretrain in [True, False]:
-        for grad_noise in [1e-2, 1e-3, 1e-4]:
-            args = copy.deepcopy(base_12l_reduce_0_7_args)
-            args["max_seq_length"] = None
-            args["decoder_args"].use_zoneout_output = True
-            args["oclr_opts"]["n_step"] = 2085
-            args["gradient_noise"] = grad_noise
-            name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_gradNoise{grad_noise}"
-            if disable_in_pretrain:
-                args["pretrain_opts"]["extra_net_dict_override"] = {"gradient_noise": 0.0}
-                name += "_disablePre"
-            run_default_exp(
-                name,
-                train_args=args,
-                num_epochs=300,
-            )
-
-    # TODO: variational noise
-    for disable_in_pretrain in [False]:
-        for param_var_noise in [1e-2, 1e-3, 1e-4]:
-            args = copy.deepcopy(base_12l_reduce_0_7_args)
-            args["max_seq_length"] = None
-            args["decoder_args"].use_zoneout_output = True
-            args["oclr_opts"]["n_step"] = 2085
-            args["encoder_args"].weight_noise = param_var_noise
-            args["encoder_args"].weight_noise_layers = ["mhsa"]
-            name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_weightNoiseMHSA{param_var_noise}"
-            if disable_in_pretrain:
-                args["pretrain_opts"]["extra_net_dict_override"] = {"param_variational_noise": None}
-                name += "_disablePre"
-            run_default_exp(
-                name,
-                train_args=args,
-                num_epochs=300,
-            )
-
-    # lbs
-    for lbs in [0.15, 0.2]:
-        args = copy.deepcopy(base_12l_reduce_0_7_args)
-        args["max_seq_length"] = None
-        args["decoder_args"].use_zoneout_output = True
-        args["decoder_args"].label_smoothing = lbs
-        args["oclr_opts"]["n_step"] = 2085
-        name = f"base1_conf_{12}l_lstm_1l_conv{6}_fixedZoneout_ep300_lbs{lbs}"
-        run_default_exp(
-            name,
-            train_args=args,
-            num_epochs=300,
-        )
-
-    # staged hyperparams
-    # args = copy.deepcopy(base_12l_reduce_0_7_args)
-    # args["max_seq_length"] = None
-    # args["decoder_args"].use_zoneout_output = True
-    # args["oclr_opts"]["n_step"] = 2085
-    # args["staged_hyperparams"] = {}
-    # name = f"base_conf_{12}l_lstm_1l_conv{6}_sqrdReLU_bpe500_maxSeqLenNone_dimReduce{0.7}_fixedZoneout_ep300"
-    # run_default_exp(
-    #     name,
-    #     train_args=args,
-    #     num_epochs=300,
-    # )
-
-    # train with bpe 1k
-    args = copy.deepcopy(base_12l_reduce_0_7_args)
-    args["max_seq_length"] = None
-    args["oclr_opts"]["n_step"] = 2085
-    args["decoder_args"].use_zoneout_output = True
-    run_default_exp(
-        name="base1_conf_12l_lstm_1l_conv6_bpe1k_fixedZoneout_ep300",
-        train_args=args,
-        num_epochs=300,
-        bpe_size=1000,
-    )
+    def get_base2_args(enc_red_factor=0.7, drop=0.1) -> dict:
+        base_v2_args = get_modified_base_args(base_v1_args, 12, enc_red_factor)
+        base_v2_args["pretrain_reps"] = 3
+        base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        base_v2_args["max_seq_length"] = None
+        base_v2_args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+        base_v2_args["oclr_opts"]["total_ep"] = 600
+        base_v2_args["oclr_opts"]["n_step"] = 2085
+        base_v2_args["encoder_args"].att_dropout = drop
+        base_v2_args["encoder_args"].dropout = drop
+        return base_v2_args
 
     # ----------------------------------------------- #
 
-    # base_conf_12l_lstm_1l_conv6_sqrdReLU_bpe500_maxSeqLenNone_dimReduce0.7_woDepthwiseConvPre_preReps3_drop0.2_fixedZoneout_l20.0001_ep600
-    # hub5e00: 12 - hub5e01: 10.5 - rt03s: 12.5 - ckpt: best
-    base_v2_args = copy.deepcopy(base_12l_reduce_0_7_args)
-    base_v2_args["pretrain_reps"] = 3
-    base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    base_v2_args["max_seq_length"] = None
-    base_v2_args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
-    base_v2_args["oclr_opts"]["total_ep"] = 600
-    base_v2_args["oclr_opts"]["n_step"] = 2085
-    base_v2_args["encoder_args"].att_dropout = 0.2
-    base_v2_args["encoder_args"].dropout = 0.2
-    base_v2_args["decoder_args"].use_zoneout_output = True
-    run_default_exp(
-        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}",
-        train_args=base_v2_args,
-        num_epochs=600,
-    )
-
-    args = copy.deepcopy(base_v2_args)
-    args["encoder_args"].with_ctc = False
-    run_default_exp(
-        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}_noCTC",
-        train_args=args,
-        num_epochs=600,
-    )
-
-    # TODO: more specaug
-    for specaug_version in [2, 3]:
-        args = copy.deepcopy(base_v2_args)
-        args["specaug_version"] = specaug_version
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_ep{600}_specaug{specaug_version}",
-            train_args=args,
-            num_epochs=600,
-        )
-
-    args = copy.deepcopy(base_v2_args)
-    args["oclr_opts"]["cycle_ep"] = int(0.45 * 900)
-    args["oclr_opts"]["total_ep"] = 900
-    run_default_exp(
-        f"base2_conf_{12}l_lstm_1l_conv{6}_ep{900}",
-        train_args=args,
-        num_epochs=900,
-    )
-
-    for ep in [600, 900]:
-        args = copy.deepcopy(base_v2_args)
-        args["decoder_args"].att_dropout = 0.2
-        args["decoder_args"].embed_dropout = 0.2
-        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-        args["oclr_opts"]["total_ep"] = ep
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{ep}",
-            train_args=args,
-            num_epochs=ep,
-        )
-
-    # TODO: swap mhsa and conv
+    # TODO: transformer decoder
     for ep in [600]:
-        args = copy.deepcopy(base_v2_args)
-        args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-        args["oclr_opts"]["total_ep"] = ep
-        args["encoder_args"].convolution_first = True
-        run_default_exp(
-            f"base2_conf_{12}l_lstm_1l_conv{6}_ep{ep}_convFirst",
-            train_args=args,
-            num_epochs=ep,
-        )
+        for embed_weight in [True, False]:
+            for use_trafo_train_args in [False]:
+                for trafo_ff_dim in [None, 2048]:
+                    for enc_factor in [0.7]:
+                        for drop in [0.1, 0.2]:
+                            for softmax_drop in [drop]:
+                                args = copy.deepcopy(get_base2_args(enc_red_factor=enc_factor, drop=drop))
+                                name = f"base2_conf_{12}l_trafo_6l_conv{6}_ep{ep}_encDimReduce{enc_factor}_drop{drop}_softmaxDrop{softmax_drop}"
+                                if use_trafo_train_args:
+                                    # TODO: check steps per subepoch
+                                    args.update(trafo_training_args)  # use trafo batching 12k
+                                    name += "_trafoBatch"
+                                else:
+                                    args.update(lstm_training_args)  # use as lstm decoder batching
+
+                                # model dim same as encoder
+                                args["decoder_args"].att_num_heads = args["encoder_args"].att_num_heads
+                                args["decoder_args"].ff_dim = trafo_ff_dim or args["encoder_args"].ff_dim
+                                args["decoder_args"].apply_embed_weight = embed_weight
+                                args["decoder_args"].softmax_dropout = softmax_drop
+                                if embed_weight:
+                                    name += "_embedWeight"
+                                name += f"_attH{args['decoder_args'].att_num_heads}"
+                                name += f"_ffDim{args['decoder_args'].ff_dim}"
+
+                                args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+                                args["oclr_opts"]["total_ep"] = ep
+                                run_default_exp(name, train_args=args, num_epochs=ep)
+
+    # TODO: double batch size
+    for embed_weight in [True, False]:
+        for bs_inc_factor in [1, 2]:
+            for enc_model_dim in [384, 256]:
+                for specaug_version in [1, 3]:
+                    for drop in [0.1, 0.2]:
+                        args = copy.deepcopy(get_base2_args(enc_red_factor=1.0, drop=drop))
+                        name = f"base3_conf_{12}l_trafo_6l_conv{6}_ep{ep}_drop{drop}_encDim{enc_model_dim}_bsInc{bs_inc_factor}_specaug{specaug_version}"
+                        args.update(lstm_training_args)  # use as lstm decoder batching
+
+                        args["encoder_args"].enc_key_dim = enc_model_dim
+                        args["encoder_args"].ff_dim = 2048
+                        args["encoder_args"].att_num_heads = 4
+                        args["encoder_args"].conv_kernel_size = 31
+
+                        # model dim same as encoder
+                        args["decoder_args"].att_num_heads = 4
+                        args["decoder_args"].ff_dim = 2048
+                        args["decoder_args"].apply_embed_weight = embed_weight
+
+                        # dropout
+                        args["decoder_args"].softmax_dropout = drop
+                        args["decoder_args"].dropout = drop
+                        args["decoder_args"].att_dropout = drop
+                        args["decoder_args"].embed_dropout = drop
+
+                        if embed_weight:
+                            name += "_embedWeight"
+
+                        args["specaug_version"] = specaug_version
+
+                        assert isinstance(args["batch_size"], int)
+                        args["accum_grad"] = 2 if bs_inc_factor == 1 else 1
+                        args["batch_size"] = 15_000 * 80 * bs_inc_factor
+                        args["pretrain_opts"]["initial_batch_size"] = 22500 * 80 * bs_inc_factor
+
+                        args["oclr_opts"]["cycle_ep"] = int(0.45 * 600)
+                        args["oclr_opts"]["total_ep"] = 600
+                        run_default_exp(name, train_args=args, num_epochs=600)

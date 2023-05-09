@@ -3,14 +3,21 @@ import copy
 from i6_core.returnn.config import CodeWrapper
 
 
-def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, check_repeat=False, beam_size=12):
+def add_joint_ctc_att_subnet(
+    net,
+    att_scale,
+    ctc_scale,
+    check_repeat_version=1,
+    beam_size=12,
+    remove_eos=False,
+    renorm_after_remove_eos=False,
+):
     """
     Add layers for joint CTC and att search.
 
     :param dict net: network dict
     :param float att_scale: attention score scale
     :param float ctc_scale: ctc score scale
-    :param bool length_normalization: if set, apply length normalization to beam search scores
     """
     net["output"] = {
         "class": "rec",
@@ -292,16 +299,17 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
                 "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores",
                 "input_type": "log_prob",
                 "initial_output": 0,
-                "length_normalization": length_normalization,
+                "length_normalization": False,
             },
         },
         "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
     }
-    if check_repeat:
+    if check_repeat_version:
         net["output"]["unit"]["not_repeat_mask"] = {
             "class": "compare",
             "from": ["output", "prev:output"],
             "kind": "not_equal",
+            "initial_output": True,
         }
         net["output"]["unit"]["is_curr_out_not_blank_mask_"] = copy.deepcopy(
             net["output"]["unit"]["is_curr_out_not_blank_mask"]
@@ -311,6 +319,37 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
             "kind": "logical_and",
             "from": ["is_curr_out_not_blank_mask_", "not_repeat_mask"],
         }
+        if check_repeat_version == 2:
+            net["output"]["unit"]["is_prev_out_not_blank_mask_"] = copy.deepcopy(
+                net["output"]["unit"]["is_prev_out_not_blank_mask"]
+            )
+            net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
+                "class": "combine",
+                "kind": "logical_and",
+                "from": ["is_prev_out_not_blank_mask_", "prev:not_repeat_mask"],
+            }
+    if remove_eos:
+        net["output"]["unit"]["att_scores_wo_eos"] = {
+            "class": "eval",
+            "eval": CodeWrapper("update_tensor_entry"),
+            "from": "trigg_att",
+        }
+        if renorm_after_remove_eos:
+            net["output"]["unit"]["att_log_scores_"] = copy.deepcopy(net["output"]["unit"]["att_log_scores"])
+            net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
+            net["output"]["unit"]["att_log_scores_norm"] = {
+                "class": "reduce",
+                "mode": "logsumexp",
+                "from": "att_log_scores_",
+                "axis": "f",
+            }
+            net["output"]["unit"]["att_log_scores"] = {
+                "class": "combine",
+                "kind": "sub",
+                "from": ["att_log_scores_", "att_log_scores_norm"],
+            }
+        else:
+            net["output"]["unit"]["att_log_scores"]["from"] = "att_scores_wo_eos"
 
 
 def add_filter_blank_and_merge_labels_layers(net):
@@ -395,3 +434,16 @@ def create_ctc_greedy_decoder(net):
         "from": "data:source",
         "initial_output": 0,
     }
+
+
+def update_tensor_entry(source, **kwargs):
+    import tensorflow as tf
+
+    tensor = source(0)
+    batch_size = tf.shape(tensor)[0]
+    indices = tf.range(batch_size)  # [0, 1, ..., batch_size - 1]
+    indices = tf.expand_dims(indices, axis=1)  # [[0], [1], ..., [batch_size - 1]]
+    zeros = tf.zeros_like(indices)
+    indices = tf.concat([indices, zeros], axis=1)  # [[0, 0], [1, 0], ..., [batch_size - 1, 0]]
+    updates = tf.zeros([batch_size])
+    return tf.tensor_scatter_nd_update(tensor, indices, updates)

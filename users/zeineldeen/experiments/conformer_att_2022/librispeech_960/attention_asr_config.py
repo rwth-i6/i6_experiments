@@ -14,6 +14,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
     add_joint_ctc_att_subnet,
     add_filter_blank_and_merge_labels_layers,
     create_ctc_greedy_decoder,
+    update_tensor_entry,
 )
 
 from i6_experiments.users.zeineldeen import data_aug
@@ -295,12 +296,12 @@ def pretrain_layers_and_dims(
 
     net_dict = encoder_model.network.get_net()
 
-    if decoder_args["ce_loss_scale"] == 0.0:
-        assert encoder_args["with_ctc"], "CTC loss is not enabled."
-        net_dict["output"] = {"class": "copy", "from": "ctc"}
-        net_dict["decision"]["target"] = "bpe_labels_w_blank"
-    else:
-        net_dict.update(decoder_model.network.get_net())
+    # if decoder_args["ce_loss_scale"] == 0.0:
+    #     assert encoder_args["with_ctc"], "CTC loss is not enabled."
+    #     net_dict["output"] = {"class": "copy", "from": "ctc"}
+    #     net_dict["decision"]["target"] = "bpe_labels_w_blank"
+    # else:
+    net_dict.update(decoder_model.network.get_net())
 
     net_dict.update(extra_net_dict)
 
@@ -544,11 +545,7 @@ def create_config(
     speed_pert_version=1,
     specaug_version=1,
     ctc_greedy_decode=False,
-    joint_ctc_att_decode=False,
-    joint_att_scale=1.0,
-    joint_ctc_scale=1.0,
-    length_normalization=True,
-    check_repeat=False,
+    joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
 ):
@@ -699,16 +696,16 @@ def create_config(
     # add full network
     exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
 
-    if decoder_args["ce_loss_scale"] == 0.0:
-        assert encoder_args["with_ctc"], "CTC loss is not enabled."
-        exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
-
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-        exp_config["network"]["decision"]["target"] = "bpe_labels_w_blank"
-        exp_config["network"]["decision"]["loss_opts"] = {"ctc_decode": True}
-    else:
-        exp_config["network"].update(transformer_decoder.network.get_net())
+    # if decoder_args["ce_loss_scale"] == 0.0:
+    #     assert encoder_args["with_ctc"], "CTC loss is not enabled."
+    #     exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
+    #
+    #     exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+    #     exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
+    #     exp_config["network"]["decision"]["target"] = "bpe_labels_w_blank"
+    #     exp_config["network"]["decision"]["loss_opts"] = {"ctc_decode": True}
+    # else:
+    exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
@@ -726,20 +723,14 @@ def create_config(
         exp_config["network"].pop(exp_config["search_output_layer"], None)
         exp_config["search_output_layer"] = "out_best_wo_blank"
 
-    if joint_ctc_att_decode:
+    if joint_ctc_att_decode_args:
         # create bpe labels with blank extern data
         exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
         # TODO: this is just for debugging. find a better way to do it later.
-        add_joint_ctc_att_subnet(
-            exp_config["network"],
-            att_scale=joint_att_scale,
-            ctc_scale=joint_ctc_scale,
-            length_normalization=length_normalization,
-            check_repeat=check_repeat,
-            beam_size=beam_size,
-        )
+        add_joint_ctc_att_subnet(exp_config["network"], **joint_ctc_att_decode_args)
+        joint_ctc_scale = joint_ctc_att_decode_args["ctc_scale"]
         if joint_ctc_scale > 0.0:
             add_filter_blank_and_merge_labels_layers(exp_config["network"])
             exp_config["network"].pop(exp_config["search_output_layer"], None)
@@ -773,6 +764,10 @@ def create_config(
             python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
         elif specaug_version == 2:
             python_prolog = specaugment.specaug_v2.get_funcs()
+        elif specaug_version == 3:
+            python_prolog = specaugment.specaug_v3.get_funcs()
+        elif specaug_version == 4:
+            python_prolog = specaugment.specaug_v4.get_funcs()
         else:
             raise ValueError("Invalid specaug_version")
 
@@ -891,8 +886,10 @@ def create_config(
     if config_override:
         exp_config.update(config_override)
 
-    if joint_ctc_att_decode:
+    if joint_ctc_att_decode_args:
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+        if joint_ctc_att_decode_args.get("remove_eos", False):
+            python_prolog += [update_tensor_entry]
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:
