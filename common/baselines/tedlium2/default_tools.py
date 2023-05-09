@@ -12,7 +12,8 @@ from i6_experiments.common.tools.audio import compile_ffmpeg_binary
 from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 from i6_experiments.common.tools.sctk import compile_sctk
 
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode()  #  use most recent RASR
+RASR_BINARY_PATH = tk.Path("/work/asr4/rossenbach/neon_test/rasr_versions/rasr_no_tf/arch/linux-x86_64-standard/")
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
 RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
@@ -20,4 +21,5 @@ RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_SCTK_BINARY_PATH"
 
-SRILM_PATH = tk.Path("/work/tools/users/luescher/srilm-1.7.3/bin/i686-m64")
+SRILM_PATH = tk.Path("/u/irie/lm_toolkits/srilm-1.5.12-mod2_201705/bin/i686-m64_c/")
+SRILM_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_SRILM_PATH"

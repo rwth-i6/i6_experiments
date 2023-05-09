@@ -244,6 +244,9 @@ def get_vtln_args():
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": "mfcc+context+lda+vtln",
+            "align_extra_rqmt": {"mem": 8},
+            "accumulate_extra_rqmt": {"mem": 8},
+            "split_extra_rqmt": {"mem": 8},
         },
     }
 
@@ -296,6 +299,9 @@ def get_sat_args():
         "cache_regex": "^mfcc.*$",
         "splits": 10,
         "accs_per_split": 2,
+        "align_extra_rqmt": {"mem": 8},
+        "accumulate_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8},
     }
 
     sat_recognition_args = {
@@ -357,6 +363,9 @@ def get_vtln_sat_args():
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
+        "align_extra_rqmt": {"mem": 8},
+        "accumulate_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8},
     }
 
     vtln_sat_recognition_args = {

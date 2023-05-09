@@ -39,7 +39,7 @@ def run_tedlium2_ngram_lm(alias_prefix="baselines/tedlium2/lm/ngram"):
         ngram_order=[3, 4, 5],
         vocab=vocab,
         ngram_args=None,
-        perplexity_args=None,
+        perplexity_args="-debug 2",
         srilm_path=SRILM_PATH,
         ngram_rqmt=None,
         perplexity_rqmt=None,
@@ -48,3 +48,4 @@ def run_tedlium2_ngram_lm(alias_prefix="baselines/tedlium2/lm/ngram"):
     ngram_system.run()
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
+    return ngram_system
