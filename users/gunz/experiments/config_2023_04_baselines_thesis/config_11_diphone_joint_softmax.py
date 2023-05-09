@@ -32,6 +32,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
+from ...setups.fh.priors.smoothen import smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -300,6 +301,7 @@ def run_single(
         output_layer_name="output",
         returnn_config=prior_returnn_config,
     )
+    s.experiments["fh"]["priors"] = smoothen_priors(s.experiments["fh"]["priors"])
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
