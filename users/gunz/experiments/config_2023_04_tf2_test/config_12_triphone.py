@@ -313,6 +313,11 @@ def run_single(
             )
 
     if lr == "v13":
+        generic_lstm_base_op = returnn.CompileNativeOpJob(
+            "LstmGenericBase",
+            returnn_root=returnn_root,
+            returnn_python_exe=RETURNN_PYTHON_EXE,
+        )
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other", "dev-clean", "test-clean", "test-other"]):
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
@@ -323,6 +328,7 @@ def run_single(
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
                 recompile_graph_for_feature_scorer=False,
                 set_batch_major_for_feature_scorer=True,
+                tf_library=[generic_lstm_base_op.out_grad_op, generic_lstm_base_op.out_op],
             )
             recog_args = recog_args.with_lm_scale(recog_args.lm_scale + 2)
             for cfg in [recog_args.with_prior_scale(0.4, 0.4, 0.2).with_tdp_scale(0.6)]:
