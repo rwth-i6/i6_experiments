@@ -339,7 +339,7 @@ def run_single(
                     rerun_after_opt_lm=True,
                     calculate_stats=True,
                     gpu=True,
-                    rtf_gpu=12,
+                    rtf_gpu=18,
                 )
 
     return s
