@@ -2,7 +2,7 @@ import copy, os
 
 import numpy
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
@@ -784,8 +784,8 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for att_scale in [0.3]:
-        ctc_scale = 1
+    for ctc_scale in [0.19, 0.2, 0.21]:
+        att_scale = 1 - ctc_scale
         run_decoding(
             exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_norepeat",
             train_data=train_data,
@@ -797,7 +797,7 @@ def run_ctc_att_search():
                 "joint_att_scale": att_scale,
                 "joint_ctc_scale": ctc_scale,
                 "check_repeat": True, # remove
-                "max_seqs": 1,  # batch size 1
+                "max_seqs": 200,
                 **oclr_args,
             },
             feature_extraction_net=log10_net_10ms,
@@ -805,5 +805,5 @@ def run_ctc_att_search():
             test_sets=["dev-other"],
             remove_label="<s>",  # blanks are removed in the network
             use_sclite=True,
-            time_rqmt=0.2,
+            time_rqmt=1,
         )

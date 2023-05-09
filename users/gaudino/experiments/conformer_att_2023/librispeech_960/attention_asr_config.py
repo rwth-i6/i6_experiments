@@ -2,24 +2,18 @@ import os.path
 
 import numpy
 import copy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
-from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
-    ConformerEncoder,
-)
-from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
-    TransformerDecoder,
-)
-from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import (
-    ConformerDecoder,
-)
+from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
+from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
+from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
-from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import (
-    ExternalLMDecoder,
-)
-from i6_experiments.users.gaudino.models.asr.decoder.joint_ctc_att_decoder import (
-    CTCAttJointDecoder,
+from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import ExternalLMDecoder
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+    add_joint_ctc_att_subnet,
+    add_filter_blank_and_merge_labels_layers,
+    create_ctc_greedy_decoder,
 )
 
 from i6_experiments.users.zeineldeen import data_aug
@@ -86,12 +80,12 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
       cycleEpoch = {cycle_ep}
       totalEpoch = {total_ep}
       nStep      = {n_step}
-
+    
       steps     = cycleEpoch * nStep
       stepSize  = (peakLR - initialLR) / steps
       steps2    = (totalEpoch - 2 * cycleEpoch) * nStep
       stepSize2 = (initialLR - finalLR) / steps2
-
+    
       import tensorflow as tf
       n = tf.cast(global_train_step, tf.float32)
       return tf.where(global_train_step <= steps, initialLR + stepSize * n,
@@ -146,6 +140,7 @@ def pretrain_layers_and_dims(
     enc_dec_share_grow_frac=True,
     repeat_first=True,
     ignored_keys_for_reduce_dim=None,
+    extra_net_dict_override=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -169,11 +164,7 @@ def pretrain_layers_and_dims(
 
     InitialDimFactor = initial_dim_factor
 
-    encoder_keys = [
-        "ff_dim",
-        "enc_key_dim",
-        "conv_kernel_size",
-    ]  # TODO: effect of pretraining conv font-end?
+    encoder_keys = ["ff_dim", "enc_key_dim", "conv_kernel_size"]  # TODO: effect of pretraining conv font-end?
     decoder_keys = ["ff_dim"]
     encoder_args_copy = copy.deepcopy(encoder_args)
     decoder_args_copy = copy.deepcopy(decoder_args)
@@ -192,6 +183,9 @@ def pretrain_layers_and_dims(
             assert second_bs_idx is not None
             if idx < second_bs_idx:
                 extra_net_dict["#config"]["batch_size"] = second_bs
+
+    if extra_net_dict_override:
+        extra_net_dict["#config"].update(extra_net_dict_override)
 
     if repeat_first:
         idx = max(idx - 1, 0)  # repeat first 0, 0, 1, 2, ...
@@ -230,17 +224,14 @@ def pretrain_layers_and_dims(
     DecoderAttNumHeads = decoder_args_copy["att_num_heads"]
 
     if reduce_dims:
-        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (
-            final_num_blocks - StartNumLayers
-        )
+        grow_frac_enc = 1.0 - float(final_num_blocks - num_blocks) / (final_num_blocks - StartNumLayers)
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
             if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
                 continue
             encoder_args_copy[key] = (
-                int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads))
-                * EncoderAttNumHeads
+                int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
 
         if decoder_type == TransformerDecoder or decoder_type == ConformerDecoder:
@@ -264,8 +255,7 @@ def pretrain_layers_and_dims(
                 if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
                     continue
                 decoder_args_copy[key] = (
-                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads))
-                    * DecoderAttNumHeads
+                    int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
         else:
             dim_frac_dec = 1
@@ -372,6 +362,12 @@ class ConformerEncoderArgs(EncoderArgs):
     rel_pos_clipping: int = 16
 
     use_sqrd_relu: bool = False
+
+    # weight noise
+    weight_noise: Optional[float] = None
+    weight_noise_layers: Optional[List[str]] = None
+
+    convolution_first: bool = False
 
 
 class DecoderArgs:
@@ -498,14 +494,6 @@ class RNNDecoderArgs(DecoderArgs):
     use_zoneout_output: bool = False
 
 
-@dataclass
-class CTCAttJointDecoderArgs(RNNDecoderArgs):
-    ctc_greedy_decode: bool = False
-    joint_ctc_att_decode: bool = True
-    joint_att_scale: float = (1.0,)
-    joint_ctc_scale: float = (1.0,)
-
-
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
@@ -537,6 +525,7 @@ def create_config(
     recog_epochs=None,
     prior_lm_opts=None,
     gradient_noise=0.0,
+    param_variational_noise=None,
     adamw=False,
     retrain_checkpoint=None,
     decouple_constraints_factor=0.025,
@@ -549,12 +538,20 @@ def create_config(
     config_override=None,
     freeze_bn=False,
     keep_all_epochs=False,
-    allow_lr_scheduling=True,
+    allow_lr_scheduling_for_retrain=False,
     learning_rates_list=None,
     min_lr=None,
     global_stats=None,
     speed_pert_version=1,
     specaug_version=1,
+    ctc_greedy_decode=False,
+    joint_ctc_att_decode=False,
+    joint_att_scale=1.0,
+    joint_ctc_scale=1.0,
+    length_normalization=True,
+    check_repeat=False,
+    staged_hyperparams: dict = None,
+    keep_best_n=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -564,9 +561,7 @@ def create_config(
     if not is_recog:
         exp_config["train"] = training_datasets.train.as_returnn_opts()
         exp_config["dev"] = training_datasets.cv.as_returnn_opts()
-        exp_config["eval_datasets"] = {
-            "devtrain": training_datasets.devtrain.as_returnn_opts()
-        }
+        exp_config["eval_datasets"] = {"devtrain": training_datasets.devtrain.as_returnn_opts()}
 
     target = "bpe_labels"
 
@@ -580,6 +575,10 @@ def create_config(
         "max_seqs": max_seqs,
         "truncation": -1,
     }
+    if param_variational_noise:
+        assert isinstance(param_variational_noise, float)
+        hyperparams["param_variational_noise"] = param_variational_noise  # applied to all params
+
     # default: Adam optimizer
     hyperparams["adam"] = True
     hyperparams["optimizer_epsilon"] = 1e-8
@@ -598,27 +597,25 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    if noam_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    elif warmup_lr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and retrain_checkpoint is None and allow_lr_scheduling:
+    elif oclr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         oclr_peak_lr = oclr_opts["peak_lr"]
         oclr_initial_lr = oclr_peak_lr / 10
-        extra_python_code += "\n" + oclr_str.format(
-            **oclr_opts, initial_lr=oclr_initial_lr
-        )
+        extra_python_code += "\n" + oclr_str.format(**oclr_opts, initial_lr=oclr_initial_lr)
     else:  # newbob
         if learning_rates_list:
             learning_rates = learning_rates_list
@@ -630,24 +627,18 @@ def create_config(
             elif not allow_lr_scheduling:
                 learning_rates = None
             elif isinstance(const_lr, int):
-                learning_rates = [wup_start_lr] * const_lr + list(
-                    numpy.linspace(wup_start_lr, lr, num=wup)
-                )
+                learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
             elif isinstance(const_lr, list):
                 assert len(const_lr) == 2
                 learning_rates = (
-                    [wup_start_lr] * const_lr[0]
-                    + list(numpy.linspace(wup_start_lr, lr, num=wup))
-                    + [lr] * const_lr[1]
+                    [wup_start_lr] * const_lr[0] + list(numpy.linspace(wup_start_lr, lr, num=wup)) + [lr] * const_lr[1]
                 )
             else:
                 raise ValueError("unknown const_lr format")
 
         exp_config["learning_rate"] = lr
         exp_config["learning_rates"] = learning_rates
-        exp_config["min_learning_rate"] = (
-            lr / min_lr_factor if min_lr is None else min_lr
-        )
+        exp_config["min_learning_rate"] = lr / min_lr_factor if min_lr is None else min_lr
         exp_config["learning_rate_control"] = "newbob_multi_epoch"
         exp_config["learning_rate_control_relative_error_relative_lr"] = True
         exp_config["learning_rate_control_min_num_epochs_per_new_lr"] = 3
@@ -670,9 +661,6 @@ def create_config(
     elif isinstance(decoder_args, ConformerDecoderArgs):
         decoder_type = ConformerDecoder
         dec_type = "conformer"  # TODO: check if same as transformer
-    elif isinstance(decoder_args, CTCAttJointDecoderArgs):
-        decoder_type = CTCAttJointDecoder
-        dec_type = "ctc_att_joint"
     else:
         assert False, "invalid decoder_args type"
 
@@ -716,9 +704,7 @@ def create_config(
         assert encoder_args["with_ctc"], "CTC loss is not enabled."
         exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
 
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
-            exp_config["extern_data"]["bpe_labels"]
-        )
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
         exp_config["network"]["decision"]["target"] = "bpe_labels_w_blank"
         exp_config["network"]["decision"]["loss_opts"] = {"ctc_decode": True}
@@ -728,62 +714,39 @@ def create_config(
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
 
-    if isinstance(decoder_args, CTCAttJointDecoderArgs):
+    if ctc_greedy_decode:
         # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
-            exp_config["extern_data"]["bpe_labels"]
-        )
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
+        create_ctc_greedy_decoder(exp_config["network"])
+
+        # filter out blanks from best hyp
+        # TODO: we might want to also dump blank for analysis, however, this needs some fix to work.
+        add_filter_blank_and_merge_labels_layers(exp_config["network"])
         exp_config["network"].pop(exp_config["search_output_layer"], None)
         exp_config["search_output_layer"] = "out_best_wo_blank"
 
-    if decoder_args["ctc_greedy_decode"]:
+    if joint_ctc_att_decode:
         # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
-            exp_config["extern_data"]["bpe_labels"]
-        )
-        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
-
-        # time-sync search
-        assert exp_config["network"]["output"]["class"] == "rec"
-        exp_config["network"]["output"]["from"] = "ctc"  # [B,T,V+1]
-        exp_config["network"]["output"]["target"] = "bpe_labels_w_blank"
-
-        exp_config["network"]["output"]["unit"].pop("end", None)
-        exp_config["network"]["output"].pop("max_seq_len", None)
-
-        exp_config["network"]["output"]["unit"]["output"] = {
-            "class": "choice",
-            "target": "bpe_labels_w_blank",
-            "beam_size": 1,  # TODO: make it generic. we need recombination?
-            "from": "data:source",
-            "initial_output": 0,
-        }
-
-    if decoder_args["joint_ctc_att_decode"]:
-        from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
-            add_joint_ctc_att_subnet,
-            add_filter_blank_and_merge_labels_layers,
-        )
-
-        # create bpe labels with blank extern data
-        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(
-            exp_config["extern_data"]["bpe_labels"]
-        )
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
         exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
 
         # TODO: this is just for debugging. find a better way to do it later.
         add_joint_ctc_att_subnet(
-            exp_config["network"], att_scale=joint_att_scale, ctc_scale=joint_ctc_scale
+            exp_config["network"],
+            att_scale=joint_att_scale,
+            ctc_scale=joint_ctc_scale,
+            length_normalization=length_normalization,
+            check_repeat=check_repeat,
+            beam_size=beam_size,
         )
-        add_filter_blank_and_merge_labels_layers(exp_config["network"])
-
-        exp_config["network"].pop(exp_config["search_output_layer"], None)
-        exp_config["search_output_layer"] = "out_best_wo_blank"
+        if joint_ctc_scale > 0.0:
+            add_filter_blank_and_merge_labels_layers(exp_config["network"])
+            exp_config["network"].pop(exp_config["search_output_layer"], None)
+            exp_config["search_output_layer"] = "out_best_wo_blank"
+        else:
+            pass  # use decision layer as before
 
     # -------------------------- end network -------------------------- #
 
@@ -796,9 +759,7 @@ def create_config(
     if ext_lm_opts and ext_lm_opts.get("preload_from_files"):
         if "preload_from_files" not in exp_config:
             exp_config["preload_from_files"] = {}
-        exp_config["preload_from_files"].update(
-            copy.deepcopy(ext_lm_opts["preload_from_files"])
-        )
+        exp_config["preload_from_files"].update(copy.deepcopy(ext_lm_opts["preload_from_files"]))
 
     if preload_from_files:
         if "preload_from_files" not in exp_config:
@@ -807,9 +768,7 @@ def create_config(
 
     if specaug_str_func_opts:
         python_prolog = specaugment.specaug_helpers.get_funcs()
-        extra_python_code += "\n" + specaug_transform_func.format(
-            **specaug_str_func_opts
-        )
+        extra_python_code += "\n" + specaug_transform_func.format(**specaug_str_func_opts)
     else:
         if specaug_version == 1:
             python_prolog = specaugment.specaug_tf2.get_funcs()  # type: list
@@ -854,24 +813,13 @@ def create_config(
     staged_network_dict = None
 
     # add pretraining
-    if (
-        with_pretrain
-        and ext_lm_opts is None
-        and retrain_checkpoint is None
-        and is_recog is False
-    ):
+    if with_pretrain and ext_lm_opts is None and retrain_checkpoint is None and is_recog is False:
         if with_staged_network:
             staged_network_dict = {}
             idx = 0
             while True:
                 net = pretrain_layers_and_dims(
-                    idx,
-                    exp_config["network"],
-                    encoder_type,
-                    decoder_type,
-                    encoder_args,
-                    decoder_args,
-                    **pretrain_opts,
+                    idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
                 if not net:
                     break
@@ -907,22 +855,14 @@ def create_config(
             idx = 0
             while True:
                 net = pretrain_layers_and_dims(
-                    idx,
-                    exp_config["network"],
-                    encoder_type,
-                    decoder_type,
-                    encoder_args,
-                    decoder_args,
-                    **pretrain_opts,
+                    idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
                 if not net:
                     break
                 pretrain_networks.append(net)
                 idx += 1
 
-            exp_config["pretrain_nets_lookup"] = {
-                k: v for k, v in enumerate(pretrain_networks)
-            }
+            exp_config["pretrain_nets_lookup"] = {k: v for k, v in enumerate(pretrain_networks)}
 
             exp_config["pretrain"] = {
                 "repetitions": pretrain_reps,
@@ -930,7 +870,9 @@ def create_config(
                 "construction_algo": CodeWrapper("custom_construction_algo"),
             }
 
-            pretrain_algo_str = "def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)"
+            pretrain_algo_str = (
+                "def custom_construction_algo(idx, net_dict):\n\treturn pretrain_nets_lookup.get(idx, None)"
+            )
             python_prolog += [pretrain_algo_str]
 
     if recog_epochs:
@@ -940,6 +882,10 @@ def create_config(
     if keep_all_epochs:
         exp_post_config["cleanup_old_models"] = False
 
+    # it is 4 by default
+    if keep_best_n:
+        exp_post_config["keep_best_n"] = keep_best_n
+
     if extra_str:
         extra_python_code += "\n" + extra_str
 
@@ -948,6 +894,15 @@ def create_config(
 
     if joint_ctc_att_decode:
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+
+    # modify hyperparameters based on epoch
+    if staged_hyperparams:
+        for ep, v in staged_hyperparams.items():
+            base_net = copy.deepcopy(exp_config["network"])
+            base_net["#config"] = v
+            assert ep not in staged_hyperparams
+            assert ep > max(staged_hyperparams.keys())
+            staged_network_dict[ep] = base_net
 
     returnn_config = ReturnnConfig(
         exp_config,
