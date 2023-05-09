@@ -42,6 +42,10 @@ class SystemInput:
         :return:
         :rtype: ReturnnRasrDataInput
         """
+        shuffle_params = {"shuffle_data": shuffle_data}
+        if segment_order_sort_by_time_length:
+            shuffle_params["segment_order_sort_by_time_length_chunk_size"] = chunk_size
+
         return ReturnnRasrDataInput(
             name=name,
             crp=copy.deepcopy(self.crp),
@@ -49,8 +53,5 @@ class SystemInput:
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
             chunk_size=chunk_size,
-            shuffling_parameters={
-                "shuffle_data": shuffle_data,
-                "segment_order_sort_by_time_length_chunk_size": 384,
-            },
+            shuffling_parameters=shuffle_params,
         )
