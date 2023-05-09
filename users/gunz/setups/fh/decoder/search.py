@@ -1081,7 +1081,7 @@ class FHDecoder:
             lm_lookahead=True,
             eval_best_in_lattice=True,
             use_gpu=use_gpu,
-            rtf=rtf_gpu if rtf_gpu is not None and self.gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
+            rtf=rtf_gpu if rtf_gpu is not None and use_gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
             cpu=4 if cpu_rqmt is None else cpu_rqmt,
             model_combination_config=model_combination_config,
