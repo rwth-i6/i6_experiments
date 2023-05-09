@@ -9,7 +9,7 @@ from i6_core.returnn.training import GetBestTFCheckpointJob
 from i6_core.returnn.training import AverageTFCheckpointsJob
 
 
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168):
+def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168, gpu_mem=11):
     """
 
     :param prefix_name:
@@ -27,6 +27,8 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs,
     }
 
     train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    assert gpu_mem in [11, 24]
+    train_job.rqmt["gpu_mem"] = gpu_mem
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
