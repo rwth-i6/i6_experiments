@@ -16,7 +16,7 @@ from i6_core.returnn.config import ReturnnConfig
 from sisyphus import *
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 
 class AttentionWeightPlotter(ABC):
@@ -144,7 +144,7 @@ class AlignmentComparer:
           blank_idx2: int,
           name2: str,
           vocab_path2: Path,
-          seq_tag: str,
+          seq_tags: List[str],
           corpus_key: str,
           base_alias: str
   ):
@@ -157,15 +157,15 @@ class AlignmentComparer:
     self.blank_idx2 = blank_idx2
     self.name2 = name2
     self.vocab_path2 = vocab_path2
-    self.seq_tag = seq_tag
+    self.seq_tags = seq_tags
 
-    self.alias = "%s/analysis/%s/alignment_compare/%s/%s-%s" % (base_alias, corpus_key, self.seq_tag.replace("/", "_"), self.name1, self.name2)
+    self.alias = "%s/analysis/%s/alignment_compare/%s-%s" % (base_alias, corpus_key, self.name1, self.name2)
 
   def run(self):
     compare_aligns_job = CompareAlignmentsJob(
       hdf_align1=self.hdf_align_path1,
       hdf_align2=self.hdf_align_path2,
-      seq_tag=self.seq_tag,
+      seq_tags=self.seq_tags,
       blank_idx1=self.blank_idx1,
       blank_idx2=self.blank_idx2,
       vocab1=self.vocab_path1,

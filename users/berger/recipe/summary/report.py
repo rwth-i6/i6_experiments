@@ -102,6 +102,10 @@ class SummaryReport:
         if not any([row == exist_row for exist_row in self._data]):
             self._data.append(row)
 
+    def add_rows(self, rows: List[Dict[str, Any]]) -> None:
+        for row in rows:
+            self.add_row(row)
+
     def _dict_to_row(self, row: Dict[str, Any]) -> None:
         return [row.get(name, " ") for name in self._col_names]
 

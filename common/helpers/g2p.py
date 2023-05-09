@@ -1,7 +1,7 @@
 __all__ = ["G2PBasedOovAugmenter"]
 
 import os
-from typing import Optional
+from typing import Optional, Union
 
 from sisyphus import tk
 

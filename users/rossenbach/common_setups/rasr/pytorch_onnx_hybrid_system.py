@@ -50,8 +50,9 @@ class OnnxFeatureScorer(rasr.FeatureScorer):
         self.config.normalize_mixture_weights = False
 
         self.config.session.file = model
-        self.config.session.intra_op_num_threads = intra_op_threads
-        self.config.session.inter_op_num_threads = inter_op_threads
+
+        self.post_config.session.intra_op_num_threads = intra_op_threads
+        self.post_config.session.inter_op_num_threads = inter_op_threads
 
         for k, v in io_map.items():
             self.config.io_map[k] = v
@@ -78,6 +79,8 @@ class PyTorchOnnxHybridSystem(HybridSystem):
         rtf: int,
         mem: int,
         epochs: Optional[List[int]] = None,
+        quantize_dynamic: bool = False,
+        needs_features_size = True,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -99,18 +102,25 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                 onnx_model = ExportPyTorchModelToOnnxJob(
                     pytorch_checkpoint=checkpoints[epoch],
                     returnn_config=returnn_config,
-                    returnn_root=self.returnn_root
+                    returnn_root=self.returnn_root,
+                    quantize_dynamic=quantize_dynamic,
                 ).out_onnx_model
+
+
+                io_map = {
+                    "features": "data",
+                    "output": "classes"
+                }
+                if needs_features_size:
+                    io_map["features-size"] = "data_len"
 
                 scorer = OnnxFeatureScorer(
                     mixtures=acoustic_mixture_path,
                     model=onnx_model,
                     priori_scale=prior,
-                    io_map={
-                        "features": "data",
-                        "features-size": "data_len",
-                        "output": "classes"
-                    }
+                    io_map=io_map,
+                    inter_op_threads=kwargs.get("cpu", 1),
+                    intra_op_threads=kwargs.get("cpu", 1)
                 )
 
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer

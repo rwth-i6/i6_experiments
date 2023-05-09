@@ -77,18 +77,17 @@ def run_rasr_segmental_realignment(
   ).run()
 
   if corpus_key == "cv":
-    for seq_tag in default_tags_for_analysis:
-      AlignmentComparer(
-        hdf_align_path1=realignment,
-        blank_idx1=dependencies.model_hyperparameters.blank_idx,
-        name1="realignment",
-        vocab_path1=dependencies.vocab_path,
-        hdf_align_path2=realignment,
-        blank_idx2=dependencies.model_hyperparameters.blank_idx,
-        name2="realignment",
-        vocab_path2=dependencies.vocab_path,
-        seq_tag=seq_tag,
-        corpus_key="cv",
-        base_alias=base_alias).run()
+    AlignmentComparer(
+      hdf_align_path1=realignment,
+      blank_idx1=dependencies.model_hyperparameters.blank_idx,
+      name1="realignment",
+      vocab_path1=dependencies.vocab_path,
+      hdf_align_path2=realignment,
+      blank_idx2=dependencies.model_hyperparameters.blank_idx,
+      name2="realignment",
+      vocab_path2=dependencies.vocab_path,
+      seq_tags=default_tags_for_analysis,
+      corpus_key="cv",
+      base_alias=base_alias).run()
 
   return realignment

@@ -1,6 +1,6 @@
 import copy
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs
@@ -24,39 +24,17 @@ sys.setrecursionlimit(3000)
 """
 
 
-def get_nn_args(
-    num_outputs: int = 9001, num_epochs: int = 500, extra_exps=False, peak_lr=1e-3, feature_args=None, prefix="",
-):
-    evaluation_epochs = list(np.arange(num_epochs, num_epochs + 1, 10))
+def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
+    evaluation_epochs = evaluation_epochs or [num_epochs]
 
-    feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
-    feature_network_class = {"GammatoneNetwork": GammatoneNetwork, "ScfNetwork": ScfNetwork}[feature_args.pop("class")]
-    feature_net = feature_network_class(**feature_args).get_as_subnetwork()
+    returnn_configs = {}
+    returnn_recog_configs = {}
 
-    returnn_configs = {
-        prefix + "conformer_base": get_returnn_config(
-            num_inputs=1,
-            num_outputs=num_outputs,
-            evaluation_epochs=evaluation_epochs,
-            extra_exps=extra_exps,
-            peak_lr=peak_lr,
-            num_epochs=num_epochs,
-            feature_net=feature_net,
-        )
-    }
-
-    returnn_recog_configs = {
-        prefix + "conformer_base": get_returnn_config(
-            num_inputs=1,
-            num_outputs=num_outputs,
-            evaluation_epochs=evaluation_epochs,
-            recognition=True,
-            extra_exps=extra_exps,
-            peak_lr=peak_lr,
-            num_epochs=num_epochs,
-            feature_net=feature_net,
-        )
-    }
+    for name, args in nn_base_args.items():
+        returnn_config, returnn_recog_config = get_nn_args_single(
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **args)
+        returnn_configs[prefix + name] = returnn_config
+        returnn_recog_configs[prefix + name] = returnn_recog_config
 
     training_args = {
         "log_verbosity": 4,
@@ -70,8 +48,8 @@ def get_nn_args(
     recognition_args = {
         "hub5e00": {
             "epochs": evaluation_epochs,
-            "feature_flow_key": "gt",
-            "prior_scales": [0.5, 0.6, 0.7, 0.8],
+            "feature_flow_key": "samples",
+            "prior_scales": [0.7, 0.8, 0.9, 1.0],
             "pronunciation_scales": [6.0],
             "lm_scales": [10.0],
             "lm_lookahead": True,
@@ -109,6 +87,40 @@ def get_nn_args(
     )
 
     return nn_args
+
+
+def get_nn_args_single(
+    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None, extra_exps=False,
+    peak_lr=1e-3, feature_args=None, returnn_args=None,
+):
+    feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
+    feature_network_class = {"GammatoneNetwork": GammatoneNetwork, "ScfNetwork": ScfNetwork}[feature_args.pop("class")]
+    feature_net = feature_network_class(**feature_args).get_as_subnetwork()
+
+    returnn_config = get_returnn_config(
+        num_inputs=1,
+        num_outputs=num_outputs,
+        evaluation_epochs=evaluation_epochs,
+        extra_exps=extra_exps,
+        peak_lr=peak_lr,
+        num_epochs=num_epochs,
+        feature_net=feature_net,
+        **(returnn_args or {}),
+    )
+
+    returnn_recog_config = get_returnn_config(
+        num_inputs=1,
+        num_outputs=num_outputs,
+        evaluation_epochs=evaluation_epochs,
+        recognition=True,
+        extra_exps=extra_exps,
+        peak_lr=peak_lr,
+        num_epochs=num_epochs,
+        feature_net=feature_net,
+    )
+
+    return returnn_config, returnn_recog_config
+
 
 
 def fix_network_for_sparse_output(net):
@@ -163,9 +175,14 @@ def get_returnn_config(
     from .network_helpers.reduced_dim import network
     network = copy.deepcopy(network)
     network["features"] = feature_net
-    if not recognition:
+    if recognition:
+        for layer in list(network.keys()):
+            if "aux" in layer:
+                network.pop(layer)
+        network["source"] = {"class": "copy", "from": "features"}
+    else:
         network["source"] = specaug_layer_jingjing(in_layer=["features"])
-    network = fix_network_for_sparse_output(network)
+        network = fix_network_for_sparse_output(network)
 
     prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)

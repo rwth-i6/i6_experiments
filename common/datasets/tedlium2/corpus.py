@@ -15,6 +15,8 @@ from .download import download_data_dict
 @lru_cache()
 def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datasets") -> Dict[str, tk.Path]:
     """
+    creates a dictionary of all corpora in the TedLiumV2 dataset in the bliss xml format
+
     :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
     :param output_prefix:
     :return:
@@ -23,7 +25,7 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
 
     output_prefix = os.path.join(output_prefix, "Ted-Lium-2")
 
-    bliss_corpus_dict = download_data_dict(output_prefix=output_prefix)["bliss_nist"]
+    bliss_corpus_dict = download_data_dict(output_prefix=output_prefix).bliss_nist
 
     audio_format_options = {
         "wav": {
@@ -59,6 +61,13 @@ def get_bliss_corpus_dict(audio_format: str = "wav", output_prefix: str = "datas
 
 @lru_cache()
 def get_corpus_object_dict(audio_format: str = "flac", output_prefix: str = "datasets") -> Dict[str, CorpusObject]:
+    """
+    creates a dict of all corpora in the TedLiumV2 dataset as a `meta.CorpusObject`
+
+    :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
+    :param output_prefix:
+    :return:
+    """
     bliss_corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
 
     corpus_object_dict = {}
@@ -77,4 +86,10 @@ def get_corpus_object_dict(audio_format: str = "flac", output_prefix: str = "dat
 
 @lru_cache()
 def get_stm_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
-    return download_data_dict(output_prefix=output_prefix)["stm"]
+    """
+    fetches the STM files for TedLiumV2 dataset
+
+    :param output_prefix:
+    :return:
+    """
+    return download_data_dict(output_prefix=output_prefix).stm

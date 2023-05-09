@@ -1,6 +1,4 @@
-import os
-
-from sisyphus import gs, tk
+from sisyphus import gs
 
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.lexicon.conversion import LexiconToWordListJob

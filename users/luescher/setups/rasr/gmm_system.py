@@ -1243,7 +1243,7 @@ class GmmSystem(RasrSystem):
         bliss_lexicon = step_args.pop("bliss_lexicon", None)
         for corpus in train_corpus_keys:
             for trg_key in target_corpus_keys:
-                forced_align_trg_key = trg_key + "_forced"
+                forced_align_trg_key = trg_key + "_forced-align"
                 self.add_overlay(trg_key, forced_align_trg_key)
                 if bliss_lexicon:
                     self._init_lexicon(forced_align_trg_key, **bliss_lexicon)

@@ -1,4 +1,4 @@
-__all__ = ["HybridArgs", "HybridSystem"]
+__all__ = ["HybridSystem", "returnn_training"]
 
 import copy
 import itertools
@@ -20,7 +20,6 @@ from i6_core.returnn.flow import (
     make_precomputed_hybrid_tf_feature_flow,
     add_tf_flow_to_base_flow,
 )
-from i6_core.mm import CreateDummyMixturesJob
 from i6_core.util import MultiPath, MultiOutputPath
 
 from .nn_system import NnSystem
@@ -28,11 +27,12 @@ from .nn_system import NnSystem
 from .util import (
     RasrInitArgs,
     ReturnnRasrDataInput,
-    OggZipHdfDataInput,
     HybridArgs,
     NnRecogArgs,
     RasrSteps,
     NnForcedAlignArgs,
+    ReturnnTrainingJobArgs,
+    AllowedReturnnTrainingDataInput,
 )
 
 # -------------------- Init --------------------
@@ -91,9 +91,15 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.cv_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.devtrain_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.train_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.cv_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
+        self.devtrain_input_data = (
+            None
+        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
         self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
         self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
 
@@ -109,9 +115,7 @@ class HybridSystem(NnSystem):
         self.nn_models = {}  # TODO remove?
         self.nn_checkpoints = {}
         self.tf_flows = {}
-        self.prior_files = {}
 
-    # -------------------- Helpers --------------------
     def _add_output_alias_for_train_job(
         self,
         train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
@@ -133,9 +137,9 @@ class HybridSystem(NnSystem):
     def init_system(
         self,
         rasr_init_args: RasrInitArgs,
-        train_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        cv_data: Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]],
-        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, OggZipHdfDataInput]]] = None,
+        train_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        cv_data: Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]],
+        devtrain_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None,
         dev_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         test_data: Optional[Dict[str, ReturnnRasrDataInput]] = None,
         train_cv_pairing: Optional[List[Tuple[str, ...]]] = None,  # List[Tuple[trn_c, cv_c, name, dvtr_c]]
@@ -187,6 +191,7 @@ class HybridSystem(NnSystem):
             self.jobs[c_key] = {}
             self.ctm_files[c_key] = {}
             self.crp[c_key] = c_data.get_crp() if c_data.crp is None else c_data.crp
+            self.crp[c_key].set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
             self.feature_flows[c_key] = c_data.feature_flow
             self.feature_scorers[c_key] = {}
             if c_data.stm is not None:
@@ -215,27 +220,23 @@ class HybridSystem(NnSystem):
 
     def returnn_training(
         self,
-        name,
-        returnn_config,
-        nn_train_args,
+        name: str,
+        returnn_config: returnn.ReturnnConfig,
+        nn_train_args: Union[Dict, ReturnnTrainingJobArgs],
         train_corpus_key,
         cv_corpus_key,
         devtrain_corpus_key=None,
-    ):
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
-        returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
-        if devtrain_corpus_key is not None:
-            returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
-            }
-
-        train_job = returnn.ReturnnTrainingJob(
+    ) -> returnn.ReturnnTrainingJob:
+        train_job = returnn_training(
+            name=name,
             returnn_config=returnn_config,
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            **nn_train_args,
+            training_args=nn_train_args,
+            train_data=self.train_input_data[train_corpus_key],
+            cv_data=self.cv_input_data[cv_corpus_key],
+            additional_data={"devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()}
+            if devtrain_corpus_key is not None
+            else None,
+            register_output=False,
         )
         self._add_output_alias_for_train_job(
             train_job=train_job,
@@ -300,7 +301,9 @@ class HybridSystem(NnSystem):
         dev_data = self.cv_input_data[cv_corpus_key]
 
         train_crp = train_data.get_crp()
+        train_crp.set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
         dev_crp = dev_data.get_crp()
+        dev_crp.set_executables(rasr_binary_path=self.rasr_binary_path, rasr_arch=self.rasr_arch)
 
         assert train_data.feature_flow == dev_data.feature_flow
         assert train_data.features == dev_data.features
@@ -338,19 +341,6 @@ class HybridSystem(NnSystem):
             cv_corpus_key=cv_corpus_key,
             name=name,
         )
-        for ep, ckpt in train_job.out_checkpoints.items():
-            prior_job = returnn.ReturnnRasrComputePriorJobV2(
-                train_crp=train_crp,
-                dev_crp=dev_crp,
-                feature_flow=feature_flow,
-                model_checkpoint=ckpt,
-                returnn_config=returnn_config,
-                returnn_python_exe=self.returnn_python_exe,
-                returnn_root=self.returnn_root,
-                partition_epochs={"train": 1},
-                use_python_control=nn_train_args.get("use_python_control", False),
-            )
-            self.prior_files[ep] = prior_job.out_prior_xml_file
 
         return train_job
 
@@ -362,11 +352,9 @@ class HybridSystem(NnSystem):
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, returnn.Checkpoint],
         acoustic_mixture_path: tk.Path,  # TODO maybe Optional if prior file provided -> automatically construct dummy file
-        tdp_scales: List[float],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
-        altas: List[float],
         optimize_am_lm_scale: bool,
         recognition_corpus_key: str,
         feature_flow_key: str,
@@ -376,7 +364,6 @@ class HybridSystem(NnSystem):
         rtf: int,
         mem: int,
         epochs: Optional[List[int]] = None,
-        use_prior_file: bool = False,
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
@@ -400,18 +387,9 @@ class HybridSystem(NnSystem):
 
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
-            for pron, lm, prior, tdp_sc, la_tmp, epoch in itertools.product(
-                pronunciation_scales, lm_scales, prior_scales, tdp_scales, altas, epochs
-            ):
+            for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
-
-                if acoustic_mixture_path is None:
-                    acoustic_mixture_path = CreateDummyMixturesJob(
-                        num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
-                        num_features=returnn_config.config["extern_data"]["data"]["dim"],
-                    ).out_mixtures
-
-                prior_file = self.prior_files[epoch] if use_prior_file else None
+                assert acoustic_mixture_path is not None
 
                 if use_epoch_for_compile:
                     tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
@@ -419,7 +397,6 @@ class HybridSystem(NnSystem):
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
-                    prior_file=prior_file,
                 )
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
@@ -428,26 +405,12 @@ class HybridSystem(NnSystem):
                     native_ops=native_op_paths,
                     output_layer_name=forward_output_layer,
                 )
-                self.tf_flows[f"{name}-{epoch}"] = tf_flow
                 flow = add_tf_flow_to_base_flow(feature_flow, tf_flow)
-
-                # TODO FlowNetwork need to be transformed into FlagdependentFlowAttribute or add typing for meta.system.recog and meta.system.recog_and_optimize
 
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
                 self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-tf-{epoch:03d}"] = flow
 
-                self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
-
-                adv_search_extra_config = rasr.RasrConfig()
-                adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
-                    la_tmp
-                )
-                adv_search_extra_config.flf_lattice_tool.network.recognizer.acoustic_model.tdp.scale = tdp_sc
-
-                recog_name = (
-                    f"e{epoch:03d}-tdp{tdp_sc:02.2f}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}-altas{la_tmp:02.2f}"
-                )
-
+                recog_name = f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
                 recog_func(
                     name=f"{name}-{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
@@ -461,7 +424,6 @@ class HybridSystem(NnSystem):
                     parallelize_conversion=parallelize_conversion,
                     rtf=rtf,
                     mem=mem,
-                    extra_config=adv_search_extra_config,
                     **kwargs,
                 )
 
@@ -491,7 +453,7 @@ class HybridSystem(NnSystem):
                 r_args.update(step_args.test_recognition_args[recog_name])
                 r_args["optimize_am_lm_scale"] = False
                 self.nn_recognition(
-                    name=f"{train_corpus_key}-{train_name}-{recog_name}",
+                    name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
                     acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
@@ -552,7 +514,7 @@ class HybridSystem(NnSystem):
                         train_corpus_key=trn_c,
                         cv_corpus_key=cv_c,
                     )
-                else:
+                elif isinstance(self.train_input_data[trn_c], AllowedReturnnTrainingDataInput):
                     returnn_train_job = self.returnn_training(
                         name=name,
                         returnn_config=step_args.returnn_training_configs[name],
@@ -561,6 +523,8 @@ class HybridSystem(NnSystem):
                         cv_corpus_key=cv_c,
                         devtrain_corpus_key=dvtr_c,
                     )
+                else:
+                    raise NotImplementedError
 
                 returnn_recog_config = step_args.returnn_recognition_configs.get(
                     name, step_args.returnn_training_configs[name]
@@ -599,7 +563,7 @@ class HybridSystem(NnSystem):
             epoch = step_args["epoch"]
             base_flow = self.feature_flows[tc_key][step_args["base_flow_key"]]
             tf_flow = self.tf_flows[step_args["tf_flow_key"]]
-            feature_flow = add_tf_flow_to_base_flow(base_flow, tf_flow)
+            feature_flow = self.add_tf_flow_to_base_flow(base_flow, tf_flow)
 
             self.forced_align(
                 name=step_args["name"],
@@ -665,3 +629,35 @@ class HybridSystem(NnSystem):
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced") or step_name.startswith("align"):
                 self.run_forced_align_step(step_args)
+
+
+def returnn_training(
+    name: str,
+    returnn_config: returnn.ReturnnConfig,
+    training_args: Union[Dict, ReturnnTrainingJobArgs],
+    train_data: AllowedReturnnTrainingDataInput,
+    cv_data: Optional[AllowedReturnnTrainingDataInput] = None,
+    additional_data: Optional[Dict[str, AllowedReturnnTrainingDataInput]] = None,
+    register_output: bool = True,
+) -> returnn.ReturnnTrainingJob:
+    assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+    config = copy.deepcopy(returnn_config)
+
+    config.config["train"] = train_data if isinstance(train_data, Dict) else train_data.get_data_dict()
+    if cv_data is not None:
+        config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get_data_dict()
+    if additional_data is not None:
+        config.config["eval_datasets"] = {}
+        for name, data in additional_data.items():
+            config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get_data_dict()
+
+    returnn_training_job = returnn.ReturnnTrainingJob(
+        returnn_config=config,
+        **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,
+    )
+    if register_output:
+        returnn_training_job.add_alias(f"nn_train/{name}")
+        tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)
+
+    return returnn_training_job

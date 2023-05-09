@@ -19,9 +19,3 @@ class LexiconRasrConfig:
         lex_config.normalize_pronunciation = self.normalize_pronunciation
 
         return lex_config
-
-    def get_dict(self):
-        return {
-            "filename": self.lex_path,
-            "normalize_pronunciation": self.normalize_pronunciation,
-        }

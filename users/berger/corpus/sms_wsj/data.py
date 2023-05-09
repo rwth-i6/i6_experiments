@@ -120,9 +120,7 @@ class PreprocessWSJLexiconJob(Job):
                 lemma.orth = [o for o in lemma.orth if o != ""]
                 if len(lemma.orth) == 0:
                     removed_lemmata.append(lemma)
-        lexicon.lemmata = [
-            lemma for lemma in lexicon.lemmata if lemma not in removed_lemmata
-        ]
+        lexicon.lemmata = [lemma for lemma in lexicon.lemmata if lemma not in removed_lemmata]
         write_xml(self.out_lexicon_file, lexicon.to_xml())
 
 
@@ -262,9 +260,7 @@ def get_corpus_object_dict():
         ),
     ]:
         corpus_object = CorpusObject()
-        corpus_object.corpus_file = tk.Path(
-            f"{dep_dir}/corpus/{freq}kHz/{name}.corpus.gz"
-        )
+        corpus_object.corpus_file = tk.Path(f"{dep_dir}/corpus/{freq}kHz/{name}.corpus.gz")
         corpus_object.audio_dir = audio_dir
         corpus_object.audio_format = audio_format
         corpus_object.duration = duration
@@ -330,13 +326,9 @@ def get_data_inputs(
     }
 
     train_lexicon_path = tk.Path(f"{dep_dir}/lexicon/wsj01-train.lexicon.gz")
-    train_lexicon_path = PreprocessWSJLexiconJob(
-        train_lexicon_path, lm_cleaning
-    ).out_lexicon_file
+    train_lexicon_path = PreprocessWSJLexiconJob(train_lexicon_path, lm_cleaning).out_lexicon_file
     train_lexicon_path = EnsureSilenceFirstJob(train_lexicon_path).out_lexicon
-    train_lexicon_path = EnsureUnknownPronunciationOrthJob(
-        train_lexicon_path
-    ).out_lexicon
+    train_lexicon_path = EnsureUnknownPronunciationOrthJob(train_lexicon_path).out_lexicon
     if delete_empty_orth:
         train_lexicon_path = DeleteEmptyOrthJob(train_lexicon_path).out_lexicon
 
@@ -435,9 +427,7 @@ def get_lm_corpus(**kwargs) -> tk.Path:
 def get_bpe(size: int, **kwargs) -> ReturnnTrainBpeJob:
     clean_lm_corpus = get_lm_corpus(**kwargs)
 
-    subword_nmt_repo = CloneGitRepositoryJob(
-        "https://github.com/albertz/subword-nmt.git"
-    ).out_repository
+    subword_nmt_repo = CloneGitRepositoryJob("https://github.com/albertz/subword-nmt.git").out_repository
 
     return ReturnnTrainBpeJob(
         clean_lm_corpus,

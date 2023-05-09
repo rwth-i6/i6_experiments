@@ -11,7 +11,7 @@ from i6_core.datasets.tedlium2 import (
 )
 
 
-@dataclass()
+@dataclass(frozen=True)
 class TedLium2Data:
     """Class for storing the TedLium2 data"""
 
@@ -21,18 +21,15 @@ class TedLium2Data:
     bliss_nist: Dict[str, tk.Path]
     stm: Dict[str, tk.Path]
 
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "data_dir": self.data_dir,
-            "lm_dir": self.lm_dir,
-            "vocab": self.vocab,
-            "bliss_nist": self.bliss_nist,
-            "stm": self.stm,
-        }
-
 
 @lru_cache()
-def download_data_dict(output_prefix: str = "datasets") -> Dict[str, Any]:
+def download_data_dict(output_prefix: str = "datasets") -> TedLium2Data:
+    """
+    downloads the TedLiumV2 dataset and performs the initial data processing steps
+
+    :param output_prefix:
+    :return:
+    """
     download_tedlium2_job = DownloadTEDLIUM2CorpusJob()
     download_tedlium2_job.add_alias(os.path.join(output_prefix, "download", "raw_corpus_job"))
 
@@ -47,4 +44,4 @@ def download_data_dict(output_prefix: str = "datasets") -> Dict[str, Any]:
         stm=bliss_corpus_tedlium2_job.out_stm_files,
     )
 
-    return tl2_data.as_dict()
+    return tl2_data
