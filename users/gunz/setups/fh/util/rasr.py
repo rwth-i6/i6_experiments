@@ -31,17 +31,8 @@ class SystemInput:
         feature_flow_key: str = "gt",
         shuffle_data: bool = False,
         segment_order_sort_by_time_length: bool = False,
-        chunk_size=348,
+        chunk_size=384,
     ):
-        """
-        dumps stored GMM pipeline output/file/information for ReturnnRasrTraining
-
-        :param name:
-        :param feature_flow_key:
-        :param shuffle_data:
-        :return:
-        :rtype: ReturnnRasrDataInput
-        """
         shuffle_params = {"shuffle_data": shuffle_data}
         if segment_order_sort_by_time_length:
             shuffle_params["segment_order_sort_by_time_length_chunk_size"] = chunk_size
