@@ -186,7 +186,7 @@ class ReturnnRasrDataInput:
         corpus_duration: Optional[int] = None,
         segment_path: Optional[Union[str, tk.Path]] = None,
         concurrent: Optional[int] = None,
-        shuffling_paramters: Dict = None,
+        shuffling_parameters: Dict = None,
     ):
         if corpus_file is not None:
             self.crp.corpus_config.file = corpus_file
@@ -198,11 +198,8 @@ class ReturnnRasrDataInput:
             self.crp.segment_path = segment_path
         if concurrent is not None:
             self.crp.concurrent = concurrent
-        if self.shuffling_parameters is not None:
-            assert (
-                "shuffle_data" in self.shuffle_parameters or "shuffle_data" in shuffle_parameters
-            ), "You need to set at least the shuffle_data"
-            self.shuffling_parameters = shuffling_paramters
+        if shuffling_parameters is not None:
+            self.shuffling_parameters = shuffling_parameters
             self.update_crp_with_shuffle_parameters()
 
     def get_crp(self, **kwargs) -> rasr.CommonRasrParameters:
