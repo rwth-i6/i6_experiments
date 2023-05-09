@@ -642,13 +642,19 @@ class FactoredHybridSystem(NnSystem):
         nn_train_data.features = train_feature_path
         nn_train_data_inputs = {self.crp_names["train"]: nn_train_data}
 
-        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_cv_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            shuffle_data=True,
+            segment_order_sort_by_time_length=True,
+        )
         nn_cv_data.update_crp_with(corpus_file=cv_corpus, segment_path=cv_segments, concurrent=1)
         nn_cv_data.feature_flow = cv_feature_flow
         nn_cv_data.features = cv_feature_path
         nn_cv_data_inputs = {self.crp_names["cvtrain"]: nn_cv_data}
 
-        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input()
+        nn_devtrain_data = self.inputs[self.train_key][input_key].as_returnn_rasr_data_input(
+            shuffle_data=True,
+            segment_order_sort_by_time_length=True,
+        )
         nn_devtrain_data.update_crp_with(segment_path=devtrain_segments, concurrent=1)
         nn_devtrain_data_inputs = {self.crp_names["devtrain"]: nn_devtrain_data}
 
