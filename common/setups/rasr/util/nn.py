@@ -200,7 +200,7 @@ class ReturnnRasrDataInput:
             self.crp.concurrent = concurrent
         if shuffling_parameters is not None:
             self.shuffling_parameters = shuffling_parameters
-            self.update_crp_with_shuffle_parameters()
+        self.update_crp_with_shuffle_parameters()
 
     def get_crp(self, **kwargs) -> rasr.CommonRasrParameters:
         """
