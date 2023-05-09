@@ -48,7 +48,9 @@ class SystemInput:
             alignments=self.alignments,
             feature_flow=self.feature_flows[feature_flow_key],
             features=self.features[feature_flow_key],
-            shuffle_data=shuffle_data,
             chunk_size=chunk_size,
-            segment_order_sort_by_time_length=segment_order_sort_by_time_length,
+            shuffling_parameters={
+                "shuffle_data": shuffle_data,
+                "segment_order_sort_by_time_length": segment_order_sort_by_time_length,
+            },
         )
