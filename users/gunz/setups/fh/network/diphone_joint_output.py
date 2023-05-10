@@ -115,7 +115,7 @@ def augment_to_joint_diphone_softmax(
     }
     network[out_joint_score_layer] = {
         "class": "merge_dims",
-        "axes": [c_spatial_dim, "F"],
+        "axes": ["dim:252", "dim:42"],
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
     }
