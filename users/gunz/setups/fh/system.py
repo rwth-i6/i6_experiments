@@ -1120,6 +1120,8 @@ class FactoredHybridSystem(NnSystem):
 
         if "source" in config.config["network"].keys():  # specaugment
             for v in config.config["network"].values():
+                if not "from" in v:
+                    continue
                 if v["from"] == "source":
                     v["from"] = "data"
                 elif isinstance(v["from"], list):
