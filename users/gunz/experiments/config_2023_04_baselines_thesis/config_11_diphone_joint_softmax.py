@@ -282,30 +282,18 @@ def run_single(
         on_2080=False,
     )
 
-    prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-        returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
-    )
-    if alignment_name == "scratch":
-        s.experiments["fh"]["priors"] = PriorInfo(
-            center_state_prior=PriorConfig(
-                file="/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t", scale=0.4
-            )
-        )
-    else:
-        s.set_mono_priors_returnn_rasr(
-            key="fh",
-            epoch=keep_epochs[-2],
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            output_layer_name="output",
-            returnn_config=prior_returnn_config,
-        )
-
-    s.experiments["fh"]["priors"] = smoothen_priors(s.experiments["fh"]["priors"])
-
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
     )
+
+    s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+    s.experiments["fh"]["priors"] = PriorInfo(
+        center_state_prior=PriorConfig(
+            file=tk.Path("/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t"), scale=0.4
+        )
+    )
+    s.experiments["fh"]["priors"] = smoothen_priors(s.experiments["fh"]["priors"])
+
     tying_cfg = rasr.RasrConfig()
     tying_cfg.type = "diphone-no-tying-dense"
 
