@@ -204,7 +204,7 @@ class SriLmSystem:
                     lm=self.interpolated_lms[dev_name][f"{n}gram"].ngram_lm,
                     prune_thresh=5e-10,
                     helper_lm=self.ngram_lms["katz"][f"{katz_order}gram"].ngram_lm,
-                    count_exe=self.ngram_exe,
+                    ngram_exe=self.ngram_exe,
                     **self.perplexity_rqmt,
                 )
                 if n == 5:
