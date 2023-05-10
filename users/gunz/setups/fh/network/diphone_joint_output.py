@@ -98,6 +98,7 @@ def augment_to_joint_diphone_softmax(
         "class": "swap_axes",
         "axis1": 2,
         "axis2": 3,
+        "from": center_state_softmax_layer,
     }
 
     # Left context just needs to be repeated |center_state| number of times
