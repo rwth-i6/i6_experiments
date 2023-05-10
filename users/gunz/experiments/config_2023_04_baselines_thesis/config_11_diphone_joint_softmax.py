@@ -25,6 +25,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorConfig, PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -285,12 +286,10 @@ def run_single(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
     )
     if alignment_name == "scratch":
-        "/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t"
-        s.experiments["fh"]["priors"] = dataclasses.replace(
-            s.experiments["fh"]["priors"],
-            center_state_prior=dataclasses.replace(
-                s.experiments["fh"]["priors"], file="/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t"
-            ),
+        s.experiments["fh"]["priors"] = PriorInfo(
+            center_state_prior=PriorConfig(
+                file="/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t", scale=0.4
+            )
         )
     else:
         s.set_mono_priors_returnn_rasr(
