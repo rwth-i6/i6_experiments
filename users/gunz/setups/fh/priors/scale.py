@@ -14,8 +14,8 @@ Indices = typing.Union[typing.List[int], typing.List[typing.Tuple[int, int]], ty
 
 def scale_priors(
     p_info: PriorInfo,
-    scale_l: float = 1.0,
     scale_c: float = 1.0,
+    scale_l: float = 1.0,
     scale_r: float = 1.0,
 ) -> PriorInfo:
     def scale(cfg: typing.Optional[PriorConfig], scale: float) -> typing.Optional[PriorConfig]:
