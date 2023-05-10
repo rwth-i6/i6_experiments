@@ -29,6 +29,7 @@ def get_init_args():
             "infinity",
             6.0,
         ),  # only used when tying_type = global-and-nonword
+        "use_corrected_fsa": True,
     }
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
