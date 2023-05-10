@@ -95,6 +95,7 @@ def get_nn_args_single(
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
+    wave_norm = feature_args.pop("wave_norm", False)
     feature_network_class = {
         "LogMelNetwork": LogMelNetwork,
         "GammatoneNetwork": GammatoneNetwork,
@@ -106,6 +107,11 @@ def get_nn_args_single(
             if feature_net["subnetwork"][layer].get("from", "data") == "data":
                 feature_net["subnetwork"][layer]["from"] = "preemphasis"
         feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+    if wave_norm:
+        for layer in feature_net["subnetwork"]:
+            if feature_net["subnetwork"][layer].get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = "wave_norm"
+        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
 
     returnn_config = get_returnn_config(
         num_inputs=1,
