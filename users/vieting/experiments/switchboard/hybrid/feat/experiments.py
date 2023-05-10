@@ -1,7 +1,7 @@
 import copy
-from sisyphus import tk, gs
+from typing import Any, Dict, Optional
+from sisyphus import gs
 
-import i6_core.rasr as rasr
 from i6_core.features.common import samples_flow
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
@@ -21,6 +21,53 @@ def run_gmm_system_from_common():
         corpus_list=system.dev_corpora + system.test_corpora,
     )
     return system
+
+
+def get_hybrid_nn_system(
+        context_window: int,
+        train_seq_ordering: Optional[str] = None,
+        audio_opts: Optional[Dict[str, Any]] = None,
+):
+    gmm_system = run_gmm_system_from_common()
+    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
+
+    # noinspection PyTypeChecker
+    (
+        nn_train_data_inputs,
+        nn_cv_data_inputs,
+        nn_devtrain_data_inputs,
+        nn_dev_data_inputs,
+        nn_test_data_inputs,
+    ) = get_corpus_data_inputs_oggzip(
+        gmm_system,
+        partition_epoch={"train": 6, "dev": 1},
+        context_window={"classes": 1, "data": context_window},
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+    )
+    if train_seq_ordering:
+        nn_train_data_inputs["switchboard.train"].seq_ordering = train_seq_ordering
+    if audio_opts:
+        nn_train_data_inputs["switchboard.train"].audio = audio_opts
+        nn_cv_data_inputs["switchboard.cv"].audio = audio_opts
+        nn_devtrain_data_inputs["switchboard.devtrain"].audio = audio_opts
+
+    hybrid_nn_system = HybridSystem(
+        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=RETURNN_EXE,
+        rasr_binary_path=RASR_BINARY_PATH,
+    )
+    hybrid_nn_system.init_system(
+        rasr_init_args=rasr_init_args,
+        train_data=nn_train_data_inputs,
+        cv_data=nn_cv_data_inputs,
+        devtrain_data=nn_devtrain_data_inputs,
+        dev_data=nn_dev_data_inputs,
+        test_data=nn_test_data_inputs,
+        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
+    )
+
+    return hybrid_nn_system
 
 
 def run_test_gt():
@@ -70,26 +117,6 @@ def run_test_gt():
 def run_baseline_gt():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
-    gmm_system = run_gmm_system_from_common()
-    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-
-    # Gammatone args
-    # noinspection PyTypeChecker
-    (
-        nn_train_data_inputs,
-        nn_cv_data_inputs,
-        nn_devtrain_data_inputs,
-        nn_dev_data_inputs,
-        nn_test_data_inputs,
-    ) = get_corpus_data_inputs_oggzip(
-        gmm_system,
-        partition_epoch={"train": 6, "dev": 1},
-        context_window={"classes": 1, "data": 441},
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-    )
-    nn_train_data_inputs["switchboard.train"].seq_ordering = "laplace:.384"
-
     nn_args = get_nn_args_baseline(
         nn_base_args={
             # comment out because hash changed because freq_max and freq_min are added for GT
@@ -125,30 +152,11 @@ def run_baseline_gt():
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
-
-    # Gammatone NN system
-    hybrid_nn_system = HybridSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-    )
-    hybrid_nn_system.init_system(
-        rasr_init_args=rasr_init_args,
-        train_data=nn_train_data_inputs,
-        cv_data=nn_cv_data_inputs,
-        devtrain_data=nn_devtrain_data_inputs,
-        dev_data=nn_dev_data_inputs,
-        test_data=nn_test_data_inputs,
-        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
-    )
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441, train_seq_ordering="laplace:.384")
     hybrid_nn_system.run(nn_steps)
 
     # disable peak normalization, add wave norm
     audio_opts = {"features": "raw", "sample_rate": 8000}
-    nn_train_data_inputs["switchboard.train"].audio = audio_opts
-    nn_cv_data_inputs["switchboard.cv"].audio = audio_opts
-    nn_devtrain_data_inputs["switchboard.devtrain"].audio = audio_opts
-
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "gt40_pe_wavenorm": dict(
@@ -165,46 +173,13 @@ def run_baseline_gt():
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    # Gammatone NN system
-    hybrid_nn_system = HybridSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-    )
-    hybrid_nn_system.init_system(
-        rasr_init_args=rasr_init_args,
-        train_data=nn_train_data_inputs,
-        cv_data=nn_cv_data_inputs,
-        devtrain_data=nn_devtrain_data_inputs,
-        dev_data=nn_dev_data_inputs,
-        test_data=nn_test_data_inputs,
-        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
-    )
+    hybrid_nn_system = get_hybrid_nn_system(
+        context_window=441, train_seq_ordering="laplace:.384", audio_opts=audio_opts)
     hybrid_nn_system.run(nn_steps)
 
 
 def run_baseline_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
-
-    gmm_system = run_gmm_system_from_common()
-    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-
-    # Gammatone args
-    # noinspection PyTypeChecker
-    (
-        nn_train_data_inputs,
-        nn_cv_data_inputs,
-        nn_devtrain_data_inputs,
-        nn_dev_data_inputs,
-        nn_test_data_inputs,
-    ) = get_corpus_data_inputs_oggzip(
-        gmm_system,
-        partition_epoch={"train": 6, "dev": 1},
-        context_window={"classes": 1, "data": 441},
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-    )
-    nn_train_data_inputs["switchboard.train"].seq_ordering = "laplace:.384"
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
@@ -225,74 +200,27 @@ def run_baseline_mel():
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    # log Mel NN system
-    hybrid_nn_system = HybridSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-    )
-    hybrid_nn_system.init_system(
-        rasr_init_args=rasr_init_args,
-        train_data=nn_train_data_inputs,
-        cv_data=nn_cv_data_inputs,
-        devtrain_data=nn_devtrain_data_inputs,
-        dev_data=nn_dev_data_inputs,
-        test_data=nn_test_data_inputs,
-        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
-    )
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441, train_seq_ordering="laplace:.384")
     hybrid_nn_system.run(nn_steps)
 
 
 def run_baseline_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
-    gmm_system = run_gmm_system_from_common()
-    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    
-    # SCF args
-    # noinspection PyTypeChecker
-    (
-        nn_train_data_inputs,
-        nn_cv_data_inputs,
-        nn_devtrain_data_inputs,
-        nn_dev_data_inputs,
-        nn_test_data_inputs,
-    ) = get_corpus_data_inputs_oggzip(
-        gmm_system,
-        partition_epoch={"train": 6, "dev": 1},
-        context_window={"classes": 1, "data": 249},
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-    )
-
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "conformer_bs7k_scf": dict(
+            "scf": dict(
                 returnn_args=dict(batch_size=7000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
-        prefix="scf_",
+        prefix="conformer_bs7k_",
         num_epochs=260,
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    # SCF NN system
-    hybrid_nn_system = HybridSystem(
-        returnn_root=RETURNN_ROOT,
-        returnn_python_exe=RETURNN_EXE,
-        rasr_binary_path=RASR_BINARY_PATH,
-    )
-    hybrid_nn_system.init_system(
-        rasr_init_args=rasr_init_args,
-        train_data=nn_train_data_inputs,
-        cv_data=nn_cv_data_inputs,
-        devtrain_data=nn_devtrain_data_inputs,
-        dev_data=nn_dev_data_inputs,
-        test_data=nn_test_data_inputs,
-        train_cv_pairing=[tuple(["switchboard.train", "switchboard.cv"])],
-    )
+    hybrid_nn_system = get_hybrid_nn_system(context_window=249)
     hybrid_nn_system.run(nn_steps)
 
 
