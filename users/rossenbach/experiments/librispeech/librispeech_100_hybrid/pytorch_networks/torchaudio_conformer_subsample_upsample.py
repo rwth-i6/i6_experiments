@@ -226,6 +226,8 @@ class Conformer(torch.nn.Module):
     *Conformer: Convolution-augmented Transformer for Speech Recognition*
     :cite:`gulati2020conformer`.
 
+    Extended version with very simple downsampling and upsampling
+
     Args:
         input_dim (int): input dimension.
         num_heads (int): number of attention heads in each Conformer layer.
@@ -264,6 +266,7 @@ class Conformer(torch.nn.Module):
     ):
         super().__init__()
 
+        self.downsample_conv = torch.nn.Conv1d(in_channels=input_dim, out_channels=input_dim, kernel_size=5, stride=2, padding=2)
         self.conformer_layers = torch.nn.ModuleList(
             [
                 ConformerLayer(
@@ -278,6 +281,7 @@ class Conformer(torch.nn.Module):
                 for _ in range(num_layers)
             ]
         )
+        self.upsample_conv = torch.nn.ConvTranspose1d(in_channels=input_dim, out_channels=input_dim, kernel_size=5, stride=2, padding=1)
         self.export_mode = False
 
     def forward(self, input: torch.Tensor, lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -295,16 +299,29 @@ class Conformer(torch.nn.Module):
                     output lengths, with shape `(B,)` and i-th element representing
                     number of valid frames for i-th batch element in output frames.
         """
-        encoder_padding_mask = None if self.export_mode else _lengths_to_padding_mask(lengths)
 
-        x = input.transpose(0, 1)
+        # downsampling is done as [B, F, T]
+        input_downsampled = self.downsample_conv.forward(input.transpose(1,2)).transpose(1, 2)
+
+        # also downsample the mask for training, in ONNX export we currently ignore the mask
+        encoder_padding_mask = None if self.export_mode else _lengths_to_padding_mask((lengths+1)//2)
+
+        # Conformer is applied as [T, B, F]
+        x = input_downsampled.transpose(0, 1)
         for layer in self.conformer_layers:
-            x = layer(x, encoder_padding_mask)
-        return x.transpose(0, 1), lengths
+            x = layer(x, encoder_padding_mask)  # [T, B, F]
+
+        conf_output = torch.permute(x, (1, 2 ,0))  # [B, F, T] for upsampling
+        upsampled = self.upsample_conv(conf_output).transpose(1, 2)  # final upsampled [B, T, F]
+
+        # slice for correct length
+        out_upsampled = upsampled[:,0:input.size()[1],:]
+
+        return out_upsampled, lengths
 
 class Model(torch.nn.Module):
 
-    def __init__(self, **kwargs):
+    def __init__(self, epoch, step, **kwargs):
         super().__init__()
         conformer_size = 384
         target_size=12001
@@ -344,7 +361,7 @@ class Model(torch.nn.Module):
         return log_probs, logits_ce_order
 
 
-scripted_model = None
+# scripted_model = None
 
 def train_step(*, model: Model, data, run_ctx, **_kwargs):
     global scripted_model
@@ -358,25 +375,24 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
     phonemes_len = data["classes:size1"][indices]
 
     #if scripted_model is None:
+    #    model.eval()
     #    model.to("cpu")
     #    export_trace(model=model, model_filename="testdump.onnx")
-    #    model.to("cuda")
-    #    model.train()
+    #    assert False
 
     # distributed_model = DataParallel(model)
     log_probs, logits = model(
         audio_features=audio_features,
-        audio_features_len=audio_features_len,
+        audio_features_len=audio_features_len.to("cuda"),
     )
 
+    
     targets_packed = nn.utils.rnn.pack_padded_sequence(phonemes, phonemes_len.to("cpu"), batch_first=True, enforce_sorted=False)
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
 
-    loss = nn.functional.cross_entropy(logits, targets_masked, reduction="sum")
+    loss = nn.functional.cross_entropy(logits, targets_masked)
 
-    num_frames = torch.sum(phonemes_len)
-
-    run_ctx.mark_as_loss(name="CE", loss=loss, inv_norm_factor=num_frames)
+    run_ctx.mark_as_loss(name="CE", loss=loss)
 
 
 # def export(*, model: Model, model_filename: str):
@@ -399,7 +415,7 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
 #     )
 #
 
-def export(*, model: Model, model_filename: str):
+def export_trace(*, model: Model, model_filename: str):
     model.conformer.export_mode = True
     dummy_data = torch.randn(1, 30, 50, device="cpu")
     # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
@@ -412,6 +428,7 @@ def export(*, model: Model, model_filename: str):
         verbose=True,
         input_names=["data", "data_len"],
         output_names=["classes"],
+        opset_version=14,
         dynamic_axes={
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},
