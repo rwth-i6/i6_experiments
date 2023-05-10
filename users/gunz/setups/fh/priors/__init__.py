@@ -6,4 +6,5 @@ from .augment import (
 from .combine import combine_priors_across_hmm_states
 from .flat import CreateFlatPriorsJob
 from .smoothen import smoothen_priors, SmoothenPriorsJob
+from .scale import scale_priors, ScalePriorsJob
 from .tri_join import JoinRightContextPriorsJob, ReshapeCenterStatePriorsJob
