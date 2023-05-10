@@ -29,7 +29,6 @@ def get_init_args():
             "infinity",
             6.0,
         ),  # only used when tying_type = global-and-nonword
-        "use_corrected_fsa": True,
     }
 
     costa_args = {"eval_recordings": True, "eval_lm": False}
@@ -87,6 +86,7 @@ def get_monophone_args():
         "extra_merge_args": None,
         "extra_config": None,
         "extra_post_config": None,
+        "use_corrected_fsa": True,
     }
 
     monophone_training_args = {
@@ -97,6 +97,7 @@ def get_monophone_args():
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
+        "use_corrected_fsa": True,
     }
 
     monophone_recognition_args = {
@@ -183,6 +184,7 @@ def get_triphone_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
+        "use_corrected_fsa": True,
     }
 
     triphone_recognition_args = {
@@ -248,6 +250,7 @@ def get_vtln_args():
             "align_extra_rqmt": {"mem": 8},
             "accumulate_extra_rqmt": {"mem": 8},
             "split_extra_rqmt": {"mem": 8},
+        "use_corrected_fsa": True,
         },
     }
 
@@ -303,6 +306,7 @@ def get_sat_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
+        "use_corrected_fsa": True,
     }
 
     sat_recognition_args = {
@@ -367,6 +371,7 @@ def get_vtln_sat_args():
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
+        "use_corrected_fsa": True,
     }
 
     vtln_sat_recognition_args = {
