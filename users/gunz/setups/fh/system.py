@@ -1130,8 +1130,8 @@ class FactoredHybridSystem(NnSystem):
 
         infer_graph = compile_tf_graph_from_returnn_config(
             config,
-            python_prolog=python_prolog,
-            python_epilog=python_epilog,
+            python_prolog=python_prolog if override_cfg is None else None,
+            python_epilog=python_epilog if override_cfg is None else None,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe
             if not self.do_not_set_returnn_python_exe_for_graph_compiles
