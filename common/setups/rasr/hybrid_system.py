@@ -1,4 +1,4 @@
-__all__ = ["HybridSystem", "returnn_training"]
+__all__ = ["HybridSystem"]
 
 import copy
 import itertools
@@ -22,7 +22,8 @@ from i6_core.returnn.flow import (
 )
 from i6_core.util import MultiPath, MultiOutputPath
 
-from .nn_system import NnSystem
+from .hybrid_decoder import HybridDecoder
+from .nn_system import NnSystem, returnn_training
 
 from .util import (
     RasrInitArgs,
@@ -627,35 +628,3 @@ class HybridSystem(NnSystem):
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced") or step_name.startswith("align"):
                 self.run_forced_align_step(step_args)
-
-
-def returnn_training(
-    name: str,
-    returnn_config: returnn.ReturnnConfig,
-    training_args: Union[Dict, ReturnnTrainingJobArgs],
-    train_data: AllowedReturnnTrainingDataInput,
-    cv_data: Optional[AllowedReturnnTrainingDataInput] = None,
-    additional_data: Optional[Dict[str, AllowedReturnnTrainingDataInput]] = None,
-    register_output: bool = True,
-) -> returnn.ReturnnTrainingJob:
-    assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-    config = copy.deepcopy(returnn_config)
-
-    config.config["train"] = train_data if isinstance(train_data, Dict) else train_data.get_data_dict()
-    if cv_data is not None:
-        config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get_data_dict()
-    if additional_data is not None:
-        config.config["eval_datasets"] = {}
-        for name, data in additional_data.items():
-            config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get_data_dict()
-
-    returnn_training_job = returnn.ReturnnTrainingJob(
-        returnn_config=config,
-        **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,
-    )
-    if register_output:
-        returnn_training_job.add_alias(f"nn_train/{name}")
-        tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)
-
-    return returnn_training_job
