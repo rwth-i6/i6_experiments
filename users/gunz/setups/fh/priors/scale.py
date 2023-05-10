@@ -52,7 +52,7 @@ class ScalePriorsJob(Job):
     def run(self):
         parse_result = read_prior_xml(self.prior_xml)
 
-        priors = np.exp(np.array(parse_result.priors_log).reshape(parse_result.shape)) * self.scale
+        priors = np.exp(parse_result.priors_log).reshape(parse_result.shape) * self.scale
 
         total_weight = priors.flatten().sum()
         print(f"total prior weight: {total_weight}")
