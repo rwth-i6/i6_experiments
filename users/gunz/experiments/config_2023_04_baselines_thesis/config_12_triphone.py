@@ -105,7 +105,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v7",
             own_priors=False,
-            run_performance_study=True,
+            run_performance_study=False,
             tune_decoding=False,
         ),
         Experiment(

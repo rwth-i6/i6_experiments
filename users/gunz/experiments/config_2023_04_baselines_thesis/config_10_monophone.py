@@ -113,7 +113,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v7",
             multitask=True,
-            run_performance_study=True,
+            run_performance_study=False,
             tune_decoding=False,
         ),
         Experiment(
