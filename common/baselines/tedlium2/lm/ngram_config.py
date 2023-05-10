@@ -10,7 +10,7 @@ from i6_experiments.common.datasets.tedlium2.lexicon import (
 from i6_experiments.common.datasets.tedlium2.textual_data import get_text_data_dict
 from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 
-from i6_private.users.luescher.setups.lm.srilm_system import SriLmSystem
+from i6_experiments.common.setups.lm.srilm_system import SriLmSystem
 
 
 def run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping: bool = False, alias_prefix="baselines/tedlium2/lm/ngram"):
