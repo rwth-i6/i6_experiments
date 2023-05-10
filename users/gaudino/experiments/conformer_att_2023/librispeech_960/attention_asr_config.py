@@ -10,7 +10,7 @@ from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder impo
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.rnn_decoder import RNNDecoder
 from i6_experiments.users.zeineldeen.models.lm.external_lm_decoder import ExternalLMDecoder
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960.search_helpers import (
     add_joint_ctc_att_subnet,
     add_filter_blank_and_merge_labels_layers,
     create_ctc_greedy_decoder,
@@ -894,6 +894,7 @@ def create_config(
 
     if joint_ctc_att_decode:
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+        python_prolog += ["import numpy as np"]
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:

@@ -264,7 +264,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
             "scaled_1_minus_blank_log": {
                 "class": "eval",
                 "from": "1_minus_blank_log",
-                "eval": f"{ctc_scale} * source(0)",
+                "eval": "1 * source(0)",
             },
             "p_comb_sigma_prime_label": {
                 "class": "combine",
@@ -274,9 +274,9 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
             "scaled_blank_log_prob": {
                 "class": "eval",
                 "from": "blank_log_prob",
-                "eval": f"{ctc_scale} * source(0)",
+                "eval": "1 * source(0)",
             },
-            "scaled_blank_log_prob_expand": {
+            "blank_log_prob_expand": {
                 "class": "expand_dims",
                 "from": "scaled_blank_log_prob",
                 "axis": "f",
@@ -285,13 +285,34 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, ch
                 "class": "concat",
                 "from": [("p_comb_sigma_prime_label", "f"), ("scaled_blank_log_prob_expand", "f")],
             },  # [B,V+1]
+
+            # eos handling
+            "is_prev_out_eos": {
+                "class": "compare",
+                "kind": "equal",
+                "from": "prev:output",
+                "value": 0,
+            },
+            "eos_1": {
+                "class": "constant",
+                "value": CodeWrapper("np.array([1 if i == 0 else 0 for i in range(10025)], dtype='float32')"),
+                # "with_batch_dim": True,
+                # "sparse_dim": 10025,
+            },
+            "combined_att_ctc_scores_eos": {
+                "class": "switch",
+                "condition": "is_prev_out_eos",
+                "true_from": "eos_1",
+                "false_from": "combined_att_ctc_scores",
+            },
+
             "output": {
                 "class": "choice",
                 "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
                 "beam_size": beam_size,
-                "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores",
+                "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores_eos",
                 "input_type": "log_prob",
-                "initial_output": 0,
+                "initial_output": 0 if ctc_scale > 0.0 else 1,
                 "length_normalization": length_normalization,
             },
         },

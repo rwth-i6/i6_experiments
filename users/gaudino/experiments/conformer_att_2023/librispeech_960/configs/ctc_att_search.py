@@ -784,10 +784,11 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for ctc_scale in [0.19, 0.2, 0.21]:
-        att_scale = 1 - ctc_scale
+    for beam_size in [32, 64, 128]:
+        ctc_scale = 0
+        att_scale = 1
         run_decoding(
-            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_norepeat",
+            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_norepeat_beamSize{beam_size}",
             train_data=train_data,
             checkpoint=train_job_avg_ckpt[
                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
@@ -797,7 +798,9 @@ def run_ctc_att_search():
                 "joint_att_scale": att_scale,
                 "joint_ctc_scale": ctc_scale,
                 "check_repeat": True, # remove
-                "max_seqs": 200,
+                # "ctc_repeat_score": False,
+                "max_seqs": 200 if beam_size < 128 else 100,
+                "beam_size": beam_size,
                 **oclr_args,
             },
             feature_extraction_net=log10_net_10ms,
