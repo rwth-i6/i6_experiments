@@ -166,11 +166,11 @@ def run_baseline_scf():
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
-                returnn_args=dict(batch_size=7000),
+                returnn_args=dict(batch_size=14000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
-        prefix="conformer_bs7k_",
+        prefix="conformer_bs14k_",
         num_epochs=260,
     )
     nn_steps = RasrSteps()
@@ -178,6 +178,9 @@ def run_baseline_scf():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=249)
     hybrid_nn_system.run(nn_steps)
+    # noinspection PyUnresolvedReferences
+    hybrid_nn_system.jobs["switchboard.train_switchboard.cv"]["conformer_bs14k_scf"].rqmt.update({
+        "gpu_mem": 24, "mem": 10})
 
 
 def run_all():
