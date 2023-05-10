@@ -270,7 +270,7 @@ class SriLmSystem:
                 ngrams = list(self.ngrams_for_interpolation[f"{order_name}_{dev_name}"].values())
                 ngrams = [lm.ngram_lm for lm in ngrams]
 
-                interpolate_job = srilm.InterpolateNgramLmJob(ngrams, dev_path, lambdas, n, ngram_exe=self.ngram_exe)
+                interpolate_job = srilm.InterpolateNgramLmJob(ngrams, lambdas, n, ngram_exe=self.ngram_exe)
                 if n == 5:
                     interpolate_job.rqmt["mem"] = 64
                 interpolate_job.add_alias(f"lms/{order_name}.interpolated.{dev_name}")
