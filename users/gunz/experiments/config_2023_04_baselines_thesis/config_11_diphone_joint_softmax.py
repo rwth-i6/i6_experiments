@@ -1,6 +1,7 @@
 __all__ = ["run", "run_single"]
 
 import copy
+import dataclasses
 from dataclasses import dataclass
 import itertools
 
@@ -293,14 +294,24 @@ def run_single(
     prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
     )
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        output_layer_name="output",
-        returnn_config=prior_returnn_config,
-    )
+    if alignment_name == "scratch":
+        "/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t"
+        s.experiments["fh"]["priors"] = dataclasses.replace(
+            s.experiments["fh"]["priors"],
+            center_state_prior=dataclasses.replace(
+                s.experiments["fh"]["priors"], file="/u/mgunz/setups/2023-04--thesis-baselines/joint-scratch-priors-t"
+            ),
+        )
+    else:
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=keep_epochs[-2],
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            output_layer_name="output",
+            returnn_config=prior_returnn_config,
+        )
+
     s.experiments["fh"]["priors"] = smoothen_priors(s.experiments["fh"]["priors"])
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
