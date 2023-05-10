@@ -44,7 +44,6 @@ from .config import (
     CONF_SA_CONFIG,
     FROM_SCRATCH_CV_INFO,
     L2,
-    RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
     RASR_ROOT_RS_RASR_GUNZ,
     RETURNN_PYTHON_TF15,
@@ -82,17 +81,8 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
-        Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            lr="v7",
-            run_performance_study=True,
-            tune_decoding=True,
-        ),
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
