@@ -401,7 +401,7 @@ def run_single(
                     recog_args,
                     recog_args.with_prior_scale(0.19).with_tdp_scale(0.44),
                     recog_args.with_prior_scale(0.3).with_tdp_scale(0.4),
-                    best_config,
+                    # best_config,
                 ]
                 if cfg is not None
             ]
