@@ -94,18 +94,23 @@ def augment_to_joint_diphone_softmax(
     network["pastEmbed"]["in_dim"] = c_range_dim
     network["pastEmbed"]["from"] = "pastLabel"
     network["linear1-diphone"]["from"] = [f"{encoder_output_layer}_expanded", "pastEmbed"]
+    network[f"{center_state_softmax_layer}_transposed"] = {
+        "class": "swap_axes",
+        "axis1": 2,
+        "axis2": 3,
+    }
 
     # Left context just needs to be repeated |center_state| number of times
     network[f"{left_context_softmax_layer}_expanded"] = {
         "class": "expand_dims",
         "from": left_context_softmax_layer,
-        "axis": "feature",
+        "axis": "spatial",
     }
 
     # Compute scores and flatten output
     network[f"{out_joint_score_layer}_scores"] = {
         "class": "combine",
-        "from": [center_state_softmax_layer, f"{left_context_softmax_layer}_expanded"],
+        "from": [f"{center_state_softmax_layer}_transposed", f"{left_context_softmax_layer}_expanded"],
         "kind": "add" if log_softmax else "mul",
     }
     network[out_joint_score_layer] = {
