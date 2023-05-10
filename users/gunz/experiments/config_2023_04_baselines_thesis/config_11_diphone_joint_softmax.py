@@ -336,6 +336,7 @@ def run_single(
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
             )
 
+    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{gs.ALIAS_AND_OUTPUT_SUBDIR}_scaled_p"
     s.experiments["fh"]["priors"] = scale_priors(s.experiments["fh"]["priors"], 1.0 / 42.0)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
