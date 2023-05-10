@@ -102,7 +102,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v7",
             run_performance_study=True,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
         Experiment(
             alignment=scratch_align,
@@ -111,7 +111,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=True,
             lr="v7",
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
     ]
     for exp in configs:
