@@ -7,13 +7,13 @@ from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.lib import lexicon
 from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
-from .constants import SILENCE, PHONEMES
+from .constants import SILENCE_LABEL, UNKNOWN_LABEL, PHONEMES
 from .corpus import get_bliss_corpus_dict
 from .download import download_data_dict
 
 
 @lru_cache()
-def _get_special_lemma_lexicon() -> lexicon.Lexicon:
+def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = False) -> lexicon.Lexicon:
     """
     creates the special lemma used in RASR
 
@@ -23,20 +23,32 @@ def _get_special_lemma_lexicon() -> lexicon.Lexicon:
     lex.add_lemma(
         lexicon.Lemma(
             orth=["[silence]", ""],
-            phon=[SILENCE],
+            phon=[SILENCE_LABEL],
             synt=[],
             special="silence",
             eval=[[]],
         )
     )
-    lex.add_lemma(
-        lexicon.Lemma(
-            orth=["[unknown]"],
-            synt=["<unk>"],
-            special="unknown",
-            eval=[[]],
+    if add_unknown_phoneme_and_mapping:
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=["[unknown]"],
+                phon=[UNKNOWN_LABEL],
+                synt=["<unk>"],
+                special="unknown",
+                eval=[[]],
+            )
         )
-    )
+    else:
+        lex.add_lemma(
+            lexicon.Lemma(
+                orth=["[unknown]"],
+                synt=["<unk>"],
+                special="unknown",
+                eval=[[]],
+            )
+        )
+
     lex.add_lemma(
         lexicon.Lemma(
             orth=["[sentence-begin]"],
@@ -53,7 +65,9 @@ def _get_special_lemma_lexicon() -> lexicon.Lexicon:
             eval=[[]],
         )
     )
-    lex.add_phoneme(SILENCE, variation="none")
+    lex.add_phoneme(SILENCE_LABEL, variation="none")
+    if add_unknown_phoneme_and_mapping:
+        lex.add_phoneme(UNKNOWN_LABEL, variation="none")
 
     return lex
 
@@ -81,15 +95,17 @@ def _get_raw_bliss_lexicon(
 
 @lru_cache()
 def get_bliss_lexicon(
+    add_unknown_phoneme_and_mapping: bool = True,
     output_prefix: str = "datasets",
 ) -> tk.Path:
     """
     merges the lexicon with special RASR tokens with the lexicon created from the downloaded TedLiumV2 vocabulary
 
+    :param add_unknown_phoneme_and_mapping:
     :param output_prefix:
     :return:
     """
-    static_lexicon = _get_special_lemma_lexicon()
+    static_lexicon = _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping)
     static_lexicon_job = WriteLexiconJob(static_lexicon, sort_phonemes=True, sort_lemmata=False)
     static_lexicon_job.add_alias(os.path.join(output_prefix, "static_lexicon_job"))
 
@@ -111,17 +127,19 @@ def get_bliss_lexicon(
 
 @lru_cache()
 def get_g2p_augmented_bliss_lexicon(
+    add_unknown_phoneme_and_mapping: bool = False,
     audio_format: str = "wav",
     output_prefix: str = "datasets",
 ) -> tk.Path:
     """
     augment the kernel lexicon with unknown words from the training corpus
 
+    :param add_unknown_phoneme_and_mapping: add an unknown phoneme and mapping unknown phoneme:lemma
     :param audio_format: options: wav, ogg, flac, sph, nist. nist (NIST sphere format) and sph are the same.
     :param output_prefix:
     :return:
     """
-    original_bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
+    original_bliss_lexicon = get_bliss_lexicon(add_unknown_phoneme_and_mapping, output_prefix=output_prefix)
     corpus_name = "train"
     bliss_corpus = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)[corpus_name]
 

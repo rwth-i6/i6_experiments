@@ -13,7 +13,7 @@ from i6_experiments.common.baselines.tedlium2.default_tools import SRILM_PATH
 from i6_private.users.luescher.setups.lm.srilm_system import SriLmSystem
 
 
-def run_tedlium2_ngram_lm(alias_prefix="baselines/tedlium2/lm/ngram"):
+def run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping: bool = False, alias_prefix="baselines/tedlium2/lm/ngram"):
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
     gs.ALIAS_AND_OUTPUT_SUBDIR = alias_prefix
 
@@ -27,7 +27,11 @@ def run_tedlium2_ngram_lm(alias_prefix="baselines/tedlium2/lm/ngram"):
         "test": test_data,
     }
 
-    vocab = LexiconToWordListJob(get_g2p_augmented_bliss_lexicon()).out_word_list
+    vocab = LexiconToWordListJob(
+        get_g2p_augmented_bliss_lexicon(
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping, output_prefix="lexicon"
+        )
+    ).out_word_list
 
     ngram_system = SriLmSystem(
         name="tedlium2",
