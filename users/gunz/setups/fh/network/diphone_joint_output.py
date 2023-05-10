@@ -95,6 +95,10 @@ def augment_to_joint_diphone_softmax(
     network["pastEmbed"]["from"] = "pastLabel"
     network["linear1-diphone"]["from"] = [f"{encoder_output_layer}_expanded", "pastEmbed"]
     network[f"{center_state_softmax_layer}_transposed"] = {
+        # Transpose the center output because in diphone-no-tying-dense, the left context is
+        # the trailing index. So we have for every center state all left contexts next to each
+        # other, not for every left context all center states.
+
         "class": "swap_axes",
         "axis1": 2,
         "axis2": 3,
