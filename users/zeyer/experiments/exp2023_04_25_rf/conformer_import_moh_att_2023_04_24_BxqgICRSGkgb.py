@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any, Tuple, Dict, Sequence
+from typing import Optional, Any, Tuple, Dict, Sequence, List
 import numpy
 import sys
 
@@ -86,6 +86,7 @@ class MakeModel:
             wb_target_dim=target_dim + 1,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
+            eos_idx=_get_eos_idx(target_dim),
         )
 
 
@@ -505,10 +506,10 @@ def test_import():
             return _trace_func
 
     sys.settrace(_trace_func)
-    y = new_model.encode(x, in_spatial_dim=time_dim)[0]["enc"]
+    from_scratch_training(model=new_model, data=x, data_spatial_dim=time_dim)
+    new_model.encode(x, in_spatial_dim=time_dim)
     sys.settrace(None)
     pprint(captured_tensors)
-    y.mark_as_default_output()
 
     print("*** Getting values from trace ...")
     fetches = {}
@@ -574,6 +575,7 @@ class Model(rf.Module):
         nb_target_dim: Dim,
         wb_target_dim: Dim,
         blank_idx: int,
+        eos_idx: int,
         bos_idx: int,
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -609,6 +611,7 @@ class Model(rf.Module):
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
         self.blank_idx = blank_idx
+        self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
         self.enc_key_total_dim = enc_key_total_dim
@@ -686,18 +689,17 @@ class Model(rf.Module):
             accum_att_weights=rf.zeros(list(batch_dims) + [enc_spatial_dim, self.att_num_heads]),
         )
 
-    def decode(
+    def loop_step(
         self,
         *,
         enc: rf.Tensor,
         enc_ctx: rf.Tensor,
         inv_fertility: rf.Tensor,
         enc_spatial_dim: Dim,
-        prev_nb_target: Optional[rf.Tensor] = None,  # non-blank
-        prev_nb_target_spatial_dim: Optional[Dim] = None,
+        input_embed: rf.Tensor,
         state: Optional[rf.State] = None,
-    ) -> Tuple[rf.Tensor, rf.State]:
-        """decoder step, or operating on full seq. output logits + state"""
+    ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+        """step of the inner loop"""
         if state is None:
             batch_dims = enc.remaining_dims(
                 remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
@@ -705,12 +707,9 @@ class Model(rf.Module):
             state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
         state_ = rf.State()
 
-        prev_target_embed = self.target_embed(prev_nb_target)
         prev_att = state.att
 
-        s, state_.s = self.s(
-            rf.concat_features(prev_target_embed, prev_att), spatial_dim=prev_nb_target_spatial_dim, state=state.s
-        )
+        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
         weight_feedback = self.weight_feedback(state.accum_att_weights)
         s_transformed = self.s_transformed(s)
@@ -722,12 +721,22 @@ class Model(rf.Module):
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
 
-        readout_in = self.readout_in(rf.concat_features(s, prev_target_embed, att))
+        return {"s": s, "att": att}, state_
+
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor("s", dims=batch_dims + [self.s.out_dim]),
+            "att": Tensor("att", dims=batch_dims + [self.att_num_heads * self.encoder.out_dim]),
+        }
+
+    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+        """logits for the decoder"""
+        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
         readout = rf.reduce_out(readout_in, mode="max", num_pieces=2)
         readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim)
         logits = self.output_prob(readout)
-
-        return logits, state_
+        return logits
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -742,6 +751,16 @@ def _get_bos_idx(target_dim: Dim) -> int:
     else:
         raise Exception(f"cannot determine bos_idx from vocab {target_dim.vocab}")
     return bos_idx
+
+
+def _get_eos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.eos_label_id is not None:
+        eos_idx = target_dim.vocab.eos_label_id
+    else:
+        raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
+    return eos_idx
 
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
@@ -759,26 +778,37 @@ def from_scratch_training(
 ):
     """Function is run within RETURNN."""
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    prev_targets, prev_targets_spatial_dim = rf.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True
+
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
+    input_embeddings = model.target_embed(input_labels)
+
+    def _body(state: rf.State, input_embed: Tensor):
+        new_state = rf.State()
+        loop_out_, new_state.decoder = model.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        return new_state, loop_out_
+
+    _, loop_out, _ = rf.scan(
+        spatial_dim=targets_spatial_dim,
+        xs=input_embeddings,
+        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        initial=rf.State(
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+        ),
+        body=_body,
     )
-    probs, _ = model.decode(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        all_combinations_out=True,
-        prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim,
-    )
-    out_log_prob = probs.get_wb_label_log_probs()
-    loss = rf.transducer_time_sync_full_sum_neg_log_prob(
-        log_probs=out_log_prob,
-        labels=targets,
-        input_spatial_dim=enc_spatial_dim,
-        labels_spatial_dim=targets_spatial_dim,
-        prev_labels_spatial_dim=prev_targets_spatial_dim,
-        blank_index=model.blank_idx,
-    )
-    loss.mark_as_loss("full_sum")
+
+    logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+
+    log_prob = rf.log_softmax(logits, axis=model.nb_target_dim)
+    # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
+    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.nb_target_dim)
+    loss.mark_as_loss("ce")
 
 
 from_scratch_training: TrainDef[Model]
