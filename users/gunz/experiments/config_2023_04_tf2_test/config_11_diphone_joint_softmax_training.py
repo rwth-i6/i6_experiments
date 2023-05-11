@@ -264,6 +264,7 @@ def run_single(
         "loss_opts": {
             "focal_loss_factor": CONF_FOCAL_LOSS,
             "label_smoothing": CONF_LABEL_SMOOTHING,
+            "use_fused": True,
         },
     }
 
