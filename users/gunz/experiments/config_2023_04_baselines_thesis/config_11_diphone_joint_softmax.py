@@ -317,8 +317,10 @@ def run_single(
         )
         for cfg in [
             recog_args,
-            recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4),
-            recog_args.with_prior_scale(0.8, 0.6).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.2).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.4).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.6).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.8).with_tdp_scale(0.4),
         ]:
             s.recognize_cart(
                 key="fh",
@@ -328,34 +330,7 @@ def run_single(
                 cart_tree_or_tying_config=tying_cfg,
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
             )
-
-    original_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
-    gs.ALIAS_AND_OUTPUT_SUBDIR = f"{gs.ALIAS_AND_OUTPUT_SUBDIR}_scaled_p"
-    s.experiments["fh"]["priors"] = scale_priors(s.experiments["fh"]["priors"], 1.0 / 42.0)
-
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
-
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus=crp_k,
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            recompile_graph_for_feature_scorer=True,
-        )
-        for cfg in [recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4)]:
-            s.recognize_cart(
-                key="fh",
-                epoch=ep,
-                crp_corpus=crp_k,
-                n_cart_out=s.label_info.get_n_state_classes() * s.label_info.n_contexts,
-                cart_tree_or_tying_config=tying_cfg,
-                params=cfg,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-            )
-    gs.ALIAS_AND_OUTPUT_SUBDIR = original_subdir
 
     return s
