@@ -9,6 +9,7 @@ import tempfile
 import shutil
 import os
 import re
+from sisyphus.toolkit import Variable
 
 from typing import Iterator, Optional
 
@@ -30,7 +31,11 @@ class ModifySeqFileJob(Job):
     if self.seqs_to_skip is None:
       shutil.copy(self.seq_file, self.out_seqs_file.get_path())
     else:
-      seqs_to_skip = self.seqs_to_skip.get()
+      if type(self.seqs_to_skip) == Variable:
+        seqs_to_skip = self.seqs_to_skip.get()
+      else:
+        assert type(self.seqs_to_skip) == list or type(self.seqs_to_skip) == tuple
+        seqs_to_skip = self.seqs_to_skip
       with open(self.seq_file.get_path(), "r") as src:
         with open(self.out_seqs_file.get_path(), "w+") as dst:
           for line in src:
