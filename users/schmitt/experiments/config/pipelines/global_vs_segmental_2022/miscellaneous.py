@@ -2,7 +2,7 @@ from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGrap
   CombineAttentionPlotsJob, DumpPhonemeAlignJob, AugmentBPEAlignmentJob, FindSegmentsToSkipJob, ModifySeqFileJob, \
   AlignmentStatisticsJob, AlignmentSplitSilenceJob, ReduceAlignmentJob, PhonJSONVocabToRasrVocabJob, \
   PhonJSONVocabToAllophones, PhonJSONVocabToStateTyingJob, PhonJSONVocabToRasrFormatsJob, \
-  BPEJSONVocabToRasrFormatsJob, AlignmentCenterSegBoundaryJob
+  BPEJSONVocabToRasrFormatsJob, AlignmentCenterSegBoundaryJob, AlignmentAddEOSJob
 
 from sisyphus import *
 
@@ -37,10 +37,10 @@ def dump_phoneme_align(rasr_exe, rasr_config, time_red, state_tying_file, alias,
   return dump_phon_align_job.out_align, dump_phon_align_job.out_phoneme_vocab
 
 
-def calc_align_stats(alignment, seq_filter_file, alias, blank_idx=89):
+def calc_align_stats(alignment, seq_filter_file, alias, blank_idx=89, sil_idx=0):
   stat_job = AlignmentStatisticsJob(alignment=alignment, returnn_root="/u/schmitt/src/returnn",
     returnn_python_exe="/u/rossenbach/bin/returnn_tf2.3_launcher.sh", seq_list_filter_file=seq_filter_file,
-    blank_idx=blank_idx, silence_idx=0, time_rqmt=1)
+    blank_idx=blank_idx, silence_idx=sil_idx, time_rqmt=1)
   stat_job.add_alias(alias)
   alias = stat_job.get_one_alias()
   tk.register_output(alias, stat_job.out_statistics)
@@ -66,6 +66,16 @@ def alignment_center_seg_boundaries(alignment, seq_filter_file, alias, blank_idx
   tk.register_output(alias, split_align_job.out_align)
 
   return split_align_job.out_align
+
+
+def alignment_add_eos(alignment, seq_filter_file, alias, blank_idx, eos_idx):
+  align_add_eos_job = AlignmentAddEOSJob(hdf_align_path=alignment, segment_file=seq_filter_file,
+    blank_idx=blank_idx, eos_idx=eos_idx)
+  align_add_eos_job.add_alias(alias)
+  alias = align_add_eos_job.get_one_alias()
+  tk.register_output(alias, align_add_eos_job.out_align)
+
+  return align_add_eos_job.out_align, align_add_eos_job.out_keep_seqs, align_add_eos_job.out_exclude_seqs
 
 
 def reduce_alignment(alignment, seq_filter_file, alias, blank_idx, sil_idx, reduction_factor):

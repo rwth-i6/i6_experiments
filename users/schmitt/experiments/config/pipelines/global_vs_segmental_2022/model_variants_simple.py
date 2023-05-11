@@ -12,69 +12,29 @@ def build_alias(**kwargs):
     kwargs = {k.replace("_", "-"): v for k, v in kwargs.items()}
 
     if kwargs["segment-center-window-size"] is not None:
-      alias += ".win-size%s" % (int(kwargs["segment-center-window-size"] * 2) if not kwargs["use-glob-win"] else "-glob")
-
-    if not kwargs["use-time-sync-loop"]:
-      alias += ".no-time-loop"
-    if kwargs["use-eos"]:
-      alias += ".use-eos"
+      alias += ".win-size%d" % (kwargs["segment-center-window-size"] * 2)
 
     alias += "." + kwargs["label-type"]
     if kwargs["concat-seqs"]:
       alias += ".concat"
     if kwargs["epoch-split"] != 6:
       alias += ".ep-split-%d" % kwargs["epoch-split"]
-    if kwargs["lr-measure"] != "dev_error_output/label_prob":
-      if kwargs["lr-measure"] == "dev_error_label_model/label_prob":
-        alias += ".lr-meas-lab"
-
-    if kwargs["enc-type"] == "lstm":
-      if kwargs["min-learning-rate"] != (0.001 / 50.):
-        alias += ".mlr-%s" % kwargs["min-learning-rate"]
-      if kwargs["gradient-clip"] != 0:
-        alias += ".gc-%s" % kwargs["gradient-clip"]
-      if kwargs["gradient-noise"] != 0.0:
-        alias += ".gn-%s" % kwargs["gradient-noise"]
-      if kwargs["nadam"]:
-        alias += ".nadam"
-      if kwargs["batch-size"] != 10e3:
-        alias += ".bs-%s" % kwargs["batch-size"]
-      if kwargs["specaugment"] != "albert":
-        alias += ".sa-%s" % kwargs["specaugment"]
-      if kwargs["dynamic-lr"]:
-        alias += ".d-lr"
-      if kwargs["newbob-learning-rate-decay"] != 0.7:
-        alias += ".nb-lrd-%s" % kwargs["newbob-learning-rate-decay"]
-    else:
-      if kwargs["min-learning-rate"] != 1e-06:
-        alias += ".mlr-%s" % kwargs["min-learning-rate"]
-      if kwargs["gradient-clip"] != 20.:
-        alias += ".gc-%s" % kwargs["gradient-clip"]
-      if kwargs["gradient-noise"] != 0.1:
-        alias += ".gn-%s" % kwargs["gradient-noise"]
-      if not kwargs["nadam"]:
-        alias += ".adam"
-      if kwargs["batch-size"] != 15000:
-        alias += ".bs-%s" % kwargs["batch-size"]
-      if kwargs["specaugment"] != "wei":
-        alias += ".sa-%s" % kwargs["specaugment"]
-      if not kwargs["dynamic-lr"]:
-        alias += ".static-lr"
-      if kwargs["newbob-learning-rate-decay"] != 0.9:
-        alias += ".nb-lrd-%s" % kwargs["newbob-learning-rate-decay"]
-      if kwargs["conf-dropout"] != 0.03:
-        alias += ".drop-%s" % kwargs["conf-dropout"]
-
-    if kwargs["learning-rates"] is not None:
-      if type(kwargs["learning-rates"]) == list:
-        raise NotImplementedError
-      elif type(kwargs["learning-rates"]) == str:
-        if kwargs["learning-rates"] == "repeat_per_pretrain":
-          alias += ".lr-warm1"
-    if kwargs["use-zoneout"]:
-      alias += ".zoneout"
-    if kwargs["max-seqs"] != 200:
-      alias += ".max-seqs-%d" % kwargs["max-seqs"]
+    if kwargs["min-learning-rate"] != (0.001 / 50.):
+      alias += ".mlr-%s" % kwargs["min-learning-rate"]
+    if kwargs["gradient-clip"] != 0:
+      alias += ".gc-%s" % kwargs["gradient-clip"]
+    if kwargs["gradient-noise"] != 0.0:
+      alias += ".gn-%s" % kwargs["gradient-noise"]
+    if kwargs["nadam"]:
+      alias += ".nadam"
+    if kwargs["batch-size"] != 10e3:
+      alias += ".bs-%s" % kwargs["batch-size"]
+    if kwargs["specaugment"] != "albert":
+      alias += ".sa-%s" % kwargs["specaugment"]
+    if kwargs["dynamic-lr"]:
+      alias += ".d-lr"
+    if kwargs["newbob-learning-rate-decay"] != 0.7:
+      alias += ".nb-lrd-%s" % kwargs["newbob-learning-rate-decay"]
     if kwargs["newbob-multi-num-epochs"] != 6:
       alias += ".nb-mne-%s" % kwargs["newbob-multi-num-epochs"]
     if not kwargs["ctc-aux-loss"]:
@@ -90,12 +50,6 @@ def build_alias(**kwargs):
     alias += ".time-red%d" % int(np.prod(kwargs["time-red"]))
     if kwargs["enc-type"] != "lstm":
       alias += ".%s" % kwargs["enc-type"]
-      if kwargs["conf-num-blocks"] != 12:
-        alias += "-%d-blocks" % kwargs["conf-num-blocks"]
-    if kwargs["conf-use-blstm"]:
-      alias += ".bi-lstm"
-    if not kwargs["conf-batch-norm"]:
-      alias += ".ln"
     if kwargs["hybrid-hmm-like-label-model"]:
       alias += ".hybrid-hmm"
     if kwargs["fast-rec"]:
@@ -177,7 +131,7 @@ def build_alias(**kwargs):
       alias += ".label-focal-%s" % kwargs["label-model-focal-loss"]
 
     if kwargs["prev-target-in-readout"]:
-      alias += ".targ-in-read"
+      alias += ".prev-target-in-readout"
     if kwargs["weight-dropout"] != 0.1:
       alias += ".weight-drop%s" % kwargs["weight-dropout"]
     if kwargs["pretrain"]:
@@ -215,8 +169,7 @@ def build_alias(**kwargs):
     # alias += ".att-num-heads%d" % kwargs["att-num-heads"] * 2
     if kwargs["pretrain-reps"] is not None:
       alias += ".%spretrain-reps" % kwargs["pretrain-reps"]
-    if kwargs["enc-type"] != "lstm":
-      alias += "." + kwargs["enc-type"]
+
     if kwargs["glob-model-type"] == "best":
       if kwargs["weight-dropout"] != 0.0:
         alias += ".weight-drop%s" % kwargs["weight-dropout"]
@@ -255,92 +208,96 @@ default_variant_transducer = dict(
   segment_center_window_size=None, correct_concat_ep_split=True, pretrain=True,
   min_learning_rate=0.001/50., gradient_clip=0, newbob_learning_rate_decay=0.7, newbob_multi_num_epochs=6,
   gradient_noise=0.0, nadam=False, batch_size=10000, specaugment="albert", dynamic_lr=False, ctc_aux_loss=True,
-  length_model_loss_scale=1., use_time_sync_loop=True, use_eos=False, use_glob_win=False, use_zoneout=False,
-  lr_measure="dev_error_output/label_prob", conf_use_blstm=False, conf_batch_norm=True, max_seqs=200, conf_num_blocks=12,
-  learning_rates=None, conf_l2=None, conf_dropout=0.03
+  length_model_loss_scale=1.
 )
 
 default_variant_enc_dec = dict(
   model_type="glob", att_num_heads=1, lstm_dim=1024, label_type="bpe", time_red=[3, 2], segment_selection="all",
   glob_model_type="old", pretrain_reps=None, weight_dropout=0.0, with_state_vector=True, att_ctx_reg=False,
   with_weight_feedback=True, prev_target_in_readout=True, use_l2=True, att_ctx_with_bias=False, focal_loss=0.0,
-  pretrain_type="best", concat_seqs=False, epoch_split=6, enc_type="lstm")
+  pretrain_type="best", concat_seqs=False, epoch_split=6)
 
 model_variants = {
   # BPE GLOBAL
-  "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-state-vector.no-l2.ctx-use-bias.all-segs": {
-    "config": dict(
-      default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_state_vector=False, att_ctx_with_bias=True, use_l2=False),
-  },
-  "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-state-vector.no-weight-feedback.no-l2.ctx-use-bias.all-segs": {
-    "config": dict(
-      default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_weight_feedback=False, with_state_vector=False, att_ctx_with_bias=True, use_l2=False),
-  },
-  "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-weight-feedback.no-l2.ctx-use-bias.all-segs": {
-    "config": dict(
-      default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_weight_feedback=False, att_ctx_with_bias=True, use_l2=False),
-  },
+  # "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-state-vector.no-l2.ctx-use-bias.all-segs": {
+  #   "config": dict(
+  #     default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_state_vector=False, att_ctx_with_bias=True, use_l2=False),
+  # },
+  # "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-state-vector.no-weight-feedback.no-l2.ctx-use-bias.all-segs": {
+  #   "config": dict(
+  #     default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_weight_feedback=False, with_state_vector=False, att_ctx_with_bias=True, use_l2=False),
+  # },
+  # "glob.best-model.bpe.time-red6.am2048.6pretrain-reps.no-weight-feedback.no-l2.ctx-use-bias.all-segs": {
+  #   "config": dict(
+  #     default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=6, with_weight_feedback=False, att_ctx_with_bias=True, use_l2=False),
+  # },
   # ---------------------------------------------------------------------------------------------------
   # BPE with silence without split
 
   # ---------------------------------------------------------------------------------------------------
   # BPE without separate silence
 
-  # "seg.bpe-global-realign.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-global-realign", lstm_dim=1024, ctx_size="inf",
-  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.length-focal-2.0.label-focal-2.0.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=False,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
+  #                  segment_selection="all"),
   # },
-  # "seg.bpe-global-realign-wo-eos.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-global-realign-wo-eos", lstm_dim=1024, ctx_size="inf",
-  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=False, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
+  #                  segment_selection="all", label_model_focal_loss=0.0),
   # },
-  "seg.bpe-seg-realign.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-seg-realign", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
-  },
-  "seg.bpe-seg-wo-length-realign.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.length-loss-scale-0.0.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-seg-wo-length-realign", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   length_model_loss_scale=0.,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
-  },
-  "seg.bpe-seg-wo-length-retrain1-realign.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.length-loss-scale-0.0.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-seg-wo-length-retrain1-realign", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   length_model_loss_scale=0.,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
-  },
-
-  "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
-  },
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.weight-drop0.0.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=False, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, weight_dropout=0.0),
+  # },
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.prev-target-in-readout.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=False, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, prev_target_in_readout=True),
+  # },
   # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
   #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
   #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=False, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
   #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
   # },
-  "seg.bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
     "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
                    att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
                    length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, lr_measure="dev_error_label_model/label_prob"),
+                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
   },
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, pretrain_reps=None, pretraining="old",
+  #                  prev_target_in_readout=False, weight_dropout=0.1),
+  # },
+  # "seg.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.chunk-size-150.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, pretrain_reps=None, pretraining="old",
+  #                  prev_target_in_readout=False, weight_dropout=0.1, chunk_size=150),
+  # },
 
   # Segmental models compare segmental alignments with center position alignments
   # "seg.bpe-sil-wo-sil.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs": {
   #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-sil-wo-sil", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="bpe-sil", label_model_focal_loss=0.0, att_ctx_reg=False),
+  # },
+  # "seg.bpe-sil-wo-sil-center-positions.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-sil-wo-sil-center-positions", lstm_dim=1024,
+  #                  ctx_size="inf",
   #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
   #                  segment_selection="bpe-sil", label_model_focal_loss=0.0, att_ctx_reg=False),
@@ -350,6 +307,20 @@ model_variants = {
   #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
   #                  segment_selection="bpe-sil", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=16),
+  # },
+  # "seg.win-size32.bpe-sil-wo-sil-center-positions.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.bpe-sil-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-sil-wo-sil-center-positions", lstm_dim=1024,
+  #                  ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="bpe-sil", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=16),
+  # },
+  # "seg.bpe-center-positions.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe-center-positions", lstm_dim=1024,
+  #                  ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False),
   # },
 
   # Segmental models trained on concatenated seqs
@@ -369,7 +340,7 @@ model_variants = {
   # },
 
   # Conformer variants
-  "seg.bpe.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.chunk-size-64.all-segs": {
+  "seg.bpe.mlr-1e-06.gc-20.0.gn-0.1.nadam.bs-15000.sa-wei.d-lr.nb-lrd-0.9.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.chunk-size-64.all-segs": {
     "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
                    att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
                    length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
@@ -378,47 +349,120 @@ model_variants = {
                    nadam=True, specaugment="wei", dynamic_lr=True, pretrain=False,
                    newbob_learning_rate_decay=0.9),
   },
-  "seg.bpe.lr-warm1.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.mohammad-conf-pre.6pretrain-reps.no-ctx-reg.chunk-size-64.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, enc_type="conf-wei",
-                   min_learning_rate=1e-06, batch_size=15000, gradient_clip=20., gradient_noise=0.1, chunk_size=64,
-                   nadam=True, specaugment="wei", dynamic_lr=True, pretrain=True, pretraining="mohammad-conf",
-                   pretrain_reps=6,
-                   newbob_learning_rate_decay=0.9, learning_rates="repeat_per_pretrain"),
-  },
-  # "seg.bpe.mlr-2e-05.gc-0.gn-0.0.adam.bs-10000.sa-albert.static-lr.nb-lrd-0.7.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.all-segs": {
+  # "seg.bpe.mlr-1e-06.gc-20.0.gn-0.1.nadam.bs-15000.sa-wei.d-lr.nb-lrd-0.9.no-ctc.full-ctx.time-red6.conf-wei.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.chunk-size-64.all-segs": {
   #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
   #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
   #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, enc_type="conf-wei",
-  #                  pretrain=False),
+  #                  min_learning_rate=1e-06, batch_size=15000, gradient_clip=20., gradient_noise=0.1, chunk_size=64,
+  #                  nadam=True, specaugment="wei", dynamic_lr=True, pretrain=False, ctc_aux_loss=False,
+  #                  newbob_learning_rate_decay=0.9),
   # },
-  # "seg.bpe.mlr-2e-05.gc-0.gn-0.0.adam.bs-10000.sa-albert.static-lr.nb-lrd-0.7.full-ctx.time-red6.conf-wei-16-blocks.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.all-segs": {
+  # "seg.bpe.mlr-1e-06.gc-20.0.gn-0.1.nadam.bs-15000.sa-wei.d-lr.nb-lrd-0.9.full-ctx.time-red6.conf-tim.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.chunk-size-64.all-segs": {
   #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
   #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
   #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, enc_type="conf-wei",
-  #                  pretrain=False, conf_num_blocks=16),
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, enc_type="conf-tim",
+  #                  min_learning_rate=1e-06, batch_size=15000, gradient_clip=20., gradient_noise=0.1, chunk_size=64,
+  #                  nadam=True, specaugment="wei", dynamic_lr=True, pretrain=False,
+  #                  newbob_learning_rate_decay=0.9),
+  # },
+  # "seg.bpe.mlr-1e-06.gc-20.0.gn-0.1.nadam.bs-15000.sa-wei.d-lr.nb-lrd-0.9.no-ctc.full-ctx.time-red6.conf-tim.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-pt.no-ctx-reg.chunk-size-64.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, enc_type="conf-tim",
+  #                  min_learning_rate=1e-06, batch_size=15000, gradient_clip=20., gradient_noise=0.1, chunk_size=64,
+  #                  nadam=True, specaugment="wei", dynamic_lr=True, pretrain=False, ctc_aux_loss=False,
+  #                  newbob_learning_rate_decay=0.9),
   # },
 
   # Fixed size window models (predict window center position)
 
-  "seg.win-size4.bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  # "seg.win-size1.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=0.5),
+  # },
+  # "seg.win-size2.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=1),
+  # },
+  # "seg.win-size4.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=2),
+  # },
+
+  "seg.win-size8.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
     "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
                    att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
                    length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=2,
-                   lr_measure="dev_error_label_model/label_prob"),
+                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=4),
   },
-  "seg.win-size8.bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=4,
-                   lr_measure="dev_error_label_model/label_prob"),
-  },
+
+  # "seg.win-size16.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=8),
+  # },
+  # "seg.win-size16.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=8),
+  # },
+  # "seg.win-size20.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=10),
+  # },
+  # "seg.win-size32.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=16),
+  # },
+  # "seg.win-size64.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=32),
+  # },
+  # "seg.win-size520.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False,
+  #                  segment_center_window_size=260),
+  # },
+  # "seg.win-size520.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.length-loss-scale-0.23.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False,
+  #                  segment_center_window_size=260, length_model_loss_scale=0.23),
+  # },
+  # "seg.win-size520.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.length-loss-scale-0.0.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False,
+  #                  segment_center_window_size=260, length_model_loss_scale=0.0),
+  # },
+  # "seg.win-size520.bpe.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am.no-ctx-reg.all-segs": {
+  #   "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
+  #                  att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+  #                  length_model_inputs=["am"], fast_rec=True, fast_rec_full=True,
+  #                  segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False,
+  #                  segment_center_window_size=260),
+  # },
 
   # ---------------------------------------------------------------------------------------------------
   # BPE with split silence
@@ -482,38 +526,16 @@ model_variants = {
   #                  segment_selection="phonemes", label_model_focal_loss=0.0),
   # },
 
-  "glob.best-model.bpe.concat.ep-split-12.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs": {
-    "config": dict(
-      default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=1, with_weight_feedback=False, pretrain_type="like-seg", att_ctx_with_bias=True, use_l2=True, concat_seqs=True, epoch_split=12),
-  },
+  # "glob.best-model.bpe.concat.ep-split-12.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs": {
+  #   "config": dict(
+  #     default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=1, with_weight_feedback=False, pretrain_type="like-seg", att_ctx_with_bias=True, use_l2=True, concat_seqs=True, epoch_split=12),
+  # },
+
   "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.no-weight-feedback.ctx-use-bias.pretrain-like-seg.all-segs": {
     "config": dict(
       default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=1, with_weight_feedback=False, pretrain_type="like-seg", att_ctx_with_bias=True, use_l2=True),
   },
-  # "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.conf-wei.no-weight-feedback.ctx-use-bias.pretrain-mohammad-conf.all-segs": {
-  #   "config": dict(
-  #     default_variant_enc_dec, segment_selection="all", glob_model_type="best", pretrain_reps=1, with_weight_feedback=False,
-  #     pretrain_type="mohammad-conf", att_ctx_with_bias=True, use_l2=True, enc_type="conf-wei"),
-  # },
-  "glob.best-model.bpe.time-red6.am2048.1pretrain-reps.weight-drop0.1.no-weight-feedback.no-prev-target-in-readout.pretrain-like-seg.all-segs": {
-    "config": dict(
-      default_variant_enc_dec, weight_dropout=0.1, prev_target_in_readout=False,
-      att_ctx_with_bias=False,
-      segment_selection="all", glob_model_type="best", pretrain_reps=1, with_weight_feedback=False, pretrain_type="like-seg", use_l2=True),
-  },
 
 
 
 }
-
-model_variants_fixed_chunking = {
-  "seg.win-size10.bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg.all-segs": {
-    "config": dict(default_variant_transducer, use_attention=True, label_type="bpe", lstm_dim=1024, ctx_size="inf",
-                   att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                   length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                   segment_selection="all", label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=5,
-                   lr_measure="dev_error_label_model/label_prob"),
-  },
-}
-
-model_variants.update(**model_variants_fixed_chunking)

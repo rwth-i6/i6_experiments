@@ -20,8 +20,6 @@ def start_rasr_recog_pipeline(
            dataset_key=recog_corpus_name, num_epochs=recog_epoch, alias_addon=alias_addon)
 
   search_align, ctm_results = calc_rasr_search_errors(**rasr_search_error_decoding_opts)
-  # run_eval(ctm_file=ctm_results, reference=stm_jobs["cv"].out_stm_path, name=model_name, dataset_key="cv", num_epochs=recog_epoch,
-  #          alias_addon=alias_addon)
 
   calc_align_stats(alignment=search_align, blank_idx=blank_idx, seq_filter_file=cv_segments,
     alias=model_name + "/" + alias_addon + "/cv_search_align_stats_epoch-%s" % recog_epoch)
@@ -39,12 +37,12 @@ def start_rasr_recog_pipeline(
   #     search_aligns["global_import_segmental_w_split_sil"] = search_align
   #     search_labels["global_import_segmental_w_split_sil"] = dump_non_blanks_job.out_labels
 
-  return search_align
+  return search_align, ctm_results
 
 
 def start_analysis_pipeline(
   group_alias, feed_config, vocab_file, cv_align, search_align, rasr_config, blank_idx, model_type,
-  rasr_nn_trainer_exe, seq_tag, epoch):
+  rasr_nn_trainer_exe, seq_tag, epoch, cv_realign=None):
   # cv_realignment = run_rasr_realignment(
   #   compile_config=compile_config,
   #   alias_addon="", segment_path=Path("/work/asr3/zeyer/schmitt/tests/swb1/bpe-transducer_decoding-test/cv_test_segments1"),
@@ -61,7 +59,11 @@ def start_analysis_pipeline(
   #   blank_allophone_state_idx=4119 if params["config"]["label_type"] == "bpe" else 4123,
   #   max_segment_len=max_seg_len, mem_rqmt=16)
 
-  for align_alias, align in zip(["ground-truth", "search", "realign"], [cv_align, search_align]):
+  aligns = [cv_align, search_align]
+  if cv_realign is not None:
+    aligns += [cv_realign]
+
+  for align_alias, align in zip(["ground-truth", "search", "realign"], aligns):
     dump_att_weights_job = DumpAttentionWeightsJob(
       returnn_config=feed_config, model_type=model_type,
       rasr_config=rasr_config, blank_idx=blank_idx, label_name="alignment",
@@ -83,9 +85,10 @@ def start_analysis_pipeline(
   compare_aligns_job.add_alias(group_alias + "/" + seq_tag.replace("/", "_") + "/search-align-compare")
   tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
 
-  # compare_aligns_job = CompareAlignmentsJob(hdf_align1=cv_align, hdf_align2=cv_realignment,
-  #   seq_tag=seq_tag, blank_idx1=targetb_blank_idx, blank_idx2=targetb_blank_idx,
-  #   vocab1=vocab_file, vocab2=vocab_file, name1="ground_truth",
-  #   name2="search_alignment")
-  # compare_aligns_job.add_alias(group_alias + "/" + seq_tag + "/realignment-compare")
-  # tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+  if cv_realign is not None:
+    compare_aligns_job = CompareAlignmentsJob(
+      hdf_align1=cv_align, hdf_align2=cv_realign, seq_tag=seq_tag,
+      blank_idx1=blank_idx, blank_idx2=blank_idx, vocab1=vocab_file, vocab2=vocab_file,
+      name1="ground_truth", name2="realignment")
+    compare_aligns_job.add_alias(group_alias + "/" + seq_tag.replace("/", "_") + "/realign-compare")
+    tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
