@@ -79,6 +79,16 @@ def run_pipeline():
         recog_type="rasr_wo_length_model",
         do_recog=True,
         num_retrain=0, ).run()
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[40],
+        base_alias=base_alias,
+        recog_type="rasr_wo_length_model_force_nb_in_last_frame",
+        do_recog=True,
+        num_retrain=0, ).run()
 
   for model_type, model_variants in (("segmental", models["segmental"]),):
     for variant_name, variant_params in model_variants.items():
@@ -96,6 +106,16 @@ def run_pipeline():
         rasr_recog_epochs=(40,),
         base_alias=base_alias,
         recog_type="rasr_wo_length_model",
+        do_recog=True,
+        num_retrain=0, ).run()
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[40],
+        base_alias=base_alias,
+        recog_type="rasr_wo_length_model_force_nb_in_last_frame",
         do_recog=True,
         num_retrain=0, ).run()
 
@@ -293,6 +313,7 @@ def run_pipeline():
   """
   for model_type, model_variants in (
           ("segmental", segmental_model_variants["segmental"]),
+          ("center-window", segmental_model_variants["center-window"]),
   ):
     for variant_name, variant_params in model_variants.items():
       # select the correct dependencies for the current model
@@ -350,6 +371,45 @@ def run_pipeline():
         import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
         import_model_train_epoch1_alias="segmental-train-40",
         import_model_do_initial_realignment=True
+      ).run()
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[12],
+        base_alias=base_alias,
+        recog_type="standard",
+        do_recog=True,
+        num_retrain=8,
+        realignment_length_scale=0.,
+        retrain_load_checkpoint=True,
+        import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
+        import_model_train_epoch1_alias="segmental-train-40",
+        import_model_do_initial_realignment=True,
+        retrain_reset_lr=False,
+        import_model_train_epoch1_initial_lr=0.00049
+      ).run()
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[12],
+        base_alias=base_alias,
+        recog_type="standard",
+        do_recog=True,
+        num_retrain=8,
+        realignment_length_scale=0.,
+        retrain_load_checkpoint=True,
+        import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
+        import_model_train_epoch1_alias="segmental-train-40",
+        import_model_do_initial_realignment=True,
+        retrain_reset_lr=False,
+        import_model_train_epoch1_initial_lr=0.00049,
+        retrain_choose_best_alignment=True
       ).run()
 
   """
