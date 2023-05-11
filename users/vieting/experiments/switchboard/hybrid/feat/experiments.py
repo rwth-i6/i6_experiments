@@ -108,7 +108,7 @@ def run_baseline_gt():
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
-    hybrid_nn_system = get_hybrid_nn_system(context_window=441, train_seq_ordering="laplace:.384")
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441)
     hybrid_nn_system.run(nn_steps)
 
     # disable peak normalization, add wave norm
@@ -129,8 +129,7 @@ def run_baseline_gt():
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    hybrid_nn_system = get_hybrid_nn_system(
-        context_window=441, train_seq_ordering="laplace:.384", audio_opts=audio_opts)
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441, audio_opts=audio_opts)
     hybrid_nn_system.run(nn_steps)
 
 
@@ -177,7 +176,7 @@ def run_baseline_mel():
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    hybrid_nn_system = get_hybrid_nn_system(context_window=441, train_seq_ordering="laplace:.384")
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441)
     hybrid_nn_system.run(nn_steps)
 
 
