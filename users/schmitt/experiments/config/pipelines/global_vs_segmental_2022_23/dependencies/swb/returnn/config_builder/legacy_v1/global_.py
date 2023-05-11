@@ -20,7 +20,9 @@ class GlobalEncoderDecoderConfig:
           time_red=(3, 2), pretrain=True, pretrain_reps=None, label_name="bpe", post_config={},
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
           use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best", att_ctx_reg=False,
-          import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone"):
+          import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone",
+          initial_lr=None
+  ):
 
     self.post_config = post_config
 
@@ -53,7 +55,7 @@ class GlobalEncoderDecoderConfig:
     self.stop_on_nonfinite_train_score = False
     self.tf_log_memory_usage = True
     self.gradient_noise = 0.0
-    self.learning_rate = 0.001
+    self.learning_rate = initial_lr if initial_lr is not None else 0.001
     self.min_learning_rate = self.learning_rate / 50. if glob_model_type != "like-seg" else 2e-05
     self.learning_rate_control = "newbob_multi_epoch"
     self.learning_rate_control_error_measure = "dev_error_output/output_prob"
