@@ -343,7 +343,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=30,
+                rtf_cpu=35,
             )
 
         if tune_decoding:
@@ -367,7 +367,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=30,
+                rtf_cpu=35,
             )
 
         if run_performance_study:
@@ -381,7 +381,7 @@ def run_single(
                     opt_lm_am=False,
                     pre_path="decoding-perf",
                     search_parameters=dataclasses.replace(recog_args, altas=altas, beam=beam),
-                    rtf_gpu=2.3,
+                    rtf_gpu=4,
                 )
 
     if decode_all_corpora:
