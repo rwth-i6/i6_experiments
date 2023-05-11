@@ -25,6 +25,8 @@ class GlobalEncoderDecoderConfig:
   ):
 
     self.post_config = post_config
+    self.post_config["cleanup_old_models"] = {
+      "keep_last_n": 1, "keep_best_n": 0}
 
     self.target_num_labels = target_num_labels
     self.task = task
