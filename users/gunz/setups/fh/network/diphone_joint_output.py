@@ -1,7 +1,6 @@
 __all__ = ["augment_to_joint_diphone_softmax"]
 
 import copy
-import math
 from textwrap import dedent
 
 from i6_core import returnn
