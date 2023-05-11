@@ -200,12 +200,19 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
 
-  def run_rasr_recog_wo_length_model(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+  def run_rasr_recog_wo_length_model(
+          self, checkpoints: Dict[int, Checkpoint], train_alias: str, force_non_blank_in_last_frame: bool = False
+  ):
     for epoch in self.rasr_recog_epochs:
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/rasr_recog_wo_length_model" % (self.base_alias, train_alias, epoch)
+      if force_non_blank_in_last_frame:
+        base_alias += "_force_nb_in_last_frame"
 
       variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
+      if force_non_blank_in_last_frame:
+        variant_params["config"]["force_non_blank_in_last_frame"] = True
 
       run_rasr_segmental_decoding(
         dependencies=self.dependencies,
@@ -260,6 +267,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "rasr_wo_length_model":
       self.run_rasr_recog_wo_length_model(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "rasr_wo_length_model_force_nb_in_last_frame":
+      self.run_rasr_recog_wo_length_model(
+        checkpoints=checkpoints, train_alias=train_alias, force_non_blank_in_last_frame=True)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:

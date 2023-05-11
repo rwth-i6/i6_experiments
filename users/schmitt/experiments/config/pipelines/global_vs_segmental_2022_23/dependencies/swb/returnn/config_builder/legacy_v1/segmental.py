@@ -39,7 +39,7 @@ class SegmentalSWBExtendedConfig:
     _attention_type=0, post_config={}, task="train", num_epochs=150, min_learning_rate=0.001/50.,
     search_output_layer="decision", max_seqs=200, gradient_clip=0, gradient_noise=0.0,
     newbob_learning_rate_decay=.7, newbob_multi_num_epochs=6, lr_measure="dev_error_output/label_prob",
-    initial_lr=None):
+    initial_lr=None, force_non_blank_in_last_frame=False):
 
     self.post_config = post_config
 
@@ -200,7 +200,9 @@ class SegmentalSWBExtendedConfig:
         use_time_sync_loop=use_time_sync_loop, use_eos=use_eos, conf_use_blstm=conf_use_blstm,
         conf_batch_norm=conf_batch_norm, conf_num_blocks=conf_num_blocks, use_zoneout=use_zoneout,
         conf_dropout=conf_dropout, conf_l2=conf_l2, behavior_version=behavior_version, force_eos=force_eos,
-        att_weights_kl_div_scale=att_weights_kl_div_scale, set_dim_tag_correctly=set_dim_tag_correctly)
+        att_weights_kl_div_scale=att_weights_kl_div_scale, set_dim_tag_correctly=set_dim_tag_correctly,
+        force_non_blank_in_last_frame=force_non_blank_in_last_frame
+      )
       if use_attention:
         self.network = add_attention(
           self.network, att_seg_emb_size=att_seg_emb_size, att_seg_use_emb=att_seg_use_emb,
