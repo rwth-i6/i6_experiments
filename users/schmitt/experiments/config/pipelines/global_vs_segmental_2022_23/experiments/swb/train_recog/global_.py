@@ -23,6 +23,8 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
 
     self.dependencies = dependencies
 
+    self.base_alias = self._get_base_alias(base_alias=self.base_alias)
+
   def run_training(
           self,
           import_model_train_epoch1: Optional[Checkpoint],

@@ -51,11 +51,22 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
 
     assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
     self.import_model_do_initial_realignment = import_model_do_initial_realignment
-    if import_model_do_initial_realignment:
-      self.base_alias = "%s_initial_realignment" % self.base_alias
 
     assert not import_model_is_global or self.import_model_train_epoch1 is not None, "Setting 'import_model_is_global' does not have an effect when not importing a model"
     self.import_model_is_global = import_model_is_global
+
+    self.base_alias = self._get_base_alias(base_alias=self.base_alias)
+
+  def _get_base_alias(self, base_alias) -> str:
+    base_alias = super()._get_base_alias(base_alias=base_alias)
+
+    if self.import_model_do_initial_realignment:
+      base_alias = "%s_initial_realignment" % base_alias
+
+      if self.retrain_choose_best_alignment:
+        base_alias += "_choose-best-alignment"
+
+    return base_alias
 
   def compare_alignments(
           self,
@@ -275,6 +286,19 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     else:
       raise NotImplementedError
 
+  def _get_retrain_alias(self, retrain_iter: int, initial_lr: Optional[float], choose_best_alignment: bool):
+    retrain_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (
+      retrain_iter, self.num_epochs[-1], self.realignment_length_scale)
+
+    if self.retrain_reset_lr:
+      retrain_alias += "_reset-lr"
+    else:
+      retrain_alias += "_keep-lr"
+    if choose_best_alignment:
+      retrain_alias += "_choose-best-align"
+
+    return retrain_alias
+
   def run(self):
     if self.import_model_do_initial_realignment:
       for corpus_key in ("cv", "train"):
@@ -312,8 +336,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       initial_lr = GetLearningRateFromFileJob(lr_file_path=lr_file_path).out_last_lr
 
     for retrain_iter in range(self.num_retrain):
-      cur_train_alias = "train" if retrain_iter == 0 else ("retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter, self.num_epochs[-1], self.realignment_length_scale))
-      next_train_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter + 1, self.num_epochs[-1], self.realignment_length_scale)
+      cur_train_alias = "train" if retrain_iter == 0 else self._get_retrain_alias(
+        retrain_iter, initial_lr, self.retrain_choose_best_alignment)
+      next_train_alias = self._get_retrain_alias(retrain_iter + 1, initial_lr, self.retrain_choose_best_alignment)
 
       self.alignments[next_train_alias] = {}
       for corpus_key in ("cv", "train"):

@@ -50,13 +50,19 @@ class TrainRecogPipeline(ABC):
     for epoch in self.returnn_recog_epochs:
       assert epoch in self.num_epochs, "Cannot do RETURNN recog on epoch %d because it is not set in num_epochs"
 
-    self.base_alias = base_alias
-    if import_model_train_epoch1_alias is None:
-      self.base_alias = "%s/%s" % (self.base_alias, "no_import")
-    else:
-      self.base_alias = "%s/import_%s" % (self.base_alias, self.import_model_train_epoch1_alias)
-
     self.checkpoints = {}
+
+    self.base_alias = base_alias
+
+  def _get_base_alias(self, base_alias) -> str:
+    if self.import_model_train_epoch1_alias is None:
+      base_alias = "%s/%s" % (base_alias, "no_import")
+    else:
+      base_alias = "%s/import_%s" % (base_alias, self.import_model_train_epoch1_alias)
+    if self.import_model_train_epoch1_initial_lr is not None:
+      base_alias = "%s_initial-lr-%f" % (base_alias, self.import_model_train_epoch1_initial_lr)
+
+    return base_alias
 
   def _remove_pretrain_from_config(self, epoch: int):
     """
