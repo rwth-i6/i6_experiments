@@ -2,7 +2,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 
 # experiments
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import SegmentalReturnnDecodingExperiment, RasrDecodingExperiment, DecodingExperiment, GlobalReturnnDecodingExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.realignment import RasrRealignmentExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.realignment import RasrRealignmentExperiment, BestAlignmentChooser
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.analysis import AlignmentComparer
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb import default_tags_for_analysis
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment, SearchErrorExperiment
@@ -30,8 +30,12 @@ def run_rasr_segmental_realignment(
         tags_for_analysis: List[str] = default_tags_for_analysis,
         label_pruning_limit: int = None,
         time_rqmt: int = None,
-        remove_length_model: bool = False
+        remove_length_model: bool = False,
+        choose_best_alignment: bool = False,
+        previous_alignment: Optional[Path] = None
 ):
+  assert not choose_best_alignment or previous_alignment is not None, "`previous_alignment` needs to be set in order to choose best alignment"
+
   """
   Set rqmts and maximum segment length here, depending on the corpus and whether silence is used. Realignment with
   explicit silence takes longer because, in addition to blank, silence can be output at every position.
@@ -100,5 +104,19 @@ def run_rasr_segmental_realignment(
       seq_tags=tags_for_analysis,
       corpus_key="cv",
       base_alias=base_alias).run()
+
+  if choose_best_alignment:
+    realignment = BestAlignmentChooser(
+      dependencies=dependencies,
+      variant_params=variant_params,
+      checkpoint=checkpoint,
+      align1_hdf_path=realignment,
+      align2_hdf_path=previous_alignment,
+      corpus_key=corpus_key,
+      base_alias=base_alias,
+      length_scale=1.,
+      mem_rqmt=4,
+      time_rqmt=1
+    ).run()
 
   return realignment

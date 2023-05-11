@@ -27,7 +27,9 @@ class TrainRecogPipeline(ABC):
           do_recog: bool = True,
           returnn_recog_epochs: Optional[Tuple] = None,
           import_model_train_epoch1: Optional[Checkpoint] = None,
-          import_model_train_epoch1_alias: Optional[str] = None):
+          import_model_train_epoch1_alias: Optional[str] = None,
+          import_model_train_epoch1_initial_lr: Optional[float] = None
+    ):
 
     self.model_type = model_type,
     self.variant_name = variant_name
@@ -37,6 +39,8 @@ class TrainRecogPipeline(ABC):
     self.import_model_train_epoch1 = import_model_train_epoch1
     assert import_model_train_epoch1 is None or type(import_model_train_epoch1_alias) == str
     self.import_model_train_epoch1_alias = import_model_train_epoch1_alias
+    assert import_model_train_epoch1_initial_lr is None or import_model_train_epoch1 is not None, "Setting `import_model_train_epoch1_initital_lr` when not importing a model won't have an effect"
+    self.import_model_train_epoch1_initial_lr = import_model_train_epoch1_initial_lr
 
     assert not do_recog or recog_type is not None
     self.recog_type = recog_type
@@ -77,7 +81,12 @@ class TrainRecogPipeline(ABC):
     pass
 
   @abstractmethod
-  def run_training(self, import_model_train_epoch1: Optional[Checkpoint], train_alias: str) -> Dict[int, Checkpoint]:
+  def run_training(
+          self,
+          import_model_train_epoch1: Optional[Checkpoint],
+          train_alias: str,
+          initial_lr: Optional[float] = None,
+  ) -> Tuple[Dict[int, Checkpoint], Path]:
     pass
 
   @abstractmethod

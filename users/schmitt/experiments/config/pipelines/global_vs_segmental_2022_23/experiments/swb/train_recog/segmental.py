@@ -21,6 +21,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           realignment_length_scale: float = 1.,
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
+          retrain_reset_lr: bool = True,
+          retrain_choose_best_alignment: bool = False,
           import_model_do_initial_realignment: bool = False,
           import_model_is_global: bool = False,
           **kwargs):
@@ -42,6 +44,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     }
 
     self.retrain_load_checkpoint = retrain_load_checkpoint
+    assert retrain_load_checkpoint or retrain_reset_lr, "Learning rate should be reset when not loading a checkpoint"
+    self.retrain_reset_lr = retrain_reset_lr
+    self.retrain_choose_best_alignment = retrain_choose_best_alignment
 
     assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
     self.import_model_do_initial_realignment = import_model_do_initial_realignment
@@ -96,7 +101,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           train_alias: str = "train",
           cv_alignment: Path = None,
           train_alignment: Path = None,
-          import_model_train_epoch1=None) -> Dict[int, Checkpoint]:
+          import_model_train_epoch1: Optional[Path] = None,
+          initial_lr: Optional[float] = None
+  ) -> Tuple[Dict[int, Checkpoint], Path]:
     base_alias = "%s/%s" % (self.base_alias, train_alias)
     return SegmentalTrainExperiment(
       dependencies=self.dependencies,
@@ -105,7 +112,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       base_alias=base_alias,
       cv_alignment=cv_alignment,
       train_alignment=train_alignment,
-      import_model_train_epoch1=import_model_train_epoch1).run_training()
+      import_model_train_epoch1=import_model_train_epoch1,
+      initial_lr=initial_lr
+    ).run_training()
 
   def _get_realignment(
           self,
@@ -114,7 +123,10 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint: Checkpoint,
           length_scale: float,
           train_alias: str,
-          remove_length_model: bool = False) -> Path:
+          remove_length_model: bool = False,
+          choose_best_alignment: bool = False,
+          previous_alignment: Optional[Path] = None,
+  ) -> Path:
     base_alias = "%s/%s/epoch_%d" % (self.base_alias, train_alias, epoch)
     return run_rasr_segmental_realignment(
       dependencies=self.dependencies,
@@ -123,7 +135,10 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       corpus_key=corpus_key,
       base_alias=base_alias,
       length_scale=length_scale,
-      remove_length_model=remove_length_model)
+      remove_length_model=remove_length_model,
+      choose_best_alignment=choose_best_alignment,
+      previous_alignment=previous_alignment
+    )
 
   def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
@@ -258,14 +273,17 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
           train_alias="import_model",
+          choose_best_alignment=self.retrain_choose_best_alignment,
+          previous_alignment=self.dependencies.alignment_paths[corpus_key],
           remove_length_model=self.import_model_is_global)
 
     train_alias = "train"
-    self.checkpoints["train"] = self.run_training(
+    self.checkpoints["train"], lr_file_path = self.run_training(
       import_model_train_epoch1=self.import_model_train_epoch1,
       train_alias=train_alias,
       cv_alignment=self.alignments["train"]["cv"],
-      train_alignment=self.alignments["train"]["train"]
+      train_alignment=self.alignments["train"]["train"],
+      initial_lr=self.import_model_train_epoch1_initial_lr
     )
     if self.do_recog:
       self.run_recog(checkpoints=self.checkpoints["train"])
@@ -288,12 +306,17 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint=self.checkpoints[cur_train_alias][self.num_epochs[-1]],
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
-          train_alias=cur_train_alias)
-      self.checkpoints[next_train_alias] = self.run_training(
+          choose_best_alignment=self.retrain_choose_best_alignment,
+          previous_alignment=self.alignments[cur_train_alias][corpus_key],
+          train_alias=cur_train_alias,
+        )
+      self.checkpoints[next_train_alias], lr_file_path = self.run_training(
         train_alias=next_train_alias,
         cv_alignment=self.alignments[next_train_alias]["cv"],
         train_alignment=self.alignments[next_train_alias]["train"],
-        import_model_train_epoch1=self.checkpoints[cur_train_alias][self.num_epochs[-1]] if self.retrain_load_checkpoint else None)
+        import_model_train_epoch1=self.checkpoints[cur_train_alias][self.num_epochs[-1]] if self.retrain_load_checkpoint else None,
+        initial_lr=initial_lr
+      )
 
       self.compare_alignments(
         hdf_align_path1=self.alignments[cur_train_alias]["cv"],

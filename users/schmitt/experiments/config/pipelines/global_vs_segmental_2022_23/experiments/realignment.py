@@ -176,4 +176,5 @@ class BestAlignmentChooser:
       time_rqmt=self.time_rqmt
     )
     choose_best_align_job.add_alias(self.alias)
-    tk.register_output(self.alias, choose_best_align_job.out_hdf_align)
+
+    return choose_best_align_job.out_hdf_align

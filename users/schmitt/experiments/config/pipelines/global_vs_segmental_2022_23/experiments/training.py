@@ -11,7 +11,7 @@ from sisyphus import *
 
 import copy
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 class TrainExperiment(ABC):
@@ -22,6 +22,7 @@ class TrainExperiment(ABC):
           variant_params: Dict,
           base_alias: str,
           import_model_train_epoch1: Optional[Checkpoint] = None,
+          initial_lr: Optional[float] = None
   ):
     self.dependencies = dependencies
     self.variant_params = variant_params
@@ -29,6 +30,7 @@ class TrainExperiment(ABC):
     self.import_model_train_epoch1 = import_model_train_epoch1
     self.returnn_python_exe = self.variant_params["config"]["returnn_python_exe"]
     self.returnn_root = self.variant_params["config"]["returnn_root"]
+    self.initial_lr = initial_lr
 
     self.alias = "%s/train" % base_alias
 
@@ -37,7 +39,7 @@ class TrainExperiment(ABC):
   def returnn_config(self):
     pass
 
-  def run_training(self) -> Dict[int, Checkpoint]:
+  def run_training(self) -> Tuple[Dict[int, Checkpoint], Path]:
     train_job = ReturnnTrainingJob(
       copy.deepcopy(self.returnn_config),
       num_epochs=self.num_epochs[-1],
@@ -55,7 +57,7 @@ class TrainExperiment(ABC):
     tk.register_output(alias + "/plot_se", train_job.out_plot_se)
     tk.register_output(alias + "/plot_lr", train_job.out_plot_lr)
 
-    return train_job.out_checkpoints
+    return train_job.out_checkpoints, train_job.out_learning_rates
 
 
 class SegmentalTrainExperiment(TrainExperiment):
@@ -87,7 +89,9 @@ class SegmentalTrainExperiment(TrainExperiment):
       variant_params=self.variant_params,
       import_model_train_epoch1=self.import_model_train_epoch1,
       length_scale=self.length_scale,
-      load=None)
+      load=None,
+      initial_lr=self.initial_lr
+    )
 
 
 class GlobalTrainExperiment(TrainExperiment):
@@ -102,4 +106,6 @@ class GlobalTrainExperiment(TrainExperiment):
       self.dependencies,
       self.variant_params,
       load=None,
-      import_model_train_epoch1=self.import_model_train_epoch1)
+      import_model_train_epoch1=self.import_model_train_epoch1,
+      initial_lr=self.initial_lr
+    )
