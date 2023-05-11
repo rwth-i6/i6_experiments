@@ -18,10 +18,10 @@ def augment_to_joint_diphone_softmax(
     encoder_output_layer: str = "encoder-output",
 ) -> returnn.ReturnnConfig:
     """
-    Assumes a diphone FH model and expands the model output a softmax over the joint
-    output probability `p(c, l)` instead of having two outputs `p(c | l)` and `p(l)`.
+    Assumes a diphone FH model and expands the model to calculate the scores for the joint
+    posteriors `p(c, l)` instead of having two outputs `p(c | l)` and `p(l)`.
 
-    The output layer contains normalized log acoustic scores.
+    The output layer contains normalized (log) acoustic scores.
     """
 
     returnn_config = copy.deepcopy(returnn_config)
