@@ -9,7 +9,7 @@ import sys
 
 from sisyphus import tk
 
-from returnn.tensor import Tensor, Dim, batch_dim, single_step_dim
+from returnn.tensor import Tensor, Dim, TensorDict, batch_dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
@@ -372,11 +372,21 @@ def test_import():
     from returnn.datasets.util.vocabulary import Vocabulary
 
     in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
-    time_dim = Dim(name="time", dimension=None, kind=Dim.Types.Spatial)
+    time_dim = Dim(
+        name="time",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
+    )
     target_dim = Dim(name="target", dimension=1030, kind=Dim.Types.Feature)
     target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
     data = Tensor("data", dim_tags=[batch_dim, time_dim])
-    target_spatial_dim = Dim(name="target_spatial", dimension=None, kind=Dim.Types.Spatial)
+    target_spatial_dim = Dim(
+        name="target_spatial",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
+    )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
     from ._moh_att_2023_04_24_BxqgICRSGkgb import net_dict
@@ -396,6 +406,8 @@ def test_import():
         )
     )
 
+    from returnn.tensor.utils import tensor_dict_fill_random_numpy_
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
     from returnn.tf.network import TFNetwork
     import tensorflow as tf
     import numpy.testing
@@ -407,11 +419,11 @@ def test_import():
     atexit.register(lambda: shutil.rmtree(ckpt_dir))
 
     print("*** Construct TF graph for old model")
-    n_batch = 3
-    n_time = 1231  # raw sample level
-    x_sizes = [n_time, n_time - 100, n_time - 200]
-    rnd = numpy.random.RandomState(42)
-    x_np = rnd.rand(n_batch, n_time).astype("float32")
+    extern_data = TensorDict()
+    extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
+    tensor_dict_fill_random_numpy_(extern_data, dyn_dim_max_sizes={time_dim: 1231})  # raw sample level
+    extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
+    extern_data.reset_content()
 
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
@@ -424,8 +436,9 @@ def test_import():
 
         print("*** Forwarding ...")
 
-        x = net.extern_data.data["audio_features"]
-        feed_dict = {x.placeholder: x_np, x.size_placeholder[0]: x_sizes}
+        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
+        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
+        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
@@ -462,11 +475,9 @@ def test_import():
     new_model = _make_new_model()
 
     rf.init_forward_step_run_ctx()
-    batch_dim.dyn_size_ext = rf.convert_to_tensor(n_batch, dims=())
-    batch_dim.batch = None
-    time_dim.dyn_size_ext = rf.convert_to_tensor(numpy.array(x_sizes), dims=[batch_dim])
-    time_dim.batch = None
-    x = rf.convert_to_tensor(x_np, dims=[batch_dim, time_dim])
+    extern_data.reset_content()
+    extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
+    tensor_dict_numpy_to_torch_(extern_data)
 
     import torch
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
@@ -506,8 +517,13 @@ def test_import():
             return _trace_func
 
     sys.settrace(_trace_func)
-    from_scratch_training(model=new_model, data=x, data_spatial_dim=time_dim)
-    new_model.encode(x, in_spatial_dim=time_dim)
+    from_scratch_training(
+        model=new_model,
+        data=extern_data["audio_features"],
+        data_spatial_dim=time_dim,
+        targets=extern_data["bpe_labels"],
+        targets_spatial_dim=target_spatial_dim,
+    )
     sys.settrace(None)
     pprint(captured_tensors)
 
@@ -683,11 +699,13 @@ class Model(rf.Module):
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
         """Default initial state"""
-        return rf.State(
+        state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
             accum_att_weights=rf.zeros(list(batch_dims) + [enc_spatial_dim, self.att_num_heads]),
         )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
 
     def loop_step(
         self,
@@ -717,7 +735,8 @@ class Model(rf.Module):
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
         state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
-        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim)
+        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
 
@@ -726,8 +745,15 @@ class Model(rf.Module):
     def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
         """loop step out"""
         return {
-            "s": Tensor("s", dims=batch_dims + [self.s.out_dim]),
-            "att": Tensor("att", dims=batch_dims + [self.att_num_heads * self.encoder.out_dim]),
+            "s": Tensor(
+                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+            ),
+            "att": Tensor(
+                "att",
+                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
         }
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
@@ -777,9 +803,10 @@ def from_scratch_training(
     *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
+    assert not data.feature_dim  # raw samples
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
-    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    batch_dims = data.remaining_dims(data_spatial_dim)
     input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
     input_embeddings = model.target_embed(input_labels)
 
@@ -836,9 +863,9 @@ def model_recog(
     beam_size = 12
 
     loop = rf.Loop(axis=enc_spatial_dim)  # time-sync transducer
-    loop.max_seq_len = rf.dim_value(enc_spatial_dim) * 2
-    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims)
-    loop.state.target = rf.constant(model.blank_idx, shape=batch_dims, sparse_dim=model.wb_target_dim)
+    loop.max_seq_len = enc_spatial_dim.get_dim_value_tensor() * 2
+    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
+    loop.state.target = rf.constant(model.blank_idx, dims=batch_dims, sparse_dim=model.wb_target_dim)
     with loop:
         enc = model.encoder_unstack(enc_args)
         probs, loop.state.decoder = model.decode(
