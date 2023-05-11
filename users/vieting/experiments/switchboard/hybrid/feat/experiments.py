@@ -131,6 +131,9 @@ def run_baseline_gt():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=441, audio_opts=audio_opts)
     hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 
 def run_baseline_mel():
@@ -178,6 +181,9 @@ def run_baseline_mel():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=441)
     hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 
 def run_baseline_scf():
@@ -198,9 +204,9 @@ def run_baseline_scf():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=249)
     hybrid_nn_system.run(nn_steps)
-    # noinspection PyUnresolvedReferences
-    hybrid_nn_system.jobs["switchboard.train_switchboard.cv"]["conformer_bs14k_scf"].rqmt.update({
-        "gpu_mem": 24, "mem": 10})
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 
 def run_all():
