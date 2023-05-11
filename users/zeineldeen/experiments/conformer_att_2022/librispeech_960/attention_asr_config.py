@@ -620,7 +620,7 @@ def create_config(
                 const_lr = 0
             if retrain_checkpoint is not None:
                 learning_rates = None
-            elif not allow_lr_scheduling:
+            elif not allow_lr_scheduling_for_retrain:
                 learning_rates = None
             elif isinstance(const_lr, int):
                 learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
@@ -784,9 +784,6 @@ def create_config(
             raise ValueError("Invalid speed_pert_version")
 
     if feature_extraction_net and global_stats:
-        assert os.path.exists(global_stats[0]) and os.path.exists(
-            global_stats[1]
-        ), "global_stats files do not exist. Please run compute_feature_stats first without training."
         exp_config["network"]["log10_"] = copy.deepcopy(exp_config["network"]["log10"])
         exp_config["network"]["global_mean"] = {
             "class": "eval",
