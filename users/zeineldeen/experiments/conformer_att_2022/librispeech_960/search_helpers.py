@@ -309,7 +309,6 @@ def add_joint_ctc_att_subnet(
             "class": "compare",
             "from": ["output", "prev:output"],
             "kind": "not_equal",
-            "initial_output": True,
         }
         net["output"]["unit"]["is_curr_out_not_blank_mask_"] = copy.deepcopy(
             net["output"]["unit"]["is_curr_out_not_blank_mask"]
@@ -319,15 +318,11 @@ def add_joint_ctc_att_subnet(
             "kind": "logical_and",
             "from": ["is_curr_out_not_blank_mask_", "not_repeat_mask"],
         }
-        if check_repeat_version == 2:
-            net["output"]["unit"]["is_prev_out_not_blank_mask_"] = copy.deepcopy(
-                net["output"]["unit"]["is_prev_out_not_blank_mask"]
-            )
-            net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
-                "class": "combine",
-                "kind": "logical_and",
-                "from": ["is_prev_out_not_blank_mask_", "prev:not_repeat_mask"],
-            }
+        net["output"]["unit"]["is_curr_out_not_blank_mask"]["initial_output"] = True
+        net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
+            "class": "copy",
+            "from": "prev:is_curr_out_not_blank_mask",
+        }
     if remove_eos:
         net["output"]["unit"]["att_scores_wo_eos"] = {
             "class": "eval",
