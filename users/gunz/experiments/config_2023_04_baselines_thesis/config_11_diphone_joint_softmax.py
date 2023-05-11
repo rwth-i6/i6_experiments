@@ -292,8 +292,8 @@ def run_single(
         epoch=keep_epochs[-2],
         returnn_config=prior_returnn_config,
         output_layer_name="output",
+        smoothen=True,
     )
-    s.experiments["fh"]["priors"] = smoothen_priors(s.experiments["fh"]["priors"])
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True

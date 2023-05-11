@@ -51,6 +51,7 @@ from .priors import (
     get_returnn_config_for_center_state_prior_estimation,
     get_returnn_config_for_left_context_prior_estimation,
     get_returnn_configs_for_right_context_prior_estimation,
+    smoothen_priors,
     JoinRightContextPriorsJob,
     ReshapeCenterStatePriorsJob,
 )
@@ -942,6 +943,7 @@ class FactoredHybridSystem(NnSystem):
         returnn_config: typing.Optional[returnn.ReturnnConfig] = None,
         output_layer_name: str = "center-output",
         data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
     ):
         self.set_graph_for_experiment(key)
 
@@ -967,9 +969,10 @@ class FactoredHybridSystem(NnSystem):
         job.add_alias(f"priors/{name}/c")
         tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
-        self.experiments[key]["priors"] = PriorInfo(
+        p_info = PriorInfo(
             center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
         )
+        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
 
         return job
 
@@ -983,6 +986,7 @@ class FactoredHybridSystem(NnSystem):
         left_context_output_layer_name: str = "left-output",
         center_state_output_layer_name: str = "center-output",
         data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1028,11 +1032,12 @@ class FactoredHybridSystem(NnSystem):
             xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
-        self.experiments[key]["priors"] = PriorInfo(
+        p_info = PriorInfo(
             center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=None,
         )
+        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
 
     def set_triphone_priors_returnn_rasr(
         self,
@@ -1045,6 +1050,7 @@ class FactoredHybridSystem(NnSystem):
         center_state_output_layer_name: str = "center-output",
         right_context_output_layer_name: str = "right-output",
         data_share: float = 1.0 / 3.0,
+        smoothen: bool = False,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1104,11 +1110,12 @@ class FactoredHybridSystem(NnSystem):
             xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
-        self.experiments[key]["priors"] = PriorInfo(
+        p_info = PriorInfo(
             center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
         )
+        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
 
     # -------------------- Decoding --------------------
     def set_graph_for_experiment(self, key, override_cfg: typing.Optional[returnn.ReturnnConfig] = None):
