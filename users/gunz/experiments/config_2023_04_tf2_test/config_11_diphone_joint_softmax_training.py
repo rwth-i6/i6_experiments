@@ -25,7 +25,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import PriorConfig, PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -34,7 +33,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
 )
-from ...setups.fh.priors import scale_priors, smoothen_priors
+from ...setups.fh.priors import smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -45,20 +44,13 @@ from .config import (
     CONF_SA_CONFIG,
     FROM_SCRATCH_CV_INFO,
     L2,
-    RASR_ROOT_FH_GUNZ,
-    RASR_ROOT_RS_RASR_GUNZ,
-    RETURNN_PYTHON_TF15,
+    RASR_ROOT_TF2,
+    RETURNN_PYTHON_TF23,
     SCRATCH_ALIGNMENT,
 )
 
-RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_FH_GUNZ, "arch", gs.RASR_ARCH))
-RASR_BINARY_PATH.hash_override = "FH_RASR_PATH"
-RASR_BINARY_PATH.hash_override = "RS_RASR_PATH"
-
-RS_RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_RS_RASR_GUNZ, "arch", gs.RASR_ARCH))
-
-RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF15)
-RETURNN_PYTHON_EXE.hash_override = "FH_RETURNN_PYTHON_EXE"
+RASR_TF2_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", gs.RASR_ARCH), hash_overwrite="RS_RASR_PATH")
+RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23, hash_overwrite="FH_RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
 
@@ -136,7 +128,7 @@ def run_single(
     steps = rasr_util.RasrSteps()
     steps.add_step("init", None)  # you can create the label_info and pass here
     s = fh_system.FactoredHybridSystem(
-        rasr_binary_path=RASR_BINARY_PATH,
+        rasr_binary_path=RASR_TF2_BINARY_PATH,
         rasr_init_args=rasr_init_args,
         returnn_root=returnn_root,
         returnn_python_exe=RETURNN_PYTHON_EXE,
@@ -311,8 +303,6 @@ def run_single(
     tying_cfg.type = "diphone-no-tying-dense"
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
-
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.diphone,
@@ -320,7 +310,8 @@ def run_single(
             epoch=ep,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            recompile_graph_for_feature_scorer=True,
+            recompile_graph_for_feature_scorer=False,
+            set_batch_major_for_feature_scorer=True,
         )
         for cfg in [
             recog_args,
