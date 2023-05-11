@@ -5,6 +5,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb.realignment import run_rasr_segmental_realignment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb.train_recog.base import TrainRecogPipeline
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb import default_tags_for_analysis
+from i6_experiments.users.schmitt.util.util import GetLearningRateFromFileJob
 
 from i6_core.returnn.training import Checkpoint
 
@@ -295,6 +296,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       align2_name="ground-truth",
       align_alias="train/ground-truth-alignment")
 
+    if self.retrain_reset_lr:
+      initial_lr = None
+    else:
+      initial_lr = GetLearningRateFromFileJob(lr_file_path=lr_file_path).out_last_lr
+
     for retrain_iter in range(self.num_retrain):
       cur_train_alias = "train" if retrain_iter == 0 else ("retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter, self.num_epochs[-1], self.realignment_length_scale))
       next_train_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter + 1, self.num_epochs[-1], self.realignment_length_scale)
@@ -317,6 +323,11 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         import_model_train_epoch1=self.checkpoints[cur_train_alias][self.num_epochs[-1]] if self.retrain_load_checkpoint else None,
         initial_lr=initial_lr
       )
+
+      if self.retrain_reset_lr:
+        initial_lr = None
+      else:
+        initial_lr = GetLearningRateFromFileJob(lr_file_path=lr_file_path).out_last_lr
 
       self.compare_alignments(
         hdf_align_path1=self.alignments[cur_train_alias]["cv"],
