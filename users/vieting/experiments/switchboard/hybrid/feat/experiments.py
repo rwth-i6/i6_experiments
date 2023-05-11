@@ -145,6 +145,27 @@ def run_baseline_mel():
                     "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
                 },
             ),
+            "lm80_fft256_lr8e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={
+                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+                },
+                peak_lr=8e-4,
+            ),
+            "lm80_fft256_lr9e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={
+                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+                },
+                peak_lr=9e-4,
+            ),
+            "lm80_fft256_lr15e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={
+                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+                },
+                peak_lr=15e-4,
+            ),
             "lm80_fft512": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={"class": "LogMelNetwork", "wavenorm": True, "frame_shift": 80},
