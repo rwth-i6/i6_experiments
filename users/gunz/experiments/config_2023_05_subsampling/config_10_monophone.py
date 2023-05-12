@@ -311,6 +311,7 @@ def run_single(
         train_hdfs=train_hdfs,
         dev_hdfs=[dev_hdf],
         on_2080=False,
+        use_old_cache_epilog=True,
     )
 
     s.set_graph_for_experiment("fh")

@@ -2,6 +2,21 @@ __all__ = ["hdf_dataset_cache_epilog"]
 
 from textwrap import dedent
 
+hdf_dataset_cache_epilog_v0 = dedent(
+    """
+    import importlib
+    import sys
+
+    sys.path.append("/usr/local/")
+    sys.path.append("/usr/local/cache-manager/")
+
+    cm = importlib.import_module("cache-manager")
+
+    dev["files"] = [cm.cacheFile(f) for f in dev["files"]]
+    train["files"] = [cm.cacheFile(f) for f in train["files"]]
+    """
+)
+
 hdf_dataset_cache_epilog = dedent(
     """
     import importlib

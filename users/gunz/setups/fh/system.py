@@ -42,7 +42,7 @@ from i6_experiments.common.setups.rasr.util.decode import (
 
 from ..common.decoder.rtf import ExtractSearchStatisticsJob
 from ..common.hdf.features import RasrFeaturesToHdf
-from ..common.nn.cache_epilog import hdf_dataset_cache_epilog
+from ..common.nn.cache_epilog import hdf_dataset_cache_epilog, hdf_dataset_cache_epilog_v0
 from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from .decoder.config import PriorConfig, PriorInfo, SearchParameters
 from .decoder.search import FHDecoder
@@ -754,9 +754,8 @@ class FactoredHybridSystem(NnSystem):
         on_2080: bool = True,
         dev_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
         train_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        use_old_cache_epilog: bool = False,
     ):
-        from textwrap import dedent
-
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
         partition_epochs = nn_train_args.pop("partition_epochs")
@@ -778,7 +777,8 @@ class FactoredHybridSystem(NnSystem):
 
         returnn_config = copy.deepcopy(returnn_config)
         update_config = returnn.ReturnnConfig(
-            config={"dev": dev_data, "train": train_data}, python_epilog=hdf_dataset_cache_epilog
+            config={"dev": dev_data, "train": train_data},
+            python_epilog=hdf_dataset_cache_epilog if not use_old_cache_epilog else hdf_dataset_cache_epilog_v0,
         )
         returnn_config.update(update_config)
 
