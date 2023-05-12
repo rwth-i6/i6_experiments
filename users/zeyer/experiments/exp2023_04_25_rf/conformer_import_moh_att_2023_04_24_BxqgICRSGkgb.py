@@ -725,7 +725,7 @@ class Model(rf.Module):
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
-        inv_fertility = self.inv_fertility(enc)
+        inv_fertility = rf.sigmoid(self.inv_fertility(enc))
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
 
     @staticmethod
