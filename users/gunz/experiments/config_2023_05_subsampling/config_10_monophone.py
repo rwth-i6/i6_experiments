@@ -20,7 +20,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
-from ...setups.common.nn.specaugment import (
+from ...setups.common.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
