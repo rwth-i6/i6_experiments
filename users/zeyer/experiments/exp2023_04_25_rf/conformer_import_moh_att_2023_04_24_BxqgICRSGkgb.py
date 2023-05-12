@@ -364,7 +364,7 @@ def test_import():
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
-        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", 0),
+        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
@@ -813,8 +813,8 @@ def from_scratch_training(
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims(data_spatial_dim)
-    input_labels = rf.shift_right(targets, axis=targets_spatial_dim, pad_value=model.bos_idx)
-    input_embeddings = model.target_embed(input_labels)
+    input_embeddings = model.target_embed(targets)
+    input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
 
     def _body(state: rf.State, input_embed: Tensor):
         new_state = rf.State()
