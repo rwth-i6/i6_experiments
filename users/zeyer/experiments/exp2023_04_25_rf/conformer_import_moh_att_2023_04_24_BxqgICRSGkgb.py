@@ -573,21 +573,34 @@ def test_import():
                     new_v[idx] = 0
         print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
         assert old_v.shape == new_v.shape
-        if numpy.allclose(old_v, new_v, atol=1e-5):
+        if numpy.allclose(old_v, new_v, atol=1e-5, equal_nan=True):
             continue
         print("** not all close. close:")
         # Iterate over all indices, and check if the values are close.
         # If not, add the index to the mismatches list.
         remarks = []
+        count_mismatches = 0
         for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
+            if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
+                continue
             close = numpy.allclose(old_v[idx], new_v[idx], atol=1e-5)
-            remarks.append("[%s]:" % ",".join([str(i) for i in idx]) + ("✓" if close else "✗"))
-            if len(remarks) >= 50:
+            if not close:
+                count_mismatches += 1
+            remarks.append(
+                "[%s]:" % ",".join([str(i) for i in idx])
+                + ("✓" if close else "✗ (%.5f diff)" % abs(old_v[idx] - new_v[idx]))
+            )
+            if len(remarks) >= 50 and count_mismatches > 0:
                 remarks.append("...")
                 break
         print("\n".join(remarks))
-        numpy.testing.assert_almost_equal(
-            old_v, new_v, decimal=5, err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch"
+        numpy.testing.assert_allclose(
+            old_v,
+            new_v,
+            rtol=1e-5,
+            atol=1e-5,
+            equal_nan=True,
+            err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch",
         )
         raise Exception(f"should not get here, mismatches: {remarks}")
 
