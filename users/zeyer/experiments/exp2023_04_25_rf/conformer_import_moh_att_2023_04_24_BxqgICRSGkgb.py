@@ -364,7 +364,11 @@ def test_import():
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
+        "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
+        "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
+        "output/att": (Model.decode_logits, 0, "att", 0),
+        "output/s": (Model.decode_logits, 0, "s", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
@@ -494,6 +498,7 @@ def test_import():
 
     funcs_to_trace_list = [
         Model.encode,
+        Model.decode_logits,
         ConformerEncoder.__call__,
         ConformerEncoderLayer.__call__,
         ConformerConvSubsample.__call__,

@@ -2834,7 +2834,12 @@ net_dict = {
                 "weights": "att_weights",
                 "base": "base:enc_value",
             },
-            "att": {"class": "merge_dims", "from": "att0", "axes": "except_batch"},
+            "att": {
+                "class": "merge_dims",
+                "from": "att0",
+                "axes": "except_batch",
+                "is_output_layer": True,  # for comparison
+            },
             "s": {
                 "class": "rnn_cell",
                 "unit": "zoneoutlstm",
@@ -2845,6 +2850,7 @@ net_dict = {
                     "zoneout_factor_cell": 0.15,
                     "zoneout_factor_output": 0.05,
                 },
+                "is_output_layer": True,  # for comparison
             },
             "readout_in": {
                 "class": "linear",
