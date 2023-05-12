@@ -45,3 +45,6 @@ def blstm_network(
     }
 
     return result
+
+
+def 

@@ -697,7 +697,7 @@ class FactoredHybridBaseSystem(NnSystem):
         return nn_train_data_inputs, nn_cv_data_inputs, nn_devtrain_data_inputs
 
     # -------------------------------------------- Training --------------------------------------------------------
-    def set_standard_prolog_and_epilog_to_config(self, config: Dict):
+    def set_standard_prolog_and_epilog_to_config(self, config: Dict, prolog_additional_str: str=None, epilog_additional_str: str=None):
         #this is not a returnn config, but the dict params
         assert self.initial_nn_args["num_input"] is not None, "set the feature input dimension"
         time_prolog, time_tag_name = train_helpers.returnn_time_tag.get_shared_time_tag()
@@ -720,6 +720,13 @@ class FactoredHybridBaseSystem(NnSystem):
                 sa_transform,
             ],
         }
+
+        if prolog_additional_str is not None:
+            config["python_prolog"]["str"] = prolog_additional_str
+
+        if epilog_additional_str is not None:
+            config["python_epilog"]["str"] = epilog_additional_str
+
 
         return config
 
