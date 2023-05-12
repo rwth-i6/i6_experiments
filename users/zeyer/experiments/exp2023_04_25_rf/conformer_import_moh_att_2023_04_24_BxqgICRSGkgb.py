@@ -474,7 +474,7 @@ def test_import():
     print("*** Create new model")
     new_model = _make_new_model()
 
-    rf.init_forward_step_run_ctx()
+    rf.init_train_step_run_ctx(train_flag=False)
     extern_data.reset_content()
     extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
     tensor_dict_numpy_to_torch_(extern_data)
