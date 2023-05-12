@@ -689,6 +689,7 @@ class Model(rf.Module):
             Dim(name="lstm", dimension=1024),
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
             parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             forget_bias=1.0,  # like RETURNN/TF ZoneoutLSTM
         )
