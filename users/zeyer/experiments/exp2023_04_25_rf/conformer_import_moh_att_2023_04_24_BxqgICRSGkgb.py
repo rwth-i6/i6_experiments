@@ -651,12 +651,13 @@ class Model(rf.Module):
 
         self.target_embed = rf.Embedding(nb_target_dim, Dim(name="target_embed", dimension=640))
 
-        self.s = rf.LSTM(
+        self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
             Dim(name="lstm", dimension=1024),
-            # TODO
-            # zoneout_factor_cell=0.15,
-            # zoneout_factor_output=0.05,
+            zoneout_factor_cell=0.15,
+            zoneout_factor_output=0.05,
+            parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            forget_bias=1.0,  # like RETURNN/TF ZoneoutLSTM
         )
 
         self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
