@@ -587,6 +587,7 @@ def test_import():
         count_mismatches = 0
         for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
             if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
+                remarks.append("[%s]:✓ (nan)" % ",".join([str(i) for i in idx]))
                 continue
             close = numpy.allclose(old_v[idx], new_v[idx], atol=1e-5)
             if not close:
