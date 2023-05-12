@@ -428,7 +428,9 @@ def test_import():
     print("*** Construct TF graph for old model")
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
-    tensor_dict_fill_random_numpy_(extern_data, dyn_dim_max_sizes={time_dim: 1231})  # raw sample level
+    tensor_dict_fill_random_numpy_(
+        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
+    )  # raw sample level
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
