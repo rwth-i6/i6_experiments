@@ -755,7 +755,7 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-other"],
-        remove_label="<s>",  # blanks are removed in the network
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
 
@@ -781,29 +781,41 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
-        remove_label="<s>",  # blanks are removed in the network
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
 
-    for check_rep_version in [1]:
-        for beam_size in [8, 12, 24, 32]:
-            for renorm_after_remove_eos in [True, False]:
-                for scale in [(0.3, 1.0), (0.1, 0.3)]:
+    for remove_eos in [True, False]:
+        for in_scale in [True, False]:
+            for beam_size in [12]:
+                for scale in [
+                    (0.05, 1.0),
+                    (0.3, 1.0),
+                    (0.1, 0.3),
+                    (0.4, 1.0),
+                    (0.2, 1.0),
+                    (0.5, 0.5),
+                    (1.0, 0.3),
+                    (0.7, 0.3),
+                ]:
                     if isinstance(scale, tuple):
                         att_scale, ctc_scale = scale
                     else:
                         assert isinstance(scale, float)
                         att_scale = scale
                         ctc_scale = 1 - scale
-                    exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_checkRepV{check_rep_version}_beam{beam_size}_woAttEOS"
-                    if renorm_after_remove_eos:
-                        exp_name += "_renorm"
+                    exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}"
+                    if remove_eos:
+                        exp_name += "_removeEOS"
+                    if in_scale:
+                        exp_name += "_inScale"
                     joint_decode_args = {
                         "att_scale": att_scale,
                         "ctc_scale": ctc_scale,
-                        "check_repeat_version": check_rep_version,
+                        "check_repeat_version": 1,
+                        "remove_eos": remove_eos,
+                        "in_scale": in_scale,
                         "beam_size": beam_size,
-                        "remove_eos": True,
                     }
                     run_decoding(
                         exp_name=exp_name,
@@ -819,7 +831,23 @@ def run_ctc_att_search():
                         feature_extraction_net=log10_net_10ms,
                         bpe_size=BPE_10K,
                         test_sets=["dev-other"],
-                        remove_label="<s>",  # blanks are removed in the network
+                        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
                         use_sclite=True,
                         time_rqmt=1.0 if beam_size <= 128 else 1.5,
                     )
+
+    def debug(name, search_bpe_path):
+        from i6_core.returnn.search import SearchRemoveLabelJob
+        from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
+        import sisyphus.toolkit as tk
+
+        assert isinstance(search_bpe_path, str)
+        search_bpe_path = tk.Path(search_bpe_path)
+        recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
+        search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
+        search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
+        tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
+        wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
+        tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
+
+    debug("v1", "/u/zeineldeen/debugging/trigg_att/v1.txt")

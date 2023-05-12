@@ -11,6 +11,7 @@ def add_joint_ctc_att_subnet(
     beam_size=12,
     remove_eos=False,
     renorm_after_remove_eos=False,
+    in_scale=False,
 ):
     """
     Add layers for joint CTC and att search.
@@ -200,11 +201,17 @@ def add_joint_ctc_att_subnet(
                     "output": {"class": "copy", "from": "output_prob"},
                 },
             },
-            "att_log_scores": {
+            "att_log_scores_": {
                 "class": "activation",
                 "activation": "safe_log",
                 "from": "trigg_att",
-            },  # [B,V]
+            },
+            "att_log_scores": {
+                "class": "switch",
+                "condition": "is_prev_out_not_blank_mask",
+                "true_from": "att_log_scores_",
+                "false_from": "prev:att_log_scores",
+            },
             "ctc_log_scores": {
                 "class": "activation",
                 "activation": "safe_log",
@@ -344,7 +351,21 @@ def add_joint_ctc_att_subnet(
                 "from": ["att_log_scores_", "att_log_scores_norm"],
             }
         else:
-            net["output"]["unit"]["att_log_scores"]["from"] = "att_scores_wo_eos"
+            net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
+    if in_scale:
+        net["output"]["unit"]["scaled_blank_prob"] = {
+            "class": "eval",
+            "from": "blank_prob",
+            "eval": f"source(0) ** {ctc_scale}",
+        }
+        # 1 - p_ctc(...)^scale
+        net["output"]["unit"]["1_minus_blank"] = {
+            "class": "combine",
+            "kind": "sub",
+            "from": ["one", "scaled_blank_prob"],
+        }
+        # no scaling outside
+        net["output"]["unit"]["scaled_1_minus_blank_log"] = {"class": "copy", "from": "1_minus_blank_log"}
 
 
 def add_filter_blank_and_merge_labels_layers(net):
