@@ -22,6 +22,7 @@ def get_best_model_config(
     target: str = "classes",
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    specaug_as_data: bool = False,
 ) -> attention_for_hybrid:
     conformer_net = get_cfg(
         num_classes=num_classes,
@@ -35,6 +36,7 @@ def get_best_model_config(
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=upsample_by_transposed_conv,
         feature_stacking_size=feature_stacking_size,
+        specaug_as_data=specaug_as_data,
     )
 
     if not leave_cart_output:

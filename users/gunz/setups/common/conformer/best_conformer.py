@@ -32,6 +32,7 @@ def get_best_model_config(
     time_tag_name: typing.Optional[str] = None,
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
+    specaug_as_data: bool = False,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER
@@ -71,6 +72,7 @@ def get_best_model_config(
         "feature_stacking": True,
         "feature_stacking_window": [feature_stacking_size - 1, 0],
         "feature_stacking_stride": feature_stacking_size,
+        "spec_aug_as_data": specaug_as_data,
         "transposed_conv": upsample_by_transposed_conv,
         "transposed_conv_args": {
             "time_tag_name": time_tag_name,
