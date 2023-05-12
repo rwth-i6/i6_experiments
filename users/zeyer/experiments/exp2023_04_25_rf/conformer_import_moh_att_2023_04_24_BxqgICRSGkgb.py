@@ -352,6 +352,7 @@ def test_import():
 
     # Pick some layers to check outputs for equality.
     # See the func tracing logic below, entries in captured_tensors.
+    # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
         "source": (Model.encode, 0, "source", -1),
         "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
@@ -363,6 +364,7 @@ def test_import():
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
+        "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -494,6 +496,7 @@ def test_import():
         ConformerEncoder.__call__,
         ConformerEncoderLayer.__call__,
         ConformerConvSubsample.__call__,
+        from_scratch_training,
     ]
     code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
     captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
@@ -567,8 +570,10 @@ def test_import():
                     idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
                     old_v[idx] = 0
                     new_v[idx] = 0
-        print("* Comparing", old_layer_name, "vs", new_var_path)
-        numpy.testing.assert_almost_equal(old_v, new_v, decimal=5, err_msg=f"{old_layer_name}/{new_var_path} mismatch")
+        print(f"* Comparing {old_layer_name!r} vs {new_var_path!r}")
+        numpy.testing.assert_almost_equal(
+            old_v, new_v, decimal=5, err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch"
+        )
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
