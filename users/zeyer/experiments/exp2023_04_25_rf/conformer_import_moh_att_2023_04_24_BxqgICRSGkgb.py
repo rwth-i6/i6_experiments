@@ -759,7 +759,7 @@ class Model(rf.Module):
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
         readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
-        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2)
+        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
         readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim)
         logits = self.output_prob(readout)
         return logits
