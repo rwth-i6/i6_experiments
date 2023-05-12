@@ -318,7 +318,6 @@ def get_funcs_jingjing():
         if k in ["_mask", "_random_mask", "specaugment_eval_func"]:
             funcs.append(v)
     return funcs
-<<<<<<< HEAD
 
 
 #---------------------------- tina Legacy BLSTM -------------------------------------------------

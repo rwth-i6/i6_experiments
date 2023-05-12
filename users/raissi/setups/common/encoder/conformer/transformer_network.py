@@ -6,11 +6,8 @@ import copy
 
 import i6_core.returnn as returnn
 
-<<<<<<< HEAD
 from i6_experiments.users.raissi.setups.encoder.conformer import layers
 
-=======
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 # encs_args: relative_pe=False, fixed=False, clipping=None, left_attention_only=False
 # emb_dropout
 class attention_for_hybrid:
@@ -18,10 +15,7 @@ class attention_for_hybrid:
         self,
         target,
         num_classes,
-<<<<<<< HEAD
         num_input_feature,
-=======
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         num_enc_layers,
         enc_args,
         type="transformer",
@@ -34,10 +28,7 @@ class attention_for_hybrid:
         focal_loss_factor=0.0,
         softmax_dropout=0.0,
         use_spec_augment=True,
-<<<<<<< HEAD
         spec_aug_as_data=True,
-=======
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         use_pos_encoding=False,
         add_to_input=True,
         src_embed_args=None,
@@ -161,10 +152,7 @@ class attention_for_hybrid:
         self.inspection_idx = inspection_idx
 
         ## encoder arguments
-<<<<<<< HEAD
         self.num_input_feature = num_input_feature
-=======
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         self.num_enc_layers = num_enc_layers
         self.emb_dropout = enc_args.pop("emb_dropout", 0.0)
         self.enc_args = enc_args
@@ -180,7 +168,6 @@ class attention_for_hybrid:
         self.target = target
         self.num_classes = num_classes
 
-<<<<<<< HEAD
         self.spec_aug_params = (
             {"use_spec_augment": True, "spec_aug_as_data": False, "func_name": "transform"}
             if spec_aug_params is None
@@ -189,9 +176,6 @@ class attention_for_hybrid:
 
         self.use_spec_augment = use_spec_augment
         self.spec_aug_as_data = spec_aug_as_data
-=======
-        self.use_spec_augment = use_spec_augment
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         self.add_blstm_block = add_blstm_block
         self.num_blstm_layers = len(blstm_args["dims"]) if blstm_args and "dims" in blstm_args.keys() else 2
@@ -331,10 +315,6 @@ class attention_for_hybrid:
     # adjustable archtecture
     # number of blstm layers, hidden units size, l2-regularization, dropout
     def _blstm_block(self, inp=None, prefix=""):
-<<<<<<< HEAD
-=======
-        from . import layers
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         if prefix:
             prefix = prefix + "_"
@@ -416,11 +396,7 @@ class attention_for_hybrid:
             "class": "split_dims",
             "axis": "F",
             "dims": (-1, 1),
-<<<<<<< HEAD
         }  # (T,features,1)
-=======
-        }  # (T,50,1)
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         if inp is not None:
             if isinstance(inp, str):
@@ -442,13 +418,8 @@ class attention_for_hybrid:
             "n_out": 32,
             "activation": None,
             "with_bias": True,
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature}"],
         }  # (T,F,32)
-=======
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,50,32)
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         # , "in_spatial_dims": ["T", "dim:1"]
         # , "in_spacial_dim": ["dim:1"]
 
@@ -460,13 +431,8 @@ class attention_for_hybrid:
             "n_out": 32,
             "activation": "relu",
             "with_bias": True,
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature}"],
         }  # (T,F,32)
-=======
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,50,32)
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         self.network[f"{prefix}conv0p"] = {
             "class": "pool",
@@ -475,13 +441,8 @@ class attention_for_hybrid:
             "pool_size": (1, 2),
             "strides": (1, 2),
             "from": f"{prefix}conv0_1",
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature}"],
         }  # (T,F/2,32)
-=======
-            "in_spatial_dims": ["T", "dim:50"],
-        }  # (T,25,32)
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         if self.reduction_factor and self.reduction_factor[0] >= 2:
             self.network[f"{prefix}conv0p"]["strides"] = (self.reduction_factor[0], 2)
@@ -495,11 +456,7 @@ class attention_for_hybrid:
             "n_out": 64,
             "activation": None,
             "with_bias": True,
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature//2}"],
-=======
-            "in_spatial_dims": ["T", "dim:25"],
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         }  # (T,25,64)
         self.network[f"{prefix}conv1_1"] = {
             "class": "conv",
@@ -509,11 +466,7 @@ class attention_for_hybrid:
             "n_out": 64,
             "activation": "relu",
             "with_bias": True,
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature//2}"],
-=======
-            "in_spatial_dims": ["T", "dim:25"],
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         }  # (T,25,64)
         self.network[f"{prefix}conv1p"] = {
             "class": "pool",
@@ -522,11 +475,7 @@ class attention_for_hybrid:
             "pool_size": (1, 1),
             "strides": (1, 1),  # strides': (1, 1)?
             "from": f"{prefix}conv1_1",
-<<<<<<< HEAD
             "in_spatial_dims": ["T", f"dim:{self.num_input_feature//2}"],
-=======
-            "in_spatial_dims": ["T", "dim:25"],
->>>>>>> 8754e54c (wip added conformer and blstm configs)
         }  # (T,25,64)
 
         if self.reduction_factor and self.reduction_factor[1] >= 2:
@@ -559,10 +508,6 @@ class attention_for_hybrid:
 
     # to be implemented: feature representation
     def _transformer_encoder(self, inp):
-<<<<<<< HEAD
-=======
-        from . import layers
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         separated = False
         windowing = False
@@ -637,10 +582,6 @@ class attention_for_hybrid:
         return ["encoder"]
 
     def _conformer_encoder(self, inp):
-<<<<<<< HEAD
-=======
-        from . import layers
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         separated = False
         windowing = False
@@ -721,10 +662,6 @@ class attention_for_hybrid:
     ## another kind of feature representation
     ## attention weights manipulation not implemented
     def _second_encoder(self, inp, ca_layer):
-<<<<<<< HEAD
-=======
-        from . import layers
->>>>>>> 8754e54c (wip added conformer and blstm configs)
 
         self.enc_args.pop("attention_left_only", None)
 
@@ -1078,21 +1015,10 @@ class attention_for_hybrid:
 
         last_layer = sec_last_layer = None
         # default 'from' layer: 'data'
-<<<<<<< HEAD
         if self.spec_aug_params["use_spec_augment"]:
             as_data = self.spec_aug_params["spec_aug_as_data"]
             eval_str = f"self.network.get_config().typed_value('{func_name}', as_data={as_data})(source(0), network=self.network)"
             self.network["source"] = {"class": "eval", "eval": eval_str, "from": "data"}
-=======
-        if self.use_spec_augment:
-            self.network["source"] = {
-                "class": "eval",
-                "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
-                "from": "data"
-                # "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network)",
-                # "eval": "self.network.get_config().typed_value('transform')(source(0, as_data=True), network=self.network, clip=True)",
-            }
->>>>>>> 8754e54c (wip added conformer and blstm configs)
             last_layer = sec_last_layer = ["source"]
 
         if self.feature_stacking and self.feature_stacking_before_frontend:

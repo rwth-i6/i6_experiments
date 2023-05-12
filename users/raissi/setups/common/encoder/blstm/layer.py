@@ -82,3 +82,4 @@ def add_subsampling_via_feature_stacking(network_dict: Dict, stride_factor: int 
         network_dict[f"{pre_name}_1"]["from"] = ["feature_stacking_merged"]
 
     return network_dict
+
