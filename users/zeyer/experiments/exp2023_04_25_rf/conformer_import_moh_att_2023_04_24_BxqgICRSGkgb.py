@@ -571,10 +571,25 @@ def test_import():
                     idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
                     old_v[idx] = 0
                     new_v[idx] = 0
-        print(f"* Comparing {old_layer_name!r} vs {new_var_path!r}")
+        print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
+        assert old_v.shape == new_v.shape
+        if numpy.allclose(old_v, new_v, atol=1e-5):
+            continue
+        print("** not all close. close:")
+        # Iterate over all indices, and check if the values are close.
+        # If not, add the index to the mismatches list.
+        remarks = []
+        for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
+            close = numpy.allclose(old_v[idx], new_v[idx], atol=1e-5)
+            remarks.append("[%s]:" % ",".join([str(i) for i in idx]) + ("✓" if close else "✗"))
+            if len(remarks) >= 50:
+                remarks.append("...")
+                break
+        print("\n".join(remarks))
         numpy.testing.assert_almost_equal(
             old_v, new_v, decimal=5, err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch"
         )
+        raise Exception(f"should not get here, mismatches: {remarks}")
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
