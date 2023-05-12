@@ -858,7 +858,7 @@ def from_scratch_training(
     input_embeddings = model.target_embed(targets)
     input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
 
-    def _body(state: rf.State, input_embed: Tensor):
+    def _body(input_embed: Tensor, state: rf.State):
         new_state = rf.State()
         loop_out_, new_state.decoder = model.loop_step(
             **enc_args,
@@ -866,9 +866,9 @@ def from_scratch_training(
             input_embed=input_embed,
             state=state.decoder,
         )
-        return new_state, loop_out_
+        return loop_out_, new_state
 
-    _, loop_out, _ = rf.scan(
+    loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
         xs=input_embeddings,
         ys=model.loop_step_output_templates(batch_dims=batch_dims),
