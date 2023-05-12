@@ -364,6 +364,7 @@ def test_import():
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
         "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
         "encoder": (Model.encode, 0, "enc", 0),
+        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
