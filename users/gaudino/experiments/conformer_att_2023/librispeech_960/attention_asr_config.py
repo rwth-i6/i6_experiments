@@ -546,12 +546,13 @@ def create_config(
     specaug_version=1,
     ctc_greedy_decode=False,
     joint_ctc_att_decode=False,
+    ctc_rep_thresh=1,
     joint_att_scale=1.0,
     joint_ctc_scale=1.0,
     length_normalization=True,
-    check_repeat=False,
     staged_hyperparams: dict = None,
     keep_best_n=None,
+    use_end_layer=True,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -738,8 +739,9 @@ def create_config(
             att_scale=joint_att_scale,
             ctc_scale=joint_ctc_scale,
             length_normalization=length_normalization,
-            check_repeat=check_repeat,
             beam_size=beam_size,
+            use_end_layer=use_end_layer,
+            ctc_rep_thresh=ctc_rep_thresh,
         )
         if joint_ctc_scale > 0.0:
             add_filter_blank_and_merge_labels_layers(exp_config["network"])
