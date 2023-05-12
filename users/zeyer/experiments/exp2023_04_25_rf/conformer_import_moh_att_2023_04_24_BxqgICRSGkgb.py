@@ -367,8 +367,8 @@ def test_import():
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
-        "output/att": (Model.decode_logits, 0, "att", 0),
         "output/s": (Model.decode_logits, 0, "s", 0),
+        "output/att": (Model.decode_logits, 0, "att", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
@@ -695,7 +695,9 @@ class Model(rf.Module):
             zoneout_factor_cell=0.15,
             zoneout_factor_output=0.05,
             use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
-            parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="ifco",
+            parts_order="jifo",  # NativeLSTM (the code above converts it...)
             forget_bias=1.0,  # like RETURNN/TF ZoneoutLSTM
         )
 
