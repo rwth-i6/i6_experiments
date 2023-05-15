@@ -67,6 +67,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
+    batch_size: int
     decode_all_corpora: bool
     lr: str
     dc_detection: bool
@@ -89,6 +90,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
+            batch_size=6144,
             dc_detection=False,
             decode_all_corpora=False,
             lr="v6",
@@ -98,6 +100,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
+            batch_size=11000,
             dc_detection=False,
             decode_all_corpora=False,
             lr="v7",
@@ -107,6 +110,17 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
+            batch_size=6144,
+            dc_detection=True,
+            decode_all_corpora=True,
+            lr="v7",
+            run_performance_study=False,
+            tune_decoding=False,
+        ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            batch_size=11000,
             dc_detection=True,
             decode_all_corpora=True,
             lr="v7",
@@ -118,6 +132,7 @@ def run(returnn_root: tk.Path):
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
+            batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
@@ -132,6 +147,7 @@ def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
+    batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
     focal_loss: float,
@@ -241,7 +257,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 11000 if lr == "v7" else 6144,
+        "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
