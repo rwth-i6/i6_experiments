@@ -292,24 +292,6 @@ models = {
                      features="raw"),
     },
   },
-  "segmental_wo_chunk_fix": {
-    "seg.no-chunk-fix.rna-bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
-      "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe", lstm_dim=1024, ctx_size="inf",
-                     att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                     length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True, do_chunk_fix=False,
-                     label_model_focal_loss=0.0, att_ctx_reg=False, lr_measure="dev_error_label_model/label_prob",
-                     set_dim_tag_correctly=False),
-    },
-  },
-  "segmental_w_kl_div": {
-    "seg.rna-bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.kl-div-1.00.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
-      "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe", lstm_dim=1024, ctx_size="inf",
-                     att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                     length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                     label_model_focal_loss=0.0, att_ctx_reg=False, lr_measure="dev_error_label_model/label_prob",
-                     att_weights_kl_div_scale=1., set_dim_tag_correctly=False),
-    },
-  },
   "segmental_w_silence": {
     "seg.rna-bpe-sil-time-red-6.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
       "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe-sil-time-red-6", lstm_dim=1024, ctx_size="inf",
@@ -328,20 +310,27 @@ models = {
                      set_dim_tag_correctly=False),
     },
   },
+  "segmental_w_split_silence_sep_sil_model": {
+    "seg.rna-bpe-split-sil-time-red-6.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-like-labels.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
+      "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe-split-sil-time-red-6", lstm_dim=1024, ctx_size="inf",
+                     att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+                     length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+                     label_model_focal_loss=0.0, att_ctx_reg=False, lr_measure="dev_error_label_model/label_prob",
+                     set_dim_tag_correctly=False, sep_sil_model="like-labels"),
+    },
+  "seg.rna-bpe-split-sil-time-red-6.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.sep-sil-model-pooling.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
+      "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe-split-sil-time-red-6", lstm_dim=1024, ctx_size="inf",
+                     att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
+                     length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
+                     label_model_focal_loss=0.0, att_ctx_reg=False, lr_measure="dev_error_label_model/label_prob",
+                     set_dim_tag_correctly=False, sep_sil_model="pooling"),
+    },
+  },
   "center-window": {
     "seg.win-size8.rna-bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
         "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe", lstm_dim=1024, ctx_size="inf",
                        att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
                        length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True,
-                       label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=4,
-                       lr_measure="dev_error_label_model/label_prob", set_dim_tag_correctly=False),
-      },
-  },
-  "center-window_wo_chunk_fix": {
-    "seg.no-chunk-fix.win-size8.rna-bpe.lr-meas-lab.full-ctx.time-red6.fast-rec.fast-rec-full.seg.mlp-att.am2048.prev-att-in-state.frame-length-model-in_am+prev-out-embed.no-ctx-reg": {
-        "config": dict(default_variant_transducer, use_attention=True, label_type="rna-bpe", lstm_dim=1024, ctx_size="inf",
-                       att_type="mlp", att_area="seg", time_red=[3, 2], prev_att_in_state=True, length_model_focal_loss=0.0,
-                       length_model_inputs=["am", "prev_out_embed"], fast_rec=True, fast_rec_full=True, do_chunk_fix=False,
                        label_model_focal_loss=0.0, att_ctx_reg=False, segment_center_window_size=4,
                        lr_measure="dev_error_label_model/label_prob", set_dim_tag_correctly=False),
       },
@@ -378,10 +367,10 @@ for model_type in models:
 segmental_model_variants = {}
 for model_type in models:
   if model_type in [
-    "segmental", "segmental_w_silence", "segmental_w_split_silence", "center-window"]:
+    "segmental", "segmental_w_silence", "segmental_w_split_silence", "center-window", "segmental_w_split_silence_sep_sil_model"]:
     segmental_model_variants[model_type] = models[model_type]
 
 segmental_model_variants_w_length_model = {}
 for model_type in models:
-  if model_type in ["segmental", "segmental_w_silence", "segmental_w_split_silence", "center-window"]:
+  if model_type in ["segmental", "segmental_w_silence", "segmental_w_split_silence", "center-window", "segmental_w_split_silence_sep_sil_model"]:
     segmental_model_variants_w_length_model[model_type] = models[model_type]
