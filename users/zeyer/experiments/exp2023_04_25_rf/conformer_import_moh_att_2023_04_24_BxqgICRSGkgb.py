@@ -807,7 +807,7 @@ class Model(rf.Module):
 
         return {"s": s, "att": att}, state_
 
-    def loop_step_output_templates(self, batch_dims: List[Dim], *, enc_spatial_dim: Dim) -> Dict[str, Tensor]:
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
         """loop step out"""
         return {
             "s": Tensor(
@@ -888,7 +888,7 @@ def from_scratch_training(
     loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
         xs=input_embeddings,
-        ys=model.loop_step_output_templates(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+        ys=model.loop_step_output_templates(batch_dims=batch_dims),
         initial=rf.State(
             decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
         ),
