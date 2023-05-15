@@ -785,7 +785,7 @@ def run_ctc_att_search():
     )
 
     for beam_size in [12]:
-        for ctc_scale, att_scale in [(0.3, 0.7), (0.7, 0.3)]:
+        for ctc_scale, att_scale in [(0.3, 0.7), (1, 0.3)]:
             for th in [1]:
                 run_decoding(
                     exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}_ctcrepthresh{th}",
