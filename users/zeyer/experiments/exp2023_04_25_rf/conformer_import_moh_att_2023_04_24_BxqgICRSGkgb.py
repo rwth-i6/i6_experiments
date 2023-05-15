@@ -581,7 +581,8 @@ def test_import():
         print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
         assert old_v.shape == new_v.shape
         # Using equal_nan=False because we do not want any nan in any of the values.
-        if numpy.allclose(old_v, new_v, atol=1e-5):
+        rtol, atol = 1e-5, 1e-5
+        if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
             continue
         print("** not all close. close:")
         # Iterate over all indices, and check if the values are close.
@@ -593,7 +594,7 @@ def test_import():
                 remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
                 count_mismatches += 1
                 continue
-            close = numpy.allclose(old_v[idx], new_v[idx], atol=1e-5)
+            close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
             if not close:
                 count_mismatches += 1
             remarks.append(
@@ -607,8 +608,8 @@ def test_import():
         numpy.testing.assert_allclose(
             old_v,
             new_v,
-            rtol=1e-5,
-            atol=1e-5,
+            rtol=rtol,
+            atol=atol,
             equal_nan=False,
             err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch",
         )
