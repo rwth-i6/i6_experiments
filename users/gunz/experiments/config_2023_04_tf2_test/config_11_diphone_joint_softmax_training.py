@@ -80,10 +80,11 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=True,
-            lr="v7",
+            lr=lr,
             run_performance_study=False,
             tune_decoding=True,
-        ),
+        )
+        for lr in ["v6", "v7"]
     ]
     for exp in configs:
         run_single(
