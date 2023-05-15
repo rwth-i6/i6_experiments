@@ -302,8 +302,8 @@ def _convert_tf_lstm_to_native_lstm_ff(old_w_ff_re: numpy.ndarray) -> numpy.ndar
     n_in = old_w_ff_re.shape[0] - n_out
     old_w_ff, _ = numpy.split(old_w_ff_re, [n_in], axis=0)  # (in_dim,4*dim)
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_w_ff_i, old_w_ff_j, old_w_ff_f, old_w_ff_o = numpy.split(old_w_ff, 4, axis=1)
     new_w_ff = numpy.concatenate([old_w_ff_j, old_w_ff_i, old_w_ff_f, old_w_ff_o], axis=1)  # (in_dim,4*dim)
     new_w_ff = new_w_ff.transpose()  # (4*dim,in_dim)
@@ -321,8 +321,8 @@ def _convert_tf_lstm_to_native_lstm_rec(old_w_ff_re: numpy.ndarray) -> numpy.nda
     n_in = old_w_ff_re.shape[0] - n_out
     _, old_w_rec = numpy.split(old_w_ff_re, [n_in], axis=0)  # (dim,4*dim)
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_w_rec_i, old_w_rec_j, old_w_rec_f, old_w_rec_o = numpy.split(old_w_rec, 4, axis=1)
     new_w_rec = numpy.concatenate([old_w_rec_j, old_w_rec_i, old_w_rec_f, old_w_rec_o], axis=1)  # (dim,4*dim)
     new_w_rec = new_w_rec.transpose()  # (4*dim,dim)
@@ -337,8 +337,8 @@ def _convert_tf_lstm_to_native_lstm_bias(old_bias: numpy.ndarray, *, forget_gate
     assert old_bias.shape[0] % 4 == 0
     n_out = old_bias.shape[0] // 4
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_bias_i, old_bias_j, old_bias_f, old_bias_o = numpy.split(old_bias, 4, axis=0)
     old_bias_f += forget_gate_bias
     new_bias = numpy.concatenate([old_bias_j, old_bias_i, old_bias_f, old_bias_o], axis=0)  # (4*dim,)
@@ -367,7 +367,11 @@ def test_import():
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
+        "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
         "output/s": (Model.decode_logits, 0, "s", 0),
+        "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
+        "output/energy": (from_scratch_training, 0, "energy", 0),
+        "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
         "output/att": (Model.decode_logits, 0, "att", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
@@ -560,60 +564,70 @@ def test_import():
     new_model_outputs_fetch = fetches
 
     print("*** Comparing ...")
-    for old_layer_name, new_var_path in _layer_mapping.items():
-        out = old_model_outputs_data[old_layer_name]
-        for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext:
-                old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                numpy.testing.assert_equal(old_v, new_v, err_msg=f"{tag} mismatch")
-        old_v = old_model_outputs_fetch["layer:" + old_layer_name]
-        new_v = new_model_outputs_fetch["layer:" + old_layer_name]
-        for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
-                assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
-                assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
-                size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                for b in range(old_v.shape[0]):
-                    idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
-                    old_v[idx] = 0
-                    new_v[idx] = 0
-        print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
-        assert old_v.shape == new_v.shape
-        # Using equal_nan=False because we do not want any nan in any of the values.
-        rtol, atol = 1e-5, 1e-5
-        if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
-            continue
-        print("** not all close. close:")
-        # Iterate over all indices, and check if the values are close.
-        # If not, add the index to the mismatches list.
-        remarks = []
-        count_mismatches = 0
-        for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
-            if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
-                remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
-                count_mismatches += 1
+    print("**** target spatial len:", extern_data_numpy_raw_dict["bpe_labels"].shape[1])
+    for out_step in range(extern_data_numpy_raw_dict["bpe_labels"].shape[1]):
+        for old_layer_name, new_var_path in _layer_mapping.items():
+            out = old_model_outputs_data[old_layer_name]
+            if out_step > 0 and target_spatial_dim not in out.dim_tags:
                 continue
-            close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
-            if not close:
-                count_mismatches += 1
-            remarks.append(
-                "[%s]:" % ",".join([str(i) for i in idx])
-                + ("✓" if close else "✗ (%.5f diff)" % abs(old_v[idx] - new_v[idx]))
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    numpy.testing.assert_equal(old_v, new_v, err_msg=f"{tag} mismatch")
+            old_v = old_model_outputs_fetch["layer:" + old_layer_name]
+            new_v = new_model_outputs_fetch["layer:" + old_layer_name]
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
+                    assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
+                    assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
+                    size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    for b in range(old_v.shape[0]):
+                        idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
+                        old_v[idx] = 0
+                        new_v[idx] = 0
+            print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
+            assert old_v.shape == new_v.shape
+            if target_spatial_dim in out.dim_tags:
+                assert out.get_axis_from_description(target_spatial_dim) == 1  # not implemented otherwise
+                out = out.copy_template_excluding_axis(1)
+                print("** comparing out_step", out_step, out)
+                old_v = old_v[:, out_step]
+                new_v = new_v[:, out_step]
+            # Using equal_nan=False because we do not want any nan in any of the values.
+            rtol, atol = 1e-5, 1e-5
+            if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
+                continue
+            print("** not all close. close:")
+            # Iterate over all indices, and check if the values are close.
+            # If not, add the index to the mismatches list.
+            remarks = []
+            count_mismatches = 0
+            for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
+                if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
+                    remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
+                    count_mismatches += 1
+                    continue
+                close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
+                if not close:
+                    count_mismatches += 1
+                remarks.append(
+                    "[%s]:" % ",".join([str(i) for i in idx])
+                    + ("✓" if close else "✗ (%.5f diff)" % abs(old_v[idx] - new_v[idx]))
+                )
+                if len(remarks) >= 50 and count_mismatches > 0:
+                    remarks.append("...")
+                    break
+            print("\n".join(remarks))
+            numpy.testing.assert_allclose(
+                old_v,
+                new_v,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=False,
+                err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch",
             )
-            if len(remarks) >= 50 and count_mismatches > 0:
-                remarks.append("...")
-                break
-        print("\n".join(remarks))
-        numpy.testing.assert_allclose(
-            old_v,
-            new_v,
-            rtol=rtol,
-            atol=atol,
-            equal_nan=False,
-            err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch",
-        )
-        raise Exception(f"should not get here, mismatches: {remarks}")
+            raise Exception(f"should not get here, mismatches: {remarks}")
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
@@ -699,7 +713,7 @@ class Model(rf.Module):
             # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
             # parts_order="ifco",
             parts_order="jifo",  # NativeLSTM (the code above converts it...)
-            forget_bias=1.0,  # like RETURNN/TF ZoneoutLSTM
+            forget_bias=0.0,  # the code above already adds it during conversion
         )
 
         self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
@@ -789,9 +803,16 @@ class Model(rf.Module):
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
 
-        return {"s": s, "att": att}, state_
+        debug_extra = {
+            "energy": energy,
+            "att_weights": att_weights,
+            "weight_feedback": weight_feedback,
+            "s_transformed": s_transformed,
+        }
 
-    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        return {"s": s, "att": att, **debug_extra}, state_
+
+    def loop_step_output_templates(self, batch_dims: List[Dim], *, enc_spatial_dim: Dim) -> Dict[str, Tensor]:
         """loop step out"""
         return {
             "s": Tensor(
@@ -803,6 +824,14 @@ class Model(rf.Module):
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
+            "energy": Tensor("energy", dims=batch_dims + [self.att_num_heads, enc_spatial_dim], dtype="float32"),
+            "att_weights": Tensor(
+                "att_weights", dims=batch_dims + [enc_spatial_dim, self.att_num_heads], dtype="float32"
+            ),
+            "weight_feedback": Tensor(
+                "weight_feedback", dims=batch_dims + [enc_spatial_dim, self.weight_feedback.out_dim], dtype="float32"
+            ),
+            "s_transformed": Tensor("s_transformed", dims=batch_dims + [self.s_transformed.out_dim], dtype="float32"),
         }
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
@@ -872,12 +901,17 @@ def from_scratch_training(
     loop_out, _, _ = rf.scan(
         spatial_dim=targets_spatial_dim,
         xs=input_embeddings,
-        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        ys=model.loop_step_output_templates(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
         initial=rf.State(
             decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
         ),
         body=_body,
     )
+
+    energy = loop_out.pop("energy")
+    att_weights = loop_out.pop("att_weights")
+    weight_feedback = loop_out.pop("weight_feedback")
+    s_transformed = loop_out.pop("s_transformed")
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 

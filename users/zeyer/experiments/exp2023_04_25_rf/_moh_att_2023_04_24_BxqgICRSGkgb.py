@@ -2795,6 +2795,7 @@ net_dict = {
                 "from": "s",
                 "n_out": 1024,
                 "L2": 0.0001,
+                "is_output_layer": True,  # for comparison
             },
             "accum_att_weights": {
                 "class": "eval",
@@ -2808,6 +2809,7 @@ net_dict = {
                 "with_bias": False,
                 "from": "prev:accum_att_weights",
                 "n_out": 1024,
+                "is_output_layer": True,  # for comparison
             },
             "energy_in": {
                 "class": "combine",
@@ -2827,8 +2829,13 @@ net_dict = {
                 "from": "energy_tanh",
                 "n_out": 1,
                 "L2": 0.0001,
+                "is_output_layer": True,  # for comparison
             },
-            "att_weights": {"class": "softmax_over_spatial", "from": "energy"},
+            "att_weights": {
+                "class": "softmax_over_spatial",
+                "from": "energy",
+                "is_output_layer": True,  # for comparison
+            },
             "att0": {
                 "class": "generic_attention",
                 "weights": "att_weights",
@@ -2850,6 +2857,7 @@ net_dict = {
                     "zoneout_factor_cell": 0.15,
                     "zoneout_factor_output": 0.05,
                 },
+                # "weights_init": "random_normal_initializer(mean=0.0, stddev=0.1)",
                 "is_output_layer": True,  # for comparison
             },
             "readout_in": {
