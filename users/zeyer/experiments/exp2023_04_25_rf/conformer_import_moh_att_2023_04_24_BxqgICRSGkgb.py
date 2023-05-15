@@ -772,6 +772,20 @@ class Model(rf.Module):
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
 
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor(
+                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+            ),
+            "att": Tensor(
+                "att",
+                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+        }
+
     def loop_step(
         self,
         *,
@@ -806,20 +820,6 @@ class Model(rf.Module):
         state_.att = att
 
         return {"s": s, "att": att}, state_
-
-    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
-        """loop step out"""
-        return {
-            "s": Tensor(
-                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
-            ),
-            "att": Tensor(
-                "att",
-                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
-                dtype=rf.get_default_float_dtype(),
-                feature_dim_axis=-1,
-            ),
-        }
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
         """logits for the decoder"""
