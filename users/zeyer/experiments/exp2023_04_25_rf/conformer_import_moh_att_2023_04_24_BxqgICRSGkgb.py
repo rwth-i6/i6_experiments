@@ -367,11 +367,13 @@ def test_import():
         "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
         "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
         "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
-        "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
+        # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
+        # If we want to test this again, we need to re-add the corresponding locals and outputs from rf.scan.
+        # "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
         "output/s": (Model.decode_logits, 0, "s", 0),
-        "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
-        "output/energy": (from_scratch_training, 0, "energy", 0),
-        "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
+        # "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
+        # "output/energy": (from_scratch_training, 0, "energy", 0),
+        # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
         "output/att": (Model.decode_logits, 0, "att", 0),
         "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
@@ -803,14 +805,7 @@ class Model(rf.Module):
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
 
-        debug_extra = {
-            "energy": energy,
-            "att_weights": att_weights,
-            "weight_feedback": weight_feedback,
-            "s_transformed": s_transformed,
-        }
-
-        return {"s": s, "att": att, **debug_extra}, state_
+        return {"s": s, "att": att}, state_
 
     def loop_step_output_templates(self, batch_dims: List[Dim], *, enc_spatial_dim: Dim) -> Dict[str, Tensor]:
         """loop step out"""
@@ -824,14 +819,6 @@ class Model(rf.Module):
                 dtype=rf.get_default_float_dtype(),
                 feature_dim_axis=-1,
             ),
-            "energy": Tensor("energy", dims=batch_dims + [self.att_num_heads, enc_spatial_dim], dtype="float32"),
-            "att_weights": Tensor(
-                "att_weights", dims=batch_dims + [enc_spatial_dim, self.att_num_heads], dtype="float32"
-            ),
-            "weight_feedback": Tensor(
-                "weight_feedback", dims=batch_dims + [enc_spatial_dim, self.weight_feedback.out_dim], dtype="float32"
-            ),
-            "s_transformed": Tensor("s_transformed", dims=batch_dims + [self.s_transformed.out_dim], dtype="float32"),
         }
 
     def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
@@ -907,11 +894,6 @@ def from_scratch_training(
         ),
         body=_body,
     )
-
-    energy = loop_out.pop("energy")
-    att_weights = loop_out.pop("att_weights")
-    weight_feedback = loop_out.pop("weight_feedback")
-    s_transformed = loop_out.pop("s_transformed")
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 
