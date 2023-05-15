@@ -84,7 +84,7 @@ def run(returnn_root: tk.Path):
             run_performance_study=False,
             tune_decoding=True,
         )
-        for lr in ["v6", "v7"]
+        for lr in ["v6"]
     ]
     for exp in configs:
         run_single(
