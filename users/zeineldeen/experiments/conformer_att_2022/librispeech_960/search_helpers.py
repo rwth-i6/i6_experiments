@@ -12,6 +12,8 @@ def add_joint_ctc_att_subnet(
     remove_eos=False,
     renorm_after_remove_eos=False,
     in_scale=False,
+    comb_score_version=1,
+    blank_penalty=None,
 ):
     """
     Add layers for joint CTC and att search.
@@ -366,6 +368,35 @@ def add_joint_ctc_att_subnet(
         }
         # no scaling outside
         net["output"]["unit"]["scaled_1_minus_blank_log"] = {"class": "copy", "from": "1_minus_blank_log"}
+    if comb_score_version == 2:
+        net["output"]["unit"]["p_comb_sigma_prime"]["from"][0] = ("combined_att_ctc_scores", "f")
+    if comb_score_version == 3:
+        # normalize p_comb_sigma
+        net["output"]["unit"]["combined_att_ctc_scores_norm"] = {
+            "class": "reduce",
+            "mode": "logsumexp",
+            "from": "combined_att_ctc_scores",
+            "axis": "f",
+        }
+        net["output"]["unit"]["combined_att_ctc_scores_renorm"] = {
+            "class": "combine",
+            "kind": "sub",
+            "from": ["combined_att_ctc_scores", "combined_att_ctc_scores_norm"],
+        }
+        net["output"]["unit"]["p_comb_sigma_prime_label"] = {
+            "class": "combine",
+            "kind": "add",
+            "from": ["scaled_1_minus_blank_log", "combined_att_ctc_scores_renorm"],
+        }
+    if blank_penalty:
+        net["output"]["unit"]["scaled_blank_log_prob_expand_"] = copy.deepcopy(
+            net["output"]["unit"]["scaled_blank_log_prob_expand"]
+        )
+        net["output"]["unit"]["scaled_blank_log_prob_expand"] = {
+            "class": "eval",
+            "from": "scaled_blank_log_prob_expand_",
+            "eval": f"source(0) - {blank_penalty}",
+        }
 
 
 def add_filter_blank_and_merge_labels_layers(net):
