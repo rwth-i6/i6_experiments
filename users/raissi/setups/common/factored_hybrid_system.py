@@ -736,6 +736,7 @@ class FactoredHybridBaseSystem(NnSystem):
         network = blstm_setup.blstm_network(**kwargs)
         if self.training_criterion != TrainingCriterion.fullsum:
             network = augment_net_with_label_pops(network, label_info=self.label_info)
+
         return network
 
     def get_conformer_network(self, chunking, conf_model_dim, aux_loss_args):
