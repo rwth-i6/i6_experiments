@@ -68,7 +68,7 @@ class Experiment:
     lr: str
     multitask: bool
     dc_detection: bool
-    max_pooling_after_layer: int
+    max_pooling_after_layer: typing.List[int]
     reduction_factor: typing.Tuple[int, int]
     run_performance_study: bool
     subsampling_factor: int
@@ -98,7 +98,7 @@ def run(returnn_root: tk.Path):
             subsampling_factor=4,
             tune_decoding=False,
         )
-        for red, mp in itertools.product([(1, 2)], [1, 3])
+        for red, mp in [*itertools.product([(1, 2)], [[1], [3]]), ((1, 1), [[1, 3]])]
     ]
     for exp in configs:
         run_single(
@@ -124,7 +124,7 @@ def run_single(
     dc_detection: bool,
     focal_loss: float,
     lr: str,
-    max_pooling_after_layer: int,
+    max_pooling_after_layer: typing.List[int],
     multitask: bool,
     returnn_root: tk.Path,
     run_performance_study: bool,
@@ -138,7 +138,8 @@ def run_single(
 
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{'x'.join(str(s) for s in reduction_factor)}+2@{max_pooling_after_layer}"
+    mp = "+".join(f"2@{l}" for l in max_pooling_after_layer)
+    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{'x'.join(str(s) for s in reduction_factor)}+{mp}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -208,17 +209,18 @@ def run_single(
     )
     network = network_builder.network
 
-    layer_out = f"enc_{max_pooling_after_layer:03d}"
-    pooling_layer = f"enc_{max_pooling_after_layer:03d}_max_pool"
-    network[pooling_layer] = {
-        "class": "pool",
-        "from": network[layer_out]["from"],
-        "in_spatial_dims": ["T"],
-        "mode": "max",
-        "padding": "same",
-        "pool_size": (2,),
-    }
-    network[layer_out]["from"] = pooling_layer
+    for l in max_pooling_after_layer:
+        layer_out = f"enc_{l:03d}"
+        pooling_layer = f"enc_{l:03d}_max_pool"
+        network[pooling_layer] = {
+            "class": "pool",
+            "from": network[layer_out]["from"],
+            "in_spatial_dims": ["T"],
+            "mode": "max",
+            "padding": "same",
+            "pool_size": (2,),
+        }
+        network[layer_out]["from"] = pooling_layer
 
     network = augment_net_with_label_pops(
         network,
