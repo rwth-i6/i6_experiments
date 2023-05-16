@@ -279,6 +279,7 @@ class Conformer(torch.nn.Module):
                 for _ in range(num_layers)
             ]
         )
+        self.upsample_conv = torch.nn.ConvTranspose1d(in_channels=input_dim, out_channels=input_dim, kernel_size=5, stride=2, padding=1)
         self.export_mode = False
 
     def forward(self, input: torch.Tensor, lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -430,6 +430,7 @@ def run_ctc_att_search():
             test_dataset_tuples,
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
+            use_sclite=True,
         )
 
     def run_exp(
@@ -754,7 +755,7 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-other"],
-        remove_label="<s>",  # blanks are removed in the network
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
 
@@ -780,28 +781,61 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
-        remove_label="<s>",  # blanks are removed in the network
+        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
 
-    for att_scale in [1.0, 0.7, 0.5, 0.0]:
-        ctc_scale = 1 - att_scale
-        run_decoding(
-            exp_name=f"test_joint_att_ctc_greedy_best_attScale{att_scale}_ctcScale{ctc_scale}",
-            train_data=train_data,
-            checkpoint=train_job_avg_ckpt[
-                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-            ],
-            search_args={
-                "joint_ctc_att_decode": True,
-                "joint_att_scale": att_scale,
-                "joint_ctc_scale": ctc_scale,
-                **oclr_args,
-            },
-            feature_extraction_net=log10_net_10ms,
-            bpe_size=BPE_10K,
-            test_sets=["dev-other"],
-            remove_label="<s>",  # blanks are removed in the network
-            use_sclite=True,
-            time_rqmt=0.2,
-        )
+    for comb_score_version in [2]:
+        for beam_size in [12]:
+            for scale in [(0.3, 1.0)]:
+                if isinstance(scale, tuple):
+                    att_scale, ctc_scale = scale
+                else:
+                    assert isinstance(scale, float)
+                    att_scale = scale
+                    ctc_scale = 1.0 - scale
+
+                exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}_combScoreV{comb_score_version}"
+                joint_decode_args = {
+                    "att_scale": att_scale,
+                    "ctc_scale": ctc_scale,
+                    "check_repeat_version": 1,
+                    "beam_size": beam_size,
+                    "comb_score_version": comb_score_version,
+                }
+                if comb_score_version == 3:
+                    joint_decode_args["in_scale"] = True
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args={
+                        "joint_ctc_att_decode_args": joint_decode_args,
+                        "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
+                        **oclr_args,
+                    },
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )
+
+    def debug(name, search_bpe_path):
+        from i6_core.returnn.search import SearchRemoveLabelJob
+        from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
+        import sisyphus.toolkit as tk
+
+        assert isinstance(search_bpe_path, str)
+        search_bpe_path = tk.Path(search_bpe_path)
+        recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
+        search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
+        search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
+        tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
+        wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
+        tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
+
+    debug("v1", "/u/zeineldeen/debugging/trigg_att/v1.txt")

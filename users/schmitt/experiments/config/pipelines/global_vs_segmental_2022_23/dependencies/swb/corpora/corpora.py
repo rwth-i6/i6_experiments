@@ -40,6 +40,14 @@ class SWBCorpora:
   raw_audio_paths["cv_test"] = raw_audio_paths["train"]
   raw_audio_paths["dev400"] = raw_audio_paths["dev"]
 
+  # these seqs do not exist in the OggZipDataset which Mohammad provided
+  # (/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.tSpSJCnE1d2G/output/out.ogg.zip)
+  raw_audio_excluded_train_seqs = [
+    "switchboard-1/sw03266B/sw3266B-ms98-a-0055",
+    "switchboard-1/sw04118A/sw4118A-ms98-a-0045",
+    "switchboard-1/sw02986A/sw2986A-ms98-a-0013"
+  ]
+
   segment_paths = {
     "dev": SegmentCorpusJob(corpus_paths["dev"], 1).out_single_segment_files[1],
     "hub5e_01": SegmentCorpusJob(corpus_paths["hub5e_01"], 1).out_single_segment_files[1],

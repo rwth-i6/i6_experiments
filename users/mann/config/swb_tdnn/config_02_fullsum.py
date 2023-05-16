@@ -79,6 +79,7 @@ swb_system.init_dump_system(
 
 baseline_tdnn = make_baseline(num_input=40, adam=True)
 
+swb_system.prior_system.lemma_end_probability = 1/4
 baseline_bw_tdnn = swb_system.baselines["bw_tina_swb"](baseline_tdnn)
 assert isinstance(baseline_bw_tdnn, bw.ScaleConfig), "Did you forget to set the scale config?"
 baseline_bw_tdnn.tdp_scale = 0.05
@@ -295,3 +296,27 @@ ts.tune_parameter(
     reestimate_prior="transcription",
     dump_epochs=[4, 8, 12],
 )
+
+
+# ts.tune_parameter(
+#     name="baseline_downsampled_bw.1s.drate",
+#     crnn_config=baseline_bw_tdnn,
+#     parameters=DRATES,
+#     transformation=set_downsampled_bw_training,
+#     training_args={
+#         "num_classes": None,
+#         "alignment": None
+#     },
+#     recognition_args={
+#         **RECOG_ARGS,
+#     },
+#     fast_bw_args={
+#         "acoustic_model_extra_config": tdp_model.to_acoustic_model_config(),
+#         "fix_tdp_leaving_eps_arc": True,
+#         "normalize_lemma_sequence_scores": False,
+#     },
+#     epochs=[12, 24, 48, 120, 240, 300, 320],
+#     scorer_args={"prior_mixtures": None},
+#     reestimate_prior="transcription",
+#     dump_epochs=[4, 8, 12],
+# )

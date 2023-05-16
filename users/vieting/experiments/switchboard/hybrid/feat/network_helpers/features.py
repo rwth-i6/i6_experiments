@@ -16,13 +16,99 @@ class NetworkDict:
       "trainable": self._trainable}
 
 
+class PreemphasisNetwork(NetworkDict):
+  def __init__(self, alpha, output_name="output"):
+    """
+    Network for preemphasis of audio signal
+    """
+    self._network = {
+      "shift_0": {"axis": "T", "class": "slice", "slice_end": -1},
+      "shift_0_mul": {"class": "eval", "from": "shift_0", "eval": f"source(0) * {alpha}"},
+      "shift_1_raw": {"axis": "T", "class": "slice", "slice_start": 1},
+      "shift_1": {
+        "class": "reinterpret_data",
+        "enforce_batch_major": True,
+        "from": ["shift_1_raw"],
+        "set_axes": {"T": "time"},
+        "size_base": "shift_0",
+      },
+      output_name: {"class": "combine", "from": ["shift_1", "shift_0"], "kind": "sub"},
+    }
+
+
+class LogMelNetwork(NetworkDict):
+  def __init__(
+          self, output_dims=80, wave_norm=False, frame_size=400, frame_shift=160, fft_size=512, norm=True,
+          output_name="output", **kwargs
+  ):
+    """
+    Log Mel filterbank feature network dict as used by Mohammad
+    """
+    self._network = {}
+    if wave_norm:
+      self._network["wave_norm"] = {"class": "norm", "axes": "T", "from": "data"}
+    self._network.update({
+      "stft": {
+        "class": "stft",
+        "frame_shift": frame_shift,
+        "frame_size": frame_size,
+        "fft_size": fft_size,
+        "from": "wave_norm" if wave_norm else "data",
+      },
+      "abs": {
+        "class": "activation",
+        "from": "stft",
+        "activation": "abs",
+      },
+      "power": {
+        "class": "eval",
+        "from": "abs",
+        "eval": "source(0) ** 2",
+      },
+      "mel_filterbank": {
+        "class": "mel_filterbank",
+        "from": "power",
+        "fft_size": fft_size,
+        "nr_of_filters": output_dims,
+        "n_out": output_dims,
+      },
+      "log": {
+        "from": "mel_filterbank",
+        "class": "activation",
+        "activation": "safe_log",
+        "opts": {"eps": 1e-10},
+      },
+      "log10": {
+        "from": "log",
+        "class": "eval",
+        "eval": "source(0) / 2.3026"
+      },
+      output_name: {
+        "class": "copy",
+        "from": "log10",
+      }
+    })
+    if norm:
+      self._network[output_name] = {
+        "class": "batch_norm",
+        "from": "log10",
+        "momentum": 0.01,
+        "epsilon": 0.001,
+        "update_sample_only_in_training": True,
+        "delay_sample_update": True,
+      }
+
+
 class GammatoneNetwork(NetworkDict):
   """
   Wrapper class for subnetwork that extracts gammatone features
   """
-  def __init__(self, output_dim=50, sample_rate=16000, gt_filterbank_size=0.04, gt_filterbank_padding="valid",
+  def __init__(
+    self, output_dim=50, sample_rate=16000, freq_max=7500., freq_min=100.,
+    gt_filterbank_size=0.04, gt_filterbank_padding="valid",
     temporal_integration_size=0.025, temporal_integration_strides=None, temporal_integration_padding="valid",
-    normalization="time", trainable=False, **kwargs):
+    normalization="time", trainable=False, **kwargs
+  ):
     """
     :param int output_dim: gammatone feature output dimension
     :param int|float sample_rate: sampling rate of input waveform
@@ -39,6 +125,7 @@ class GammatoneNetwork(NetworkDict):
     """
     assert gt_filterbank_padding in ["valid", "same"] or isinstance(gt_filterbank_padding, int), "Unknown padding"
     assert temporal_integration_padding in ["valid", "same"], "Unknown padding"
+    assert freq_max < sample_rate / 2, "Likely a misconfiguration"
     temporal_integration_size = int(temporal_integration_size * sample_rate)
     temporal_integration_strides = temporal_integration_strides or sample_rate // 100
 
@@ -53,6 +140,8 @@ class GammatoneNetwork(NetworkDict):
           "num_channels": output_dim,
           "length": gt_filterbank_size,
           "sample_rate": sample_rate,
+          "freq_max": freq_max,
+          "freq_min": freq_min,
         },
         "n_out": output_dim,
         "padding": gt_filterbank_padding,

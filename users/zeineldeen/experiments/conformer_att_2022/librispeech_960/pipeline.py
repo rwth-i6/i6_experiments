@@ -2,14 +2,19 @@ from __future__ import annotations
 from typing import Optional, Union, Set
 
 from sisyphus import tk
+import os.path
 
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.training import GetBestTFCheckpointJob
 from i6_core.returnn.training import AverageTFCheckpointsJob
 
+from .default_tools import SCTK_BINARY_PATH
 
-def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168):
+
+def training(
+    prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs, mem_rqmt=15, time_rqmt=168, gpu_mem=None
+):
     """
 
     :param prefix_name:
@@ -27,6 +32,9 @@ def training(prefix_name, returnn_config, returnn_exe, returnn_root, num_epochs,
     }
 
     train_job = ReturnnTrainingJob(returnn_config=returnn_config, num_epochs=num_epochs, **default_rqmt)
+    if gpu_mem:
+        assert gpu_mem in [11, 24]
+        train_job.rqmt["gpu_mem"] = gpu_mem
     train_job.add_alias(prefix_name + "/training")
     tk.register_output(prefix_name + "/learning_rates", train_job.out_learning_rates)
 
@@ -160,10 +168,7 @@ def search_single(
 
         stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-        sclite_job = ScliteJob(
-            ref=stm_file,
-            hyp=search_ctm,
-        )
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
         tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
@@ -186,6 +191,7 @@ def search(
     use_sclite=False,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
+    enable_mail: bool=False,
 ):
     """
 
@@ -221,18 +227,19 @@ def search(
 
     from i6_core.report import GenerateReportStringJob, MailJob
 
-    format_string_report = ",".join(["{%s_val}" % (prefix_name + key) for key in test_dataset_tuples.keys()])
+    format_string_report = ",".join(["{%s_val}" % key for key in test_dataset_tuples.keys()])
     format_string = " - ".join(
-        ["{%s}: {%s_val}" % (prefix_name + key, prefix_name + key) for key in test_dataset_tuples.keys()]
+        ["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()]
     )
     values = {}
     values_report = {}
     for key in test_dataset_tuples.keys():
-        values[prefix_name + key] = key
-        values["%s_val" % (prefix_name + key)] = wers[key]
-        values_report["%s_val" % (prefix_name + key)] = wers[key]
+        values[key] = key
+        values["%s_val" % key] = wers[key]
+        values_report["%s_val" % key] = wers[key]
 
     report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
-    mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-    # tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
+    if enable_mail:
+        mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
+        tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
     return format_string_report, values_report

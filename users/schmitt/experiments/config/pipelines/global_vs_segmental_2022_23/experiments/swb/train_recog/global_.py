@@ -23,13 +23,22 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
 
     self.dependencies = dependencies
 
-  def run_training(self, import_model_train_epoch1: Optional[Checkpoint], train_alias: str) -> Dict[int, Checkpoint]:
+    self.base_alias = self._get_base_alias(base_alias=self.base_alias)
+
+  def run_training(
+          self,
+          import_model_train_epoch1: Optional[Checkpoint],
+          train_alias: str,
+          initial_lr: Optional[float] = None,
+  ) -> Tuple[Dict[int, Checkpoint], Path]:
     return GlobalTrainExperiment(
       dependencies=self.dependencies,
       variant_params=self.variant_params,
       num_epochs=self.num_epochs,
       base_alias=self.base_alias,
-      import_model_train_epoch1=import_model_train_epoch1).run_training()
+      import_model_train_epoch1=import_model_train_epoch1,
+      initial_lr=initial_lr
+    ).run_training()
 
   def run_recog(self, checkpoints: Dict[int, Checkpoint]):
     for i, (epoch, checkpoint) in enumerate(checkpoints.items()):
@@ -48,10 +57,10 @@ class GlobalTrainRecogPipeline(TrainRecogPipeline):
 
   def run(self):
     train_alias = "train"
-    self.checkpoints["train"] = self.run_training(
+    self.checkpoints["train"], lr_file_path = self.run_training(
       import_model_train_epoch1=self.import_model_train_epoch1,
-      initial_lr=self.import_model_train_epoch1_initial_lr if self.,
       train_alias=train_alias,
+      initial_lr=self.import_model_train_epoch1_initial_lr
     )
     if self.do_recog:
       self.run_recog(checkpoints=self.checkpoints["train"])

@@ -2,12 +2,14 @@
 """
 
 from __future__ import annotations
-from typing import Optional, Any, Tuple, Dict, Sequence
+
+from typing import Optional, Any, Tuple, Dict, Sequence, List
 import numpy
+import sys
 
 from sisyphus import tk
 
-from returnn.tensor import Tensor, Dim, batch_dim, single_step_dim
+from returnn.tensor import Tensor, Dim, TensorDict, batch_dim, single_step_dim
 import returnn.frontend as rf
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
@@ -78,11 +80,13 @@ class MakeModel:
                     learnable_pos_emb=True,
                     separate_pos_emb_per_head=False,
                 ),
+                ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
             nb_target_dim=target_dim,
             wb_target_dim=target_dim + 1,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
+            eos_idx=_get_eos_idx(target_dim),
         )
 
 
@@ -298,8 +302,8 @@ def _convert_tf_lstm_to_native_lstm_ff(old_w_ff_re: numpy.ndarray) -> numpy.ndar
     n_in = old_w_ff_re.shape[0] - n_out
     old_w_ff, _ = numpy.split(old_w_ff_re, [n_in], axis=0)  # (in_dim,4*dim)
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_w_ff_i, old_w_ff_j, old_w_ff_f, old_w_ff_o = numpy.split(old_w_ff, 4, axis=1)
     new_w_ff = numpy.concatenate([old_w_ff_j, old_w_ff_i, old_w_ff_f, old_w_ff_o], axis=1)  # (in_dim,4*dim)
     new_w_ff = new_w_ff.transpose()  # (4*dim,in_dim)
@@ -317,8 +321,8 @@ def _convert_tf_lstm_to_native_lstm_rec(old_w_ff_re: numpy.ndarray) -> numpy.nda
     n_in = old_w_ff_re.shape[0] - n_out
     _, old_w_rec = numpy.split(old_w_ff_re, [n_in], axis=0)  # (dim,4*dim)
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_w_rec_i, old_w_rec_j, old_w_rec_f, old_w_rec_o = numpy.split(old_w_rec, 4, axis=1)
     new_w_rec = numpy.concatenate([old_w_rec_j, old_w_rec_i, old_w_rec_f, old_w_rec_o], axis=1)  # (dim,4*dim)
     new_w_rec = new_w_rec.transpose()  # (4*dim,dim)
@@ -333,8 +337,8 @@ def _convert_tf_lstm_to_native_lstm_bias(old_bias: numpy.ndarray, *, forget_gate
     assert old_bias.shape[0] % 4 == 0
     n_out = old_bias.shape[0] // 4
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
-    # BasicLSTM: i, j, f, o; Input: [inputs, h]
-    # NativeLstm2: j, i, f, o
+    # BasicLSTM: ijfo; Input: [inputs, h]
+    # NativeLstm2: jifo
     old_bias_i, old_bias_j, old_bias_f, old_bias_o = numpy.split(old_bias, 4, axis=0)
     old_bias_f += forget_gate_bias
     new_bias = numpy.concatenate([old_bias_j, old_bias_i, old_bias_f, old_bias_o], axis=0)  # (4*dim,)
@@ -343,25 +347,35 @@ def _convert_tf_lstm_to_native_lstm_bias(old_bias: numpy.ndarray, *, forget_gate
 
 # See comment below, use `py = test_import` to easily run this.
 def test_import():
+    from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
+    from pprint import pprint
+
     # Pick some layers to check outputs for equality.
+    # See the func tracing logic below, entries in captured_tensors.
+    # RETURNN layer name -> trace point in RF/PT model forwarding.
     _layer_mapping = {
-        "source_linear": "encoder/input_projection",
-        "conformer_block_01_ffmod_1_drop2": "encoder/layers/0/ffn1",
-        "conformer_block_01_ffmod_1_res": "encoder/layers/0/add",
-        "conformer_block_01_self_att_res": "encoder/layers/0/add_0",
-        "conformer_block_01_conv_mod_ln": "encoder/layers/0/conv_layer_norm",
-        "conformer_block_01_conv_mod_glu": "encoder/layers/0/conv_block/gating",
-        "conformer_block_01_conv_mod_depthwise_conv2": "encoder/layers/0/conv_block/depthwise_conv",
-        "conformer_block_01_conv_mod_bn": "encoder/layers/0/conv_block/norm",
-        "conformer_block_01_conv_mod_pointwise_conv2": "encoder/layers/0/conv_block",
-        "conformer_block_01_conv_mod_res": "encoder/layers/0/add_1",
-        "conformer_block_01_ffmod_2_ln": "encoder/layers/0/ffn2_layer_norm",
-        "conformer_block_01_ffmod_2_ff1": "encoder/layers/0/ffn2/linear_ff",
-        # "conformer_block_01_ffmod_2_square_relu": "encoder/layers/0/ffn2/swish",
-        "conformer_block_01_ffmod_2_drop2": "encoder/layers/0/ffn2",
-        "conformer_block_01_ffmod_2_res": "encoder/layers/0/add_2",
-        "conformer_block_01": "encoder/layers/0",
-        "encoder": "encoder",
+        "source": (Model.encode, 0, "source", -1),
+        "conv_merged": (ConformerEncoder.__call__, 0, "x_subsample", 0),
+        "source_linear": (ConformerEncoder.__call__, 0, "x_linear", 0),
+        "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
+        "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
+        "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
+        "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
+        "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
+        "conformer_block_01": (ConformerEncoderLayer.__call__, 1, "inp", 0),
+        "encoder": (Model.encode, 0, "enc", 0),
+        "inv_fertility": (Model.encode, 0, "inv_fertility", 0),
+        "enc_ctx": (Model.encode, 0, "enc_ctx", 0),
+        "output/prev:target_embed": (from_scratch_training, 0, "input_embeddings", -1),
+        # Note: Some of these commented-out checks are not available anymore because we cleaned up the code.
+        # If we want to test this again, we need to re-add the corresponding locals and outputs from rf.scan.
+        # "output/weight_feedback": (from_scratch_training, 0, "weight_feedback", 0),
+        "output/s": (Model.decode_logits, 0, "s", 0),
+        # "output/s_transformed": (from_scratch_training, 0, "s_transformed", 0),
+        # "output/energy": (from_scratch_training, 0, "energy", 0),
+        # "output/att_weights": (from_scratch_training, 0, "att_weights", 0),
+        "output/att": (Model.decode_logits, 0, "att", 0),
+        "output/output_prob": (from_scratch_training, 0, "logits", 0),
     }
 
     from i6_experiments.common.setups.returnn_common import serialization
@@ -371,11 +385,21 @@ def test_import():
     from returnn.datasets.util.vocabulary import Vocabulary
 
     in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
-    time_dim = Dim(name="time", dimension=None, kind=Dim.Types.Spatial)
+    time_dim = Dim(
+        name="time",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
+    )
     target_dim = Dim(name="target", dimension=1030, kind=Dim.Types.Feature)
     target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
     data = Tensor("data", dim_tags=[batch_dim, time_dim])
-    target_spatial_dim = Dim(name="target_spatial", dimension=None, kind=Dim.Types.Spatial)
+    target_spatial_dim = Dim(
+        name="target_spatial",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
+    )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
     from ._moh_att_2023_04_24_BxqgICRSGkgb import net_dict
@@ -395,6 +419,8 @@ def test_import():
         )
     )
 
+    from returnn.tensor.utils import tensor_dict_fill_random_numpy_
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
     from returnn.tf.network import TFNetwork
     import tensorflow as tf
     import numpy.testing
@@ -406,11 +432,13 @@ def test_import():
     atexit.register(lambda: shutil.rmtree(ckpt_dir))
 
     print("*** Construct TF graph for old model")
-    n_batch = 3
-    n_time = 1231  # raw sample level
-    x_sizes = [n_time, n_time - 100, n_time - 200]
-    rnd = numpy.random.RandomState(42)
-    x_np = rnd.rand(n_batch, n_time).astype("float32")
+    extern_data = TensorDict()
+    extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
+    tensor_dict_fill_random_numpy_(
+        extern_data, dyn_dim_max_sizes={time_dim: 2000}, dyn_dim_min_sizes={time_dim: 1000}
+    )  # raw sample level
+    extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
+    extern_data.reset_content()
 
     tf1 = tf.compat.v1
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
@@ -423,8 +451,9 @@ def test_import():
 
         print("*** Forwarding ...")
 
-        x = net.extern_data.data["audio_features"]
-        feed_dict = {x.placeholder: x_np, x.size_placeholder[0]: x_sizes}
+        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
+        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
+        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
         fetches = net.get_fetches_dict()
         old_model_outputs_data = {}
         for old_layer_name, _ in _layer_mapping.items():
@@ -433,7 +462,9 @@ def test_import():
             old_model_outputs_data[old_layer_name] = out
             fetches["layer:" + old_layer_name] = out.placeholder
             for i, tag in enumerate(out.dim_tags):
-                if tag.dyn_size_ext:
+                if tag.is_batch_dim():
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
+                elif tag.dyn_size_ext:
                     old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
                     fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
@@ -458,13 +489,10 @@ def test_import():
     print("*** Create new model")
     new_model = _make_new_model()
 
-    batch_dim.dyn_size_ext = rf.convert_to_tensor(n_batch, dims=())
-    batch_dim.batch = None
-    time_dim.dyn_size_ext = rf.convert_to_tensor(numpy.array(x_sizes), dims=[batch_dim])
-    time_dim.batch = None
-    x = rf.convert_to_tensor(x_np, dims=[batch_dim, time_dim])
-    y = new_model.encode(x, in_spatial_dim=time_dim)[0]["enc"]
-    y.mark_as_default_output()
+    rf.init_train_step_run_ctx(train_flag=False)
+    extern_data.reset_content()
+    extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
+    tensor_dict_numpy_to_torch_(extern_data)
 
     import torch
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
@@ -474,41 +502,134 @@ def test_import():
     checkpoint_state = torch.load(ckpt_dir + "/new_model/model.pt")
     pt_module.load_state_dict(checkpoint_state["model"])
 
-    print("*** Forwarding ...")
-    fetches = {}
-    for old_layer_name, new_layer_name in _layer_mapping.items():
-        layer = net.get_layer(new_layer_name)
-        old_out = old_model_outputs_data[old_layer_name]
-        assert old_out.batch_ndim == layer.output.batch_ndim
-        mapped_axes = layer.output.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
-        out = layer.output.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
-        fetches["layer:" + old_layer_name] = out.placeholder
-        for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext:
-                old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
-                fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
-    new_model_outputs_fetch = fetches  # TODO?
+    print("*** Forwarding with tracing ...")
 
-    for old_layer_name, new_layer_name in _layer_mapping.items():
-        out = old_model_outputs_data[old_layer_name]
+    funcs_to_trace_list = [
+        Model.encode,
+        Model.decode_logits,
+        ConformerEncoder.__call__,
+        ConformerEncoderLayer.__call__,
+        ConformerConvSubsample.__call__,
+        from_scratch_training,
+    ]
+    code_obj_to_func = {func.__code__: func for func in funcs_to_trace_list}
+    captured_tensors = {}  # func -> (list of calls) -> tensor local name -> (list of versions) -> tensor
+
+    def _trace_func(frame, event, arg):
+        """
+        Trace func to get intermediate outputs.
+        """
+        func = code_obj_to_func.get(frame.f_code)
+        if func:
+            if event == "call":
+                captured_tensors.setdefault(func, []).append({})
+            else:
+                for k, v in frame.f_locals.items():
+                    if not isinstance(v, Tensor):
+                        continue
+                    prev = captured_tensors[func][-1].get(k, None)
+                    if prev is None or prev[-1] is not v:
+                        print(f"{func.__qualname__} tensor var changed: {k} = {v}")
+                        captured_tensors[func][-1].setdefault(k, []).append(v)
+            return _trace_func
+
+    sys.settrace(_trace_func)
+    from_scratch_training(
+        model=new_model,
+        data=extern_data["audio_features"],
+        data_spatial_dim=time_dim,
+        targets=extern_data["bpe_labels"],
+        targets_spatial_dim=target_spatial_dim,
+    )
+    sys.settrace(None)
+    pprint(captured_tensors)
+
+    print("*** Getting values from trace ...")
+    fetches = {}
+    for old_layer_name, new_var_path in _layer_mapping.items():
+        new_out = captured_tensors
+        try:
+            for k in new_var_path:
+                new_out = new_out[k]
+        except KeyError as exc:
+            raise Exception(f"{exc.__class__.__name__} {exc}, new_var_path: {new_var_path}")
+        assert isinstance(new_out, Tensor), f"new_out: {new_out}, new_var_path: {new_var_path}"
+        old_out = old_model_outputs_data[old_layer_name]
+        assert old_out.batch_ndim == new_out.batch_ndim
+        mapped_axes = new_out.find_matching_dim_map(old_out, list(range(old_out.batch_ndim)))
+        out = new_out.copy_transpose([mapped_axes[i] for i in range(old_out.batch_ndim)])
+        fetches["layer:" + old_layer_name] = out.raw_tensor
         for i, tag in enumerate(out.dim_tags):
             if tag.dyn_size_ext:
-                old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                numpy.testing.assert_equal(old_v, new_v, err_msg=f"{tag} mismatch")
-        old_v = old_model_outputs_fetch["layer:" + old_layer_name]
-        new_v = new_model_outputs_fetch["layer:" + old_layer_name]
-        for i, tag in enumerate(out.dim_tags):
-            if tag.dyn_size_ext:
-                assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
-                assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
-                size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
-                for b in range(old_v.shape[0]):
-                    idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
-                    old_v[idx] = 0
-                    new_v[idx] = 0
-        print("* Comparing", old_layer_name, "vs", new_layer_name)
-        numpy.testing.assert_almost_equal(old_v, new_v, decimal=5)
+                fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.raw_tensor
+    fetches = {k: v.detach().cpu().numpy() for (k, v) in fetches.items()}
+    new_model_outputs_fetch = fetches
+
+    print("*** Comparing ...")
+    print("**** target spatial len:", extern_data_numpy_raw_dict["bpe_labels"].shape[1])
+    for out_step in range(extern_data_numpy_raw_dict["bpe_labels"].shape[1]):
+        for old_layer_name, new_var_path in _layer_mapping.items():
+            out = old_model_outputs_data[old_layer_name]
+            if out_step > 0 and target_spatial_dim not in out.dim_tags:
+                continue
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext:
+                    old_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    new_v = new_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    numpy.testing.assert_equal(old_v, new_v, err_msg=f"{tag} mismatch")
+            old_v = old_model_outputs_fetch["layer:" + old_layer_name]
+            new_v = new_model_outputs_fetch["layer:" + old_layer_name]
+            for i, tag in enumerate(out.dim_tags):
+                if tag.dyn_size_ext and tag.dyn_size_ext.dim_tags:  # dynamic, and not scalar dyn sizes
+                    assert tag.dyn_size_ext.dim_tags == (batch_dim,)  # not implemented otherwise
+                    assert out.batch_dim_axis == 0  # not implemented otherwise but should be ensured above
+                    size_v = old_model_outputs_fetch[f"layer:{old_layer_name}:size{i}"]
+                    for b in range(old_v.shape[0]):
+                        idx = tuple([slice(b, b + 1)] + [slice(None, None)] * (i - 1) + [slice(size_v[b], None)])
+                        old_v[idx] = 0
+                        new_v[idx] = 0
+            print(f"* Comparing {out}: {old_layer_name!r} vs {new_var_path!r}")
+            assert old_v.shape == new_v.shape
+            if target_spatial_dim in out.dim_tags:
+                assert out.get_axis_from_description(target_spatial_dim) == 1  # not implemented otherwise
+                out = out.copy_template_excluding_axis(1)
+                print("** comparing out_step", out_step, out)
+                old_v = old_v[:, out_step]
+                new_v = new_v[:, out_step]
+            # Using equal_nan=False because we do not want any nan in any of the values.
+            rtol, atol = 1e-5, 1e-5
+            if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
+                continue
+            print("** not all close. close:")
+            # Iterate over all indices, and check if the values are close.
+            # If not, add the index to the mismatches list.
+            remarks = []
+            count_mismatches = 0
+            for idx in sorted(numpy.ndindex(old_v.shape), key=sum):
+                if numpy.isnan(old_v[idx]) and numpy.isnan(new_v[idx]):
+                    remarks.append("[%s]:? (both are nan)" % ",".join([str(i) for i in idx]))
+                    count_mismatches += 1
+                    continue
+                close = numpy.allclose(old_v[idx], new_v[idx], rtol=rtol, atol=atol)
+                if not close:
+                    count_mismatches += 1
+                remarks.append(
+                    "[%s]:" % ",".join([str(i) for i in idx])
+                    + ("✓" if close else "✗ (%.5f diff)" % abs(old_v[idx] - new_v[idx]))
+                )
+                if len(remarks) >= 50 and count_mismatches > 0:
+                    remarks.append("...")
+                    break
+            print("\n".join(remarks))
+            numpy.testing.assert_allclose(
+                old_v,
+                new_v,
+                rtol=rtol,
+                atol=atol,
+                equal_nan=False,
+                err_msg=f"{old_layer_name!r} vs {new_var_path!r} mismatch",
+            )
+            raise Exception(f"should not get here, mismatches: {remarks}")
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
@@ -531,6 +652,7 @@ class Model(rf.Module):
         nb_target_dim: Dim,
         wb_target_dim: Dim,
         blank_idx: int,
+        eos_idx: int,
         bos_idx: int,
         enc_model_dim: Dim = Dim(name="enc", dimension=512),
         enc_ff_dim: Dim = Dim(name="enc-ff", dimension=2048),
@@ -566,6 +688,7 @@ class Model(rf.Module):
         self.nb_target_dim = nb_target_dim
         self.wb_target_dim = wb_target_dim
         self.blank_idx = blank_idx
+        self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
 
         self.enc_key_total_dim = enc_key_total_dim
@@ -583,12 +706,16 @@ class Model(rf.Module):
 
         self.target_embed = rf.Embedding(nb_target_dim, Dim(name="target_embed", dimension=640))
 
-        self.s = rf.LSTM(
+        self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
             Dim(name="lstm", dimension=1024),
-            # TODO
-            # zoneout_factor_cell=0.15,
-            # zoneout_factor_output=0.05,
+            zoneout_factor_cell=0.15,
+            zoneout_factor_output=0.05,
+            use_zoneout_output=False,  # like RETURNN/TF ZoneoutLSTM old default
+            # parts_order="icfo",  # like RETURNN/TF ZoneoutLSTM
+            # parts_order="ifco",
+            parts_order="jifo",  # NativeLSTM (the code above converts it...)
+            forget_bias=0.0,  # the code above already adds it during conversion
         )
 
         self.weight_feedback = rf.Linear(att_num_heads, enc_key_total_dim, with_bias=False)
@@ -622,7 +749,7 @@ class Model(rf.Module):
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
-        inv_fertility = self.inv_fertility(enc)
+        inv_fertility = rf.sigmoid(self.inv_fertility(enc))
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
 
     @staticmethod
@@ -637,24 +764,39 @@ class Model(rf.Module):
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
         """Default initial state"""
-        return rf.State(
+        state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
             accum_att_weights=rf.zeros(list(batch_dims) + [enc_spatial_dim, self.att_num_heads]),
         )
+        state.att.feature_dim_axis = len(state.att.dims) - 1
+        return state
 
-    def decode(
+    def loop_step_output_templates(self, batch_dims: List[Dim]) -> Dict[str, Tensor]:
+        """loop step out"""
+        return {
+            "s": Tensor(
+                "s", dims=batch_dims + [self.s.out_dim], dtype=rf.get_default_float_dtype(), feature_dim_axis=-1
+            ),
+            "att": Tensor(
+                "att",
+                dims=batch_dims + [self.att_num_heads * self.encoder.out_dim],
+                dtype=rf.get_default_float_dtype(),
+                feature_dim_axis=-1,
+            ),
+        }
+
+    def loop_step(
         self,
         *,
         enc: rf.Tensor,
         enc_ctx: rf.Tensor,
         inv_fertility: rf.Tensor,
         enc_spatial_dim: Dim,
-        prev_nb_target: Optional[rf.Tensor] = None,  # non-blank
-        prev_nb_target_spatial_dim: Optional[Dim] = None,
+        input_embed: rf.Tensor,
         state: Optional[rf.State] = None,
-    ) -> Tuple[rf.Tensor, rf.State]:
-        """decoder step, or operating on full seq. output logits + state"""
+    ) -> Tuple[Dict[str, rf.Tensor], rf.State]:
+        """step of the inner loop"""
         if state is None:
             batch_dims = enc.remaining_dims(
                 remove=(enc.feature_dim, enc_spatial_dim) if enc_spatial_dim != single_step_dim else (enc.feature_dim,)
@@ -662,12 +804,9 @@ class Model(rf.Module):
             state = self.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
         state_ = rf.State()
 
-        prev_target_embed = self.target_embed(prev_nb_target)
         prev_att = state.att
 
-        s, state_.s = self.s(
-            rf.concat_features(prev_target_embed, prev_att), spatial_dim=prev_nb_target_spatial_dim, state=state.s
-        )
+        s, state_.s = self.s(rf.concat_features(input_embed, prev_att), state=state.s, spatial_dim=single_step_dim)
 
         weight_feedback = self.weight_feedback(state.accum_att_weights)
         s_transformed = self.s_transformed(s)
@@ -675,16 +814,20 @@ class Model(rf.Module):
         energy = self.energy(rf.tanh(energy_in))
         att_weights = rf.softmax(energy, axis=enc_spatial_dim)
         state_.accum_att_weights = state.accum_att_weights + att_weights * inv_fertility * 0.5
-        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim)
+        att0 = rf.dot(att_weights, enc, reduce=enc_spatial_dim, use_mask=False)
+        att0.feature_dim = self.encoder.out_dim
         att, _ = rf.merge_dims(att0, dims=(self.att_num_heads, self.encoder.out_dim))
         state_.att = att
 
-        readout_in = self.readout_in(rf.concat_features(s, prev_target_embed, att))
-        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2)
+        return {"s": s, "att": att}, state_
+
+    def decode_logits(self, *, s: Tensor, input_embed: Tensor, att: Tensor) -> Tensor:
+        """logits for the decoder"""
+        readout_in = self.readout_in(rf.concat_features(s, input_embed, att))
+        readout = rf.reduce_out(readout_in, mode="max", num_pieces=2, out_dim=self.output_prob.in_dim)
         readout = rf.dropout(readout, drop_prob=0.3, axis=readout.feature_dim)
         logits = self.output_prob(readout)
-
-        return logits, state_
+        return logits
 
 
 def _get_bos_idx(target_dim: Dim) -> int:
@@ -701,6 +844,16 @@ def _get_bos_idx(target_dim: Dim) -> int:
     return bos_idx
 
 
+def _get_eos_idx(target_dim: Dim) -> int:
+    """for non-blank labels"""
+    assert target_dim.vocab
+    if target_dim.vocab.eos_label_id is not None:
+        eos_idx = target_dim.vocab.eos_label_id
+    else:
+        raise Exception(f"cannot determine eos_idx from vocab {target_dim.vocab}")
+    return eos_idx
+
+
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
     epoch  # noqa
@@ -715,27 +868,39 @@ def from_scratch_training(
     *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
+    assert not data.feature_dim  # raw samples
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
-    prev_targets, prev_targets_spatial_dim = rf.prev_target_seq(
-        targets, spatial_dim=targets_spatial_dim, bos_idx=model.bos_idx, out_one_longer=True
+
+    batch_dims = data.remaining_dims(data_spatial_dim)
+    input_embeddings = model.target_embed(targets)
+    input_embeddings = rf.shift_right(input_embeddings, axis=targets_spatial_dim, pad_value=0.0)
+
+    def _body(input_embed: Tensor, state: rf.State):
+        new_state = rf.State()
+        loop_out_, new_state.decoder = model.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        return loop_out_, new_state
+
+    loop_out, _, _ = rf.scan(
+        spatial_dim=targets_spatial_dim,
+        xs=input_embeddings,
+        ys=model.loop_step_output_templates(batch_dims=batch_dims),
+        initial=rf.State(
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+        ),
+        body=_body,
     )
-    probs, _ = model.decode(
-        **enc_args,
-        enc_spatial_dim=enc_spatial_dim,
-        all_combinations_out=True,
-        prev_nb_target=prev_targets,
-        prev_nb_target_spatial_dim=prev_targets_spatial_dim,
-    )
-    out_log_prob = probs.get_wb_label_log_probs()
-    loss = rf.transducer_time_sync_full_sum_neg_log_prob(
-        log_probs=out_log_prob,
-        labels=targets,
-        input_spatial_dim=enc_spatial_dim,
-        labels_spatial_dim=targets_spatial_dim,
-        prev_labels_spatial_dim=prev_targets_spatial_dim,
-        blank_index=model.blank_idx,
-    )
-    loss.mark_as_loss("full_sum")
+
+    logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+
+    log_prob = rf.log_softmax(logits, axis=model.nb_target_dim)
+    # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
+    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.nb_target_dim)
+    loss.mark_as_loss("ce")
 
 
 from_scratch_training: TrainDef[Model]
@@ -762,29 +927,50 @@ def model_recog(
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
-    loop = rf.Loop(axis=enc_spatial_dim)  # time-sync transducer
-    loop.max_seq_len = rf.dim_value(enc_spatial_dim) * 2
-    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims)
-    loop.state.target = rf.constant(model.blank_idx, shape=batch_dims, sparse_dim=model.wb_target_dim)
-    with loop:
-        enc = model.encoder_unstack(enc_args)
-        probs, loop.state.decoder = model.decode(
-            **enc,
-            enc_spatial_dim=single_step_dim,
-            wb_target_spatial_dim=single_step_dim,
-            prev_wb_target=loop.state.target,
-            state=loop.state.decoder,
-        )
-        log_prob = probs.get_wb_label_log_probs()
-        loop.state.target = rf.choice(
-            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
-        )
-        res = loop.stack(loop.state.target)
+    # TODO add beam dim to batch_dims?
+    # TODO have one beam dim shared for all steps, or one per step?
+    #   The latter case (one per step) is straightforward for eager mode,
+    #     but how would it work for graph-mode? Extra support in rf.while_loop or rf.scan?
+    #   The first case, how to handle diff beam sizes per step? Would lead to ugly complicated logic?
+    # TODO how to rf.scan over this with beam dim, in both of these cases?
+    initial_beam_dim = Dim(1, name="initial-beam")
 
-    assert model.blank_idx == targets_dim.dimension  # added at the end
-    res.feature_dim.vocab = rf.Vocabulary.create_vocab_from_labels(
-        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx}
+    def _cond(_, state: rf.State) -> Tensor:
+        return state.target == model.eos_idx
+
+    def _body(_, state: rf.State):
+        input_embed = model.target_embed(state.target)
+        new_state = rf.State()
+        step_out, new_state.decoder = model.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        logits = model.decode_logits(input_embed=input_embed, **step_out)
+
+        # TODO now top_k
+        labels, backref = rf.top_k(...)  # TODO
+
+        # TODO length norm
+
+        return labels, new_state
+
+    res, _, _ = rf.scan(
+        ys=Tensor(...),  # TODO
+        initial=rf.State(
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+            target=rf.constant(model.bos_idx, dims=batch_dims, sparse_dim=model.nb_target_dim),
+        ),
+        body=_body,
+        cond=_cond,
+        cond_dims=batch_dims,
+        cond_before_body=False,
+        max_seq_len=enc_spatial_dim.get_dim_value_tensor() * 2,
     )
+
+    # TODO now resolve beam, backtrack...
+
     return res
 
 

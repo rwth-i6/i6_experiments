@@ -6,9 +6,18 @@ from .pretrain import remove_pretrain
 
 from typing import Union, Tuple
 
-def set_preload(system, config: returnn.ReturnnConfig, base_training: tuple, del_pretrain: bool=False):
-    nn_name, nn_epoch = base_training
-    checkpoint = system.nn_checkpoints['train'][nn_name][nn_epoch]
+def set_preload(
+    system,
+    config: returnn.ReturnnConfig,
+    base_training: tuple,
+    del_pretrain: bool = False,
+    legacy_preload_fmt: bool = True,
+):
+    if len(base_training) == 2:
+        base_training = ("train",) + base_training
+    train_corpus, nn_name, nn_epoch = base_training
+    checkpoint = system.nn_checkpoints[train_corpus][nn_name][nn_epoch]
+    model_name = nn_name if legacy_preload_fmt else 0
     config.config['preload_from_files'] = {
         nn_name : {
             'filename': checkpoint,

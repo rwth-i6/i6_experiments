@@ -444,7 +444,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 160
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling"] = False
+        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -534,7 +534,7 @@ def conformer_baseline():
         mini_self_att["batch_size"] = 20000 * 160  # TODO: does this fit now?
         mini_self_att["with_pretrain"] = False
         mini_self_att["lr"] = lr
-        mini_self_att["allow_lr_scheduling"] = False
+        mini_self_att["allow_lr_scheduling_for_retrain"] = False
         mini_self_att["encoder_args"].with_ctc = False
         # mini_self_att['keep_all_epochs'] = True  # keep everything
         mini_self_att["extra_str"] = params_freeze_str

@@ -17,9 +17,10 @@ from i6_experiments.users.vieting.tools.conda import InstallMinicondaJob, Create
 
 # RASR_BINARY_PATH = None
 # RASR_BINARY_PATH = compile_rasr_binaries_i6mode(commit="907eec4f4e36c11153f6ab6b5dd7675116f909f6")  # use tested RASR
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
-    commit="d506533105e636bf3df37dffbe41d84c248d0a5a"
-)  #  use most recent RASR
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
+#     commit="d506533105e636bf3df37dffbe41d84c248d0a5a"
+# )  #  use most recent RASR
+RASR_BINARY_PATH = tk.Path("/work/asr4/vieting/programs/rasr/20230505/rasr/arch/linux-x86_64-standard")
 assert (
     RASR_BINARY_PATH
 ), "Please set a specific RASR_BINARY_PATH before running the pipeline"

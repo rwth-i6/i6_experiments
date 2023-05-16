@@ -2795,6 +2795,7 @@ net_dict = {
                 "from": "s",
                 "n_out": 1024,
                 "L2": 0.0001,
+                "is_output_layer": True,  # for comparison
             },
             "accum_att_weights": {
                 "class": "eval",
@@ -2808,6 +2809,7 @@ net_dict = {
                 "with_bias": False,
                 "from": "prev:accum_att_weights",
                 "n_out": 1024,
+                "is_output_layer": True,  # for comparison
             },
             "energy_in": {
                 "class": "combine",
@@ -2827,14 +2829,24 @@ net_dict = {
                 "from": "energy_tanh",
                 "n_out": 1,
                 "L2": 0.0001,
+                "is_output_layer": True,  # for comparison
             },
-            "att_weights": {"class": "softmax_over_spatial", "from": "energy"},
+            "att_weights": {
+                "class": "softmax_over_spatial",
+                "from": "energy",
+                "is_output_layer": True,  # for comparison
+            },
             "att0": {
                 "class": "generic_attention",
                 "weights": "att_weights",
                 "base": "base:enc_value",
             },
-            "att": {"class": "merge_dims", "from": "att0", "axes": "except_batch"},
+            "att": {
+                "class": "merge_dims",
+                "from": "att0",
+                "axes": "except_batch",
+                "is_output_layer": True,  # for comparison
+            },
             "s": {
                 "class": "rnn_cell",
                 "unit": "zoneoutlstm",
@@ -2845,6 +2857,8 @@ net_dict = {
                     "zoneout_factor_cell": 0.15,
                     "zoneout_factor_output": 0.05,
                 },
+                # "weights_init": "random_normal_initializer(mean=0.0, stddev=0.1)",
+                "is_output_layer": True,  # for comparison
             },
             "readout_in": {
                 "class": "linear",
@@ -2860,13 +2874,14 @@ net_dict = {
                 "num_pieces": 2,
                 "mode": "max",
             },
-            "output_prob": {
-                "class": "softmax",
+            "output_prob": {  # actual logits, we changed this
+                "class": "linear",
                 "from": "readout",
+                "activation": None,
                 "dropout": 0.3,
                 "target": "bpe_labels",
                 "loss": "ce",
-                "loss_opts": {"label_smoothing": 0.1},
+                "loss_opts": {"label_smoothing": 0.1, "input_type": "logits"},
                 "L2": 0.0001,
                 "is_output_layer": True,
             },
@@ -2875,6 +2890,7 @@ net_dict = {
                 "target": "bpe_labels",
                 "beam_size": 12,
                 "from": "output_prob",
+                "input_type": "logits",
                 "initial_output": 0,
             },
         },

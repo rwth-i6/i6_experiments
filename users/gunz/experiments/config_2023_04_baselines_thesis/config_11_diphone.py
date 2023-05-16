@@ -1,9 +1,9 @@
 __all__ = ["run", "run_single"]
 
 import copy
+import dataclasses
 from dataclasses import dataclass
 import itertools
-import typing
 
 import numpy as np
 import os
@@ -18,8 +18,8 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common import oclr, returnn_time_tag
-from ...setups.common.specaugment import (
+from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
     summary as sa_summary,
@@ -42,6 +42,7 @@ from .config import (
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
+    FROM_SCRATCH_CV_INFO,
     L2,
     RAISSI_ALIGNMENT,
     RASR_ROOT_FH_GUNZ,
@@ -68,6 +69,7 @@ class Experiment:
     alignment_name: str
     lr: str
     dc_detection: bool
+    run_performance_study: bool
     tune_decoding: bool
 
     focal_loss: float = CONF_FOCAL_LOSS
@@ -88,6 +90,7 @@ def run(returnn_root: tk.Path):
             alignment_name="GMMtri",
             dc_detection=False,
             lr="v6",
+            run_performance_study=False,
             tune_decoding=False,
         ),
         Experiment(
@@ -95,6 +98,7 @@ def run(returnn_root: tk.Path):
             alignment_name="GMMtri",
             dc_detection=False,
             lr="v7",
+            run_performance_study=True,
             tune_decoding=True,
         ),
         Experiment(
@@ -102,6 +106,7 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             dc_detection=True,
             lr="v7",
+            run_performance_study=False,
             tune_decoding=True,
         ),
     ]
@@ -109,8 +114,10 @@ def run(returnn_root: tk.Path):
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
+            dc_detection=exp.dc_detection,
             focal_loss=exp.focal_loss,
             returnn_root=returnn_root,
+            run_performance_study=exp.run_performance_study,
             tune_decoding=exp.tune_decoding,
             lr=exp.lr,
         )
@@ -120,13 +127,14 @@ def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
+    dc_detection: bool,
+    focal_loss: float,
+    lr: str,
     returnn_root: tk.Path,
+    run_performance_study: bool,
+    tune_decoding: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
-    focal_loss: float = CONF_FOCAL_LOSS,
-    dc_detection: bool = False,
-    tune_decoding: bool = False,
-    lr: str = "v6",
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
@@ -153,7 +161,10 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
+    if alignment_name == "scratch":
+        s.cv_info = FROM_SCRATCH_CV_INFO
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
@@ -165,7 +176,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=False,
+        is_cv_separate_from_train=alignment_name == "scratch",
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )
@@ -306,13 +317,14 @@ def run_single(
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             recompile_graph_for_feature_scorer=True,
         )
-        recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-        )
+        for cfg in [recog_args, recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4)]:
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
+            )
 
         if tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
@@ -335,5 +347,30 @@ def run_single(
                 calculate_stats=True,
                 name_override="best/4gram",
             )
+
+        if run_performance_study:
+            for altas, beam in [
+                *itertools.product([2, 4, 6, 8, 12], [14, 16, 18]),
+                (0, 16),
+                (0, 18),
+                (0, 20),
+                (2, 16),
+                (2, 18),
+                (2, 20),
+                (4, 16),
+                (4, 18),
+                (4, 20),
+            ]:
+                recognizer.recognize_count_lm(
+                    calculate_stats=True,
+                    gpu=True,
+                    label_info=s.label_info,
+                    name_override=f"altas{altas}-beam{beam}",
+                    num_encoder_output=conf_model_dim,
+                    opt_lm_am=False,
+                    pre_path="decoding-perf",
+                    search_parameters=dataclasses.replace(recog_args, altas=altas if altas > 0 else None, beam=beam),
+                    rtf_gpu=1.3,
+                )
 
     return s

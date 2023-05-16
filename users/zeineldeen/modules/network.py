@@ -42,6 +42,7 @@ class ReturnnNetwork:
         with_bias=True,
         forward_weights_init=None,
         strides=None,
+        param_variational_noise=None,
         **kwargs,
     ):
         d = {
@@ -59,6 +60,8 @@ class ReturnnNetwork:
             d["L2"] = l2
         if forward_weights_init:
             d["forward_weights_init"] = forward_weights_init
+        if param_variational_noise:
+            d["param_variational_noise"] = param_variational_noise
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -274,6 +277,7 @@ class ReturnnNetwork:
         forward_weights_init=None,
         l2=0.0,
         attention_left_only=False,
+        param_variational_noise=None,
         **kwargs,
     ):
         d = {
@@ -293,6 +297,8 @@ class ReturnnNetwork:
             d["L2"] = l2
         if attention_left_only:
             d["attention_left_only"] = attention_left_only
+        if param_variational_noise:
+            d["param_variational_noise"] = param_variational_noise
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -382,6 +388,7 @@ class ReturnnNetwork:
         merge_out_fixed=False,
         spatial_dims=None,
         prefix_name=None,
+        param_variational_noise=None,
     ):
         if split_input:
             src = self.add_split_dim_layer("source0", source)
@@ -414,6 +421,7 @@ class ReturnnNetwork:
                 activation=activation,
                 forward_weights_init=init,
                 strides=pool_size if use_striding else None,
+                param_variational_noise=param_variational_noise,
                 **extra_conv_opts,
             )
             if pool_size and not use_striding:

@@ -129,7 +129,7 @@ def get_dataset_dict_wo_alignment(
       "seq_ordering": "sorted_reverse",
     }
 
-  if vocab is not None:
+  if vocab is not None and features != "raw":
     if "bpe_file" in vocab:
       d["bpe"] = vocab
     else:

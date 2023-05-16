@@ -12,7 +12,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
 )
-from .network_helpers.features import GammatoneNetwork, ScfNetwork
+from .network_helpers.features import LogMelNetwork, GammatoneNetwork, ScfNetwork, PreemphasisNetwork
 from .specaug_jingjing import (
     specaug_layer_jingjing,
     get_funcs_jingjing,
@@ -90,18 +90,33 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
 
 def get_nn_args_single(
-    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None, extra_exps=False,
+    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
-    feature_network_class = {"GammatoneNetwork": GammatoneNetwork, "ScfNetwork": ScfNetwork}[feature_args.pop("class")]
+    preemphasis = feature_args.pop("preemphasis", None)
+    wave_norm = feature_args.pop("wave_norm", False)
+    feature_network_class = {
+        "LogMelNetwork": LogMelNetwork,
+        "GammatoneNetwork": GammatoneNetwork,
+        "ScfNetwork": ScfNetwork,
+    }[feature_args.pop("class")]
     feature_net = feature_network_class(**feature_args).get_as_subnetwork()
+    if preemphasis:
+        for layer in feature_net["subnetwork"]:
+            if feature_net["subnetwork"][layer].get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = "preemphasis"
+        feature_net["subnetwork"]["preemphasis"] = PreemphasisNetwork(alpha=preemphasis).get_as_subnetwork()
+    if wave_norm:
+        for layer in feature_net["subnetwork"]:
+            if feature_net["subnetwork"][layer].get("from", "data") == "data":
+                feature_net["subnetwork"][layer]["from"] = "wave_norm"
+        feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
 
     returnn_config = get_returnn_config(
         num_inputs=1,
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
-        extra_exps=extra_exps,
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
@@ -113,7 +128,6 @@ def get_nn_args_single(
         num_outputs=num_outputs,
         evaluation_epochs=evaluation_epochs,
         recognition=True,
-        extra_exps=extra_exps,
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
@@ -149,7 +163,8 @@ def get_returnn_config(
     batch_size: int = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
-    extra_exps: bool = False,
+    extra_args: Optional[Dict[str, Any]] = None,
+    staged_opts: Optional[Dict[int, Any]] = None,
 ):
     base_config = {
         "extern_data": {
@@ -209,36 +224,38 @@ def get_returnn_config(
             "newbob_multi_update_interval": 1,
         }
     )
+    conformer_base_config.update(extra_args or {})
 
-    def make_returnn_config(
-        config,
-        python_prolog,
-        staged_network_dict=None,
-    ):
-        if recognition:
-            rec_network = copy.deepcopy(network)
-            rec_network["output"] = {
-                "class": "linear",
-                "activation": "log_softmax",
-                "from": ["MLP_output"],
-                "n_out": 9001
-                # "is_output_layer": True,
-            }
-            config["network"] = rec_network
-        return ReturnnConfig(
-            config=config,
-            post_config=base_post_config,
-            staged_network_dict=staged_network_dict if not recognition else None,
-            hash_full_python_code=True,
-            python_prolog=python_prolog if not recognition else None,
-            python_epilog=RECUSRION_LIMIT,
-            pprint_kwargs={"sort_dicts": False},
-        )
+    staged_network_dict = None
+    if staged_opts is not None and not recognition:
+        staged_network_dict = {1: conformer_base_config.pop("network")}
+        network_mod = copy.deepcopy(network)
+        for epoch, opts in staged_opts.items():
+            if opts == "freeze_features":
+                network_mod["features"]["trainable"] = False
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
+            elif opts == "remove_aux":
+                for layer in list(network_mod.keys()):
+                    if layer.startswith("aux"):
+                        network_mod.pop(layer)
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
 
-    conformer_base_returnn_config = make_returnn_config(
-        conformer_base_config,
-        staged_network_dict=None,
-        python_prolog=prolog,
+    if recognition:
+        rec_network = copy.deepcopy(network)
+        rec_network["output"] = {
+            "class": "linear",
+            "activation": "log_softmax",
+            "from": ["MLP_output"],
+            "n_out": 9001
+        }
+        conformer_base_config["network"] = rec_network
+
+    return ReturnnConfig(
+        config=conformer_base_config,
+        post_config=base_post_config,
+        staged_network_dict=staged_network_dict,
+        hash_full_python_code=True,
+        python_prolog=prolog if not recognition else None,
+        python_epilog=RECUSRION_LIMIT,
+        pprint_kwargs={"sort_dicts": False},
     )
-
-    return conformer_base_returnn_config

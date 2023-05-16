@@ -1,25 +1,28 @@
 __all__ = ["FactoredHybridSystem"]
 
 import copy
+import dataclasses
 import typing
 from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
-import numpy as np
-
-from sisyphus import gs, tk
+from sisyphus import tk
 
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
 import i6_core.mm as mm
+import i6_core.meta as meta
 import i6_core.rasr as rasr
+import i6_core.recognition as recognition
 import i6_core.returnn as returnn
 import i6_core.text as text
 from i6_core.util import MultiPath, MultiOutputPath
 
 
 from i6_experiments.common.datasets.librispeech.constants import durations, num_segments
+from i6_experiments.common.setups.rasr.config.am_config import Tdp
+from i6_experiments.common.setups.rasr.hybrid_decoder import HybridDecoder
 from i6_experiments.common.setups.rasr.nn_system import NnSystem
 from i6_experiments.common.setups.rasr.util import (
     OggZipHdfDataInput,
@@ -28,11 +31,21 @@ from i6_experiments.common.setups.rasr.util import (
     ReturnnRasrDataInput,
     RasrSteps,
 )
+from i6_experiments.common.setups.rasr.util.decode import (
+    AdvTreeSearchJobArgs,
+    DevRecognitionParameters,
+    Lattice2CtmArgs,
+    OptimizeJobArgs,
+    PriorPath,
+)
 
 
-from ..common.compile_graph import compile_tf_graph_from_returnn_config
-from .decoder.config import PriorConfig, PriorInfo
-from .decoder.search import FHDecoder, SearchParameters
+from ..common.decoder.rtf import ExtractSearchStatisticsJob
+from ..common.hdf.features import RasrFeaturesToHdf
+from ..common.nn.cache_epilog import hdf_dataset_cache_epilog
+from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
+from .decoder.config import PriorConfig, PriorInfo, SearchParameters
+from .decoder.search import FHDecoder
 from .factored import PhoneticContext, LabelInfo
 from .priors import (
     get_returnn_config_for_center_state_prior_estimation,
@@ -41,7 +54,6 @@ from .priors import (
     JoinRightContextPriorsJob,
     ReshapeCenterStatePriorsJob,
 )
-from .util.hdf import SprintFeatureToHdf
 from .util.pipeline_helpers import get_lexicon_args, get_tdp_values
 from .util.rasr import SystemInput
 
@@ -81,14 +93,10 @@ class FactoredHybridSystem(NnSystem):
 
     def __init__(
         self,
-        returnn_root: Optional[typing.Union[str, tk.Path]] = None,
-        returnn_python_home: Optional[typing.Union[str, tk.Path]] = None,
-        returnn_python_exe: Optional[
-            typing.Union[str, tk.Path]
-        ] = None,  # tk.Path("/u/raissi/bin/returnn/returnn_tf1.15_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
-        rasr_binary_path: Optional[typing.Union[str, tk.Path]] = tk.Path(
-            ("/").join([gs.RASR_ROOT, "arch", "linux-x86_64-standard"])
-        ),
+        returnn_root: typing.Union[str, tk.Path],
+        returnn_python_exe: typing.Union[str, tk.Path],
+        rasr_binary_path: typing.Union[str, tk.Path],
+        returnn_python_home: typing.Optional[Union[str, tk.Path]] = None,
         rasr_init_args: RasrInitArgs = None,
         train_data: Dict[str, RasrDataInput] = None,
         dev_data: Dict[str, RasrDataInput] = None,
@@ -134,7 +142,8 @@ class FactoredHybridSystem(NnSystem):
                 ]
             ),
             "features_tkpath_train": Path(
-                "/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle"
+                "/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle",
+                cached=True,
             ),
         }
         self.base_allophones = "/work/common/asr/librispeech/data/sisyphus_export_setup/work/i6_core/lexicon/allophones/StoreAllophonesJob.boJyUrd9Bd89/output/allophones"
@@ -182,6 +191,8 @@ class FactoredHybridSystem(NnSystem):
 
         self.inputs = {}
         self.train_key = None  # "train-other-960"
+
+        self.do_not_set_returnn_python_exe_for_graph_compiles = False
 
     # ----------- pipeline construction -----------------
     def set_experiment_dict(self, key: str, alignment: str, context: str, postfix_name=""):
@@ -435,12 +446,6 @@ class FactoredHybridSystem(NnSystem):
         if corpus_key in self.alignments:
             sys_in.alignments = self.alignments[corpus_key]
 
-        for feat_name in extract_features:
-            tk.register_output(
-                f"features/{corpus_key}_{feat_name}_features.bundle",
-                self.feature_bundles[corpus_key][feat_name],
-            )
-
         return sys_in
 
     def run_input_step(self, step_args):
@@ -615,13 +620,13 @@ class FactoredHybridSystem(NnSystem):
 
         # for now it is only possible by hardcoding stuff.
         train_corpus = self.cv_info["train-dev_corpus"]
-        train_segments = tk.Path(self.cv_info["train_segments"])
-        train_feature_path = self.cv_info["features_tkpath_train"]
+        train_segments = tk.Path(self.cv_info["train_segments"], cached=True)
+        train_feature_path = tk.Path(self.cv_info["features_tkpath_train"], cached=True)
         train_feature_flow = features.basic_cache_flow(train_feature_path)
 
         cv_corpus = self.cv_info["cv_corpus"]
         cv_segments = self.cv_info["cv_segments"]
-        cv_feature_path = Path(self.cv_info["features_postpath_cv"])
+        cv_feature_path = Path(self.cv_info["features_postpath_cv"], cached=True)
         cv_feature_flow = features.basic_cache_flow(cv_feature_path)
 
         devtrain_segments = text.TailJob(train_segments, num_lines=1000, zip_output=False).out
@@ -704,80 +709,12 @@ class FactoredHybridSystem(NnSystem):
 
     def returnn_training(
         self,
-        name: str,
-        returnn_config: returnn.ReturnnConfig,
-        nn_train_args,
-        train_corpus_key,
-        cv_corpus_key,
-        devtrain_corpus_key=None,
-    ):
-        assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        returnn_config.config["train"] = self.train_input_data[train_corpus_key].get_data_dict()
-        returnn_config.config["dev"] = self.cv_input_data[cv_corpus_key].get_data_dict()
-        if devtrain_corpus_key is not None:
-            returnn_config.config["eval_datasets"] = {
-                "devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()
-            }
-
-        train_job = returnn.ReturnnTrainingJob(
-            returnn_config=returnn_config,
-            returnn_root=self.returnn_root,
-            returnn_python_exe=self.returnn_python_exe,
-            **nn_train_args,
-        )
-        self._add_output_alias_for_train_job(
-            train_job=train_job,
-            name=name,
-        )
-
-        return train_job
-
-    def returnn_training_from_hdf(
-        self,
         experiment_key: str,
         returnn_config: returnn.ReturnnConfig,
-        nn_train_args,
-        train_hdfs: typing.List[tk.Path],
-        dev_hdfs: typing.List[tk.Path],
-        on_2080: bool = True,
+        nn_train_args: typing.Any,
+        on_2080: bool = False,
     ):
-        from textwrap import dedent
-
         assert isinstance(returnn_config, returnn.ReturnnConfig)
-
-        partition_epochs = nn_train_args.pop("partition_epochs")
-        dev_data = {
-            "class": "NextGenHDFDataset",
-            "files": dev_hdfs,
-            "input_stream_name": "features",
-            "partition_epoch": partition_epochs["dev"],
-        }
-        train_data = {
-            "class": "NextGenHDFDataset",
-            "files": train_hdfs,
-            "input_stream_name": "features",
-            "partition_epoch": partition_epochs["train"],
-            "seq_ordering": f"random:{PRIOR_RNG_SEED}",
-        }
-        cache_epilog = dedent(
-            """
-            import importlib
-            import sys
-            
-            sys.path.append("/usr/local/")
-            sys.path.append("/usr/local/cache-manager/")
-            
-            cm = importlib.import_module("cache-manager")
-            
-            dev["files"] = [cm.cacheFile(f) for f in dev["files"]]
-            train["files"] = [cm.cacheFile(f) for f in train["files"]]
-            """
-        )
-
-        returnn_config = copy.deepcopy(returnn_config)
-        update_config = returnn.ReturnnConfig(config={"dev": dev_data, "train": train_data}, python_epilog=cache_epilog)
-        returnn_config.update(update_config)
 
         train_job = returnn.ReturnnTrainingJob(
             returnn_config=returnn_config,
@@ -795,6 +732,48 @@ class FactoredHybridSystem(NnSystem):
         self.experiments[experiment_key]["train_job"] = train_job
 
         return train_job
+
+    def returnn_training_from_hdf(
+        self,
+        experiment_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        nn_train_args,
+        train_hdfs: typing.List[tk.Path],
+        dev_hdfs: typing.List[tk.Path],
+        on_2080: bool = True,
+        dev_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
+        train_data: typing.Optional[typing.Dict[str, typing.Any]] = None,
+    ):
+        from textwrap import dedent
+
+        assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        partition_epochs = nn_train_args.pop("partition_epochs")
+        dev_data = {
+            "class": "NextGenHDFDataset",
+            "files": dev_hdfs,
+            "input_stream_name": "features",
+            "partition_epoch": partition_epochs["dev"],
+            **(dev_data or {}),
+        }
+        train_data = {
+            "class": "NextGenHDFDataset",
+            "files": train_hdfs,
+            "input_stream_name": "features",
+            "partition_epoch": partition_epochs["train"],
+            "seq_ordering": f"random:{PRIOR_RNG_SEED}",
+            **(train_data or {}),
+        }
+
+        returnn_config = copy.deepcopy(returnn_config)
+        update_config = returnn.ReturnnConfig(
+            config={"dev": dev_data, "train": train_data}, python_epilog=hdf_dataset_cache_epilog
+        )
+        returnn_config.update(update_config)
+
+        return self.returnn_training(
+            experiment_key=experiment_key, returnn_config=returnn_config, on_2080=on_2080, nn_train_args=nn_train_args
+        )
 
     def returnn_rasr_training(
         self,
@@ -816,9 +795,10 @@ class FactoredHybridSystem(NnSystem):
             returnn_config = nn_train_args.pop("returnn_config")
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
-        assert train_data.feature_flow == dev_data.feature_flow
-        assert train_data.features == dev_data.features
-        assert train_data.alignments == dev_data.alignments
+        # These asserts are currently not relevant and wrong during from-scratch training
+        # assert train_data.feature_flow == dev_data.feature_flow
+        # assert train_data.features == dev_data.features
+        # assert train_data.alignments == dev_data.alignments
 
         if train_data.feature_flow is not None:
             feature_flow = train_data.feature_flow
@@ -935,9 +915,7 @@ class FactoredHybridSystem(NnSystem):
 
     def create_hdf(self):
         gammatone_features_paths: MultiPath = self.feature_caches[self.train_key]["gt"]
-        hdf_job = SprintFeatureToHdf(
-            feature_caches=gammatone_features_paths,
-        )
+        hdf_job = RasrFeaturesToHdf(feature_caches=gammatone_features_paths)
 
         self.hdfs[self.train_key] = hdf_job.out_hdf_files
 
@@ -1143,6 +1121,9 @@ class FactoredHybridSystem(NnSystem):
             python_prolog=python_prolog,
             python_epilog=python_epilog,
             returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe
+            if not self.do_not_set_returnn_python_exe_for_graph_compiles
+            else None,
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
@@ -1204,6 +1185,191 @@ class FactoredHybridSystem(NnSystem):
         )
 
         return recognizer, recog_args
+
+    def get_cart_params(self, key: str):
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+        return SearchParameters.default_cart(priors=p_info)
+
+    def recognize_cart(
+        self,
+        *,
+        key: str,
+        epoch: int,
+        crp_corpus: str,
+        n_cart_out: int,
+        cart_tree_or_tying_config: typing.Union[tk.Path, rasr.RasrConfig],
+        params: SearchParameters,
+        log_softmax_returnn_config: returnn.ReturnnConfig,
+        encoder_output_layer: str = "output",
+        gpu: bool = False,
+        mem_rqmt: int = 8,
+        cpu_rqmt: int = 4,
+        native_ops: typing.Optional[
+            typing.List[str]
+        ] = None,  # This is a list of native op names (like "NativeLstm2"), not compiled op paths
+        calculate_statistics: bool = False,
+        opt_lm_am_scale: bool = False,
+        rtf: typing.Optional[float] = None,
+    ):
+        p_info: PriorInfo = self.experiments[key].get("priors", None)
+        assert p_info is not None, "set priors first"
+
+        p_mixtures = mm.CreateDummyMixturesJob(n_cart_out, self.initial_nn_args["num_input"]).out_mixtures
+
+        crp = copy.deepcopy(self.crp[crp_corpus])
+
+        if isinstance(cart_tree_or_tying_config, rasr.RasrConfig):
+            crp.acoustic_model_config.state_tying = cart_tree_or_tying_config
+        else:
+            crp.acoustic_model_config.state_tying.file = cart_tree_or_tying_config
+            crp.acoustic_model_config.state_tying.type = "cart"
+
+        adv_tree_search_job: recognition.AdvancedTreeSearchJob
+
+        def SearchJob(*args, **kwargs):
+            nonlocal adv_tree_search_job
+            adv_tree_search_job = recognition.AdvancedTreeSearchJob(*args, **kwargs)
+            return adv_tree_search_job
+
+        decoder = HybridDecoder(
+            rasr_binary_path=self.rasr_binary_path,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            required_native_ops=native_ops,
+            search_job_class=SearchJob,
+        )
+        decoder.set_crp("init", crp)
+
+        corpus = meta.CorpusObject()
+        corpus.corpus_file = crp.corpus_config.file
+        corpus.audio_format = crp.audio_format
+        corpus.duration = crp.corpus_duration
+
+        decoder.init_eval_datasets(
+            eval_datasets={crp_corpus: corpus},
+            concurrency={crp_corpus: crp.concurrent},
+            corpus_durations=durations,
+            feature_flows=self.feature_flows,
+            stm_paths={crp_corpus: self.scorer_args[crp_corpus]["ref"]},
+        )
+
+        @dataclasses.dataclass
+        class RasrConfigWrapper:
+            obj: rasr.RasrConfig
+
+            def get(self) -> rasr.RasrConfig:
+                return self.obj
+
+        if params.altas is not None:
+            adv_search_extra_config = rasr.RasrConfig()
+            adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
+                params.altas
+            )
+        else:
+            adv_search_extra_config = None
+        lat2ctm_extra_config = rasr.RasrConfig()
+        lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
+
+        decoder.recognition(
+            name=self.experiments[key]["name"],
+            checkpoints={epoch: self._get_model_path(self.experiments[key]["train_job"], epoch)},
+            epochs=[epoch],
+            forward_output_layer=encoder_output_layer,
+            prior_paths={
+                "rp": PriorPath(
+                    acoustic_mixture_path=p_mixtures,
+                    prior_xml_path=p_info.center_state_prior.file,
+                )
+            },
+            recognition_parameters={
+                crp_corpus: [
+                    DevRecognitionParameters(
+                        altas=[params.altas] if params.altas is not None else None,
+                        am_scales=[1],
+                        lm_scales=[params.lm_scale],
+                        prior_scales=[params.prior_info.center_state_prior.scale],
+                        pronunciation_scales=[params.pron_scale],
+                        speech_tdps=[
+                            Tdp(
+                                loop=params.tdp_speech[0],
+                                forward=params.tdp_speech[1],
+                                skip=params.tdp_speech[2],
+                                exit=params.tdp_speech[3],
+                            )
+                        ],
+                        silence_tdps=[
+                            Tdp(
+                                loop=params.tdp_silence[0],
+                                forward=params.tdp_silence[1],
+                                skip=params.tdp_silence[2],
+                                exit=params.tdp_silence[3],
+                            )
+                        ],
+                        nonspeech_tdps=[
+                            Tdp(
+                                loop=params.tdp_non_word[0],
+                                forward=params.tdp_non_word[1],
+                                skip=params.tdp_non_word[2],
+                                exit=params.tdp_non_word[3],
+                            )
+                        ],
+                        tdp_scales=[params.tdp_scale],
+                    )
+                ]
+            },
+            returnn_config=log_softmax_returnn_config,
+            lm_configs={crp_corpus: RasrConfigWrapper(obj=crp.language_model_config)},
+            search_job_args=AdvTreeSearchJobArgs(
+                search_parameters={
+                    "beam-pruning": params.beam,
+                    "beam-pruning-limit": params.beam_limit,
+                    "word-end-pruning": params.we_pruning,
+                    "word-end-pruning-limit": params.we_pruning_limit,
+                },
+                use_gpu=gpu,
+                mem=mem_rqmt,
+                cpu=cpu_rqmt,
+                lm_lookahead=True,
+                lmgc_mem=12,
+                lookahead_options=None,
+                create_lattice=True,
+                eval_best_in_lattice=True,
+                eval_single_best=True,
+                extra_config=adv_search_extra_config,
+                extra_post_config=None,
+                rtf=rtf if rtf is not None else 4,
+            ),
+            lat_2_ctm_args=Lattice2CtmArgs(
+                parallelize=True,
+                best_path_algo="bellman-ford",
+                encoding="utf-8",
+                extra_config=lat2ctm_extra_config,
+                extra_post_config=None,
+                fill_empty_segments=True,
+            ),
+            scorer_args=self.scorer_args[crp_corpus],
+            optimize_parameters=OptimizeJobArgs(
+                opt_only_lm_scale=True,
+                maxiter=100,
+                precision=2,
+                extra_config=None,
+                extra_post_config=None,
+            ),
+            optimize_pron_lm_scales=opt_lm_am_scale,
+        )
+
+        if calculate_statistics:
+            assert adv_tree_search_job is not None
+            stats_job = ExtractSearchStatisticsJob(
+                search_logs=list(adv_tree_search_job.out_log_file.values()), corpus_duration_hours=durations[crp_corpus]
+            )
+            stats_alias = f"statistics/{self.experiments[key]['name']}/Pron{params.pron_scale}Lm{params.lm_scale}Pr{params.prior_info.center_state_prior.scale}Altas{params.altas or 0}"
+
+            stats_job.add_alias(stats_alias)
+            tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
+            tk.register_output(f"{stats_alias}/avg_trees", stats_job.avg_trees)
+            tk.register_output(f"{stats_alias}/rtf", stats_job.decoding_rtf)
 
     # -------------------- run setup  --------------------
 

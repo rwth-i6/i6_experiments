@@ -304,7 +304,7 @@ class Conformer(torch.nn.Module):
 
 class Model(torch.nn.Module):
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
         conformer_size = 384
         target_size=12001
@@ -349,13 +349,13 @@ scripted_model = None
 def train_step(*, model: Model, data, run_ctx, **_kwargs):
     global scripted_model
     audio_features = data["data"]
-    audio_features_len = data["data:seq_len"]
+    audio_features_len = data["data:size1"]
 
     audio_features_len, indices = torch.sort(audio_features_len, descending=True)
     audio_features = audio_features[indices, :, :]
 
     phonemes = data["classes"][indices, :]
-    phonemes_len = data["classes:seq_len"][indices]
+    phonemes_len = data["classes:size1"][indices]
 
     #if scripted_model is None:
     #    model.to("cpu")
@@ -366,15 +366,17 @@ def train_step(*, model: Model, data, run_ctx, **_kwargs):
     # distributed_model = DataParallel(model)
     log_probs, logits = model(
         audio_features=audio_features,
-        audio_features_len=audio_features_len.to("cuda"),
+        audio_features_len=audio_features_len,
     )
 
-    targets_packed = nn.utils.rnn.pack_padded_sequence(phonemes, phonemes_len, batch_first=True, enforce_sorted=False)
+    targets_packed = nn.utils.rnn.pack_padded_sequence(phonemes, phonemes_len.to("cpu"), batch_first=True, enforce_sorted=False)
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
 
-    loss = nn.functional.cross_entropy(logits, targets_masked)
+    loss = nn.functional.cross_entropy(logits, targets_masked, reduction="sum")
 
-    run_ctx.mark_as_loss(name="CE", loss=loss)
+    num_frames = torch.sum(phonemes_len)
+
+    run_ctx.mark_as_loss(name="CE", loss=loss, inv_norm_factor=num_frames)
 
 
 # def export(*, model: Model, model_filename: str):

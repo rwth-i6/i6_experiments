@@ -534,6 +534,73 @@ def build_realignment_config(
 
   return crp, am_model_trainer_config
 
+def build_extract_alignment_config(
+  allophone_path, state_tying_path, lexicon_path, corpus_path, segment_path, feature_cache_path, alignment_cache_path
+):
+  crp = CommonRasrParameters()
+  crp_add_default_output(crp, unbuffered=True)
+
+  corpus_config = get_corpus_config(corpus_path=corpus_path, segment_path=segment_path)
+  crp.corpus_config = corpus_config
+
+  am_config = RasrConfig()
+  am_config.allophones.add_all = True
+  am_config.allophones.add_from_file = allophone_path
+  am_config.allophones.add_from_lexicon = False
+  am_config.hmm.across_word_model = True
+  am_config.hmm.early_recombination = False
+  am_config.hmm.state_repetitions = 1
+  am_config.hmm.states_per_phone = 1
+  am_config.phonology.future_length = 0
+  am_config.phonology.history_length = 0
+  am_config.state_tying.file = state_tying_path
+  am_config.state_tying.type = "lookup"
+  am_config.tdp.entry_m1.loop = "infinity"
+  am_config.tdp.entry_m2.loop = "infinity"
+  am_config.tdp.scale = 1.0
+  am_config.tdp["*"].exit = 0
+  am_config.tdp["*"].forward = 0
+  am_config.tdp["*"].loop = "infinity"
+  am_config.tdp["*"].skip = "infinity"
+  crp.acoustic_model_config = am_config
+
+  lexicon_config = RasrConfig()
+  lexicon_config.file = lexicon_path
+  lexicon_config.normalize_pronunciation = False
+  crp.lexicon_config = lexicon_config
+
+  config, post_config = build_config_from_mapping(crp, {
+    "corpus": "neural-network-trainer.corpus",
+    "acoustic_model": "neural-network-trainer.model-combination.acoustic-model",
+    "lexicon": "neural-network-trainer.model-combination.lexicon"})
+
+  nn_trainer_config = RasrConfig()
+  nn_trainer_config.action = "supervised-training"
+  flow_path = "/u/schmitt/experiments/transducer/config/rasr-configs/feature_alignment.flow"
+  nn_trainer_config.aligning_feature_extractor.feature_extraction.file = flow_path
+  nn_trainer_config.aligning_feature_extractor.feature_extraction.feature_cache.path = feature_cache_path
+  nn_trainer_config.aligning_feature_extractor.feature_extraction.alignment_cache.path = alignment_cache_path
+  nn_trainer_config.buffer_size = 204800
+  nn_trainer_config.buffer_type = "utterance"
+  nn_trainer_config.class_labels.save_to_file = "class.labels"
+  nn_trainer_config.estimator = "steepest-descent"
+  nn_trainer_config.feature_extraction.file = "/u/schmitt/experiments/transducer/config/rasr-configs/dummy.flow"
+  nn_trainer_config.regression_window_size = 5
+  nn_trainer_config.shuffle = False
+  nn_trainer_config.silence_weight = 1.0
+  nn_trainer_config.single_precision = True
+  nn_trainer_config.trainer_output_dimension = 88
+  nn_trainer_config.training_criterion = "cross-entropy"
+  nn_trainer_config.weighted_alignment = False
+  nn_trainer_config.window_size = 1
+  nn_trainer_config.window_size_derivatives = 0
+  nn_trainer_config["*"].reduce_alignment_factor = 6
+
+  config.neural_network_trainer._update(nn_trainer_config)
+
+  return config, post_config
+
+
 
 def write_config(config: RasrConfig, post_config: RasrConfig, alias):
   write_config_job = WriteRasrConfigJob(config=config, post_config=post_config)
@@ -547,7 +614,8 @@ def get_corpus_config(corpus_path, segment_path):
   corpus_config = RasrConfig()
   corpus_config.audio_dir = "/"
   corpus_config.capitalize_transcriptions = False
-  corpus_config.file = corpus_path
+  if corpus_path is not None:
+    corpus_config.file = corpus_path
   if segment_path is not None:
     corpus_config.segments.file = segment_path
   corpus_config.progress_indication = "global"

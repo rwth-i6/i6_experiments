@@ -4,6 +4,27 @@ import os
 import subprocess as sp
 import pprint
 
+from i6_core.returnn import ReturnnConfig
+
+class ReturnnCleanerConfig(ReturnnConfig):
+    def check_consistency(self):
+        necessary_keys = ["cleanup_old_models", "num_epochs"]
+        for key in necessary_keys:
+            assert key in self.config or key in self.post_config, "Config must have %s" % key
+    
+    @classmethod
+    def from_epochs(cls, keep_epochs):
+        config = {
+            "cleanup_old_models": {
+                "keep": keep_epochs,
+                "keep_last_n": 1,
+                "keep_best_n": 0,
+            },
+            "num_epochs": max(keep_epochs)
+        }
+        return cls(config)
+
+
 class ReturnnCleanupOldModelsJob(Job):
     def __init__(self,
         config,
@@ -15,6 +36,11 @@ class ReturnnCleanupOldModelsJob(Job):
         returnn_root = None,
         gpu=1,
     ):
+        assert isinstance(config, (ReturnnCleanerConfig, Path))
+        self.config_file = config
+        if isinstance(config, ReturnnCleanerConfig):
+            config.check_consistency()
+            self.config_file = "returnn.config"
         self.config = config
         self.cwd = cwd
         self.model = model
@@ -42,21 +68,19 @@ class ReturnnCleanupOldModelsJob(Job):
         extra_args = {}
         if self.rqmt["gpu"] == 0:
             extra_args["mini_task"] = True
-        yield Task('run', rqmt = self.rqmt, **extra_args)
+        if isinstance(self.config, ReturnnCleanerConfig):
+            yield Task('create_files', mini_task=True)
+        yield Task('run', rqmt = self.rqmt, resume="run", **extra_args)
+    
+    def create_files(self):
+        self.config.write(self.config_file)
     
     def run(self):
-        if isinstance(self.config, dict):
-            pp = pprint.PrettyPrinter(indent=2, width=150)
-            code = "cleanup_old_models = %s" % pp.pformat(self.config)
-            config_file = "returnn_cleanup.config"
-            with open(config_file, "w") as f:
-                f.write(code)
-            self.config = config_file
         args = [
             tk.uncached_path(self.returnn_python_exe),
             os.path.join(tk.uncached_path(self.returnn_root), "tools/cleanup-old-models.py"),
             "--config",
-            tk.uncached_path(self.config),
+            tk.uncached_path(self.config_file),
         ]
         if self.cwd is not None:
             args += ["--cwd", self.cwd.get_path()]

@@ -49,37 +49,6 @@ def run_pipeline():
 
   num_epochs = [40, 80, 120, 150]
 
-  """
-    Train models with KL divergence
-  """
-  for model_type, model_variants in (("segmental_w_kl_div", models["segmental_w_kl_div"]),):
-    for variant_name, variant_params in model_variants.items():
-      # select the correct dependencies for the current model
-      dependencies = segmental_dependencies[variant_params["config"]["label_type"]]
-
-      base_alias = "models/%s/%s" % (model_type, variant_name)
-
-      SegmentalTrainRecogPipeline(
-        dependencies=dependencies,
-        model_type=model_type,
-        variant_name=variant_name,
-        variant_params=variant_params,
-        num_epochs=[40],
-        base_alias=base_alias,
-        recog_type="standard",
-        do_recog=True,
-        num_retrain=0, ).run()
-      SegmentalTrainRecogPipeline(
-        dependencies=dependencies,
-        model_type=model_type,
-        variant_name=variant_name,
-        variant_params=variant_params,
-        num_epochs=[40],
-        base_alias=base_alias,
-        recog_type="rasr_wo_length_model",
-        do_recog=True,
-        num_retrain=0, ).run()
-
   for model_type, model_variants in (("segmental", models["segmental"]),):
     for variant_name, variant_params in model_variants.items():
       # select the correct dependencies for the current model
@@ -96,6 +65,16 @@ def run_pipeline():
         rasr_recog_epochs=(40,),
         base_alias=base_alias,
         recog_type="rasr_wo_length_model",
+        do_recog=True,
+        num_retrain=0, ).run()
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[40],
+        base_alias=base_alias,
+        recog_type="rasr_wo_length_model_force_nb_in_last_frame",
         do_recog=True,
         num_retrain=0, ).run()
 
@@ -137,31 +116,9 @@ def run_pipeline():
         variant_params=variant_params,
         num_epochs=[40, 150],
         base_alias=base_alias,
+        returnn_recog_epochs=[150],
         recog_type="standard",
-        do_recog=False).run()
-
-  """
-    Train model without chunking fix
-  """
-  for model_type, model_variants in (
-          ("segmental_wo_chunk_fix", models["segmental_wo_chunk_fix"]),
-          ("center-window_wo_chunk_fix", models["center-window_wo_chunk_fix"])):
-    for variant_name, variant_params in model_variants.items():
-      # select the correct dependencies for the current model
-      dependencies = segmental_dependencies[variant_params["config"]["label_type"]]
-
-      base_alias = "models/%s/%s" % (model_type, variant_name)
-
-      SegmentalTrainRecogPipeline(
-        dependencies=dependencies,
-        model_type=model_type,
-        variant_name=variant_name,
-        variant_params=variant_params,
-        num_epochs=[40, 150],
-        base_alias=base_alias,
-        recog_type="standard",
-        do_recog=True,
-        num_retrain=0, ).run()
+        do_recog=True).run()
 
   """
   Standard segmental and center-window variants
@@ -293,6 +250,7 @@ def run_pipeline():
   """
   for model_type, model_variants in (
           ("segmental", segmental_model_variants["segmental"]),
+          ("center-window", segmental_model_variants["center-window"]),
   ):
     for variant_name, variant_params in model_variants.items():
       # select the correct dependencies for the current model
@@ -350,6 +308,45 @@ def run_pipeline():
         import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
         import_model_train_epoch1_alias="segmental-train-40",
         import_model_do_initial_realignment=True
+      ).run()
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[12],
+        base_alias=base_alias,
+        recog_type="standard",
+        do_recog=True,
+        num_retrain=8,
+        realignment_length_scale=0.,
+        retrain_load_checkpoint=True,
+        import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
+        import_model_train_epoch1_alias="segmental-train-40",
+        import_model_do_initial_realignment=True,
+        retrain_reset_lr=False,
+        import_model_train_epoch1_initial_lr=0.00049
+      ).run()
+
+      SegmentalTrainRecogPipeline(
+        dependencies=dependencies,
+        model_type=model_type,
+        variant_name=variant_name,
+        variant_params=variant_params,
+        num_epochs=[12],
+        base_alias=base_alias,
+        recog_type="standard",
+        do_recog=True,
+        num_retrain=8,
+        realignment_length_scale=0.,
+        retrain_load_checkpoint=True,
+        import_model_train_epoch1=checkpoints[segmental_import_model_name]["train"][40],
+        import_model_train_epoch1_alias="segmental-train-40",
+        import_model_do_initial_realignment=True,
+        retrain_reset_lr=False,
+        import_model_train_epoch1_initial_lr=0.00049,
+        retrain_choose_best_alignment=True
       ).run()
 
   """

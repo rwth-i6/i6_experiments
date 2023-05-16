@@ -20,7 +20,7 @@ from sisyphus import tk, Task
 
 import i6_core.returnn as returnn
 
-from ..common.compile_graph import compile_tf_graph_from_returnn_config
+from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from .factored import LabelInfo
 
 if typing.TYPE_CHECKING:

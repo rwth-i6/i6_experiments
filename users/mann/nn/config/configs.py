@@ -25,20 +25,21 @@ def feed_forward_config(num_features, network, learning_rate=1e-3, momentum=0.1,
   return result
 
 def blstm_config(num_outputs, network, learning_rate=1e-3, batch_size=5000, max_seqs=40, **kwargs):
-  result = { 'num_outputs'    : { 'data': [num_outputs, 2] },
-             'batch_size'     : batch_size,
-             'max_seqs'       : max_seqs,
-             'max_seq_length' : batch_size,
-             'start_epoch'    : 'auto',
-             'start_batch'    : 'auto',
-             'window'         : 1,
+  result = {
+    'num_outputs'    : { 'data': [num_outputs, 2] },
+    'batch_size'     : batch_size,
+    'max_seqs'       : max_seqs,
+    'max_seq_length' : batch_size,
+    'start_epoch'    : 'auto',
+    'start_batch'    : 'auto',
+    'window'         : 1,
 
-             'learning_rate'         : learning_rate,
-             'learning_rate_control' : 'newbob_relative',
-             'gradient_clip'         : 10,
+    'learning_rate'         : learning_rate,
+    'learning_rate_control' : 'newbob_relative',
+    'gradient_clip'         : 10,
 
-             'network' : network
-           }
+    'network' : network
+  }
   result.update(**kwargs)
 
   return ReturnnConfig(result)

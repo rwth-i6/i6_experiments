@@ -9,6 +9,7 @@ import json
 
 import tabulate as tab
 import xml.etree.ElementTree as ET
+import numpy as np
 from xml.dom import minidom
 from collections import defaultdict
 from itertools import chain
@@ -142,35 +143,37 @@ class ExtractRecognitionRtfJob(Job):
         self.out_rtf.set(rtf)
 
 
-class SegmentStatistics(Job):
-  def __init__(self, corpus_paths, partition=[50, 100, 150, 200, 250, 300, 350]):
-    self.corpus_paths = corpus_paths
+class SegmentStatisticsJob(Job):
+  def __init__(self, bliss_corpus, frame_length=1e-2, partition=50):
+    self.bliss_corpus = bliss_corpus
     self.partition = partition
+    self.frame_length = frame_length
 
-    self.plot_path = self.output_path('hist.plot.png')
+    self.out_plot = self.output_path('hist.png')
+    self.out_hist_data = self.output_path('data.txt')
+    self.out_bins = self.output_path('bins.txt')
 
   def tasks(self):
     yield Task('run', resume='run', mini_task=True)
 
   def run(self):
-    lengths, labels = [], []
-    for c, p in self.corpus_paths.items():
-        corp = corpus_lib.Corpus()
-        corp.load(tk.uncached_path(p))
+    c = corpus_lib.Corpus()
+    c.load(tk.uncached_path(self.bliss_corpus))
 
-        labels += [c] 
-        lengths += [[len(segment.orth) for segment in corp.segments()]]
+    lengths = [(segment.end - segment.start) / self.frame_length for segment in c.segments()]
     # plotting
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(1, 1)
-    ax.hist(lengths, bins=self.partition, label=labels)
+    data, bins, _ = ax.hist(lengths, bins=self.partition)
     ax.set_title('Segment Length Histogramm')
-    ax.legend()
-    ax.set_xlabel('Segment orth length')
+    # ax.legend()
+    ax.set_xlabel('Segment frame length')
     ax.set_ylabel('Count')
-    plt.savefig(self.plot_path.get_path())
+    plt.savefig(self.out_plot.get_path())
+    np.savetxt(self.out_hist_data.get_path(), data)
+    np.savetxt(self.out_bins.get_path(), bins)
 
 class ExtractAlignmentFailuresJob(FilterSegmentsByListJob):
     def __init__(self, single_segment_files, alignment_logs,

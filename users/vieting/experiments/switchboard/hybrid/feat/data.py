@@ -168,6 +168,7 @@ def get_corpus_data_inputs_oggzip(
     nn_train_data = OggZipHdfDataInput(
         partition_epoch=partition_epoch["train"],
         ogg_args={"segment_file": train_segments, "targets": None},
+        seq_ordering = "laplace:.384",
         **ogg_zip_base_args,
     )
     nn_train_data_inputs = {

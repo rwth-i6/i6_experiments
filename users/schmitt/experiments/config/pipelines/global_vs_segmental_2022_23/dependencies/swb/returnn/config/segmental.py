@@ -34,6 +34,7 @@ def get_train_config(
         load: Optional[Checkpoint],
         length_scale: float,
         import_model_train_epoch1: Optional[Checkpoint] = None,
+        initial_lr: Optional[float] = None
   ) -> ReturnnConfig:
   data_opts = {}
   for corpus_key in SWBCorpora.train_corpus_keys:
@@ -79,6 +80,7 @@ def get_train_config(
     import_model=load,
     import_model_train_epoch1=import_model_train_epoch1,
     length_scale=length_scale,
+    initial_lr=initial_lr,
     **config_params).get_config()
 
   # TODO: put this into the SegmentalSWBExtendedConfig

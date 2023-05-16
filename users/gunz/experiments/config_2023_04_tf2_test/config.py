@@ -12,13 +12,19 @@ SCRATCH_ALIGNMENT = (
     "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/daniel-with-dc-detection/alignment.cache.bundle"
 )
 
+FROM_SCRATCH_CV_INFO = {
+    "train_segments": "/work/asr3/raissi/shared_workspaces/gunz/dependencies/segments/ls-segment-names-to-librispeech/ShuffleAndSplitSegmentsJob.hPMsdZr1PSjY/output/train.segments",
+    "train-dev_corpus": "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/zhou-corpora/train-dev.corpus.xml",
+    "cv_corpus": "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/zhou-corpora/train-dev.corpus.xml",
+    "cv_segments": "/work/asr3/raissi/shared_workspaces/gunz/dependencies/segments/ls-segment-names-to-librispeech/ShuffleAndSplitSegmentsJob.hPMsdZr1PSjY/output/cv.segments",
+    # "features_postpath_cv": "/work/asr3/luescher/setups-data/librispeech/best-model/960h_2019-04-10/FeatureExtraction.Gammatone.qrINHi3yh3GH/output/gt.cache.bundle",
+    "features_postpath_cv": "/work/asr4/raissi/setups/librispeech/960-ls/dependencies/data/zhou-corpora/FeatureExtraction.Gammatone.yly3ZlDOfaUm/output/gt.cache.bundle",
+    "features_tkpath_train": "/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle",
+}
+
 RASR_ROOT_FH_GUNZ = "/u/mgunz/src/fh_rasr/"
-RASR_ROOT_RS_RASR_GUNZ = "/u/mgunz/src/rs_rasr/"
-RASR_ROOT_BLSTM_COMPATIBLE_GUNZ = "/u/mgunz/src/rasr_tf1/"
-
+RASR_ROOT_TF2 = "/u/raissi/dev/rasr_github/rasr_tf2/"
 RETURNN_PYTHON_TF23 = "/u/mgunz/src/bin/returnn_tf2.3_launcher.sh"
-
-BLSTM_CHUNKING = "64:32"
 
 CONF_CHUNKING = "400:200"
 CONF_FOCAL_LOSS = 2.0

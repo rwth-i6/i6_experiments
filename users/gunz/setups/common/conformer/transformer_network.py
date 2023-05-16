@@ -188,8 +188,11 @@ class attention_for_hybrid:
         if (feature_stacking and feature_stacking_stride >= 2) or (
             reduction_factor and reduction_factor[0] * reduction_factor[1] >= 2
         ):
-            assert alignment_reduction or transposed_conv or frame_repetition
-            assert (alignment_reduction + transposed_conv + frame_repetition) == 1
+            # Old asserts from when everything was upsampled
+            #
+            # assert alignment_reduction or transposed_conv or frame_repetition
+            # assert (alignment_reduction + transposed_conv + frame_repetition) == 1
+            pass
         else:
             alignment_reduction = transposed_conv = frame_repetition = False
 

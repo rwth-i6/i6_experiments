@@ -12,27 +12,39 @@ class InspectTFCheckpointJob(Job):
 
     __sis_hash_exclude__ = {"assert_tensors_parsed": None}
 
-    def __init__(self, checkpoint, all_tensors=True, tensor_name=None, print_options=None, crnn_python_exe=None, crnn_root=None, assert_tensors_parsed=None):
-        assert all_tensors == (tensor_name is None)
+    def __init__(
+        self,
+        checkpoint,
+        # all_tensors=True,
+        tensor_name=None,
+        print_options=None,
+        returnn_python_exe=None,
+        returnn_root=None,
+        assert_tensors_parsed=None,
+        gpu=0,
+    ):
+        # assert all_tensors == (tensor_name is None)
         self.tensors_parsed = assert_tensors_parsed or []
-        self.crnn_python_exe   = crnn_python_exe if crnn_python_exe is not None else gs.CRNN_PYTHON_EXE
-        self.crnn_root         = crnn_root       if crnn_root       is not None else gs.CRNN_ROOT
+        self.returnn_python_exe   = returnn_python_exe if returnn_python_exe is not None else gs.RETURNN_PYTHON_EXE
+        self.returnn_root         = returnn_root       if returnn_root       is not None else gs.RETURNN_ROOT
         self.checkpoint = checkpoint
-        self.all_tensors = all_tensors
+        self.all_tensors = False
         self.tensor_name = tensor_name
         self.print_options = print_options
         self.tensors_raw = self.output_path("tensors.txt")
-        self.tensors = self.output_var("tensors", pickle=True)
-        self.rqmts = {"gpu": 1, "time": 0.1}
+        # self.tensors = self.output_var("tensors", pickle=True)
+        self.out_tensor_file = self.output_path("var.txt")
+        self.rqmts = {"gpu": 0, "time": 0.1}
     
     def tasks(self):
-        yield Task('run', resume='run', rqmt=self.rqmts)
-        yield Task('extract', mini_task=True)
+        mini_task = self.rqmts["gpu"] > 0
+        yield Task('run', mini_task=mini_task, resume='run', rqmt=self.rqmts)
+        yield Task('extract', resume='run', mini_task=True)
     
     def run(self):
         args = [
-            tk.uncached_path(self.crnn_python_exe),
-            os.path.join(tk.uncached_path(self.crnn_root), 'tools/tf_inspect_checkpoint.py'),
+            tk.uncached_path(self.returnn_python_exe),
+            os.path.join(tk.uncached_path(self.returnn_root), 'tools/tf_inspect_checkpoint.py'),
             f'--file_name={self.checkpoint}'
         ]
         if self.all_tensors:
@@ -50,11 +62,10 @@ class InspectTFCheckpointJob(Job):
 
     @staticmethod
     def read_array(string):
-        string = re.sub("\[\s+", "[", string.rstrip("\n").replace("\n", ","))
+        string = string.strip().replace("\n", " ")
+        string = re.sub("\[\s+", "[", string)
         string = re.sub("\s+\]", "]", string)
-        # string = re.sub("\[\s+(.+)\s+\]", "[\1]", string.rstrip("\n").replace("\n", ","))
         parsed_string = re.sub("\s+", ",", string)
-        parsed_string
         try:
             return np.array(
                 eval(parsed_string)
@@ -68,16 +79,16 @@ class InspectTFCheckpointJob(Job):
         buffer = ""
         tensors = {}
         with open(self.tensors_raw.get_path(), "r") as f:
+            copy = False
             for line in f:
                 if line.startswith("tensor_name:"):
-                    if prev_tensor_name is not None:
-                        tensors[prev_tensor_name] = InspectTFCheckpointJob.read_array(buffer)
-                    prev_tensor_name = line.split(" ")[-1].rstrip("\n")
-                    buffer = ""
+                    copy = True
                     continue
-                buffer += line
+                elif line.startswith("mean:"):
+                    break
+                elif copy:
+                    buffer += line
             value = InspectTFCheckpointJob.read_array(buffer)
             tensors[prev_tensor_name] = InspectTFCheckpointJob.read_array(buffer)
         assert all(tensor_name in tensors and tensors[tensor_name] is not None for tensor_name in self.tensors_parsed)
-        self.tensors.set(tensors)
-            
+        np.savetxt(self.out_tensor_file.get_path(), value)

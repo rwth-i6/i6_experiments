@@ -1,4 +1,5 @@
 import copy
+from itertools import product
 
 from sisyphus import *
 
@@ -6,6 +7,7 @@ from i6_experiments.users.mann.setups.swb.swbsystem import SWBNNSystem
 from i6_experiments.users.mann.setups.nn_system.base_system import NNSystem, ExpConfig
 from i6_experiments.users.mann.experimental import helpers
 from i6_experiments.users.mann.setups import tdps
+from i6_experiments.users.mann.setups.tdps import CombinedModel, SimpleTransitionModel
 
 from i6_experiments.users.mann.setups.nn_system.switchboard import get_legacy_switchboard_system, make_cart
 from i6_experiments.users.mann.nn.config.tdnn import make_baseline
@@ -20,13 +22,8 @@ dbg_epochs = [12]
 
 swb_system = get_legacy_switchboard_system()
 
-# swb_system.run("baseline_viterbi_lstm")
-
 baseline_viterbi = swb_system.baselines["viterbi_lstm"]()
 
-print(swb_system.crp["train"].nn_trainer_exe)
-
-print(swb_system.returnn_root)
 
 swb_system.nn_and_recog(
     name="baseline_viterbi_lstm",
@@ -43,9 +40,6 @@ swb_system.nn_and_recog(
     epochs=epochs,
     reestimate_prior=False
 )
-
-print(swb_system.crp["train"].acoustic_model_config)
-print(swb_system.crp["base"].acoustic_model_config)
 
 #----------------------------------- simple state tying -------------------------------------------
 
@@ -97,9 +91,6 @@ with safe_crp(swb_system):
 
 # make 1-state cart
 make_cart(swb_system, hmm_partition=1)
-
-print(swb_system.crp["train"].acoustic_model_config)
-print(swb_system.crp["base"].acoustic_model_config)
 
 params = {
     "reestimate": dict(reestimate_prior="CRNN"),
@@ -217,6 +208,41 @@ def set_tdps(am: rasr.RasrConfig, drate: int, skip=False, adjust_silence_exit=Fa
         tdps.Transition.from_fwd_prob(1 / (1 + 60 / drate)).to_rasr_config()
     )
 
+class TdpsSetter:
+    def __init__(self, drate: int):
+        self.drate = drate
+    
+    def set_tdps_comp(self, recognition_args, tdps):
+        spf, spl = tdps
+        tdps = CombinedModel.from_weights(
+            speech_fwd=spf,
+            speech_loop=spl,
+            silence_fwd=3.0,
+            silence_loop=0.0,
+            speech_skip=30.0,
+            silence_exit=30.0 / self.drate
+        )
+        extra_config = recognition_args.get("extra_config", rasr.RasrConfig())
+        extra_config["flf-lattice-tool.network.recognizer.acoustic-model"] = tdps.to_acoustic_model_config()
+        recognition_args["extra_config"] = extra_config
+
+tdp_params = list(product(
+    [-1.0, 0.0, 1.0],
+    [-1.0, 0.0, 0.5, 1.0],
+))
+
+tdp_params_drate_1 = list(product(
+    [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+    [-1.0, 0.0, 0.5, 1.0],
+))
+
+def set_tdp_scale(recognition_args, scale):
+    extra_config = recognition_args.get("extra_config", rasr.RasrConfig())
+    extra_config["flf-lattice-tool.network.recognizer.acoustic-model.tdp.scale"] = scale
+    recognition_args["extra_config"] = extra_config
+
+tdp_scales = [0.1, 0.3, 0.5, 0.7, 1.0]
+
 NUM_FRAMES = 91026136
 BASE_EPOCH = 240
 BASE_TRAINING = "baseline_viterbi_tdnn.1s"
@@ -229,9 +255,11 @@ ts = helpers.TuningSystem(swb_system, training_args={})
 wers = {}
 rtfs = {}
 for drate in [1, 2, 3, 4, 6, 8]:
+# for drate in []:
     wers[drate] = {}
     rtfs[drate] = {}
-    for fwds in [True, False, "skip"]:
+    # for fwds in [True, False, "skip"]:
+    for fwds in ["skip"]:
         # add output layer
         compile_args = {}
         extra_recog_args = {}
@@ -305,6 +333,50 @@ for drate in [1, 2, 3, 4, 6, 8]:
             )
             for skip in skip_parameters
         }
+    
+    if drate in [1, 3]:
+        recognition_args={
+            **recog_args,
+            **extra_recog_args,
+            "lm_scale": adjust_lm_scale(BASE_LMS, drate),
+            "extra_config": extra_config,
+        }
+        ts.tune_parameter(
+            name="recog_drate-{}.sp-tdps".format(drate),
+            crnn_config=baseline_tdnn,
+            parameters=tdp_params if drate > 1 else tdp_params_drate_1,
+            transformation=TdpsSetter(drate).set_tdps_comp,
+            procedure=helpers.Recog(BASE_EPOCH, BASE_TRAINING),
+            compile_args=compile_args,
+            compile_crnn_config=base_compile_config,
+            recognition_args=recognition_args,
+            # scorer_args={"prior_mixtures": None},
+            scorer_args={},
+            optimize=False,
+            reestimate_prior="CRNN" 
+        )
+
+        sp_tdps = {
+            1: (1.0, 0.0),
+            3: (0.0, 1.0),
+        }
+
+        TdpsSetter(drate).set_tdps_comp(recognition_args, sp_tdps[drate])
+
+        ts.tune_parameter(
+            name="recog_drate-{}.tdp_scale".format(drate),
+            crnn_config=baseline_tdnn,
+            parameters=tdp_scales,
+            transformation=set_tdp_scale,
+            procedure=helpers.Recog(BASE_EPOCH, BASE_TRAINING),
+            compile_args=compile_args,
+            compile_crnn_config=base_compile_config,
+            recognition_args=recognition_args,
+            # scorer_args={"prior_mixtures": None},
+            scorer_args={},
+            optimize=False,
+            reestimate_prior="CRNN" 
+        )
 
 from i6_core import util
 class SkipReport:
@@ -323,12 +395,11 @@ class SkipReport:
 
 def dump_summary(name, data):
     import pickle
-    print("Dumping {}".format(name))
     fname = "output/{}/reports/{}.pkl".format(FNAME, name)
     tk.dump(util.instanciate_delayed(data), fname)
 
-tk.register_callback(dump_summary, "wer", wers)
-tk.register_callback(dump_summary, "rtf", rtfs)
+# tk.register_callback(dump_summary, "wer", wers)
+# tk.register_callback(dump_summary, "rtf", rtfs)
 
 #------------------------------------- make downsampled alignments --------------------------------
 
@@ -410,7 +481,6 @@ LAYER_SEQ = ["input_conv"] \
     + [x for i in range(6) if (x := f"gated_{i}") in baseline_tdnn.config["network"]] \
     + ["output"]
 
-print(LAYER_SEQ)
 
 def pooling_layer(mode, pool_size, sources, padding="same"):
     if isinstance(pool_size, int):
@@ -436,14 +506,7 @@ def insert_pooling_layer(network, index=-1, mode="avg", pool_size=3, **_ignored)
 from i6_experiments.users.mann.setups.nn_system.trainer import SprintCacheTrainer
 swb_system.set_trainer(SprintCacheTrainer(swb_system))
 
-def set_downsampled_alignment_training(
-    config,
-    training_args,
-    recognition_args,
-    scorer_args,
-    plugin_args,
-    drate
-):
+def set_downsampled_recognition(recognition_args, drate):
     extra_config = rasr.RasrConfig()
     extra_config["flf-lattice-tool.network.recognizer.acoustic-model"].tdp.silence.exit \
         = adjust_silence_exit_penalty(BASE_SILENCE_EXIT, drate)
@@ -455,6 +518,38 @@ def set_downsampled_alignment_training(
     # adjust recognition args
     recognition_args["lm_scale"] = adjust_lm_scale(BASE_LMS, drate)
     recognition_args["extra_config"] = extra_config
+
+from recipe.i6_experiments.users.mann.setups.tdps import CombinedModel
+def set_downsampled_recognition_legacy(recognition_args, drate):
+    extra_config = rasr.RasrConfig()
+    extra_config["flf-lattice-tool.network.recognizer.acoustic-model"].tdp.silence.exit \
+        = adjust_silence_exit_penalty(BASE_SILENCE_EXIT, drate)
+    set_tdps(
+        extra_config["flf-lattice-tool.network.recognizer.acoustic-model"],
+        drate, skip=True,
+        speech_exit=0.0
+    )
+    model = CombinedModel.from_weights(
+        0.0, 3.0,
+        3.0, 0.0,
+        silence_exit=BASE_SILENCE_EXIT / drate,
+        speech_skip=max(40.0 - drate * 10.0, -1.0),
+        skip_normed=False,
+    )
+    extra_config["flf-lattice-tool.network.recognizer.acoustic-model"] = model.to_acoustic_model_config()
+    # adjust recognition args
+    recognition_args["lm_scale"] = adjust_lm_scale(BASE_LMS, drate)
+    recognition_args["extra_config"] = extra_config
+
+def set_downsampled_alignment_training(
+    config,
+    training_args,
+    recognition_args,
+    scorer_args,
+    plugin_args,
+    drate
+):
+    set_downsampled_recognition(recognition_args, drate)
 
     make_alignment(drate)
     alignment_name = "baseline_drate-{}".format(drate)
@@ -476,8 +571,6 @@ ts.tune_parameter(
     crnn_config=baseline_tdnn,
     parameters=DRATES[:-1],
     transformation=set_downsampled_alignment_training,
-    # compile_args=compile_args,
-    # compile_crnn_config=base_compile_config,
     training_args={
         "returnn_root": RETURNN_SPRINT_CACHE,
     },
@@ -490,6 +583,81 @@ ts.tune_parameter(
     reestimate_prior="CRNN" ,
     alt_training=True
 )
+
+#------------------------------------- recog tuning -----------------------------------------------
+
+# set beam-pruning, beam-pruning-limit and acoustic-lookahead-temporal-approximation-scale in recognition_args
+def set_recog_params(recognition_args, params):
+    recognition_args["search_parameters"] = sp = {}
+    sp["beam-pruning"] = params[0]
+    sp["beam-pruning-limit"] = params[1]
+    extra_config = recognition_args["extra_config"] # = extra_config = rasr.RasrConfig()
+    extra_config["flf-lattice-tool.network.recognizer.recognizer.acoustic-lookahead-temporal-approximation-scale"] = params[2]
+    return recognition_args
+
+# possible values for beam-pruning, beam-pruning-limit and acoustic-lookahead-temporal-approximation-scale
+from itertools import product
+params = list(product([12.0, 14.0, 16.0], [10_000, 20_000, 100_000], [0.0, 1.0, 2.0, 4.0]))
+# params = [(14.0, 10_000, 2.0)]
+
+wers = {}
+rtfs = {}
+gs.GRAPH_WORKER = 4
+
+# for drate in [3]:
+for drate in DRATES[:-2]:
+    for leg in [False]: #, False]:
+        # adjust recognition
+        recognition_args = recog_args.copy()
+        if leg:
+            set_downsampled_recognition_legacy(recognition_args, drate)
+            infix = ".legacy"
+        else:
+            set_downsampled_recognition(recognition_args, drate)
+            infix = ""
+
+        base_name = "baseline_downsampled_alignment-{}".format(drate)
+        name="drate-{}.recog{}".format(drate, infix)
+        ts.tune_parameter(
+            name=name,
+            crnn_config=swb_system.nn_config_dicts["train"][base_name],
+            compile_crnn_config=base_name,
+            parameters=params,
+            transformation=set_recog_params,
+            recognition_args=recognition_args,
+            procedure=helpers.Recog(240, base_name),
+            scorer_args={
+                "prior_file": base_name,
+            },
+            # reestimate_prior="alt",
+            training_args={
+                "returnn_root": RETURNN_SPRINT_CACHE,
+            },
+            # reestimate_prior="alt",
+            reestimate_prior=False,
+            # alt_training=True,
+        )
+
+        print(drate)
+        wers[drate] = werp = {}
+        rtfs[drate] = rtfp = {}
+
+        for p in params:
+            ps = "-".join(map(str, p))
+            werp[ps] = ts.get_wer(
+                name, 240, ps,
+                # reestimate_prior=True,
+                precise=True
+            )
+            rtfp[ps] = ts.get_rtf(
+                name, 240, ps,
+                # eestimate_prior=True,
+                num_frames=NUM_FRAMES,
+            )
+
+        tk.register_callback(dump_summary, "wers.{}{}.align".format(drate, infix), werp)
+        tk.register_callback(dump_summary, "rtfs.{}{}.align".format(drate, infix), rtfp)
+
 
 #------------------------------------- try interface ----------------------------------------------
 

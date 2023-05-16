@@ -30,6 +30,8 @@ def get_best_model_config(
     label_smoothing: typing.Optional[float] = None,
     target: str = "classes",
     time_tag_name: typing.Optional[str] = None,
+    upsample_by_transposed_conv: bool = True,
+    feature_stacking_size: int = 3,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER
@@ -61,34 +63,34 @@ def get_best_model_config(
         },
     )
 
-    loss6_down_up_3_two_vggs_args = {
+    args = {
         "add_blstm_block": False,
         "add_conv_block": True,
         "loss_layer_idx": int_loss_at_layer,
         "loss_scale": int_loss_scale,
         "feature_stacking": True,
-        "feature_stacking_window": [2, 0],
-        "feature_stacking_stride": 3,
-        "transposed_conv": True,
+        "feature_stacking_window": [feature_stacking_size - 1, 0],
+        "feature_stacking_stride": feature_stacking_size,
+        "transposed_conv": upsample_by_transposed_conv,
         "transposed_conv_args": {
             "time_tag_name": time_tag_name,
         },
     }
 
     if focal_loss_factor is not None:
-        loss6_down_up_3_two_vggs_args["focal_loss_factor"] = focal_loss_factor
+        args["focal_loss_factor"] = focal_loss_factor
 
-    pe400_conformer_down_up_3_loss6_args = get_network_args(
+    configured_args = get_network_args(
         num_enc_layers=12,
         type="conformer",
         enc_args=pe400_enc_args,
         target=target,
         num_classes=num_classes,
         label_smoothing=label_smoothing,
-        **loss6_down_up_3_two_vggs_args,
+        **args,
     )
 
-    pe400_conformer_layer_norm_down_up_3_loss6 = attention_for_hybrid(**pe400_conformer_down_up_3_loss6_args)
-    pe400_conformer_layer_norm_down_up_3_loss6.get_network()
+    conformer = attention_for_hybrid(**configured_args)
+    conformer.get_network()
 
-    return pe400_conformer_layer_norm_down_up_3_loss6
+    return conformer

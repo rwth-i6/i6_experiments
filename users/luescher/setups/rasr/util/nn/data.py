@@ -10,7 +10,7 @@ __all__ = [
     "AllowedReturnnTrainingDataInput",
 ]
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
@@ -21,7 +21,12 @@ import i6_core.rasr as rasr
 from i6_core.returnn.hdf import BlissToPcmHDFJob, RasrAlignmentDumpHDFJob
 from i6_core.util import MultiPath
 
-RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlowNetwork]
+
+
+@dataclass(frozen=True)
+class RasrDataInput:
+    features: RasrCacheTypes
 
 
 class ReturnnRasrDataInput:

@@ -69,14 +69,20 @@ class DecodingExperiment(ABC):
 
 
 class ReturnnDecodingExperiment(DecodingExperiment):
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+    self.returnn_python_exe = self.variant_params["config"]["returnn_python_exe"]
+    self.returnn_root = self.variant_params["config"]["returnn_root"]
+
   def get_ctm_path(self) -> Path:
     if self.dump_best_traces:
       search_job = ReturnnDumpSearchJob(
         search_data={},
         model_checkpoint=self.checkpoint,
         returnn_config=self.returnn_config,
-        returnn_python_exe=RETURNN_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=self.returnn_python_exe,
+        returnn_root=self.returnn_root,
         mem_rqmt=6,
         time_rqmt=1)
       self._best_traces = search_job.out_search_seqs_file
@@ -85,8 +91,8 @@ class ReturnnDecodingExperiment(DecodingExperiment):
         search_data={},
         model_checkpoint=self.checkpoint,
         returnn_config=self.returnn_config,
-        returnn_python_exe=RETURNN_EXE,
-        returnn_root=RETURNN_ROOT,
+        returnn_python_exe=self.returnn_python_exe,
+        returnn_root=self.returnn_root,
         device="gpu",
         mem_rqmt=4,
         time_rqmt=1)

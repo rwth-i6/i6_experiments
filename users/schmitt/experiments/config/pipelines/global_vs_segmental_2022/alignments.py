@@ -1,7 +1,8 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022.miscellaneous import find_seqs_to_skip, update_seq_list_file, dump_phoneme_align, calc_align_stats, \
   augment_bpe_align_with_sil, alignment_split_silence, reduce_alignment, convert_phon_json_vocab_to_rasr_vocab, \
   convert_phon_json_vocab_to_allophones, convert_phon_json_vocab_to_state_tying, \
-  convert_phon_json_vocab_to_rasr_formats, convert_bpe_json_vocab_to_rasr_formats, alignment_center_seg_boundaries
+  convert_phon_json_vocab_to_rasr_formats, convert_bpe_json_vocab_to_rasr_formats, alignment_center_seg_boundaries, \
+  alignment_add_eos
 
 from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGraphJob, RASRDecodingJob, \
   CombineAttentionPlotsJob, DumpPhonemeAlignJob, AugmentBPEAlignmentJob, FindSegmentsToSkipJob, ModifySeqFileJob, \
@@ -11,7 +12,7 @@ from i6_private.users.schmitt.returnn.tools import DumpForwardJob, CompileTFGrap
 from sisyphus import *
 
 
-def create_alignments(
+def create_swb_alignments(
   data_dict, seq_filter_files_standard, bpe_standard_aligns, bpe_vocab, rasr_nn_trainer, phon_extraction_rasr_configs):
   for corpus_key in [
     "cv",
@@ -57,6 +58,42 @@ def create_alignments(
       data_dict["bpe"]["devtrain"] = {
         "time-red-6": {
           "seq_filter_file": seq_filter_files_standard["devtrain"]}}
+
+    # ----------------------- BPE ALIGNMENTS WITH EOS -----------------------------------------
+    bpe_eos_align, bpe_eos_seqs, bpe_eos_exclude_seqs = alignment_add_eos(
+      blank_idx=1030, eos_idx=0,
+      alias="bpe_eos_align/align_%s" % corpus_key,
+      alignment=bpe_standard_aligns[corpus_key],
+      seq_filter_file=bpe_seq_filter_file)
+    bpe_eos_label_dep_mean_lens, bpe_eos_mean_non_sil_len, bpe_eos_95_percentile = calc_align_stats(
+      alignment=bpe_eos_align, blank_idx=1030, sil_idx=1031,
+      seq_filter_file=bpe_eos_seqs,
+      alias="bpe_eos_align_stats/time-red-6/stats_" + corpus_key)
+
+    bpe_eos_labels_job = DumpNonBlanksFromAlignmentJob(alignment=bpe_eos_align, blank_idx=1030,
+                                                              time_rqmt=time_rqmt)
+    bpe_eos_labels_job.add_alias("bpe_eos_labels/%s" % corpus_key)
+    tk.register_output(bpe_eos_labels_job.get_one_alias(), bpe_eos_labels_job.out_labels)
+
+    data_dict["bpe-eos"].update({
+      "json_vocab": bpe_vocab, "state_tying": bpe_state_tying, "allophones": bpe_allophones,
+      "rasr_label_file": bpe_rasr_label_file})
+    data_dict["bpe-eos"][corpus_key] = {
+      "label_seqs": None,
+      "time-red-6": {
+        "align": bpe_eos_align,
+        "seq_filter_file": bpe_eos_seqs,
+        "label_dep_mean_lens": bpe_eos_label_dep_mean_lens,
+        "mean_non_sil_len": bpe_eos_mean_non_sil_len,
+        "95_percentile": bpe_eos_95_percentile}}
+    if corpus_key == "train":
+      seq_filter_files_bpe_eos_devtrain = update_seq_list_file(
+        seq_list_file=seq_filter_files_standard["devtrain"],
+        seqs_to_skip=bpe_eos_exclude_seqs,
+        alias="seq_filter_files_bpe_eos/time-red-%s/%s" % (6, "devtrain"))
+      data_dict["bpe-eos"]["devtrain"] = {
+        "time-red-6": {
+          "seq_filter_file": seq_filter_files_bpe_eos_devtrain}}
 
     # ----------------------- BPE Center Position ALIGNMENTS -----------------------------------------
     bpe_center_pos_align = alignment_center_seg_boundaries(
@@ -453,4 +490,102 @@ def create_alignments(
           "time-red-6": {
             "seq_filter_file": seq_filter_files_bpe_sil_devtrain}}
 
-  
+  compare_swb_alignments(align_dict=data_dict)
+
+
+def compare_swb_alignments(align_dict):
+  seq_tag = "switchboard-1/sw02102A/sw2102A-ms98-a-0002"
+
+  align1 = "bpe"
+  align2 = "bpe-with-sil"
+  compare_aligns_job = CompareAlignmentsJob(
+    hdf_align1=align_dict[align1]["cv"]["time-red-6"]["align"],
+    hdf_align2=align_dict[align2]["cv"]["time-red-6"]["align"],
+    seq_tag=seq_tag, blank_idx1=1030, blank_idx2=1031, vocab1=align_dict[align1]["json_vocab"],
+    vocab2=align_dict[align2]["json_vocab"], name1=align1, name2=align2)
+  compare_aligns_job.add_alias(
+    "compare-aligns/" + align1 + "_vs_" + align2)
+  tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+  align1 = "bpe"
+  align2 = "bpe-center-positions"
+  compare_aligns_job = CompareAlignmentsJob(
+    hdf_align1=align_dict[align1]["cv"]["time-red-6"]["align"],
+    hdf_align2=align_dict[align2]["cv"]["time-red-6"]["align"],
+    seq_tag=seq_tag, blank_idx1=1030, blank_idx2=1030, vocab1=align_dict[align1]["json_vocab"],
+    vocab2=align_dict[align2]["json_vocab"], name1=align1, name2=align2)
+  compare_aligns_job.add_alias(
+    "compare-aligns/" + align1 + "_vs_" + align2)
+  tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+  align1 = "bpe-with-sil"
+  align2 = "bpe-with-sil-split-sil"
+  compare_aligns_job = CompareAlignmentsJob(
+    hdf_align1=align_dict[align1]["cv"]["time-red-6"]["align"],
+    hdf_align2=align_dict[align2]["cv"]["time-red-6"]["align"],
+    seq_tag=seq_tag, blank_idx1=1031, blank_idx2=1031, vocab1=align_dict[align1]["json_vocab"],
+    vocab2=align_dict[align2]["json_vocab"], name1=align1, name2=align2)
+  compare_aligns_job.add_alias(
+    "compare-aligns/" + align1 + "_vs_" + align2)
+  tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+  align1 = "bpe-with-sil"
+  align2 = "bpe-sil-wo-sil"
+  compare_aligns_job = CompareAlignmentsJob(
+    hdf_align1=align_dict[align1]["cv"]["time-red-6"]["align"],
+    hdf_align2=align_dict[align2]["cv"]["time-red-6"]["align"],
+    seq_tag=seq_tag, blank_idx1=1031, blank_idx2=1031, vocab1=align_dict[align1]["json_vocab"],
+    vocab2=align_dict[align2]["json_vocab"], name1=align1, name2=align2)
+  compare_aligns_job.add_alias(
+    "compare-aligns/" + align1 + "_vs_" + align2)
+  tk.register_output(compare_aligns_job.get_one_alias(), compare_aligns_job.out_align)
+
+
+def create_librispeech_alignments(
+  data_dict, rasr_nn_trainer, phon_extraction_rasr_configs):
+  for corpus_key in [
+    "train"
+  ]:
+    if corpus_key == "cv":
+      time_rqmt = 2
+      mem_rqmt = 4
+    else:
+      time_rqmt = 10
+      mem_rqmt = 6
+
+
+    # ----------------------- PHONEME ALIGNMENTS -----------------------------------------
+    # extract phoneme alignments
+    phoneme_align, phoneme_vocab_path = dump_phoneme_align(
+      time_rqmt=time_rqmt, rasr_exe=rasr_nn_trainer, rasr_config=phon_extraction_rasr_configs[corpus_key],
+      mem_rqmt=mem_rqmt, time_red=1, alias="phon_align_ls/%s/%s" % ("time-red-1", corpus_key),
+      state_tying_file=Path("/work/asr3/zeyer/schmitt/sisyphus_work_dirs/librispeech/dependencies/luescher-phoneme-align/state-tying"))
+
+    # phon_state_tying, phon_allophones, phon_rasr_label_file = convert_phon_json_vocab_to_rasr_formats(
+    #   phoneme_vocab_path, blank_idx=89)
+    #
+    # # calculate alignment statistics for phoneme alignment without time reduction
+    # phoneme_label_dep_mean_lens, phoneme_mean_non_sil_len, phoneme_95_percentile = calc_align_stats(
+    #   alignment=phoneme_align,
+    #   seq_filter_file=bpe_seq_filter_file, alias="phon_align_stats/stats_" + corpus_key)
+    #
+    # phoneme_labels_job = DumpNonBlanksFromAlignmentJob(
+    #   alignment=phoneme_align, blank_idx=89, time_rqmt=time_rqmt
+    # )
+    # phoneme_labels_job.add_alias("phoneme_labels/%s" % corpus_key)
+    # tk.register_output("phoneme_labels/%s" % corpus_key, phoneme_labels_job.out_labels)
+    #
+    #
+    # data_dict["phonemes"].update({
+    #   "json_vocab": phoneme_vocab_path,
+    #   "state_tying": phon_state_tying, "allophones": phon_allophones, "rasr_label_file": phon_rasr_label_file})
+    # data_dict["phonemes"][corpus_key] = {
+    #   "label_seqs": phoneme_labels_job.out_labels,
+    #   "time-red-1": {
+    #     "align": phoneme_align,
+    #     "seq_filter_file": bpe_seq_filter_file, "label_dep_mean_lens": phoneme_label_dep_mean_lens,
+    #     "mean_non_sil_len": phoneme_mean_non_sil_len, "95_percentile": phoneme_95_percentile}}
+    # if corpus_key == "train":
+    #   data_dict["phonemes"]["devtrain"] = {
+    #     "time-red-1": {
+    #       "seq_filter_file": seq_filter_files_standard["devtrain"]}}

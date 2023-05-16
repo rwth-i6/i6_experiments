@@ -28,8 +28,8 @@ class PyTorchModel(SerializerObject):
 
     model_kwargs = ${MODEL_KWARGS}
 
-    def get_model(**kwargs):
-        return ${MODEL_CLASS}(**model_kwargs)
+    def get_model(epoch, step, **kwargs):
+        return ${MODEL_CLASS}(epoch=epoch, step=step, **model_kwargs, **kwargs)
 
     """
     )

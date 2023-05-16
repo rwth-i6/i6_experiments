@@ -5,6 +5,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb.realignment import run_rasr_segmental_realignment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb.train_recog.base import TrainRecogPipeline
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb import default_tags_for_analysis
+from i6_experiments.users.schmitt.util.util import GetLearningRateFromFileJob
 
 from i6_core.returnn.training import Checkpoint
 
@@ -21,6 +22,8 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           realignment_length_scale: float = 1.,
           num_retrain: int = 0,
           retrain_load_checkpoint: bool = False,
+          retrain_reset_lr: bool = True,
+          retrain_choose_best_alignment: bool = False,
           import_model_do_initial_realignment: bool = False,
           import_model_is_global: bool = False,
           **kwargs):
@@ -42,14 +45,28 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     }
 
     self.retrain_load_checkpoint = retrain_load_checkpoint
+    assert retrain_load_checkpoint or retrain_reset_lr, "Learning rate should be reset when not loading a checkpoint"
+    self.retrain_reset_lr = retrain_reset_lr
+    self.retrain_choose_best_alignment = retrain_choose_best_alignment
 
     assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
     self.import_model_do_initial_realignment = import_model_do_initial_realignment
-    if import_model_do_initial_realignment:
-      self.base_alias = "%s_initial_realignment" % self.base_alias
 
     assert not import_model_is_global or self.import_model_train_epoch1 is not None, "Setting 'import_model_is_global' does not have an effect when not importing a model"
     self.import_model_is_global = import_model_is_global
+
+    self.base_alias = self._get_base_alias(base_alias=self.base_alias)
+
+  def _get_base_alias(self, base_alias) -> str:
+    base_alias = super()._get_base_alias(base_alias=base_alias)
+
+    if self.import_model_do_initial_realignment:
+      base_alias = "%s_initial_realignment" % base_alias
+
+      if self.retrain_choose_best_alignment:
+        base_alias += "_choose-best-alignment"
+
+    return base_alias
 
   def compare_alignments(
           self,
@@ -96,7 +113,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           train_alias: str = "train",
           cv_alignment: Path = None,
           train_alignment: Path = None,
-          import_model_train_epoch1=None) -> Dict[int, Checkpoint]:
+          import_model_train_epoch1: Optional[Path] = None,
+          initial_lr: Optional[float] = None
+  ) -> Tuple[Dict[int, Checkpoint], Path]:
     base_alias = "%s/%s" % (self.base_alias, train_alias)
     return SegmentalTrainExperiment(
       dependencies=self.dependencies,
@@ -105,7 +124,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       base_alias=base_alias,
       cv_alignment=cv_alignment,
       train_alignment=train_alignment,
-      import_model_train_epoch1=import_model_train_epoch1).run_training()
+      import_model_train_epoch1=import_model_train_epoch1,
+      initial_lr=initial_lr
+    ).run_training()
 
   def _get_realignment(
           self,
@@ -114,7 +135,10 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint: Checkpoint,
           length_scale: float,
           train_alias: str,
-          remove_length_model: bool = False) -> Path:
+          remove_length_model: bool = False,
+          choose_best_alignment: bool = False,
+          previous_alignment: Optional[Path] = None,
+  ) -> Path:
     base_alias = "%s/%s/epoch_%d" % (self.base_alias, train_alias, epoch)
     return run_rasr_segmental_realignment(
       dependencies=self.dependencies,
@@ -123,7 +147,10 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       corpus_key=corpus_key,
       base_alias=base_alias,
       length_scale=length_scale,
-      remove_length_model=remove_length_model)
+      remove_length_model=remove_length_model,
+      choose_best_alignment=choose_best_alignment,
+      previous_alignment=previous_alignment
+    )
 
   def run_standard_recog(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
     for epoch in self.returnn_recog_epochs:
@@ -184,12 +211,19 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
         cv_realignment=self._get_realignment(
           corpus_key="cv", checkpoint=checkpoint, length_scale=1., epoch=epoch, train_alias=train_alias))
 
-  def run_rasr_recog_wo_length_model(self, checkpoints: Dict[int, Checkpoint], train_alias: str):
+  def run_rasr_recog_wo_length_model(
+          self, checkpoints: Dict[int, Checkpoint], train_alias: str, force_non_blank_in_last_frame: bool = False
+  ):
     for epoch in self.rasr_recog_epochs:
       checkpoint = checkpoints[epoch]
       base_alias = "%s/%s/epoch_%d/rasr_recog_wo_length_model" % (self.base_alias, train_alias, epoch)
+      if force_non_blank_in_last_frame:
+        base_alias += "_force_nb_in_last_frame"
 
       variant_params = self._remove_pretrain_from_config(epoch=epoch)
+
+      if force_non_blank_in_last_frame:
+        variant_params["config"]["force_non_blank_in_last_frame"] = True
 
       run_rasr_segmental_decoding(
         dependencies=self.dependencies,
@@ -244,10 +278,30 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       self.run_returnn_recog_w_recomb(checkpoints=checkpoints, train_alias=train_alias)
     elif self.recog_type == "rasr_wo_length_model":
       self.run_rasr_recog_wo_length_model(checkpoints=checkpoints, train_alias=train_alias)
+    elif self.recog_type == "rasr_wo_length_model_force_nb_in_last_frame":
+      self.run_rasr_recog_wo_length_model(
+        checkpoints=checkpoints, train_alias=train_alias, force_non_blank_in_last_frame=True)
     elif self.recog_type == "huge_beam":
       self.run_huge_beam_recog(checkpoints=checkpoints, train_alias=train_alias)
     else:
       raise NotImplementedError
+
+  def _get_retrain_alias(self, retrain_iter: int, initial_lr: Optional[float], choose_best_alignment: bool):
+    retrain_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (
+      retrain_iter, self.num_epochs[-1], self.realignment_length_scale)
+
+    if self.retrain_load_checkpoint:
+      retrain_alias += "_load_prev_checkpoint"
+    else:
+      retrain_alias += "_start_from_scratch"
+    if self.retrain_reset_lr:
+      retrain_alias += "_reset-lr"
+    else:
+      retrain_alias += "_keep-lr"
+    if choose_best_alignment:
+      retrain_alias += "_choose-best-align"
+
+    return retrain_alias
 
   def run(self):
     if self.import_model_do_initial_realignment:
@@ -258,14 +312,17 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
           train_alias="import_model",
+          choose_best_alignment=self.retrain_choose_best_alignment,
+          previous_alignment=self.dependencies.alignment_paths[corpus_key],
           remove_length_model=self.import_model_is_global)
 
     train_alias = "train"
-    self.checkpoints["train"] = self.run_training(
+    self.checkpoints["train"], lr_file_path = self.run_training(
       import_model_train_epoch1=self.import_model_train_epoch1,
       train_alias=train_alias,
       cv_alignment=self.alignments["train"]["cv"],
-      train_alignment=self.alignments["train"]["train"]
+      train_alignment=self.alignments["train"]["train"],
+      initial_lr=self.import_model_train_epoch1_initial_lr
     )
     if self.do_recog:
       self.run_recog(checkpoints=self.checkpoints["train"])
@@ -277,9 +334,15 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
       align2_name="ground-truth",
       align_alias="train/ground-truth-alignment")
 
+    if self.retrain_reset_lr:
+      initial_lr = None
+    else:
+      initial_lr = GetLearningRateFromFileJob(lr_file_path=lr_file_path).out_last_lr
+
     for retrain_iter in range(self.num_retrain):
-      cur_train_alias = "train" if retrain_iter == 0 else ("retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter, self.num_epochs[-1], self.realignment_length_scale))
-      next_train_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (retrain_iter + 1, self.num_epochs[-1], self.realignment_length_scale)
+      cur_train_alias = "train" if retrain_iter == 0 else self._get_retrain_alias(
+        retrain_iter, initial_lr, self.retrain_choose_best_alignment)
+      next_train_alias = self._get_retrain_alias(retrain_iter + 1, initial_lr, self.retrain_choose_best_alignment)
 
       self.alignments[next_train_alias] = {}
       for corpus_key in ("cv", "train"):
@@ -288,12 +351,22 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           checkpoint=self.checkpoints[cur_train_alias][self.num_epochs[-1]],
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
-          train_alias=cur_train_alias)
-      self.checkpoints[next_train_alias] = self.run_training(
+          choose_best_alignment=self.retrain_choose_best_alignment,
+          previous_alignment=self.alignments[cur_train_alias][corpus_key],
+          train_alias=cur_train_alias,
+        )
+      self.checkpoints[next_train_alias], lr_file_path = self.run_training(
         train_alias=next_train_alias,
         cv_alignment=self.alignments[next_train_alias]["cv"],
         train_alignment=self.alignments[next_train_alias]["train"],
-        import_model_train_epoch1=self.checkpoints[cur_train_alias][self.num_epochs[-1]] if self.retrain_load_checkpoint else None)
+        import_model_train_epoch1=self.checkpoints[cur_train_alias][self.num_epochs[-1]] if self.retrain_load_checkpoint else None,
+        initial_lr=initial_lr
+      )
+
+      if self.retrain_reset_lr:
+        initial_lr = None
+      else:
+        initial_lr = GetLearningRateFromFileJob(lr_file_path=lr_file_path).out_last_lr
 
       self.compare_alignments(
         hdf_align_path1=self.alignments[cur_train_alias]["cv"],

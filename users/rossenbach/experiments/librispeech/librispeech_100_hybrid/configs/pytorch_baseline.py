@@ -266,6 +266,7 @@ def get_pytorch_returnn_configs(
         "blstm_oclr_v2": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=False),
         "torchaudio_conformer": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer"}, use_tracing=False),# here the config is wrong, it does use tracing
         "torchaudio_conformer_subsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample"}, use_tracing=True),#
+        "torchaudio_conformer_subsample_upsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
         # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
         # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
         "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#

@@ -3,6 +3,7 @@ from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.formats import RasrFormats
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.hyperparameters import ModelHyperparameters, SegmentalModelHyperparameters, GlobalModelHyperparameters
+from i6_experiments.users.schmitt.util.util import ModifySeqFileJob
 
 from i6_core.corpus.segments import ShuffleAndSplitSegmentsJob
 from i6_core.corpus.convert import CorpusToStmJob
@@ -41,6 +42,22 @@ class LabelDefinition(ABC):
   @abstractmethod
   def train_segment_paths(self) -> Dict[str, Path]:
     pass
+
+  @property
+  def raw_audio_train_segment_paths(self) -> Dict[str, Path]:
+    devtrain_filtered_seqs = ModifySeqFileJob(
+      seq_file=self.train_segment_paths["devtrain"],
+      seqs_to_skip=SWBCorpora.raw_audio_excluded_train_seqs
+    ).out_seqs_file
+    train_filtered_seqs = ModifySeqFileJob(
+      seq_file=self.train_segment_paths["train"],
+      seqs_to_skip=SWBCorpora.raw_audio_excluded_train_seqs
+    ).out_seqs_file
+    return dict(
+      cv=self.train_segment_paths["cv"],
+      devtrain=devtrain_filtered_seqs,
+      train=train_filtered_seqs
+    )
 
   @property
   def segment_paths(self) -> Dict[str, Path]:

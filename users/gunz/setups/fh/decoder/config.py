@@ -66,6 +66,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeMonophonePriorsJob.
+
+        The directory needs to contain `center-state.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -78,6 +80,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeDiphonePriorsJob.
+
+        The directory needs to contain `center-state.xml` and `left-context.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -91,6 +95,8 @@ class PriorInfo:
         """
         Initializes a PriorInfo instance with scale 0.0 from the output directory of
         a previously run/captured ComputeTriphoneForwardPriorsJob.
+
+        The directory needs to contain `center-state.xml`, `left-context.xml` and `right-context.xml`.
         """
 
         output_dir = tk.Path(output_dir) if isinstance(output_dir, str) else output_dir
@@ -155,6 +161,9 @@ class SearchParameters:
     def with_pron_scale(self, pron_scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, pron_scale=pron_scale)
 
+    def with_tdp_non_word(self, tdp: typing.Tuple[TDP, TDP, TDP, TDP]) -> "SearchParameters":
+        return dataclasses.replace(self, tdp_non_word=tdp)
+
     def with_tdp_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, tdp_scale=scale)
 
@@ -213,6 +222,15 @@ class SearchParameters:
             non_word_phonemes="[UNKNOWN]",
             we_pruning=0.5,
             we_pruning_limit=10000,
+        )
+
+    @classmethod
+    def default_cart(cls, *, priors: PriorInfo) -> "SearchParameters":
+        return dataclasses.replace(
+            cls.default_triphone(priors=priors.with_scale(center=0.3)),
+            beam=16,
+            beam_limit=100_000,
+            lm_scale=12,
         )
 
     @classmethod

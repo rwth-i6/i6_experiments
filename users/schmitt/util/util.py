@@ -9,11 +9,12 @@ import tempfile
 import shutil
 import os
 import re
+from sisyphus.toolkit import Variable
 
-from typing import Iterator
+from typing import Iterator, Optional
 
-from recipe.i6_experiments.users.schmitt.experiments.swb.transducer import config as config_mod
-tools_dir = os.path.join(os.path.dirname(os.path.abspath(config_mod.__file__)), "tools")
+import recipe.i6_experiments.users.schmitt.tools as tools_mod
+tools_dir = os.path.dirname(tools_mod.__file__)
 
 
 class ModifySeqFileJob(Job):
@@ -30,7 +31,11 @@ class ModifySeqFileJob(Job):
     if self.seqs_to_skip is None:
       shutil.copy(self.seq_file, self.out_seqs_file.get_path())
     else:
-      seqs_to_skip = self.seqs_to_skip.get()
+      if type(self.seqs_to_skip) == Variable:
+        seqs_to_skip = self.seqs_to_skip.get()
+      else:
+        assert type(self.seqs_to_skip) == list or type(self.seqs_to_skip) == tuple
+        seqs_to_skip = self.seqs_to_skip
       with open(self.seq_file.get_path(), "r") as src:
         with open(self.out_seqs_file.get_path(), "w+") as dst:
           for line in src:
@@ -42,8 +47,13 @@ class GetLearningRateFromFileJob(Job):
   def __init__(
           self,
           lr_file_path: Path,
-          epoch: int
+          epoch: Optional[int] = None
   ):
+    """
+
+    :param lr_file_path:
+    :param epoch: epoch for which to get the lr from the lr file. If `None`, use last epoch.
+    """
     self.lr_file_path = lr_file_path
     self.epoch = epoch
 
@@ -57,6 +67,6 @@ class GetLearningRateFromFileJob(Job):
       file_contents = lr_file.read().strip()
 
     learning_rates = re.findall("learningRate=(0\.\d+)", file_contents)
-    learning_rate = float(learning_rates[self.epoch - 1])
+    learning_rate = float(learning_rates[self.epoch - 1 if type(self.epoch) == int else -1])
 
     self.out_last_lr.set(learning_rate)

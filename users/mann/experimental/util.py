@@ -1,5 +1,7 @@
 from sisyphus import *
 
+from i6_core.returnn import ReturnnConfig
+
 import contextlib
 import copy
 
@@ -25,3 +27,14 @@ def safe_crp(system, corpus='base'):
     # reset csp
     system.crp = pristine_ur_crp
     # system.csp = temp_csp
+
+
+def _RelaxedOverwriteConfig(ReturnnConfig):
+
+    def check_consistency():
+        """Intercept overwriting error."""
+        try:
+            super().check_consistency()
+        except AssertionError as ae:
+            if "post_config would overwrite existing entry in config" not in str(ae):
+                raise ae

@@ -190,7 +190,8 @@ def run_hybrid_baseline_pytorch():
 
     # ******************** NN System ********************
 
-    returnn_exe = tk.Path("/u/rossenbach/bin/returnn/returnn_pt20_experimental.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+    # image only, so just python3
+    returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     blas_lib = tk.Path("/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so", hash_overwrite="TF23_MKL_BLAS")
 
     # returnn_root = tk.Path("/u/rossenbach/src/returnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")

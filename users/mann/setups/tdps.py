@@ -287,10 +287,11 @@ class CombinedModel:
     to_buggy_weights.
     In the future, this class will likely be deprecated.
     """
-    def __init__(self, transition_model, silence_exit, speech_skip=None):
+    def __init__(self, transition_model, silence_exit, speech_skip=None, skip_normed=False):
         self.transition_model = transition_model
         self.silence_exit = silence_exit
         self.speech_skip = speech_skip
+        self.skip_normed = skip_normed
     
     @classmethod
     def from_fwd_probs(cls, speech_fwd, silence_fwd, silence_exit, speech_skip=None):
@@ -298,22 +299,29 @@ class CombinedModel:
         return cls(transition_model, silence_exit, speech_skip=speech_skip)
     
     @classmethod
-    def zeros(cls, silence_exit=0.0):
+    def zeros(cls, silence_exit=0.0, speech_skip=None):
         transition_model = SimpleTransitionModel.from_weights([0.0, 0.0], [0.0, 0.0])
-        return cls(transition_model, silence_exit)
+        return cls(transition_model, silence_exit, speech_skip=speech_skip)
     
     @classmethod
     def legacy(cls):
         return cls.from_weights(0.0, 3.0, 3.0, 0.0, 20.0, 30.0)
     
+    def adjust(self, silence_exit=None, speech_skip=None):
+        # assert all(key in self.__dict__ for key in kwargs)
+        self.__dict__.update({
+            key: value for key, value in locals().items() if key != "self" and value is not None
+        })
+        return self
+    
     @classmethod
-    def from_weights(cls, speech_fwd, speech_loop, silence_fwd, silence_loop, silence_exit, speech_skip=None):
+    def from_weights(cls, speech_fwd, speech_loop, silence_fwd, silence_loop, silence_exit, speech_skip=None, skip_normed=False):
         transition_model = SimpleTransitionModel.from_weights([speech_fwd, speech_loop], [silence_fwd, silence_loop])
-        return cls(transition_model, silence_exit, speech_skip=speech_skip)
+        return cls(transition_model, silence_exit, speech_skip=speech_skip, skip_normed=skip_normed)
     
     def to_acoustic_model_extra_config(self):
         config = rasr.RasrConfig() 
-        self.transition_model.apply_to_am_config(config)
+        self.transition_model.to_weights().apply_to_am_config(config)
         config.tdp.silence.exit = self.silence_exit
         config.tdp["*"].skip = self.speech_skip
         config.tdp["*"].exit = 0.0
@@ -334,10 +342,13 @@ class CombinedModel:
         config.tdp["entry-m1"].loop = "infinity"
         config.tdp["entry-m2"].loop = "infinity"
         self.transition_model.to_weights().apply_to_am_config(config)
-        if self.speech_skip is not None:
+
+        if self.skip_normed and self.speech_skip is not None:
             fwd = config.tdp["*"].forward
             config.tdp["*"].forward = fwd * (1 - self.speech_skip)
             config.tdp["*"].skip = fwd * self.speech_skip
+        elif self.speech_skip:
+            config.tdp["*"].skip = self.speech_skip
         assert isinstance(config, rasr.RasrConfig)
         return config
     

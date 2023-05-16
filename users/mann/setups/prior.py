@@ -13,7 +13,7 @@ from i6_experiments.users.mann.experimental.statistics import (
 from i6_core.corpus.transform import ApplyLexiconToCorpusJob
 from i6_experiments.users.mann.setups.reports import DescValueReport, SimpleValueReport
 from i6_experiments.users.mann.setups.state_tying import Allophone
-from i6_core.util import uopen, get_val
+from i6_core.util import uopen, get_val, instanciate_delayed
 
 def output(name, value):
     opath = os.path.join(fname, name)
@@ -114,13 +114,6 @@ def get_prior_from_transcription(system):
     # output("corpus_totals", stats)
     return counts
 
-def ExtractPriorJob(Job):
-    def __init__(self, allophone_counts, state_tying, total_frames):
-        self.allophone_counts = allophone_counts
-        self.state_tying = state_tying
-        pass
-
-
 def get_prior_from_transcription_new(
         system,
         output_stats=False, 
@@ -190,6 +183,11 @@ def get_prior_from_transcription_new(
 
 
 class PriorFromTranscriptionCounts(Job):
+    __sis_hash_exclude__ = {
+        "eps": 0.0,
+        "num_states": None,
+    }
+
     def __init__(
         self,
         allophone_counts,
@@ -198,6 +196,8 @@ class PriorFromTranscriptionCounts(Job):
         num_frames,
         average_phoneme_frames=8,
         hmm_partition=None,
+        eps=0.0,
+        num_states=None,
         silence_phoneme="[SILENCE]"
     ):
         self.allophone_counts = allophone_counts
@@ -206,6 +206,8 @@ class PriorFromTranscriptionCounts(Job):
         self.num_frames = num_frames
         self.average_phoneme_frames = average_phoneme_frames
         self.hmm_partition = hmm_partition
+        self.eps = eps
+        self.num_states = num_states
         self.silence_phoneme = silence_phoneme
 
         self.out_prior_txt_file = self.output_path("prior.txt")
@@ -232,7 +234,8 @@ class PriorFromTranscriptionCounts(Job):
         if self.hmm_partition is None:
             # try to guess from state tying
             self.hmm_partition = max(map(lambda a: a.state, allophones)) + 1
-        num_states = max(map(lambda a: a.idx, allophones)) + 1
+        num_states = instanciate_delayed(self.num_states) \
+            or max(map(lambda a: a.idx, allophones)) + 1
         silence_idx = next(filter(lambda a: a.phon == self.silence_phoneme, allophones)).idx
 
         total_phoneme_count = get_val(self.total_count)
@@ -243,6 +246,9 @@ class PriorFromTranscriptionCounts(Job):
         for i in range(num_states):
             if i != silence_idx:
                 counts[i] *= (1 - counts[silence_idx])
+            counts[i] += self.eps
+        
+        # save
         import numpy as np
         np.savetxt(self.out_prior_txt_file.get_path(), counts, delimiter=" ")
         with open(self.out_prior_xml_file.get_path(), "wt") as f:
@@ -250,7 +256,7 @@ class PriorFromTranscriptionCounts(Job):
                 '<?xml version="1.0" encoding="UTF-8"?>\n<vector-f32 size="%d">\n'
                 % len(counts)
             )
-            f.write(" ".join("%.20e" % s for s in counts) + "\n")
+            f.write(" ".join("%.20e" % np.log(s) for s in counts) + "\n")
             f.write("</vector-f32>")
 
     def plot(self):
@@ -273,6 +279,9 @@ def get_prior_from_transcription_job(
     system,
     total_frames=None,
     hmm_partition=None,
+    lemma_end_prob=0.0,
+    eps=0.0,
+    extra_num_states=False,
 ):
     transcribe_job = ApplyLexiconToCorpusJob(
         system.csp["train"].corpus_config.file,
@@ -282,6 +291,7 @@ def get_prior_from_transcription_job(
 
     count_phonemes = AllophoneCounts(
         transcribe_job.out_corpus,
+        lemma_end_probability=lemma_end_prob,
     )
 
     from i6_core.lexicon.allophones import DumpStateTyingJob
@@ -293,6 +303,8 @@ def get_prior_from_transcription_job(
         dst.out_state_tying,
         num_frames=total_frames,
         hmm_partition=hmm_partition,
+        eps=eps,
+        num_states=system.num_classes() if extra_num_states else None,
     )
 
     tk.register_output("prior_from_transcription", prior_job.out_prior_txt_file)
@@ -305,23 +317,61 @@ def get_prior_from_transcription_job(
     }
 
 class PriorSystem:
-    def __init__(self, system, total_frames=None, eps=None, extra_hmm_partition=None):
+    def __init__(self,
+        system,
+        total_frames=None,
+        eps=0.0,
+        extra_hmm_partition=None,
+        lemma_end_probability=0.0,
+        extra_num_states=False,
+        legacy=False,
+    ):
         self.system = system
         self.total_frames = total_frames
-        self.prior_files = get_prior_from_transcription_job(system, total_frames)
         self.eps = eps
         self.hmm_partition = extra_hmm_partition
-        self.prior_txt_file = self.prior_files["txt"]
-        self.prior_xml_file = self.prior_files["xml"]
-        self.prior_png_file = self.prior_files["png"] 
+        self.lemma_end_probability = lemma_end_probability
+        self._eps = None
+        self.extra_num_states = extra_num_states
+        self.extract_prior()
+    
+    def get_prior_from_transcription(self):
+        total_frames=self.total_frames
+        hmm_partition=self.hmm_partition
+        lemma_end_prob=self.lemma_end_probability
+        eps=self.eps
+        extra_num_states=self.extra_num_states
+
+        transcribe_job = ApplyLexiconToCorpusJob(
+            self.system.csp["train"].corpus_config.file,
+            self.system.csp["train"].lexicon_config.file,
+            word_separation_orth="#",
+        )
+
+        count_phonemes = AllophoneCounts(
+            transcribe_job.out_corpus,
+            lemma_end_probability=lemma_end_prob,
+        )
+
+        prior_job = PriorFromTranscriptionCounts(
+            count_phonemes.counts,
+            count_phonemes.total,
+            self.system.get_state_tying_file(),
+            num_frames=total_frames,
+            hmm_partition=hmm_partition,
+            eps=eps,
+            num_states=self.system.num_classes() if extra_num_states else None,
+        )
+
+        return {
+            "txt": prior_job.out_prior_txt_file,
+            "xml": prior_job.out_prior_xml_file,
+            "png": prior_job.out_prior_png_file
+        }
     
     def extract_prior(self):
         assert self.total_frames is not None
-        self.prior_files = get_prior_from_transcription_job(
-            self.system,
-            total_frames=self.total_frames,
-            hmm_partition=self.hmm_partition
-        )
+        self.prior_files = self.get_prior_from_transcription()
         self.prior_txt_file = self.prior_files["txt"]
         self.prior_xml_file = self.prior_files["xml"]
         self.prior_png_file = self.prior_files["png"] 
@@ -329,4 +379,39 @@ class PriorSystem:
     def add_to_config(self, config):
         from i6_experiments.users.mann.nn import prior
         prior.prepare_static_prior(config, prob=True)
-        prior.add_static_prior(config, self.prior_txt_file, eps=self.eps)
+        prior.add_static_prior(config, self.prior_txt_file, eps=self._eps)
+
+
+class PriorSystemV2(PriorSystem):
+    def get_prior_from_transcription(self):
+        from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+        lexicon_w_we = AddEowPhonemesToLexiconJob(
+            self.system.crp["train"].lexicon_config.file,
+            boundary_marker=" #", # important to have space before #
+        )
+
+        transcribe_job = ApplyLexiconToCorpusJob(
+            self.system.csp["train"].corpus_config.file,
+            lexicon_w_we.out_lexicon,
+        )
+
+        count_phonemes = AllophoneCounts(
+            transcribe_job.out_corpus,
+            lemma_end_probability=self.lemma_end_probability,
+        )
+
+        prior_job = PriorFromTranscriptionCounts(
+            count_phonemes.counts,
+            count_phonemes.total,
+            self.system.get_state_tying_file(),
+            num_frames=self.total_frames,
+            hmm_partition=self.hmm_partition,
+            eps=self.eps,
+            num_states=self.system.num_classes() if self.extra_num_states else None,
+        )
+
+        return {
+            "txt": prior_job.out_prior_txt_file,
+            "xml": prior_job.out_prior_xml_file,
+            "png": prior_job.out_prior_png_file
+        }

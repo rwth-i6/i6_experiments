@@ -13,8 +13,8 @@ import shutil
 import os
 import json
 
-from recipe.i6_experiments.users.schmitt.experiments.swb.transducer import config as config_mod
-tools_dir = os.path.join(os.path.dirname(os.path.abspath(config_mod.__file__)), "tools")
+import recipe.i6_experiments.users.schmitt.tools as tools_mod
+tools_dir = os.path.dirname(tools_mod.__file__)
 
 
 class DumpPhonemeAlignJob(Job):

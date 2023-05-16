@@ -76,9 +76,9 @@ def get_init_args(
     :param gt_options_extra_args:
     :param tying_type:
     :param nonword_phones:
-    :param tdp_transition:
-    :param tdp_silence:
-    :param tdp_nonword:
+    :param tdp_transition: loop, forward, skip, exit
+    :param tdp_silence: loop, forward, skip, exit
+    :param tdp_nonword: loop, forward, skip, exit
     :return:
     """
     samples_options = {
@@ -98,6 +98,7 @@ def get_init_args(
         "tdp_transition": tdp_transition,  # loop, forward, skip, exit
         "tdp_silence": tdp_silence,  # loop, forward, skip, exit
         "tdp_nonword": tdp_nonword,  # only used when tying_type = global-and-nonword
+        "use_corrected_fsa": True,
     }
     if am_extra_args is not None:
         am_args.update(am_extra_args)

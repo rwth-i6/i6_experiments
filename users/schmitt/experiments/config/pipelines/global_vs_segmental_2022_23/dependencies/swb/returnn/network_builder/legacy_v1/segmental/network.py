@@ -262,7 +262,7 @@ def get_extended_net_dict(
   label_smoothing, emit_loss_scale, efficient_loss, emit_extra_loss, time_reduction, ctx_size="inf",
   fast_rec=False, fast_rec_full=False, sep_sil_model=None, sil_idx=None, sos_idx=0, direct_softmax=False,
   label_dep_length_model=False, search_use_recomb=True, feature_stddev=None, dump_output=False,
-  length_scale=1., global_length_var=None,
+  length_scale=1., global_length_var=None, force_non_blank_in_last_frame=False,
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0, specaugment="albert", ctc_aux_loss=True, length_model_loss_scale=1.,
   use_time_sync_loop=True, use_eos=False, conf_use_blstm=False, conf_batch_norm=True, conf_num_blocks=12,
@@ -973,6 +973,43 @@ def get_extended_net_dict(
         "emit_log_prob_scaled": {"class": "eval", "from": "emit_log_prob", "eval": "%s * source(0)" % length_scale},
         "blank_log_prob_scaled": {"class": "eval", "from": "blank_log_prob", "eval": "%s * source(0)" % length_scale}
       })
+
+    if force_non_blank_in_last_frame:
+      net_dict["output"]["unit"].update({
+        "enc_length0": {"class": "length", "from": "base:encoder", "axis": "t"},
+        "enc_length": {"class": "combine", "from": ["enc_length0", "const1"], "kind": "sub"},
+        "is_last_frame": {"class": "compare", "from": [":i", "enc_length"], "kind": "greater_equal"},
+        "const_neg_inf": {"axis": "F", "class": "expand_dims", "from": "const_neg_inf0"},
+        "const_neg_inf0": {"class": "constant", "value": -1000000, "with_batch_dim": True, "dtype": "float32"},
+        "const0": {"axis": "F", "class": "expand_dims", "from": "const0_0"},
+        "const0_0": {"class": "constant", "value": 0, "with_batch_dim": True, "dtype": "float32"},
+      })
+      if length_scale != 1.:
+        net_dict["output"]["unit"]["emit_log_prob_scaled0"] = net_dict["output"]["unit"]["emit_log_prob_scaled"].copy()
+        net_dict["output"]["unit"]["blank_log_prob_scaled0"] = net_dict["output"]["unit"]["blank_log_prob_scaled"].copy()
+        net_dict["output"]["unit"].update({
+          "blank_log_prob_scaled": {
+            "class": "switch", "condition": "is_last_frame", "true_from": "const_neg_inf",
+            "false_from": "blank_log_prob_scaled0"
+          },
+          "emit_log_prob_scaled": {
+            "class": "switch", "condition": "is_last_frame", "true_from": "const0",
+            "false_from": "emit_log_prob_scaled0"
+          }
+        })
+      else:
+        net_dict["output"]["unit"]["emit_log_prob0"] = net_dict["output"]["unit"]["emit_log_prob"].copy()
+        net_dict["output"]["unit"]["blank_log_prob0"] = net_dict["output"]["unit"]["blank_log_prob"].copy()
+        net_dict["output"]["unit"].update({
+          "blank_log_prob": {
+            "class": "switch", "condition": "is_last_frame", "true_from": "const_neg_inf",
+            "false_from": "blank_log_prob"
+          },
+          "emit_log_prob": {
+            "class": "switch", "condition": "is_last_frame", "true_from": "const0",
+            "false_from": "emit_log_prob"
+          }
+        })
 
     return net_dict
 
