@@ -138,8 +138,8 @@ def run_single(
 
     # ******************** HY Init ********************
 
-    mp = "+".join(f"2@{l}" for l in max_pooling_after_layer)
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{'x'.join(str(s) for s in reduction_factor)}+{mp}"
+    mp = ",".join(f"2@{l}" for l in max_pooling_after_layer)
+    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mpc:{'x'.join(str(s) for s in reduction_factor)}-mp:{mp}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
