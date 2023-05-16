@@ -156,7 +156,6 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
-    s.do_not_set_returnn_python_exe_for_graph_compiles = True
     s.train_key = train_key
     if alignment_name == "scratch":
         s.cv_info = FROM_SCRATCH_CV_INFO
