@@ -20,6 +20,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.hdf import RasrAlignmentToHDF, RasrFeaturesToHdf
 from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.cache_epilog import hdf_dataset_cache_epilog
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -320,6 +321,7 @@ def run_single(
             "time": time_prolog,
         },
         python_epilog={
+            "cache": hdf_dataset_cache_epilog,
             "functions": [
                 sa_mask,
                 sa_random_mask,
