@@ -23,6 +23,7 @@ def get_best_model_config(
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
     specaug_as_data: bool = False,
+    conf_args: typing.Optional[typing.Any] = None,
 ) -> attention_for_hybrid:
     conformer_net = get_cfg(
         num_classes=num_classes,
@@ -37,6 +38,7 @@ def get_best_model_config(
         upsample_by_transposed_conv=upsample_by_transposed_conv,
         feature_stacking_size=feature_stacking_size,
         specaug_as_data=specaug_as_data,
+        conf_args=conf_args,
     )
 
     if not leave_cart_output:

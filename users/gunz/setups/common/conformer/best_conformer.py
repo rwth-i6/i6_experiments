@@ -33,6 +33,7 @@ def get_best_model_config(
     upsample_by_transposed_conv: bool = True,
     feature_stacking_size: int = 3,
     specaug_as_data: bool = False,
+    conf_args: typing.Optional[typing.Any] = None,
 ) -> attention_for_hybrid:
     if int_loss_at_layer is None:
         int_loss_at_layer = INT_LOSS_LAYER
@@ -79,6 +80,8 @@ def get_best_model_config(
         },
     }
 
+    if conf_args is not None:
+        args.update(conf_args)
     if focal_loss_factor is not None:
         args["focal_loss_factor"] = focal_loss_factor
 
