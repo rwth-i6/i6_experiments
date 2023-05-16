@@ -164,6 +164,7 @@ def get_returnn_config(
     sample_rate: int = 8000,
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
+    staged_opts: Optional[Dict[int, Any]] = None,
 ):
     base_config = {
         "extern_data": {
@@ -225,35 +226,36 @@ def get_returnn_config(
     )
     conformer_base_config.update(extra_args or {})
 
-    def make_returnn_config(
-        config,
-        python_prolog,
-        staged_network_dict=None,
-    ):
-        if recognition:
-            rec_network = copy.deepcopy(network)
-            rec_network["output"] = {
-                "class": "linear",
-                "activation": "log_softmax",
-                "from": ["MLP_output"],
-                "n_out": 9001
-                # "is_output_layer": True,
-            }
-            config["network"] = rec_network
-        return ReturnnConfig(
-            config=config,
-            post_config=base_post_config,
-            staged_network_dict=staged_network_dict if not recognition else None,
-            hash_full_python_code=True,
-            python_prolog=python_prolog if not recognition else None,
-            python_epilog=RECUSRION_LIMIT,
-            pprint_kwargs={"sort_dicts": False},
-        )
+    staged_network_dict = None
+    if staged_opts is not None and not recognition:
+        staged_network_dict = {1: conformer_base_config.pop("network")}
+        network_mod = copy.deepcopy(network)
+        for epoch, opts in staged_opts.items():
+            if opts == "freeze_features":
+                network_mod["features"]["trainable"] = False
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
+            elif opts == "remove_aux":
+                for layer in list(network_mod.keys()):
+                    if layer.startswith("aux"):
+                        network_mod.pop(layer)
+                staged_network_dict[epoch] = copy.deepcopy(network_mod)
 
-    conformer_base_returnn_config = make_returnn_config(
-        conformer_base_config,
-        staged_network_dict=None,
-        python_prolog=prolog,
+    if recognition:
+        rec_network = copy.deepcopy(network)
+        rec_network["output"] = {
+            "class": "linear",
+            "activation": "log_softmax",
+            "from": ["MLP_output"],
+            "n_out": 9001
+        }
+        conformer_base_config["network"] = rec_network
+
+    return ReturnnConfig(
+        config=conformer_base_config,
+        post_config=base_post_config,
+        staged_network_dict=staged_network_dict,
+        hash_full_python_code=True,
+        python_prolog=prolog if not recognition else None,
+        python_epilog=RECUSRION_LIMIT,
+        pprint_kwargs={"sort_dicts": False},
     )
-
-    return conformer_base_returnn_config
