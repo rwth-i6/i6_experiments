@@ -98,7 +98,7 @@ def run(returnn_root: tk.Path):
             subsampling_factor=4,
             tune_decoding=False,
         )
-        for red, mp in [*itertools.product([(1, 2)], [[1], [3]]), ((1, 1), [[1, 3]])]
+        for red, mp in [*itertools.product([(1, 2)], [[1], [3]]), *itertools.product([(1, 1)], [[0, 1], [1, 3]])]
     ]
     for exp in configs:
         run_single(
@@ -209,12 +209,19 @@ def run_single(
     )
     network = network_builder.network
 
-    for l in max_pooling_after_layer:
-        layer_out = f"enc_{l:03d}"
-        pooling_layer = f"enc_{l:03d}_max_pool"
+    for layer in max_pooling_after_layer:
+        if layer == 0:
+            from_l = "conv_merged"
+            layer_out = "embedding"
+            pooling_layer = "conv_merged_pool"
+        else:
+            layer_out = f"enc_{layer:03d}"
+            from_l = network[layer_out]["from"]
+            pooling_layer = f"enc_{layer:03d}_max_pool"
+
         network[pooling_layer] = {
             "class": "pool",
-            "from": network[layer_out]["from"],
+            "from": from_l,
             "in_spatial_dims": ["T"],
             "mode": "max",
             "padding": "same",
