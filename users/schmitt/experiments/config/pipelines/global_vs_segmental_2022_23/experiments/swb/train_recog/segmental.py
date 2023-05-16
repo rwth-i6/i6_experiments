@@ -290,6 +290,10 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     retrain_alias = "retrain%d_realign-epoch%d_realign-length-scale%0.1f" % (
       retrain_iter, self.num_epochs[-1], self.realignment_length_scale)
 
+    if self.retrain_load_checkpoint:
+      retrain_alias += "_load_prev_checkpoint"
+    else:
+      retrain_alias += "_start_from_scratch"
     if self.retrain_reset_lr:
       retrain_alias += "_reset-lr"
     else:
