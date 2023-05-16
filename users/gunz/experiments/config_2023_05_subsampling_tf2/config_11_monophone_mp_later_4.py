@@ -213,7 +213,7 @@ def run_single(
     network[pooling_layer] = {
         "class": "pool",
         "from": network[layer_out]["from"],
-        "in_dim": ["T"],
+        "in_spatial_dims": ["T"],
         "mode": "max",
         "padding": "same",
         "pool_size": (2,),
