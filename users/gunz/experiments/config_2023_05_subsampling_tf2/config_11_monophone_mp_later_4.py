@@ -295,12 +295,10 @@ def run_single(
         "class": "NextGenHDFDataset",
         "input_stream_name": "classes",
         "files": [alignment_job.out_hdf_file],
-        "use_lazy_data_integrity_checks": True,
     }
     features_hdf_config = {
         "class": "NextGenHDFDataset",
         "input_stream_name": "features",
-        "use_lazy_data_integrity_checks": True,
     }
 
     base_config = {
