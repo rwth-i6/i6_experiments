@@ -29,7 +29,7 @@ class RasrFeaturesToHdf(Job):
         self.rqmt = {"cpu": 1, "mem": 4, "time": 1.0}
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt, args=list(range(len(self.feature_caches))), parallel=10)
+        yield Task("run", rqmt=self.rqmt, args=list(range(len(self.feature_caches))), parallel=30)
 
     def run(self, *indices: int):
         for index in indices:
