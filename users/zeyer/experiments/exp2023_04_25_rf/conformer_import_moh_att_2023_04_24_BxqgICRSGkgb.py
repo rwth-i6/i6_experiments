@@ -927,29 +927,50 @@ def model_recog(
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
 
-    loop = rf.Loop(axis=enc_spatial_dim)  # time-sync transducer
-    loop.max_seq_len = enc_spatial_dim.get_dim_value_tensor() * 2
-    loop.state.decoder = model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim)
-    loop.state.target = rf.constant(model.blank_idx, dims=batch_dims, sparse_dim=model.wb_target_dim)
-    with loop:
-        enc = model.encoder_unstack(enc_args)
-        probs, loop.state.decoder = model.decode(
-            **enc,
-            enc_spatial_dim=single_step_dim,
-            wb_target_spatial_dim=single_step_dim,
-            prev_wb_target=loop.state.target,
-            state=loop.state.decoder,
-        )
-        log_prob = probs.get_wb_label_log_probs()
-        loop.state.target = rf.choice(
-            log_prob, input_type="log_prob", target=None, search=True, beam_size=beam_size, length_normalization=False
-        )
-        res = loop.stack(loop.state.target)
+    # TODO add beam dim to batch_dims?
+    # TODO have one beam dim shared for all steps, or one per step?
+    #   The latter case (one per step) is straightforward for eager mode,
+    #     but how would it work for graph-mode? Extra support in rf.while_loop or rf.scan?
+    #   The first case, how to handle diff beam sizes per step? Would lead to ugly complicated logic?
+    # TODO how to rf.scan over this with beam dim, in both of these cases?
+    initial_beam_dim = Dim(1, name="initial-beam")
 
-    assert model.blank_idx == targets_dim.dimension  # added at the end
-    res.feature_dim.vocab = rf.Vocabulary.create_vocab_from_labels(
-        targets_dim.vocab.labels + ["<blank>"], user_defined_symbols={"<blank>": model.blank_idx}
+    def _cond(_, state: rf.State) -> Tensor:
+        return state.target == model.eos_idx
+
+    def _body(_, state: rf.State):
+        input_embed = model.target_embed(state.target)
+        new_state = rf.State()
+        step_out, new_state.decoder = model.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=state.decoder,
+        )
+        logits = model.decode_logits(input_embed=input_embed, **step_out)
+
+        # TODO now top_k
+        labels, backref = rf.top_k(...)  # TODO
+
+        # TODO length norm
+
+        return labels, new_state
+
+    res, _, _ = rf.scan(
+        ys=Tensor(...),  # TODO
+        initial=rf.State(
+            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
+            target=rf.constant(model.bos_idx, dims=batch_dims, sparse_dim=model.nb_target_dim),
+        ),
+        body=_body,
+        cond=_cond,
+        cond_dims=batch_dims,
+        cond_before_body=False,
+        max_seq_len=enc_spatial_dim.get_dim_value_tensor() * 2,
     )
+
+    # TODO now resolve beam, backtrack...
+
     return res
 
 
