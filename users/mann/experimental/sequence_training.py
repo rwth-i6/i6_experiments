@@ -188,5 +188,4 @@ def add_fastbw_configs(csp,
   additional_sprint_config_files      = {'fastbw' : config}
   additional_sprint_post_config_files = {'fastbw' : post_config}
 
-
   return additional_sprint_config_files, additional_sprint_post_config_files

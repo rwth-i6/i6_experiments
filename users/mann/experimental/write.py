@@ -5,6 +5,30 @@ import os
 import i6_core.returnn as returnn
 import i6_core.rasr as rasr
 
+class WriteFlowNetworkJob(Job):
+    def __init__(self, flow):
+        self.flow = flow
+        self.out_network_file = self.output_path("network.flow")
+
+    def tasks(self):
+        yield Task("run", mini_task=True)
+
+    def run(self):
+        self.flow.write_to_file(self.out_network_file.get_path())
+
+class PickleSegmentsJob(Job):
+  def __init__(self, segment_file):
+    self.segment_file = segment_file
+    self.out_segment_pickle = self.output_path("segments.pkl")
+  
+  def tasks(self):
+    yield Task('run', mini_task=True)
+  
+  def run(self):
+    segments = open(self.segment_file, "r").read().split('\n')[:-1]
+    import pickle
+    pickle.dump(segments, open(self.out_segment_pickle.get_path(), "wb"))
+
 class WriteRasrConfigJob(Job):
     def __init__(self, crp, feature_flow, alignment,
         num_classes=None,

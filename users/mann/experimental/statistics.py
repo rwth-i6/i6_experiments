@@ -480,31 +480,51 @@ class AllophoneCounts(Job):
         from collections import Counter
         from itertools import chain
         from functools import reduce
+        import numpy as np
         counts = Counter()
+        left_ambiguous_counts = Counter()
+        right_ambiguous_counts = Counter()
+        both_ambiguous_counts = Counter()
+        lemma_start_counts = Counter()
+        lemma_end_counts = Counter()
+        print("new routine")
             
-        def get_allophone(subsegment):
-            center_idx = 2
-            center = subsegment[center_idx]
-            is_speech = lambda p: ("[{}]".format(p[1:-1]) != p) # is not of the form [ABC]
-            is_initial = (subsegment[1] == "#")
-            is_final = (subsegment[3] == "#")
-            prev_idx = 0 if is_initial and is_speech(center) and is_speech(subsegment[0]) else 1
-            next_idx = 4 if is_final and is_speech(center) and is_speech(subsegment[4]) else 3
-            prev = subsegment[prev_idx]
-            next = subsegment[next_idx]
-            return Allophone(center, prev, next, is_initial, is_final)
-
         for segment in c.segments():
             phons = ["#"] * 2 + segment.orth.split(" ") + ["#"] * 2
-            triphones = map(
-                lambda phon: get_allophone(phon).write_phon(),
-                filter(
-                    lambda phon: phon[2] != "#", # not a valid center phoneme
-                    zip(phons, phons[1:], phons[2:], phons[3:], phons[4:]) # center, second left, left, right, second right
-                )
-            )
-            counts.update(triphones)
+            for subsegment in zip(phons[0:], phons[1:], phons[2:], phons[3:], phons[4:]): # center, second left, left, right, second right
+                if subsegment[2] == "#": # not a valid center phoneme
+                    continue
+                center_idx = 2
+                l2, l1, c, r1, r2 = subsegment
+                center = subsegment[center_idx]
+                is_speech = lambda p: ("[{}]".format(p[1:-1]) != p) # is not of the form [ABC]
+                is_initial = (l1 == "#")
+                is_final = (r1 == "#")
+
+                allo = lambda c, l, r: Allophone(c, l, r, is_initial, is_final).write_phon()
+                is_left_ambiguous = is_initial and is_speech(c) and is_speech(l2)
+                is_right_ambiguous = is_final and is_speech(c) and is_speech(r2)
+                if is_left_ambiguous and is_right_ambiguous:
+                    both_ambiguous_counts.update([allo(c, l2, r2)])
+                elif is_left_ambiguous:
+                    left_ambiguous_counts[allo(c, l2, r1)] += 1
+                elif is_right_ambiguous:
+                    right_ambiguous_counts[allo(c, l1, r2)] += 1
+                else:
+                    counts[allo(c, l1, r1)] += 1
         
+        for a, c in left_ambiguous_counts.items():
+            counts[a] += c * (1 - self.lemma_end_probability)
+            counts[a.replace("prev", "#")] += c * self.lemma_end_probability
+        for a, c in right_ambiguous_counts.items():
+            counts[a] += c * (1 - self.lemma_end_probability)
+            counts[a.replace("right", "#")] += c * self.lemma_end_probability
+        for a, c in both_ambiguous_counts.items():
+            counts[a] += c * (1 - self.lemma_end_probability)**2
+            counts[a.replace("prev", "#")] += c * self.lemma_end_probability * (1 - self.lemma_end_probability)
+            counts[a.replace("next", "#")] += c * self.lemma_end_probability * (1 - self.lemma_end_probability)
+            counts[a.replace("next", "#").replace("prev", "#")] += c * self.lemma_end_probability**2
+
         self.counts.set(dict(counts))
         self.total.set(sum(counts.values()))
 

@@ -1,4 +1,38 @@
+from sisyphus import tk
+from sisyphus.job_path import VariableNotSet
+from sisyphus.delayed_ops import DelayedBase
 
+import os
+import tabulate as tab
+
+print("tabulate  version: ", tab.__version__)
+
+def maybe_get(var):
+    try:
+        return var.get()
+    except (VariableNotSet, FileNotFoundError):
+        return ""
+    # return var.get() if var.is_set() else ""
+
+def eval_tree(o, f=maybe_get, condition=lambda x: isinstance(x, DelayedBase)):
+    """
+    Recursively traverses a structure and calls .get() on all
+    existing Delayed Operations, especially Variables in the structure
+
+    :param Any o: nested structure that may contain DelayedBase objects
+    :return:
+    """
+    if condition(o):
+        o = f(o)
+    elif isinstance(o, list):
+        for k in range(len(o)):
+            o[k] = eval_tree(o[k], f, condition)
+    elif isinstance(o, tuple):
+        o = tuple(eval_tree(e, f, condition) for e in o)
+    elif isinstance(o, dict):
+        for k in o:
+            o[k] = eval_tree(o[k], f, condition)
+    return o
 
 class SimpleValueReport:
     def __init__(self, value):
@@ -16,6 +50,39 @@ class DescValueReport:
         max_width = max(len(key) for key in keys)
         fmt = "{0:<%d}: {1}" % max_width
         return "\n".join(fmt.format(key, value) for key, value in self.values.items())
+
+class TableReport:
+    def __init__(self, data, floatfmt=None, tablefmt="presto"):
+        self.data = data
+
+        self.floatfmt = floatfmt
+        self.tablefmt = tablefmt
+    
+    def __call__(self):
+        kwargs = {}
+        if (fmt := self.floatfmt):
+            kwargs["floatfmt"] = fmt
+        data = eval_tree(self.data)
+        table = tab.tabulate(
+            data,
+            headers="keys",
+            tablefmt=self.tablefmt,
+            **kwargs,
+        )
+        return table
+
+def print_report(fname, name, data, **kwargs):
+    tk.register_report(
+        os.path.join(fname, "summary", "{}.txt".format(name)),
+        TableReport(data, **kwargs),
+    )
+
+class ReportSystem:
+    def __init__(self, fname):
+        self.fname = fname
+
+    def print(self, name, data, **kwargs):
+        print_report(self.fname, name, data, **kwargs)
 
 class GenericReport:
     def __init__(self, cols, values, fmt_percent=False, add_latex=False):

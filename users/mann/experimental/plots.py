@@ -1,5 +1,6 @@
 from sisyphus import Job, Task, tk
 
+import pickle
 import numpy as np
 from typing import List
 import matplotlib
@@ -155,6 +156,11 @@ class PlotSoftAlignmentJob(Job):
 
         self.out_plots = {
             segment: self.output_path('plot.{}.png'.format(segment.replace("/", "_")))
+            for segment in segments
+        }
+
+        self.out_plots_pkl = {
+            segment: self.output_path('plot.dump.{}.pkl'.format(segment.replace("/", "_")))
             for segment in segments
         }
 
@@ -315,6 +321,7 @@ class PlotSoftAlignmentJob(Job):
                 ax.set_yticklabels(silence_first_allo_seq)
 
             ax.imshow(image, cmap="Blues", interpolation="nearest", aspect="auto", origin="lower")
+        pickle.dump(fig, open(self.out_plots_pkl[seq_tag].get_path(), "wb+"))
         fig.savefig(self.out_plots[seq_tag].get_path())
 
 
