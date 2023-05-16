@@ -15,10 +15,11 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import lexicon, rasr, returnn
+from i6_core import lexicon, rasr, returnn, text
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.hdf import RasrAlignmentToHDF, RasrFeaturesToHdf
 from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
@@ -28,7 +29,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
@@ -37,8 +37,6 @@ from ...setups.fh.network.augment import (
     augment_net_with_label_pops,
     SubsamplingInfo,
 )
-from ...setups.fh.priors import combine_priors_across_hmm_states
-from ...setups.fh.util.hdf import RasrFeatureAndAlignmentToHDF
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -234,6 +232,51 @@ def run_single(
         upsampling=False,
     )
 
+    tying_crp = s.train_input_data[s.crp_names["train"]].get_crp()
+    tying_crp.acoustic_model_config.allophones.add_all = True
+    tying = lexicon.DumpStateTyingJob(tying_crp).out_state_tying
+    with open(FROM_SCRATCH_CV_INFO["features_tkpath_train"], "rt") as feature_bundle:
+        feature_caches = [tk.Path(line.strip()) for line in feature_bundle.readlines()]
+
+    alignment_job = RasrAlignmentToHDF(
+        alignment_bundle=alignment,
+        allophones=tk.Path(ZHOU_ALLOPHONES),
+        num_tied_classes=s.label_info.get_n_of_dense_classes(),
+        state_tying=tying,
+    )
+    features = RasrFeaturesToHdf(feature_caches=feature_caches)
+
+    rng = random.Random(1337)
+    dev_i = rng.randrange(0, len(features.out_hdf_files))
+
+    train_hdfs = copy.copy(features.out_hdf_files)
+    dev_hdf = train_hdfs.pop(dev_i)
+
+    seqs = copy.copy(features.out_single_segment_files)
+    dev_seq = seqs.pop(dev_i)
+
+    feature_seq = text.ConcatenateJob(seqs, out_name="segments", zip_out=True).out
+
+    dataset_cfg = {
+        "class": "MetaDataset",
+        "data_map": {
+            "data": ("audio", "features"),
+            "classes": ("alignment", "classes"),
+        },
+        "seq_ordering": f"random:133769420",
+    }
+    alignment_hdf_config = {
+        "class": "NextGenHDFDataset",
+        "input_stream_name": "classes",
+        "files": [alignment_job.out_hdf_file],
+        "use_lazy_data_integrity_checks": True,
+    }
+    features_hdf_config = {
+        "class": "NextGenHDFDataset",
+        "input_stream_name": "features",
+        "use_lazy_data_integrity_checks": True,
+    }
+
     base_config = {
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
@@ -254,6 +297,24 @@ def run_single(
         "extern_data": {
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
             **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=None),
+        },
+        "train": {
+            **dataset_cfg,
+            "datasets": {
+                "audio": {**features_hdf_config, "files": train_hdfs},
+                "alignment": alignment_hdf_config,
+            },
+            "partition_epoch": partition_epochs["train"],
+            "seq_list_file": feature_seq,
+        },
+        "dev": {
+            **dataset_cfg,
+            "datasets": {
+                "audio": {**features_hdf_config, "files": [dev_hdf]},
+                "alignment": alignment_hdf_config,
+            },
+            "partition_epoch": partition_epochs["dev"],
+            "seq_list_file": dev_seq,
         },
     }
     keep_epochs = [TEST_EPOCH, 550, num_epochs]
@@ -284,37 +345,11 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    tying = lexicon.DumpStateTyingJob(s.train_input_data[s.crp_names["train"]].get_crp()).out_state_tying
-    with open(FROM_SCRATCH_CV_INFO["features_tkpath_train"], "rt") as feature_bundle:
-        feature_caches = [tk.Path(line.strip()) for line in feature_bundle.readlines()]
-    train_data = RasrFeatureAndAlignmentToHDF(
-        feature_caches=feature_caches,
-        alignment_bundle=alignment,
-        allophones=tk.Path(ZHOU_ALLOPHONES),
-        downsampling_factor=subsampling_factor,
-        num_tied_classes=s.label_info.get_n_of_dense_classes(),
-        state_tying=tying,
-    )
-
-    train_hdfs = copy.copy(train_data.out_hdf_files)
-    rng = random.Random(1337)
-    dev_hdf_i = rng.randrange(0, len(train_hdfs))
-    dev_hdf = train_hdfs.pop(dev_hdf_i)
-
     train_args = {
         **s.initial_train_args,
         "num_epochs": num_epochs,
-        "partition_epochs": partition_epochs,
     }
-    s.returnn_training_from_hdf(
-        experiment_key="fh",
-        returnn_config=returnn_config,
-        nn_train_args=train_args,
-        train_hdfs=train_hdfs,
-        dev_hdfs=[dev_hdf],
-        on_2080=False,
-        use_old_cache_epilog=True,
-    )
+    s.returnn_training(experiment_key="fh", returnn_config=returnn_config, nn_train_args=train_args, on_2080=False)
 
     s.set_graph_for_experiment("fh")
 
