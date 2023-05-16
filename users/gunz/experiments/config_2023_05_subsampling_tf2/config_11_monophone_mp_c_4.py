@@ -134,7 +134,7 @@ def run_single(
 
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{'x'.join(str(s) for s in reduction_factor)}"
+    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mpc:{'x'.join(str(s) for s in reduction_factor)}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
