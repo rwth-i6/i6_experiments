@@ -51,3 +51,5 @@ def run_tedlium2_common_baseline(
     system.run(steps)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
+    
+    return system
