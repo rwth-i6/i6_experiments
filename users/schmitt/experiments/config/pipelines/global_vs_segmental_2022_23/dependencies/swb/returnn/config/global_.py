@@ -60,9 +60,14 @@ def get_train_config(
   ) -> ReturnnConfig:
   data_opts = {}
   for corpus_key in SWBCorpora.train_corpus_keys:
+    if variant_params["config"]["features"] == "gammatone":
+      segment_path = dependencies.segment_paths[corpus_key]
+    else:
+      segment_path = dependencies.raw_audio_train_segment_paths[corpus_key]
     data_opts[corpus_key] = {
       "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
-      "segment_file": dependencies.segment_paths[corpus_key], "label_hdf": dependencies.label_paths[corpus_key],
+      "segment_file": segment_path,
+      "label_hdf": dependencies.label_paths[corpus_key],
       "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "label_name": "bpe",
       "raw_audio_path": dependencies.raw_audio_paths[corpus_key], "features": variant_params["config"]["features"],
     }
