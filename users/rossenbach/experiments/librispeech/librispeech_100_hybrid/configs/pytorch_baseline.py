@@ -71,6 +71,38 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
+            "training_whitelist": ["blstm_oclr_v2", "blstm_oclr_v2_fp16", "blstm_oclr_v2_trace"]
+        },
+        "dev-other-nolen": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "gt",
+            "prior_scales": [0.3],
+            "pronunciation_scales": [6.0],
+            "lm_scales": [20.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 12.0,
+                "beam-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": False,
+            "training_whitelist": [
+                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa"],
         },
         "dev-other-dynqant": {
             "epochs": evaluation_epochs,
@@ -195,11 +227,20 @@ def get_pytorch_returnn_configs(
 
     high_lr_config = copy.deepcopy(blstm_base_config)
     high_lr_config["learning_rates"] = list(np.linspace(2.5e-4, 3e-3, 50)) + list(np.linspace(3e-3, 2.5e-4, 50))
+    
+    medium_lr_config = copy.deepcopy(blstm_base_config)
+    medium_lr_config["learning_rates"] = list(np.linspace(2e-4, 2e-3, 50)) + list(np.linspace(2e-3, 2e-4, 50))
+    
+    medium_lchunk_config = copy.deepcopy(blstm_base_config)
+    medium_lchunk_config["learning_rates"] = list(np.linspace(8e-5, 8e-4, 50)) + list(np.linspace(8e-4, 8e-5, 50))
+    medium_lchunk_config["chunking"] = "250:200"
+    medium_lchunk_config["gradient_clip"] = 1.0
+    medium_lchunk_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
 
     # those are hashed
-    pytorch_package =  PACKAGE + ".pytorch_networks"
+    pytorch_package = PACKAGE + ".pytorch_networks"
 
-    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, use_tracing=False, use_custom_engine=False, use_espnet=False):
+    def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None, use_tracing=False, use_custom_engine=False, use_espnet=False, use_i6_models=False):
         model_type = net_kwargs.pop("model_type")
         pytorch_model_import = Import(
             PACKAGE + ".pytorch_networks.%s.Model" % model_type
@@ -224,6 +265,9 @@ def get_pytorch_returnn_configs(
             ).out_repository
             espnet_path.hash_overwrite = "DEFAULT_ESPNET"
             serializer_objects.insert(0, ExternalImport(espnet_path))
+        if use_i6_models:
+            i6_models = Import("i6_models.i6_models")
+            serializer_objects.append(i6_models)
         if use_custom_engine:
             pytorch_engine = Import(
                 PACKAGE + ".pytorch_networks.%s.CustomEngine" % model_type
@@ -267,12 +311,17 @@ def get_pytorch_returnn_configs(
         "torchaudio_conformer": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer"}, use_tracing=False),# here the config is wrong, it does use tracing
         "torchaudio_conformer_subsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample"}, use_tracing=True),#
         "torchaudio_conformer_subsample_upsample": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
+        "torchaudio_conformer_subup_medium": construct_from_net_kwargs(medium_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
+        "torchaudio_conformer_v2_subx2_lchunk": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large"}, use_tracing=True),#
+        "torchaudio_conformer_v2_subx2_lchunk_nomhsa": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large_nomhsa"}, use_tracing=True),#
         # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
         # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
         "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#
         "blstm_oclr_v2_trace": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug"}, use_tracing=True),#
-        "espnet_conformer_test": construct_from_net_kwargs(blstm_base_config, {"model_type": "espnet_conformer_test"},use_espnet=True),  #
-        "espnet_conformer_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_test"}, use_espnet=True),
-        "espnet_conformer_large_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_large"},
-                                                             use_espnet=True),
+        # "espnet_conformer_test": construct_from_net_kwargs(blstm_base_config, {"model_type": "espnet_conformer_test"},use_espnet=True),  #
+        # "espnet_conformer_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_test"}, use_espnet=True),
+        # "espnet_conformer_large_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_large"},
+        #                                                    use_espnet=True),
+        "i6_models_conformer_subsampling_upsampling": construct_from_net_kwargs(medium_lchunk_config, {
+            "model_type": "i6_models_conformer_subsampling_upsampling"}, use_tracing=True, use_i6_models=True),  #
     }
