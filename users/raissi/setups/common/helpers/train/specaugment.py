@@ -321,8 +321,8 @@ def get_funcs_jingjing():
 
 
 #---------------------------- tina Legacy BLSTM -------------------------------------------------
-
-mask_code_blstm = """
+def returnn_blstm_code(max_time=3):
+    mask_code_blstm = f"""
 
 def _mask(x, batch_axis, axis, pos, max_amount):
   from returnn.tf.compat import v1 as tf
@@ -370,7 +370,7 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
 
 def transform(data, network):
   # to be adjusted (20-50%)
-  max_time_num = 3
+  max_time_num = {max_time}
   max_time = 10
 
   max_feature_num = 5
@@ -400,3 +400,5 @@ def transform(data, network):
   x = network.cond_on_train(get_masked, lambda: x)
   return x
 """
+    return mask_code_blstm
+
