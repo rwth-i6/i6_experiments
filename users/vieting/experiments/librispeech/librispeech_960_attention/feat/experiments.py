@@ -6,13 +6,10 @@ from sisyphus import gs, tk
 
 from .system.attention_asr_config import (
     ConformerEncoderArgs,
-    TransformerDecoderArgs,
     RNNDecoderArgs,
-    ConformerDecoderArgs,
 )
 from .system.additional_config import (
     apply_fairseq_init_to_conformer,
-    apply_fairseq_init_to_transformer_decoder,
 )
 from .system.pipeline import get_best_checkpoint
 from .system.config_helpers import run_exp
@@ -29,10 +26,6 @@ from i6_experiments.users.vieting.models.tf_networks.features import (
     PreemphasisNetwork,
 )
 from i6_experiments.users.vieting.tools.report import Report
-
-train_jobs_map = {}  # dict[str, ReturnnTrainJob]
-train_job_avg_ckpt = {}
-train_job_best_epoch = {}
 
 BPE_10K = 10000
 BPE_5K = 5000
