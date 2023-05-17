@@ -4,58 +4,10 @@ Implementation of the CTC NAR Network
 from returnn_common import nn
 from typing import Tuple, Union, Optional, Sequence
 
-from .conv_modules import Conv1DBlock, ConvStack
-from .gaussian_upsampling import GaussianUpsampling, LstmVarianceNetwork
+from ..conv_modules import Conv1DBlock, ConvStack
+from ..gaussian_upsampling import GaussianUpsampling, LstmVarianceNetwork
 
-class LConvBlock(nn.Module):
-    """
-    LConvBlock from Parallel tacotron 1 with grouped/depthwise convolution instead of full lightweight conv
-    """
-
-    def __init__(
-        self,
-        in_dim: nn.Dim,
-        linear_size: Union[int, nn.Dim] = 512,
-        filter_size: int = 17,
-    ):
-        super(LConvBlock, self).__init__()
-        if isinstance(linear_size, int):
-            self.groups = linear_size
-            self.lin_dim = nn.FeatureDim("LConv_linear", linear_size)
-        else:
-            self.lin_dim = linear_size
-            self.groups = linear_size.dimension
-
-        self.glu = nn.Linear(in_dim, 2*self.lin_dim)
-        self.linear_up = nn.Linear(self.lin_dim, 4*self.lin_dim)
-        self.linear_down = nn.Linear(4*self.lin_dim, self.lin_dim)
-        self.conv = nn.Conv1d(
-            in_dim=self.lin_dim,
-            out_dim=self.lin_dim,
-            filter_size=filter_size,
-            groups=self.groups,
-            with_bias=False,
-            padding="same",
-        )
-
-    def __call__(self, spectrogramm: nn.Tensor, time_dim: nn.Dim) -> nn.Tensor:
-
-        residual = spectrogramm
-        x = self.glu(spectrogramm)
-        x = nn.gating(x)  # GLU
-        x, _ = self.conv(x, in_spatial_dim=time_dim)  # grouped conv / lightweight conv
-        x = x + residual
-
-        residual = x
-        x = self.linear_up(x)
-        x = nn.relu(x)
-        x = self.linear_down(x)
-        x = x + residual
-
-        return x
-
-
-class Decoder(nn.Module):
+class BlstmDecoder(nn.Module):
     """
       Decoder Block of the CTC Model
       """
@@ -75,7 +27,7 @@ class Decoder(nn.Module):
             :param linear_size: output dimension of the linear layer
             :param dropout: dropout values
             """
-        super(Decoder, self).__init__()
+        super(BlstmDecoder, self).__init__()
 
         self.dropout = dropout
 
@@ -210,127 +162,37 @@ class DurationPredictor(nn.Module):
         return softplus
 
 
-class VariancePredictor(nn.Module):
-    """
-      Pitch predictor from FastSpeech 2
-      """
+class ConvLstmEncoder(nn.Module):
 
-    def __init__(
-            self, in_dim: nn.Dim, conv_dim: Union[int, nn.Dim] = 256, filter_size: int = 3, dropout: float = 0.1
-    ):
-        """
+    def __init__(self, embedding_dim: nn.Dim, lstm_size: int = 256, dropout: float = 0.5):
+        self.enc_lstm_dim = nn.FeatureDim("enc_lstm_dim", lstm_size)
+        self.conv_stack = ConvStack(in_dim=embedding_dim, num_layers=3, filter_sizes=[5, 5, 5], dropout=[dropout, dropout, dropout])
+        self.enc_lstm_fw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
+        self.enc_lstm_bw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
 
-        :param conv_dim:
-        :param filter_size:
-        :param dropout: default from NVIDIA implementation, differs from other defaults in this network
-        """
-        super(VariancePredictor, self).__init__()
-        self.dropout = dropout
+        self.out_dim = 2*self.enc_lstm_dim
+        
+    def __call__(self, embedding, phon_time_dim: nn.Dim):
+        
+        # conv block
+        conv = self.conv_stack(embedding, time_dim=phon_time_dim)
 
-        self.conv_1 = nn.Conv1d(
-            in_dim=in_dim,
-            out_dim=conv_dim
-            if isinstance(conv_dim, nn.Dim)
-            else nn.FeatureDim("pitch_conv_dim", conv_dim),
-            filter_size=filter_size,
-            padding="same",
-            with_bias=False,
+        # lstm encoder
+        enc_lstm_fw, _ = self.enc_lstm_fw(conv, axis=phon_time_dim, direction=1)
+        enc_lstm_bw, _ = self.enc_lstm_bw(conv, axis=phon_time_dim, direction=-1)
+        cat, _ = nn.concat(
+            (enc_lstm_fw, enc_lstm_fw.feature_dim),
+            (enc_lstm_bw, enc_lstm_bw.feature_dim),
         )
-        self.norm_1 = nn.LayerNorm(in_dim=conv_dim)
-        self.conv_2 = nn.Conv1d(
-            in_dim=conv_dim,
-            out_dim=conv_dim
-            if isinstance(conv_dim, nn.Dim)
-            else nn.FeatureDim("pitch_conv_dim", conv_dim),
-            filter_size=filter_size,
-            padding="same",
-            with_bias=False,
-        )
-        self.norm_2 = nn.LayerNorm(in_dim=conv_dim)
-        self.linear = nn.Linear(in_dim=conv_dim, out_dim=nn.FeatureDim("pitch_pred", 1))
+        encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
-    def __call__(self, inp: nn.Tensor, time_dim: nn.SpatialDim) -> nn.Tensor:
-        x, _ = self.conv_1(inp, in_spatial_dim=time_dim)
-        x = nn.relu(x)
-        x = self.norm_1(x)
-        x = nn.dropout(
-            x, dropout=self.dropout, axis=[x.feature_dim]
-        )
-        x, _ = self.conv_2(x, in_spatial_dim=time_dim)
-        x = nn.relu(x)
-        x = self.norm_2(x)
-        x = nn.dropout(x, dropout=self.dropout, axis=[x.feature_dim])
-        x = self.linear(x)
-        return x
-
-
-class VariationalAutoEncoder(nn.Module):
-    """
-      VAE from Tacotron 1
-      """
-
-    def __init__(
-            self,
-            in_dim: nn.Dim,
-            num_lconv_blocks: int = 3,
-            num_mixed_blocks: int = 6,
-            linear_size: Union[int, nn.Dim] = 512,
-            lconv_filter_size: int = 17,
-            dropout: float = 0.5,
-            conv_filter_size: int = 5,
-            out_size: int = 32,
-            latent_size: int = 8,
-    ):
-        super(VariationalAutoEncoder, self).__init__()
-
-        self.lconv_stack = nn.Sequential()
-        temp_in = in_dim
-        for _ in range(num_lconv_blocks):
-            lconv_block = LConvBlock(
-                in_dim=temp_in, linear_size=linear_size, filter_size=lconv_filter_size
-            )
-            self.lconv_stack.append(lconv_block)
-            temp_in = lconv_block.lin_dim
-
-        self.mixed_stack = nn.Sequential()
-        for _ in range(num_mixed_blocks):
-            lconv_block = LConvBlock(
-                in_dim=temp_in, linear_size=linear_size, filter_size=lconv_filter_size
-            )
-            self.mixed_stack.append(lconv_block)
-            temp_in = lconv_block.lin_dim
-            conv1d_block = Conv1DBlock(in_dim=temp_in, dim=linear_size, filter_size=conv_filter_size, dropout=dropout)
-            self.mixed_stack.append(conv1d_block)
-            temp_in = conv1d_block.conv_dim
-
-        self.latent_dim = nn.FeatureDim("VAE_lat_dim", latent_size)
-        self.lin_mu = nn.Linear(in_dim=temp_in, out_dim=self.latent_dim)
-        self.lin_log_var = nn.Linear(in_dim=temp_in, out_dim=self.latent_dim)
-        self.lin_out = nn.Linear(in_dim=self.latent_dim, out_dim=nn.FeatureDim("VAE_out_dim", out_size))
-
-    def __call__(
-            self, spectrogramm: nn.Tensor, spectrogramm_time: nn.SpatialDim
-    ) -> [nn.Tensor, nn.Tensor, nn.Tensor]:
-        x = self.lconv_stack(spectrogramm, time_dim=spectrogramm_time)
-        x = self.mixed_stack(x, time_dim=spectrogramm_time)
-        x = nn.reduce(x, mode="mean", axis=spectrogramm_time, use_time_mask=True)  # [B, F]
-
-        # draw latent
-        mu = self.lin_mu(x)  # [B, F]
-        log_var = self.lin_log_var(x)
-        std = nn.exp(0.5 * log_var)
-        eps = nn.random_normal(std.shape_ordered)
-        eps = eps * std
-        eps = eps + mu
-
-        out = self.lin_out(eps)
-        return out, mu, log_var
+        return encoder
 
 
 class NARTTSModel(nn.Module):
     """
-      NAR TTS Model from Timur Schümann implemented in returnn common
-      """
+        Gaussian upsampling Conv-BLSTM default model originally designed by Benedikt Hilmes
+    """
 
     def __init__(
             self,
@@ -342,47 +204,39 @@ class NARTTSModel(nn.Module):
             dec_lstm_size: int = 1024,
             dropout: float = 0.5,
             training: bool = True,
-            gauss_up: bool = False,
             use_true_durations: bool = False,
             dump_speaker_embeddings: bool = False,
             calc_speaker_embedding: bool = False,
             duration_scale: float = 1.0,
-            skip_speaker_embeddings: bool = False,
-            test_vae: bool = False,
     ):
         super(NARTTSModel, self).__init__()
 
         # params
         self.dropout = dropout
         self.training = training
-        self.gauss_up = gauss_up
         self.use_true_durations = use_true_durations
         self.dump_speaker_embeddings = dump_speaker_embeddings
         self.calc_speaker_embedding = calc_speaker_embedding
         self.duration_scale = duration_scale
-        self.skip_speaker_embeddings = skip_speaker_embeddings
-        self.test_vae = test_vae
 
         # dims
         self.embedding_dim = nn.FeatureDim("embedding_dim", embedding_size)
         self.speaker_embedding_dim = nn.FeatureDim(
             "speaker_embedding_dim", speaker_embedding_size
         )
-        self.enc_lstm_dim = nn.FeatureDim("enc_lstm_dim", enc_lstm_size)
         self.dec_lstm_size = dec_lstm_size
 
         # layers
         self.embedding = nn.Linear(in_dim=label_in_dim, out_dim=self.embedding_dim)
         self.speaker_embedding = nn.Linear(in_dim=speaker_in_dim, out_dim=self.speaker_embedding_dim)
-        self.conv_stack = ConvStack(in_dim=self.embedding_dim, num_layers=3, filter_sizes=[3,3,3], dropout=[dropout, dropout, dropout])
-        self.enc_lstm_fw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
-        self.enc_lstm_bw = nn.LSTM(in_dim=self.conv_stack.out_dim, out_dim=self.enc_lstm_dim)
-        self.decoder = Decoder(in_dim=2*self.enc_lstm_dim + self.speaker_embedding_dim, dec_lstm_size_1=dec_lstm_size, dropout=dropout)
 
-        self.variance_net = LstmVarianceNetwork(in_dim=2*self.enc_lstm_dim)
-        self.upsamling = GaussianUpsampling()
+        self.encoder = ConvLstmEncoder(embedding_dim=self.embedding_dim, lstm_size=enc_lstm_size, dropout=dropout)
+        self.decoder = BlstmDecoder(in_dim=self.encoder.out_dim + self.speaker_embedding_dim, dec_lstm_size_1=dec_lstm_size, dropout=dropout)
 
-        self.duration = DurationPredictor(in_dim=2*self.enc_lstm_dim + self.speaker_embedding_dim, dropout=(dropout, dropout))
+        self.variance_net = LstmVarianceNetwork(in_dim=2*self.encoder.out_dim)
+        self.upsampling = GaussianUpsampling()
+
+        self.duration = DurationPredictor(in_dim=2*self.encoder.out_dim + self.speaker_embedding_dim, dropout=(dropout, dropout))
 
     def __call__(
             self,
@@ -424,29 +278,21 @@ class NARTTSModel(nn.Module):
         if self.dump_speaker_embeddings:
             return speaker_embedding
 
-        # embedding
+        # phoneme embedding
         emb = self.embedding(text)
 
-        # conv block
-        conv = self.conv_stack(emb, time_dim=phon_time_dim)
+        # encoder
+        encoder_out = self.encoder(emb, phon_time_dim=phon_time_dim)
 
-        # lstm encoder
-        enc_lstm_fw, _ = self.enc_lstm_fw(conv, axis=phon_time_dim, direction=1)
-        enc_lstm_bw, _ = self.enc_lstm_bw(conv, axis=phon_time_dim, direction=-1)
-        cat, _  = nn.concat(
-            (enc_lstm_fw, enc_lstm_fw.feature_dim),
-            (enc_lstm_bw, enc_lstm_bw.feature_dim),
+        speaker_embedding_dropped = nn.dropout(
+            speaker_embedding, dropout=self.dropout, axis=speaker_embedding.feature_dim
         )
-        encoder = nn.dropout(cat, dropout=self.dropout, axis=cat.feature_dim)
 
-        # duration predictor
-        duration_in, _  = nn.concat(
-            (cat, cat.feature_dim),
-            (speaker_embedding, speaker_embedding.feature_dim),
+        # duration predictor input
+        duration_in, _ = nn.concat(
+            (encoder_out, encoder_out.feature_dim),
+            (speaker_embedding_dropped, speaker_embedding_dropped.feature_dim),
             allow_broadcast=True,
-        )
-        duration_in = nn.dropout(
-            duration_in, dropout=self.dropout, axis=duration_in.feature_dim
         )
 
         if self.use_true_durations:
@@ -463,16 +309,14 @@ class NARTTSModel(nn.Module):
             )
             duration_prediction_loss.mark_as_loss(name="duration_loss")
         else:
-            if self.duration_add != 0:
-                duration_prediction = duration_prediction + self.duration_add
             rint = nn.rint(duration_prediction)
             duration_int = nn.cast(rint, dtype="int32")
             duration_int = nn.squeeze(duration_int, axis=duration_int.feature_dim)
 
+        var = self.variance_net(inp=encoder_out, durations=duration_int, time_dim=phon_time_dim)
 
-        var = self.variance_net(inp=encoder, durations=duration_int, time_dim=phon_time_dim)
-        rep, rep_dim = self.upsamling(
-            inp=encoder,
+        rep, rep_dim = self.upsampling(
+            inp=encoder_out,
             durations=duration_int,
             variances=var,
             time_dim=phon_time_dim,
@@ -490,8 +334,6 @@ class NARTTSModel(nn.Module):
             rep_dim.declare_same_as(speech_time)
             dec_lin_loss = nn.mean_absolute_difference(dec_lin, target_speech)
             dec_lin_loss.mark_as_loss("decoder_mea_loss")
-
-        # dec_lin.mark_as_default_output()
 
         return dec_lin
 

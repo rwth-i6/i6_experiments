@@ -127,6 +127,51 @@ def get_optimized_tts_models():
             tts_model=tts_inference_data
         )
         
+def get_oclr_tts_models():
+    """
+    Baseline for the ctc aligner in returnn_common with serialization
+    :return: durations_hdf
+    """
+
+    base_name = "experiments/alignment_analysis_tts/default_tts/ctc_based/"
+
+
+    # for silence_pp in [True, False]:
+    for silence_pp in [True]:
+        short_name = "gauss_ctc_oclr_tts_" + ("spp" if silence_pp else "nospp")
+        name = base_name + short_name
+
+        alignment_hdf = get_baseline_ctc_alignment_v2(silence_preprocessed=silence_pp)
+        training_datasets, durations = get_tts_data_from_ctc_align(alignment_hdf=alignment_hdf, silence_preprocessed=silence_pp)
+
+        network_args = {
+            "model_type": "tts_model",
+            "gauss_up": True,
+        }
+
+        training_config = get_training_config(
+            returnn_common_root=RETURNN_COMMON, training_datasets=training_datasets, debug=False, **network_args
+        )  # implicit reconstruction loss
+        training_config.config["learning_rates"] = list(np.linspace(2e-4, 2e-3, 90)) + list(np.linspace(2e-3, 2e-4, 90)) + list(np.linspace(2e-4, 1e-6, 20))
+
+        tts_inference_data = create_tts(
+            name=name,
+            training_config=training_config,
+            network_args=network_args,
+            training_datasets=training_datasets,
+            vocoder=get_default_vocoder(name=name),
+            # debug=True,
+        )
+
+        ls_360 = get_bliss_corpus_dict()["train-clean-360"]
+
+        synthesize_arbitrary_corpus(
+            prefix_name=name,
+            export_name=short_name,
+            random_corpus=ls_360,
+            tts_model=tts_inference_data
+        )
+        
         
 def get_ls460_models():
     """

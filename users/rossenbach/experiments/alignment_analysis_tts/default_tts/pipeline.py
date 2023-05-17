@@ -17,7 +17,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_corpus_obje
 
 from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.evaluation.asr_swer_evaluation import asr_evaluation
 
-from .config import get_forward_config, get_speaker_extraction_config, get_training_config
+from .config import get_forward_config, get_speaker_extraction_config
 from .data import TTSForwardData, get_tts_forward_data_legacy_v2
 
 from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT, RETURNN_COMMON
@@ -272,6 +272,7 @@ def create_tts(
         forward_dataset=TTSForwardData(
             dataset=training_datasets.cv, datastreams=training_datasets.datastreams
         ),
+        calc_speaker_embeddings=True,  # we are using index labels not embedding vectors
         **network_args
     )
 
