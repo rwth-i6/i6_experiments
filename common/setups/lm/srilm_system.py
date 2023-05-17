@@ -57,7 +57,27 @@ class SriLmSystem:
         perplexity_rqmt: Optional[Dict] = None,
         mail_address: Optional[str] = None,
         prune_lm: bool = True,
+        optimize_discounts = False
     ):
+        """
+        :param name: System name used for alias/output and report naming
+        :param train_data: Dict with different datasets used for training of individual LMs which will be interpolated
+        :param dev_data: Dict with dev datasets used for PPL eval
+        When optimize_discounts is true dev_data["dev"] will be used for optimization of the discounts
+        :param eval_data: Dict with datasets used for PPL eval
+        :param ngram_order: List of orders of LMs to be created
+        :param vocab: Vocabulary file, text, one word per line
+        :param ngram_args: Additional arguments for the ComputeNgramLmJob
+        :param perplexity_args: Additional arguments for the ComputeNgramLmPerplexityJob
+        :param srilm_path: Path to the srilm installation
+        :param ngram_rqmt: Requirements for the ngram calculation, default values will be used if not set
+        :param perplexity_rqmt: Requirements for the PPL calculation, default values will be used if not set
+        :param mail_address: Reports will be sent to this E-Mail if set, else no report will be generated
+        :param prune_lm: Whether to prune the LM with a Katz LM. Per convention Katz data is called background-data.
+        Will use the LM of order n-1 if exists, else will use the LM of order n
+        :param optimize_discounts: Whether to use the OptimizeKNDiscountsJob. This requires a special installation of
+        srilm and is treated as DEPRECATED. (srilm-1.5.12-mod2_201705)
+        """
         assert "_" not in "-".join(list(train_data.keys()) + list(eval_data.keys())), "symbol not allowed in data name"
 
         self.name = name
@@ -74,6 +94,7 @@ class SriLmSystem:
         self.compute_best_mix_exe = (
             srilm_path.join_right("compute-best-mix") if srilm_path is not None else tk.Path("compute-best-mix")
         )
+        self.optimize_discounts = optimize_discounts
 
         self.ngram_rqmt = (
             ngram_rqmt
@@ -120,18 +141,19 @@ class SriLmSystem:
                 )
                 count_job.add_alias(self.name + "/" + train_corpus_name + "/" + f"{n}gram/count_job")
 
-                discount_job = srilm.OptimizeKNDiscountsJob(
-                    ngram_order=n,
-                    data=self.dev_data[
-                        "dev"
-                    ],  # I think this can stay hardcoded since discounting for each set would be overkill -> comb. expl.
-                    vocab=self.vocab,
-                    num_discounts=3,
-                    count_file=count_job.out_counts,
-                    count_exe=self.count_exe,
-                    **n_gram_rqmt,
-                )
-                discount_job.add_alias(self.name + "/" + train_corpus_name + "/" + f"{n}gram/kn_discount_job")
+                if self.optimize_discounts:
+                    discount_job = srilm.OptimizeKNDiscountsJob(
+                       ngram_order=n,
+                       data=self.dev_data[
+                           "dev"
+                       ],
+                       vocab=self.vocab,
+                       num_discounts=3,
+                       count_file=count_job.out_counts,
+                       count_exe=self.count_exe,
+                       **n_gram_rqmt,
+                    )
+                    discount_job.add_alias(self.name + "/" + train_corpus_name + "/" + f"{n}gram/kn_discount_job")
                 ngram_job = srilm.ComputeNgramLmJob(
                     ngram_order=n,
                     data=count_job.out_counts,
@@ -139,7 +161,7 @@ class SriLmSystem:
                     vocab=self.vocab,
                     ngram_args=self.ngram_args,
                     count_exe=self.count_exe,
-                    multi_kn_file=discount_job.out_multi_kn_file,
+                    multi_kn_file=discount_job.out_multi_kn_file if self.optimize_discounts else None,
                     **n_gram_rqmt,
                 )
                 ngram_job.add_alias(self.name + "/" + train_corpus_name + "/" + f"{n}gram/compute_lm_job")
