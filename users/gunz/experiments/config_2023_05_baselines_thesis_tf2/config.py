@@ -23,7 +23,7 @@ FROM_SCRATCH_CV_INFO = {
 }
 
 RASR_ARCH = "linux-x86_64-standard"
-RASR_ROOT_TF2 = "/u/mgunz/gunz/rasr_tf2.3"
+RASR_ROOT_TF2 = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
 
 RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
 
