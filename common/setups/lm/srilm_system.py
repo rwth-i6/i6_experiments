@@ -57,7 +57,7 @@ class SriLmSystem:
         perplexity_rqmt: Optional[Dict] = None,
         mail_address: Optional[str] = None,
         prune_lm: bool = True,
-        optimize_discounts = False
+        optimize_discounts=False,
     ):
         """
         :param name: System name used for alias/output and report naming
@@ -143,15 +143,13 @@ class SriLmSystem:
 
                 if self.optimize_discounts:
                     discount_job = srilm.OptimizeKNDiscountsJob(
-                       ngram_order=n,
-                       data=self.dev_data[
-                           "dev"
-                       ],
-                       vocab=self.vocab,
-                       num_discounts=3,
-                       count_file=count_job.out_counts,
-                       count_exe=self.count_exe,
-                       **n_gram_rqmt,
+                        ngram_order=n,
+                        data=self.dev_data["dev"],
+                        vocab=self.vocab,
+                        num_discounts=3,
+                        count_file=count_job.out_counts,
+                        count_exe=self.count_exe,
+                        **n_gram_rqmt,
                     )
                     discount_job.add_alias(self.name + "/" + train_corpus_name + "/" + f"{n}gram/kn_discount_job")
                 ngram_job = srilm.ComputeNgramLmJob(
