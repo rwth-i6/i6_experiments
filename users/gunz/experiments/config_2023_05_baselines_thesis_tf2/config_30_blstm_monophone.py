@@ -44,12 +44,12 @@ from .config import (
     RAISSI_ALIGNMENT,
     RASR_ARCH,
     RASR_ROOT_TF2,
-    RETURNN_PYTHON_TF23,
+    RETURNN_PYTHON_TF2_12,
     SCRATCH_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
-RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23, hash_overwrite="RETURNN_PYTHON_EXE")
+RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
 

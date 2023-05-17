@@ -50,14 +50,14 @@ from .config import (
     L2,
     RASR_ARCH,
     RASR_ROOT_TF2,
-    RETURNN_PYTHON_TF23,
+    RETURNN_PYTHON_TF2_12,
     TEST_EPOCH,
     ZHOU_ALLOPHONES,
     ZHOU_SUBSAMPLED_ALIGNMENT,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
-RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23, hash_overwrite="RETURNN_PYTHON_EXE")
+RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
 

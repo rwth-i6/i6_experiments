@@ -25,7 +25,7 @@ FROM_SCRATCH_CV_INFO = {
 RASR_ARCH = "linux-x86_64-standard"
 RASR_ROOT_TF2 = "/u/raissi/dev/rasr_github/rasr_tf2/"
 
-RETURNN_PYTHON_TF23 = "/u/mgunz/src/bin/returnn_tf2.3_launcher.sh"
+RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
 
 BLSTM_CHUNKING = "64:32"
 
