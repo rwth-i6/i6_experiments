@@ -12,7 +12,12 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
 )
-from .network_helpers.features import LogMelNetwork, GammatoneNetwork, ScfNetwork, PreemphasisNetwork
+from i6_experiments.users.vieting.models.tf_networks.features import (
+    LogMelNetwork,
+    GammatoneNetwork,
+    ScfNetwork,
+    PreemphasisNetwork,
+)
 from .specaug_jingjing import (
     specaug_layer_jingjing,
     get_funcs_jingjing,

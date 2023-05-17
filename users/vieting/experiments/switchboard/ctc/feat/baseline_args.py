@@ -13,7 +13,12 @@ from i6_experiments.common.setups.returnn_common.serialization import (
     ExternData,
     Import,
 )
-from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.network_helpers.features import LogMelNetwork, GammatoneNetwork, ScfNetwork, PreemphasisNetwork
+from i6_experiments.users.vieting.models.tf_networks.features import (
+    LogMelNetwork,
+    GammatoneNetwork,
+    ScfNetwork,
+    PreemphasisNetwork,
+)
 from .fullsum_ctc_raw_samples import make_conformer_fullsum_ctc_model
 from .network_helpers.learning_rates import oclr_default_schedule
 
