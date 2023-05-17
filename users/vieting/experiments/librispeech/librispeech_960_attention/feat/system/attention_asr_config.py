@@ -535,6 +535,7 @@ def create_config(
     specaug_str_func_opts=None,
     recursion_limit=3000,
     feature_extraction_net=None,
+    feature_extraction_name="log_mel_features",
     config_override=None,
     freeze_bn=False,
     keep_all_epochs=False,
@@ -662,7 +663,7 @@ def create_config(
 
     encoder_args = asdict(encoder_args)
     if feature_extraction_net:
-        encoder_args.update({"target": target, "input": "log_mel_features"})
+        encoder_args.update({"target": target, "input": feature_extraction_name})
     else:
         encoder_args.update({"target": target, "input": "data:" + input_key})
 

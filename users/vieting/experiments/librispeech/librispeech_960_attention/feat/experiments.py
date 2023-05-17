@@ -37,6 +37,13 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     get_lm,
     ZeineldeenLM,
 )
+from i6_experiments.users.vieting.models.tf_networks.features import (
+    LogMelNetwork,
+    GammatoneNetwork,
+    ScfNetwork,
+    PreemphasisNetwork,
+)
+from i6_experiments.users.vieting.tools.report import Report
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -110,6 +117,7 @@ def conformer_baseline():
         train_args,
         train_data,
         feature_extraction_net,
+        feature_extraction_name,
         num_epochs,
         recog_epochs,
         **kwargs,
@@ -119,6 +127,7 @@ def conformer_baseline():
             training_datasets=train_data,
             **train_args,
             feature_extraction_net=feature_extraction_net,
+            feature_extraction_name=feature_extraction_name,
             recog_epochs=recog_epochs,
         )
         train_job = training(
@@ -137,6 +146,7 @@ def conformer_baseline():
         train_data,
         train_job,
         feature_extraction_net,
+        feature_extraction_name,
         num_epochs,
         search_args,
         recog_epochs,
@@ -151,6 +161,7 @@ def conformer_baseline():
             training_datasets=train_data,
             **search_args,
             feature_extraction_net=feature_extraction_net,
+            feature_extraction_name=feature_extraction_name,
             is_recog=True,
         )
 
@@ -223,6 +234,7 @@ def conformer_baseline():
         exp_name,
         train_args,
         feature_extraction_net=log10_net_10ms,
+        feature_extraction_name="log_mel_features",
         num_epochs=300,
         search_args=None,
         recog_epochs=None,
@@ -245,6 +257,7 @@ def conformer_baseline():
             train_args,
             train_data,
             feature_extraction_net,
+            feature_extraction_name,
             num_epochs,
             recog_epochs,
             **kwargs,
@@ -257,6 +270,7 @@ def conformer_baseline():
             train_data,
             train_job,
             feature_extraction_net,
+            feature_extraction_name,
             num_epochs,
             search_args,
             recog_epochs,
@@ -366,6 +380,15 @@ def conformer_baseline():
         "baseline",
         train_args=args,
         num_epochs=635,
+    )
+    report_list.append(report)
+
+    _, _, report = run_exp(
+        "scf",
+        train_args=args,
+        num_epochs=635,
+        feature_extraction_net=ScfNetwork().get_as_subnetwork(),
+        feature_extraction_name="features",
     )
     report_list.append(report)
 
