@@ -1,5 +1,6 @@
 import copy
 import os
+from typing import Dict, Any
 
 from sisyphus import gs, tk
 
@@ -75,12 +76,10 @@ trafo_lm_opts_map = {
 }
 
 
-def conformer_baseline():
+def get_train_base_args() -> Dict[str, Any]:
     """
-    Baseline attention system with conformer encoder and LSTM decoder. Based on Mohammad's setup.
+    Get basic arguments for training, i.e., model (encoder/decoder) and general (lr schedule, pretraining etc.) args.
     """
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_attention/feat/"
-
     # model (encoder/decoder) args
     conformer_enc_args = ConformerEncoderArgs(
         num_blocks=12,
@@ -131,18 +130,28 @@ def conformer_baseline():
         }
     )
 
+    return base_args
+
+
+def conformer_baseline():
+    """
+    Baseline attention system with conformer encoder and LSTM decoder. Based on Mohammad's setup.
+    """
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_attention/feat/"
+
     # experiments
     report_list = []
 
-    args = copy.deepcopy(base_args)
+    args = get_train_base_args()
     _, _, report = run_exp(
         "baseline",
         train_args=args,
         num_epochs=635,
     )
     report_list.append(report)
+    args["encoder_args"] = None
 
-    args = copy.deepcopy(base_args)
+    args = get_train_base_args()
     _, _, report = run_exp(
         "scf",
         train_args=args,
