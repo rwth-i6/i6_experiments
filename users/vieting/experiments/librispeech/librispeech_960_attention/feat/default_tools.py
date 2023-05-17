@@ -3,7 +3,10 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.tools.sctk import compile_sctk
 
 
-RETURNN_EXE = tk.Path("/u/zeineldeen/bin/returnn_tf_ubuntu22_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
+RETURNN_EXE = tk.Path(
+    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+    hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+)
 RETURNN_CPU_EXE = RETURNN_EXE
 
 RETURNN_ROOT = CloneGitRepositoryJob(
