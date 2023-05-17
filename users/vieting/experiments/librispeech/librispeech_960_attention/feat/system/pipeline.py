@@ -191,7 +191,6 @@ def search(
     use_sclite=False,
     recog_ext_pipeline=False,
     remove_label: Optional[Union[str, Set[str]]] = None,
-    enable_mail: bool=False,
 ):
     """
 
@@ -224,22 +223,4 @@ def search(
             recog_ext_pipeline=recog_ext_pipeline,
             remove_label=remove_label,
         )
-
-    from i6_core.report import GenerateReportStringJob, MailJob
-
-    format_string_report = ",".join(["{%s_val}" % key for key in test_dataset_tuples.keys()])
-    format_string = " - ".join(
-        ["{%s}: {%s_val}" % (key, key) for key in test_dataset_tuples.keys()]
-    )
-    values = {}
-    values_report = {}
-    for key in test_dataset_tuples.keys():
-        values[key] = key
-        values["%s_val" % key] = wers[key]
-        values_report["%s_val" % key] = wers[key]
-
-    report = GenerateReportStringJob(report_values=values, report_template=format_string, compress=False).out_report
-    if enable_mail:
-        mail = MailJob(result=report, subject=prefix_name, send_contents=True).out_status
-        tk.register_output(os.path.join(prefix_name, "mail_status"), mail)
-    return format_string_report, values_report
+    return wers

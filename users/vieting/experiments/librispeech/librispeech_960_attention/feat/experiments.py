@@ -1,6 +1,8 @@
 import copy
 import os
 
+from sisyphus import gs, tk
+
 from .system.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
@@ -90,8 +92,8 @@ trafo_lm_opts_map = {
 
 
 def conformer_baseline():
-    abs_name = os.path.abspath(__file__)
-    prefix_name = os.path.basename(abs_name)[: -len(".py")]
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_attention/feat/"
+    prefix_name = ""
 
     def get_test_dataset_tuples(bpe_size):
         test_dataset_tuples = {}
@@ -188,7 +190,8 @@ def conformer_baseline():
                 RETURNN_ROOT,
             )
 
-        search(
+        wers = {}
+        wers["last"] = search(
             exp_prefix + "/default_last",
             returnn_search_config,
             train_job.out_checkpoints[num_epochs],
@@ -197,7 +200,7 @@ def conformer_baseline():
             RETURNN_ROOT,
         )
 
-        search(
+        wers["best"] = search(
             exp_prefix + "/default_best",
             returnn_search_config,
             best_checkpoint,
@@ -206,7 +209,7 @@ def conformer_baseline():
             RETURNN_ROOT,
         )
 
-        search(
+        wers["average"] = search(
             exp_prefix + f"/average_{num_avg}",
             returnn_search_config,
             averaged_checkpoint,
@@ -214,6 +217,7 @@ def conformer_baseline():
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
         )
+        return wers
 
     def run_exp(
         exp_name,
@@ -225,6 +229,8 @@ def conformer_baseline():
         bpe_size=10000,
         **kwargs,
     ):
+        report = Report(columns_start=["name"], columns_end=["dev-clean", "dev-other", "test-clean", "test-other"])
+        report_args = {"name": exp_name}
         if train_args.get("retrain_checkpoint", None):
             assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
         train_data = build_training_datasets(
@@ -245,7 +251,7 @@ def conformer_baseline():
         )
         train_jobs_map[exp_name] = train_job
 
-        run_search(
+        wers = run_search(
             exp_name,
             train_args,
             train_data,
@@ -257,7 +263,10 @@ def conformer_baseline():
             bpe_size=bpe_size,
             **kwargs,
         )
-        return train_job, train_data
+
+        for checkpoint in wers:
+            report.add({**report_args, "checkpoint": checkpoint, **wers[checkpoint]})
+        return train_job, train_data, report
 
     # --------------------------- General Settings --------------------------- #
 
@@ -335,6 +344,7 @@ def conformer_baseline():
     )
 
     # --------------------------- Experiments --------------------------- #
+    report_list = []
 
     oclr_args = copy.deepcopy(lstm_dec_exp_args)
     oclr_args["oclr_opts"] = {
@@ -352,8 +362,16 @@ def conformer_baseline():
     args["oclr_opts"]["cycle_ep"] = 285
     args["oclr_opts"]["total_ep"] = 635
     args["decoder_args"].use_zoneout_output = True
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_fixedZoneout",
+    _, _, report = run_exp(
+        "baseline",
         train_args=args,
-        num_epochs=635
+        num_epochs=635,
     )
+    report_list.append(report)
+
+    # finalize report
+    report = Report.merge_reports(report_list)
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        values=report.get_values(),
+        template=report.get_template())
