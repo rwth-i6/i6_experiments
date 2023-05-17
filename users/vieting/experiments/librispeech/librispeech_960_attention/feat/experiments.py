@@ -20,6 +20,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     ZeineldeenLM,
 )
 from i6_experiments.users.vieting.models.tf_networks.features import (
+    NetworkDict,
     LogMelNetwork,
     GammatoneNetwork,
     ScfNetwork,
@@ -133,30 +134,52 @@ def conformer_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_attention/feat/"
 
     # experiments
-    report_list = []
-
     args = get_train_base_args()
     _, _, report = run_exp(
         "baseline",
         train_args=args,
         num_epochs=635,
     )
-    report_list.append(report)
-    args["encoder_args"] = None
 
+
+def conformer_features():
+    """
+    Attention system with conformer encoder and LSTM decoder using different features.
+    """
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_attention/feat/"
+
+    def _get_feature_net(net: NetworkDict) -> Dict[str, Dict]:
+        return {"features": net.get_as_subnetwork(source="data:audio_features")}
+
+    # feature args
+    feature_nets = {
+        "logmel": LogMelNetwork(norm=False),
+        "logmel_batchnorm": LogMelNetwork(),
+        "scf": ScfNetwork(),
+        "gammatone": GammatoneNetwork(),
+    }
+
+    # experiments
     args = get_train_base_args()
-    _, _, report = run_exp(
-        "scf",
-        train_args=args,
-        num_epochs=635,
-        feature_extraction_net=ScfNetwork().get_as_subnetwork(),
-        feature_extraction_name="features",
-    )
-    report_list.append(report)
+    report_list = []
 
-    # finalize report
+    for name, feature_net in feature_nets.items():
+        _, _, report = run_exp(
+            name,
+            train_args=args,
+            num_epochs=635,
+            feature_extraction_net=_get_feature_net(feature_net),
+            feature_extraction_name="features",
+        )
+        report_list.append(report)
+
     report = Report.merge_reports(report_list)
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
         template=report.get_template())
+
+
+def run_all():
+    conformer_baseline()
+    conformer_features()
