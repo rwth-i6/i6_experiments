@@ -1,29 +1,29 @@
 import copy
 import os
 
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
+from .system.attention_asr_config import (
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
     RNNDecoderArgs,
     ConformerDecoderArgs,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
+from .system.additional_config import (
     apply_fairseq_init_to_conformer,
     apply_fairseq_init_to_transformer_decoder,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.data import (
+from .system.data import (
     build_training_datasets,
     build_test_dataset,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_960.default_tools import (
+from .default_tools import (
     RETURNN_ROOT,
     RETURNN_CPU_EXE,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.feature_extraction_net import (
+from .system.feature_extraction_net import (
     log10_net_10ms,
 )
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.pipeline import (
+from .system.pipeline import (
     training,
     search,
     get_average_checkpoint,
