@@ -20,11 +20,17 @@ from sisyphus.delayed_ops import DelayedFormat
 
 import i6_core.am as am
 import i6_core.rasr as rasr
+import i6_core.returnn as returnn
 
 from i6_core.returnn.hdf import BlissToPcmHDFJob, RasrAlignmentDumpHDFJob
 from i6_core.util import MultiPath
 
-RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
+RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute, rasr.FlowNetwork]
+
+
+@dataclass(frozen=True)
+class RasrDataInput:
+    features: RasrCacheTypes
 
 
 @dataclass(frozen=True)
