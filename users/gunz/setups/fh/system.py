@@ -958,7 +958,9 @@ class FactoredHybridSystem(NnSystem):
             partition_epochs=partition_epochs,
             alignment_allophones=alignment_allophones,
         )
-        return self.returnn_training(experiment_key=experiment_key, returnn_config=returnn_config, nn_train_args=nn_train_args)
+        return self.returnn_training(
+            experiment_key=experiment_key, returnn_config=returnn_config, nn_train_args=nn_train_args
+        )
 
     def returnn_rasr_training_fullsum(
         self,

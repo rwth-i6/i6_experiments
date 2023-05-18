@@ -269,10 +269,7 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_args = {
-        **s.initial_train_args,
-        "num_epochs": num_epochs
-    }
+    train_args = {**s.initial_train_args, "num_epochs": num_epochs}
     s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
