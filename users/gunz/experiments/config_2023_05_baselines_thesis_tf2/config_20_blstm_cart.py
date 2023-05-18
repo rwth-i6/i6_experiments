@@ -320,19 +320,14 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "tri" if n_cart_phones == 3 else "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_args = {
-        **s.initial_train_args,
-        "returnn_config": returnn_config,
-        "num_epochs": num_epochs,
-        "partition_epochs": partition_epochs,
-    }
-
-    s.returnn_rasr_training(
+    train_args = {**s.initial_train_args, "num_epochs": num_epochs}
+    s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        returnn_config=returnn_config,
+        partition_epochs=partition_epochs,
     )
     s.set_mono_priors_returnn_rasr(
         key="fh",
