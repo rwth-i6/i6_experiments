@@ -50,9 +50,9 @@ class RasrFeaturesToHdf(Job):
                 )
                 paths = [p.get_path() if isinstance(p, Path) else p for p in paths]
 
-                logging.info(f"setting up bundle from {len(paths)} individual file paths...")
-
                 bundle_file_name = os.path.join(bundle_dir, "features.bundle")
+                logging.info(f"setting up bundle at {bundle_file_name} from {len(paths)} individual file paths...")
+
                 with open(bundle_file_name, "wt") as bundle_file:
                     bundle_file.writelines([f"{p}\n" for p in paths])
 
