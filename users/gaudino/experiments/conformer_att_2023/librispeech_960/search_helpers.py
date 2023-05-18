@@ -3,62 +3,40 @@ import copy
 from i6_core.returnn.config import CodeWrapper
 
 
-def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, beam_size=12, use_end_layer=True, ctc_rep_thresh=1):
+def add_joint_ctc_att_subnet(
+    net,
+    att_scale,
+    ctc_scale,
+    check_repeat_version=1,
+    beam_size=12,
+    remove_eos=False,
+    renorm_after_remove_eos=False,
+    in_scale=False,
+    comb_score_version=1,
+    blank_penalty=None,
+):
     """
     Add layers for joint CTC and att search.
 
     :param dict net: network dict
     :param float att_scale: attention score scale
     :param float ctc_scale: ctc score scale
-    :param bool length_normalization: if set, apply length normalization to beam search scores
     """
     net["output"] = {
         "class": "rec",
-        "from": [] if use_end_layer else "ctc",
+        "from": "ctc",  # [B,T,V+1]
         "unit": {
-            # create masks for state update
-            # always check repeat
             "is_prev_out_not_blank_mask": {
                 "class": "compare",
                 "kind": "not_equal",
                 "from": "prev:output",
                 "value": 10025,
             },
-            "ctc_repetition_score_diff": {
-                "class": "combine",
-                "kind": "sub",
-                "from": ["gather_ctc", "prev:gather_ctc"],
-            },
-            "ctc_repetition_score_abs": {
-                "class": "math_norm",
-                "from": "ctc_repetition_score_diff",
-                "p": 1,
-                "axis": "f",
-            },
-            "ctc_not_repeat_mask": {
-                "class": "compare",
-                "from": ["ctc_repetition_score_abs"],
-                "kind": "greater",
-                "value": ctc_rep_thresh,
-            },
-            "is_prev_nb_and_curr_nr_mask": {
-                "class": "combine",
-                "kind": "logical_and",
-                "from": ["is_prev_out_not_blank_mask", "ctc_not_repeat_mask"],
-                "initial_output": True,
-            },
-
             "is_curr_out_not_blank_mask": {
                 "class": "compare",
                 "kind": "not_equal",
                 "from": "output",
                 "value": 10025,
-            },
-            "is_curr_out_not_blank_not_repeat_mask": {
-                "class": "combine",
-                "kind": "logical_and",
-                "from": ["is_curr_out_not_blank_mask", "ctc_not_repeat_mask"],
-                "initial_output": True,
             },
             # reinterpreted for target_embed
             "output_reinterpret": {
@@ -90,7 +68,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     },
                     "target_embed": {
                         "class": "switch",
-                        "condition": "base:is_curr_out_not_blank_not_repeat_mask",
+                        "condition": "base:is_curr_out_not_blank_mask",
                         "true_from": "_target_embed",
                         "false_from": "prev:target_embed",
                     },
@@ -114,7 +92,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     },
                     "accum_att_weights": {
                         "class": "switch",
-                        "condition": "base:is_prev_nb_and_curr_nr_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_accum_att_weights",
                         "false_from": "prev:accum_att_weights",
                         "out_type": {"dim": 1, "shape": (None, 1)},
@@ -175,7 +153,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     },
                     "s": {
                         "class": "switch",
-                        "condition": "base:is_prev_nb_and_curr_nr_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s",
                         "false_from": "prev:s",
                     },
@@ -187,7 +165,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     },
                     "s_c": {
                         "class": "switch",
-                        "condition": "base:is_prev_nb_and_curr_nr_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s_c",
                         "false_from": "prev:s_c",
                     },
@@ -199,7 +177,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     },
                     "s_h": {
                         "class": "switch",
-                        "condition": "base:is_prev_nb_and_curr_nr_mask",
+                        "condition": "base:is_prev_out_not_blank_mask",
                         "true_from": "_s_h",
                         "false_from": "prev:s_h",
                     },
@@ -225,22 +203,21 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                     "output": {"class": "copy", "from": "output_prob"},
                 },
             },
-            "att_log_scores": {
+            "att_log_scores_": {
                 "class": "activation",
                 "activation": "safe_log",
                 "from": "trigg_att",
-            },  # [B,V]
-            "gather_ctc": {
-                "class": "gather",
-                "from": "base:ctc",
-                "axis": "t",
-                "position": ":i",
+            },
+            "att_log_scores": {
+                "class": "switch",
+                "condition": "is_prev_out_not_blank_mask",
+                "true_from": "att_log_scores_",
+                "false_from": "prev:att_log_scores",
             },
             "ctc_log_scores": {
                 "class": "activation",
                 "activation": "safe_log",
-                "from": "gather_ctc",
-                "initial_output": 0.0,
+                "from": "data:source",
             },  # [B,V+1]
             # log p_comb_sigma = log p_att_sigma + log p_ctc_sigma (using only labels without blank)
             "ctc_log_scores_slice": {
@@ -285,7 +262,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                 "axis": "f",
             },  # [B]
             # p_ctc_sigma' (blank | ...)
-            "blank_prob": {"class": "gather", "from": "gather_ctc", "position": 10025, "axis": "f"},
+            "blank_prob": {"class": "gather", "from": "data:source", "position": 10025, "axis": "f"},
             # p_comb_sigma' for labels which is defined as:
             # (1 - p_ctc_sigma'(blank | ...)) * p_comb_sigma(label | ...)
             # here is not log-space
@@ -303,7 +280,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
             "scaled_1_minus_blank_log": {
                 "class": "eval",
                 "from": "1_minus_blank_log",
-                "eval": "1 * source(0)",
+                "eval": f"{ctc_scale} * source(0)",
             },
             "p_comb_sigma_prime_label": {
                 "class": "combine",
@@ -313,7 +290,7 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
             "scaled_blank_log_prob": {
                 "class": "eval",
                 "from": "blank_log_prob",
-                "eval": "1 * source(0)",
+                "eval": f"{ctc_scale} * source(0)",
             },
             "scaled_blank_log_prob_expand": {
                 "class": "expand_dims",
@@ -330,15 +307,96 @@ def add_joint_ctc_att_subnet(net, att_scale, ctc_scale, length_normalization, be
                 "beam_size": beam_size,
                 "from": "p_comb_sigma_prime" if ctc_scale > 0.0 else "combined_att_ctc_scores",
                 "input_type": "log_prob",
-                "initial_output": 1,  # 0 if ctc_scale > 0.0 else 1
-                "length_normalization": length_normalization,
+                "initial_output": 0,
+                "length_normalization": False,
             },
         },
         "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
     }
-    if use_end_layer:
-        net["output"]["unit"]["end"] = {"class": "compare", "kind": "equal", "from": "output", "value": 0}
-        net["output"]["max_seq_len"] = "max_len_from('base:encoder')"
+    if check_repeat_version:
+        net["output"]["unit"]["not_repeat_mask"] = {
+            "class": "compare",
+            "from": ["output", "prev:output"],
+            "kind": "not_equal",
+        }
+        net["output"]["unit"]["is_curr_out_not_blank_mask_"] = copy.deepcopy(
+            net["output"]["unit"]["is_curr_out_not_blank_mask"]
+        )
+        net["output"]["unit"]["is_curr_out_not_blank_mask"] = {
+            "class": "combine",
+            "kind": "logical_and",
+            "from": ["is_curr_out_not_blank_mask_", "not_repeat_mask"],
+        }
+        net["output"]["unit"]["is_curr_out_not_blank_mask"]["initial_output"] = True
+        net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
+            "class": "copy",
+            "from": "prev:is_curr_out_not_blank_mask",
+        }
+    if remove_eos:
+        net["output"]["unit"]["att_scores_wo_eos"] = {
+            "class": "eval",
+            "eval": CodeWrapper("update_tensor_entry"),
+            "from": "trigg_att",
+        }
+        if renorm_after_remove_eos:
+            net["output"]["unit"]["att_log_scores_"] = copy.deepcopy(net["output"]["unit"]["att_log_scores"])
+            net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
+            net["output"]["unit"]["att_log_scores_norm"] = {
+                "class": "reduce",
+                "mode": "logsumexp",
+                "from": "att_log_scores_",
+                "axis": "f",
+            }
+            net["output"]["unit"]["att_log_scores"] = {
+                "class": "combine",
+                "kind": "sub",
+                "from": ["att_log_scores_", "att_log_scores_norm"],
+            }
+        else:
+            net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
+    if in_scale:
+        net["output"]["unit"]["scaled_blank_prob"] = {
+            "class": "eval",
+            "from": "blank_prob",
+            "eval": f"source(0) ** {ctc_scale}",
+        }
+        # 1 - p_ctc(...)^scale
+        net["output"]["unit"]["1_minus_blank"] = {
+            "class": "combine",
+            "kind": "sub",
+            "from": ["one", "scaled_blank_prob"],
+        }
+        # no scaling outside
+        net["output"]["unit"]["scaled_1_minus_blank_log"] = {"class": "copy", "from": "1_minus_blank_log"}
+    if comb_score_version == 2:
+        net["output"]["unit"]["p_comb_sigma_prime"]["from"][0] = ("combined_att_ctc_scores", "f")
+    if comb_score_version == 3:
+        # normalize p_comb_sigma
+        net["output"]["unit"]["combined_att_ctc_scores_norm"] = {
+            "class": "reduce",
+            "mode": "logsumexp",
+            "from": "combined_att_ctc_scores",
+            "axis": "f",
+        }
+        net["output"]["unit"]["combined_att_ctc_scores_renorm"] = {
+            "class": "combine",
+            "kind": "sub",
+            "from": ["combined_att_ctc_scores", "combined_att_ctc_scores_norm"],
+        }
+        net["output"]["unit"]["p_comb_sigma_prime_label"] = {
+            "class": "combine",
+            "kind": "add",
+            "from": ["scaled_1_minus_blank_log", "combined_att_ctc_scores_renorm"],
+        }
+    if blank_penalty:
+        net["output"]["unit"]["scaled_blank_log_prob_expand_"] = copy.deepcopy(
+            net["output"]["unit"]["scaled_blank_log_prob_expand"]
+        )
+        net["output"]["unit"]["scaled_blank_log_prob_expand"] = {
+            "class": "eval",
+            "from": "scaled_blank_log_prob_expand_",
+            "eval": f"source(0) - {blank_penalty}",
+        }
 
 
 def add_filter_blank_and_merge_labels_layers(net):
@@ -423,3 +481,16 @@ def create_ctc_greedy_decoder(net):
         "from": "data:source",
         "initial_output": 0,
     }
+
+
+def update_tensor_entry(source, **kwargs):
+    import tensorflow as tf
+
+    tensor = source(0)
+    batch_size = tf.shape(tensor)[0]
+    indices = tf.range(batch_size)  # [0, 1, ..., batch_size - 1]
+    indices = tf.expand_dims(indices, axis=1)  # [[0], [1], ..., [batch_size - 1]]
+    zeros = tf.zeros_like(indices)
+    indices = tf.concat([indices, zeros], axis=1)  # [[0, 0], [1, 0], ..., [batch_size - 1, 0]]
+    updates = tf.zeros([batch_size])
+    return tf.tensor_scatter_nd_update(tensor, indices, updates)
