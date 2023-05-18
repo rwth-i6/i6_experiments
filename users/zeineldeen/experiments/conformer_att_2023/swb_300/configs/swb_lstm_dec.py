@@ -829,7 +829,10 @@ def conformer_baseline():
                 base3_args = copy.deepcopy(base_v2_args)
 
                 # double batch size
-                base3_args["batch_size"] = 15_000 * 80 * 2
+                base3_args["batch_size"] = base3_args["batch_size"] * 2
+                base3_args["pretrain_opts"]["initial_batch_size"] = (
+                    base3_args["pretrain_opts"]["initial_batch_size"] * 2
+                )
                 base3_args["accum_grad"] = 1
 
                 base3_args["encoder_args"].att_dropout = drop
