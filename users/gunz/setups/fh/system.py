@@ -727,6 +727,7 @@ class FactoredHybridSystem(NnSystem):
         returnn_config: returnn.ReturnnConfig,
         partition_epochs: typing.Dict[str, int],
         alignment_allophones: typing.Optional[tk.Path] = None,
+        num_tied_classes: typing.Optional[int] = None,
     ):
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -739,7 +740,7 @@ class FactoredHybridSystem(NnSystem):
         alignment_hdf_job = RasrAlignmentToHDF(
             alignment_bundle=train_data.alignments,
             allophones=alignment_allophones if alignment_allophones is not None else allophone_job.out_allophone_file,
-            num_tied_classes=self.label_info.get_n_of_dense_classes(),
+            num_tied_classes=self.label_info.get_n_of_dense_classes() if num_tied_classes is None else num_tied_classes,
             state_tying=tying_job.out_state_tying,
         )
         train_hdf_job = RasrFeaturesToHdf(train_data.features)
@@ -950,6 +951,7 @@ class FactoredHybridSystem(NnSystem):
         partition_epochs: typing.Dict[str, int],
         alignment_allophones: typing.Optional[Path] = None,
         nn_train_args: typing.Optional[typing.Any] = None,
+        num_tied_classes: typing.Optional[int] = None,
     ):
         returnn_config = self.get_hdf_config_from_returnn_rasr_data(
             train_corpus_key=train_corpus_key,
@@ -957,6 +959,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_config=returnn_config,
             partition_epochs=partition_epochs,
             alignment_allophones=alignment_allophones,
+            num_tied_classes=num_tied_classes,
         )
         return self.returnn_training(
             experiment_key=experiment_key, returnn_config=returnn_config, nn_train_args=nn_train_args

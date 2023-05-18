@@ -328,6 +328,7 @@ def run_single(
         nn_train_args=train_args,
         returnn_config=returnn_config,
         partition_epochs=partition_epochs,
+        num_tied_classes=n_cart_out,
     )
     s.set_mono_priors_returnn_rasr(
         key="fh",
