@@ -48,6 +48,7 @@ class RasrFeaturesToHdf(Job):
                     if isinstance(self.feature_caches, MultiPath)
                     else self.feature_caches
                 )
+                paths = [p.get_path() if isinstance(p, Path) else p for p in paths]
 
                 logging.info(f"setting up bundle from {len(paths)} individual file paths...")
 
