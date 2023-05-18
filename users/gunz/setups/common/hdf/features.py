@@ -33,10 +33,6 @@ class RasrFeaturesToHdf(Job):
         yield Task("run", rqmt=self.rqmt, args=list(range(self.out_num_hdfs)), parallel=30)
 
     def run(self, *indices: int):
-        to_sleep = random.randrange(0, 120)
-        logging.info(f"sleeping for {to_sleep}s to avoid thundering herd...")
-        time.sleep(to_sleep)
-
         with tempfile.TemporaryDirectory() as bundle_dir:
             if isinstance(self.feature_caches, Path):
                 cached_path = cache_file(self.feature_caches)
@@ -62,6 +58,10 @@ class RasrFeaturesToHdf(Job):
             chunked_sequence_list = list(chunks(list(cached_bundle.file_list()), self.out_num_hdfs))
 
             for index in indices:
+                to_sleep = random.randrange(0, 60)
+                logging.info(f"sleeping for {to_sleep}s to avoid thundering herd...")
+                time.sleep(to_sleep)
+
                 self.process(index, chunked_sequence_list[index], cached_bundle)
 
     def process(self, index: int, sequences_to_add: typing.List[str], feature_cache: FileArchiveBundle):
