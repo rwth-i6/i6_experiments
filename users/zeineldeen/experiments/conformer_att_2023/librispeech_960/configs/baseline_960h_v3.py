@@ -142,7 +142,7 @@ def conformer_baseline():
         recog_ref,
         recog_bliss,
         mem_rqmt=8,
-        time_rqmt=4,
+        time_rqmt: float = 4,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -163,6 +163,7 @@ def conformer_baseline():
             returnn_root=RETURNN_ROOT,
             mem_rqmt=mem_rqmt,
             time_rqmt=time_rqmt,
+            use_sclite=kwargs.get("use_sclite", False),
         )
 
     def run_lm_fusion(
@@ -300,7 +301,10 @@ def conformer_baseline():
 
                 name = f"{exp_name}/recog-{lm_type}-lm/ep-{epoch}/{lm_desc}/{test_set}"
 
-                test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
+                if kwargs.get("test_dataset_tuples", None):
+                    test_dataset_tuples = kwargs["test_dataset_tuples"]
+                else:
+                    test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
                 run_single_search(
                     exp_name=name,
@@ -312,6 +316,7 @@ def conformer_baseline():
                     recog_ref=test_dataset_tuples[test_set][1],
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
+                    use_sclite=kwargs.get("use_sclite", False),
                 )
 
     def run_search(
@@ -398,6 +403,7 @@ def conformer_baseline():
             test_dataset_tuples,
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
+            enable_mail=True,
         )
 
     def run_exp(
@@ -419,6 +425,10 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
+
+        if train_args["encoder_args"].num_blocks > 12:
+            train_args["recursion_limit"] = 10_000
+
         train_job = run_train(
             exp_name,
             train_args,
@@ -471,7 +481,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 160
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling"] = False
+        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -737,9 +747,7 @@ def conformer_baseline():
     args["oclr_opts"]["total_ep"] = 635
     args["encoder_args"].convolution_first = True
     run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_convFirst",
-        train_args=args,
-        num_epochs=635
+        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_convFirst", train_args=args, num_epochs=635
     )
 
     # TODO: fixed zoneout
@@ -750,47 +758,70 @@ def conformer_baseline():
     run_exp(
         "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_fixedZoneout",
         train_args=args,
-        num_epochs=635
+        num_epochs=635,
+    )
+    retrain_args = copy.deepcopy(oclr_args)
+    retrain_args["oclr_opts"]["cycle_ep"] = 285
+    retrain_args["oclr_opts"]["total_ep"] = 635
+    retrain_args["oclr_opts"]["peak_lr"] = 8e-4
+    retrain_args["decoder_args"].use_zoneout_output = True
+    retrain_args["allow_lr_scheduling_for_retrain"] = True
+    run_exp(
+        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0008_fixedZoneout_retrain1",
+        train_args=retrain_args,
+        num_epochs=635,
+        gpu_mem=24,
+    )
+
+    args = copy.deepcopy(oclr_args)
+    args["oclr_opts"]["cycle_ep"] = 915
+    args["oclr_opts"]["total_ep"] = 2035
+    args["decoder_args"].use_zoneout_output = True
+    run_exp(
+        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_fixedZoneout",
+        train_args=args,
+        num_epochs=2035,
+        gpu_mem=24,
     )
 
     # TODO: better pretrain
     for ep in [635, 2035]:
-      args = copy.deepcopy(oclr_args)
-      cycle_ep = int(0.45 * ep)
-      args["oclr_opts"]["cycle_ep"] = cycle_ep
-      args["oclr_opts"]["total_ep"] = ep
-      args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-      run_exp(
-          f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed",
-          train_args=args,
-          num_epochs=ep,
-      )
-   
+        args = copy.deepcopy(oclr_args)
+        cycle_ep = int(0.45 * ep)
+        args["oclr_opts"]["cycle_ep"] = cycle_ep
+        args["oclr_opts"]["total_ep"] = ep
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        run_exp(
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed",
+            train_args=args,
+            num_epochs=ep,
+        )
+
     for ep in [635]:
-      args = copy.deepcopy(oclr_args)
-      cycle_ep = int(0.45 * ep)
-      args["oclr_opts"]["cycle_ep"] = cycle_ep
-      args["oclr_opts"]["total_ep"] = ep
-      args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-      args["decoder_args"].use_zoneout_output = True
-      run_exp(
-          f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed_fixedZoneout",
-          train_args=args,
-          num_epochs=ep,
-      )
+        args = copy.deepcopy(oclr_args)
+        cycle_ep = int(0.45 * ep)
+        args["oclr_opts"]["cycle_ep"] = cycle_ep
+        args["oclr_opts"]["total_ep"] = ep
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        args["decoder_args"].use_zoneout_output = True
+        run_exp(
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed_fixedZoneout",
+            train_args=args,
+            num_epochs=ep,
+        )
 
     # TODO: causal conformer
     for with_ctc in [True, False]:
-      args = copy.deepcopy(oclr_args)
-      args["oclr_opts"]["cycle_ep"] = 285
-      args["oclr_opts"]["total_ep"] = 635
-      args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-      args["encoder_args"].use_causal_layers = True
-      args["encoder_args"].with_ctc = with_ctc
-      name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_woDepthwiseRed_causal"
-      if with_ctc is False:
-        name += "_noCTC"
-      run_exp(name, train_args=args, num_epochs=635)
+        args = copy.deepcopy(oclr_args)
+        args["oclr_opts"]["cycle_ep"] = 285
+        args["oclr_opts"]["total_ep"] = 635
+        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        args["encoder_args"].use_causal_layers = True
+        args["encoder_args"].with_ctc = with_ctc
+        name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_woDepthwiseRed_causal"
+        if with_ctc is False:
+            name += "_noCTC"
+        run_exp(name, train_args=args, num_epochs=635)
 
     args = copy.deepcopy(oclr_args)
     args["accum_grad"] = 1
@@ -800,32 +831,144 @@ def conformer_baseline():
         "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_bs30k_gpu24g",
         train_args=args,
         num_epochs=2035,
-        gpu_mem=24
+        gpu_mem=24,
     )
 
-    # TODO: fix OCLR steps + increase layers
-    for num_blocks in [12, 17, 20]:
+    for num_blocks in [16, 20]:
         args = copy.deepcopy(oclr_args)
-        args["oclr_opts"]["n_step"] = 661
+        bs_inc_factor = 2 if num_blocks < 16 else 1
+
+        args["oclr_opts"]["n_step"] = 661 if bs_inc_factor == 2 else 1350
         args["encoder_args"].num_blocks = num_blocks
 
         # double batch size
-        args["accum_grad"] = 1
-        bs_inc_factor = 2 if num_blocks < 20 else 1.5
+        args["accum_grad"] = 1 if bs_inc_factor == 2 else 2
         args["batch_size"] = args["batch_size"] * bs_inc_factor
         args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * bs_inc_factor
 
+        args["oclr_opts"]["cycle_ep"] = 900
+        args["oclr_opts"]["total_ep"] = 2000
+
+        name = f"base_conf_{num_blocks}l_lstm_1l_conv6_OCLR_sqrdReLU_cyc900_ep2000_steps661_peak0.0009_bs{args['batch_size'] // 160}_accum{args['accum_grad']}_woConvRed_gpu24g"
+
         args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]  # more stable
+        if num_blocks > 16:
+            args["pretrain_reps"] = 6
+            name += "_reps6"
 
-        # TODO: remove later. only to check train steps
-        if num_blocks == 20:
-            args["with_staged_network"] = False  # no pretrain
-
-        run_exp(
-            f"base_conf_{num_blocks}l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_steps661_peak0.0009_bs{args['batch_size'] // 160}_woConvRed_gpu24g",
+        train_j, train_data = run_exp(
+            name,
             train_args=args,
-            num_epochs=40 if num_blocks == 20 else 2035,
+            num_epochs=2000,
             gpu_mem=24,
-            epoch_wise_filter=None if num_blocks == 20 else [(1, 5, 1000)],
         )
 
+    # ------------------------------------- #
+
+    # recognition for Peter on LibriCSS
+
+    def get_libriCSS_test_sets(bpe_size):
+        from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.librispeech_960.libriCSS_data import (
+            build_libriCSS_test_sets,
+        )
+
+        res = {}
+        for dataset_key in ["dev", "eval"]:
+            res[dataset_key] = build_libriCSS_test_sets(
+                dataset_key,
+                bpe_size=bpe_size,
+                use_raw_features=True,
+            )
+        return res
+
+    def run_libriCSS_decoding(
+        exp_name,
+        train_data,
+        checkpoint,
+        search_args,
+        feature_extraction_net,
+        bpe_size,
+        test_sets: list,
+        time_rqmt: float = 1.0,
+        remove_label=None,
+        **kwargs,
+    ):
+        test_dataset_tuples = get_libriCSS_test_sets(bpe_size=bpe_size)
+        for test_set in test_sets:
+            run_single_search(
+                exp_name=exp_name + f"/recogs/{test_set}",
+                train_data=train_data,
+                search_args=search_args,
+                checkpoint=checkpoint,
+                feature_extraction_net=feature_extraction_net,
+                recog_dataset=test_dataset_tuples[test_set][0],
+                recog_ref=test_dataset_tuples[test_set][1],
+                recog_bliss=test_dataset_tuples[test_set][2],
+                time_rqmt=time_rqmt,
+                remove_label=remove_label,
+                **kwargs,
+            )
+
+    run_libriCSS_decoding(
+        "peter_libriCSS",
+        train_data,
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        search_args=oclr_args,
+        feature_extraction_net=log10_net_10ms,
+        bpe_size=BPE_10K,
+        test_sets=["dev", "eval"],
+        use_sclite=True,
+    )
+
+    run_lm_fusion(
+        lm_type="trafo",
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        epoch="avg",
+        test_set_names=["dev", "eval"],
+        lm_scales=[0.42],
+        # prior_scales=[0.38],
+        # prior_type="mini_lstm",
+        # mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
+        train_job=train_j,
+        train_data=train_data,
+        feature_net=log10_net_10ms,
+        args=oclr_args,
+        beam_size=32,
+        batch_size=1000 * 160,
+        bpe_size=BPE_10K,
+        test_dataset_tuples=get_libriCSS_test_sets(bpe_size=BPE_10K),
+        use_sclite=True,
+    )
+
+    # with LM
+    mini_lstm_j = train_mini_lstm(
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        checkpoint=train_job_avg_ckpt[
+            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+        ],
+        args=oclr_args,
+        num_epochs=40,
+        w_drop=True,
+    )
+
+    run_lm_fusion(
+        lm_type="trafo",
+        exp_name=f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}",
+        epoch="avg",
+        test_set_names=["dev", "eval"],
+        lm_scales=[0.54],
+        prior_scales=[0.38],
+        prior_type="mini_lstm",
+        mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
+        train_job=train_j,
+        train_data=train_data,
+        feature_net=log10_net_10ms,
+        args=oclr_args,
+        beam_size=70,
+        batch_size=1000 * 160,
+        bpe_size=BPE_10K,
+        test_dataset_tuples=get_libriCSS_test_sets(bpe_size=BPE_10K),
+        use_sclite=True,
+    )
