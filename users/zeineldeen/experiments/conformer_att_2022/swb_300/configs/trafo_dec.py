@@ -850,7 +850,7 @@ def conformer_baseline():
 
     # TODO: double batch size
     for embed_weight in [True, False]:
-        for bs_inc_factor in [1, 2]:
+        for bs_inc_factor in [1]:
             for enc_model_dim in [384, 256]:
                 for specaug_version in [1, 3]:
                     for drop in [0.1, 0.2]:
