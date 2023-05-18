@@ -823,6 +823,22 @@ def conformer_baseline():
             name += "_noCTC"
         run_exp(name, train_args=args, num_epochs=635)
 
+    # TODO: causal conformer with grad clipping
+    for grad_clip in [50, 100, 200]:
+        args = copy.deepcopy(oclr_args)
+        args["oclr_opts"]["cycle_ep"] = 285
+        args["oclr_opts"]["total_ep"] = 635
+        args["encoder_args"].use_causal_layers = True
+
+        args["batch_size"] = args["batch_size"] * 2
+        args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * 2
+        args["accum_grad"] = 1
+
+        args["gradient_clip"] = grad_clip
+
+        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs2"
+        run_exp(name, train_args=args, num_epochs=635, gpu_mem=24)
+
     args = copy.deepcopy(oclr_args)
     args["accum_grad"] = 1
     args["batch_size"] = 30_000 * 160
