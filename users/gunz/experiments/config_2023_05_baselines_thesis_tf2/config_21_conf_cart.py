@@ -220,7 +220,7 @@ def run_single(
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {**s.initial_train_args, "num_epochs": num_epochs}
-    s.returnn_rasr_training_via_hdf(
+    train_j = s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -229,6 +229,10 @@ def run_single(
         partition_epochs=partition_epochs,
         num_tied_classes=n_cart_out,
     )
+    if n_cart_phones == 3:
+        # Triphone CART is memory hungry
+        train_j.rqmt["gpu_mem"] = 16
+
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
