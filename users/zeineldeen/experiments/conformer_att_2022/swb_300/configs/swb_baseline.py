@@ -323,15 +323,17 @@ def conformer_baseline():
         )
 
         num_avg = kwargs.get("num_avg", 4)
+        dev_score_key = kwargs.get("dev_score_key", "dev_score_output/output_prob")
         averaged_checkpoint = get_average_checkpoint(
             train_job,
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
             num_average=num_avg,
+            key=dev_score_key,
         )
         train_job_avg_ckpt[exp_name] = averaged_checkpoint
 
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(train_job, key=dev_score_key)
         train_job_best_epoch[exp_name] = best_checkpoint
 
         if recog_epochs is None:
@@ -842,9 +844,7 @@ def conformer_baseline():
     args["max_seq_length"] = None
     args["oclr_opts"]["n_step"] = 2085
     run_default_exp(
-        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_noCTC",
-        train_args=args,
-        num_epochs=300,
+        f"base1_conf_{12}l_lstm_1l_conv{6}_ep{300}_noCTC", train_args=args, num_epochs=300, dev_score_key="dev_score"
     )
 
     # base_conf_12l_lstm_1l_conv6_sqrdReLU_peak0.001_bpe500_maxSeqLenNone_dimReduce0.7_ep900

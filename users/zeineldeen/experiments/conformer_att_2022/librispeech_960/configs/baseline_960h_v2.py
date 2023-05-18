@@ -399,6 +399,7 @@ def conformer_baseline():
             test_dataset_tuples,
             RETURNN_CPU_EXE,
             RETURNN_ROOT,
+            enable_mail=True,
         )
 
     def run_exp(
