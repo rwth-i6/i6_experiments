@@ -271,17 +271,15 @@ def run_single(
 
     train_args = {
         **s.initial_train_args,
-        "returnn_config": returnn_config,
-        "num_epochs": num_epochs,
-        "partition_epochs": partition_epochs,
+        "num_epochs": num_epochs
     }
-
-    s.returnn_rasr_training(
+    s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        on_2080=False,
+        returnn_config=returnn_config,
+        partition_epochs=partition_epochs,
     )
     s.set_mono_priors_returnn_rasr(
         key="fh",

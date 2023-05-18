@@ -11,6 +11,7 @@ from sisyphus import tk
 # -------------------- Recipes --------------------
 import i6_core.corpus as corpus_recipe
 import i6_core.features as features
+import i6_core.lexicon as lexicon
 import i6_core.mm as mm
 import i6_core.meta as meta
 import i6_core.rasr as rasr
@@ -41,7 +42,7 @@ from i6_experiments.common.setups.rasr.util.decode import (
 
 
 from ..common.decoder.rtf import ExtractSearchStatisticsJob
-from ..common.hdf.features import RasrFeaturesToHdf
+from ..common.hdf import RasrAlignmentToHDF, RasrFeaturesToHdf
 from ..common.nn.cache_epilog import hdf_dataset_cache_epilog, hdf_dataset_cache_epilog_v0
 from ..common.nn.compile_graph import compile_tf_graph_from_returnn_config
 from .decoder.config import PriorConfig, PriorInfo, SearchParameters
@@ -718,6 +719,72 @@ class FactoredHybridSystem(NnSystem):
 
     # -------------------- Training --------------------
 
+    def get_hdf_config_from_returnn_rasr_data(
+        self,
+        *,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        partition_epochs: typing.Dict[str, int],
+        alignment_allophones: typing.Optional[tk.Path] = None,
+    ):
+        train_data = self.train_input_data[train_corpus_key]
+        dev_data = self.cv_input_data[dev_corpus_key]
+        train_crp = copy.deepcopy(train_data.get_crp())
+        dev_crp = copy.deepcopy(dev_data.get_crp())
+
+        train_crp.acoustic_model_config.allophones.add_all = True
+        allophone_job = lexicon.StoreAllophonesJob(train_crp)
+        tying_job = lexicon.DumpStateTyingJob(train_crp)
+        alignment_hdf_job = RasrAlignmentToHDF(
+            alignment_bundle=train_data.alignments,
+            allophones=alignment_allophones if alignment_allophones is not None else allophone_job.out_allophone_file,
+            num_tied_classes=self.label_info.get_n_of_dense_classes(),
+            state_tying=tying_job.out_state_tying,
+        )
+        train_hdf_job = RasrFeaturesToHdf(train_data.features)
+
+        dataset_cfg = {
+            "class": "MetaDataset",
+            "data_map": {
+                "data": ("audio", "features"),
+                "classes": ("alignment", "classes"),
+            },
+            "datasets": {
+                "alignment": {
+                    "class": "NextGenHDFDataset",
+                    "input_stream_name": "classes",
+                    "files": [alignment_hdf_job.out_hdf_file],
+                },
+                "audio": {
+                    "class": "NextGenHDFDataset",
+                    "input_stream_name": "features",
+                    "files": train_hdf_job.out_hdf_files,
+                },
+            },
+            "seq_ordering": f"random:{PRIOR_RNG_SEED}",
+        }
+        dev_data = {
+            **dataset_cfg,
+            "partition_epoch": partition_epochs["dev"],
+            "seq_list_file": dev_crp.segment_path,
+        }
+        train_data = {
+            **dataset_cfg,
+            "partition_epoch": partition_epochs["train"],
+            "seq_list_file": train_crp.segment_path,
+        }
+
+        update_cfg = returnn.ReturnnConfig(
+            config={"train": train_data, "dev": dev_data},
+            python_epilog=hdf_dataset_cache_epilog,
+        )
+
+        returnn_config = copy.deepcopy(returnn_config)
+        returnn_config.update(update_cfg)
+
+        return returnn_config
+
     def returnn_training(
         self,
         experiment_key: str,
@@ -731,7 +798,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
-            **nn_train_args,
+            **(nn_train_args or {}),
         )
         if on_2080:
             train_job.rqmt["qsub_args"] = "-l qname=*2080*"
@@ -757,6 +824,8 @@ class FactoredHybridSystem(NnSystem):
         use_old_cache_epilog: bool = False,
     ):
         assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+        nn_train_args = copy.copy(nn_train_args)
 
         partition_epochs = nn_train_args.pop("partition_epochs")
         dev_data = {
@@ -871,6 +940,25 @@ class FactoredHybridSystem(NnSystem):
         self.experiments[experiment_key]["train_job"] = train_job
 
         return train_job
+
+    def returnn_rasr_training_via_hdf(
+        self,
+        experiment_key: str,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        partition_epochs: typing.Dict[str, int],
+        alignment_allophones: typing.Optional[Path] = None,
+        nn_train_args: typing.Optional[typing.Any] = None,
+    ):
+        returnn_config = self.get_hdf_config_from_returnn_rasr_data(
+            train_corpus_key=train_corpus_key,
+            dev_corpus_key=dev_corpus_key,
+            returnn_config=returnn_config,
+            partition_epochs=partition_epochs,
+            alignment_allophones=alignment_allophones,
+        )
+        return self.returnn_training(experiment_key=experiment_key, returnn_config=returnn_config, nn_train_args=nn_train_args)
 
     def returnn_rasr_training_fullsum(
         self,
