@@ -27,7 +27,7 @@ class RasrFeaturesToHdf(Job):
         self.out_num_hdfs = out_num_hdfs
         self.out_single_segment_files = [self.output_path(f"segments.{i}", cached=False) for i in range(out_num_hdfs)]
 
-        self.rqmt = {"cpu": 1, "mem": 4, "time": 1.0}
+        self.rqmt = {"cpu": 1, "mem": 4, "time": 2}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, args=list(range(self.out_num_hdfs)), parallel=15)

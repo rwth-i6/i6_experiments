@@ -27,7 +27,7 @@ class RasrAlignmentToHDF(Job):
         self.out_hdf_file = self.output_path("alignment.hdf")
         self.out_segments = self.output_path("segments")
 
-        self.rqmt = {"cpu": 1, "mem": 8, "time": 1}
+        self.rqmt = {"cpu": 1, "mem": 8, "time": 2}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
