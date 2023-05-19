@@ -94,16 +94,6 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
-            batch_size=6144,
-            dc_detection=True,
-            decode_all_corpora=True,
-            lr="v6",
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
-        Experiment(
-            alignment=scratch_align,
-            alignment_name="scratch",
             batch_size=12500,
             dc_detection=True,
             decode_all_corpora=True,

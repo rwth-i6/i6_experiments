@@ -80,7 +80,7 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=True,
-            lr="v6",
+            lr="v13",
             run_performance_study=False,
             tune_decoding=False,
         ),
@@ -209,7 +209,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 6144,
+        "batch_size": 12500,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -272,7 +272,7 @@ def run_single(
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {**s.initial_train_args, "num_epochs": num_epochs}
-    s.returnn_rasr_training_via_hdf(
+    train_job = s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -280,6 +280,9 @@ def run_single(
         returnn_config=returnn_config,
         partition_epochs=partition_epochs,
     )
+    # Joint softmax is memory hungry
+    train_job.rqmt["gpu_mem"] = 16
+
     s.set_mono_priors_returnn_rasr(
         "fh",
         train_corpus_key=s.crp_names["train"],
