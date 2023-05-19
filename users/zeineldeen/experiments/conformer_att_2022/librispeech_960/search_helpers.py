@@ -548,6 +548,7 @@ def update_tensor_entry(source, **kwargs):
 def add_ctc_forced_align_for_rescore(net):
     beam = net["output"]["unit"]["output"]["beam_size"]
     net["extra.search:output"] = copy.deepcopy(net["output"])  # use search in forward
+    net["decision"]["from"] = "extra.search:output"
     del net["output"]  # set to ctc scores later and this will be dumped
     net["extra.search:output"]["register_as_extern_data"] = "att_nbest"
     net["ctc_align"] = {
@@ -630,7 +631,7 @@ def rescore_att_ctc_search(
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
     ctc_search_config.config["forward_batch_size"] = ctc_search_config.config["batch_size"]
-    ctc_search_config.config["eval_datasets"] = {"eval": recognition_dataset.as_returnn_opts()}
+    ctc_search_config.config["eval"] = recognition_dataset.as_returnn_opts()
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=ctc_search_config,
