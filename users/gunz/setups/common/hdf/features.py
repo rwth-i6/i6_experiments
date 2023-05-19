@@ -18,10 +18,16 @@ from ..cache_manager import cache_file
 
 
 class RasrFeaturesToHdf(Job):
-    __sis_hash_exclude__ = {"out_num_hdfs": 100}
+    __sis_hash_exclude__ = {"out_num_hdfs": 100, "tmp_dir": "/var/tmp"}
 
-    def __init__(self, feature_caches: typing.Union[MultiPath, typing.List[Path], Path], out_num_hdfs: int = 100):
+    def __init__(
+        self,
+        feature_caches: typing.Union[MultiPath, typing.List[Path], Path],
+        out_num_hdfs: int = 100,
+        tmp_dir: typing.Optional[str] = "/var/tmp",
+    ):
         self.feature_caches = feature_caches
+        self.tmp_dir = tmp_dir
 
         self.out_hdf_files = [self.output_path(f"data.hdf.{i}", cached=False) for i in range(out_num_hdfs)]
         self.out_num_hdfs = out_num_hdfs
@@ -37,7 +43,7 @@ class RasrFeaturesToHdf(Job):
         logging.info(f"sleeping for {to_sleep}s to avoid thundering herd...")
         time.sleep(to_sleep)
 
-        with tempfile.TemporaryDirectory() as bundle_dir:
+        with tempfile.TemporaryDirectory(dir=self.tmp_dir) as bundle_dir:
             if isinstance(self.feature_caches, Path):
                 cached_path = cache_file(self.feature_caches)
                 cached_bundle = FileArchiveBundle(cached_path)
@@ -74,7 +80,7 @@ class RasrFeaturesToHdf(Job):
 
         logging.info(f"processing chunk {index} with {len(sequences_to_add)} sequences")
 
-        with tempfile.TemporaryDirectory() as out_dir:
+        with tempfile.TemporaryDirectory(dir=self.tmp_dir) as out_dir:
             out_file = os.path.join(out_dir, "data.hdf")
             logging.info(f"creating HDF at {out_file}")
 

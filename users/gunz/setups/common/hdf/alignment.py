@@ -18,11 +18,21 @@ from ...common.cache_manager import cache_file
 
 
 class RasrAlignmentToHDF(Job):
-    def __init__(self, alignment_bundle: tk.Path, allophones: tk.Path, state_tying: tk.Path, num_tied_classes: int):
+    __sis_hash_exclude__ = {"tmp_dir": "/var/tmp"}
+
+    def __init__(
+        self,
+        alignment_bundle: tk.Path,
+        allophones: tk.Path,
+        state_tying: tk.Path,
+        num_tied_classes: int,
+        tmp_dir: typing.Optional[str] = "/var/tmp",
+    ):
         self.alignment_bundle = alignment_bundle
         self.allophones = allophones
         self.num_tied_classes = num_tied_classes
         self.state_tying = state_tying
+        self.tmp_dir = tmp_dir
 
         self.out_hdf_file = self.output_path("alignment.hdf")
         self.out_segments = self.output_path("segments")
@@ -33,7 +43,7 @@ class RasrAlignmentToHDF(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=self.tmp_dir) as tmp_dir:
             f = path.join(tmp_dir, "data.hdf")
             logging.info(f"processing using temporary file {f}")
 
