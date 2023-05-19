@@ -614,10 +614,12 @@ def rescore_att_ctc_search(
 
     assert rescore_with_ctc is True, "Only CTC rescore is supported at the moment"
 
+    att_config = copy.deepcopy(returnn_config)
+    att_config.config["search_output_layer"] = "output"  # n-best list
     search_job = ReturnnSearchJobV2(
         search_data=recognition_dataset.as_returnn_opts(),
         model_checkpoint=checkpoint,
-        returnn_config=returnn_config,
+        returnn_config=att_config,
         log_verbosity=5,
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
@@ -630,7 +632,10 @@ def rescore_att_ctc_search(
     add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
     ctc_search_config.config["need_data"] = True
     ctc_search_config.config["target"] = "bpe_labels"
-    ctc_search_config.config["forward_batch_size"] = ctc_search_config.config["batch_size"]
+    beam = ctc_search_config.config["network"]["extra.search:output"]["unit"]["output"]["beam_size"]
+    ctc_search_config.config["forward_batch_size"] = int(
+        ctc_search_config.config["batch_size"] * (0.3 if beam > 32 else 1)
+    )
     ctc_search_config.config["eval"] = recognition_dataset.as_returnn_opts()
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
