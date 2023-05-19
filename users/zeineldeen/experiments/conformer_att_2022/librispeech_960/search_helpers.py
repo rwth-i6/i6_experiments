@@ -547,8 +547,9 @@ def update_tensor_entry(source, **kwargs):
 
 def add_ctc_forced_align_for_rescore(net):
     beam = net["output"]["unit"]["output"]["beam_size"]
-    net["extra.search:output"] = copy.deepcopy(net["output"])  # force search
-    net["output"]["register_as_extern_data"] = "att_nbest"
+    net["extra.search:output"] = copy.deepcopy(net["output"])  # use search in forward
+    del net["output"]  # set to ctc scores later and this will be dumped
+    net["extra.search:output"]["register_as_extern_data"] = "att_nbest"
     net["ctc_align"] = {
         "class": "forced_align",
         "from": "ctc",
@@ -559,16 +560,11 @@ def add_ctc_forced_align_for_rescore(net):
     }
     net["ctc_scores_"] = {"class": "copy", "from": "ctc_align/scores"}  # [B*Beam]
     net["ctc_scores"] = {"class": "split_dims", "from": "ctc_scores_", "axis": "B", "dims": (-1, beam)}  # [B,Beam]
-    net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
-    net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
-    net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
-    net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
-    net["comb_att_ctc_dump"] = {
-        "class": "hdf_dump",
-        "from": "comb_att_ctc_scores",
-        "filename": "att_ctc_scores.hdf",
-        "is_output_layer": True,
-    }
+    # net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
+    # net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
+    # net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
+    # net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
+    net["output"] = {"class": "expand_dims", "from": "ctc_scores", "axis": "t"}  # [B,Beam,1|T]
 
 
 from sisyphus import tk
@@ -631,19 +627,22 @@ def rescore_att_ctc_search(
 
     ctc_search_config = copy.deepcopy(returnn_config)
     add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
+    ctc_search_config.config["need_data"] = True
+    ctc_search_config.config["target"] = "bpe_labels"
+    ctc_search_config.config["forward_batch_size"] = ctc_search_config.config["batch_size"]
+    ctc_search_config.config["eval_datasets"] = {"eval": recognition_dataset.as_returnn_opts()}
     forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=ctc_search_config,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
-        eval_mode=True,
-        hdf_outputs=["att_ctc_scores.hdf"],
+        eval_mode=False,
     )
     forward_job.add_alias(prefix_name + "/forward_job")
 
     search_bpe = search_job.out_search_file
     tk.register_output(prefix_name + "/search_job/search_bpe", search_bpe)
-    hdf_scores = forward_job.out_hdf_files["att_ctc_scores.hdf"]
+    hdf_scores = forward_job.out_hdf_files["output.hdf"]
     tk.register_output(prefix_name + "/search_job/hdf_scores", hdf_scores)
 
     if remove_label:
