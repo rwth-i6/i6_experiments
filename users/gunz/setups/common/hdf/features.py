@@ -67,10 +67,11 @@ class RasrFeaturesToHdf(Job):
 
             chunked_sequence_list = list(chunks(list(cached_bundle.file_list()), self.out_num_hdfs))
 
-            for index in indices:
-                to_sleep = random.randrange(0, 120)
-                logging.info(f"sleeping for {to_sleep}s to avoid thundering herd...")
-                time.sleep(to_sleep)
+            for i, index in enumerate(indices):
+                if i > 0:
+                    to_sleep = random.randrange(0, 120)
+                    logging.info(f"sleeping for {to_sleep}s to avoid thundering herd...")
+                    time.sleep(to_sleep)
 
                 self.process(index, chunked_sequence_list[index], cached_bundle)
 
