@@ -543,3 +543,139 @@ def update_tensor_entry(source, **kwargs):
     indices = tf.concat([indices, zeros], axis=1)  # [[0, 0], [1, 0], ..., [batch_size - 1, 0]]
     updates = tf.zeros([batch_size])
     return tf.tensor_scatter_nd_update(tensor, indices, updates)
+
+
+def add_ctc_forced_align_for_rescore(net):
+    beam = net["output"]["unit"]["output"]["beam_size"]
+    net["extra.search:output"] = copy.deepcopy(net["output"])  # force search
+    net["output"]["register_as_extern_data"] = "att_nbest"
+    net["ctc_align"] = {
+        "class": "forced_align",
+        "from": "ctc",
+        "input_type": "prob",
+        "topology": "ctc",
+        "align_target": "data:att_nbest",  # [B*Beam,T]
+        "target": "bpe_labels_w_blank",
+    }
+    net["ctc_scores_"] = {"class": "copy", "from": "ctc_align/scores"}  # [B*Beam]
+    net["ctc_scores"] = {"class": "split_dims", "from": "ctc_scores_", "axis": "B", "dims": (-1, beam)}  # [B,Beam]
+    net["att_beam_scores_"] = {"class": "choice_get_beam_scores", "from": "extra.search:output"}  # [B*Beam]
+    net["att_beam_scores"] = {"class": "split_batch_beam", "from": "att_beam_scores_"}  # [B,Beam]
+    net["comb_att_ctc"] = {"class": "combine", "kind": "add", "from": ["ctc_scores", "att_beam_scores"]}  # [B,Beam]
+    net["comb_att_ctc_scores"] = {"class": "expand_dims", "from": "comb_att_ctc", "axis": "t"}  # [B,Beam,1|T]
+    net["comb_att_ctc_dump"] = {
+        "class": "hdf_dump",
+        "from": "comb_att_ctc_scores",
+        "filename": "att_ctc_scores.hdf",
+        "is_output_layer": True,
+    }
+
+
+from sisyphus import tk
+from typing import Optional, Union, Set
+from .default_tools import SCTK_BINARY_PATH
+
+
+def rescore_att_ctc_search(
+    prefix_name,
+    returnn_config,
+    checkpoint,
+    recognition_dataset,
+    recognition_reference,
+    recognition_bliss_corpus,
+    returnn_exe,
+    returnn_root,
+    mem_rqmt,
+    time_rqmt,
+    att_scale,
+    ctc_scale,
+    use_sclite=False,
+    rescore_with_ctc: bool = True,
+    remove_label: Optional[Union[str, Set[str]]] = None,
+):
+    """
+    Run search for a specific test dataset
+
+    :param str prefix_name:
+    :param ReturnnConfig returnn_config:
+    :param Checkpoint checkpoint:
+    :param returnn_standalone.data.datasets.dataset.GenericDataset recognition_dataset:
+    :param Path recognition_reference: Path to a py-dict format reference file
+    :param Path returnn_exe:
+    :param Path returnn_root:
+    :param remove_label: for SearchRemoveLabelJob
+    """
+    from i6_core.returnn.search import (
+        ReturnnSearchJobV2,
+        SearchBPEtoWordsJob,
+        ReturnnComputeWERJob,
+    )
+    from i6_core.returnn.forward import ReturnnForwardJob
+    from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.helper_jobs.search import (
+        SearchTakeBestRescore,
+    )
+
+    assert rescore_with_ctc is True, "Only CTC rescore is supported at the moment"
+
+    search_job = ReturnnSearchJobV2(
+        search_data=recognition_dataset.as_returnn_opts(),
+        model_checkpoint=checkpoint,
+        returnn_config=returnn_config,
+        log_verbosity=5,
+        mem_rqmt=mem_rqmt,
+        time_rqmt=time_rqmt,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+    )
+    search_job.add_alias(prefix_name + "/search_job")
+
+    ctc_search_config = copy.deepcopy(returnn_config)
+    add_ctc_forced_align_for_rescore(ctc_search_config.config["network"])
+    forward_job = ReturnnForwardJob(
+        model_checkpoint=checkpoint,
+        returnn_config=ctc_search_config,
+        returnn_root=returnn_root,
+        returnn_python_exe=returnn_exe,
+        eval_mode=True,
+        hdf_outputs=["att_ctc_scores.hdf"],
+    )
+    forward_job.add_alias(prefix_name + "/forward_job")
+
+    search_bpe = search_job.out_search_file
+    tk.register_output(prefix_name + "/search_job/search_bpe", search_bpe)
+    hdf_scores = forward_job.out_hdf_files["att_ctc_scores.hdf"]
+    tk.register_output(prefix_name + "/search_job/hdf_scores", hdf_scores)
+
+    if remove_label:
+        from i6_core.returnn.search import SearchRemoveLabelJob
+
+        search_bpe = SearchRemoveLabelJob(search_bpe, remove_label=remove_label, output_gzip=True).out_search_results
+
+    search_bpe = SearchTakeBestRescore(
+        search_bpe, hdf_scores, scale1=att_scale, scale2=ctc_scale
+    ).out_best_search_results
+    tk.register_output(prefix_name + "/search_job/comb_search_bpe", search_bpe)
+
+    search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
+    tk.register_output(prefix_name + "/search_job/comb_search_words", search_words)
+
+    if use_sclite:
+        from i6_core.returnn.search import SearchWordsToCTMJob
+        from i6_core.corpus.convert import CorpusToStmJob
+        from i6_core.recognition.scoring import ScliteJob
+
+        search_ctm = SearchWordsToCTMJob(
+            recog_words_file=search_words,
+            bliss_corpus=recognition_bliss_corpus,
+        ).out_ctm_file
+
+        stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+        sclite_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=SCTK_BINARY_PATH)
+        tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
+        tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
+
+    wer = ReturnnComputeWERJob(search_words, recognition_reference)
+
+    tk.register_output(prefix_name + "/wer", wer.out_wer)
+    return wer.out_wer
