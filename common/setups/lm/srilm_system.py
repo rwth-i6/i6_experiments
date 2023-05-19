@@ -135,7 +135,7 @@ class SriLmSystem:
                 count_job = srilm.CountNgramsJob(
                     ngram_order=n,
                     data=train_data,
-                    count_args=["-sort"],
+                    extra_count_args=["-sort"],
                     count_exe=self.count_exe,
                     **n_gram_rqmt,
                 )
@@ -157,7 +157,7 @@ class SriLmSystem:
                     data=count_job.out_counts,
                     data_mode=srilm.ComputeNgramLmJob.DataMode.COUNT,
                     vocab=self.vocab,
-                    ngram_args=self.ngram_args,
+                    extra_ngram_args=self.ngram_args,
                     count_exe=self.count_exe,
                     multi_kn_file=discount_job.out_multi_kn_file if self.optimize_discounts else None,
                     **n_gram_rqmt,
@@ -186,7 +186,7 @@ class SriLmSystem:
                     data=katz_data,
                     data_mode=srilm.ComputeNgramLmJob.DataMode.TEXT,
                     vocab=self.vocab,
-                    ngram_args=[
+                    extra_ngram_args=[
                         "-gt3min 1",
                         "-gt4min 1",
                         "-gt5min 1",
@@ -203,7 +203,7 @@ class SriLmSystem:
                     lm=ngram_lm.ngram_lm,
                     vocab=ngram_lm.vocab,
                     eval_data=self.dev_data[dev_name],
-                    ppl_args=self.perplexity_args,
+                    extra_ppl_args=self.perplexity_args,
                     ngram_exe=self.ngram_exe,
                     **self.perplexity_rqmt,
                 )
@@ -249,7 +249,7 @@ class SriLmSystem:
                 lm=lm.ngram_lm,
                 vocab=lm.vocab,
                 eval_data=eval_path,
-                ppl_args=self.perplexity_args if not ppl_for_interpolation else self._perplexity_interpolate_args,
+                extra_ppl_args=self.perplexity_args if not ppl_for_interpolation else self._perplexity_interpolate_args,
                 ngram_exe=self.ngram_exe,
                 **self.perplexity_rqmt,
             )
@@ -286,7 +286,7 @@ class SriLmSystem:
                 lambdas = srilm.ComputeBestMixJob(
                     ppl_log_list,
                     compute_best_mix_exe=self.compute_best_mix_exe,
-                ).out_lambdas
+                ).out_weights
                 ngrams = list(self.ngrams_for_interpolation[f"{order_name}_{dev_name}"].values())
                 ngrams = [lm.ngram_lm for lm in ngrams]
 
