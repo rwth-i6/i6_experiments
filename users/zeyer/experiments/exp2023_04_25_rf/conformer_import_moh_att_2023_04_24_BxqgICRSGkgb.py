@@ -6,11 +6,13 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import numpy
 import sys
+import tree
 
 from sisyphus import tk
 
 from returnn.tensor import Tensor, Dim, TensorDict, batch_dim, single_step_dim
 import returnn.frontend as rf
+from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
 from i6_core.returnn.training import Checkpoint
@@ -82,8 +84,7 @@ class MakeModel:
                 ),
                 ff_activation=lambda x: rf.relu(x) ** 2.0,
             ),
-            nb_target_dim=target_dim,
-            wb_target_dim=target_dim + 1,
+            target_dim=target_dim,
             blank_idx=target_dim.dimension,
             bos_idx=_get_bos_idx(target_dim),
             eos_idx=_get_eos_idx(target_dim),
@@ -649,8 +650,7 @@ class Model(rf.Module):
         in_dim: Dim,
         *,
         num_enc_layers: int = 12,
-        nb_target_dim: Dim,
-        wb_target_dim: Dim,
+        target_dim: Dim,
         blank_idx: int,
         eos_idx: int,
         bos_idx: int,
@@ -685,8 +685,7 @@ class Model(rf.Module):
             att_dropout=enc_att_dropout,
         )
 
-        self.nb_target_dim = nb_target_dim
-        self.wb_target_dim = wb_target_dim
+        self.target_dim = target_dim
         self.blank_idx = blank_idx
         self.eos_idx = eos_idx
         self.bos_idx = bos_idx  # for non-blank labels; for with-blank labels, we use bos_idx=blank_idx
@@ -704,7 +703,7 @@ class Model(rf.Module):
 
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
-        self.target_embed = rf.Embedding(nb_target_dim, Dim(name="target_embed", dimension=640))
+        self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
 
         self.s = rf.ZoneoutLSTM(
             self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
@@ -725,7 +724,7 @@ class Model(rf.Module):
             self.s.out_dim + self.target_embed.out_dim + att_num_heads * self.encoder.out_dim,
             Dim(name="readout", dimension=1024),
         )
-        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, nb_target_dim)
+        self.output_prob = rf.Linear(self.readout_in.out_dim // 2, target_dim)
 
         for p in self.parameters():
             p.weight_decay = l2
@@ -897,9 +896,9 @@ def from_scratch_training(
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 
-    log_prob = rf.log_softmax(logits, axis=model.nb_target_dim)
+    log_prob = rf.log_softmax(logits, axis=model.target_dim)
     # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
-    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.nb_target_dim)
+    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
     loss.mark_as_loss("ce")
 
 
@@ -910,10 +909,10 @@ from_scratch_training.learning_rate_control_error_measure = "dev_score_full_sum"
 def model_recog(
     *,
     model: Model,
-    data: rf.Tensor,
+    data: Tensor,
     data_spatial_dim: Dim,
     targets_dim: Dim,  # noqa
-) -> rf.Tensor:
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
 
@@ -921,57 +920,83 @@ def model_recog(
     but now we just directly perform the search here,
     as this is overall simpler and shorter.
 
-    :return: recog results including beam
+    :return: recog results including beam, log probs, out spatial dim, final beam dim
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
+    length_normalization_exponent = 1.0
+    max_seq_len = enc_spatial_dim.get_size_tensor()
 
-    # TODO add beam dim to batch_dims?
-    # TODO have one beam dim shared for all steps, or one per step?
-    #   The latter case (one per step) is straightforward for eager mode,
-    #     but how would it work for graph-mode? Extra support in rf.while_loop or rf.scan?
-    #   The first case, how to handle diff beam sizes per step? Would lead to ugly complicated logic?
-    # TODO how to rf.scan over this with beam dim, in both of these cases?
-    initial_beam_dim = Dim(1, name="initial-beam")
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+    ended = rf.constant(False, dims=batch_dims_)
+    out_seq_len = rf.constant(0, dims=batch_dims_)
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
-    def _cond(_, state: rf.State) -> Tensor:
-        return state.target == model.eos_idx
-
-    def _body(_, state: rf.State):
-        input_embed = model.target_embed(state.target)
-        new_state = rf.State()
-        step_out, new_state.decoder = model.loop_step(
+    i = 0
+    seq_targets = []
+    seq_backrefs = []
+    while True:
+        input_embed = model.target_embed(target)
+        step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
             input_embed=input_embed,
-            state=state.decoder,
+            state=decoder_state,
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
+        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
+        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+            seq_log_prob, k=beam_size, axis=[beam_dim, model.target_dim]
+        )  # seq_log_prob, backrefs, target: Batch, Beam
+        seq_targets.append(target)
+        seq_backrefs.append(backrefs)
+        decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+        ended = rf.gather(ended, indices=backrefs)
+        i += 1
 
-        # TODO now top_k
-        labels, backref = rf.top_k(...)  # TODO
+        ended = rf.logical_or(ended, target == model.eos_idx)
+        ended = rf.logical_or(ended, i >= max_seq_len)
+        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+            break
+        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
 
-        # TODO length norm
+        # Length-normalized scores, so we evaluate score_t/len.
+        # If seq ended, score_t/t == score_{t-1}/(t-1), thus score_t = score_{t-1}*(t/(t-1))
+        # Because we count with EOS symbol, shifted by one.
+        seq_log_prob *= rf.where(
+            ended,
+            ((i + 1) / i) ** length_normalization_exponent,
+            1.0,
+        )
 
-        return labels, new_state
+        # Filter out finished beams
+        seq_log_prob = rf.where(
+            ended,
+            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            seq_log_prob,
+        )
 
-    res, _, _ = rf.scan(
-        ys=Tensor(...),  # TODO
-        initial=rf.State(
-            decoder=model.decoder_default_initial_state(batch_dims=batch_dims, enc_spatial_dim=enc_spatial_dim),
-            target=rf.constant(model.bos_idx, dims=batch_dims, sparse_dim=model.nb_target_dim),
-        ),
-        body=_body,
-        cond=_cond,
-        cond_dims=batch_dims,
-        cond_before_body=False,
-        max_seq_len=enc_spatial_dim.get_dim_value_tensor() * 2,
-    )
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_ = []
+    indices = rf.range_over_dim(beam_dim)
+    for backrefs, target in reversed(zip(seq_backrefs, seq_targets)):
+        indices = rf.gather(indices, indices=backrefs)
+        seq_targets_.insert(0, rf.gather(seq_targets[i], indices=indices))
 
-    # TODO now resolve beam, backtrack...
+    seq_targets__ = TensorArray(seq_targets_[0])
+    for target in seq_targets_:
+        seq_targets__ = seq_targets__.push_back(target)
+    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
+    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
 
-    return res
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
 
 
 # RecogDef API
