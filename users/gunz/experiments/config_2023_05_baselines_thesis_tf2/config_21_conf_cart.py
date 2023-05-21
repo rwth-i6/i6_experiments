@@ -231,6 +231,7 @@ def run_single(
     )
     if n_cart_phones == 3:
         # Triphone CART is memory hungry
+        train_j.rqmt["mem"] = 16
         train_j.rqmt["gpu_mem"] = 16
 
     s.set_mono_priors_returnn_rasr(
