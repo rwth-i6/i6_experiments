@@ -282,6 +282,7 @@ def run_single(
     )
     # Joint softmax is memory hungry
     train_job.rqmt["gpu_mem"] = 16
+    train_job.rqmt["mem"] = 16
 
     s.set_mono_priors_returnn_rasr(
         "fh",
