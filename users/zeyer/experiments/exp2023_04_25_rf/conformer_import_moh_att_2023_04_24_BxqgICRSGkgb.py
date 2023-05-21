@@ -920,7 +920,11 @@ def model_recog(
     but now we just directly perform the search here,
     as this is overall simpler and shorter.
 
-    :return: recog results including beam, log probs, out spatial dim, final beam dim
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
     """
     batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
@@ -953,7 +957,7 @@ def model_recog(
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
-            seq_log_prob, k=beam_size, axis=[beam_dim, model.target_dim]
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
         )  # seq_log_prob, backrefs, target: Batch, Beam
         seq_targets.append(target)
         seq_backrefs.append(backrefs)
@@ -985,10 +989,12 @@ def model_recog(
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
-    indices = rf.range_over_dim(beam_dim)
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
     for backrefs, target in reversed(zip(seq_backrefs, seq_targets)):
-        indices = rf.gather(indices, indices=backrefs)
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
         seq_targets_.insert(0, rf.gather(seq_targets[i], indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
 
     seq_targets__ = TensorArray(seq_targets_[0])
     for target in seq_targets_:
