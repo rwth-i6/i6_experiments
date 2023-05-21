@@ -381,7 +381,7 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
         returnn_config=returnn_config,
-        hdf_alignment_allophones=ZHOU_ALLOPHONES,
+        hdf_alignment_allophones=tk.Path(ZHOU_ALLOPHONES),
         via_hdf=True,
     )
 
