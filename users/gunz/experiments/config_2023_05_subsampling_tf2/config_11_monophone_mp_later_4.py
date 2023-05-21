@@ -371,23 +371,18 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_args = {
-        **s.initial_train_args,
-        "num_epochs": num_epochs,
-    }
+    train_args = {**s.initial_train_args, "num_epochs": num_epochs}
     s.returnn_training(experiment_key="fh", returnn_config=returnn_config, nn_train_args=train_args, on_2080=False)
 
-    s.set_graph_for_experiment("fh")
-
-    prior_config = copy.deepcopy(returnn_config)
-    for k in ["train", "dev"]:
-        prior_config.config[k] = {"reduce_target_factor": subsampling_factor}
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
-        returnn_config=prior_config,
+        smoothen=True,
+        returnn_config=returnn_config,
+        hdf_alignment_allophones=ZHOU_ALLOPHONES,
+        via_hdf=True,
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
