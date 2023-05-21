@@ -370,6 +370,8 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
+        returnn_config=returnn_config,
+        via_hdf=True,
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):

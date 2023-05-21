@@ -240,6 +240,9 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         output_layer_name="output",
         smoothen=True,
+        returnn_config=returnn_config,
+        hdf_num_tied_classes=n_cart_out,
+        via_hdf=True,
     )
 
     decoding_config = copy.deepcopy(returnn_config)

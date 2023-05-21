@@ -290,6 +290,8 @@ def run_single(
         epoch=keep_epochs[-2],
         output_layer_name="output",
         smoothen=True,
+        returnn_config=returnn_config,
+        via_hdf=True,
     )
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(

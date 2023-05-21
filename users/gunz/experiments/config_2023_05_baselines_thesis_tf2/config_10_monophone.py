@@ -283,6 +283,9 @@ def run_single(
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
+        smoothen=True,
+        returnn_config=returnn_config,
+        via_hdf=True,
     )
 
     best_config = None

@@ -331,6 +331,49 @@ class FactoredHybridSystem(NnSystem):
 
         return prior_job
 
+    def _compute_returnn_rasr_priors_via_hdf(
+        self,
+        key: str,
+        epoch: int,
+        train_corpus_key: str,
+        dev_corpus_key: str,
+        returnn_config: returnn.ReturnnConfig,
+        share: float,
+        alignment_allophones: typing.Optional[Path] = None,
+        num_tied_classes: typing.Optional[int] = None,
+        time_rqmt: typing.Union[int, float] = 12,
+    ):
+        self.set_graph_for_experiment(key)
+
+        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        returnn_config = self.get_hdf_config_from_returnn_rasr_data(
+            train_corpus_key=train_corpus_key,
+            dev_corpus_key=dev_corpus_key,
+            returnn_config=returnn_config,
+            partition_epochs={"train": 1, "dev": 1},
+            alignment_allophones=alignment_allophones,
+            num_tied_classes=num_tied_classes,
+        )
+
+        if share != 1.0:
+            segment_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
+                segment_file=returnn_config.config["train"]["seq_list_file"],
+                split={"priors": share, "rest": 1 - share},
+                shuffle=True,
+            )
+            returnn_config.config["train"]["seq_list_file"] = segment_job.out_segments["priors"]
+
+        prior_job = returnn.ReturnnComputePriorJobV2(
+            model_checkpoint=model_checkpoint,
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+            returnn_python_exe=self.returnn_python_exe,
+            mem_rqmt=12,
+            time_rqmt=time_rqmt,
+        )
+
+        return prior_job
+
     def _get_model_checkpoint(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
 
@@ -1039,6 +1082,9 @@ class FactoredHybridSystem(NnSystem):
         output_layer_name: str = "center-output",
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
+        via_hdf: bool = False,
+        hdf_alignment_allophones: typing.Optional[Path] = None,
+        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1051,14 +1097,27 @@ class FactoredHybridSystem(NnSystem):
         config = copy.deepcopy(returnn_config)
         config.config["forward_output_layer"] = output_layer_name
 
-        job = self._compute_returnn_rasr_priors(
-            key,
-            epoch,
-            train_corpus_key=train_corpus_key,
-            dev_corpus_key=dev_corpus_key,
-            returnn_config=config,
-            share=data_share,
-            time_rqmt=4.9,
+        job = (
+            self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=config,
+                share=data_share,
+                alignment_allophones=hdf_alignment_allophones,
+                num_tied_classes=hdf_num_tied_classes,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
+                key,
+                epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=config,
+                share=data_share,
+                time_rqmt=4.9,
+            )
         )
 
         job.add_alias(f"priors/{name}/c")
@@ -1082,6 +1141,9 @@ class FactoredHybridSystem(NnSystem):
         center_state_output_layer_name: str = "center-output",
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
+        via_hdf: bool = False,
+        hdf_alignment_allophones: typing.Optional[Path] = None,
+        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1102,7 +1164,18 @@ class FactoredHybridSystem(NnSystem):
         )
 
         prior_jobs = {
-            ctx: self._compute_returnn_rasr_priors(
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                alignment_allophones=hdf_alignment_allophones,
+                num_tied_classes=hdf_num_tied_classes,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
@@ -1146,6 +1219,9 @@ class FactoredHybridSystem(NnSystem):
         right_context_output_layer_name: str = "right-output",
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
+        via_hdf: bool = False,
+        hdf_alignment_allophones: typing.Optional[Path] = None,
+        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1171,7 +1247,18 @@ class FactoredHybridSystem(NnSystem):
         )
 
         prior_jobs = {
-            ctx: self._compute_returnn_rasr_priors(
+            ctx: self._compute_returnn_rasr_priors_via_hdf(
+                key=key,
+                epoch=epoch,
+                train_corpus_key=train_corpus_key,
+                dev_corpus_key=dev_corpus_key,
+                returnn_config=cfg,
+                share=data_share,
+                alignment_allophones=hdf_alignment_allophones,
+                num_tied_classes=hdf_num_tied_classes,
+            )
+            if via_hdf
+            else self._compute_returnn_rasr_priors(
                 key,
                 epoch,
                 train_corpus_key=train_corpus_key,
