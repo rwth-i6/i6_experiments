@@ -772,6 +772,8 @@ class FactoredHybridSystem(NnSystem):
         alignment_allophones: typing.Optional[tk.Path] = None,
         num_tied_classes: typing.Optional[int] = None,
     ):
+        returnn_config = copy.deepcopy(returnn_config)
+
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
         train_crp = copy.deepcopy(train_data.get_crp())
@@ -791,8 +793,8 @@ class FactoredHybridSystem(NnSystem):
         dataset_cfg = {
             "class": "MetaDataset",
             "data_map": {
-                "data": ("audio", "features"),
                 "classes": ("alignment", "classes"),
+                "data": ("audio", "features"),
             },
             "datasets": {
                 "alignment": {
@@ -823,8 +825,6 @@ class FactoredHybridSystem(NnSystem):
             config={"train": train_data, "dev": dev_data},
             python_epilog=hdf_dataset_cache_epilog,
         )
-
-        returnn_config = copy.deepcopy(returnn_config)
         returnn_config.update(update_cfg)
 
         return returnn_config
