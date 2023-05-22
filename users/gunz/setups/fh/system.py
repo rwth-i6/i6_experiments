@@ -784,7 +784,6 @@ class FactoredHybridSystem(NnSystem):
         dataset_cfg = {
             "class": "MetaDataset",
             "data_map": {
-                "classes": ("alignment", "classes"),
                 "data": ("audio", "features"),
             },
             "datasets": {
@@ -810,10 +809,7 @@ class FactoredHybridSystem(NnSystem):
                 else num_tied_classes,
                 state_tying=tying_job.out_state_tying,
             )
-            dataset_cfg["data_map"] = {
-                **dataset_cfg["data_map"],
-                "classes": ("alignment", "classes"),
-            }
+            dataset_cfg["data_map"] = {**dataset_cfg["data_map"], "classes": ("alignment", "classes")}
             dataset_cfg["datasets"] = {
                 **dataset_cfg["datasets"],
                 "alignment": {
