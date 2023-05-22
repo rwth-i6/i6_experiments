@@ -339,20 +339,19 @@ class FactoredHybridSystem(NnSystem):
         dev_corpus_key: str,
         returnn_config: returnn.ReturnnConfig,
         share: float,
-        alignment_allophones: typing.Optional[Path] = None,
-        num_tied_classes: typing.Optional[int] = None,
         time_rqmt: typing.Union[int, float] = 12,
     ):
         self.set_graph_for_experiment(key)
 
         model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         returnn_config = self.get_hdf_config_from_returnn_rasr_data(
-            train_corpus_key=train_corpus_key,
+            alignment_allophones=None,
             dev_corpus_key=dev_corpus_key,
-            returnn_config=returnn_config,
+            include_alignment=False,
+            num_tied_classes=None,
             partition_epochs={"train": 1, "dev": 1},
-            alignment_allophones=alignment_allophones,
-            num_tied_classes=num_tied_classes,
+            returnn_config=returnn_config,
+            train_corpus_key=train_corpus_key,
         )
 
         if share != 1.0:
@@ -771,6 +770,7 @@ class FactoredHybridSystem(NnSystem):
         partition_epochs: typing.Dict[str, int],
         alignment_allophones: typing.Optional[tk.Path] = None,
         num_tied_classes: typing.Optional[int] = None,
+        include_alignment: bool = True,
     ):
         returnn_config = copy.deepcopy(returnn_config)
 
@@ -780,14 +780,6 @@ class FactoredHybridSystem(NnSystem):
         dev_crp = copy.deepcopy(dev_data.get_crp())
 
         train_crp.acoustic_model_config.allophones.add_all = True
-        allophone_job = lexicon.StoreAllophonesJob(train_crp)
-        tying_job = lexicon.DumpStateTyingJob(train_crp)
-        alignment_hdf_job = RasrAlignmentToHDF(
-            alignment_bundle=train_data.alignments,
-            allophones=alignment_allophones if alignment_allophones is not None else allophone_job.out_allophone_file,
-            num_tied_classes=self.label_info.get_n_of_dense_classes() if num_tied_classes is None else num_tied_classes,
-            state_tying=tying_job.out_state_tying,
-        )
         train_hdf_job = RasrFeaturesToHdf(train_data.features)
 
         dataset_cfg = {
@@ -797,11 +789,6 @@ class FactoredHybridSystem(NnSystem):
                 "data": ("audio", "features"),
             },
             "datasets": {
-                "alignment": {
-                    "class": "NextGenHDFDataset",
-                    "input_stream_name": "classes",
-                    "files": [alignment_hdf_job.out_hdf_file],
-                },
                 "audio": {
                     "class": "NextGenHDFDataset",
                     "input_stream_name": "features",
@@ -810,6 +797,33 @@ class FactoredHybridSystem(NnSystem):
             },
             "seq_ordering": f"random:{PRIOR_RNG_SEED}",
         }
+
+        if include_alignment:
+            allophone_job = lexicon.StoreAllophonesJob(train_crp)
+            tying_job = lexicon.DumpStateTyingJob(train_crp)
+            alignment_hdf_job = RasrAlignmentToHDF(
+                alignment_bundle=train_data.alignments,
+                allophones=alignment_allophones
+                if alignment_allophones is not None
+                else allophone_job.out_allophone_file,
+                num_tied_classes=self.label_info.get_n_of_dense_classes()
+                if num_tied_classes is None
+                else num_tied_classes,
+                state_tying=tying_job.out_state_tying,
+            )
+            dataset_cfg["data_map"] = {
+                **dataset_cfg["data_map"],
+                "classes": ("alignment", "classes"),
+            }
+            dataset_cfg["datasets"] = {
+                **dataset_cfg["datasets"],
+                "alignment": {
+                    "class": "NextGenHDFDataset",
+                    "input_stream_name": "classes",
+                    "files": [alignment_hdf_job.out_hdf_file],
+                },
+            }
+
         dev_data = {
             **dataset_cfg,
             "partition_epoch": partition_epochs["dev"],
@@ -1083,8 +1097,6 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
-        hdf_alignment_allophones: typing.Optional[Path] = None,
-        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1105,8 +1117,6 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=config,
                 share=data_share,
-                alignment_allophones=hdf_alignment_allophones,
-                num_tied_classes=hdf_num_tied_classes,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1142,8 +1152,6 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
-        hdf_alignment_allophones: typing.Optional[Path] = None,
-        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1171,8 +1179,6 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
-                alignment_allophones=hdf_alignment_allophones,
-                num_tied_classes=hdf_num_tied_classes,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1220,8 +1226,6 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
-        hdf_alignment_allophones: typing.Optional[Path] = None,
-        hdf_num_tied_classes: typing.Optional[int] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1254,8 +1258,6 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
-                alignment_allophones=hdf_alignment_allophones,
-                num_tied_classes=hdf_num_tied_classes,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(

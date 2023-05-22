@@ -338,7 +338,6 @@ def run_single(
         output_layer_name="output",
         smoothen=True,
         returnn_config=returnn_config,
-        hdf_num_tied_classes=n_cart_out,
         via_hdf=True,
     )
 
