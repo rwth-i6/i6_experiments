@@ -1089,6 +1089,7 @@ class FactoredHybridSystem(NnSystem):
 
         config = copy.deepcopy(returnn_config)
         config.config["forward_output_layer"] = output_layer_name
+        config.config["network"][output_layer_name]["register_as_extern_data"] = output_layer_name
 
         job = (
             self._compute_returnn_rasr_priors_via_hdf(

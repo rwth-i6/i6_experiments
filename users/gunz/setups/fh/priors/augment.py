@@ -201,6 +201,9 @@ def get_returnn_config_for_left_context_prior_estimation(
     # Left Context does not need any network modifications
     left_context_config = copy.deepcopy(config_in)
     left_context_config.config["forward_output_layer"] = left_context_softmax_layer
+    left_context_config.config["network"][left_context_softmax_layer][
+        "register_as_extern_data"
+    ] = left_context_softmax_layer
     if left_context_batch_size is not None:
         left_context_config.config["batch_size"] = left_context_batch_size
 
