@@ -583,3 +583,24 @@ def augment_net_with_triphone_outputs(
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
+
+
+def remove_label_pops_and_losses(network: typing.Union["returnn.ReturnnConfig", Network]) -> Network:
+    network = copy.copy(network)
+
+    for k in ["centerPhoneme", "stateId", "centerState", "pastLabel", "popFutureLabel", "futureLabel", "classes_"]:
+        network.pop(k, None)
+
+    for layer in network.values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
+
+    return network
+
+
+def remove_label_pops_and_losses_from_returnn_config(cfg: returnn.ReturnnConfig) -> returnn.ReturnnConfig:
+    cfg = copy.deepcopy(cfg)
+    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"])
+    return cfg

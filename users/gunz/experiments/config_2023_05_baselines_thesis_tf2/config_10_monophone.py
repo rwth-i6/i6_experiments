@@ -32,6 +32,7 @@ from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
+    remove_label_pops_and_losses_from_returnn_config,
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
@@ -284,7 +285,7 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=returnn_config,
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
         via_hdf=True,
     )
 
