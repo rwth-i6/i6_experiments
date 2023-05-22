@@ -783,9 +783,7 @@ class FactoredHybridSystem(NnSystem):
 
         dataset_cfg = {
             "class": "MetaDataset",
-            "data_map": {
-                "data": ("audio", "features"),
-            },
+            "data_map": {"data": ("audio", "features")},
             "datasets": {
                 "audio": {
                     "class": "NextGenHDFDataset",
