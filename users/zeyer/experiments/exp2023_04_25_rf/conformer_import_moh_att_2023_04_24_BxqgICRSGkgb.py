@@ -955,6 +955,12 @@ def model_recog(
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        # Filter out finished beams
+        label_log_prob = rf.where(
+            ended,
+            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            label_log_prob,
+        )
         seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
         seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
             seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
@@ -971,21 +977,18 @@ def model_recog(
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
 
-        # Length-normalized scores, so we evaluate score_t/len.
-        # If seq ended, score_t/t == score_{t-1}/(t-1), thus score_t = score_{t-1}*(t/(t-1))
-        # Because we count with EOS symbol, shifted by one.
-        seq_log_prob *= rf.where(
-            ended,
-            ((i + 1) / i) ** length_normalization_exponent,
-            1.0,
-        )
+        if i > 1 and length_normalization_exponent != 0:
+            # Length-normalized scores, so we evaluate score_t/len.
+            # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
+            # Because we count with EOS symbol, shifted by one.
+            seq_log_prob *= rf.where(
+                ended,
+                (i / (i - 1)) ** length_normalization_exponent,
+                1.0,
+            )
 
-        # Filter out finished beams
-        seq_log_prob = rf.where(
-            ended,
-            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
-            seq_log_prob,
-        )
+    if i > 0 and length_normalization_exponent != 0:
+        seq_log_prob *= (1 / i) ** length_normalization_exponent
 
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
