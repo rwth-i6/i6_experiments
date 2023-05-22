@@ -603,4 +603,8 @@ def remove_label_pops_and_losses(network: typing.Union["returnn.ReturnnConfig", 
 def remove_label_pops_and_losses_from_returnn_config(cfg: returnn.ReturnnConfig) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
     cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"])
+
+    for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
+        cfg.config["extern_data"].pop(k, None)
+
     return cfg
