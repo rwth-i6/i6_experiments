@@ -502,9 +502,8 @@ class FactoredHybridSystem(NnSystem):
                 else:
                     if self.train_key != corpus_key:
                         assert (
-                            False,
-                            "You already set the train key to be {self.train_key}, you cannot have more than one train key",
-                        )
+                            False
+                        ), "You already set the train key to be {self.train_key}, you cannot have more than one train key"
             if corpus_key not in self.inputs.keys():
                 self.inputs[corpus_key] = {}
             self.inputs[corpus_key][step_args.name] = self.get_system_input(
