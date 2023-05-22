@@ -203,6 +203,7 @@ def get_returnn_config(
             },
         },
         conformer_type=conformer_type,
+        recognition=recognition,
     )
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
@@ -247,13 +248,6 @@ def get_returnn_config(
     ):
         if recognition:
             rec_network = copy.deepcopy(network)
-            rec_network["output"] = {
-                "class": "linear",
-                "activation": "log_softmax",
-                "from": ["MLP_output"],
-                "n_out": 9001
-                # "is_output_layer": True,
-            }
             config["network"] = rec_network
             python_prolog = RECURSION_LIMIT
         else:

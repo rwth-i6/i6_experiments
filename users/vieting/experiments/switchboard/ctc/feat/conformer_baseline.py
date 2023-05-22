@@ -1,12 +1,20 @@
 import copy
 from sisyphus import tk, gs
 
-from .baseline_args import get_nn_args as get_nn_args_baseline
-
+from i6_core.meta.system import CorpusObject
+from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+from i6_core.recognition import Hub5ScoreJob
+from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
+from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
 from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common  # TODO: might be copied here for stability
-from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import TransducerSystem, ReturnnConfigs
+from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
+    TransducerSystem,
+    ReturnnConfigs,
+    ScorerInfo,
+)
 
+from .baseline_args import get_nn_args as get_nn_args_baseline
 from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here for stability
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE
 
@@ -41,19 +49,40 @@ def get_datasets():
 
     lexicon = gmm_system.crp["switchboard"].lexicon_config.file
     lexicon = DeleteEmptyOrthJob(lexicon).out_lexicon
-    lexicon = MakeBlankLexiconJob(lexicon).out_lexicon
+    rasr_loss_lexicon = MakeBlankLexiconJob(lexicon).out_lexicon
+    nonword_phones = ["[LAUGHTER]", "[NOISE]", "[VOCALIZEDNOISE]"]
+    recog_lexicon = AddEowPhonemesToLexiconJob(rasr_loss_lexicon, nonword_phones=nonword_phones).out_lexicon
 
     rasr_loss_corpus = train_corpus_path
     rasr_loss_segments = traincv_segments
-    rasr_loss_lexicon = lexicon
 
-    return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon
+    hub5e00 = get_hub5e00()
+    corpus_object = CorpusObject()
+    corpus_object.corpus_file = hub5e00.bliss_corpus
+    corpus_object.audio_format = nn_dev_data_inputs["hub5e00"].crp.audio_format
+    corpus_object.duration = nn_dev_data_inputs["hub5e00"].crp.corpus_duration
+    dev_corpora = {"hub5e00": RasrDataInput(
+        corpus_object=corpus_object,
+        lexicon={
+            "filename": recog_lexicon,
+            "normalize_pronunciation": False,
+            "add_all": True,
+            "add_from_lexicon": False,
+        },
+        lm={"filename": nn_dev_data_inputs["hub5e00"].crp.language_model_config.file, "type": "ARPA"},
+        stm=hub5e00.stm,
+        glm=hub5e00.glm,
+    )}
+
+    return returnn_datasets, rasr_loss_corpus, rasr_loss_segments, rasr_loss_lexicon, dev_corpora
 
 
 def run_test_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
 
-    returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path = get_datasets()
+    (
+        returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path, dev_corpora
+    ) = get_datasets()
     returnn_args = {
         "batch_size": 10000,
         "rasr_binary_path": RASR_BINARY_PATH,
@@ -95,16 +124,67 @@ def run_test_mel():
 
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
+        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
+        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
+        assert isinstance(prior_config.config["batch_size"], int)
         returnn_configs[exp] = ReturnnConfigs(
             train_config=nn_args.returnn_training_configs[exp],
+            prior_config=prior_config,
             recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
         )
+
+    recog_args = {
+        "lm_scales": [0.7],
+        "prior_scales": [0.5],
+        "epochs": [260],
+        "lookahead_options": {"lm_lookahead_scale": 0.7},
+        "label_scorer_args": {
+            "use_prior": True,
+            "extra_args": {"blank_label_index": 0},
+        },
+        "label_tree_args": {"skip_silence": True},
+        "search_parameters": {
+            "allow-blank-label": True,
+            "allow-label-loop": True,
+            "allow-label-recombination": True,
+            "allow-word-end-recombination": True,
+            "create-lattice": True,
+            "label-pruning": 11.2,
+            "label-pruning-limit": 100000,
+            "word-end-pruning": 0.5,
+            "word-end-pruning-limit": 10000,
+        },
+    }
+    score_info = ScorerInfo()
+    score_info.ref_file = dev_corpora["hub5e00"].stm
+    score_info.job_type = Hub5ScoreJob
+    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm}
 
     ctc_nn_system = TransducerSystem(
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
     )
-    ctc_nn_system.init_system(returnn_configs=returnn_configs)
-    for exp in returnn_configs:
-        ctc_nn_system.returnn_training(exp, **nn_args.training_args)
+    ctc_nn_system.init_system(
+        returnn_configs=returnn_configs,
+        dev_keys=["hub5e00"],
+        corpus_data=dev_corpora,
+        am_args={
+            "state_tying": "monophone",
+            "states_per_phone": 1,
+            "tdp_transition": (0, 0, 0, 0),
+            "tdp_silence": (0, 0, 0, 0),
+            "phon_history_length": 0,
+            "phon_future_length": 0,
+        },
+        scorer_info=score_info,
+    )
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
+    ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_file = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+        hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK",
+        cached=True
+    )
+    ctc_nn_system.run_train_step(nn_args.training_args)
+    ctc_nn_system.run_dev_recog_step(recog_args=recog_args)

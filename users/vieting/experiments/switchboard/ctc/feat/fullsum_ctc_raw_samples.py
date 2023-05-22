@@ -143,7 +143,10 @@ def make_conformer_fullsum_ctc_model(
     network = {}
     from_list = ["data"]
 
-    from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
+    if recognition:
+        python_code = []
+    else:
+        from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
     if conformer_type == "wei":
         network, from_list = add_vgg_stack_wei(network, from_list)
@@ -179,7 +182,7 @@ def make_conformer_fullsum_ctc_model(
     if recognition:
         network["output"] = {
             "class": "linear",
-            "from": from_list,
+            "from": "encoder",
             "activation": "log_softmax",
             "n_out": num_outputs,
         }
