@@ -607,4 +607,8 @@ def remove_label_pops_and_losses_from_returnn_config(cfg: returnn.ReturnnConfig)
     for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
         cfg.config["extern_data"].pop(k, None)
 
+    chk_cfg = cfg.config.get("chunking", None)
+    if isinstance(chk_cfg, tuple):
+        cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
+
     return cfg
