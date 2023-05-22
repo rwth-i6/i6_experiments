@@ -383,6 +383,7 @@ def add_joint_ctc_att_subnet(
         # use only p_comb_sigma
         net["output"]["unit"]["scaled_label_score"]["false_from"] = "combined_att_ctc_scores"
     elif comb_score_version == 3:
+        # TODO: this is not properly normalized. It requires renormalizing the comb probs without the repeated label.
         # normalize p_comb_sigma
         net["output"]["unit"]["scaled_ctc_log_scores_exp"] = {
             "class": "activation",
