@@ -302,18 +302,6 @@ class FactoredHybridSystem(NnSystem):
             if isinstance(train_data.features, tk.Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
-            alignments = copy.deepcopy(train_data.alignments)
-            net = rasr.FlowNetwork()
-            net.flags = {"cache_mode": "bundle"}
-            alignments = alignments.get(net)
-        elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
-            raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
-            alignments = train_data.alignments
-        else:
-            raise NotImplementedError
-
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
         prior_job = returnn.ReturnnRasrComputePriorJobV2(
@@ -321,7 +309,7 @@ class FactoredHybridSystem(NnSystem):
             dev_crp=dev_crp,
             model_checkpoint=model_checkpoint,
             feature_flow=feature_flow,
-            alignment=alignments,
+            alignment=None,
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
