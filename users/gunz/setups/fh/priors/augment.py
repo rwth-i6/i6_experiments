@@ -50,7 +50,7 @@ def augment_for_center_state(
         "available_for_inference": True,
         "dim": label_info.get_n_state_classes() * num_ctx,
         "sparse": True,
-        "same_dim_tags_as": extern_data["classes"]["same_dim_tags_as"],
+        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
         "dtype": "int32",
     }
 
@@ -122,7 +122,7 @@ def augment_for_right_context(
         "available_for_inference": True,
         "dim": label_info.get_n_of_dense_classes(),
         "sparse": True,
-        "same_dim_tags_as": extern_data["classes"]["same_dim_tags_as"],
+        "same_dim_tags_as": extern_data["data"]["same_dim_tags_as"],
         "dtype": "int32",
     }
 
