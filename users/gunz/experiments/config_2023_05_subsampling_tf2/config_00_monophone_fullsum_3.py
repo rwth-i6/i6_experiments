@@ -239,12 +239,13 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    bw_crp = s.get_bw_crp_from_train_crp(train_crp_key=s.crp_names["train"])
-    scales = baum_welch.BwScales(
-        label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
+    train_cfg = baum_welch.add_fast_bw_layer(
+        crp=s.crp[s.crp_names["train"]],
+        log_linear_scales=baum_welch.BwScales(
+            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
+        ),
+        returnn_config=returnn_config,
     )
-    train_cfg = baum_welch.add_fast_bw_layer(crp=bw_crp, log_linear_scales=scales, returnn_config=returnn_config)
-
     train_args = {**s.initial_train_args, "num_epochs": num_epochs}
     s.returnn_rasr_training_via_hdf(
         experiment_key="fh",
