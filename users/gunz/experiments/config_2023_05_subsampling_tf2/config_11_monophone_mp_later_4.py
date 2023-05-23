@@ -98,7 +98,7 @@ def run(returnn_root: tk.Path):
             reduction_factor=red,
             run_performance_study=False,
             subsampling_factor=4,
-            tune_decoding=False,
+            tune_decoding=True,
         )
         for red, mp in [*itertools.product([(1, 2)], [[1], [3]]), *itertools.product([(1, 1)], [[0, 1], [1, 3]])]
     ]
@@ -416,35 +416,13 @@ def run_single(
                 rtf_cpu=4,
             )
 
-        continue
-
-        for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd) in itertools.product(
-            itertools.product([0.0, 3.0], [0.0, 3.0]),
-            itertools.product([0.0, 3.0], [0.0, 3.0]),
-        ):
-            sil_non_w_tdp = (tdp_sil_loop, tdp_sil_fwd, "infinity", 20.0)
-            cfg = dataclasses.replace(
-                recog_args,
-                tdp_non_word=sil_non_w_tdp,
-                tdp_silence=sil_non_w_tdp,
-                tdp_speech=(tdp_sp_loop, tdp_sp_fwd, "infinity", 0.0),
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                rtf_cpu=4,
-            )
-
         if tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
-                prior_scales=np.linspace(0.0, 0.6, 7),
-                tdp_scales=np.linspace(0.2, 0.6, 5),
+                prior_scales=np.linspace(0.3, 0.8, 3),
+                tdp_scales=np.linspace(0.2, 0.6, 3),
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -453,6 +431,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
+                rtf_cpu=4,
             )
 
     return s
