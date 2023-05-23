@@ -56,7 +56,7 @@ RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTH
 train_key = "train-other-960"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=True)
 class Experiment:
     alignment_name: str
     bw_label_scale: float
@@ -85,8 +85,8 @@ def run(returnn_root: tk.Path):
         )
         for s in [0.3, 1.0]
     ]
-    for exp in configs:
-        run_single(
+    experiments = {
+        exp: run_single(
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
             dc_detection=exp.dc_detection,
@@ -96,6 +96,10 @@ def run(returnn_root: tk.Path):
             returnn_root=returnn_root,
             subsampling_factor=exp.subsampling_factor,
         )
+        for exp in configs
+    }
+
+    return experiments
 
 
 def run_single(
