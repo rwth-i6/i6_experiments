@@ -379,9 +379,10 @@ def run_single(
                 rtf_cpu=4,
             )
 
-        for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd) in itertools.product(
+        for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd), tdp_scale in itertools.product(
             itertools.product([0.0, 3.0], [0.0, 3.0]),
             itertools.product([0.0, 3.0], [0.0, 3.0]),
+            [0.1, 0.2, 0.4],
         ):
             sil_non_w_tdp = (tdp_sil_loop, tdp_sil_fwd, "infinity", 20.0)
             cfg = dataclasses.replace(
@@ -389,6 +390,7 @@ def run_single(
                 tdp_non_word=sil_non_w_tdp,
                 tdp_silence=sil_non_w_tdp,
                 tdp_speech=(tdp_sp_loop, tdp_sp_fwd, "infinity", 0.0),
+                tdp_scale=tdp_scale,
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
