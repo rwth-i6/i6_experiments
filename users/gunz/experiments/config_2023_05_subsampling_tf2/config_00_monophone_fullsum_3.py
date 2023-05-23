@@ -188,6 +188,7 @@ def run_single(
         label_smoothing=CONF_LABEL_SMOOTHING,
         use_multi_task=multitask,
     )
+    network["center-output"]["n_out"] = s.label_info.get_n_state_classes()
 
     base_config = {
         **s.initial_nn_args,
