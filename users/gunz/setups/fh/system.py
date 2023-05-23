@@ -518,15 +518,10 @@ class FactoredHybridSystem(NnSystem):
         tdp_pattern = self.tdp_values["pattern"]
         if tdp_type in ["default"]:  # additional later, maybe enum or so
             tdp_values = self.tdp_values[tdp_type]
-
         elif isinstance(tdp_type, tuple):
             tdp_values = self.tdp_values[tdp_type[0]][tdp_type[1]]
-
         else:
-            print("Not implemented tdp type")
-            import sys
-
-            sys.exit()
+            assert False, f"unimplemented tdp type {tdp_type}"
 
         crp = self.crp[crp_key]
         for ind, ele in enumerate(tdp_pattern):
@@ -990,6 +985,7 @@ class FactoredHybridSystem(NnSystem):
         alignment_allophones: typing.Optional[Path] = None,
         nn_train_args: typing.Optional[typing.Any] = None,
         num_tied_classes: typing.Optional[int] = None,
+        include_alignment: bool = True,
     ):
         returnn_config = self.get_hdf_config_from_returnn_rasr_data(
             train_corpus_key=train_corpus_key,
@@ -998,6 +994,7 @@ class FactoredHybridSystem(NnSystem):
             partition_epochs=partition_epochs,
             alignment_allophones=alignment_allophones,
             num_tied_classes=num_tied_classes,
+            include_alignment=include_alignment,
         )
         return self.returnn_training(
             experiment_key=experiment_key,
