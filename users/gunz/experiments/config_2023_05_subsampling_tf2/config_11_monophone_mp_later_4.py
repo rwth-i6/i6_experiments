@@ -422,7 +422,7 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 prior_scales=np.linspace(0.3, 0.8, 3),
-                tdp_scales=np.linspace(0.2, 0.6, 3),
+                tdp_scales=[0.1, 0.2],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
