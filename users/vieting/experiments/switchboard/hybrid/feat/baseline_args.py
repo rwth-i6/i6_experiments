@@ -25,7 +25,7 @@ from .specaug_jingjing import (
 
 from .specaug_sorted import ( 
     specaug_layer_sorted,
-    get_funcs_specaug,
+    get_funcs_sorted,
 )
 
 RECUSRION_LIMIT = """
@@ -42,7 +42,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", spe
 
     for name, args in nn_base_args.items():
         returnn_config, returnn_recog_config = get_nn_args_single(
-            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **args, specaug_mask_sorting=False)
+            num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **args)
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
 
@@ -101,7 +101,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", spe
 
 def get_nn_args_single(
     num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    peak_lr=1e-3, feature_args=None, returnn_args=None,specaug_mask_sorting=False,
+    peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
@@ -131,7 +131,6 @@ def get_nn_args_single(
         num_epochs=num_epochs,
         feature_net=feature_net,
         **(returnn_args or {}),
-        specaug_mask_sorting=specaug_mask_sorting,
     )
 
     returnn_recog_config = get_returnn_config(
