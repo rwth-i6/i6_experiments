@@ -207,7 +207,6 @@ def run_single(
         "network": network,
         "extern_data": {
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
-            **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=None),
         },
     }
     keep_epochs = [550, num_epochs]
