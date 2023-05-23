@@ -78,7 +78,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment_name="scratch",
             bw_label_scale=s,
-            dc_detection=True,
+            dc_detection=False,
             lr="v13",
             multitask=False,
             subsampling_factor=3,
