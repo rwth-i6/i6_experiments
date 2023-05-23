@@ -1,5 +1,5 @@
 
-def sort_filters_by_center_freq(x, return_sorted_filters=True):
+def sort_filters_by_center_freq(x):
     """
     This function either sorts the filters by their center frequency and returns them,
     or it returns the indices that would sort the filters.
@@ -23,11 +23,7 @@ def sort_filters_by_center_freq(x, return_sorted_filters=True):
     center_freqs = tf.argmax(f_resp, axis=0)
     sorted_idcs = tf.argsort(center_freqs)
 
-    if return_sorted_filters:
-        x = tf.gather(x, sorted_idcs, axis=2)
-        return x
-    else:
-        return sorted_idcs
+    return sorted_idcs
 
 
 
@@ -96,7 +92,7 @@ def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
 
-    sorted_idce = sort_filters_by_center_freq(filter_layer,return_sorted_filters=False)
+    sorted_idce = sort_filters_by_center_freq(filter_layer)
     # summary("features", x)
     step = network.global_train_step
     step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
