@@ -96,7 +96,7 @@ def run(returnn_root: tk.Path):
             reduction_factor=red,
             run_performance_study=False,
             subsampling_factor=4,
-            tune_decoding=True,
+            tune_decoding=False,
         )
         for red in [(2, 2), (1, 4), (4, 1)]
     ]
