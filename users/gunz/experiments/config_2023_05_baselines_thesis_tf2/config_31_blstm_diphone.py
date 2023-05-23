@@ -118,7 +118,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-1-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
+    name = f"blstm-2-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -353,7 +353,7 @@ def run_single(
         },
     )
 
-    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {**s.initial_train_args, "num_epochs": num_epochs}
