@@ -1,4 +1,4 @@
-__all__ = ["add_fast_bw_layer", "BwScales"]
+__all__ = ["augment_for_fast_bw", "BwScales"]
 
 import copy
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ class BwScales:
         return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
 
 
-def add_fast_bw_layer(
+def augment_for_fast_bw(
     *,
     crp: rasr.CommonRasrParameters,
     returnn_config: returnn.ReturnnConfig,
@@ -33,6 +33,7 @@ def add_fast_bw_layer(
     bw_output_layer_name: str = "loss",
     bw_calculation_layer_name: str = "fast-score-calc",
     bw_loss_scale: float = 1.0,
+    remove_aux_losses: bool = True,
 ) -> returnn.ReturnnConfig:
     crp = copy.deepcopy(crp)
     returnn_config = copy.deepcopy(returnn_config)
@@ -41,6 +42,16 @@ def add_fast_bw_layer(
         log_linear_scales = BwScales.default()
 
     network = returnn_config.config["network"]
+
+    if remove_aux_losses:
+        to_pop = [k for k in network.keys() if k.startswith("aux")]
+        for k in to_pop:
+            network.pop(k)
+    for layer in network.values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
 
     if log_linear_scales.label_prior_scale:
         assert label_prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"

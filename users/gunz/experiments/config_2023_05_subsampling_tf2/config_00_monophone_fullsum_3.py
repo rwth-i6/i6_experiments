@@ -238,7 +238,7 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_cfg = baum_welch.add_fast_bw_layer(
+    train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
         log_linear_scales=baum_welch.BwScales(
             label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
