@@ -29,9 +29,9 @@ def add_fast_bw_layer(
     label_prior: typing.Optional[returnn.CodeWrapper] = None,
     extra_rasr_config: typing.Optional[rasr.RasrConfig] = None,
     extra_rasr_post_config: typing.Optional[rasr.RasrConfig] = None,
-    layer_prefix: str = "",
-    bw_output_layer_name: str = "bw-output",
-    bw_calculation_layer_name: str = "fast-bw",
+    layer_prefix: str = "bw-",
+    bw_output_layer_name: str = "loss",
+    bw_calculation_layer_name: str = "fast-score-calc",
     bw_loss_scale: float = 1.0,
 ) -> returnn.ReturnnConfig:
     crp = copy.deepcopy(crp)
