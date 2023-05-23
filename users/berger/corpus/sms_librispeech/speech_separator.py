@@ -53,7 +53,6 @@ def get_separator(
         pytorch_config=speech_sep_checkpoint,
         model_func=model_func,
         input=stft_abs,
-        device="cpu",
         converter_kwargs={
             "inputs_data_kwargs": {
                 "shape": (None, stft_abs.shape[2]),

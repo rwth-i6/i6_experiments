@@ -1,6 +1,7 @@
 __all__ = ["LabelTree", "LabelScorer"]
 
 from typing import Any, Dict, Optional
+from i6_experiments.users.berger import helpers
 from sisyphus import *
 
 Path = setup_path(__package__)
@@ -11,7 +12,7 @@ class LabelTree:
     def __init__(
         self,
         label_unit: str,
-        lexicon_config: Dict,
+        lexicon_config: helpers.LexiconConfig,
         use_transition_penalty: bool = False,
         root_transition: Dict = {},
         default_transition: Dict = {},
@@ -22,10 +23,8 @@ class LabelTree:
         self.post_config = rasr.RasrConfig()
 
         self.lexicon_config = rasr.RasrConfig()
-        self.lexicon_config.file = lexicon_config["filename"]
-        self.lexicon_config.normalize_pronunciation = lexicon_config[
-            "normalize_pronunciation"
-        ]
+        self.lexicon_config.file = lexicon_config.filename
+        self.lexicon_config.normalize_pronunciation = lexicon_config.normalize_pronunciation
 
         self.config = rasr.RasrConfig()
         self.config.label_unit = label_unit
@@ -94,9 +93,7 @@ class LabelScorer:
             self.config.number_of_classes = num_classes
 
         if use_prior:
-            assert (
-                prior_file is not None
-            ), "prior is activated but no prior file provided"
+            assert prior_file is not None, "prior is activated but no prior file provided"
             self.config.use_prior = True
             self.config.prior_file = prior_file
             self.config.priori_scale = prior_scale
@@ -134,9 +131,5 @@ class LabelScorer:
         # Create feature input map
         self.config.feature_input_map = rasr.RasrConfig()
         self.config.feature_input_map.info_0.param_name = "feature"
-        self.config.feature_input_map.info_0.tensor_name = (
-            "extern_data/placeholders/data/data"
-        )
-        self.config.feature_input_map.info_0.seq_length_tensor_name = (
-            "extern_data/placeholders/data/data_dim0_size"
-        )
+        self.config.feature_input_map.info_0.tensor_name = "extern_data/placeholders/data/data"
+        self.config.feature_input_map.info_0.seq_length_tensor_name = "extern_data/placeholders/data/data_dim0_size"

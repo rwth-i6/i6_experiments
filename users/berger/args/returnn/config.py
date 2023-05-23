@@ -44,7 +44,7 @@ def get_network_config(network: Dict) -> Dict[str, Dict]:
 def get_returnn_config(
     network: Optional[Dict] = None,
     *,
-    target="classes",
+    target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
     num_outputs: Optional[int] = None,
     python_prolog: Optional[Union[List, Dict]] = None,
@@ -64,6 +64,7 @@ def get_returnn_config(
         config_dict["num_outputs"] = {target: num_outputs}
     if extern_data_config:
         assert num_inputs and num_outputs
+        assert target
         config_dict.update(get_extern_data_config(num_inputs, num_outputs, target))
     config_dict.update(get_base_config())
 

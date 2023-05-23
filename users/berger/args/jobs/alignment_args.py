@@ -3,7 +3,7 @@ from typing import Any, Union, Optional, Dict, List
 
 
 def get_alignment_args(search_type: SearchTypes, **kwargs) -> Dict:
-    return {SearchTypes.LabelSyncSearch: get_label_alignment_args,}.get(
+    return {SearchTypes.GenericSeq2SeqSearch: get_label_alignment_args,}.get(
         search_type, lambda **_: {}
     )(**kwargs)
 

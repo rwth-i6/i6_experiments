@@ -1,12 +1,12 @@
 from i6_experiments.users.berger.recipe import returnn
 from sisyphus import tk
 
-from ... import types
-from ..base import AbstractTrainFunctor
+from ... import dataclasses
+from ..base import TrainFunctor
 
 
 class OptunaReturnnTrainFunctor(
-    AbstractTrainFunctor[returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig]
+    TrainFunctor[returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig]
 ):
     def __init__(
         self,
@@ -17,7 +17,9 @@ class OptunaReturnnTrainFunctor(
         self.returnn_python_exe = returnn_python_exe
 
     def __call__(
-        self, train_config: types.NamedConfig[returnn.OptunaReturnnConfig], **kwargs
+        self,
+        train_config: dataclasses.NamedConfig[returnn.OptunaReturnnConfig],
+        **kwargs,
     ) -> returnn.OptunaReturnnTrainingJob:
         train_job = returnn.OptunaReturnnTrainingJob(
             optuna_returnn_config=train_config.config,

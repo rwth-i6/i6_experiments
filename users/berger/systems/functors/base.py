@@ -1,46 +1,43 @@
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Generic, List
 
+from .. import dataclasses
 from .. import types
 
 
-class AbstractTrainFunctor(ABC, Generic[types.TrainJobType, types.ConfigType]):
-    @abstractmethod
+class TrainFunctor(Generic[types.TrainJobType, types.ConfigType]):
     def __call__(
-        self, train_config: types.NamedConfig[types.ConfigType], **kwargs
+        self, train_config: dataclasses.NamedConfig[types.ConfigType], **kwargs
     ) -> types.TrainJobType:
-        ...
+        raise NotImplementedError
 
 
-class AbstractRecognitionFunctor(ABC, Generic[types.TrainJobType, types.ConfigType]):
-    @abstractmethod
+class RecognitionFunctor(Generic[types.TrainJobType, types.ConfigType]):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[types.TrainJobType],
+        train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
-        recog_config: types.NamedConfig[types.ConfigType],
-        recog_corpus: types.NamedCorpusInfo,
+        recog_config: dataclasses.NamedConfig[types.ConfigType],
+        recog_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> List[Dict]:
-        ...
+        raise NotImplementedError
 
 
-class AbstractAlignmentFunctor(ABC, Generic[types.TrainJobType, types.ConfigType]):
-    @abstractmethod
+class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[types.TrainJobType],
+        train_job: dataclasses.NamedTrainJob[types.TrainJobType],
         prior_config: types.ConfigType,
         align_config: types.ConfigType,
-        align_corpus: types.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> None:
-        ...
+        raise NotImplementedError
 
 
 @dataclass
 class Functors(Generic[types.TrainJobType, types.ConfigType]):
-    train: AbstractTrainFunctor[types.TrainJobType, types.ConfigType]
-    recognize: AbstractRecognitionFunctor[types.TrainJobType, types.ConfigType]
-    align: AbstractAlignmentFunctor[types.TrainJobType, types.ConfigType]
+    train: TrainFunctor[types.TrainJobType, types.ConfigType]
+    recognize: RecognitionFunctor[types.TrainJobType, types.ConfigType]
+    align: AlignmentFunctor[types.TrainJobType, types.ConfigType]

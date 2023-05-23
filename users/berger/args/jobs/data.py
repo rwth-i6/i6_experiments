@@ -136,4 +136,5 @@ def get_returnn_rasr_data_inputs(
                 shuffle_data=False,
             )
 
+    print(nn_data_inputs)
     return nn_data_inputs

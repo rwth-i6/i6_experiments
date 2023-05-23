@@ -6,23 +6,22 @@ from i6_core import mm, rasr
 from i6_experiments.users.berger.recipe import returnn
 from sisyphus import tk
 
+from ... import dataclasses
 from ... import types
-from ..base import AbstractAlignmentFunctor
+from ..base import AlignmentFunctor
 from ..optuna_rasr_base import OptunaRasrFunctor
 
 
 class OptunaLegacyAlignmentFunctor(
-    AbstractAlignmentFunctor[
-        returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig
-    ],
+    AlignmentFunctor[returnn.OptunaReturnnTrainingJob, returnn.OptunaReturnnConfig],
     OptunaRasrFunctor,
 ):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[returnn.OptunaReturnnTrainingJob],
+        train_job: dataclasses.NamedTrainJob[returnn.OptunaReturnnTrainingJob],
         prior_config: returnn.OptunaReturnnConfig,
         align_config: returnn.OptunaReturnnConfig,
-        align_corpus: types.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedCorpusInfo,
         num_inputs: int,
         num_classes: int,
         epochs: List[types.EpochType],

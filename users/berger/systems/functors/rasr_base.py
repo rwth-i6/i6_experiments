@@ -1,17 +1,22 @@
 from abc import ABC
-from typing import Union
+from typing import Union, Optional
 
 from i6_core import features, rasr, recognition, returnn
 from i6_experiments.users.berger.recipe import returnn as custom_returnn
-from i6_experiments.users.berger.util import lru_cache_with_signature
+from i6_experiments.users.berger.util import ToolPaths, lru_cache_with_signature
+from i6_experiments.users.berger import helpers
 from sisyphus import tk
 
+from .. import dataclasses
 from .. import types
 
 
 class RasrFunctor(ABC):
     def __init__(
-        self, returnn_root: tk.Path, returnn_python_exe: tk.Path, blas_lib: tk.Path
+        self,
+        returnn_root: tk.Path,
+        returnn_python_exe: tk.Path,
+        blas_lib: Optional[tk.Path] = None,
     ) -> None:
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
@@ -57,7 +62,7 @@ class RasrFunctor(ABC):
         )
         return graph_compile_job.out_graph
 
-    def _make_base_feature_flow(self, corpus_info: types.CorpusInfo, **kwargs):
+    def _make_base_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
         audio_format = corpus_info.data.corpus_object.audio_format
         args = {
             "audio_format": audio_format,
@@ -94,19 +99,18 @@ class RasrFunctor(ABC):
             **kwargs,
         )
 
+        prior_job.update_rqmt("run", {"file_size": 150})
+
         return prior_job.out_prior_xml_file
 
     @lru_cache_with_signature
     def _get_native_lstm_op(self) -> tk.Path:
-        # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
-        compile_job = returnn.CompileNativeOpJob(
-            "NativeLstm2",
+        tools = ToolPaths(
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
             blas_lib=self.blas_lib,
         )
-
-        return compile_job.out_op
+        return helpers.get_native_lstm_op(tools)
 
     def _make_tf_feature_flow(
         self,
@@ -165,7 +169,7 @@ class RasrFunctor(ABC):
         self,
         crp: rasr.CommonRasrParameters,
         lattice_bundle: tk.Path,
-        scorer: types.ScorerInfo,
+        scorer: dataclasses.ScorerInfo,
         **kwargs,
     ) -> types.ScoreJob:
         lat2ctm = recognition.LatticeToCtmJob(

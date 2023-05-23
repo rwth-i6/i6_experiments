@@ -1,10 +1,65 @@
+import sys
 import subprocess as sp
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
-import numpy.typing as npt
 from i6_core import returnn, util
 from sisyphus import Job, Task, tk
+
+
+def main(
+    pytorch_config,
+    converter_kwargs,
+    fairseq_root,
+    pytorch_to_returnn_root,
+    returnn_root,
+    out_returnn_checkpoint,
+    out_returnn_model_dict,
+    model_func_name,
+):
+    if fairseq_root:
+        sys.path.append(fairseq_root)
+    if pytorch_to_returnn_root:
+        sys.path.append(pytorch_to_returnn_root)
+    if returnn_root:
+        sys.path.append(returnn_root)
+
+    from returnn.tf.util.basic import (
+        debug_register_better_repr,
+        setup_tf_thread_pools,
+        print_available_devices,
+    )
+    from returnn.log import log
+
+    better_exchook.install()
+    debug_register_better_repr()
+    log.initialize(verbosity=[5])
+    log.Verbosity = 10
+    setup_tf_thread_pools()
+    print_available_devices()
+
+    def model_func_caller(wrapped_import, inputs):
+        return eval(model_func_name)(wrapped_import, inputs, pytorch_config)
+
+    input = np.load("numpy_input.npy")
+    print(f"Input shape: {input.shape}")
+
+    import pytorch_to_returnn.log
+
+    pytorch_to_returnn.log.Verbosity = 6
+    from pytorch_to_returnn.converter import verify_torch_and_convert_to_returnn
+
+    sys.setrecursionlimit(3000)
+
+    converter = verify_torch_and_convert_to_returnn(
+        model_func_caller,
+        inputs=input,
+        returnn_dummy_input_shape=input.shape,
+        export_tf_checkpoint_save_path=out_returnn_checkpoint,
+        **converter_kwargs,
+    )
+    with open(out_returnn_model_dict, "wt", encoding="utf-8") as f:
+        f.write(converter.get_returnn_config_serialized())
 
 
 class ConvertPytorchToReturnnJob(Job):
@@ -16,7 +71,7 @@ class ConvertPytorchToReturnnJob(Job):
         self,
         pytorch_config: tk.Path,
         model_func: str,
-        input: npt.NDArray,
+        input: Any,
         conversion_python_exe: tk.Path,
         fairseq_root: tk.Path,
         pytorch_to_returnn_root: tk.Path,

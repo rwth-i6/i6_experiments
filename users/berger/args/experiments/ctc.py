@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict
+from typing import Dict
 
 from i6_experiments.users.berger.args.jobs.recognition_args import (
     get_lookahead_options,
@@ -68,7 +68,7 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "rtf": 5,
         "mem": 8,
     }
- 
+
     return recursive_update(default_args, kwargs)
 
 

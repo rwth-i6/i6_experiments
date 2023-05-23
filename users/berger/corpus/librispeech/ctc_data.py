@@ -14,6 +14,7 @@ def get_librispeech_data(
     dev_keys: List[str] = ["dev-clean", "dev-other"],
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
+    augmented_lexicon: bool = False,
 ) -> CTCSetupData:
     # ********** Data inputs **********
 
@@ -21,7 +22,7 @@ def get_librispeech_data(
         train_key=train_key,
         dev_keys=dev_keys,
         ctc_lexicon=True,
-        use_augmented_lexicon=False,
+        use_augmented_lexicon=augmented_lexicon,
         add_all_allophones=True,
         audio_format="ogg",
         add_unknown_phoneme_and_mapping=add_unknown,
@@ -32,7 +33,7 @@ def get_librispeech_data(
         dev_keys=dev_keys,
         test_keys=test_keys,
         ctc_lexicon=True,
-        use_augmented_lexicon=False,
+        use_augmented_lexicon=augmented_lexicon,
         add_all_allophones=True,
         audio_format="wav",
         add_unknown_phoneme_and_mapping=add_unknown,
@@ -40,7 +41,15 @@ def get_librispeech_data(
 
     # ********** Train data **********
     train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
+    train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
+
+    if not add_unknown:
+        train_corpus = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+            train_corpus,
+            train_lexicon,
+            all_unknown=False,
+        ).out_corpus
 
     train_ogg_zip = returnn.BlissToOggZipJob(
         train_corpus,
@@ -60,6 +69,15 @@ def get_librispeech_data(
     }
 
     # ********** CV data **********
+    if not add_unknown:
+        for corpus_object in [dev_data_inputs[key].corpus_object for key in dev_keys]:
+            assert corpus_object.corpus_file is not None
+            corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                corpus_object.corpus_file,
+                train_lexicon,
+                all_unknown=False,
+            ).out_corpus
+
     cv_corpus = corpus.MergeCorporaJob(
         [dev_data_inputs[key].corpus_object.corpus_file for key in dev_keys],
         name="dev_combine",
@@ -90,14 +108,14 @@ def get_librispeech_data(
         name="loss-corpus",
         merge_strategy=corpus.MergeStrategy.SUBCORPORA,
     ).out_merged_corpus
-    loss_lexicon = train_data_inputs[train_key].lexicon["filename"]
+    loss_lexicon = train_lexicon
 
     # ********** Recog lexicon **********
 
     recog_lexicon = AddEowPhonemesToLexiconJob(loss_lexicon).out_lexicon
 
     for rasr_input in {**wav_dev_data_inputs, **wav_test_data_inputs}.values():
-        rasr_input.lexicon["filename"] = recog_lexicon
+        rasr_input.lexicon.filename = recog_lexicon
 
     return CTCSetupData(
         train_key=train_key,

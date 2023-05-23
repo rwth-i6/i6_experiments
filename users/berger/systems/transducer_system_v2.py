@@ -530,7 +530,7 @@ class TransducerSystem:
 
     def _nn_recognition(self, search_type: SearchTypes, **kwargs) -> None:
         return {
-            SearchTypes.GenericSeq2SeqSearchJob: self._seq2seq_nn_recognition,
+            SearchTypes.GenericSeq2SeqSearch: self._seq2seq_nn_recognition,
             SearchTypes.AdvancedTreeSearch: self._atr_nn_recognition,
         }[search_type](**kwargs)
 
@@ -896,7 +896,7 @@ class TransducerSystem:
     def run_dev_recog_step(
         self,
         recog_args: Optional[Dict] = None,
-        search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearchJob,
+        search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearch,
     ) -> None:
         for train_exp_name in self.returnn_configs.keys():
             self.run_recogs_for_corpora(
@@ -909,7 +909,7 @@ class TransducerSystem:
     def run_test_recog_step(
         self,
         recog_args: Optional[Dict] = None,
-        search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearchJob,
+        search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearch,
     ) -> None:
         for train_exp_name in self.returnn_configs.keys():
             self.run_recogs_for_corpora(

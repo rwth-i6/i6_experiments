@@ -43,7 +43,6 @@ def get_wsj_data(
     train_ogg = BlissChangeEncodingJob(
         train_corpus,
         output_format="ogg",
-        in_codec="pcm_mulaw",
         codec="libvorbis",
     ).out_corpus
 
@@ -71,7 +70,6 @@ def get_wsj_data(
     cv_ogg = BlissChangeEncodingJob(
         cv_corpus,
         output_format="ogg",
-        in_codec="pcm_mulaw",
         codec="libvorbis",
     ).out_corpus
 
@@ -99,18 +97,18 @@ def get_wsj_data(
         name="loss-corpus",
         merge_strategy=corpus.MergeStrategy.SUBCORPORA,
     ).out_merged_corpus
-    loss_lexicon = train_data_input.lexicon["filename"]
+    loss_lexicon = train_data_input.lexicon.filename
 
     # ********** Recog lexicon **********
 
     for rasr_input in {**dev_data_inputs, **test_data_inputs}.values():
-        rasr_input.lexicon["filename"] = AddEowPhonemesToLexiconJob(
-            rasr_input.lexicon["filename"]
+        rasr_input.lexicon.filename = AddEowPhonemesToLexiconJob(
+            rasr_input.lexicon.filename
         ).out_lexicon
 
     all_data_inputs = {
-        train_key: train_data_input,
-        cv_key: cv_data_input,
+        f"{train_key}_align": train_data_input,
+        f"{cv_key}_align": cv_data_input,
         **dev_data_inputs,
         **test_data_inputs,
     }
@@ -119,7 +117,7 @@ def get_wsj_data(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
-        align_keys=[train_key, cv_key],
+        align_keys=[f"{train_key}_align", f"{cv_key}_align"],
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         loss_corpus=loss_corpus,

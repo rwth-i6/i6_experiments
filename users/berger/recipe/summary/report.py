@@ -194,6 +194,8 @@ class SummaryReport:
 
     def __call__(self) -> str:
         processed_data = self._get_string_list_rows()
+        if len(processed_data) == 0:
+            return ""
         collapsed_data = self._collapse_rows(processed_data)
 
         # Print the actual table

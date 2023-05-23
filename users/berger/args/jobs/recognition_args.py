@@ -6,7 +6,7 @@ from typing import Any, Union, Optional, Dict, List
 def get_recognition_args(search_type: SearchTypes, **kwargs) -> Dict:
     rec_args = {
         SearchTypes.AdvancedTreeSearch: get_advanced_tree_search_recognition_args,
-        SearchTypes.GenericSeq2SeqSearchJob: get_generic_seq2seq_search_recognition_args,
+        SearchTypes.GenericSeq2SeqSearch: get_generic_seq2seq_search_recognition_args,
         SearchTypes.ReturnnSearch: get_returnn_search_recognition_args,
     }[search_type](**kwargs)
     rec_args["search_type"] = search_type
@@ -22,7 +22,6 @@ def get_advanced_tree_search_recognition_args(
     use_gpu: bool = False,
     **kwargs,
 ) -> Dict[str, Any]:
-
     if isinstance(prior_scales, float):
         prior_scales = [prior_scales]
     if isinstance(pronunciation_scales, float):
@@ -60,7 +59,6 @@ def get_returnn_search_recognition_args(
     use_gpu: bool = True,
     log_prob_layer: str = "output",
 ) -> Dict[str, Any]:
-
     if isinstance(prior_scales, float):
         prior_scales = [prior_scales]
     epochs = epochs or []
@@ -90,7 +88,6 @@ def get_generic_seq2seq_search_recognition_args(
     use_gpu: bool = False,
     **kwargs,
 ) -> Dict[str, Any]:
-
     if isinstance(prior_scales, float):
         prior_scales = [prior_scales]
     if isinstance(lm_scales, float):
@@ -194,11 +191,11 @@ def get_atr_search_parameters(
 def get_lookahead_options(
     scale: Optional[float] = None,
     hlimit: int = 1,
-    clow: int = 2000,
+    clow: int = 2000,  # should use smaller cache for NNLM, e.g. clow=0, chigh=256
     chigh: int = 3000,
     **kwargs,
 ):
-    lmla_options = {
+    lmla_options: Dict[str, float] = {
         "history_limit": hlimit,
         "cache_low": clow,
         "cache_high": chigh,

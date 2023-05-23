@@ -46,8 +46,8 @@ from i6_experiments.users.berger.recipe.lexicon.modification import (
 )
 from i6_core.recognition.advanced_tree_search import AdvancedTreeSearchJob
 from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
-from i6_experiments.users.berger.recipe.recognition.label_sync_search import (
-    LabelSyncSearchJob,
+from i6_experiments.users.berger.recipe.recognition.generic_seq2seq_search import (
+    GenericSeq2SeqSearchJob,
 )
 from i6_experiments.users.berger.recipe.mm.alignment import Seq2SeqAlignmentJob
 from i6_experiments.users.berger.recipe.rasr import (
@@ -655,7 +655,7 @@ class TransducerSystem(NnSystem):
 
     def lattice_scoring(
         self,
-        recognition_job: Union[AdvancedTreeSearchJob, LabelSyncSearchJob],
+        recognition_job: Union[AdvancedTreeSearchJob, GenericSeq2SeqSearchJob],
         recognition_corpus_key: str,
         prefix: str,
         exp_name: str,
@@ -719,11 +719,11 @@ class TransducerSystem(NnSystem):
         return scorer
 
     def nn_recognition(
-        self, search_type: SearchTypes = SearchTypes.LabelSyncSearch, **kwargs
+        self, search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearch, **kwargs
     ) -> None:
         try:
             return {
-                SearchTypes.LabelSyncSearch: self.lss_nn_recognition,
+                SearchTypes.GenericSeq2SeqSearch: self.lss_nn_recognition,
                 SearchTypes.AdvancedTreeSearch: self.atr_nn_recognition,
                 SearchTypes.ReturnnSearch: self.returnn_nn_recognition,
             }[search_type](**kwargs)
@@ -1093,7 +1093,7 @@ class TransducerSystem(NnSystem):
 
                 rec = self.jobs[recognition_corpus_key].setdefault(
                     f"recog_{exp_name}",
-                    LabelSyncSearchJob(
+                    GenericSeq2SeqSearchJob(
                         crp=recog_crp,
                         feature_flow=feature_flow,
                         label_scorer=label_scorer,
@@ -1383,6 +1383,7 @@ class TransducerSystem(NnSystem):
                     self.feature_caches[all_c] = {}
                     self.feature_bundles[all_c] = {}
                     self.feature_flows[all_c] = {}
+                print("extract features for ", corpora)
                 self.extract_features(step_args, corpora=corpora)
 
                 for all_c in corpora:

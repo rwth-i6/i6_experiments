@@ -8,11 +8,11 @@ from sisyphus import tk, Job, Task
 
 from i6_core.audio.ffmpeg import BlissFfmpegJob
 
+from i6_experiments.users.berger import helpers
 import i6_experiments.common.setups.rasr.util as rasr_util
 from i6_experiments.users.berger.recipe.lexicon.modification import (
     EnsureSilenceFirstJob,
     DeleteEmptyOrthJob,
-    EnsureUnknownPronunciationOrthJob,
     MakeBlankLexiconJob,
 )
 from i6_core.meta.system import CorpusObject
@@ -148,7 +148,6 @@ class PreprocessLmFileJob(Job):
 
 
 def get_corpus_object_dict():
-
     corpus_object_dict = {}
 
     for name, freq, duration, audio_dir, audio_format, concurrency in [
@@ -306,7 +305,12 @@ def get_data_inputs(
     preprocessing: bool = True,
     lm_cleaning: bool = False,
     add_all_allophones: bool = True,
-) -> Tuple[rasr_util.RasrDataInput, rasr_util.RasrDataInput, Dict[str, rasr_util.RasrDataInput], Dict[str, rasr_util.RasrDataInput]]:
+) -> Tuple[
+    helpers.RasrDataInput,
+    helpers.RasrDataInput,
+    Dict[str, helpers.RasrDataInput],
+    Dict[str, helpers.RasrDataInput],
+]:
     corpus_object_dict = get_corpus_object_dict()
 
     for name, (corpus_object, _) in corpus_object_dict.items():
@@ -322,11 +326,7 @@ def get_data_inputs(
         "64k_3gram": "lm-64k.lm.gz",
     }[lm_name]
 
-    lm = {
-        "filename": tk.Path(f"/work/speech/wsj/lm/recognition/{filename}"),
-        "type": "ARPA",
-        "scale": 10,
-    }
+    lm = helpers.ArpaLMData(scale=10, filename=tk.Path(f"/work/speech/wsj/lm/recognition/{filename}"))
 
     train_lexicon_path = tk.Path(f"{dep_dir}/lexicon/wsj01-train.lexicon.gz")
     if preprocessing:
@@ -336,29 +336,30 @@ def get_data_inputs(
         train_lexicon_path = DeleteEmptyOrthJob(train_lexicon_path).out_lexicon
         train_lexicon_path = MakeBlankLexiconJob(train_lexicon_path).out_lexicon
 
-    train_bliss_lexicon = {
-        "filename": train_lexicon_path,
-        "normalize_pronunciation": False,
-        "add_all": add_all_allophones,
-        "add_from_lexicon": not add_all_allophones,
-    }
+    train_bliss_lexicon = helpers.LexiconConfig(
+        filename=train_lexicon_path,
+        normalize_pronunciation=False,
+        add_all_allophones=add_all_allophones,
+        add_allophones_from_lexicon=not add_all_allophones,
+    )
     recog_lexicon_path = tk.Path(f"{dep_dir}/lexicon/{recog_lex_name}.lexicon.gz")
     recog_lexicon_path = EnsureSilenceFirstJob(recog_lexicon_path).out_lexicon
     if ctc_lexicon:
         recog_lexicon_path = DeleteEmptyOrthJob(recog_lexicon_path).out_lexicon
         recog_lexicon_path = MakeBlankLexiconJob(recog_lexicon_path).out_lexicon
-    recog_bliss_lexicon = {
-        "filename": recog_lexicon_path,
-        "normalize_pronunciation": False,
-        "add_all": add_all_allophones,
-        "add_from_lexicon": not add_all_allophones,
-    }
+
+    recog_bliss_lexicon = helpers.LexiconConfig(
+        filename=recog_lexicon_path,
+        normalize_pronunciation=False,
+        add_all_allophones=add_all_allophones,
+        add_allophones_from_lexicon=not add_all_allophones,
+    )
 
     dev_data_inputs = {}
     test_data_inputs = {}
 
     corpus_object, concurrency = corpus_object_dict[f"{train_key}_{freq}kHz"]
-    train_data_input = rasr_util.RasrDataInput(
+    train_data_input = helpers.RasrDataInput(
         corpus_object=corpus_object,
         concurrent=concurrency,
         lexicon=train_bliss_lexicon,
@@ -366,9 +367,9 @@ def get_data_inputs(
 
     corpus_object, concurrency = corpus_object_dict[f"{cv_key}_{freq}kHz"]
     corpus_object.corpus_file = FilterCorpusRemoveUnknownWordSegmentsJob(
-        corpus_object.corpus_file, train_bliss_lexicon["filename"], all_unknown=False
+        corpus_object.corpus_file, train_bliss_lexicon.filename, all_unknown=False
     ).out_corpus
-    cv_data_input = rasr_util.RasrDataInput(
+    cv_data_input = helpers.RasrDataInput(
         corpus_object=corpus_object,
         concurrent=concurrency,
         lexicon=train_bliss_lexicon,
@@ -377,7 +378,7 @@ def get_data_inputs(
 
     for dev_key in dev_keys:
         corpus_object, concurrency = corpus_object_dict[f"{dev_key}_{freq}kHz"]
-        dev_data_inputs[dev_key] = rasr_util.RasrDataInput(
+        dev_data_inputs[dev_key] = helpers.RasrDataInput(
             corpus_object=corpus_object,
             concurrent=concurrency,
             lexicon=recog_bliss_lexicon,
@@ -386,7 +387,7 @@ def get_data_inputs(
 
     for test_key in test_keys:
         corpus_object, concurrency = corpus_object_dict[f"{test_key}_{freq}kHz"]
-        test_data_inputs[test_key] = rasr_util.RasrDataInput(
+        test_data_inputs[test_key] = helpers.RasrDataInput(
             corpus_object=corpus_object,
             concurrent=concurrency,
             lexicon=recog_bliss_lexicon,

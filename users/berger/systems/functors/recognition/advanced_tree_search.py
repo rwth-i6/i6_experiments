@@ -5,22 +5,22 @@ from typing import Dict, List
 from i6_core import mm, rasr, recognition, returnn
 from sisyphus import tk
 
+from ... import dataclasses
 from ... import types
-from ..base import AbstractRecognitionFunctor
+from ..base import RecognitionFunctor
 from ..rasr_base import RasrFunctor
 
 
 class AdvancedTreeSearchFunctor(
-    AbstractRecognitionFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
+    RecognitionFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
     RasrFunctor,
 ):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[returnn.ReturnnTrainingJob],
+        train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
-        recog_config: types.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: types.NamedCorpusInfo,
-        num_inputs: int,
+        recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
+        recog_corpus: dataclasses.NamedCorpusInfo,
         num_classes: int,
         epochs: List[types.EpochType],
         lm_scales: List[float],
@@ -34,9 +34,7 @@ class AdvancedTreeSearchFunctor(
         crp = copy.deepcopy(recog_corpus.corpus_info.crp)
         assert recog_corpus.corpus_info.scorer is not None
 
-        acoustic_mixture_path = mm.CreateDummyMixturesJob(
-            num_classes, num_inputs
-        ).out_mixtures
+        acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, 1).out_mixtures
 
         base_feature_flow = self._make_base_feature_flow(
             recog_corpus.corpus_info, **flow_args
@@ -102,20 +100,20 @@ class AdvancedTreeSearchFunctor(
 
             recog_results.append(
                 {
-                    types.SummaryKey.TRAIN_NAME.value: train_job.name,
-                    types.SummaryKey.RECOG_NAME.value: recog_config.name,
-                    types.SummaryKey.CORPUS.value: recog_corpus.name,
-                    types.SummaryKey.EPOCH.value: self._get_epoch_value(
+                    dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
+                    dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
+                    dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
+                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(
                         train_job.job, epoch
                     ),
-                    types.SummaryKey.PRON.value: pronunciation_scale,
-                    types.SummaryKey.PRIOR.value: prior_scale,
-                    types.SummaryKey.LM.value: lm_scale,
-                    types.SummaryKey.WER.value: scorer_job.out_wer,
-                    types.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
-                    types.SummaryKey.DEL.value: scorer_job.out_percent_deletions,
-                    types.SummaryKey.INS.value: scorer_job.out_percent_insertions,
-                    types.SummaryKey.ERR.value: scorer_job.out_num_errors,
+                    dataclasses.SummaryKey.PRON.value: pronunciation_scale,
+                    dataclasses.SummaryKey.PRIOR.value: prior_scale,
+                    dataclasses.SummaryKey.LM.value: lm_scale,
+                    dataclasses.SummaryKey.WER.value: scorer_job.out_wer,
+                    dataclasses.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
+                    dataclasses.SummaryKey.DEL.value: scorer_job.out_percent_deletions,
+                    dataclasses.SummaryKey.INS.value: scorer_job.out_percent_insertions,
+                    dataclasses.SummaryKey.ERR.value: scorer_job.out_num_errors,
                 }
             )
 

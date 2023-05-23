@@ -7,21 +7,22 @@ from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
 from sisyphus import tk
 
+from ... import dataclasses
 from ... import types
-from ..base import AbstractAlignmentFunctor
+from ..base import AlignmentFunctor
 from ..seq2seq_base import Seq2SeqFunctor
 
 
 class Seq2SeqAlignmentFunctor(
-    AbstractAlignmentFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
+    AlignmentFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
     Seq2SeqFunctor,
 ):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[returnn.ReturnnTrainingJob],
+        train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         align_config: returnn.ReturnnConfig,
-        align_corpus: types.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedCorpusInfo,
         epochs: List[types.EpochType] = [],
         prior_scales: List[float] = [0],
         prior_args: Dict = {},

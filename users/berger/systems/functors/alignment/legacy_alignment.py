@@ -5,21 +5,22 @@ from typing import Dict, List
 from i6_core import mm, rasr, returnn
 from sisyphus import tk
 
+from ... import dataclasses
 from ... import types
-from ..base import AbstractAlignmentFunctor
+from ..base import AlignmentFunctor
 from ..rasr_base import RasrFunctor
 
 
 class LegacyAlignmentFunctor(
-    AbstractAlignmentFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
+    AlignmentFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
     RasrFunctor,
 ):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[returnn.ReturnnTrainingJob],
+        train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
         align_config: returnn.ReturnnConfig,
-        align_corpus: types.NamedCorpusInfo,
+        align_corpus: dataclasses.NamedCorpusInfo,
         num_inputs: int,
         num_classes: int,
         epochs: List[types.EpochType] = [],

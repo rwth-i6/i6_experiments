@@ -7,21 +7,22 @@ from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition
 from sisyphus import tk
 
+from ... import dataclasses
 from ... import types
-from ..base import AbstractRecognitionFunctor
+from ..base import RecognitionFunctor
 from ..seq2seq_base import Seq2SeqFunctor
 
 
 class Seq2SeqSearchFunctor(
-    AbstractRecognitionFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
+    RecognitionFunctor[returnn.ReturnnTrainingJob, returnn.ReturnnConfig],
     Seq2SeqFunctor,
 ):
     def __call__(
         self,
-        train_job: types.NamedTrainJob[returnn.ReturnnTrainingJob],
+        train_job: dataclasses.NamedTrainJob[returnn.ReturnnTrainingJob],
         prior_config: returnn.ReturnnConfig,
-        recog_config: types.NamedConfig[returnn.ReturnnConfig],
-        recog_corpus: types.NamedCorpusInfo,
+        recog_config: dataclasses.NamedConfig[returnn.ReturnnConfig],
+        recog_corpus: dataclasses.NamedCorpusInfo,
         lookahead_options: Dict,
         epochs: List[types.EpochType],
         lm_scales: List[float] = [0],
@@ -117,19 +118,19 @@ class Seq2SeqSearchFunctor(
 
             recog_results.append(
                 {
-                    types.SummaryKey.TRAIN_NAME.value: train_job.name,
-                    types.SummaryKey.RECOG_NAME.value: recog_config.name,
-                    types.SummaryKey.CORPUS.value: recog_corpus.name,
-                    types.SummaryKey.EPOCH.value: self._get_epoch_value(
+                    dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
+                    dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
+                    dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
+                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(
                         train_job.job, epoch
                     ),
-                    types.SummaryKey.PRIOR.value: prior_scale,
-                    types.SummaryKey.LM.value: lm_scale,
-                    types.SummaryKey.WER.value: scorer_job.out_wer,
-                    types.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
-                    types.SummaryKey.DEL.value: scorer_job.out_percent_deletions,
-                    types.SummaryKey.INS.value: scorer_job.out_percent_insertions,
-                    types.SummaryKey.ERR.value: scorer_job.out_num_errors,
+                    dataclasses.SummaryKey.PRIOR.value: prior_scale,
+                    dataclasses.SummaryKey.LM.value: lm_scale,
+                    dataclasses.SummaryKey.WER.value: scorer_job.out_wer,
+                    dataclasses.SummaryKey.SUB.value: scorer_job.out_percent_substitution,
+                    dataclasses.SummaryKey.DEL.value: scorer_job.out_percent_deletions,
+                    dataclasses.SummaryKey.INS.value: scorer_job.out_percent_insertions,
+                    dataclasses.SummaryKey.ERR.value: scorer_job.out_num_errors,
                 }
             )
 
