@@ -155,7 +155,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=alignment_name == "scratch",
+        is_cv_separate_from_train=False,
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )
