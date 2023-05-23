@@ -159,7 +159,7 @@ def run_single(
     s._update_am_setting_for_all_crps(
         train_tdp_type="heuristic",
         eval_tdp_type="heuristic",
-        add_base_allophones=True,
+        add_base_allophones=False,
     )
 
     # ---------------------- returnn config---------------
