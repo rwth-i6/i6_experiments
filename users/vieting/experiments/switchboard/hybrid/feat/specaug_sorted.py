@@ -110,7 +110,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
 def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
-
+    filter_layer = network.layers["features"].output.placeholder
     sorted_idce = sort_filters_by_center_freq(filter_layer)
     # summary("features", x)
     step = network.global_train_step
@@ -162,6 +162,6 @@ def specaug_layer_sorted(in_layer):
 def get_funcs_sorted():
     funcs = []
     for k, v in list(globals().items()):
-        if k in ["_mask", "_random_mask", "specaugment_eval_func"]:
+        if k in ["sort_filters_by_center_freq", "_mask", "_random_mask", "specaugment_eval_func"]:
             funcs.append(v)
     return funcs

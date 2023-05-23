@@ -141,7 +141,6 @@ def get_nn_args_single(
         peak_lr=peak_lr,
         num_epochs=num_epochs,
         feature_net=feature_net,
-        specaug_mask_sorting=specaug_mask_sorting,
     )
 
     return returnn_config, returnn_recog_config
