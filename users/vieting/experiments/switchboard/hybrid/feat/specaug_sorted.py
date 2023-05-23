@@ -1,4 +1,3 @@
-
 def sort_filters_by_center_freq(x):
     """
     This function either sorts the filters by their center frequency and returns them,
@@ -8,7 +7,7 @@ def sort_filters_by_center_freq(x):
     :return: Sorted filters or sorted indices.
     """
     x = tf.convert_to_tensor(x)  # (Filtersize, 1, Channels)
-  
+
     # implementation similar to scipy.signal.freqz, which uses numpy.polynomial.polynomial.polyval
     filters = tf.transpose(tf.squeeze(x))  # (C, N)
     num_freqs = 128  # F
@@ -24,7 +23,6 @@ def sort_filters_by_center_freq(x):
     sorted_idcs = tf.argsort(center_freqs)
 
     return sorted_idcs
-
 
 
 def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
@@ -52,8 +50,10 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
         inverse_permutation = tf.argsort(sorted_indices)
         cond = tf.gather(cond, inverse_permutation, axis=axis)
     from TFUtil import where_bc
+
     x = where_bc(cond, 0.0, x)
     return x
+
 
 def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices=None):
     """
@@ -76,17 +76,36 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
     _, indices = tf.math.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
     if isinstance(num, int):
         for i in range(num):
-                    x = _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, sorted_indices=sorted_indices)
+            x = _mask(
+                x,
+                batch_axis=batch_axis,
+                axis=axis,
+                pos=indices[:, i],
+                max_amount=max_dims,
+                sorted_indices=sorted_indices,
+            )
     else:
-        _, x = tf.while_loop( 
+        _, x = tf.while_loop(
             cond=lambda i, _: tf.less(i, tf.reduce_max(num)),
-            body=lambda i, x: ( 
+            body=lambda i, x: (
                 i + 1,
-                tf.where( tf.expand_dims(tf.expand_dims(tf.less(i, num), axis=-1), axis=-1),
-                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, sorted_indices=sorted_indices),
-                    x)),
-            loop_vars=(0, x))
+                tf.where(
+                    tf.expand_dims(tf.expand_dims(tf.less(i, num), axis=-1), axis=-1),
+                    _mask(
+                        x,
+                        batch_axis=batch_axis,
+                        axis=axis,
+                        pos=indices[:, i],
+                        max_amount=max_dims,
+                        sorted_indices=sorted_indices,
+                    ),
+                    x,
+                ),
+            ),
+            loop_vars=(0, x),
+        )
     return x
+
 
 def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
@@ -97,28 +116,30 @@ def specaugment_eval_func(data, network, time_factor=1):
     step = network.global_train_step
     step1 = tf.where(tf.greater_equal(step, 1000), 1, 0)
     step2 = tf.where(tf.greater_equal(step, 2000), 1, 0)
+
     def get_masked():
 
         x_masked = _random_mask(
-            x, 
-            batch_axis=data.batch_dim_axis, 
+            x,
+            batch_axis=data.batch_dim_axis,
             axis=data.time_dim_axis,
-            min_num=step1 + step2, 
+            min_num=step1 + step2,
             max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-            max_dims=20 // time_factor
+            max_dims=20 // time_factor,
         )
-        
+
         # Apply freq masking
         x_masked = _random_mask(
-            x_masked, 
-            batch_axis=data.batch_dim_axis, 
+            x_masked,
+            batch_axis=data.batch_dim_axis,
             axis=data.feature_dim_axis,
-            min_num=step1 + step2, 
+            min_num=step1 + step2,
             max_num=2 + step1 + step2 * 2,
             max_dims=data.dim // 5,
-            sorted_indices=sorted_idce
+            sorted_indices=sorted_idce,
         )
         return x_masked
+
     x = network.cond_on_train(get_masked, lambda: x)
     return x
 
@@ -132,12 +153,13 @@ def specaug_layer_sorted(in_layer):
     return {
         "class": "eval",
         "from": in_layer,
-        "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
-            "source(0, as_data=True, auto_convert=False), "
-            "network=self.network)"
+        "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
+        "source(0, as_data=True, auto_convert=False), "
+        "network=self.network)",
     }
 
-def get_funcs_specaug():
+
+def get_funcs_sorted():
     funcs = []
     for k, v in list(globals().items()):
         if k in ["_mask", "_random_mask", "specaugment_eval_func"]:

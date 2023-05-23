@@ -215,7 +215,7 @@ def get_returnn_config(
 
         network = fix_network_for_sparse_output(network)
 
-    prolog = get_funcs_jingjing()
+    prolog = get_funcs_sorted()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
