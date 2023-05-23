@@ -19,7 +19,6 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.cache_epilog import hdf_dataset_cache_epilog
-from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -28,12 +27,10 @@ from ...setups.common.nn.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
-from ...setups.fh.network import aux_loss, extern_data
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
+from ...setups.fh.network import extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
-    augment_net_with_label_pops,
-    SubsamplingInfo,
     remove_label_pops_and_losses_from_returnn_config,
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
@@ -141,7 +138,7 @@ def run_single(
         test_data=test_data_inputs,
     )
 
-    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
+    s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
     s.lexicon_args["norm_pronunciation"] = False
     s.train_key = train_key
 
@@ -180,11 +177,6 @@ def run_single(
         feature_stacking_size=subsampling_factor,
     )
     network = network_builder.network
-    network = augment_net_with_label_pops(
-        network,
-        label_info=s.label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=subsampling_factor, time_tag_name=time_tag_name),
-    )
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
@@ -195,18 +187,6 @@ def run_single(
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
         use_multi_task=multitask,
-    )
-    network = aux_loss.add_intermediate_loss(
-        network,
-        center_state_only=True,
-        context=PhoneticContext.monophone,
-        encoder_output_len=conf_model_dim,
-        focal_loss_factor=focal_loss,
-        l2=L2,
-        label_info=s.label_info,
-        label_smoothing=CONF_LABEL_SMOOTHING,
-        time_tag_name=time_tag_name,
-        upsampling=False,
     )
 
     base_config = {
