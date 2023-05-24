@@ -34,7 +34,7 @@ sys.setrecursionlimit(3000)
 """
 
 
-def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", specaug_mask_sorting=False):
+def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
     evaluation_epochs = evaluation_epochs or [num_epochs]
 
     returnn_configs = {}
@@ -214,7 +214,10 @@ def get_returnn_config(
 
         network = fix_network_for_sparse_output(network)
 
-    prolog = get_funcs_sorted()
+    if specaug_mask_sorting:
+        prolog = get_funcs_sorted()
+    else:
+        prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {

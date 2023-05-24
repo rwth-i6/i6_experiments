@@ -220,7 +220,6 @@ def run_specaug_scf():
         },
         prefix="conformer_bs14k_specaug_sorted",
         num_epochs=260,
-        specaug_mask_sorting=True,
     )
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
