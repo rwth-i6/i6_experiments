@@ -6,6 +6,10 @@ def sort_filters_by_center_freq(x):
     :param bool return_sorted_filters: Whether to return the sorted filters or the sorted indices.
     :return: Sorted filters or sorted indices.
     """
+
+    from returnn.tf.compat import v1 as tf
+    import numpy as np
+
     x = tf.convert_to_tensor(x)  # (Filtersize, 1, Channels)
 
     # implementation similar to scipy.signal.freqz, which uses numpy.polynomial.polynomial.polyval
@@ -34,6 +38,8 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
     :param int|tf.Tensor max_amount: inclusive
     :param tf.Tensor|None sorted_indices: sorted indices (optional)
     """
+    from returnn.tf.compat import v1 as tf
+
     ndim = x.get_shape().ndims
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
@@ -49,6 +55,7 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
     if sorted_indices is not None:
         inverse_permutation = tf.argsort(sorted_indices)
         cond = tf.gather(cond, inverse_permutation, axis=axis)
+    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
 
     x = where_bc(cond, 0.0, x)
@@ -65,6 +72,8 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
     :param int|tf.Tensor max_dims: inclusive
     :param tf.Tensor|None sorted_indices: sorted indices (optional)
     """
+    from returnn.tf.compat import v1 as tf
+
     n_batch = tf.shape(x)[batch_axis]
     if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
         num = min_num
@@ -90,7 +99,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
             body=lambda i, x: (
                 i + 1,
                 tf.where(
-                    tf.expand_dims(tf.expand_dims(tf.less(i, num), axis=-1), axis=-1),
+                    tf.less(i, num),
                     _mask(
                         x,
                         batch_axis=batch_axis,
@@ -110,6 +119,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
 def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
+
     filter_layer = network.layers["features"].output.placeholder
     sorted_idce = sort_filters_by_center_freq(filter_layer)
     # summary("features", x)
