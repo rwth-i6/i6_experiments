@@ -226,7 +226,6 @@ def run_single(
             "time": time_prolog,
         },
         python_epilog={
-            "cache": hdf_dataset_cache_epilog,
             "functions": [
                 sa_mask,
                 sa_random_mask,
