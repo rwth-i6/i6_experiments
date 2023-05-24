@@ -7,13 +7,12 @@ def add_joint_ctc_att_subnet(
     net,
     att_scale,
     ctc_scale,
-    check_repeat_version=1,
     beam_size=12,
     remove_eos=False,
     renorm_after_remove_eos=False,
-    in_scale=False,
+    only_scale_comb=True,
     comb_score_version=1,
-    blank_penalty=None,
+    scale_outside=False,
 ):
     """
     Add layers for joint CTC and att search.
@@ -22,21 +21,40 @@ def add_joint_ctc_att_subnet(
     :param float att_scale: attention score scale
     :param float ctc_scale: ctc score scale
     """
+
+    ctc_probs_scale = 1.0 if only_scale_comb else ctc_scale
+    one_minus_term_scale = 1.0 if scale_outside else ctc_scale
+
     net["output"] = {
         "class": "rec",
         "from": "ctc",  # [B,T,V+1]
         "unit": {
-            "is_prev_out_not_blank_mask": {
+            "not_repeat_mask": {
                 "class": "compare",
+                "from": ["output", "prev:output"],
                 "kind": "not_equal",
-                "from": "prev:output",
-                "value": 10025,
             },
             "is_curr_out_not_blank_mask": {
                 "class": "compare",
                 "kind": "not_equal",
                 "from": "output",
                 "value": 10025,
+            },
+            "is_prev_out_not_blank_mask": {
+                "class": "compare",
+                "kind": "not_equal",
+                "from": "prev:output",
+                "value": 10025,
+            },  # TODO: try also with prev:is_curr_out_not_blank_mask and intial_output True
+            "curr_mask": {
+                "class": "combine",
+                "kind": "logical_and",
+                "from": ["is_curr_out_not_blank_mask", "not_repeat_mask"],
+                "initial_output": True,
+            },
+            "prev_mask": {
+                "class": "copy",
+                "from": "prev:curr_mask",
             },
             # reinterpreted for target_embed
             "output_reinterpret": {
@@ -68,7 +86,7 @@ def add_joint_ctc_att_subnet(
                     },
                     "target_embed": {
                         "class": "switch",
-                        "condition": "base:is_curr_out_not_blank_mask",
+                        "condition": "base:curr_mask",
                         "true_from": "_target_embed",
                         "false_from": "prev:target_embed",
                     },
@@ -92,7 +110,7 @@ def add_joint_ctc_att_subnet(
                     },
                     "accum_att_weights": {
                         "class": "switch",
-                        "condition": "base:is_prev_out_not_blank_mask",
+                        "condition": "base:prev_mask",
                         "true_from": "_accum_att_weights",
                         "false_from": "prev:accum_att_weights",
                         "out_type": {"dim": 1, "shape": (None, 1)},
@@ -153,7 +171,7 @@ def add_joint_ctc_att_subnet(
                     },
                     "s": {
                         "class": "switch",
-                        "condition": "base:is_prev_out_not_blank_mask",
+                        "condition": "base:prev_mask",
                         "true_from": "_s",
                         "false_from": "prev:s",
                     },
@@ -165,7 +183,7 @@ def add_joint_ctc_att_subnet(
                     },
                     "s_c": {
                         "class": "switch",
-                        "condition": "base:is_prev_out_not_blank_mask",
+                        "condition": "base:prev_mask",
                         "true_from": "_s_c",
                         "false_from": "prev:s_c",
                     },
@@ -177,7 +195,7 @@ def add_joint_ctc_att_subnet(
                     },
                     "s_h": {
                         "class": "switch",
-                        "condition": "base:is_prev_out_not_blank_mask",
+                        "condition": "base:prev_mask",
                         "true_from": "_s_h",
                         "false_from": "prev:s_h",
                     },
@@ -203,16 +221,10 @@ def add_joint_ctc_att_subnet(
                     "output": {"class": "copy", "from": "output_prob"},
                 },
             },
-            "att_log_scores_": {
+            "att_log_scores": {
                 "class": "activation",
                 "activation": "safe_log",
                 "from": "trigg_att",
-            },
-            "att_log_scores": {
-                "class": "switch",
-                "condition": "is_prev_out_not_blank_mask",
-                "true_from": "att_log_scores_",
-                "false_from": "prev:att_log_scores",
             },
             "ctc_log_scores": {
                 "class": "activation",
@@ -261,45 +273,96 @@ def add_joint_ctc_att_subnet(
                 "position": 10025,
                 "axis": "f",
             },  # [B]
+            # ----------------------------- #
+            "vocab_range": {"class": "range", "limit": 10025},
+            "prev_output_reinterpret": {
+                "class": "reinterpret_data",
+                "from": "prev:output",
+                "set_sparse": True,
+                "set_sparse_dim": 10025,
+            },
+            "prev_repeat_mask": {
+                "class": "compare",
+                "from": ["prev_output_reinterpret", "vocab_range"],
+                "kind": "equal",  # always False for blank
+            },
+            # ----------------------------- #
             # p_ctc_sigma' (blank | ...)
             "blank_prob": {"class": "gather", "from": "data:source", "position": 10025, "axis": "f"},
-            # p_comb_sigma' for labels which is defined as:
-            # (1 - p_ctc_sigma'(blank | ...)) * p_comb_sigma(label | ...)
-            # here is not log-space
+            "scaled_blank_prob": {
+                "class": "eval",
+                "from": "blank_prob",
+                "eval": f"source(0) ** {one_minus_term_scale}",
+            },
             "one": {"class": "constant", "value": 1.0},
-            "1_minus_blank": {
+            "prev_ctc_log_scores": {
+                "class": "gather",
+                "from": "ctc_log_scores",
+                "position": "prev:output",
+                "axis": "f",
+            },
+            "scaled_prev_ctc_log_scores": {
+                "class": "eval",
+                "from": "prev_ctc_log_scores",
+                "eval": f"{one_minus_term_scale} * source(0)",
+            },
+            "scaled_prev_ctc_scores": {
+                "class": "activation",
+                "activation": "safe_exp",
+                "from": "scaled_prev_ctc_log_scores",
+            },
+            "repeat_prob_term": {
+                "class": "switch",
+                "condition": "is_prev_out_not_blank_mask",
+                "true_from": "scaled_prev_ctc_scores",  # p(label:=prev:label|...)
+                "false_from": 0.0,
+            },
+            "1_minus_term_": {
                 "class": "combine",
                 "kind": "sub",
-                "from": ["one", "blank_prob"],
+                "from": ["one", "scaled_blank_prob"],
             },
-            "1_minus_blank_log": {
+            "1_minus_term": {
+                "class": "combine",
+                "kind": "sub",
+                "from": ["1_minus_term_", "repeat_prob_term"],
+            },
+            "1_minus_term_log": {
                 "class": "activation",
                 "activation": "safe_log",
-                "from": "1_minus_blank",
+                "from": "1_minus_term",
             },
-            "scaled_1_minus_blank_log": {
-                "class": "eval",
-                "from": "1_minus_blank_log",
-                "eval": f"{ctc_scale} * source(0)",
-            },
+            # [1 - P_ctc(blank|...) - P_ctc(label:=prev:label|...)] * P_att(label|...)  # prev:label != blank
             "p_comb_sigma_prime_label": {
                 "class": "combine",
                 "kind": "add",
-                "from": ["scaled_1_minus_blank_log", "combined_att_ctc_scores"],
+                "from": ["1_minus_term_log", "combined_att_ctc_scores"],
             },
+            # ----------------------------- #
             "scaled_blank_log_prob": {
                 "class": "eval",
                 "from": "blank_log_prob",
-                "eval": f"{ctc_scale} * source(0)",
+                "eval": f"{ctc_probs_scale} * source(0)",
             },
             "scaled_blank_log_prob_expand": {
                 "class": "expand_dims",
                 "from": "scaled_blank_log_prob",
                 "axis": "f",
             },  # [B,1]
+            "scaled_ctc_log_scores_slice": {
+                "class": "eval",
+                "from": "ctc_log_scores_slice",
+                "eval": f"{ctc_probs_scale} * source(0)",
+            },
+            "scaled_label_score": {
+                "class": "switch",
+                "condition": "prev_repeat_mask",
+                "true_from": "scaled_ctc_log_scores_slice",  # log P_ctc(label|...) in case label (not blank) is repeated
+                "false_from": "p_comb_sigma_prime_label",  # [1 - ...] * p_comb_sigma
+            },
             "p_comb_sigma_prime": {
                 "class": "concat",
-                "from": [("p_comb_sigma_prime_label", "f"), ("scaled_blank_log_prob_expand", "f")],
+                "from": [("scaled_label_score", "f"), ("scaled_blank_log_prob_expand", "f")],
             },  # [B,V+1]
             "output": {
                 "class": "choice",
@@ -313,25 +376,54 @@ def add_joint_ctc_att_subnet(
         },
         "target": "bpe_labels_w_blank" if ctc_scale > 0.0 else "bpe_labels",
     }
-    if check_repeat_version:
-        net["output"]["unit"]["not_repeat_mask"] = {
-            "class": "compare",
-            "from": ["output", "prev:output"],
-            "kind": "not_equal",
+
+    if comb_score_version == 1:
+        pass  # default one
+    elif comb_score_version == 2:
+        # use only p_comb_sigma
+        net["output"]["unit"]["scaled_label_score"]["false_from"] = "combined_att_ctc_scores"
+    elif comb_score_version == 3:
+        # normalize p_comb_sigma
+        net["output"]["unit"]["scaled_ctc_log_scores_exp"] = {
+            "class": "activation",
+            "activation": "safe_exp",
+            "from": "scaled_ctc_log_scores",
         }
-        net["output"]["unit"]["is_curr_out_not_blank_mask_"] = copy.deepcopy(
-            net["output"]["unit"]["is_curr_out_not_blank_mask"]
-        )
-        net["output"]["unit"]["is_curr_out_not_blank_mask"] = {
+        net["output"]["unit"]["combined_att_ctc_scores_norm_"] = {
             "class": "combine",
-            "kind": "logical_and",
-            "from": ["is_curr_out_not_blank_mask_", "not_repeat_mask"],
+            "kind": "mul",
+            "from": ["trigg_att", "scaled_ctc_log_scores_exp"],
         }
-        net["output"]["unit"]["is_curr_out_not_blank_mask"]["initial_output"] = True
-        net["output"]["unit"]["is_prev_out_not_blank_mask"] = {
-            "class": "copy",
-            "from": "prev:is_curr_out_not_blank_mask",
+        net["output"]["unit"]["combined_att_ctc_scores_norm"] = {
+            "class": "reduce",
+            "mode": "sum",
+            "from": "combined_att_ctc_scores_norm_",
+            "axis": "f",
         }
+        net["output"]["unit"]["combined_att_ctc_scores_norm_log"] = {
+            "class": "activation",
+            "activation": "safe_log",
+            "from": "combined_att_ctc_scores_norm",
+        }
+        net["output"]["unit"]["combined_att_ctc_scores_"] = copy.deepcopy(
+            net["output"]["unit"]["combined_att_ctc_scores"]
+        )
+        net["output"]["unit"]["combined_att_ctc_scores"] = {
+            "class": "combine",
+            "kind": "sub",
+            "from": ["combined_att_ctc_scores_", "combined_att_ctc_scores_norm_log"],
+        }
+    else:
+        raise ValueError(f"invalid comb_score_version {comb_score_version}")
+
+    if scale_outside:
+        net["output"]["unit"]["1_minus_term_log_"] = copy.deepcopy(net["output"]["unit"]["1_minus_term_log"])
+        net["output"]["unit"]["1_minus_term_log"] = {
+            "class": "eval",
+            "from": "1_minus_term_log_",
+            "eval": f"{ctc_scale} * source(0)",
+        }
+
     if remove_eos:
         net["output"]["unit"]["att_scores_wo_eos"] = {
             "class": "eval",
@@ -354,49 +446,6 @@ def add_joint_ctc_att_subnet(
             }
         else:
             net["output"]["unit"]["att_log_scores_"]["from"] = "att_scores_wo_eos"
-    if in_scale:
-        net["output"]["unit"]["scaled_blank_prob"] = {
-            "class": "eval",
-            "from": "blank_prob",
-            "eval": f"source(0) ** {ctc_scale}",
-        }
-        # 1 - p_ctc(...)^scale
-        net["output"]["unit"]["1_minus_blank"] = {
-            "class": "combine",
-            "kind": "sub",
-            "from": ["one", "scaled_blank_prob"],
-        }
-        # no scaling outside
-        net["output"]["unit"]["scaled_1_minus_blank_log"] = {"class": "copy", "from": "1_minus_blank_log"}
-    if comb_score_version == 2:
-        net["output"]["unit"]["p_comb_sigma_prime"]["from"][0] = ("combined_att_ctc_scores", "f")
-    if comb_score_version == 3:
-        # normalize p_comb_sigma
-        net["output"]["unit"]["combined_att_ctc_scores_norm"] = {
-            "class": "reduce",
-            "mode": "logsumexp",
-            "from": "combined_att_ctc_scores",
-            "axis": "f",
-        }
-        net["output"]["unit"]["combined_att_ctc_scores_renorm"] = {
-            "class": "combine",
-            "kind": "sub",
-            "from": ["combined_att_ctc_scores", "combined_att_ctc_scores_norm"],
-        }
-        net["output"]["unit"]["p_comb_sigma_prime_label"] = {
-            "class": "combine",
-            "kind": "add",
-            "from": ["scaled_1_minus_blank_log", "combined_att_ctc_scores_renorm"],
-        }
-    if blank_penalty:
-        net["output"]["unit"]["scaled_blank_log_prob_expand_"] = copy.deepcopy(
-            net["output"]["unit"]["scaled_blank_log_prob_expand"]
-        )
-        net["output"]["unit"]["scaled_blank_log_prob_expand"] = {
-            "class": "eval",
-            "from": "scaled_blank_log_prob_expand_",
-            "eval": f"source(0) - {blank_penalty}",
-        }
 
 
 def add_filter_blank_and_merge_labels_layers(net):
