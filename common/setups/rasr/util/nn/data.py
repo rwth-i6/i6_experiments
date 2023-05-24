@@ -479,27 +479,37 @@ class HdfDataInput:
         self.acoustic_mixtures = acoustic_mixtures
 
     def get_data_dict(self):
-        return {
-            "class": "MetaDataset",
-            "data_map": {"classes": ("align", "classes"), "data": ("feat", "data")},
-            "datasets": {
-                "align": {
-                    "class": "HDFDataset",
-                    "files": self.alignments,
-                    "use_cache_manager": True,
-                    **(self.align_args or {}),
-                },
-                "feat": {
-                    "class": "HDFDataset",
-                    "files": self.features,
-                    "use_cache_manager": True,
-                    **(self.feat_args or {}),
-                },
-            },
-            "partition_epoch": self.partition_epoch,
-            "seq_ordering": self.seq_ordering,
-            **(self.meta_args or {}),
-        }
+        from returnn_common.datasets import MetaDataset, HDFDataset
+        align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, **(self.align_args or {}))
+        feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
+        meta_dataset = MetaDataset(
+            data_map={"classes": ("align", "classes"), "data": ("feat", "data")},
+            datasets={"align": align_dataset, "feat": feature_dataset},
+            seq_order_control_dataset="align",
+            additional_options={"partition_epoch": self.partition_epoch, **(self.meta_args or {})}
+        )
+        return meta_dataset
+        # return {
+        #     "class": "MetaDataset",
+        #     "data_map": {"classes": ("align", "classes"), "data": ("feat", "data")},
+        #     "datasets": {
+        #         "align": {
+        #             "class": "HDFDataset",
+        #             "files": self.alignments,
+        #             "use_cache_manager": True,
+        #             **(self.align_args or {}),
+        #         },
+        #         "feat": {
+        #             "class": "HDFDataset",
+        #             "files": self.features,
+        #             "use_cache_manager": True,
+        #             **(self.feat_args or {}),
+        #         },
+        #     },
+        #     "partition_epoch": self.partition_epoch,
+        #     "seq_ordering": self.seq_ordering,
+        #     **(self.meta_args or {}),
+        # }
 
 
 class NextGenHdfDataInput:
