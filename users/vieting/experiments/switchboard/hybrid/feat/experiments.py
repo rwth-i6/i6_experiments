@@ -218,7 +218,7 @@ def run_specaug_scf():
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
-        prefix="conformer_bs14k_specaug_sorted",
+        prefix="conformer_bs14k_specaug_sorted_",
         num_epochs=260,
     )
     nn_steps = RasrSteps()
