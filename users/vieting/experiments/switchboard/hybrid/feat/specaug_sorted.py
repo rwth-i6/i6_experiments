@@ -78,6 +78,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
     # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
     z = -tf.log(-tf.log(tf.random_uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
     _, indices = tf.nn.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
+    # indices should be sorted, and of shape (batch,num), entries (int32) in [0,dim)
     if isinstance(num, int):
         for i in range(num):
             x = _mask(
