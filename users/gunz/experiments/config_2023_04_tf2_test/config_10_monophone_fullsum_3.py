@@ -57,7 +57,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
-    features_every_s: float
+    feature_time_shift: float
     lr: str
     multitask: bool
     dc_detection: bool
@@ -78,7 +78,7 @@ def run(returnn_root: tk.Path):
                 alignment_name="scratch",
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
-                features_every_s=10 / 1000,
+                feature_time_shift=10 / 1000,
                 lr="v6",
                 multitask=False,
                 subsampling_factor=3,
@@ -90,7 +90,7 @@ def run(returnn_root: tk.Path):
                 alignment_name="scratch",
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
-                features_every_s=7.5 / 1000,
+                feature_time_shift=7.5 / 1000,
                 lr="v6",
                 multitask=False,
                 subsampling_factor=4,
@@ -103,7 +103,7 @@ def run(returnn_root: tk.Path):
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
             dc_detection=exp.dc_detection,
-            feature_skip_s=exp.featurs_every_s,
+            feature_time_shift=exp.feature_time_shift,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
             multitask=exp.multitask,
@@ -121,7 +121,7 @@ def run_single(
     alignment_name: str,
     bw_label_scale: float,
     dc_detection: bool,
-    feature_skip_s: float,
+    feature_time_shift: float,
     focal_loss: float,
     lr: str,
     multitask: bool,
@@ -143,7 +143,7 @@ def run_single(
     ) = lbs_data_setups.get_data_inputs()
 
     rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
-    rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_skip_s
+    rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
 
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
     # *********** System Instantiation *****************
