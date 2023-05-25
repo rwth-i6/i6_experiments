@@ -47,7 +47,6 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
     cond = tf.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
-    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     if sorted_indices is not None:
         inverse_permutation = tf.argsort(sorted_indices)
         cond = tf.gather(cond, inverse_permutation, axis=axis)
