@@ -57,6 +57,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
+    features_every_s: float
     lr: str
     multitask: bool
     dc_detection: bool
@@ -72,21 +73,37 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     configs = [
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=s,
-            dc_detection=False,
-            lr="v13",
-            multitask=False,
-            subsampling_factor=3,
-        )
-        for s in [0.3, 1.0]
+        *(
+            Experiment(
+                alignment_name="scratch",
+                bw_label_scale=bw_label_scale,
+                dc_detection=False,
+                features_every_s=10 / 1000,
+                lr="v6",
+                multitask=False,
+                subsampling_factor=3,
+            )
+            for bw_label_scale in [0.3, 1.0]
+        ),
+        *(
+            Experiment(
+                alignment_name="scratch",
+                bw_label_scale=bw_label_scale,
+                dc_detection=False,
+                features_every_s=7.5 / 1000,
+                lr="v6",
+                multitask=False,
+                subsampling_factor=4,
+            )
+            for bw_label_scale in [0.3, 1.0]
+        ),
     ]
     experiments = {
         exp: run_single(
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
             dc_detection=exp.dc_detection,
+            feature_skip_s=exp.featurs_every_s,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
             multitask=exp.multitask,
@@ -104,6 +121,7 @@ def run_single(
     alignment_name: str,
     bw_label_scale: float,
     dc_detection: bool,
+    feature_skip_s: float,
     focal_loss: float,
     lr: str,
     multitask: bool,
@@ -123,7 +141,10 @@ def run_single(
         dev_data_inputs,
         test_data_inputs,
     ) = lbs_data_setups.get_data_inputs()
+
     rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
+    rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_skip_s
+
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
     # *********** System Instantiation *****************
     steps = rasr_util.RasrSteps()
@@ -192,7 +213,7 @@ def run_single(
 
     base_config = {
         **s.initial_nn_args,
-        **oclr.get_oclr_config(num_epochs=num_epochs, schedule="v6"),
+        **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
         "batch_size": 6144,
         "use_tensorflow": True,
