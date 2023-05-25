@@ -7,7 +7,7 @@ def sort_filters_by_center_freq(x):
     from returnn.tf.compat import v1 as tf
     import numpy as np
 
-    x = tf.convert_to_tensor(x)  # (Filtersize, 1, Channels)
+    x = tf.convert_to_tensor(x)  # (N, 1, C) where N is the filter size and C the number of channels
     # implementation similar to scipy.signal.freqz, which uses numpy.polynomial.polynomial.polyval
     filters = tf.transpose(tf.squeeze(x))  # (C, N)
     num_freqs = 512  # F
