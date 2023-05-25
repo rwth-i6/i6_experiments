@@ -895,7 +895,8 @@ class FactoredHybridSystem(NnSystem):
         train_corpus_key,
         dev_corpus_key,
         nn_train_args,
-        on_2080: bool = True,
+        on_2080: bool = False,
+        include_alignment: bool = True,
     ) -> returnn.ReturnnRasrTrainingJob:
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -940,14 +941,16 @@ class FactoredHybridSystem(NnSystem):
             if isinstance(train_data.features, tk.Path):
                 feature_flow.flags = {"cache_mode": "bundle"}
 
-        if isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
+        if not include_alignment:
+            alignments = None
+        elif isinstance(train_data.alignments, rasr.FlagDependentFlowAttribute):
             alignments = copy.deepcopy(train_data.alignments)
             net = rasr.FlowNetwork()
             net.flags = {"cache_mode": "bundle"}
             alignments = alignments.get(net)
         elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
             raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path) or train_data.alignments is None:
+        elif isinstance(train_data.alignments, tk.Path):
             alignments = train_data.alignments
         else:
             raise NotImplementedError(f"cannot deal w/ alignments of type {type(train_data.alignments)}")

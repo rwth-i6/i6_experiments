@@ -250,6 +250,7 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
         on_2080=False,
+        include_alignment=False,
     )
 
     return
