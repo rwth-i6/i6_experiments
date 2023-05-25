@@ -44,7 +44,10 @@ from .config import (
     RETURNN_PYTHON_TF23,
 )
 
-RASR_TF2_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", gs.RASR_ARCH), hash_overwrite="RS_RASR_PATH")
+RASR_TF2_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", gs.RASR_ARCH))
+RASR_TF2_BINARY_PATH.hash_override = "FH_RASR_PATH"
+RASR_TF2_BINARY_PATH.hash_override = "RS_RASR_PATH"
+
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23, hash_overwrite="FH_RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
