@@ -208,7 +208,7 @@ def get_returnn_config(
         network["source"] = {"class": "copy", "from": "features"}
     else:
         if specaug_mask_sorting:
-            network["source"] = specaug_layer_sorted(in_layer=["features"])
+            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"])
         else:
             network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
