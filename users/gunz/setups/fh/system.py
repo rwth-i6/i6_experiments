@@ -947,10 +947,10 @@ class FactoredHybridSystem(NnSystem):
             alignments = alignments.get(net)
         elif isinstance(train_data.alignments, (MultiPath, MultiOutputPath)):
             raise NotImplementedError
-        elif isinstance(train_data.alignments, tk.Path):
+        elif isinstance(train_data.alignments, tk.Path) or train_data.alignments is None:
             alignments = train_data.alignments
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"cannot deal w/ alignments of type {type(train_data.alignments)}")
 
         assert isinstance(returnn_config, returnn.ReturnnConfig)
 
