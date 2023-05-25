@@ -8,10 +8,9 @@ def sort_filters_by_center_freq(x):
     import numpy as np
 
     x = tf.convert_to_tensor(x)  # (Filtersize, 1, Channels)
-
     # implementation similar to scipy.signal.freqz, which uses numpy.polynomial.polynomial.polyval
     filters = tf.transpose(tf.squeeze(x))  # (C, N)
-    num_freqs = 128  # F
+    num_freqs = 512  # F
     w = tf.linspace(0.0, np.pi - np.pi / num_freqs, num_freqs)  # (F,)
     zm1 = tf.expand_dims(tf.exp(-1j * tf.cast(w, "complex64")), 1)  # (F, 1)
     exponents = tf.expand_dims(tf.range(tf.shape(filters)[1]), 0)  # (1, N)
