@@ -117,6 +117,17 @@ def run_test_mel():
                     "increase_epochs": 119, "peak_epochs": 1, "decrease_epochs": 120, "final_epochs": 0,
                 },
             ),
+            "gt40_pe_conf-wei_old-lr": dict(
+                returnn_args={"conformer_type": "wei", **returnn_args},
+                feature_args={
+                    "class": "GammatoneNetwork", "sample_rate": 8000, "freq_max": 3800., "output_dim": 40,
+                    "preemphasis": 1.0,
+                },
+            ),
+            "scf750_conf-wei_old-lr": dict(
+                returnn_args={"conformer_type": "wei", **returnn_args},
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            ),
         },
         num_epochs=300,
         prefix="conformer_bs10k_"
