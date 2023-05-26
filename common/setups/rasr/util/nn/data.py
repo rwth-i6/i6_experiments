@@ -1,4 +1,5 @@
 __all__ = [
+    "RasrDataInput",
     "ReturnnRasrTrainingArgs",
     "ReturnnRasrDataInput",
     "AllophoneLabeling",
@@ -480,13 +481,14 @@ class HdfDataInput:
 
     def get_data_dict(self):
         from returnn_common.datasets import MetaDataset, HDFDataset
+
         align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, **(self.align_args or {}))
         feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
         meta_dataset = MetaDataset(
             data_map={"classes": ("align", "classes"), "data": ("feat", "data")},
             datasets={"align": align_dataset, "feat": feature_dataset},
             seq_order_control_dataset="align",
-            additional_options={"partition_epoch": self.partition_epoch, **(self.meta_args or {})}
+            additional_options={"partition_epoch": self.partition_epoch, **(self.meta_args or {})},
         )
         return meta_dataset
         # return {
