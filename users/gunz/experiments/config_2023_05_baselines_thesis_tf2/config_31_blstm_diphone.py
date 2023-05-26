@@ -170,12 +170,17 @@ def run_single(
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     blstm_size = 512
     network = {
+        "source": {
+            "class": "eval",
+            "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
+            "from": "data",
+        },
         "lstm_bwd_1": {
             "L2": 0.01,
             "class": "rec",
             "direction": -1,
             "dropout": 0.1,
-            "from": ["data"],
+            "from": ["source"],
             "n_out": blstm_size,
             "unit": "nativelstm2",
         },
@@ -229,7 +234,7 @@ def run_single(
             "class": "rec",
             "direction": 1,
             "dropout": 0.1,
-            "from": ["data"],
+            "from": ["source"],
             "n_out": blstm_size,
             "unit": "nativelstm2",
         },
