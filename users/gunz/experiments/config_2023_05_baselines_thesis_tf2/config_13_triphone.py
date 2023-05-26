@@ -99,7 +99,7 @@ def run(returnn_root: tk.Path):
             dc_detection=True,
             decode_all_corpora=True,
             lr="v13",
-            own_priors=True,
+            own_priors=False,
             run_performance_study=False,
             tune_decoding=False,
         ),
@@ -302,7 +302,9 @@ def run_single(
     else:
         s.set_graph_for_experiment("fh")
         s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
-            "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
+            "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
+            if alignment_name == "scratch"
+            else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
 
     best_config = None

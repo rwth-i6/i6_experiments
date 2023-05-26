@@ -123,7 +123,7 @@ def get_init_args(
                 "without_samples": False,
                 "samples_options": samples_options,
                 "normalization_options": {},
-            }
+            },
         },
         "energy": {
             "energy_options": {
