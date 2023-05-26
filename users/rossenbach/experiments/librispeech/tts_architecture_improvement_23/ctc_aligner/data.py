@@ -14,6 +14,7 @@ from i6_experiments.users.rossenbach.datasets.librispeech import get_librispeech
 
 from ..data import (
     get_tts_log_mel_datastream,
+    get_audio_raw_datastream,
     get_bliss_and_zip,
     get_vocab_datastream,
     make_meta_dataset
@@ -36,7 +37,7 @@ def build_training_dataset(
         ls_corpus_key="train-clean-100",
         silence_preprocessed=True,
         partition_epoch=1,
-        center : bool = False) -> AlignmentTrainingDatasets:
+        raw_audio=False) -> AlignmentTrainingDatasets:
     """
 
     :param center: do feature centering
@@ -48,7 +49,7 @@ def build_training_dataset(
     train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=ls_corpus_key)
 
     vocab_datastream = get_vocab_datastream(with_blank=True, corpus_key=ls_corpus_key)
-    log_mel_datastream = get_tts_log_mel_datastream()
+    audio_datastream = get_audio_raw_datastream() if raw_audio else get_tts_log_mel_datastream()
 
     # we currently assume that train and cv share the same corpus file
     speaker_label_job = SpeakerLabelHDFFromBlissJob(
@@ -70,7 +71,7 @@ def build_training_dataset(
 
     train_ogg_dataset = OggZipDataset(
         path=zip_dataset,
-        audio_options=log_mel_datastream.as_returnn_audio_opts(),
+        audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=train_segments,
         partition_epoch=partition_epoch,
@@ -80,7 +81,7 @@ def build_training_dataset(
 
     cv_ogg_dataset = OggZipDataset(
         path=zip_dataset,
-        audio_options=log_mel_datastream.as_returnn_audio_opts(),
+        audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=vocab_datastream.as_returnn_targets_opts(),
         segment_file=cv_segments,
         partition_epoch=1,
@@ -90,7 +91,7 @@ def build_training_dataset(
 
     joint_ogg_zip = OggZipDataset(
         path=zip_dataset,
-        audio_options=log_mel_datastream.as_returnn_audio_opts(),
+        audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=vocab_datastream.as_returnn_targets_opts(),
         partition_epoch=1,
         seq_ordering="sorted",
@@ -100,7 +101,7 @@ def build_training_dataset(
     # ----- final outputs
 
     datastreams = {
-        "audio_features": log_mel_datastream,
+        "audio_features": audio_datastream,
         "phonemes": vocab_datastream,
         "speaker_labels": speaker_datastream,
     }

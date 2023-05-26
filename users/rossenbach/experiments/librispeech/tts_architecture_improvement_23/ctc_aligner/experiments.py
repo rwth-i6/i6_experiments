@@ -5,7 +5,7 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config
+from .config import get_training_config, get_forward_config, get_pt_forward_config
 from .pipeline import ctc_training, ctc_forward
 
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT, RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
@@ -137,7 +137,7 @@ def get_pytorch_ctc_alignment():
             use_custom_engine=use_custom_engine,
             pytorch_mode=True
         )  # implicit reconstruction loss
-        forward_config = get_forward_config(
+        forward_config = get_pt_forward_config(
             returnn_common_root=RETURNN_COMMON,
             forward_dataset=training_datasets.joint,
             datastreams=training_datasets.datastreams,
@@ -194,5 +194,85 @@ def get_pytorch_ctc_alignment():
     #params = copy.deepcopy(params)
     #params["dropout"] = 0.35
     #run_exp(net_module + "_drop035", params, net_module, config)
+
+    return duration_hdf
+
+
+def get_pytorch_raw_ctc_alignment():
+    """
+    Baseline for the ctc aligner in returnn_common with serialization
+
+    Uses updated RETURNN_COMMON
+
+    :return: durations_hdf
+    """
+
+    config = {
+        "optimizer": {"class": "adam", "epsilon": 1e-8},
+        "learning_rate_control": "newbob_multi_epoch",
+        "learning_rate_control_min_num_epochs_per_new_lr": 5,
+        "learning_rate_control_relative_error_relative_lr": True,
+        "learning_rates": [0.001],
+        "gradient_clip": 1.0,
+        "use_learning_rate_control_always": True,
+        "learning_rate_control_error_measure": "dev_ctc",
+        ############
+        "newbob_learning_rate_decay": 0.9,
+        "newbob_multi_num_epochs": 5,
+        "newbob_multi_update_interval": 1,
+        "newbob_relative_error_threshold": 0,
+        #############
+        "batch_size": 56000*16000,
+        "max_seq_length": {"audio_features": 1600*16000},
+        "max_seqs": 200,
+    }
+
+    prefix = "experiments/librispeech/tts_architecture/ctc_aligner/pytorch/"
+    training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True)
+
+    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False):
+        aligner_config = get_training_config(
+            returnn_common_root=RETURNN_COMMON,
+            training_datasets=training_datasets,
+            network_module=net_module,
+            net_args=params,
+            config=config,
+            debug=debug,
+            use_custom_engine=use_custom_engine,
+            pytorch_mode=True
+        )  # implicit reconstruction loss
+        forward_config = get_forward_config(
+            returnn_common_root=RETURNN_COMMON,
+            forward_dataset=training_datasets.joint,
+            datastreams=training_datasets.datastreams,
+            network_module=net_module,
+            net_args=params,
+            pytorch_mode=True
+        )
+        train_job = ctc_training(
+            config=aligner_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name,
+        )
+        duration_hdf = ctc_forward(
+            checkpoint=train_job.out_checkpoints[100],
+            config=forward_config,
+            returnn_exe=RETURNN_PYTORCH_EXE,
+            returnn_root=MINI_RETURNN_ROOT,
+            prefix=prefix + name
+        )
+        return duration_hdf
+
+    net_module = "ctc_aligner_v1_fe"
+    params = {
+        "conv_hidden_size": 256,
+        "lstm_size": 512,
+        "speaker_embedding_size": 256,
+        "dropout": 0.35,
+        "target_size": 44
+    }
+
+    duration_hdf = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
 
     return duration_hdf

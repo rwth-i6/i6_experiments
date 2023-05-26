@@ -3,8 +3,68 @@ import torch
 import numpy
 from torch import nn
 import multiprocessing
+from librosa import filters
+import sys
+import time
 
 from returnn.datasets.hdf import SimpleHDFWriter
+
+
+class DbMelFeatureExtraction(nn.Module):
+
+    def __init__(
+            self,
+            sample_rate,
+            win_size,
+            hop_size,
+            f_min,
+            f_max,
+            min_amp,
+            num_filters,
+            center,
+    ):
+        super().__init__()
+        self.register_buffer("n_fft", torch.tensor(int(win_size * sample_rate)))
+        self.register_buffer("hop_length", torch.tensor(int(hop_size * sample_rate)))
+        self.register_buffer("min_amp", torch.tensor(min_amp))
+        self.center = center
+
+        self.register_buffer("mel_basis", torch.tensor(filters.mel(
+            sr=sample_rate,
+            n_fft=int(sample_rate * win_size),
+            n_mels=num_filters,
+            fmin=f_min,
+            fmax=f_max)))
+        self.register_buffer("window", torch.hann_window(int(win_size * sample_rate)))
+
+    def forward(self, raw_audio, length):
+        """
+
+        :param raw_audio: [B, T]
+        :param length: [B]
+        :return:
+        """
+
+        S = torch.abs(torch.stft(
+            raw_audio,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            window=self.window,
+            center=self.center,
+            pad_mode="constant",
+            return_complex=True,
+        )) ** 2
+        melspec = torch.einsum("...ft,mf->...mt", S, self.mel_basis)
+        melspec = 20 * torch.log10(torch.max(self.min_amp, melspec))
+        feature_data = torch.transpose(melspec, 1, 2)
+
+        if self.center:
+            length = (length // self.hop_length) + 1
+        else:
+            length = ((length - self.n_fft) // self.hop_length) + 1
+
+        return feature_data, length.int()
+
 
 
 class Conv1DBlock(torch.nn.Module):
@@ -54,6 +114,16 @@ class Model(torch.nn.Module):
         **kwargs,
     ):
         super().__init__()
+        self.feature_extracton = DbMelFeatureExtraction(
+            sample_rate=16000,
+            win_size=0.05,
+            hop_size=0.0125,
+            f_min=60,
+            f_max=7600,
+            min_amp=1e-10,
+            num_filters=80,
+            center=True,
+        )
         self.audio_embedding = nn.Linear(80, conv_hidden_size)
         self.speaker_embedding = nn.Embedding(251, speaker_embedding_size)
         self.convs = nn.Sequential(
@@ -89,6 +159,11 @@ class Model(torch.nn.Module):
         :param audio_features_len: length of T as [B]
         :return: logprobs as [B, T, #PHONES]
         """
+
+        squeezed_features = torch.squeeze(audio_features)
+        with torch.no_grad():
+            audio_features, audio_features_len = self.feature_extracton(squeezed_features, audio_features_len)
+
         speaker_embeddings: torch.Tensor = self.speaker_embedding(torch.squeeze(speaker_labels, dim=1))
         # manually broadcast speaker embeddings to each time step
         speaker_embeddings = torch.repeat_interleave(
@@ -110,11 +185,14 @@ class Model(torch.nn.Module):
         logits = self.final_linear(blstm_out)  # [B, T, #PHONES]
         log_probs = torch.log_softmax(logits, dim=2)  # [B, T, #PHONES]
 
-        return log_probs
+        return log_probs, audio_features_len
+        # return audio_features, audio_features_len
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
+
     audio_features = data["audio_features"]  # [B, T, F]
+
     audio_features_len = data["audio_features:size1"]  # [B]
 
     # perform local length sorting for more efficient packing
@@ -125,7 +203,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
 
-    logprobs = model(
+    logprobs, audio_features_len = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len,
         speaker_labels=speaker_labels,
@@ -142,6 +220,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
     num_frames = torch.sum(phonemes_len)
     run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_frames)
+    
+
 
 
 ############# FORWARD STUFF ################
@@ -261,38 +341,39 @@ def forward_finish_hook(run_ctx, **kwargs):
     run_ctx.hdf_writer.close()
 
 
-def forward_step(*, model: Model, data, run_ctx, **kwargs):
-    tags = data["seq_tag"]
-    audio_features = data["audio_features"]  # [B, T, F]
-    audio_features_len = data["audio_features:size1"]  # [B]
-
-    # perform local length sorting for more efficient packing
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-
-    audio_features = audio_features[indices, :, :]
-    phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
-    phonemes_len = data["phonemes:size1"][indices]  # [B, T]
-    speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
-
-    logprobs = model(
-        audio_features=audio_features,
-        audio_features_len=audio_features_len,
-        speaker_labels=speaker_labels,
-    )
-
-    numpy_logprobs = logprobs.detach().cpu().numpy()
-    numpy_phonemes = phonemes.detach().cpu().numpy()
-
-    align_sequences = []
-
-    for single_logprobs, single_phonemes, feat_len, phon_len in zip(
-        numpy_logprobs, numpy_phonemes, audio_features_len, phonemes_len
-    ):
-        align_sequences.append(AlignSequence(single_logprobs[:feat_len], single_phonemes[:phon_len]))
-
-    durations = run_ctx.pool.map(extract_durations_with_dijkstra, align_sequences)
-    for tag, duration, feat_len, phon_len in zip(tags, durations, audio_features_len, phonemes_len):
-        total_sum = numpy.sum(duration)
-        assert total_sum == feat_len
-        assert len(duration) == phon_len
-        run_ctx.hdf_writer.insert_batch(numpy.asarray([duration]), [len(duration)], [tag])
+# def forward_step(*, model: Model, data, run_ctx, **kwargs):
+#     tags = data["seq_tag"]
+#     audio_features = data["audio_features"]  # [B, T, F]
+#     audio_features_len = data["audio_features:size1"]  # [B]
+#
+#     # perform local length sorting for more efficient packing
+#     audio_features_len, indices = torch.sort(audio_features_len, descending=True)
+#
+#     audio_features = audio_features[indices, :, :]
+#     phonemes = data["phonemes"][indices, :]  # [B, T] (sparse)
+#     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
+#     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
+#
+#     logprobs = model(
+#         audio_features=audio_features,
+#         audio_features_len=audio_features_len,
+#         speaker_labels=speaker_labels,
+#     )
+#
+#     numpy_logprobs = logprobs.detach().cpu().numpy()
+#     numpy_phonemes = phonemes.detach().cpu().numpy()
+#
+#     align_sequences = []
+#
+#     for single_logprobs, single_phonemes, feat_len, phon_len in zip(
+#         numpy_logprobs, numpy_phonemes, audio_features_len, phonemes_len
+#     ):
+#         align_sequences.append(AlignSequence(single_logprobs[:feat_len], single_phonemes[:phon_len]))
+#
+#     durations = run_ctx.pool.map(extract_durations_with_dijkstra, align_sequences)
+#     for tag, duration, feat_len, phon_len in zip(tags, durations, audio_features_len, phonemes_len):
+#         total_sum = numpy.sum(duration)
+#         assert total_sum == feat_len
+#         assert len(duration) == phon_len
+#         run_ctx.hdf_writer.insert_batch(numpy.asarray([duration]), [len(duration)], [tag])
+#
