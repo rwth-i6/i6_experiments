@@ -269,7 +269,12 @@ def run_single(
         returnn_config=returnn_config,
     )
 
-    train_args = {**s.initial_train_args, "num_epochs": num_epochs, "returnn_config": copy.deepcopy(train_cfg)}
+    train_args = {
+        **s.initial_train_args,
+        "num_epochs": num_epochs,
+        "partition_epochs": partition_epochs,
+        "returnn_config": copy.deepcopy(train_cfg),
+    }
     s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
