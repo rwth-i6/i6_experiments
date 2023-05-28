@@ -47,12 +47,11 @@ def _mask(x, batch_axis, axis, pos, max_amount, sorted_indices=None):
     cond = tf.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
+    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     if sorted_indices is not None:
         inverse_permutation = tf.argsort(sorted_indices)
-        cond = tf.gather(cond, inverse_permutation, axis=axis)
-    cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
+        cond = tf.gather(cond, inverse_permutation, axis=axis)   
     from TFUtil import where_bc
-
     x = where_bc(cond, 0.0, x)
     return x
 
@@ -116,7 +115,7 @@ def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
 
-    filter_layer = network.layers["features"].output.placeholder
+    filter_layer = network.layers["conv_h_filter"].output.placeholder
     sorted_idce = sort_filters_by_center_freq(filter_layer)
     # summary("features", x)
     step = network.global_train_step

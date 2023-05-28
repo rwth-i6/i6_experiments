@@ -208,6 +208,8 @@ def get_returnn_config(
     else:
         if specaug_mask_sorting:
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"])
+            network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+            network["source"] = {"class": "copy", "from": "features"}
         else:
             network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
