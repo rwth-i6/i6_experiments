@@ -418,7 +418,9 @@ def run_single(
         epoch=keep_epochs[-2],
         output_layer_name="output",
         smoothen=True,
-        returnn_config=prior_returnn_config,
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(
+            prior_returnn_config, except_layers=["pastLabel"]
+        ),
         via_hdf=True,
     )
 
