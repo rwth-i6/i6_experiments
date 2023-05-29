@@ -83,7 +83,7 @@ def run(returnn_root: tk.Path):
                 multitask=False,
                 subsampling_factor=3,
             )
-            for bw_label_scale in [0.3, 1.0]
+            for bw_label_scale in [0.3]
         ),
         *(
             Experiment(
@@ -95,7 +95,7 @@ def run(returnn_root: tk.Path):
                 multitask=False,
                 subsampling_factor=4,
             )
-            for bw_label_scale in [0.3, 1.0]
+            for bw_label_scale in [0.3]
         ),
     ]
     experiments = {
