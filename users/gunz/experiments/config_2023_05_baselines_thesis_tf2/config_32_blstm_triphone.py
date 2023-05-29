@@ -34,6 +34,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_triphone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
+from ...setups.fh.priors import smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -397,11 +398,12 @@ def run_single(
         )
     else:
         s.set_graph_for_experiment("fh")
-        s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
+        prior_info = PriorInfo.from_triphone_job(
             "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
             if alignment_name == "scratch_daniel"
             else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
+        s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
