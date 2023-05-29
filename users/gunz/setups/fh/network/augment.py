@@ -585,10 +585,21 @@ def augment_net_with_triphone_outputs(
     return network
 
 
-def remove_label_pops_and_losses(network: typing.Union["returnn.ReturnnConfig", Network]) -> Network:
+def remove_label_pops_and_losses(
+    network: typing.Union["returnn.ReturnnConfig", Network], except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> Network:
     network = copy.copy(network)
 
-    for k in ["centerPhoneme", "stateId", "centerState", "pastLabel", "popFutureLabel", "futureLabel", "classes_"]:
+    layers_to_pop = {
+        "centerPhoneme",
+        "stateId",
+        "centerState",
+        "pastLabel",
+        "popFutureLabel",
+        "futureLabel",
+        "classes_",
+    } - set(except_layers or None)
+    for k in layers_to_pop:
         network.pop(k, None)
 
     for layer in network.values():
@@ -600,9 +611,11 @@ def remove_label_pops_and_losses(network: typing.Union["returnn.ReturnnConfig", 
     return network
 
 
-def remove_label_pops_and_losses_from_returnn_config(cfg: returnn.ReturnnConfig) -> returnn.ReturnnConfig:
+def remove_label_pops_and_losses_from_returnn_config(
+    cfg: returnn.ReturnnConfig, except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> returnn.ReturnnConfig:
     cfg = copy.deepcopy(cfg)
-    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"])
+    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
 
     for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
         cfg.config["extern_data"].pop(k, None)
