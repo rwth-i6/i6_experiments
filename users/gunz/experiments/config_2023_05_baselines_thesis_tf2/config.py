@@ -9,6 +9,9 @@ CART_TREE_TRI_NUM_LABELS = "/work/asr3/raissi/shared_workspaces/gunz/dependencie
 
 RAISSI_ALIGNMENT = "/work/asr4/raissi/setups/librispeech/960-ls/work/i6_core/mm/alignment/AlignmentJob.hK21a0UU4iiJ/output/alignment.cache.bundle"
 SCRATCH_ALIGNMENT = (
+    "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/10ms/alignment.cache.bundle"
+)
+SCRATCH_ALIGNMENT_DANIEL = (
     "/u/mgunz/gunz/dependencies/alignments/ls-960/scratch/daniel-with-dc-detection/alignment.cache.bundle"
 )
 

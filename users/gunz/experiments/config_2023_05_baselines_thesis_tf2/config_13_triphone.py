@@ -51,6 +51,7 @@ from .config import (
     RASR_ROOT_TF2,
     RETURNN_PYTHON_TF2_12,
     SCRATCH_ALIGNMENT,
+    SCRATCH_ALIGNMENT_DANIEL,
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
@@ -80,6 +81,7 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
+    scratch_align_daniel = tk.Path(SCRATCH_ALIGNMENT_DANIEL, cached=True)
     tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
 
     configs = [
@@ -96,6 +98,16 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
+            dc_detection=True,
+            decode_all_corpora=True,
+            lr="v13",
+            own_priors=True,
+            run_performance_study=False,
+            tune_decoding=True,
+        ),
+        Experiment(
+            alignment=scratch_align_daniel,
+            alignment_name="scratch_daniel",
             dc_detection=True,
             decode_all_corpora=True,
             lr="v13",
@@ -136,7 +148,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-ep:{num_epochs}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
