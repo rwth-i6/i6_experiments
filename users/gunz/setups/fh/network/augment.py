@@ -598,7 +598,7 @@ def remove_label_pops_and_losses(
         "popFutureLabel",
         "futureLabel",
         "classes_",
-    } - set(except_layers or None)
+    } - set(except_layers or [])
     for k in layers_to_pop:
         network.pop(k, None)
 
