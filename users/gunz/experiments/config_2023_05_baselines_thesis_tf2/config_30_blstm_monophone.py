@@ -42,7 +42,7 @@ from .config import (
     CONF_SA_CONFIG,
     FROM_SCRATCH_CV_INFO,
     L2,
-    RAISSI_ALIGNMENT,
+    GMM_TRI_ALIGNMENT,
     RASR_ARCH,
     RASR_ROOT_TF2,
     RETURNN_PYTHON_TF2_12,
@@ -76,7 +76,7 @@ def run(returnn_root: tk.Path):
 
     scratch_align = tk.Path(SCRATCH_ALIGNMENT, cached=True)
     scratch_align_daniel = tk.Path(SCRATCH_ALIGNMENT_DANIEL, cached=True)
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
+    tri_gmm_align = tk.Path(GMM_TRI_ALIGNMENT, cached=True)
 
     configs = [
         Experiment(

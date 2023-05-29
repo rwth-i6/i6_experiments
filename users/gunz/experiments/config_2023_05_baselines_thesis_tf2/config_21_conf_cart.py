@@ -37,7 +37,7 @@ from .config import (
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
-    RAISSI_ALIGNMENT,
+    GMM_TRI_ALIGNMENT,
     RASR_ARCH,
     RASR_ROOT_TF2,
     RETURNN_PYTHON_TF2_12,
@@ -55,7 +55,7 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    tri_gmm_align = tk.Path(RAISSI_ALIGNMENT, cached=True)
+    tri_gmm_align = tk.Path(GMM_TRI_ALIGNMENT, cached=True)
 
     for (n_phones, cart_tree, cart_num_labels, lr) in [
         (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v13"),
