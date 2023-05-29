@@ -82,7 +82,7 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
-            dc_detection=True,
+            dc_detection=False,
             lr="v13",
             run_performance_study=False,
             tune_decoding=False,

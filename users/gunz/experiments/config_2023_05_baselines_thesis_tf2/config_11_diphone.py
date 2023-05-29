@@ -98,7 +98,7 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             batch_size=12500,
-            dc_detection=True,
+            dc_detection=False,
             decode_all_corpora=True,
             lr="v13",
             run_performance_study=False,
