@@ -94,7 +94,7 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             dc_detection=True,
             lr="v13",
-            own_priors=False,
+            own_priors=True,
             tune_decoding=False,
         ),
         Experiment(
