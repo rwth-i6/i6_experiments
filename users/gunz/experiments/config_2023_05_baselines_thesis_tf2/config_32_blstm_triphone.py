@@ -158,7 +158,7 @@ def run_single(
         test_data=test_data_inputs,
     )
     s.train_key = train_key
-    if alignment_name == "scratch":
+    if alignment_name == "scratch_daniel":
         s.cv_info = FROM_SCRATCH_CV_INFO
     s.run(steps)
 
@@ -171,7 +171,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=alignment_name == "scratch",
+        is_cv_separate_from_train=alignment_name == "scratch_daniel",
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )
@@ -399,7 +399,7 @@ def run_single(
         s.set_graph_for_experiment("fh")
         s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
             "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
-            if alignment_name == "scratch"
+            if alignment_name == "scratch_daniel"
             else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
         )
 

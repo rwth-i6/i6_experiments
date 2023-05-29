@@ -154,7 +154,7 @@ def run_single(
         test_data=test_data_inputs,
     )
     s.train_key = train_key
-    if alignment_name == "scratch":
+    if alignment_name == "scratch_daniel":
         s.cv_info = FROM_SCRATCH_CV_INFO
     s.run(steps)
 
@@ -167,7 +167,7 @@ def run_single(
 
     s.set_crp_pairings()
     s.set_rasr_returnn_input_datas(
-        is_cv_separate_from_train=alignment_name == "scratch",
+        is_cv_separate_from_train=alignment_name == "scratch_daniel",
         input_key="data_preparation",
         chunk_size=CONF_CHUNKING,
     )
