@@ -7,6 +7,9 @@ from dataclasses import asdict
 from .data import build_training_dataset
 from .config import get_training_config, get_forward_config, get_pt_forward_config
 from .pipeline import ctc_training, ctc_forward
+from ..data import get_tts_log_mel_datastream
+
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT, RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
 from ..storage import add_duration
@@ -207,6 +210,7 @@ def get_pytorch_raw_ctc_alignment():
     :return: durations_hdf
     """
 
+    samples_per_frame = int(16000*0.0125)
     config = {
         "optimizer": {"class": "adam", "epsilon": 1e-8},
         "learning_rate_control": "newbob_multi_epoch",
@@ -222,8 +226,8 @@ def get_pytorch_raw_ctc_alignment():
         "newbob_multi_update_interval": 1,
         "newbob_relative_error_threshold": 0,
         #############
-        "batch_size": 56000*16000,
-        "max_seq_length": {"audio_features": 1600*16000},
+        "batch_size": 56000*samples_per_frame,
+        "max_seq_length": {"audio_features": 1600*samples_per_frame},
         "max_seqs": 200,
     }
 
@@ -265,13 +269,40 @@ def get_pytorch_raw_ctc_alignment():
         return duration_hdf
 
     net_module = "ctc_aligner_v1_fe"
+    log_mel_datastream = get_tts_log_mel_datastream()
+
+    # verify that normalization exists
+    assert "norm_mean" in log_mel_datastream.additional_options
+    assert "norm_std_dev" in log_mel_datastream.additional_options
+
+    norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
+
+    from ..pytorch_networks.ctc_aligner_v1_fe import DbMelFeatureExtractionConfig, Config
+    assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
+    fe_config = DbMelFeatureExtractionConfig(
+        sample_rate=log_mel_datastream.options.sample_rate,
+        win_size=log_mel_datastream.options.window_len,
+        hop_size=log_mel_datastream.options.step_len,
+        f_min=log_mel_datastream.options.feature_options.fmin,
+        f_max=log_mel_datastream.options.feature_options.fmax,
+        min_amp=log_mel_datastream.options.feature_options.min_amp,
+        num_filters=log_mel_datastream.options.num_feature_filters,
+        center=log_mel_datastream.options.feature_options.center,
+        norm=norm
+    )
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        target_size=44,
+        feature_extraction_config=fe_config,
+    )
+
     params = {
-        "conv_hidden_size": 256,
-        "lstm_size": 512,
-        "speaker_embedding_size": 256,
-        "dropout": 0.35,
-        "target_size": 44
+        "config": asdict(model_config)
     }
+
 
     duration_hdf = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
 
