@@ -45,13 +45,15 @@ from .config import (
     FROM_SCRATCH_CV_INFO,
     L2,
     RASR_ARCH,
+    RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
     RETURNN_PYTHON_TF2_12,
     SCRATCH_ALIGNMENT,
     SCRATCH_ALIGNMENT_DANIEL,
 )
 
-RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
+RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
+RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
@@ -282,14 +284,18 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_args = {**s.initial_train_args, "num_epochs": num_epochs}
-    train_job = s.returnn_rasr_training_via_hdf(
+    train_args = {
+        **s.initial_train_args,
+        "returnn_config": returnn_config,
+        "num_epochs": num_epochs,
+        "partition_epochs": partition_epochs,
+    }
+    train_job = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        returnn_config=returnn_config,
-        partition_epochs=partition_epochs,
+        on_2080=False,
     )
     # Joint softmax is memory hungry
     train_job.rqmt["gpu_mem"] = 16
@@ -303,7 +309,6 @@ def run_single(
         output_layer_name="output",
         smoothen=True,
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
-        via_hdf=True,
     )
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
@@ -315,6 +320,8 @@ def run_single(
     tying_cfg.type = "diphone-no-tying-dense"
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.diphone,

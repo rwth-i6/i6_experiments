@@ -39,11 +39,13 @@ from .config import (
     CONF_SA_CONFIG,
     GMM_TRI_ALIGNMENT,
     RASR_ARCH,
+    RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
     RETURNN_PYTHON_TF2_12,
 )
 
-RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
+RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
+RASR_TF_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF2")
 RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
@@ -220,15 +222,18 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "tri" if n_cart_phones == 3 else "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_args = {**s.initial_train_args, "mem_rqmt": 16, "num_epochs": num_epochs}
-    train_j = s.returnn_rasr_training_via_hdf(
+    train_args = {
+        **s.initial_train_args,
+        "returnn_config": returnn_config,
+        "num_epochs": num_epochs,
+        "partition_epochs": partition_epochs,
+    }
+    train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
-        returnn_config=returnn_config,
-        partition_epochs=partition_epochs,
-        num_tied_classes=n_cart_out,
+        on_2080=False,
     )
     if n_cart_phones == 3:
         # Triphone CART is memory hungry
@@ -243,7 +248,6 @@ def run_single(
         output_layer_name="output",
         smoothen=True,
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        via_hdf=True,
     )
 
     decoding_config = copy.deepcopy(returnn_config)
@@ -257,6 +261,8 @@ def run_single(
         layer.pop("loss_opts", None)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+
         s.recognize_cart(
             key="fh",
             epoch=ep,
