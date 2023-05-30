@@ -55,7 +55,9 @@ def build_hdf_data_input(
         },
         "seq_list_filter_file": segment_list,
     }
-    align_hdf = ReturnnDumpHDFJob(align_dataset, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
+    align_hdf = ReturnnDumpHDFJob(
+        align_dataset, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    ).out_hdf
 
     return HdfDataInput(features=feat_hdf, alignments=align_hdf)
 
