@@ -86,16 +86,6 @@ def run(returnn_root: tk.Path):
 
     configs = [
         Experiment(
-            alignment=tri_gmm_align,
-            alignment_name="GMMtri",
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            multitask=True,
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
-        Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=False,
