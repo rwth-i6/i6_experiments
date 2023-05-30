@@ -320,7 +320,7 @@ def run_single(
     tying_cfg.type = "diphone-no-tying-dense"
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",

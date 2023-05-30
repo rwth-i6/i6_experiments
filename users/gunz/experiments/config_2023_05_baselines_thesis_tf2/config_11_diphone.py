@@ -318,7 +318,7 @@ def run_single(
 
     best_config = None
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -365,7 +365,7 @@ def run_single(
 
     if decode_all_corpora:
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
-            s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
@@ -444,7 +444,7 @@ def run_single(
     tying_cfg.type = "diphone-no-tying-dense"
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",

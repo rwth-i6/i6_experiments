@@ -261,7 +261,7 @@ def run_single(
         layer.pop("loss_opts", None)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        s.set_binaries_for_crp(crp_k, RASR_ROOT_TF2)
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.recognize_cart(
             key="fh",
