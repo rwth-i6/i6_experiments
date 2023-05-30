@@ -322,7 +322,10 @@ def run_single(
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
-        for cfg in [recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4)]:
+        for cfg in [
+            recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4),
+            recog_args.with_prior_scale(0.2, 0.1).with_tdp_scale(0.4),
+        ]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
