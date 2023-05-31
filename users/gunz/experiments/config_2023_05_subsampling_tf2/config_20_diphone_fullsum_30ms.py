@@ -267,6 +267,7 @@ def run_single(
     returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
     )
+    returnn_config.config["network"]["bw-loss"]["loss_opts"].pop("loss_wrt_to_act_in")  # do not expect a real softmax
 
     s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
