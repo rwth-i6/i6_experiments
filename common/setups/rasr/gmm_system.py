@@ -295,6 +295,7 @@ class GmmSystem(RasrSystem):
             )
 
         state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key]["state_tying"] = state_tying_job
         tk.register_output(
             "{}_{}_state_tying".format(corpus_key, name),
             state_tying_job.out_state_tying,

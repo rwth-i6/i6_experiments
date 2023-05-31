@@ -450,8 +450,8 @@ class OggZipHdfDataInput:
 class HdfDataInput:
     def __init__(
         self,
-        features: List[tk.Path],
-        alignments: List[tk.Path],
+        features: Union[tk.Path, List[tk.Path]],
+        alignments: Union[tk.Path, List[tk.Path]],
         partition_epoch: int = 1,
         seq_ordering: str = "laplace:.1000",
         *,
