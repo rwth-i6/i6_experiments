@@ -441,7 +441,7 @@ def run_single(
     s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
 
     tying_cfg = rasr.RasrConfig()
-    tying_cfg.type = "diphone-no-tying-dense"
+    tying_cfg.type = "diphone-dense"
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
