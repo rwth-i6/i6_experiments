@@ -134,7 +134,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"conf-2-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -268,7 +268,7 @@ def run_single(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=False
     )
 
-    s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_cfg = baum_welch.augment_for_fast_bw(
