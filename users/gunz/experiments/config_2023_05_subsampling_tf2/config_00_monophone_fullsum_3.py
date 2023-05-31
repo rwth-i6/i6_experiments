@@ -65,7 +65,6 @@ class Experiment:
     subsampling_factor: int
 
     focal_loss: float = CONF_FOCAL_LOSS
-    load_checkpoints_from: typing.Optional[tk.Path] = None
 
 
 def run(returnn_root: tk.Path):
@@ -81,10 +80,6 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=10 / 1000,
-                load_checkpoints_from=tk.Path(
-                    "/work/asr3/raissi/shared_workspaces/gunz/2023-04--tf2-test/i6_core/returnn/rasr_training/ReturnnRasrTrainingJob.VCpoKNt0hEnb/output/models/epoch",
-                    cached=True,
-                ),
                 lr="v6",
                 multitask=False,
                 subsampling_factor=3,
@@ -97,10 +92,6 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=7.5 / 1000,
-                load_checkpoints_from=tk.Path(
-                    "/work/asr3/raissi/shared_workspaces/gunz/2023-04--tf2-test/i6_core/returnn/rasr_training/ReturnnRasrTrainingJob.H7cR9kHZLjwK/output/models/epoch",
-                    cached=True,
-                ),
                 lr="v6",
                 multitask=False,
                 subsampling_factor=4,
@@ -115,7 +106,6 @@ def run(returnn_root: tk.Path):
             dc_detection=exp.dc_detection,
             feature_time_shift=exp.feature_time_shift,
             focal_loss=exp.focal_loss,
-            load_checkpoints_from=exp.load_checkpoints_from,
             lr=exp.lr,
             multitask=exp.multitask,
             returnn_root=returnn_root,
@@ -137,7 +127,6 @@ def run_single(
     lr: str,
     multitask: bool,
     returnn_root: tk.Path,
-    load_checkpoints_from: typing.Optional[tk.Path],
     subsampling_factor: int,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
@@ -232,7 +221,6 @@ def run_single(
         "batch_size": 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
-        "load": load_checkpoints_from,
         "log_batch_size": True,
         "tf_log_memory_usage": True,
         "cache_size": "0",
