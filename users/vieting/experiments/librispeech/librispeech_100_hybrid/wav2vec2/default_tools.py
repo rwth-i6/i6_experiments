@@ -15,6 +15,9 @@ RASR_BINARY_PATH_U22.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 RASR_BINARY_PATH_APPTEK_APPTAINER = tk.Path("/work/asr4/rossenbach/rescale/pytorch_mixed_precision/onnx_extended_rasr/arch/linux-x86_64-standard")
 RASR_BINARY_PATH_APPTEK_APPTAINER.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
 
+RASR_BINARY_PATH_ONNX_APPTAINER = tk.Path("/work/asr4/vieting/programs/rasr/20230531/rasr/arch/linux-x86_64-standard")
+RASR_BINARY_PATH_ONNX_APPTAINER.hash_overwrite = "LIBRISPEECH_DEFAULT_RASR_BINARY_PATH"
+
 RETURNN_EXE = tk.Path("/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 RETURNN_DATA_ROOT = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn",
                                           commit="37ba06ab2697e7af4de96037565fdf4f78acdb80").out_repository
