@@ -17,7 +17,7 @@ def build_hdf_data_input(
     allophone_labeling: AllophoneLabeling,
     alignments: tk.Path,
     segment_list: Optional[tk.Path] = None,
-    name: Optional[str] = None,
+    alias_prefix: Optional[str] = None,
 ):
 
     feat_dataset = {
@@ -83,6 +83,7 @@ def get_corpus_data_inputs(
     gmm_system: GmmSystem,
     feature_extraction_args: Dict[str, Any],
     feature_extraction_class: Callable[[Any], FeatureExtractionJob],
+    alias_prefix: Optional[str] = None,
 ) -> Tuple[
     Dict[str, HdfDataInput],
     Dict[str, HdfDataInput],
@@ -156,27 +157,27 @@ def get_corpus_data_inputs(
         features=train_features["gt"],
         alignments=gmm_system.outputs["train"]["final"].as_returnn_rasr_data_input().alignments.alternatives["bundle"],
         allophone_labeling=allophone_labeling,
-        name="test/nn_train_data_inputs",
+        alias_prefix=alias_prefix,
     )
-    tk.register_output("test/nn_train_data/features", nn_train_data.features)
-    tk.register_output("test/nn_train_data/alignments", nn_train_data.alignments)
+    tk.register_output(f"{alias_prefix}/nn_train_data/features", nn_train_data.features)
+    tk.register_output(f"{alias_prefix}/nn_train_data/alignments", nn_train_data.alignments)
     nn_devtrain_data = build_hdf_data_input(
         features=devtrain_features["gt"],
         alignments=gmm_system.outputs["train"]["final"].as_returnn_rasr_data_input().alignments.alternatives["bundle"],
         allophone_labeling=allophone_labeling,
         segment_list=devtrain_segments,
-        name="test/nn_devtrain_data",
+        alias_prefix=alias_prefix,
     )
-    tk.register_output("test/nn_devtrain_data/features", nn_devtrain_data.features)
-    tk.register_output("test/nn_devtrain_data/alignments", nn_devtrain_data.alignments)
+    tk.register_output(f"{alias_prefix}/nn_devtrain_data/features", nn_devtrain_data.features)
+    tk.register_output(f"{alias_prefix}/nn_devtrain_data/alignments", nn_devtrain_data.alignments)
     nn_cv_data = build_hdf_data_input(
         features=cv_features["gt"],
         alignments=gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["bundle"],
         allophone_labeling=allophone_labeling,
-        name="test/nn_cv_data",
+        alias_prefix=alias_prefix,
     )
-    tk.register_output("test/nn_cv_data/features", nn_cv_data.features)
-    tk.register_output("test/nn_cv_data/alignments", nn_cv_data.alignments)
+    tk.register_output(f"{alias_prefix}/nn_cv_data/features", nn_cv_data.features)
+    tk.register_output(f"{alias_prefix}/nn_cv_data/alignments", nn_cv_data.alignments)
 
     nn_train_data_inputs = {
         "train.train": nn_train_data,
