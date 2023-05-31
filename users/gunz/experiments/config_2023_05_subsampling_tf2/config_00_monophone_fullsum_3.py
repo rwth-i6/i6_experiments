@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import typing
 from dataclasses import dataclass
 import itertools
 
@@ -18,7 +19,6 @@ from i6_core import rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.common.nn.cache_epilog import hdf_dataset_cache_epilog
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -28,7 +28,6 @@ from ...setups.common.nn.specaugment import (
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
-from ...setups.fh.network import extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
@@ -66,6 +65,7 @@ class Experiment:
     subsampling_factor: int
 
     focal_loss: float = CONF_FOCAL_LOSS
+    load_checkpoints_from: typing.Optional[tk.Path] = None
 
 
 def run(returnn_root: tk.Path):
@@ -81,6 +81,10 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=10 / 1000,
+                load_checkpoints_from=tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/2023-04--tf2-test/i6_core/returnn/rasr_training/ReturnnRasrTrainingJob.VCpoKNt0hEnb/output/models/epoch",
+                    cached=True,
+                ),
                 lr="v6",
                 multitask=False,
                 subsampling_factor=3,
@@ -93,6 +97,10 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=7.5 / 1000,
+                load_checkpoints_from=tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/2023-04--tf2-test/i6_core/returnn/rasr_training/ReturnnRasrTrainingJob.H7cR9kHZLjwK/output/models/epoch",
+                    cached=True,
+                ),
                 lr="v6",
                 multitask=False,
                 subsampling_factor=4,
@@ -128,6 +136,7 @@ def run_single(
     lr: str,
     multitask: bool,
     returnn_root: tk.Path,
+    load_checkpoints_from: typing.Optional[tk.Path],
     subsampling_factor: int,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
@@ -222,6 +231,7 @@ def run_single(
         "batch_size": 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
+        "load": load_checkpoints_from,
         "log_batch_size": True,
         "tf_log_memory_usage": True,
         "cache_size": "0",
