@@ -54,6 +54,8 @@ def augment_for_fast_bw(
         layer.pop("loss_opts", None)
 
     if log_linear_scales.label_prior_scale:
+        # We are creating a standard hybrid HMM w/ priors in training
+
         assert label_prior is not None, "Hybrid HMM needs a transcription based prior for fullsum training"
 
         # Here we are creating a standard hybrid HMM, without prior we have a posterior HMM
@@ -78,6 +80,8 @@ def augment_for_fast_bw(
 
         inputs = comb_name
     else:
+        # We are creating a posterior HMM (P-HMM)
+
         comb_name = f"{layer_prefix}multiply-scale-{from_output_softmax_layer}"
         network[comb_name] = {
             "class": "combine",
