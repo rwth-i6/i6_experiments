@@ -115,6 +115,7 @@ def run(returnn_root: tk.Path):
             dc_detection=exp.dc_detection,
             feature_time_shift=exp.feature_time_shift,
             focal_loss=exp.focal_loss,
+            load_checkpoints_from=exp.load_checkpoints_from,
             lr=exp.lr,
             multitask=exp.multitask,
             returnn_root=returnn_root,
