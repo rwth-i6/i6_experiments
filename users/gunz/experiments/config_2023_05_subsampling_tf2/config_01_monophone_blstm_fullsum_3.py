@@ -18,7 +18,6 @@ from i6_core import rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.common.nn.cache_epilog import hdf_dataset_cache_epilog
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -26,9 +25,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
-from ...setups.fh.network import extern_data
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
@@ -45,7 +42,7 @@ from .config import (
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
-    RETURNN_PYTHON_TF2_12,
+    RETURNN_PYTHON_TF2_12
 )
 
 RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
@@ -134,7 +131,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"blstm-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -191,27 +188,150 @@ def run_single(
     partition_epochs = {"train": 40, "dev": 1}
 
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
-    network_builder = conformer.get_best_model_config(
-        conf_model_dim,
-        chunking=CONF_CHUNKING,
-        focal_loss_factor=CONF_FOCAL_LOSS,
-        label_smoothing=CONF_LABEL_SMOOTHING,
-        num_classes=s.label_info.get_n_of_dense_classes(),
-        time_tag_name=time_tag_name,
-        upsample_by_transposed_conv=False,
-        feature_stacking_size=subsampling_factor,
-    )
-    network = network_builder.network
+    blstm_size = conf_model_dim
+    network = {
+        "source": {
+            "class": "eval",
+            "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
+            "from": "data",
+        },
+        "feature_stacking": {
+            "class": "window",
+            "from": "source",
+            "stride": subsampling_factor,
+            "window_left": subsampling_factor - 1,
+            "window_right": 0,
+            "window_size": subsampling_factor,
+        },
+        "feature_stacking_merged": {
+            "axes": (2, 3),
+            "class": "merge_dims",
+            "from": ["feature_stacking"],
+        },
+        "lstm_bwd_1": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["feature_stacking_merged"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_bwd_2": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_1", "lstm_bwd_1"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_bwd_3": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_2", "lstm_bwd_2"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_bwd_4": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_3", "lstm_bwd_3"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_bwd_5": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_4", "lstm_bwd_4"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_bwd_6": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": -1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_5", "lstm_bwd_5"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_1": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["feature_stacking_merged"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_2": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_1", "lstm_bwd_1"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_3": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_2", "lstm_bwd_2"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_4": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_3", "lstm_bwd_3"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_5": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_4", "lstm_bwd_4"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "lstm_fwd_6": {
+            "L2": 0.01,
+            "class": "rec",
+            "direction": 1,
+            "dropout": 0.1,
+            "from": ["lstm_fwd_5", "lstm_bwd_5"],
+            "n_out": blstm_size,
+            "unit": "nativelstm2",
+        },
+        "encoder-output": {
+            "class": "copy",
+            "from": ["lstm_fwd_6", "lstm_bwd_6"],
+            "n_out": 2 * blstm_size,
+        },
+    }
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
-        encoder_output_len=conf_model_dim,
+        encoder_output_len=2 * blstm_size,
         final_ctx_type=PhoneticContext.triphone_forward,
         focal_loss_factor=focal_loss,
         l2=L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
-        use_multi_task=multitask,
+        use_multi_task=False,
     )
     network["center-output"]["n_out"] = s.label_info.get_n_state_classes()
 
@@ -235,7 +355,7 @@ def run_single(
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
         },
     }
-    keep_epochs = [400, 550, num_epochs]
+    keep_epochs = [458, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
