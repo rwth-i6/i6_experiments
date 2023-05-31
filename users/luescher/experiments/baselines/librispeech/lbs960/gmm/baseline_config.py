@@ -9,8 +9,8 @@ from sisyphus import gs
 
 import i6_core.rasr as rasr
 
-from i6_experiments.users.luescher.setups.rasr.gmm_system import GmmSystem
-import i6_experiments.users.luescher.setups.rasr.util as rasr_util
+from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
+import i6_experiments.common.setups.rasr.util as rasr_util
 
 # ******************** (relative) imports for files that should be copied for new setups ********************
 
@@ -19,7 +19,7 @@ from i6_experiments.users.luescher.experiments.baselines.librispeech.default_too
 from . import baseline_args
 
 
-def run_librispeech_960_gmm_baseline():
+def run_librispeech_960_gmm_baseline(add_unknown: bool = True):
     # ******************** Settings ********************
 
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
@@ -31,7 +31,7 @@ def run_librispeech_960_gmm_baseline():
 
     rasr_init_args = baseline_args.get_init_args()
     mono_args = baseline_args.get_monophone_args()
-    cart_args = baseline_args.get_cart_args(max_leaves=9001, add_unknown=True)
+    cart_args = baseline_args.get_cart_args(max_leaves=9001, add_unknown=add_unknown)
     tri_args = baseline_args.get_triphone_args()
     vtln_args = baseline_args.get_vtln_args()
     sat_args = baseline_args.get_sat_args()

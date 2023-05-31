@@ -32,9 +32,13 @@ from i6_experiments.common.datasets.librispeech.cart import (
 )
 from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
-# -------------------- helpers --------------------
-# -------------------- functions --------------------
+# -------------------- flags --------------------
 
+USE_CORRECTED_APPLICATOR = False
+
+# -------------------- helpers --------------------
+
+# -------------------- functions --------------------
 
 def get_init_args(
     *,
@@ -98,7 +102,6 @@ def get_init_args(
         "tdp_transition": tdp_transition,  # loop, forward, skip, exit
         "tdp_silence": tdp_silence,  # loop, forward, skip, exit
         "tdp_nonword": tdp_nonword,  # only used when tying_type = global-and-nonword
-        "use_corrected_fsa": True,
     }
     if am_extra_args is not None:
         am_args.update(am_extra_args)
@@ -208,6 +211,7 @@ def get_monophone_args(
         "minimum_speech_proportion": 0.7,
         "save_alignment": False,
         "keep_accumulators": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "extra_merge_args": None,
         "extra_config": None,
         "extra_post_config": None,
@@ -221,6 +225,7 @@ def get_monophone_args(
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     monophone_recognition_args = {
@@ -339,6 +344,7 @@ def get_triphone_args(
         "feature_flow": feature_flow,
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
@@ -425,6 +431,7 @@ def get_vtln_args(
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": f"{feature_flow}+vtln",
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
             "accumulate_extra_rqmt": {"mem": 8},
             "align_extra_rqmt": {"mem": 8},
             "split_extra_rqmt": {"mem": 8},
@@ -503,6 +510,7 @@ def get_sat_args(
         "cache_regex": f"^{feature_base_cache}.*$",
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 8},
         "align_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
@@ -590,6 +598,7 @@ def get_vtln_sat_args(
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 8},
         "align_extra_rqmt": {"mem": 8},
         "split_extra_rqmt": {"mem": 8},
@@ -706,6 +715,7 @@ def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Option
             "normalize_pronunciation": False,
         },
         dump_alignment=True,
+        # use_corrected_applicator=True,
     )
 
 

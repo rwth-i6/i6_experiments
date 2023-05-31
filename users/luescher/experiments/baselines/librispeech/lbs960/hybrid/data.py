@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple, Type
+from typing import Any, Callable, Dict, Tuple, Type, Union
 from enum import Enum
 
 from sisyphus import tk
@@ -46,7 +46,7 @@ def get_corpora_for_hybrid_training(
     all_dev_clean_segments = corpus_recipe.SegmentCorpusJob(dev_clean_corpus_path, 1).out_single_segment_files[1]
     all_dev_other_segments = corpus_recipe.SegmentCorpusJob(dev_other_corpus_path, 1).out_single_segment_files[1]
 
-    dev_train_size = 500 / total_train_num_segments
+    dev_train_size = 300 / total_train_num_segments
     cv_clean_size = 150 / total_dev_clean_num_segments
     cv_other_size = 150 / total_dev_other_num_segments
 
@@ -88,16 +88,16 @@ def get_corpora_for_hybrid_training(
         "corpora": (train_corpus_path, cv_corpus_path, devtrain_corpus_path),
         "segments": (all_train_segments, cv_segments, devtrain_segments),
         "durations": (
-            gmm_system.crp["train"].corpus_duration,
+            gmm_system.crp["train-other-960"].corpus_duration,
             cv_clean_size * gmm_system.crp["dev-clean"].corpus_duration
             + cv_other_size * gmm_system.crp["dev-other"].corpus_duration,
-            dev_train_size * gmm_system.crp["train"].corpus_duration,
+            dev_train_size * gmm_system.crp["train-other-960"].corpus_duration,
         ),
     }
 
 
 def dump_features_for_hybrid_training(
-    gmm_system: GmmSystem, feature_extraction_args: Dict[str, Any], feature_extraction_class: Type[FeatureExtractionJob]
+    gmm_system: GmmSystem, feature_extraction_args: Dict[str, Any], feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob]
 ) -> Tuple[Dict[int, tk.Path], Dict[int, tk.Path], Dict[int, tk.Path]]:
     features = {}
     for name in ["nn-train", "nn-cv", "nn-devtrain"]:
@@ -159,7 +159,7 @@ def dump_alignments_into_hdf(
 def get_corpus_data_inputs(
     gmm_system: GmmSystem,
     feature_extraction_args: Dict[str, Any],
-    feature_extraction_class: Type[FeatureExtractionJob],
+    feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob],
 ) -> Tuple[
     Dict[str, HdfDataInput],
     Dict[str, HdfDataInput],
@@ -188,19 +188,19 @@ def get_corpus_data_inputs(
     train_segments, cv_segments, devtrain_segments = corpora_segments_dict["segments"]
     train_durations, cv_durations, devtrain_durations = corpora_segments_dict["durations"]
 
-    gmm_system.add_overlay("train", "nn-train")
+    gmm_system.add_overlay("train-other-960", "nn-train")
     gmm_system.add_overlay("dev-other", "nn-cv")
-    gmm_system.add_overlay("train", "nn-devtrain")
+    gmm_system.add_overlay("train-other-960", "nn-devtrain")
 
     gmm_system.crp["nn-train"].segment_path = train_segments
     gmm_system.crp["nn-train"].concurrent = 1
 
-    gmm_system.crp["nn-cv"].corpus_config = cv_corpus_path
+    gmm_system.crp["nn-cv"].corpus_config.file = cv_corpus_path
     gmm_system.crp["nn-cv"].segment_path = cv_segments
     gmm_system.crp["nn-cv"].corpus_duration = cv_durations
     gmm_system.crp["nn-cv"].concurrent = 1
 
-    gmm_system.crp["nn-devtrain"].corpus_config = devtrain_corpus_path
+    gmm_system.crp["nn-devtrain"].corpus_config.file = devtrain_corpus_path
     gmm_system.crp["nn-devtrain"].segment_path = devtrain_segments
     gmm_system.crp["nn-devtrain"].corpus_duration = devtrain_durations
     gmm_system.crp["nn-devtrain"].concurrent = 1
@@ -225,6 +225,10 @@ def get_corpus_data_inputs(
     cv_feat_hdf = dump_features_into_hdf(cv_features, allophone_labeling, cv_segments)
     devtrain_feat_hdf = dump_features_into_hdf(devtrain_features, allophone_labeling, devtrain_segments)
 
+    tk.register_output("train.feat.hdf", train_feat_hdf)
+    tk.register_output("cv.feat.hdf", cv_feat_hdf)
+    tk.register_output("devtrain.feat.hdf", devtrain_feat_hdf)
+
     # ******************** dump alignments ********************
 
     train_alignments = devtrain_alignments = (
@@ -237,18 +241,24 @@ def get_corpus_data_inputs(
     forced_align_args = get_align_dev_args(name="nn-cv", target_corpus_keys=["nn-cv"])
     gmm_system.run_forced_align_step(forced_align_args)
 
-    dev_clean_alignments = gmm_system.alignments["dev-clean"]["nn-cv"].alternatives["task_dependent"].hidden_paths
-    dev_other_alignments = gmm_system.alignments["dev-other"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+    cv_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
 
-    cv_alignments: Dict[str, tk.Path] = {}
-    for k, v in dev_clean_alignments.items():
-        cv_alignments[f"dev-clean-{k}"] = v
-    for k, v in dev_other_alignments.items():
-        cv_alignments[f"dev-other-{k}"] = v
+#    dev_clean_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+#    dev_other_alignments = gmm_system.alignments["dev-other"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+#
+#    cv_alignments: Dict[str, tk.Path] = {}
+#    for k, v in dev_clean_alignments.items():
+#        cv_alignments[f"dev-clean-{k}"] = v
+#    for k, v in dev_other_alignments.items():
+#        cv_alignments[f"dev-other-{k}"] = v
 
     train_align_hdf = dump_alignments_into_hdf(train_alignments, allophone_labeling, train_segments)
     cv_align_hdf = dump_alignments_into_hdf(cv_alignments, allophone_labeling, cv_segments)
     devtrain_align_hdf = dump_alignments_into_hdf(devtrain_alignments, allophone_labeling, devtrain_segments)
+
+    tk.register_output("train.align.hdf", train_align_hdf)
+    tk.register_output("cv.align.hdf", cv_align_hdf)
+    tk.register_output("devtrain.align.hdf", devtrain_align_hdf)
 
     train_nn_data = HdfDataInput(
         [train_feat_hdf],

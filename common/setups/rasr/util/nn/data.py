@@ -619,4 +619,5 @@ AllowedReturnnTrainingDataInput = Union[
     OggZipHdfDataInput,
     NextGenHdfDataInput,
     ReturnnRawAlignmentHdfTrainingDataInput,
+    HdfDataInput,
 ]

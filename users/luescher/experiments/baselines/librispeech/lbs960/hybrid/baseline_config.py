@@ -2,6 +2,7 @@ import copy
 from sisyphus import gs, tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
+from i6_core.features import GammatoneJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
@@ -27,7 +28,7 @@ def run_gmm_system():
         run_librispeech_960_gmm_baseline,
     )
 
-    system = run_librispeech_960_gmm_baseline()
+    system = run_librispeech_960_gmm_baseline(add_unknown=True)
     return system
 
 
@@ -38,8 +39,8 @@ def run_librispeech_960_hybrid_baseline():
 
     gmm_system = run_gmm_system()
 
-    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    rasr_init_args.feature_extraction_args = get_feature_extraction_args()
+    rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)  # TODO own function?
+    feat_args = get_feature_extraction_args()["gt"]
 
     (
         nn_train_data_inputs,
@@ -47,7 +48,7 @@ def run_librispeech_960_hybrid_baseline():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs(gmm_system)
+    ) = get_corpus_data_inputs(gmm_system, feat_args, GammatoneJob)
 
     nn_args = None
 
@@ -62,7 +63,7 @@ def run_librispeech_960_hybrid_baseline():
         "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
         hash_overwrite="TF23_MKL_BLAS",
     )
-
+    """
     lbs_nn_system = HybridSystem(
         returnn_root=RETURNN_RC_ROOT,
         returnn_python_exe=returnn_exe,
@@ -75,10 +76,10 @@ def run_librispeech_960_hybrid_baseline():
         train_data=nn_train_data_inputs,
         cv_data=nn_cv_data_inputs,
         devtrain_data=nn_devtrain_data_inputs,
-        dev_data=nn_dev_data_inputs,
-        test_data=nn_test_data_inputs,
+        dev_data={},  # # nn_dev_data_inputs,
+        test_data={},  # nn_test_data_inputs,
         train_cv_pairing=[tuple(["train-other-960.train", "dev-clean-other.cv"])],
     )
     lbs_nn_system.run(nn_steps)
-
+    """
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
