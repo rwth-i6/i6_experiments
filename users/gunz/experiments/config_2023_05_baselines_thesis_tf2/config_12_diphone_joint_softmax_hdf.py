@@ -82,14 +82,6 @@ def run(returnn_root: tk.Path):
 
     configs = [
         Experiment(
-            alignment=scratch_align,
-            alignment_name="scratch",
-            dc_detection=False,
-            lr="v13",
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
-        Experiment(
             alignment=scratch_align_daniel,
             alignment_name="scratch_daniel",
             dc_detection=True,
