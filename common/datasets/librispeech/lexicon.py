@@ -10,7 +10,7 @@ from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 
 @lru_cache()
-def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping=True):
+def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = True) -> lexicon.Lexicon:
     """
     Generate the special lemmas for LibriSpeech
 
