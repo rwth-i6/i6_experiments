@@ -292,6 +292,7 @@ def run_single(
         smoothen=True,
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
     )
+    s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
