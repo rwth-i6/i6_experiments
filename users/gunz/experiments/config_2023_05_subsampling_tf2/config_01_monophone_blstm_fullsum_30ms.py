@@ -406,17 +406,13 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
-
-    return
-
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        via_hdf=True,
+        returnn_config=returnn_config,
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
@@ -432,7 +428,7 @@ def run_single(
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
 
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [True, False], [0.1, 0.2]):
+        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [False], [0.1, 0.2]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
 
             if tdp_simple:
@@ -448,45 +444,6 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 rtf_cpu=4,
-            )
-
-        for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd), tdp_scale in itertools.product(
-            itertools.product([0.0, 3.0], [0.0, 3.0]),
-            itertools.product([0.0, 3.0], [0.0, 3.0]),
-            [0.1, 0.2, 0.4],
-        ):
-            sil_non_w_tdp = (tdp_sil_loop, tdp_sil_fwd, "infinity", 20.0)
-            cfg = dataclasses.replace(
-                recog_args,
-                tdp_non_word=sil_non_w_tdp,
-                tdp_silence=sil_non_w_tdp,
-                tdp_speech=(tdp_sp_loop, tdp_sp_fwd, "infinity", 0.0),
-                tdp_scale=tdp_scale,
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
-                calculate_stats=True,
-                rtf_cpu=4,
-            )
-
-        if tune_decoding:
-            best_config = recognizer.recognize_optimize_scales(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                prior_scales=np.linspace(0.3, 0.8, 6),
-                tdp_scales=[0.1, 0.2],
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                name_override="best/4gram",
             )
 
     return s
