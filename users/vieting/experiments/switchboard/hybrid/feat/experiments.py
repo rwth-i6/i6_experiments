@@ -208,8 +208,31 @@ def run_baseline_scf():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
+def run_specaug_scf():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
+
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "scf": dict(
+                returnn_args=dict(batch_size=7000, specaug_mask_sorting=True),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            )
+        },
+        prefix="conformer_bs14k_specaug_sorted_",
+        num_epochs=260,
+    )
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+
+    hybrid_nn_system = get_hybrid_nn_system(context_window=249)
+    hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+
 
 def run_all():
     run_baseline_gt()
     run_baseline_mel()
     run_baseline_scf()
+    run_specaug_scf()

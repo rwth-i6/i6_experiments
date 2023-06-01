@@ -74,7 +74,9 @@ def _export_lexicon(output_prefix: str = "datasets"):
     bliss_lexicon = get_bliss_lexicon(output_prefix=output_prefix)
     tk.register_output(os.path.join(lexicon_output_prefix, "tedlium2.lexicon.xml.gz"), bliss_lexicon)
 
-    g2p_bliss_lexicon = get_g2p_augmented_bliss_lexicon(output_prefix=output_prefix)
+    g2p_bliss_lexicon = get_g2p_augmented_bliss_lexicon(
+        add_unknown_phoneme_and_mapping=False, output_prefix=output_prefix
+    )
     tk.register_output(
         os.path.join(lexicon_output_prefix, "tedlium2.lexicon_with_g2p.xml.gz"),
         g2p_bliss_lexicon,

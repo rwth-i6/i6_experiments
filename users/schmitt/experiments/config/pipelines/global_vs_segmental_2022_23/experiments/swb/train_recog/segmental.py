@@ -24,8 +24,9 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
           retrain_load_checkpoint: bool = False,
           retrain_reset_lr: bool = True,
           retrain_choose_best_alignment: bool = False,
-          import_model_do_initial_realignment: bool = False,
-          import_model_is_global: bool = False,
+          import_model_initial_realignment: Optional[Checkpoint] = None,
+          import_model_initial_realignment_alias: Optional[str] = None,
+          import_model_initial_realignment_is_global: bool = False,
           **kwargs):
     super().__init__(dependencies=dependencies, **kwargs)
 
@@ -49,19 +50,20 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     self.retrain_reset_lr = retrain_reset_lr
     self.retrain_choose_best_alignment = retrain_choose_best_alignment
 
-    assert not import_model_do_initial_realignment or self.import_model_train_epoch1 is not None, "Doing an initial realignment when not importing a model won't work"
-    self.import_model_do_initial_realignment = import_model_do_initial_realignment
+    assert not import_model_initial_realignment or type(import_model_initial_realignment_alias) == str
+    self.import_model_initial_realignment = import_model_initial_realignment
+    self.import_model_initial_realignment_alias = import_model_initial_realignment_alias
 
-    assert not import_model_is_global or self.import_model_train_epoch1 is not None, "Setting 'import_model_is_global' does not have an effect when not importing a model"
-    self.import_model_is_global = import_model_is_global
+    assert not import_model_initial_realignment_is_global or self.import_model_initial_realignment is not None, "Setting 'import_model_initial_realignment_is_global' does not have an effect when not importing a model"
+    self.import_model_initial_realignment_is_global = import_model_initial_realignment_is_global
 
     self.base_alias = self._get_base_alias(base_alias=self.base_alias)
 
   def _get_base_alias(self, base_alias) -> str:
     base_alias = super()._get_base_alias(base_alias=base_alias)
 
-    if self.import_model_do_initial_realignment:
-      base_alias = "%s_initial_realignment" % base_alias
+    if self.import_model_initial_realignment:
+      base_alias = "%s_initial-realignment-%s" % (base_alias, self.import_model_initial_realignment_alias)
 
       if self.retrain_choose_best_alignment:
         base_alias += "_choose-best-alignment"
@@ -304,17 +306,17 @@ class SegmentalTrainRecogPipeline(TrainRecogPipeline):
     return retrain_alias
 
   def run(self):
-    if self.import_model_do_initial_realignment:
+    if self.import_model_initial_realignment:
       for corpus_key in ("cv", "train"):
         self.alignments["train"][corpus_key] = self._get_realignment(
           corpus_key=corpus_key,
-          checkpoint=self.import_model_train_epoch1,
+          checkpoint=self.import_model_initial_realignment,
           length_scale=self.realignment_length_scale,
           epoch=self.num_epochs[-1],
           train_alias="import_model",
           choose_best_alignment=self.retrain_choose_best_alignment,
           previous_alignment=self.dependencies.alignment_paths[corpus_key],
-          remove_length_model=self.import_model_is_global)
+          remove_length_model=self.import_model_initial_realignment_is_global)
 
     train_alias = "train"
     self.checkpoints["train"], lr_file_path = self.run_training(

@@ -4,6 +4,7 @@ import numpy as np
 from typing import List, Dict, Any
 
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.tools.git import CloneGitRepositoryJob
 from i6_experiments.common.setups.rasr.util import HybridArgs
 
 from i6_experiments.common.setups.serialization import Import, ExplicitHash, ExternalImport
@@ -102,7 +103,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "parallelize_conversion": True,
             "needs_features_size": False,
             "training_whitelist": [
-                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa"],
+                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa", "i6_models_conformer_block"],
         },
         "dev-other-dynqant": {
             "epochs": evaluation_epochs,
@@ -258,7 +259,6 @@ def get_pytorch_returnn_configs(
             pytorch_model,
         ]
         if use_espnet:
-            from i6_core.tools.git import CloneGitRepositoryJob
             espnet_path = CloneGitRepositoryJob(
                 url="https://github.com/espnet/espnet",
                 checkout_folder_name="espnet"
@@ -266,7 +266,13 @@ def get_pytorch_returnn_configs(
             espnet_path.hash_overwrite = "DEFAULT_ESPNET"
             serializer_objects.insert(0, ExternalImport(espnet_path))
         if use_i6_models:
-            i6_models = Import("i6_models.i6_models")
+            i6_models_repo = CloneGitRepositoryJob(
+                url="https://github.com/rwth-i6/i6_models",
+                commit="83af04d84f6a223a980f0bed8db6d2d1466dd690",
+                checkout_folder_name="i6_models"
+            ).out_repository
+            i6_models_repo.hash_overwrite = "LIBRISPEECH_DEFAULT_I6_MODELS"
+            i6_models = ExternalImport(import_path=i6_models_repo)
             serializer_objects.append(i6_models)
         if use_custom_engine:
             pytorch_engine = Import(
@@ -314,6 +320,7 @@ def get_pytorch_returnn_configs(
         "torchaudio_conformer_subup_medium": construct_from_net_kwargs(medium_lr_config, {"model_type": "torchaudio_conformer_subsample_upsample"}, use_tracing=True),#
         "torchaudio_conformer_v2_subx2_lchunk": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large"}, use_tracing=True),#
         "torchaudio_conformer_v2_subx2_lchunk_nomhsa": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large_nomhsa"}, use_tracing=True),#
+        "i6_models_conformer_block": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "i6_models_conformer_block_subup"}, use_tracing=True, use_i6_models=True),#
         # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
         # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
         "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#
@@ -322,6 +329,6 @@ def get_pytorch_returnn_configs(
         # "espnet_conformer_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_test"}, use_espnet=True),
         # "espnet_conformer_large_highlr": construct_from_net_kwargs(high_lr_config, {"model_type": "espnet_conformer_large"},
         #                                                    use_espnet=True),
-        "i6_models_conformer_subsampling_upsampling": construct_from_net_kwargs(medium_lchunk_config, {
-            "model_type": "i6_models_conformer_subsampling_upsampling"}, use_tracing=True, use_i6_models=True),  #
+        #"i6_models_conformer_subsampling_upsampling": construct_from_net_kwargs(medium_lchunk_config, {
+        #    "model_type": "i6_models_conformer_subsampling_upsampling"}, use_tracing=True, use_i6_models=True),  #
     }

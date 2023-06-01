@@ -80,6 +80,7 @@ def get_pytorch_serializer(
         network_module: str,
         net_args: Dict[str, Any],
         use_custom_engine=False,
+        forward=False,
         debug=False,
         **kwargs
 ) -> TorchCollection:
@@ -101,6 +102,19 @@ def get_pytorch_serializer(
         pytorch_train_step,
         pytorch_model,
     ]
+    if forward:
+        forward_step = Import(
+            package + ".%s.forward_step" % network_module
+        )
+        init_hook = Import(
+            package + ".%s.forward_init_hook" % network_module
+        )
+        finish_hook = Import(
+            package + ".%s.forward_finish_hook" % network_module
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
     if use_custom_engine:
         pytorch_engine = Import(
             package + ".%s.CustomEngine" % network_module

@@ -27,6 +27,9 @@ def ctc_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
         hdf_outputs=[],
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
+        device="cpu",
+        cpu_rqmt=8,
+        mem_rqmt=8,
     )
     last_forward_job.add_alias(prefix + "/forward")
     alignment_hdf = last_forward_job.out_hdf_files["output.hdf"]

@@ -118,7 +118,7 @@ class RasrSystem(meta.System):
         self.jobs[corpus_key]["segment_corpus"] = segm_corpus_job
 
     @tk.block()
-    def _init_lm(self, corpus_key: str, filename: Path, type: str, scale: int, **kwargs):
+    def _init_lm(self, corpus_key: str, filename: Path, type: str, scale: Optional[int] = None, **kwargs):
         """
         TODO: docstring
 
@@ -132,7 +132,8 @@ class RasrSystem(meta.System):
         self.crp[corpus_key].language_model_config = rasr.RasrConfig()
         self.crp[corpus_key].language_model_config.type = type
         self.crp[corpus_key].language_model_config.file = filename
-        self.crp[corpus_key].language_model_config.scale = scale
+        if scale is not None:
+            self.crp[corpus_key].language_model_config.scale = scale
 
     @tk.block()
     def _init_lexicon(self, corpus_key: str, filename: Path, normalize_pronunciation: bool, **kwargs):

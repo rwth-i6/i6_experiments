@@ -10,6 +10,8 @@ from sisyphus import gs, tk
 from sisyphus.hash import sis_hash_helper
 from sisyphus.delayed_ops import DelayedBase
 
+from i6_core.util import instanciate_delayed
+
 from ..serialization import SerializerObject
 
 
@@ -52,7 +54,7 @@ class PyTorchModel(SerializerObject):
         """get"""
         return string.Template(self.TEMPLATE).substitute(
             {
-                "MODEL_KWARGS": str(self.model_kwargs),
+                "MODEL_KWARGS": str(instanciate_delayed(self.model_kwargs)),
                 "MODEL_CLASS": self.model_class_name,
             }
         )

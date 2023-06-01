@@ -205,7 +205,7 @@ class AudioFeatureDatastream(Datastream):
             config={"train": extraction_dataset.as_returnn_opts()}
         )
         extract_dataset_statistics_job = ExtractDatasetMeanStddevJob(
-            extraction_config, returnn_python_exe, returnn_root
+            extraction_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
         )
         extract_dataset_statistics_job.add_alias(
             os.path.join(alias_path, "extract_dataset_statistics_job")

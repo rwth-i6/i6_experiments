@@ -22,6 +22,10 @@ from .specaug_jingjing import (
     specaug_layer_jingjing,
     get_funcs_jingjing,
 )
+from .specaug_sorted import ( 
+    specaug_layer_sorted,
+    get_funcs_sorted,
+)
 
 RECUSRION_LIMIT = """
 import sys
@@ -170,6 +174,7 @@ def get_returnn_config(
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
+    specaug_mask_sorting: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -201,10 +206,19 @@ def get_returnn_config(
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
     else:
-        network["source"] = specaug_layer_jingjing(in_layer=["features"])
+        if specaug_mask_sorting:
+            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"])
+            network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+            network["source"] = {"class": "copy", "from": "features"}
+        else:
+            network["source"] = specaug_layer_jingjing(in_layer=["features"])
+
         network = fix_network_for_sparse_output(network)
 
-    prolog = get_funcs_jingjing()
+    if specaug_mask_sorting:
+        prolog = get_funcs_sorted()
+    else:
+        prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {

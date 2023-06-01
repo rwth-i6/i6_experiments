@@ -13,17 +13,23 @@ from i6_experiments.users.vieting.experiments.librispeech.librispeech_100_attent
     build_training_datasets, build_test_dataset, training, search, search_single, get_average_checkpoint_v2
 )
 from i6_experiments.users.vieting.tools.conda import InstallMinicondaJob, CreateCondaEnvJob
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.data import get_corpus_data_inputs
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.configs.legacy_baseline import get_nn_args, get_feature_extraction_args
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.configs.rc_baseline import get_nn_args as get_rc_nn_args
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.data import (
+    get_corpus_data_inputs,
+    get_corpus_data_inputs_newcv,
+    get_corpus_data_inputs_newcv_hdf,
+)
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.configs.legacy_baseline import (
+    get_feature_extraction_args
+)
+from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.gmm_baseline import (
+    run_librispeech_100_common_baseline
+)
 from .configs.config_01_baseline import get_nn_args as get_pytorch_nn_args
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.default_tools import RETURNN_RC_ROOT, RASR_BINARY_PATH_U22, RASR_BINARY_PATH_APPTEK_APPTAINER
-
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.data import  get_corpus_data_inputs_newcv, get_corpus_data_inputs_newcv_hdf
+from .default_tools import RASR_BINARY_PATH_ONNX_APPTAINER
+from .onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
 
 
 def run_gmm_system():
-    from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.gmm_baseline import run_librispeech_100_common_baseline
     flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
     system = run_librispeech_100_common_baseline(
         extract_additional_rasr_features={"samples": {"feature_flow": flow}}
@@ -49,8 +55,6 @@ def get_ls100_oggzip_hdf_data():
         data_type=np.int16,
         returnn_root=returnn_root,
     )
-    # import ipdb
-    # ipdb.set_trace()
 
     ogg_zip_dict = get_ogg_zip_dict(returnn_python_exe=returnn_exe, returnn_root=returnn_root)
     ogg_zip_base_args = dict(
@@ -83,8 +87,7 @@ def get_ls100_oggzip_hdf_data():
 
 
 def run_hybrid_baseline_pytorch():
-    from i6_experiments.users.rossenbach.common_setups.rasr.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
-    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/common_baseline_pytorch'
+    gs.ALIAS_AND_OUTPUT_SUBDIR = 'experiments/librispeech/librispeech_100_hybrid/wav2vec2'
 
     gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
@@ -133,9 +136,9 @@ def run_hybrid_baseline_pytorch():
 
     # returnn_root = tk.Path("/u/rossenbach/src/returnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
     returnn_root = tk.Path("/u/vieting/testing/returnn", hash_overwrite="LIBRISPEECH_DEFAULT_RETURNN_ROOT")
-    lbs_nn_system = PyTorchOnnxHybridSystem(
+    lbs_nn_system = OnnxPrecomputedHybridSystem(
         returnn_root=returnn_root, returnn_python_exe=returnn_exe, blas_lib=blas_lib, rasr_arch="linux-x86_64-standard",
-        rasr_binary_path=RASR_BINARY_PATH_APPTEK_APPTAINER)
+        rasr_binary_path=RASR_BINARY_PATH_ONNX_APPTAINER)
 
     data = get_ls100_oggzip_hdf_data()
     (

@@ -285,6 +285,17 @@ def get_tts_log_mel_datastream() -> AudioFeatureDatastream:
     return audio_datastream
 
 
+from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import ReturnnAudioRawOptions, AudioRawDatastream
+
+@lru_cache()
+def get_audio_raw_datastream():
+    audio_datastream = AudioRawDatastream(
+        available_for_inference=True,
+        options=ReturnnAudioRawOptions(peak_normalization=False, preemphasis=0.97)
+    )
+    return audio_datastream
+
+
 def get_lexicon(with_blank: bool = False, corpus_key="train-clean-100") -> tk.Path:
     """
     Get the TTS/CTC lexicon

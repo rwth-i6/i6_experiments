@@ -3,8 +3,98 @@ import torch
 import numpy
 from torch import nn
 import multiprocessing
+from librosa import filters
+import sys
+import time
+from typing import Any, Dict, Optional, Tuple, Union
 
-from returnn.datasets.hdf import SimpleHDFWriter
+
+
+@dataclass
+class DbMelFeatureExtractionConfig():
+    """
+
+    :param sample_rate: audio sample rate in Hz
+    :param win_size: window size in seconds
+    :param hop_size: window shift in seconds
+    :param f_min: minimum mel filter frequency in Hz
+    :param f_max: maximum mel fitler frequency in Hz
+    :param min_amp: minimum amplitude for safe log
+    :param num_filters: number of mel windows
+    :param center: centered STFT with automatic padding
+    :param norm: tuple optional of mean & std_dev for feature normalization
+    """
+    sample_rate: int
+    win_size: float
+    hop_size: float
+    f_min: int
+    f_max: int
+    min_amp: float
+    num_filters: int
+    center: bool
+    norm: Optional[Tuple[float, float]] = None
+
+    @classmethod
+    def from_dict(cls, d):
+        return DbMelFeatureExtractionConfig(**d)
+
+
+class DbMelFeatureExtraction(nn.Module):
+
+    def __init__(
+            self,
+            config: DbMelFeatureExtractionConfig
+    ):
+        super().__init__()
+        self.register_buffer("n_fft", torch.tensor(int(config.win_size * config.sample_rate)))
+        self.register_buffer("hop_length", torch.tensor(int(config.hop_size * config.sample_rate)))
+        self.register_buffer("min_amp", torch.tensor(config.min_amp))
+        self.center = config.center
+        if config.norm is not None:
+            self.apply_norm = True
+            self.register_buffer("norm_mean", torch.tensor(config.norm[0]))
+            self.register_buffer("norm_std_dev", torch.tensor(config.norm[1]))
+        else:
+            self.apply_norm = False
+
+        self.register_buffer("mel_basis", torch.tensor(filters.mel(
+            sr=config.sample_rate,
+            n_fft=int(config.sample_rate * config.win_size),
+            n_mels=config.num_filters,
+            fmin=config.f_min,
+            fmax=config.f_max)))
+        self.register_buffer("window", torch.hann_window(int(config.win_size * config.sample_rate)))
+
+    def forward(self, raw_audio, length) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param raw_audio: [B, T]
+        :param length in samples: [B]
+        :return features as [B,T,F] and length in frames [B]
+        """
+
+        S = torch.abs(torch.stft(
+            raw_audio,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            window=self.window,
+            center=self.center,
+            pad_mode="constant",
+            return_complex=True,
+        )) ** 2
+        melspec = torch.einsum("...ft,mf->...mt", S, self.mel_basis)
+        melspec = 20 * torch.log10(torch.max(self.min_amp, melspec))
+        feature_data = torch.transpose(melspec, 1, 2)
+
+        if self.apply_norm:
+            feature_data = (feature_data - self.norm_mean) / self.norm_std_dev
+
+        if self.center:
+            length = (length // self.hop_length) + 1
+        else:
+            length = ((length - self.n_fft) // self.hop_length) + 1
+
+        return feature_data, length.int()
+
 
 
 class Conv1DBlock(torch.nn.Module):
@@ -39,6 +129,22 @@ class Conv1DBlock(torch.nn.Module):
         return x
 
 
+@dataclass
+class Config:
+    conv_hidden_size: int
+    lstm_size: int
+    speaker_embedding_size: int
+    dropout: float
+    target_size: int
+    feature_extraction_config: DbMelFeatureExtractionConfig
+
+    @classmethod
+    def from_dict(cls, d):
+        d = d.copy()
+        d["feature_extraction_config"] = DbMelFeatureExtractionConfig.from_dict(d["feature_extraction_config"])
+        return Config(**d)
+
+
 class Model(torch.nn.Module):
     """
     Default TTS aligner with 5 convolution blocks of size 5 followed by a BLSTM
@@ -46,28 +152,29 @@ class Model(torch.nn.Module):
 
     def __init__(
         self,
-        conv_hidden_size: int,
-        lstm_size: int,
-        speaker_embedding_size: int,
-        dropout: float,
-        target_size: int,
+        config: Union[Config, Dict[str, Any]],
         **kwargs,
     ):
+        if isinstance(config, dict):
+            config = Config.from_dict(config)
         super().__init__()
-        self.audio_embedding = nn.Linear(80, conv_hidden_size)
-        self.speaker_embedding = nn.Embedding(251, speaker_embedding_size)
+        self.feature_extracton = DbMelFeatureExtraction(config=config.feature_extraction_config)
+
+        self.audio_embedding = nn.Linear(80, config.conv_hidden_size)
+        self.speaker_embedding = nn.Embedding(251, config.speaker_embedding_size)
         self.convs = nn.Sequential(
-            Conv1DBlock(conv_hidden_size + speaker_embedding_size, conv_hidden_size, filter_size=5, dropout=dropout),
-            Conv1DBlock(conv_hidden_size, conv_hidden_size, filter_size=5, dropout=dropout),
-            Conv1DBlock(conv_hidden_size, conv_hidden_size, filter_size=5, dropout=dropout),
-            Conv1DBlock(conv_hidden_size, conv_hidden_size, filter_size=5, dropout=dropout),
-            Conv1DBlock(conv_hidden_size, conv_hidden_size, filter_size=5, dropout=dropout),
+            Conv1DBlock(config.conv_hidden_size + config.speaker_embedding_size, config.conv_hidden_size,
+                        filter_size=5, dropout=config.dropout),
+            Conv1DBlock(config.conv_hidden_size, config.conv_hidden_size, filter_size=5, dropout=config.dropout),
+            Conv1DBlock(config.conv_hidden_size, config.conv_hidden_size, filter_size=5, dropout=config.dropout),
+            Conv1DBlock(config.conv_hidden_size, config.conv_hidden_size, filter_size=5, dropout=config.dropout),
+            Conv1DBlock(config.conv_hidden_size, config.conv_hidden_size, filter_size=5, dropout=config.dropout),
         )
-        self.blstm = nn.LSTM(input_size=conv_hidden_size, hidden_size=lstm_size, bidirectional=True, batch_first=True)
-        self.final_linear = nn.Linear(2 * lstm_size, target_size)
-        self.lstm_size = lstm_size
-        self.target_size = target_size
-        self.dropout = dropout
+        self.blstm = nn.LSTM(input_size=config.conv_hidden_size, hidden_size=config.lstm_size, bidirectional=True, batch_first=True)
+        self.final_linear = nn.Linear(2 * config.lstm_size, config.target_size)
+        self.lstm_size = config.lstm_size
+        self.target_size = config.target_size
+        self.dropout = config.dropout
 
         # initialize weights
         self.apply(self._weight_init)
@@ -89,6 +196,11 @@ class Model(torch.nn.Module):
         :param audio_features_len: length of T as [B]
         :return: logprobs as [B, T, #PHONES]
         """
+
+        squeezed_features = torch.squeeze(audio_features)
+        with torch.no_grad():
+            audio_features, audio_features_len = self.feature_extracton(squeezed_features, audio_features_len)
+
         speaker_embeddings: torch.Tensor = self.speaker_embedding(torch.squeeze(speaker_labels, dim=1))
         # manually broadcast speaker embeddings to each time step
         speaker_embeddings = torch.repeat_interleave(
@@ -110,11 +222,14 @@ class Model(torch.nn.Module):
         logits = self.final_linear(blstm_out)  # [B, T, #PHONES]
         log_probs = torch.log_softmax(logits, dim=2)  # [B, T, #PHONES]
 
-        return log_probs
+        return log_probs, audio_features_len
+        # return audio_features, audio_features_len
 
 
 def train_step(*, model: Model, data, run_ctx, **kwargs):
+
     audio_features = data["audio_features"]  # [B, T, F]
+
     audio_features_len = data["audio_features:size1"]  # [B]
 
     # perform local length sorting for more efficient packing
@@ -125,7 +240,7 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
 
-    logprobs = model(
+    logprobs, audio_features_len = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len,
         speaker_labels=speaker_labels,
@@ -142,6 +257,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     )
     num_frames = torch.sum(phonemes_len)
     run_ctx.mark_as_loss(name="ctc", loss=ctc_loss, inv_norm_factor=num_frames)
+    
+
 
 
 ############# FORWARD STUFF ################
@@ -253,6 +370,7 @@ def extract_durations_with_dijkstra(sequence: AlignSequence) -> np.array:
 def forward_init_hook(run_ctx, **kwargs):
     # we are storing durations, but call it output.hdf to match
     # the default output of the ReturnnForwardJob
+    from returnn.datasets.hdf import SimpleHDFWriter
     run_ctx.hdf_writer = SimpleHDFWriter("output.hdf", dim=None, ndim=1)
     run_ctx.pool = multiprocessing.Pool(8)
 
@@ -274,7 +392,7 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"][indices]  # [B, T]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
 
-    logprobs = model(
+    logprobs, audio_features_len = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len,
         speaker_labels=speaker_labels,
