@@ -202,6 +202,8 @@ def run_single(
         label_smoothing=CONF_LABEL_SMOOTHING,
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
+        upsample_by_transposed_conv=False,
+        feature_stacking_size=subsampling_factor,
     )
     network = network_builder.network
     network = augment_net_with_monophone_outputs(
