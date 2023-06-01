@@ -93,7 +93,7 @@ def get_monophone_args():
         "name": "mono",
         "feature_flow": "mfcc+deriv+norm",
         "feature_energy_flow_key": "energy,mfcc+deriv+norm",
-        "align_iter": 75,
+        "align_iter": 35,
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
