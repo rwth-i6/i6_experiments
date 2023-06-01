@@ -19,7 +19,7 @@ def run_gmm_system():
     system = run_librispeech_100_common_baseline(rasr_binary_path=RASR_BINARY_PATH_ONNX_APPTAINER)
     flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
     system.extract_features(
-        feat_args={"samples": {"feature_flow": flow}},
+        feat_args={"samples": {"feature_flow": flow, "port_name": "samples"}},
         corpus_list=system.dev_corpora + system.test_corpora,
     )
     return system
