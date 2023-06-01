@@ -307,6 +307,14 @@ def run_single(
         returnn_config=returnn_config,
     )
 
+    nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+        returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
+    )
+    s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+
+    tying_cfg = rasr.RasrConfig()
+    tying_cfg.type = "diphone-dense"
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -317,10 +325,9 @@ def run_single(
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
+        recog_args = recog_args.with_lm_scale(1.0)
 
-        recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
-
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [False], [0.1, 0.2]):
+        for pC, tdp_simple, tdp_scale in itertools.product([0.6], [False], [0.1, 0.2]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
 
             if tdp_simple:
@@ -329,13 +336,15 @@ def run_single(
                     cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
                 )
 
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                rtf_cpu=4,
+            s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                crp_corpus=crp_k,
+                n_cart_out=s.label_info.get_n_state_classes() * s.label_info.n_contexts,
+                cart_tree_or_tying_config=tying_cfg,
+                params=cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
             )
 
     return s
