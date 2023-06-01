@@ -1,6 +1,6 @@
 __all__ = ["CartQuestions"]
 
-from .constants import BOUNDARY, SILENCE_LABEL, PHONEMES
+from .constants import BOUNDARY, SILENCE_PHONEME, PHONEMES
 
 
 class CartQuestions:
@@ -14,7 +14,7 @@ class CartQuestions:
         self.min_obs = min_obs
         self.n_phones = n_phones
         self.boundary = BOUNDARY
-        self.silence = SILENCE_LABEL
+        self.silence = SILENCE_PHONEME
         self.phonemes = PHONEMES
         self.phonemes_str = " ".join(self.phonemes)
         self.phonemes_boundary_silence = [self.boundary] + [self.silence] + self.phonemes

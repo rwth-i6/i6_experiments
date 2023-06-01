@@ -56,7 +56,7 @@ def run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping: bool = False, alias_p
         perplexity_rqmt=None,
         mail_address=gs.MAIL_ADDRESS,
     )
-    ngram_system.run()
+    ngram_system.run_training()
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
     return ngram_system

@@ -113,6 +113,9 @@ class SriLmSystem:
         self.perplexities: Dict[str, Union[str, float, tk.Variable]] = {}
 
     def compute_ngram_lms(self):
+        """
+        Compute the LMs for all different training datasets and orders
+        """
         for train_corpus_name, train_data in self.train_data.items():
             for n in self.ngram_order:
                 exp_name = f"{self.name}/{train_corpus_name}/{n}"
@@ -160,6 +163,9 @@ class SriLmSystem:
                 )
 
     def train_katz_lm(self):
+        """
+        Trains the Katz LM used for pruning of the interpolated LM.
+        """
         katz_data = self.train_data["background-data"]
         for dev_name in self.dev_data.keys():
             for n in self.ngram_order:
@@ -199,6 +205,9 @@ class SriLmSystem:
                 )
 
     def prune_with_katz(self):
+        """
+        Prune the interpolated LM with the previously trained helper Katz LM (usually of order n-1).
+        """
         for dev_name in self.dev_data:
             for n in self.ngram_order:
                 katz_order = n - 1 if f"{n-1}gram" in self.ngram_lms["katz"].keys() else n
@@ -259,6 +268,9 @@ class SriLmSystem:
                 self._compute_ppl(train_name, v, eval_name, eval_path)
 
     def interpolate_ngram_lms(self):
+        """
+        Interpolate all LMs for each order separately
+        """
         for dev_name, dev_path in self.dev_data.items():
             for train_name, v in self.ngram_lms.items():
                 self._compute_ppl(train_name, v, dev_name, dev_path, ppl_for_interpolation=True)
@@ -340,7 +352,11 @@ class SriLmSystem:
             )
             tk.register_output(f"lm/mail/{self.name}", mail_job.out_status)
 
-    def run(self):
+    def run_training(self):
+        """
+        Runs the whole training of the LM.
+        First separate LMs per text will be computed, then interpolated and (optionally) pruned with a helper LM.
+        """
         self.compute_ngram_lms()
 
         self.compute_perplexities_of_ngram_lms()

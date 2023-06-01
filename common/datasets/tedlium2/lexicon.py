@@ -7,7 +7,7 @@ from i6_core.lexicon.modification import WriteLexiconJob, MergeLexiconJob
 from i6_core.lib import lexicon
 from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
-from .constants import SILENCE_LABEL, UNKNOWN_LABEL, PHONEMES
+from .constants import SILENCE_PHONEME, UNKNOWN_PHONEME
 from .corpus import get_bliss_corpus_dict
 from .download import download_data_dict
 
@@ -23,7 +23,7 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = False) ->
     lex.add_lemma(
         lexicon.Lemma(
             orth=["[silence]", ""],
-            phon=[SILENCE_LABEL],
+            phon=[SILENCE_PHONEME],
             synt=[],
             special="silence",
             eval=[[]],
@@ -33,7 +33,7 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = False) ->
         lex.add_lemma(
             lexicon.Lemma(
                 orth=["[unknown]"],
-                phon=[UNKNOWN_LABEL],
+                phon=[UNKNOWN_PHONEME],
                 synt=["<unk>"],
                 special="unknown",
                 eval=[[]],
@@ -65,9 +65,9 @@ def _get_special_lemma_lexicon(add_unknown_phoneme_and_mapping: bool = False) ->
             eval=[[]],
         )
     )
-    lex.add_phoneme(SILENCE_LABEL, variation="none")
+    lex.add_phoneme(SILENCE_PHONEME, variation="none")
     if add_unknown_phoneme_and_mapping:
-        lex.add_phoneme(UNKNOWN_LABEL, variation="none")
+        lex.add_phoneme(UNKNOWN_PHONEME, variation="none")
 
     return lex
 
