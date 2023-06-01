@@ -304,7 +304,7 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=returnn_config,
+        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
     )
 
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
