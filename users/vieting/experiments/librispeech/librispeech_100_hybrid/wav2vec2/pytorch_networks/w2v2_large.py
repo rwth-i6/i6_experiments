@@ -7,7 +7,7 @@ import returnn.frontend as rf
 
 
 class Model(torch.nn.Module):
-    def __init__(self, out_dim=12001):
+    def __init__(self, out_dim=12001, **kwargs):
         super().__init__()
         from fairseq.models import wav2vec
         cfg = wav2vec.Wav2Vec2Config()
