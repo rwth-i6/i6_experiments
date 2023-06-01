@@ -1,7 +1,7 @@
 """
 Definition of the pipeline in terms of inputs and steps that are executed
 """
-from sisyphus import gs
+from sisyphus import gs, tk
 
 from i6_experiments.common.setups.rasr import gmm_system
 from i6_experiments.common.setups.rasr.util import RasrSteps, OutputArgs
@@ -13,7 +13,8 @@ from ...default_tools import RASR_BINARY_PATH
 
 
 def run_librispeech_100_common_baseline(
-    alias_prefix="baselines/librispeech/ls100/gmm/common_baseline",
+    alias_prefix: str = "baselines/librispeech/ls100/gmm/common_baseline",
+    rasr_binary_path: tk.Path = RASR_BINARY_PATH,
 ):
 
     stored_alias_subdir = gs.ALIAS_AND_OUTPUT_SUBDIR
@@ -47,7 +48,7 @@ def run_librispeech_100_common_baseline(
 
     corpus_data = get_corpus_data_inputs(corpus_key="train-clean-100", use_g2p_training=True, use_stress_marker=False)
 
-    system = gmm_system.GmmSystem(rasr_binary_path=RASR_BINARY_PATH)
+    system = gmm_system.GmmSystem(rasr_binary_path=rasr_binary_path)
     system.init_system(
         rasr_init_args=rasr_init_args,
         train_data=corpus_data.train_data,
@@ -57,3 +58,5 @@ def run_librispeech_100_common_baseline(
     system.run(steps)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = stored_alias_subdir
+
+    return system
