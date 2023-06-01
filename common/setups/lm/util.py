@@ -6,6 +6,9 @@ from sisyphus import Path
 
 
 class LmData:
+    """
+    stores all data necessary for RETURNN LmDataset
+    """
     def __init__(
         self,
         data_file: Path,
@@ -32,6 +35,9 @@ class LmData:
         return self.data_type
 
     def get_dataset(self):
+        """
+        dump the data into a RETURNN data dict
+        """
         return {
             "class": "LmDataset",
             "corpus_file": self.data_file,
