@@ -9,6 +9,7 @@ class LmData:
     """
     stores all data necessary for RETURNN LmDataset
     """
+
     def __init__(
         self,
         data_file: Path,
