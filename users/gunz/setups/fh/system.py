@@ -753,6 +753,7 @@ class FactoredHybridSystem(NnSystem):
         alignment_allophones: typing.Optional[tk.Path] = None,
         num_tied_classes: typing.Optional[int] = None,
         include_alignment: bool = True,
+        laplace_ordering: bool = True,
     ):
         returnn_config = copy.deepcopy(returnn_config)
 
@@ -799,6 +800,14 @@ class FactoredHybridSystem(NnSystem):
                     "files": [alignment_hdf_job.out_hdf_file],
                 },
             }
+
+        if laplace_ordering:
+            assert (
+                include_alignment
+            ), "can only order laplacian if training w/ an alignment, training goes OOM otherwise"
+
+            dataset_cfg["seq_ordering"] = f"laplace:.384:{PRIOR_RNG_SEED}"
+            dataset_cfg["seq_order_control_dataset"] = "alignment"
 
         dev_data = {
             **dataset_cfg,
@@ -989,6 +998,7 @@ class FactoredHybridSystem(NnSystem):
         nn_train_args: typing.Optional[typing.Any] = None,
         num_tied_classes: typing.Optional[int] = None,
         include_alignment: bool = True,
+        laplace_ordering: bool = True,
     ):
         returnn_config = self.get_hdf_config_from_returnn_rasr_data(
             train_corpus_key=train_corpus_key,
@@ -998,6 +1008,7 @@ class FactoredHybridSystem(NnSystem):
             alignment_allophones=alignment_allophones,
             num_tied_classes=num_tied_classes,
             include_alignment=include_alignment,
+            laplace_ordering=laplace_ordering,
         )
         return self.returnn_training(
             experiment_key=experiment_key,

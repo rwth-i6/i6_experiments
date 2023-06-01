@@ -284,6 +284,7 @@ def run_single(
         nn_train_args=train_args,
         returnn_config=returnn_config,
         partition_epochs=partition_epochs,
+        laplace_ordering=False,
     )
     # Joint softmax is memory hungry
     train_job.rqmt["gpu_mem"] = 16
