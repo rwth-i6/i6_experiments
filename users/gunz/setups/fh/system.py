@@ -336,6 +336,7 @@ class FactoredHybridSystem(NnSystem):
             alignment_allophones=None,
             dev_corpus_key=dev_corpus_key,
             include_alignment=False,
+            laplace_ordering=False,
             num_tied_classes=None,
             partition_epochs={"train": 1, "dev": 1},
             returnn_config=returnn_config,
