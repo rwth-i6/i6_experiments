@@ -186,7 +186,7 @@ def get_pytorch_returnn_configs(
             "init_for_train": True,
         }}
     return {
-        "w2v2_oclr_v1": construct_from_net_kwargs(w2v_base_config, {"model_type": "w2v2_large"}),
+        # "w2v2_oclr_v1": construct_from_net_kwargs(w2v_base_config, {"model_type": "w2v2_large"}),
         "w2v2_oclr_v1_pretrained": construct_from_net_kwargs(
             {"preload_from_files": preload, **w2v_base_config}, {"model_type": "w2v2_large"}),
     }
