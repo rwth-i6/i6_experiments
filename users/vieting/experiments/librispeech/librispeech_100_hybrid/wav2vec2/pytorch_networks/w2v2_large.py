@@ -1,10 +1,7 @@
-import sys
 import torch
 import torchaudio
 from torch import nn
 from torch.onnx import export as onnx_export
-from torch.nn.utils.weight_norm import WeightNorm
-from torchaudio.functional import mask_along_axis
 
 import returnn.frontend as rf
 
@@ -12,8 +9,6 @@ import returnn.frontend as rf
 class Model(torch.nn.Module):
     def __init__(self, out_dim=12001):
         super().__init__()
-        # sys.path.insert(0, "/work/asr4/vieting/setups/librispeech/testing/20230323_pytorch/fairseq")
-        sys.path.insert(0, "/u/vieting/testing/fairseq")
         from fairseq.models import wav2vec
         cfg = wav2vec.Wav2Vec2Config()
         self.wav2vec_model = wav2vec.Wav2Vec2Model.build_model(cfg, task=None)
@@ -24,10 +19,11 @@ class Model(torch.nn.Module):
         self.out_proj = torch.nn.Linear(inner_dim, out_dim)
 
     def forward(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
+        audio_features = audio_features + 0.0 * audio_features_len.flatten()[0]  # to do: can we remove this?
         x = torch.squeeze(audio_features, dim=-1)  # squeeze feature dim, result is (B, T)
         x = nn.functional.pad(x, (80, 80))  # pad to match alignment length
         # x = self.wav2vec_model(x, features_only=True, mask=False)["x"]  # (B, T, F)
-        x, _ = self.wav2vec_model(x)  # (B, T, F)  # for torchaudio, but still fails because of group_norm, see https://github.com/pytorch/pytorch/issues/97426
+        x, _ = self.wav2vec_model(x)  # (B, T, F)  # for torchaudio
         x = torch.swapaxes(x, 1, 2)  # (B, F, T)
         x = self.upsampling(x)  # (B, F, T')
         x = torch.swapaxes(x, 1, 2)  # (B, T', F)
@@ -75,7 +71,8 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 def export_script(*, model: Model, model_filename: str):
     model.prepare_for_export()
     dummy_data = torch.randn(1, 32 * 160, 1, device="cpu")
-    dummy_data_len, _ = torch.sort(torch.randint(low=10 * 160, high=30 * 160, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len, _ = torch.sort(
+        torch.randint(low=10 * 160, high=30 * 160, size=(1,), device="cpu", dtype=torch.int32), descending=True)
     scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
     onnx_export(
         scripted_model,
@@ -92,12 +89,15 @@ def export_script(*, model: Model, model_filename: str):
         }
     )
 
+
 def export_trace(*, model: Model, model_filename: str):
     # with the hack for multi_head_attention_forward, this runs without error but does not output an exported file.
-    # maybe related to this: https://github.com/pyg-team/pytorch_geometric/issues/5656 (python list instead of ModuleList
+    # maybe related to: https://github.com/pyg-team/pytorch_geometric/issues/5656 (python list instead of ModuleList
     dummy_data = torch.randn(1, 30 * 160, 1, device="cpu")  # (B, T, F)
-    dummy_data_len, _ = torch.sort(torch.randint(low=10 * 160, high=30 * 160, size=(1,), device="cpu", dtype=torch.int32), descending=True)
-    scripted_model = torch.jit.optimize_for_inference(torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
+    dummy_data_len, _ = torch.sort(
+        torch.randint(low=10 * 160, high=30 * 160, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    scripted_model = torch.jit.optimize_for_inference(
+        torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len)))
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),

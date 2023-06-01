@@ -10,7 +10,7 @@ from i6_experiments.common.setups.serialization import Import, ExplicitHash
 from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchModel, Collection
 
 
-from ..default_tools import PACKAGE
+from ..default_tools import PACKAGE, FAIRSEQ
 
 
 def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, debug=False, **net_kwargs):
@@ -31,7 +31,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
 
 
     training_args = {
-        "log_verbosity": 5,
+        "log_verbosity": 4,
         "num_epochs": num_epochs,
         "save_interval": 1,
         "keep_epochs": None,
@@ -48,7 +48,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
     recognition_args = {
         "dev-other": {
             "epochs": evaluation_epochs,
-            "feature_flow_key": "gt",
+            "feature_flow_key": "samples",
             "prior_scales": [0.3],
             "pronunciation_scales": [6.0],
             "lm_scales": [20.0],
@@ -131,9 +131,8 @@ def get_pytorch_returnn_configs(
             "keep": evaluation_epochs,
         }
 
-
     # those are hashed
-    pytorch_package =  PACKAGE + ".pytorch_networks"
+    pytorch_package = PACKAGE + ".pytorch_networks"
 
     def construct_from_net_kwargs(base_config, net_kwargs, explicit_hash=None):
         model_type = net_kwargs.pop("model_type")
@@ -166,10 +165,12 @@ def get_pytorch_returnn_configs(
                 pytorch_package,
             },
         )
+        prolog = ["import sys", f"sys.path.insert(0, '{FAIRSEQ}')"]
 
         returnn_config = ReturnnConfig(
             config=base_config,
             post_config=base_post_config,
+            python_prolog=prolog,
             python_epilog=[serializer],
             pprint_kwargs={"sort_dicts": False},
         )
