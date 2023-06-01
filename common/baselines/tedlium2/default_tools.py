@@ -12,10 +12,12 @@ from i6_experiments.common.tools.audio import compile_ffmpeg_binary
 from i6_experiments.common.tools.rasr import compile_rasr_binaries_i6mode
 from i6_experiments.common.tools.sctk import compile_sctk
 
-RASR_BINARY_PATH = compile_rasr_binaries_i6mode(branch="apptainer_tf_2_8", configure_options=["--apptainer-patch=2023-05-08_tensorflow-2.8_v1"])  #  use most recent RASR
-#RASR_BINARY_PATH = tk.Path("/work/asr4/rossenbach/neon_test/rasr_versions/rasr_no_tf/arch/linux-x86_64-standard/")
+RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
+    branch="apptainer_tf_2_8", configure_options=["--apptainer-patch=2023-05-08_tensorflow-2.8_v1"]
+)  #  use most recent RASR
+# RASR_BINARY_PATH = tk.Path("/work/asr4/rossenbach/neon_test/rasr_versions/rasr_no_tf/arch/linux-x86_64-standard/")
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
-#RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
+# RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
 
 SCTK_BINARY_PATH = compile_sctk(branch="v2.4.12")  # use last published version

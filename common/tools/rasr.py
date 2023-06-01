@@ -11,7 +11,7 @@ def compile_rasr_binaries_i6mode(
     commit: Optional[str] = None,
     rasr_git_repository: str = "https://github.com/rwth-i6/rasr",
     rasr_arch: str = "linux-x86_64-standard",
-    configure_options: Optional[List[str]] = None
+    configure_options: Optional[List[str]] = None,
 ) -> tk.Path:
     """
     Compile RASR for i6-internal usage
