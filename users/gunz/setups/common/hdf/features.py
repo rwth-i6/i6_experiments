@@ -32,11 +32,14 @@ class RasrFeaturesToHdf(Job):
         self.out_hdf_files = [self.output_path(f"data.hdf.{i}", cached=False) for i in range(out_num_hdfs)]
         self.out_num_hdfs = out_num_hdfs
         self.out_single_segment_files = [self.output_path(f"segments.{i}", cached=False) for i in range(out_num_hdfs)]
+        self.out_single_seq_lens = [self.output_var(f"seq_lens.{i}") for i in range(out_num_hdfs)]
+        self.out_all_seq_lens = self.output_var("all_seq_lens")
 
         self.rqmt = {"cpu": 1, "mem": 4, "time": 2}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, args=list(range(self.out_num_hdfs)), parallel=15)
+        yield Task("merge_seq_lens", mini_task=True)
 
     def run(self, *indices: int):
         to_sleep = random.randrange(0, 120)
@@ -77,6 +80,8 @@ class RasrFeaturesToHdf(Job):
 
     def process(self, index: int, sequences_to_add: typing.List[str], feature_cache: FileArchiveBundle):
         seq_names = []
+        seq_lens = {}
+
         string_dt = h5py.special_dtype(vlen=str)
 
         logging.info(f"processing chunk {index} with {len(sequences_to_add)} sequences")
@@ -104,6 +109,7 @@ class RasrFeaturesToHdf(Job):
 
                     # features
                     times, features = feature_cache.read(file, "feat")
+                    seq_lens[file] = len(features)
                     feature_data.create_dataset(seq_names[-1].replace("/", "\\"), data=features)
 
                 out.create_dataset("seq_names", data=[s.encode() for s in seq_names], dtype=string_dt)
@@ -115,3 +121,10 @@ class RasrFeaturesToHdf(Job):
 
         with open(self.out_single_segment_files[index], "wt") as file:
             file.writelines((f"{seq_name.strip()}\n" for seq_name in seq_names))
+
+        self.out_single_seq_lens[index].set(seq_lens)
+
+    def merge_seq_lens(self):
+        self.out_all_seq_lens.set(
+            {k: v for seq_lens_map in self.out_single_seq_lens for k, v in seq_lens_map.get().items()},
+        )
