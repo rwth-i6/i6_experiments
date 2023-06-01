@@ -21,18 +21,18 @@ from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hyb
 from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.configs.legacy_baseline import (
     get_feature_extraction_args
 )
-from i6_experiments.users.rossenbach.experiments.librispeech.librispeech_100_hybrid.gmm_baseline import (
-    run_librispeech_100_common_baseline
-)
+from i6_experiments.common.baselines.librispeech.ls100.gmm.baseline_config import run_librispeech_100_common_baseline
 from .configs.config_01_baseline import get_nn_args as get_pytorch_nn_args
 from .default_tools import RASR_BINARY_PATH_ONNX_APPTAINER
 from .onnx_precomputed_hybrid_system import OnnxPrecomputedHybridSystem
 
 
 def run_gmm_system():
+    system = run_librispeech_100_common_baseline(rasr_binary_path=RASR_BINARY_PATH_ONNX_APPTAINER)
     flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
-    system = run_librispeech_100_common_baseline(
-        extract_additional_rasr_features={"samples": {"feature_flow": flow}}
+    system.extract_features(
+        feat_args={"samples": {"feature_flow": flow}},
+        corpus_list=system.dev_corpora + system.test_corpora,
     )
     return system
 
