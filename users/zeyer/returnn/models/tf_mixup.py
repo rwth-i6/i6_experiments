@@ -182,31 +182,38 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         ta = tf.TensorArray(dtype, size=n_batch, element_shape=(None, n_feat))  # [N] * [T, F]
         for b in tf.range(n_batch):
             num_mixup = tf.random.uniform((), minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)
+
+            src_left = 0
+            src_right = src_seq_lens[b]
+            src_left_ = tf.random.uniform(
+                [num_mixup],
+                maxval=tf.maximum(src_seq_lens[b] - buffer_filled_size + 1, 1),
+                dtype=tf.int32,
+            )
+            src_right_ = src_left_ + buffer_filled_size
+            src_left = tf.where(buffer_filled_size > src_seq_lens[b], src_left, src_left_)
+            src_right = tf.where(buffer_filled_size > src_seq_lens[b], src_right, src_right_)
+            src_size = src_right - src_left  # [N]
+
+            buffer_start = tf.random.uniform([num_mixup], maxval=tf.int32.max, dtype=tf.int32) % (
+                buffer_filled_size - src_size
+            )  # [N]
+            buffer_end = buffer_start + src_size
+
             mixup_values = tf.TensorArray(dtype, size=num_mixup, element_shape=(None, n_feat))  # [N] * [T, F]
             for n in tf.range(num_mixup):
-                src_left = 0
-                src_right = src_seq_lens[b]
-                if buffer_filled_size <= src_seq_lens[b]:
-                    src_left = tf.random.uniform(
-                        (),
-                        maxval=src_seq_lens[b] - buffer_filled_size + 1,
-                        dtype=tf.int32,
-                    )
-                    src_right = src_left + buffer_filled_size
-                src_size = src_right - src_left
-                buffer_start = tf.random.uniform((), maxval=buffer_filled_size - src_size, dtype=tf.int32)
-                buffer_end = buffer_start + src_size
+
                 buffer_part = tf.raw_ops.ResourceGather(
-                    resource=buffer_raw.handle, indices=tf.range(buffer_start, buffer_end), dtype=dtype
+                    resource=buffer_raw.handle, indices=tf.range(buffer_start[n], buffer_end[n]), dtype=dtype
                 )
 
                 mixup_values = mixup_values.write(
                     n,
                     tf.concat(
                         [
-                            tf.zeros((src_left, n_feat), dtype=dtype),
+                            tf.zeros((src_left[n], n_feat), dtype=dtype),
                             buffer_part,
-                            tf.zeros((n_time - src_right, n_feat), dtype=dtype),
+                            tf.zeros((n_time - src_right[n], n_feat), dtype=dtype),
                         ],
                         axis=0,
                     ),
