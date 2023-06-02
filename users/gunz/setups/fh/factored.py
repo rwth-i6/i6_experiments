@@ -101,10 +101,19 @@ class LabelInfo:
     sil_id: typing.Optional[int] = None
 
     def get_n_of_dense_classes(self) -> int:
+        if self.state_tying == RasrStateTying.monophone:
+            exp = 1
+        elif self.state_tying == RasrStateTying.diphone:
+            exp = 2
+        elif self.state_tying == RasrStateTying.triphone:
+            exp = 3
+        else:
+            assert False, "cannot compute number of CART classes"
+
         n_contexts = self.n_contexts
         if not self.add_unknown_phoneme:
             n_contexts += 1
-        return self.n_states_per_phone * (n_contexts**3) * self.phoneme_state_classes.factor()
+        return self.n_states_per_phone * (n_contexts**exp) * self.phoneme_state_classes.factor()
 
     def get_n_state_classes(self) -> int:
         return self.n_states_per_phone * self.n_contexts * self.phoneme_state_classes.factor()
