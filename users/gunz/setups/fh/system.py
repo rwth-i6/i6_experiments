@@ -1321,9 +1321,11 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_exe=self.returnn_python_exe
             if not self.do_not_set_returnn_python_exe_for_graph_compiles
             else None,
+            alias=f"graphs/{name}",
         )
 
         self.experiments[key]["graph"]["inference"] = infer_graph
+
         tk.register_output(f"graphs/{name}-infer.pb", infer_graph)
 
     def get_recognizer_and_args(

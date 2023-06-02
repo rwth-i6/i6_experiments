@@ -1,6 +1,7 @@
 __all__ = ["compile_tf_graph_from_returnn_config"]
 
 import copy
+import typing
 from typing import Any, Dict, Union
 
 from i6_core import returnn
@@ -16,6 +17,7 @@ def compile_tf_graph_from_returnn_config(
     python_epilog: Union[None, str, tuple, list, dict] = None,
     returnn_root: Union[None, str, tk.Path] = None,
     returnn_python_exe: Union[None, str, tk.Path] = None,
+    alias: typing.Optional[str] = None,
 ):
     if isinstance(returnn_config, returnn.ReturnnConfig):
         tf_returnn_config = copy.copy(returnn_config.config)
@@ -47,5 +49,8 @@ def compile_tf_graph_from_returnn_config(
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
     )
+
+    if alias:
+        compile_job.add_alias(alias)
 
     return compile_job.out_graph
