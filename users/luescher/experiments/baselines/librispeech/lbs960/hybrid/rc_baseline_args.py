@@ -17,8 +17,7 @@ from i6_experiments.common.setups.returnn_common.serialization import (
 )
 
 
-from .default_tools import RETURNN_COMMON
-
+from ...default_tools import RETURNN_COMMON_PATH
 
 def get_nn_args(
     num_outputs: int = 12001,
@@ -222,7 +221,7 @@ def get_rc_returnn_configs(
             serializer_objects.append(ExplicitHash(explicit_hash))
         serializer = Collection(
             serializer_objects=serializer_objects,
-            returnn_common_root=RETURNN_COMMON,
+            returnn_common_root=RETURNN_COMMON_PATH,
             make_local_package_copy=True,
             packages={
                 rc_package,

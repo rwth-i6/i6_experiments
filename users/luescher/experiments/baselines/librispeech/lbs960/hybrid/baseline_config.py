@@ -6,12 +6,12 @@ from i6_core.features import GammatoneJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
-from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
+
+from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import RASR_BINARY_PATH, SCTK_BINARY_PATH, RETURNN_EXE_PATH, RETURNN_ROOT_PATH, RETURNN_COMMON_PATH
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_feature_extraction_args, get_nn_args
 from .rc_baseline_args import get_nn_args as get_rc_nn_args
-from .default_tools import RETURNN_RC_ROOT
 
 
 def run_gmm_system_from_common():
@@ -55,31 +55,22 @@ def run_librispeech_960_hybrid_baseline():
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
-    returnn_exe = tk.Path(
-        "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
-        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
-    )
-    blas_lib = tk.Path(
-        "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
-        hash_overwrite="TF23_MKL_BLAS",
-    )
-    """
     lbs_nn_system = HybridSystem(
-        returnn_root=RETURNN_RC_ROOT,
-        returnn_python_exe=returnn_exe,
-        blas_lib=blas_lib,
+        returnn_root=RETURNN_ROOT_PATH,
+        returnn_python_exe=RETURNN_EXE_PATH,
         rasr_arch="linux-x86_64-standard",
         rasr_binary_path=RASR_BINARY_PATH,
+        blas_lib=None,
     )
-    lbs_nn_system.init_system(
-        rasr_init_args=rasr_init_args,
-        train_data=nn_train_data_inputs,
-        cv_data=nn_cv_data_inputs,
-        devtrain_data=nn_devtrain_data_inputs,
-        dev_data={},  # # nn_dev_data_inputs,
-        test_data={},  # nn_test_data_inputs,
-        train_cv_pairing=[tuple(["train-other-960.train", "dev-clean-other.cv"])],
-    )
-    lbs_nn_system.run(nn_steps)
-    """
+    #lbs_nn_system.init_system(
+    #    rasr_init_args=rasr_init_args,
+    #    train_data=nn_train_data_inputs,
+    #    cv_data=nn_cv_data_inputs,
+    #    devtrain_data=nn_devtrain_data_inputs,
+    #    dev_data={},  # # nn_dev_data_inputs,
+    #    test_data={},  # nn_test_data_inputs,
+    #    train_cv_pairing=[tuple(["train-other-960.train", "dev-clean-other.cv"])],
+    #)
+    #lbs_nn_system.run(nn_steps)
+
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""

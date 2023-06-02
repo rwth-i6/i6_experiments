@@ -17,7 +17,7 @@ from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.
 
 from experimental.rasr.archiver import ArchiverJob
 
-from .default_tools import RETURNN_EXE, RETURNN_RC_ROOT
+from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import RASR_BINARY_PATH, SCTK_BINARY_PATH, RETURNN_EXE_PATH, RETURNN_ROOT_PATH, RETURNN_COMMON_PATH
 
 
 class CvSplit(Enum):
@@ -125,8 +125,8 @@ def dump_features_into_hdf(
 
     hdf_file = returnn.ReturnnDumpHDFJob(
         dataset,
-        returnn_python_exe=RETURNN_EXE,
-        returnn_root=RETURNN_RC_ROOT,
+        returnn_python_exe=RETURNN_EXE_PATH,
+        returnn_root=RETURNN_ROOT_PATH,
     ).out_hdf
 
     return hdf_file
@@ -149,8 +149,8 @@ def dump_alignments_into_hdf(
 
     hdf_file = returnn.ReturnnDumpHDFJob(
         dataset,
-        returnn_python_exe=RETURNN_EXE,
-        returnn_root=RETURNN_RC_ROOT,
+        returnn_python_exe=RETURNN_EXE_PATH,
+        returnn_root=RETURNN_ROOT_PATH,
     ).out_hdf
 
     return hdf_file
