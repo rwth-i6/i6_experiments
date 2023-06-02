@@ -129,6 +129,7 @@ def _mixup_eval_layer_out_type_func(sources, name, **_kwargs):
 def _get_raw_func(*, dim: int, opts: MixupOpts):
     def _raw_func(src_raw, src_seq_lens, buffer_raw, buffer_pos_raw, buffer_filled_raw, train_flag):
         import tensorflow as tf
+        from returnn.tf.util.basic import flatten_with_seq_len_mask
 
         assert (
             isinstance(src_raw, tf.Tensor)
@@ -148,27 +149,26 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         n_feat = dim
 
         # Fill buffer with new data:
+        src_flat = flatten_with_seq_len_mask(src_raw, src_seq_lens, batch_dim_axis=0, time_dim_axis=1)
+        src_flat_len = tf.shape(src_flat)[0]
         pos = buffer_pos_raw
-        for b in tf.range(n_batch):
-            new_pos = tf.minimum(pos + src_seq_lens[b], opts.buffer_size)
-            part_fill_len = new_pos - pos
+        new_pos = tf.minimum(pos + src_flat_len, opts.buffer_size)
+        part_fill_len = new_pos - pos
+        tf.raw_ops.ResourceStridedSliceAssign(
+            ref=buffer_raw.handle, begin=[pos], end=[new_pos], strides=[1], value=src_flat[:part_fill_len]
+        )
+        if part_fill_len <= src_flat_len:
+            buffer_filled_raw.assign(True)
+            part_fill_len_ = tf.minimum(src_flat_len - part_fill_len, opts.buffer_size)
             tf.raw_ops.ResourceStridedSliceAssign(
-                ref=buffer_raw.handle, begin=[pos], end=[new_pos], strides=[1], value=src_raw[b, :part_fill_len]
+                ref=buffer_raw.handle,
+                begin=[0],
+                end=[part_fill_len_],
+                strides=[1],
+                value=src_flat[part_fill_len : part_fill_len + part_fill_len_],
             )
-            if part_fill_len <= src_seq_lens[b]:
-                buffer_filled_raw.assign(True)
-            if part_fill_len < src_seq_lens[b]:
-                part_fill_len_ = tf.minimum(src_seq_lens[b] - part_fill_len, opts.buffer_size)
-                tf.raw_ops.ResourceStridedSliceAssign(
-                    ref=buffer_raw.handle,
-                    begin=[0],
-                    end=[part_fill_len_],
-                    strides=[1],
-                    value=src_raw[b, part_fill_len : part_fill_len + part_fill_len_],
-                )
-                new_pos = part_fill_len_
-            pos = new_pos
-        buffer_pos_raw.assign(pos)
+            new_pos = part_fill_len_
+        buffer_pos_raw.assign(new_pos)
 
         if tf.random.uniform(()) >= opts.apply_prob:
             return src_raw

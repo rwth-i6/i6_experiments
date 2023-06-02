@@ -16,7 +16,7 @@ def test_mixup():
         {
             "train": {
                 "class": "Task12AXDataset",
-                "num_seqs": 1000,
+                "num_seqs": 10000,
             },
             "dev": {
                 "class": "Task12AXDataset",
@@ -24,8 +24,8 @@ def test_mixup():
             },
             "extern_data": {"data": {"dim": 9}, "classes": {"dim": 2, "sparse": True}},
             "network": {
-                "mixup": make_mixup_layer_dict("data", dim=9, opts=MixupOpts()),
-                # "mixup": {"class": "copy", "from": "data"},
+                # "mixup": make_mixup_layer_dict("data", dim=9, opts=MixupOpts()),
+                "mixup": {"class": "copy", "from": "data"},
                 "lstm": {"class": "rec", "unit": "lstm", "from": "mixup", "n_out": 100},
                 "output": {
                     "class": "softmax",
@@ -71,7 +71,7 @@ def test_profile():
         n_batch = 10
         n_time = 100
         src = tf.random.uniform([n_batch, n_time, dim], dtype=tf.float32)
-        src_seq_lens = tf.random.uniform([n_time], minval=1, maxval=n_time, dtype=tf.int32)
+        src_seq_lens = tf.random.uniform([n_batch], minval=1, maxval=n_time, dtype=tf.int32)
         start = time.time()
         func(
             src,
