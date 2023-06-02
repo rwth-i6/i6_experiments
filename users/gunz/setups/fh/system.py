@@ -221,7 +221,7 @@ class FactoredHybridSystem(NnSystem):
             else:
                 self.crp_names[k] = k
 
-    def set_returnn_config_for_experiment(self, key, returnn_config):
+    def set_returnn_config_for_experiment(self, key: str, returnn_config: returnn.ReturnnConfig):
         assert key in self.experiments.keys()
         self.experiments[key]["returnn_config"] = returnn_config
         self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
