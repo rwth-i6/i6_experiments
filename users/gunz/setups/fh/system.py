@@ -1383,7 +1383,9 @@ class FactoredHybridSystem(NnSystem):
             silence_id=self.label_info.sil_id,
             gpu=gpu,
             corpus_duration=durations[crp_corpus],
-            lm_gc_simple_hash=lm_gc_simple_hash if lm_gc_simple_hash is not None else self.lm_gc_simple_hash,
+            lm_gc_simple_hash=lm_gc_simple_hash
+            if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
+            else None,
             **decoder_kwargs,
         )
 
@@ -1414,6 +1416,7 @@ class FactoredHybridSystem(NnSystem):
         calculate_statistics: bool = False,
         opt_lm_am_scale: bool = False,
         rtf: typing.Optional[float] = None,
+        lm_gc_simple_hash: typing.Optional[bool] = None,
     ):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1432,7 +1435,13 @@ class FactoredHybridSystem(NnSystem):
 
         def SearchJob(*args, **kwargs):
             nonlocal adv_tree_search_job
-            adv_tree_search_job = recognition.AdvancedTreeSearchJob(*args, **kwargs)
+            adv_tree_search_job = recognition.AdvancedTreeSearchJob(
+                *args,
+                **kwargs,
+                create_dummy_feature_scorer_from_mixtures=p_mixtures
+                if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
+                else None,
+            )
             return adv_tree_search_job
 
         decoder = HybridDecoder(
