@@ -2,6 +2,7 @@ from typing import List, Optional, Union
 from sisyphus import tk
 
 from i6_core.corpus import MergeCorporaJob, MergeStrategy
+from i6_core.features import filter_width_from_channels
 
 from i6_experiments.common.setups.rasr.util import ForcedAlignmentArgs
 from i6_experiments.common.datasets.tedlium2.lexicon import get_bliss_lexicon
@@ -32,7 +33,7 @@ def get_align_dev_args(
     )
     forced_align_lexicon = g2p_augmenter.get_g2p_augmented_bliss_lexicon(
         bliss_corpus=crp,
-        corpus_name="dev-clean-other",
+        corpus_name="nn-cv",
         alias_path=alias_path,
     )
 
@@ -75,3 +76,22 @@ def get_gammatone_feature_extraction_args():
             "normalization_options": {},
         }
     }
+
+def get_log_mel_feature_extraction_args():
+
+    return {
+        "filterbank_options":{
+        "warping_function": "mel",
+        "filter_width": filter_width_from_channels(channels=80, warping_function="mel", f_max=8000),
+        "normalize": True,
+        "normalization_options": None,
+        "without_samples": False,
+        "samples_options": {
+        "audio_format": "wav",
+        "dc_detection": False,
+        },
+        "fft_options": None,
+        "add_features_output": True,
+        "apply_log": True,
+        "add_epsilon": True,
+    }}

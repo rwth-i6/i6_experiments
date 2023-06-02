@@ -18,6 +18,9 @@ def build_hdf_data_input(
     alignments: tk.Path,
     segment_list: Optional[tk.Path] = None,
     alias_prefix: Optional[str] = None,
+    partition_epoch: int = 1,
+    acoustic_mixtures: Optional = None,
+    seq_ordering: str = "sorted"
 ):
 
     feat_dataset = {
@@ -41,8 +44,8 @@ def build_hdf_data_input(
         returnn_python_exe=RETURNN_EXE,
         returnn_root=RETURNN_RC_ROOT,
     )
-    if name is not None:
-        feat_job.add_alias(name + "/dump_features")
+    if alias_prefix is not None:
+        feat_job.add_alias(alias_prefix + "/dump_features")
     feat_hdf = feat_job.out_hdf
     align_dataset = {
         "data": {
@@ -60,11 +63,11 @@ def build_hdf_data_input(
         "class": "SprintCacheDataset",
     }
     align_job = ReturnnDumpHDFJob(data=align_dataset, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_RC_ROOT)
-    if name is not None:
-        align_job.add_alias(name + "/dump_alignments")
+    if alias_prefix is not None:
+        align_job.add_alias(alias_prefix + "/dump_alignments")
     align_hdf = align_job.out_hdf
 
-    return HdfDataInput(features=feat_hdf, alignments=align_hdf)
+    return HdfDataInput(features=feat_hdf, alignments=align_hdf, partition_epoch=partition_epoch, acoustic_mixtures=acoustic_mixtures, seq_ordering=seq_ordering)
 
 
 def dump_features_for_hybrid_training(
@@ -74,7 +77,7 @@ def dump_features_for_hybrid_training(
 ) -> Tuple[tk.Path, tk.Path, tk.Path]:
     features = {}
     for name in ["nn-train", "nn-cv", "nn-devtrain"]:
-        features[name] = feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle
+        features[name] = list(feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle.values())[0]
 
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
@@ -154,27 +157,36 @@ def get_corpus_data_inputs(
     gmm_system.run_forced_align_step(forced_align_args)
 
     nn_train_data = build_hdf_data_input(
-        features=train_features["gt"],
+        features=train_features,
         alignments=gmm_system.outputs["train"]["final"].as_returnn_rasr_data_input().alignments.alternatives["bundle"],
         allophone_labeling=allophone_labeling,
-        alias_prefix=alias_prefix,
+        alias_prefix=alias_prefix + "/nn_train_data",
+        partition_epoch=5,
+        acoustic_mixtures=gmm_system.outputs["train"]["final"].acoustic_mixtures,
+        seq_ordering="laplace:.1000"
     )
     tk.register_output(f"{alias_prefix}/nn_train_data/features", nn_train_data.features)
     tk.register_output(f"{alias_prefix}/nn_train_data/alignments", nn_train_data.alignments)
     nn_devtrain_data = build_hdf_data_input(
-        features=devtrain_features["gt"],
+        features=devtrain_features,
         alignments=gmm_system.outputs["train"]["final"].as_returnn_rasr_data_input().alignments.alternatives["bundle"],
         allophone_labeling=allophone_labeling,
         segment_list=devtrain_segments,
-        alias_prefix=alias_prefix,
+        alias_prefix=alias_prefix + "/nn_devtrain_data",
+        partition_epoch=1,
+        #acoustic_mixtures=gmm_system.outputs["train"]["final"].acoustic_mixtures,
+        seq_ordering="sorted"
     )
     tk.register_output(f"{alias_prefix}/nn_devtrain_data/features", nn_devtrain_data.features)
     tk.register_output(f"{alias_prefix}/nn_devtrain_data/alignments", nn_devtrain_data.alignments)
     nn_cv_data = build_hdf_data_input(
-        features=cv_features["gt"],
+        features=cv_features,
         alignments=gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["bundle"],
         allophone_labeling=allophone_labeling,
-        alias_prefix=alias_prefix,
+        alias_prefix=alias_prefix + "/nn_cv_data",
+        partition_epoch=1,
+        #acoustic_mixtures=gmm_system.outputs["dev"]["final"].acoustic_mixtures,
+        seq_ordering="sorted"
     )
     tk.register_output(f"{alias_prefix}/nn_cv_data/features", nn_cv_data.features)
     tk.register_output(f"{alias_prefix}/nn_cv_data/alignments", nn_cv_data.alignments)

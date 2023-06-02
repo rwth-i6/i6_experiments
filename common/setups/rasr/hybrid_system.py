@@ -232,7 +232,7 @@ class HybridSystem(NnSystem):
             training_args=nn_train_args,
             train_data=self.train_input_data[train_corpus_key],
             cv_data=self.cv_input_data[cv_corpus_key],
-            additional_data={"devtrain": self.devtrain_input_data[devtrain_corpus_key].get_data_dict()}
+            additional_data={"devtrain": self.devtrain_input_data[devtrain_corpus_key]}
             if devtrain_corpus_key is not None
             else None,
             register_output=False,
@@ -475,8 +475,11 @@ class HybridSystem(NnSystem):
             e.g. `def get_network(epoch=...)` in the config
         :return: the TF graph
         """
+        # TODO remove, temporary hack
+        cfg = returnn_config
+        del cfg.config["pretrain"]
         graph_compile_job = returnn.CompileTFGraphJob(
-            returnn_config,
+            cfg,
             epoch=epoch,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,

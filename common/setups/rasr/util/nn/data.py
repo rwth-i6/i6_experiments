@@ -479,39 +479,21 @@ class HdfDataInput:
         self.feat_args = feat_args
         self.acoustic_mixtures = acoustic_mixtures
 
-    def get_data_dict(self):
         from returnn_common.datasets import MetaDataset, HDFDataset
-
-        align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, **(self.align_args or {}))
-        feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
-        meta_dataset = MetaDataset(
+        self.align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, **(self.align_args or {}))
+        self.feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
+        self.meta_dataset = MetaDataset(
             data_map={"classes": ("align", "classes"), "data": ("feat", "data")},
-            datasets={"align": align_dataset, "feat": feature_dataset},
+            datasets={"align": self.align_dataset, "feat": self.feature_dataset},
             seq_order_control_dataset="align",
             additional_options={"partition_epoch": self.partition_epoch, **(self.meta_args or {})},
         )
-        return meta_dataset
-        # return {
-        #     "class": "MetaDataset",
-        #     "data_map": {"classes": ("align", "classes"), "data": ("feat", "data")},
-        #     "datasets": {
-        #         "align": {
-        #             "class": "HDFDataset",
-        #             "files": self.alignments,
-        #             "use_cache_manager": True,
-        #             **(self.align_args or {}),
-        #         },
-        #         "feat": {
-        #             "class": "HDFDataset",
-        #             "files": self.features,
-        #             "use_cache_manager": True,
-        #             **(self.feat_args or {}),
-        #         },
-        #     },
-        #     "partition_epoch": self.partition_epoch,
-        #     "seq_ordering": self.seq_ordering,
-        #     **(self.meta_args or {}),
-        # }
+
+    def get_data_dict(self):
+        return self.meta_dataset.as_returnn_opts()
+
+    def get_dataset_object(self):
+        return self.meta_dataset
 
 
 class NextGenHdfDataInput:

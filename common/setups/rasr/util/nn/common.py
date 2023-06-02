@@ -6,7 +6,7 @@ import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 
 from .decode import KeyedRecogArgsType
-from .training import ReturnnRasrTrainingArgs
+from .training import ReturnnRasrTrainingArgs, ReturnnTrainingJobArgs
 
 
 class HybridArgs:
@@ -14,7 +14,7 @@ class HybridArgs:
         self,
         returnn_training_configs: Dict[str, returnn.ReturnnConfig],
         returnn_recognition_configs: Dict[str, returnn.ReturnnConfig],
-        training_args: Union[Dict[str, Any], ReturnnRasrTrainingArgs],
+        training_args: Union[Dict[str, Any], ReturnnRasrTrainingArgs, ReturnnTrainingJobArgs],
         recognition_args: KeyedRecogArgsType,
         test_recognition_args: Optional[KeyedRecogArgsType] = None,
     ):

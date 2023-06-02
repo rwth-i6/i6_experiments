@@ -3,7 +3,7 @@ from i6_core import cart
 
 from i6_experiments.common.setups.rasr import util
 from i6_experiments.common.datasets.tedlium2.cart import CartQuestions
-from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
+from i6_experiments.common.baselines.tedlium2.default_tools import SCTK_BINARY_PATH
 
 
 def get_init_args():
