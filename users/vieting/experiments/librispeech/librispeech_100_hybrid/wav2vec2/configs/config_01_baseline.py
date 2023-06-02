@@ -73,6 +73,7 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "lmgc_mem": 16,
             "cpu": 2,
             "parallelize_conversion": True,
+            "needs_features_size": False,
         },
     }
     test_recognition_args = None

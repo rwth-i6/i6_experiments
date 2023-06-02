@@ -18,12 +18,22 @@ class Model(torch.nn.Module):
         self.upsampling = torch.nn.ConvTranspose1d(inner_dim, inner_dim, kernel_size=6, stride=2, padding=2)
         self.out_proj = torch.nn.Linear(inner_dim, out_dim)
 
-    def forward(self, audio_features: torch.Tensor, audio_features_len: torch.Tensor):
-        audio_features = audio_features + 0.0 * audio_features_len.flatten()[0]  # to do: can we remove this?
+    @torch.jit.ignore
+    def forward_wav2vec_model_train(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.wav2vec_model(x, features_only=True, mask=False)["x"]  # (B, T, F)
+        return x
+
+    def forward_wav2vec_model_eval(self, x: torch.Tensor) -> torch.Tensor:
+        x, _ = self.wav2vec_model(x)  # (B, T, F)  # for torchaudio
+        return x
+
+    def forward(self, audio_features: torch.Tensor):
         x = torch.squeeze(audio_features, dim=-1)  # squeeze feature dim, result is (B, T)
         x = nn.functional.pad(x, (80, 80))  # pad to match alignment length
-        # x = self.wav2vec_model(x, features_only=True, mask=False)["x"]  # (B, T, F)
-        x, _ = self.wav2vec_model(x)  # (B, T, F)  # for torchaudio
+        if self.training:
+            x = self.forward_wav2vec_model_train(x)
+        else:
+            x = self.forward_wav2vec_model_eval(x)
         x = torch.swapaxes(x, 1, 2)  # (B, F, T)
         x = self.upsampling(x)  # (B, F, T')
         x = torch.swapaxes(x, 1, 2)  # (B, T', F)
@@ -34,6 +44,7 @@ class Model(torch.nn.Module):
         return log_probs, logits_ce_order
 
     def prepare_for_export(self):
+        self.eval()
         self.wav2vec_model = torchaudio.models.wav2vec2.utils.import_fairseq_model(self.wav2vec_model)
 
 
@@ -57,7 +68,7 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     # if scripted_model is None:
     #     scripted_model = torch.jit.script(model)
 
-    log_probs, logits = model(x=audio_features)
+    log_probs, logits = model(audio_features)
 
     targets_packed = nn.utils.rnn.pack_padded_sequence(phonemes, phonemes_len, batch_first=True, enforce_sorted=False)
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
@@ -71,20 +82,19 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 def export_script(*, model: Model, model_filename: str):
     model.prepare_for_export()
     dummy_data = torch.randn(1, 32 * 160, 1, device="cpu")
-    dummy_data_len, _ = torch.sort(
-        torch.randint(low=10 * 160, high=30 * 160, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    # import ipdb
+    # ipdb.set_trace()
     scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
     onnx_export(
         scripted_model,
-        (dummy_data, dummy_data_len),
+        (dummy_data,),
         f=model_filename,
         verbose=True,
-        input_names=["data", "data_len"],
+        input_names=["data"],
         output_names=["classes"],
         dynamic_axes={
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},
-            "data_len": {0: "batch"},
             "classes": {0: "batch", 1: "time"}
         }
     )
