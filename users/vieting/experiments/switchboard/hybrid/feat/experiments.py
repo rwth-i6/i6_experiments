@@ -1,6 +1,6 @@
 import copy
 from typing import Any, Dict, Optional
-from sisyphus import gs
+from sisyphus import gs, tk
 
 from i6_core.features.common import samples_flow
 from i6_experiments.common.setups.rasr.util import RasrSteps
@@ -198,7 +198,50 @@ def run_baseline_scf():
             "scf_first_layer_unsorted_specaug": dict(
                 returnn_args=dict(batch_size=3500, specaug_after_first_layer=True, extra_args=dict(accum_grad_multiple_step=4)),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-            )
+            ),
+            "scf_lr8e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                peak_lr=8e-4,
+            ),
+            "scf_lr9e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                peak_lr=9e-4,
+            ),
+            "scf_lr13e-4": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                peak_lr=13e-4,
+            ),
+            "scf_freeze-scf-180": dict(
+                returnn_args=dict(batch_size=14000, staged_opts={180: "freeze_features"}),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            ),
+            # "scf_rm-aux-180": dict(
+            #     returnn_args=dict(batch_size=14000, staged_opts={180: "remove_aux"}),
+            #     feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            # ),
+            # "scf_max": dict(
+            #     returnn_args=dict(batch_size=7000, extra_args={"accum_grad_multiple_step": 2}),
+            #     feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            # )
+            "scf_tf150x256x5": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256, "stride_tf": 10 // 2},
+            ),
+            "scf_tf100x128x5": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "num_tf": 100, "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            ),
+            "scf_wavenorm": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
+            ),
+            "scf_batchnorm": dict(
+                returnn_args=dict(batch_size=14000),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "normalization_env": "batch"},
+            ),
         },
         prefix="conformer_bs14k_",
         num_epochs=260,
@@ -210,7 +253,12 @@ def run_baseline_scf():
     hybrid_nn_system.run(nn_steps)
     for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
         # noinspection PyUnresolvedReferences
-        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+    returnn_python_exe = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/returnn_tf2.3.4_mkl_launcher.sh",
+        hash_overwrite="GENERIC_RETURNN_LAUNCHER",
+    )
+    hybrid_nn_system.returnn_python_exe = returnn_python_exe
 
 def run_specaug_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"

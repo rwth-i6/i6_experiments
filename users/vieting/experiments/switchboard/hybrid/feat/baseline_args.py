@@ -119,7 +119,8 @@ def get_nn_args_single(
     if wave_norm:
         for layer in feature_net["subnetwork"]:
             if feature_net["subnetwork"][layer].get("from", "data") == "data":
-                feature_net["subnetwork"][layer]["from"] = "wave_norm"
+                if feature_net["subnetwork"][layer].get("class", None) != "variable":
+                    feature_net["subnetwork"][layer]["from"] = "wave_norm"
         feature_net["subnetwork"]["wave_norm"] = {"axes": "T", "class": "norm", "from": "data"}
 
     returnn_config = get_returnn_config(
