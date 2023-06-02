@@ -121,6 +121,7 @@ def run_single(
     s.label_info = dataclasses.replace(
         s.label_info, state_tying=RasrStateTying.cart, phoneme_state_classes=PhonemeStateClasses.none
     )
+    s.lm_gc_simple_hash = True
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************

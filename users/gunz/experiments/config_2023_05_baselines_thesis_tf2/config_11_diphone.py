@@ -175,6 +175,7 @@ def run_single(
     s.train_key = train_key
     if alignment_name == "scratch_daniel":
         s.cv_info = FROM_SCRATCH_CV_INFO
+    s.lm_gc_simple_hash = True
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
