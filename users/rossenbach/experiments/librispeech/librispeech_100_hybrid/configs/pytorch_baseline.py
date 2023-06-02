@@ -103,7 +103,8 @@ def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_return
             "parallelize_conversion": True,
             "needs_features_size": False,
             "training_whitelist": [
-                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa", "i6_models_conformer_block"],
+                "torchaudio_conformer", "torchaudio_conformer_subup_medium", "torchaudio_conformer_v2_subx2_lchunk",  "torchaudio_conformer_v2_subx2_lchunk_nomhsa",
+                "i6_models_conformer_block", "i6_models_conformer_block_convfirst"],
         },
         "dev-other-dynqant": {
             "epochs": evaluation_epochs,
@@ -321,6 +322,7 @@ def get_pytorch_returnn_configs(
         "torchaudio_conformer_v2_subx2_lchunk": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large"}, use_tracing=True),#
         "torchaudio_conformer_v2_subx2_lchunk_nomhsa": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "torchaudio_conformer_v2_subup_large_nomhsa"}, use_tracing=True),#
         "i6_models_conformer_block": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "i6_models_conformer_block_subup"}, use_tracing=True, use_i6_models=True),#
+        "i6_models_conformer_block_convfirst": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "i6_models_conformer_block_subup_convfirst"}, use_tracing=True, use_i6_models=True),#
         # "torchaudio_conformer_large": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True), # no custom engine, so no fp16
         # "torchaudio_conformer_large_fp16": construct_from_net_kwargs(high_lr_config, {"model_type": "torchaudio_conformer_large_fp16"}, use_tracing=True, use_custom_engine=True), #
         "blstm_oclr_v2_fp16": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm8x1024_more_specaug_fp16"}, use_tracing=False, use_custom_engine=True),#
