@@ -2,7 +2,9 @@ import copy, os
 
 import numpy
 
+from i6_core.returnn.training import Checkpoint
 from i6_experiments.users.gaudino.experiments.conformer_att_2023.librispeech_960.attention_asr_config import (
+    CTCDecoderArgs,
     create_config,
     ConformerEncoderArgs,
     TransformerDecoderArgs,
@@ -42,6 +44,10 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experiment import (
     get_lm,
     ZeineldeenLM,
+)
+
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.search_helpers import (
+    rescore_att_ctc_search,
 )
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
@@ -146,6 +152,7 @@ def run_ctc_att_search():
         recog_bliss,
         mem_rqmt: float = 8,
         time_rqmt: float = 4,
+        two_pass_rescore=False,
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
@@ -155,19 +162,35 @@ def run_ctc_att_search():
             feature_extraction_net=feature_extraction_net,
             is_recog=True,
         )
-        search_single(
-            exp_prefix,
-            returnn_search_config,
-            checkpoint,
-            recognition_dataset=recog_dataset,
-            recognition_reference=recog_ref,
-            recognition_bliss_corpus=recog_bliss,
-            returnn_exe=RETURNN_CPU_EXE,
-            returnn_root=RETURNN_ROOT,
-            mem_rqmt=mem_rqmt,
-            time_rqmt=time_rqmt,
-            **kwargs,
-        )
+        if two_pass_rescore:
+            assert "att_scale" in kwargs and "ctc_scale" in kwargs, "rescore requires scales."
+            rescore_att_ctc_search(
+                exp_prefix,
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=recog_dataset,
+                recognition_reference=recog_ref,
+                recognition_bliss_corpus=recog_bliss,
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                **kwargs,  # pass scales here
+            )
+        else:
+            search_single(
+                exp_prefix,
+                returnn_search_config,
+                checkpoint,
+                recognition_dataset=recog_dataset,
+                recognition_reference=recog_ref,
+                recognition_bliss_corpus=recog_bliss,
+                returnn_exe=RETURNN_CPU_EXE,
+                returnn_root=RETURNN_ROOT,
+                mem_rqmt=mem_rqmt,
+                time_rqmt=time_rqmt,
+                **kwargs,
+            )
 
     def run_lm_fusion(
         lm_type,
@@ -204,8 +227,14 @@ def run_ctc_att_search():
             search_checkpoint = train_job_avg_ckpt[exp_name]
         elif epoch == "best":
             search_checkpoint = train_job_best_epoch[exp_name]
+        elif isinstance(epoch, Checkpoint):
+            search_checkpoint = epoch
+            assert "ckpt_name" in kwargs
+            epoch = kwargs["ckpt_name"]
         else:
-            assert isinstance(epoch, int), "epoch must be either a defined integer or a string in {avg, best}."
+            assert isinstance(
+                epoch, int
+            ), "epoch must be either a defined integer or a `Checkpoint` instance or a string in {avg, best}."
             search_checkpoint = train_job.out_checkpoints[epoch]
 
         ext_lm_opts = lstm_lm_opts_map[bpe_size] if lm_type == "lstm" else trafo_lm_opts_map[bpe_size]
@@ -316,6 +345,9 @@ def run_ctc_att_search():
                     recog_ref=test_dataset_tuples[test_set][1],
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
+                    two_pass_rescore=kwargs.get("two_pass_rescore", False),
+                    att_scale=kwargs.get("att_scale", 1.0),
+                    ctc_scale=kwargs.get("ctc_scale", 1.0),
                 )
 
     def run_decoding(
@@ -328,6 +360,7 @@ def run_ctc_att_search():
         test_sets: list,
         time_rqmt: float = 1.0,
         remove_label=None,
+        two_pass_rescore=False,
         **kwargs,
     ):
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
@@ -343,6 +376,7 @@ def run_ctc_att_search():
                 recog_bliss=test_dataset_tuples[test_set][2],
                 time_rqmt=time_rqmt,
                 remove_label=remove_label,
+                two_pass_rescore=two_pass_rescore,
                 **kwargs,
             )
 
@@ -785,62 +819,149 @@ def run_ctc_att_search():
         use_sclite=True,
     )
 
-    for only_scale_comb in [False, True]:
-        for scale_outside in [False, True]:
-            for comb_score_version in [1, 2, 3]:
-                for beam_size in [8, 12, 32, 64]:
-                    for scale in [(1.5, 1.0), (1.0, 0.9), (1.0, 0.8), (1.0, 0.7)]:
-                        if isinstance(scale, tuple):
-                            att_scale, ctc_scale = scale
-                        else:
-                            assert isinstance(scale, float)
-                            att_scale = scale
-                            ctc_scale = 1.0 - scale
-
-                        exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}_combScoreV{comb_score_version}_fixRepeat"
-                        if only_scale_comb:
-                            exp_name += "_onlyScaleComb"
-                        if scale_outside:
-                            exp_name += "_scaleOutside"
-                        joint_decode_args = {
-                            "att_scale": att_scale,
-                            "ctc_scale": ctc_scale,
-                            "beam_size": beam_size,
-                            "comb_score_version": comb_score_version,
-                            "only_scale_comb": only_scale_comb,
-                            "scale_outside": scale_outside,
-                        }
-                        run_decoding(
-                            exp_name=exp_name,
-                            train_data=train_data,
-                            checkpoint=train_job_avg_ckpt[
-                                f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
-                            ],
-                            search_args={
-                                "joint_ctc_att_decode_args": joint_decode_args,
-                                "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
-                                **oclr_args,
-                            },
-                            feature_extraction_net=log10_net_10ms,
-                            bpe_size=BPE_10K,
-                            test_sets=["dev-other"],
-                            remove_label={"<s>", "<blank>"},  # blanks are removed in the network
-                            use_sclite=True,
-                            time_rqmt=1.0 if beam_size <= 128 else 1.5,
-                        )
-
-    def debug(name, search_bpe_path):
-        from i6_core.returnn.search import SearchRemoveLabelJob
-        from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
-        import sisyphus.toolkit as tk
-
-        assert isinstance(search_bpe_path, str)
-        search_bpe_path = tk.Path(search_bpe_path, hash_overwrite=name)
-        recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
-        search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
-        search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
-        tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
-        wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
-        tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
-
+    # def debug(name, search_bpe_path):
+    #     from i6_core.returnn.search import SearchRemoveLabelJob
+    #     from i6_core.returnn.search import SearchBPEtoWordsJob, ReturnnComputeWERJob
+    #     import sisyphus.toolkit as tk
+    #
+    #     assert isinstance(search_bpe_path, str)
+    #     search_bpe_path = tk.Path(search_bpe_path, hash_overwrite=name)
+    #     recognition_reference = tk.Path("/u/zeineldeen/debugging/trigg_att/refs.py")
+    #     search_bpe = SearchRemoveLabelJob(search_bpe_path, remove_label="<s>", output_gzip=True).out_search_results
+    #     search_words = SearchBPEtoWordsJob(search_bpe).out_word_search_results
+    #     tk.register_output(f"ctc_att_search/debug/{name}_words", search_words)
+    #     wer = ReturnnComputeWERJob(search_words, recognition_reference).out_wer
+    #     tk.register_output(f"ctc_att_search/debug/{name}_wer", wer)
+    #
     # debug("fixrepeat_v1", "/u/zeineldeen/debugging/trigg_att/out.txt")
+
+    # TODO: two-pass joint decoding with CTC
+    # for beam_size in [12]:
+    #     for ctc_scale in [0.01, 0.009, 0.008, 0.007, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001]:
+    #         att_scale = 1.0
+    #         run_decoding(
+    #             exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_beam{beam_size}",
+    #             train_data=train_data,
+    #             checkpoint=train_job_avg_ckpt[
+    #                 f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+    #             ],
+    #             search_args={"beam_size": beam_size, **oclr_args},
+    #             feature_extraction_net=log10_net_10ms,
+    #             bpe_size=BPE_10K,
+    #             test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
+    #             use_sclite=True,
+    #             att_scale=att_scale,
+    #             ctc_scale=ctc_scale,
+    #             two_pass_rescore=True,  # two-pass rescoring
+    #         )
+
+    # TODO: two-pass joint decoding with CTC with LM
+    # for beam_size in [12, 32]:
+    #     for ctc_scale in [0.006, 0.005, 0.004, 0.003, 0.002, 0.001, 0.0]:
+    #         for lm_scale in [0.28, 0.3, 0.32, 0.35, 0.38, 0.4, 0.42]:
+    #             att_scale = 1.0
+    #             run_lm_fusion(
+    #                 args=oclr_args,
+    #                 lm_type="lstm",
+    #                 exp_name=f"two_pass_ctcRescore_{att_scale}_{ctc_scale}_lstmLM{lm_scale}_beam{beam_size}",
+    #                 train_data=train_data,
+    #                 train_job=train_j,
+    #                 feature_net=log10_net_10ms,
+    #                 epoch=train_job_avg_ckpt[
+    #                     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+    #                 ],
+    #                 ckpt_name="avg",
+    #                 lm_scales=[lm_scale],
+    #                 beam_size=beam_size,
+    #                 bpe_size=BPE_10K,
+    #                 test_set_names=["dev-other"],
+    #                 use_sclite=True,
+    #                 att_scale=att_scale,
+    #                 ctc_scale=ctc_scale,
+    #                 two_pass_rescore=True,  # two-pass rescoring
+    #             )
+
+    # ctc
+    for beam_size in [1]:  # 32
+        for ctc_scale in [1]:
+            for lm_scale in [0]:
+                if lm_scale > 0:
+                    run_lm_fusion(
+                        args={"ctc_greedy_decode": True, **oclr_args},
+                        lm_type="lstm",
+                        exp_name=f"ctc_{ctc_scale}_lstmLM{lm_scale}_beam{beam_size}",
+                        train_data=train_data,
+                        train_job=train_j,
+                        feature_net=log10_net_10ms,
+                        epoch=train_job_avg_ckpt[
+                            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                        ],
+                        ckpt_name="avg",
+                        lm_scales=[lm_scale],
+                        beam_size=beam_size,
+                        bpe_size=BPE_10K,
+                        test_set_names=["dev-other"],
+                        use_sclite=True,
+                    )
+                else:
+                    search_args = copy.deepcopy(oclr_args)
+                    search_args["decoder_args"] = CTCDecoderArgs()
+                    search_args["beam_size"] = beam_size
+                    run_decoding(
+                        exp_name="test_ctc_decoder",
+                        train_data=train_data,
+                        checkpoint=train_job_avg_ckpt[
+                            "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009"
+                        ],
+                        search_args=search_args,
+                        feature_extraction_net=log10_net_10ms,
+                        bpe_size=BPE_10K,
+                        test_sets=["dev-other"],
+                        remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                        use_sclite=True,
+                    )
+
+    # TODO: one-pass joint decoding with CTC
+    for comb_score_version in [2]:
+        for beam_size in [13]:
+            for scale in [(0.3, 1.0)]:
+                if isinstance(scale, tuple):
+                    att_scale, ctc_scale = scale
+                else:
+                    assert isinstance(scale, float)
+                    att_scale = scale
+                    ctc_scale = 1.0 - scale
+
+                exp_name = f"joint_att_ctc_attScale{att_scale}_ctcScale{ctc_scale}_beam{beam_size}_combScoreV{comb_score_version}_fixRepeat"
+                only_scale_comb = False
+                if only_scale_comb:
+                    exp_name += "_onlyScaleComb"
+                scale_outside = False
+                if scale_outside:
+                    exp_name += "_scaleOutside"
+                joint_decode_args = {
+                    "att_scale": att_scale,
+                    "ctc_scale": ctc_scale,
+                    "beam_size": beam_size,
+                    "comb_score_version": comb_score_version,
+                    "only_scale_comb": only_scale_comb,
+                    "scale_outside": scale_outside,
+                }
+                run_decoding(
+                    exp_name=exp_name,
+                    train_data=train_data,
+                    checkpoint=train_job_avg_ckpt[
+                        f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_const20_linDecay580_{1e-4}"
+                    ],
+                    search_args={
+                        "joint_ctc_att_decode_args": joint_decode_args,
+                        "batch_size": 10_000 * 160 if beam_size <= 128 else 15_000 * 160,
+                        **oclr_args,
+                    },
+                    feature_extraction_net=log10_net_10ms,
+                    bpe_size=BPE_10K,
+                    test_sets=["dev-other"],
+                    remove_label={"<s>", "<blank>"},  # blanks are removed in the network
+                    use_sclite=True,
+                    time_rqmt=1.0 if beam_size <= 128 else 1.5,
+                )

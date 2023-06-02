@@ -5,6 +5,7 @@ import copy
 from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict
 
+from i6_experiments.users.gaudino.models.asr.decoder.ctc_decoder import CTCDecoder
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import ConformerEncoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import TransformerDecoder
 from i6_experiments.users.zeineldeen.models.asr.decoder.conformer_decoder import ConformerDecoder
@@ -494,6 +495,11 @@ class RNNDecoderArgs(DecoderArgs):
     use_zoneout_output: bool = False
 
 
+@dataclass
+class CTCDecoderArgs(DecoderArgs):
+    add_lstm_lm: bool = False
+
+
 def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
@@ -657,6 +663,11 @@ def create_config(
     elif isinstance(decoder_args, ConformerDecoderArgs):
         decoder_type = ConformerDecoder
         dec_type = "conformer"  # TODO: check if same as transformer
+    elif isinstance(decoder_args, CTCDecoderArgs):
+        decoder_type = CTCDecoder
+        dec_type = "ctc"
+        exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
+        exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
     else:
         assert False, "invalid decoder_args type"
 
