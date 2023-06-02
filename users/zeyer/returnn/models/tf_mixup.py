@@ -181,8 +181,8 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         num_mixup = tf.random.uniform([n_batch], minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)  # [B]
         max_num_mix = tf.reduce_max(num_mixup)  # N
 
-        buffer_start = tf.random.uniform([n_batch, max_num_mix], maxval=tf.int32.max, dtype=tf.int32) % (
-            buffer_filled_size - src_seq_lens[:, None] + 1
+        buffer_start = tf.random.uniform(
+            [n_batch, max_num_mix], maxval=buffer_filled_size - n_time + 1, dtype=tf.int32
         )  # [B, N]
         n_mask = tf.sequence_mask(num_mixup, maxlen=max_num_mix)  # [B, N]
         buffer_start_flat = tf.boolean_mask(buffer_start, n_mask)  # [B_N']
