@@ -179,6 +179,7 @@ class FHDecoder:
         in_graph_acoustic_scoring=False,
         corpus_duration: typing.Optional[float] = 5.12,  # dev-other
         set_batch_major_for_feature_scorer=False,
+        lm_gc_simple_hash=False,
     ):
         assert not (recompile_graph_for_feature_scorer and in_graph_acoustic_scoring)
 
@@ -193,6 +194,7 @@ class FHDecoder:
         self.silence_id = silence_id
         self.corpus_duration = corpus_duration
         self.set_batch_major = set_batch_major_for_feature_scorer
+        self.lm_gc_simple_hash = lm_gc_simple_hash
 
         self.tensor_map = (
             dataclasses.replace(DecodingTensorMap.default(), **tensor_map)
@@ -1088,7 +1090,7 @@ class FHDecoder:
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
             extra_post_config=None,
-            create_dummy_feature_scorer_from_mixtures=self.mixtures,
+            create_dummy_feature_scorer_from_mixtures=self.mixtures if self.lm_gc_simple_hash else None,
         )
         if not use_gpu:
             # newer CPUs that support OpenFST v1.6

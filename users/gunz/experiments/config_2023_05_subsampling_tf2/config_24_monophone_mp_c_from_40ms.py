@@ -165,6 +165,7 @@ def run_single(
     if alignment_name == "scratch":
         s.cv_info = FROM_SCRATCH_CV_INFO
     s.base_allophones = ZHOU_ALLOPHONES
+    s.lm_gc_simple_hash = True
     s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
 
     s.run(steps)

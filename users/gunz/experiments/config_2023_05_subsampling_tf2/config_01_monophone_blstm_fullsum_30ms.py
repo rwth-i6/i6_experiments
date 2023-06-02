@@ -163,6 +163,7 @@ def run_single(
 
     s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
     s.lexicon_args["norm_pronunciation"] = False
+    s.lm_gc_simple_hash = True
     s.train_key = train_key
 
     s.run(steps)

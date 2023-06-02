@@ -117,6 +117,8 @@ class FactoredHybridSystem(NnSystem):
         self.dev_data = dev_data
         self.test_data = test_data
 
+        self.lm_gc_simple_hash = False
+
         self.filter_segments: typing.Union[Path, str, typing.List[str]] = []
 
         # useful paths
@@ -1338,6 +1340,7 @@ class FactoredHybridSystem(NnSystem):
         is_multi_encoder_output=False,
         tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
         dummy_mixtures: typing.Optional[tk.Path] = None,
+        lm_gc_simple_hash: typing.Optional[bool] = None,
         **decoder_kwargs,
     ):
         if context_type in [
@@ -1380,6 +1383,7 @@ class FactoredHybridSystem(NnSystem):
             silence_id=self.label_info.sil_id,
             gpu=gpu,
             corpus_duration=durations[crp_corpus],
+            lm_gc_simple_hash=lm_gc_simple_hash if lm_gc_simple_hash is not None else self.lm_gc_simple_hash,
             **decoder_kwargs,
         )
 

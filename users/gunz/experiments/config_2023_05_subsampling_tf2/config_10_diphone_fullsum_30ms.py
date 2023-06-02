@@ -169,6 +169,7 @@ def run_single(
         state_tying=RasrStateTying.diphone,
     )
     s.lexicon_args["norm_pronunciation"] = False
+    s.lm_gc_simple_hash = True
     s.train_key = train_key
 
     s.run(steps)
