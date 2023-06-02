@@ -14,18 +14,28 @@ def test_mixup():
         {
             "train": {
                 "class": "Task12AXDataset",
-                "num_seqs": 1000,
+                "num_seqs": 5000,
             },
             "extern_data": {"data": {"dim": 9}, "classes": {"dim": 2, "sparse": True}},
             "network": {
                 "mixup": make_mixup_layer_dict("data", dim=9, opts=MixupOpts()),
-                "output": {"class": "softmax", "from": "mixup", "loss": "ce", "target": "classes"},
+                # "mixup": {"class": "copy", "from": "data"},
+                "output": {
+                    "class": "softmax",
+                    "from": "mixup",
+                    "loss": "ce",
+                    "target": "classes",
+                },
             },
+            "optimizer": {"class": "Adam"},
+            "batch_size": 1000,
             "num_epochs": 5,
         }
     )
     with global_config_ctx(config):
         train_dataset = init_dataset(config.typed_value("train"))
         engine = Engine(config=config)
-        engine.init_train_from_config(config=config, train_data=train_dataset, dev_data=None)
+        engine.init_train_from_config(
+            config=config, train_data=train_dataset, dev_data=None
+        )
         engine.train()

@@ -102,8 +102,34 @@ def _mixup_eval_layer_func(*, source, dim: Union[int, Dim], opts: MixupOpts, sel
     feat_dim = src.feature_dim
     src = src.copy_transpose([batch_dim, time_dim, feat_dim])
 
-    @tf.function
-    def _func(src_raw, src_seq_lens, buffer_raw, buffer_pos_raw, buffer_filled_raw, train_flag):
+    func = tf.function(_get_raw_func(dim=src.dim, opts=opts), autograph=True)
+
+    return func(
+        src.raw_tensor,
+        src.get_sequence_lengths(),
+        buffer.raw_tensor,
+        buffer_pos.raw_tensor,
+        buffer_filled.raw_tensor,
+        tf.convert_to_tensor(self.network.train_flag),
+    )
+
+
+def _mixup_eval_layer_out_type_func(sources, name, **_kwargs):
+    from returnn.tensor import Tensor, batch_dim
+
+    src = sources[0].output
+    assert isinstance(src, Tensor)
+    src = src.copy_template(name="%s_output" % name)
+    time_dim = src.get_time_dim_tag()
+    feat_dim = src.feature_dim
+    src = src.copy_transpose([batch_dim, time_dim, feat_dim])
+    return src
+
+
+def _get_raw_func(*, dim: int, opts: MixupOpts):
+    def _raw_func(src_raw, src_seq_lens, buffer_raw, buffer_pos_raw, buffer_filled_raw, train_flag):
+        import tensorflow as tf
+
         assert (
             isinstance(src_raw, tf.Tensor)
             and isinstance(src_seq_lens, tf.Tensor)
@@ -119,7 +145,7 @@ def _mixup_eval_layer_func(*, source, dim: Union[int, Dim], opts: MixupOpts, sel
         dtype = src_raw.dtype
         n_batch = tf.shape(src_raw)[0]
         n_time = tf.shape(src_raw)[1]
-        n_feat = src.dim
+        n_feat = dim
 
         # Fill buffer with new data:
         pos = buffer_pos_raw
@@ -153,7 +179,11 @@ def _mixup_eval_layer_func(*, source, dim: Union[int, Dim], opts: MixupOpts, sel
                 src_left = 0
                 src_right = src_seq_lens[b]
                 if buffer_filled_size <= src_seq_lens[b]:
-                    src_left = tf.random.uniform((), maxval=src_seq_lens[b] - buffer_filled_size + 1, dtype=tf.int32)
+                    src_left = tf.random.uniform(
+                        (),
+                        maxval=src_seq_lens[b] - buffer_filled_size + 1,
+                        dtype=tf.int32,
+                    )
                     src_right = src_left + buffer_filled_size
                 src_size = src_right - src_left
                 buffer_start = tf.random.uniform((), maxval=buffer_filled_size - src_size, dtype=tf.int32)
@@ -182,28 +212,9 @@ def _mixup_eval_layer_func(*, source, dim: Union[int, Dim], opts: MixupOpts, sel
             mixup_value = tf.reduce_sum(mixup_values, axis=0)  # [T, F]
             ta = ta.write(b, mixup_value)
 
-        mixup_value = ta.stack()
+        mixup_value = ta.stack()  # [B,T,F]
         mixup_value.set_shape(src_raw.shape)
         src_raw = src_raw + mixup_value
         return src_raw
 
-    return _func(
-        src.raw_tensor,
-        src.get_sequence_lengths(),
-        buffer.raw_tensor,
-        buffer_pos.raw_tensor,
-        buffer_filled.raw_tensor,
-        tf.convert_to_tensor(self.network.train_flag),
-    )
-
-
-def _mixup_eval_layer_out_type_func(sources, name, **_kwargs):
-    from returnn.tensor import Tensor, batch_dim
-
-    src = sources[0].output
-    assert isinstance(src, Tensor)
-    src = src.copy_template(name="%s_output" % name)
-    time_dim = src.get_time_dim_tag()
-    feat_dim = src.feature_dim
-    src = src.copy_transpose([batch_dim, time_dim, feat_dim])
-    return src
+    return _raw_func
