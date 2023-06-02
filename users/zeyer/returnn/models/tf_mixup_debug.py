@@ -67,7 +67,7 @@ def test_profile():
     buffer_filled = tf.Variable(tf.zeros((), dtype=tf.bool))
     train_flag = tf.constant(True)
 
-    for n in range(1000):
+    for n in range(100):
         n_batch = 10
         n_time = 100
         src = tf.random.uniform([n_batch, n_time, dim], dtype=tf.float32)

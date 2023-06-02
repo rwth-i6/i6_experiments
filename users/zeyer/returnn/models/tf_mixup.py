@@ -152,12 +152,20 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
         for b in tf.range(n_batch):
             new_pos = tf.minimum(pos + src_seq_lens[b], opts.buffer_size)
             part_fill_len = new_pos - pos
-            buffer_raw[pos:new_pos].assign(src_raw[b, :part_fill_len])
+            tf.raw_ops.ResourceStridedSliceAssign(
+                ref=buffer_raw.handle, begin=[pos], end=[new_pos], strides=[1], value=src_raw[b, :part_fill_len]
+            )
             if part_fill_len <= src_seq_lens[b]:
                 buffer_filled_raw.assign(True)
             if part_fill_len < src_seq_lens[b]:
                 part_fill_len_ = tf.minimum(src_seq_lens[b] - part_fill_len, opts.buffer_size)
-                buffer_raw[:part_fill_len_].assign(src_raw[b, part_fill_len : part_fill_len + part_fill_len_])
+                tf.raw_ops.ResourceStridedSliceAssign(
+                    ref=buffer_raw.handle,
+                    begin=[0],
+                    end=[part_fill_len_],
+                    strides=[1],
+                    value=src_raw[b, part_fill_len : part_fill_len + part_fill_len_],
+                )
                 new_pos = part_fill_len_
             pos = new_pos
         buffer_pos_raw.assign(pos)
