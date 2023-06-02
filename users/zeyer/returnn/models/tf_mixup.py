@@ -207,7 +207,7 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
             indices=idx_b[:, None], updates=mixup_values, shape=[n_batch, n_time, n_feat]
         )  # [B,T,F]
 
-        src_raw = src_raw + mixup_value
+        src_raw = src_raw + tf.stop_gradient(mixup_value)
         return src_raw
 
     return _raw_func
