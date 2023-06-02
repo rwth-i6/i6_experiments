@@ -196,7 +196,9 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
                 src_size = src_right - src_left
                 buffer_start = tf.random.uniform((), maxval=buffer_filled_size - src_size, dtype=tf.int32)
                 buffer_end = buffer_start + src_size
-                buffer_part = buffer_raw[buffer_start:buffer_end]
+                buffer_part = tf.raw_ops.ResourceGather(
+                    resource=buffer_raw.handle, indices=tf.range(buffer_start, buffer_end), dtype=dtype
+                )
 
                 mixup_values = mixup_values.write(
                     n,
