@@ -295,6 +295,8 @@ def run_single(
     )
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
