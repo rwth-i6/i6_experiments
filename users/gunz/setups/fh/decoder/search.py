@@ -1088,6 +1088,7 @@ class FHDecoder:
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
             extra_post_config=None,
+            create_dummy_feature_scorer_from_mixtures=self.mixtures,
         )
         if not use_gpu:
             # newer CPUs that support OpenFST v1.6
