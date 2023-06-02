@@ -11,7 +11,7 @@ from .tf_mixup import make_mixup_layer_dict, MixupOpts
 
 
 def test_mixup():
-    log.initialize(verbosity=[5])
+    log.initialize(verbosity=[4])
     config = Config(
         {
             "train": {
@@ -24,8 +24,8 @@ def test_mixup():
             },
             "extern_data": {"data": {"dim": 9}, "classes": {"dim": 2, "sparse": True}},
             "network": {
-                # "mixup": make_mixup_layer_dict("data", dim=9, opts=MixupOpts()),
-                "mixup": {"class": "copy", "from": "data"},
+                "mixup": make_mixup_layer_dict("data", dim=9, opts=MixupOpts()),
+                # "mixup": {"class": "copy", "from": "data"},
                 "lstm": {"class": "rec", "unit": "lstm", "from": "mixup", "n_out": 100},
                 "output": {
                     "class": "softmax",
@@ -67,7 +67,7 @@ def test_profile():
     buffer_filled = tf.Variable(tf.zeros((), dtype=tf.bool))
     train_flag = tf.constant(True)
 
-    for n in range(100):
+    for n in range(1000):
         n_batch = 10
         n_time = 100
         src = tf.random.uniform([n_batch, n_time, dim], dtype=tf.float32)
