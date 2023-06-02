@@ -27,7 +27,7 @@ SRILM_PATH = tk.Path("/work/tools/users/luescher/srilm-1.7.3/bin/i686-m64/")
 SRILM_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_SRILM_PATH"
 
 RETURNN_EXE = tk.Path(
-    "/u/rossenbach/bin/returnn/returnn_tf2.3.4_mkl_launcher.sh",
+    "/usr/bin/python3",
     hash_overwrite="GENERIC_RETURNN_LAUNCHER",
 )
 
