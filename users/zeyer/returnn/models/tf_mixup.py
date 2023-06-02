@@ -174,63 +174,38 @@ def _get_raw_func(*, dim: int, opts: MixupOpts):
             return src_raw
 
         buffer_filled_size = opts.buffer_size if buffer_filled_raw else buffer_pos_raw
-        if buffer_filled_size == 0:
+        if buffer_filled_size < n_time:
             return src_raw
 
         # Apply Mixup. Collect all data we are going to add for each sequence.
-        # Use TensorArray to iterate over the batch dim.
-        ta = tf.TensorArray(dtype, size=n_batch, element_shape=(None, n_feat))  # [N] * [T, F]
-        for b in tf.range(n_batch):
-            num_mixup = tf.random.uniform((), minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)
+        num_mixup = tf.random.uniform([n_batch], minval=1, maxval=opts.max_num_mix + 1, dtype=tf.int32)  # [B]
+        max_num_mix = tf.reduce_max(num_mixup)  # N
 
-            src_left = 0
-            src_right = src_seq_lens[b]
-            src_left_ = tf.random.uniform(
-                [num_mixup],
-                maxval=tf.maximum(src_seq_lens[b] - buffer_filled_size + 1, 1),
-                dtype=tf.int32,
-            )
-            src_right_ = src_left_ + buffer_filled_size
-            src_left = tf.where(buffer_filled_size > src_seq_lens[b], src_left, src_left_)
-            src_right = tf.where(buffer_filled_size > src_seq_lens[b], src_right, src_right_)
-            src_size = src_right - src_left  # [N]
+        buffer_start = tf.random.uniform([n_batch, max_num_mix], maxval=tf.int32.max, dtype=tf.int32) % (
+            buffer_filled_size - src_seq_lens[:, None] + 1
+        )  # [B, N]
+        buffer_start_flat = flatten_with_seq_len_mask(buffer_start, num_mixup, batch_dim_axis=0, time_dim_axis=1)
 
-            buffer_start = tf.random.uniform([num_mixup], maxval=tf.int32.max, dtype=tf.int32) % (
-                buffer_filled_size - src_size
-            )  # [N]
-            buffer_end = buffer_start + src_size
+        idx = tf.range(n_time)[None, :]  # [1, T]
+        idx = idx + buffer_start_flat[:, None]  # [B_N', T]
 
-            mixup_values = tf.TensorArray(dtype, size=num_mixup, element_shape=(None, n_feat))  # [N] * [T, F]
-            for n in tf.range(num_mixup):
+        mixup_values = tf.raw_ops.ResourceGather(resource=buffer_raw.handle, indices=idx, dtype=dtype)  # [B_N', T, F]
 
-                buffer_part = tf.raw_ops.ResourceGather(
-                    resource=buffer_raw.handle, indices=tf.range(buffer_start[n], buffer_end[n]), dtype=dtype
-                )
+        # Scale the mixup values.
+        lambda_ = tf.random.uniform([n_batch, max_num_mix], minval=opts.lambda_min, maxval=opts.lambda_max, dtype=dtype)
+        mixup_scales = tf.random.uniform([n_batch, max_num_mix], minval=0.001, maxval=1.0, dtype=dtype)
+        mixup_scales *= lambda_ / tf.reduce_sum(mixup_scales, axis=1, keepdims=True)  # [B,N]
+        mixup_scales_flat = flatten_with_seq_len_mask(mixup_scales, num_mixup, batch_dim_axis=0, time_dim_axis=1)
+        mixup_values *= mixup_scales_flat[:, None, None]  # [B_N', T, F]
 
-                mixup_values = mixup_values.write(
-                    n,
-                    tf.concat(
-                        [
-                            tf.zeros((src_left[n], n_feat), dtype=dtype),
-                            buffer_part,
-                            tf.zeros((n_time - src_right[n], n_feat), dtype=dtype),
-                        ],
-                        axis=0,
-                    ),
-                )
-            mixup_values = mixup_values.stack()  # [N, T, F]
+        idx_b = tf.range(n_batch)[:, None]  # [B,1]
+        idx_b = tf.tile(idx_b, [1, max_num_mix])  # [B,N]
+        idx_b = flatten_with_seq_len_mask(idx_b, num_mixup, batch_dim_axis=0, time_dim_axis=1)  # [B_N']
 
-            # Scale the mixup values.
-            lambda_ = tf.random.uniform((), minval=opts.lambda_min, maxval=opts.lambda_max, dtype=dtype)
-            mixup_scales = tf.random.uniform((num_mixup,), minval=0.001, maxval=1.0, dtype=dtype)
-            mixup_scales *= lambda_ / tf.reduce_sum(mixup_scales)  # [N]
-            mixup_values *= mixup_scales[:, None, None]
+        mixup_value = tf.scatter_nd(
+            indices=idx_b[:, None], updates=mixup_values, shape=[n_batch, n_time, n_feat]
+        )  # [B,T,F]
 
-            mixup_value = tf.reduce_sum(mixup_values, axis=0)  # [T, F]
-            ta = ta.write(b, mixup_value)
-
-        mixup_value = ta.stack()  # [B,T,F]
-        mixup_value.set_shape(src_raw.shape)
         src_raw = src_raw + mixup_value
         return src_raw
 
