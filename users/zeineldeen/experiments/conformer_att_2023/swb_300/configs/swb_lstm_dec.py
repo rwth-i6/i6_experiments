@@ -402,6 +402,9 @@ def conformer_baseline():
     ):
         if train_args.get("retrain_checkpoint", None):
             assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
+            if "allow_lr_scheduling" not in train_args:
+                train_args["allow_lr_scheduling"] = False  # force it
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -540,7 +543,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 80
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
+        mini_lstm_args["allow_lr_scheduling"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -630,7 +633,7 @@ def conformer_baseline():
         mini_self_att["batch_size"] = 20000 * 80  # TODO: does this fit now?
         mini_self_att["with_pretrain"] = False
         mini_self_att["lr"] = lr
-        mini_self_att["allow_lr_scheduling_for_retrain"] = False
+        mini_self_att["allow_lr_scheduling"] = False
         mini_self_att["encoder_args"].with_ctc = False
         # mini_self_att['keep_all_epochs'] = True  # keep everything
         mini_self_att["extra_str"] = params_freeze_str
@@ -823,33 +826,40 @@ def conformer_baseline():
 
     # ----------------------------------------------- #
 
-    for ep in [900, 1200]:
-        for drop in [0.2, 0.3]:
-            for grad_clip in [50, 100]:
-                base3_args = copy.deepcopy(base_v2_args)
+    for no_weight_drop_in_pretrain in [True, False]:
+        for weight_drop in [0.1, 0.15, 0.2]:
+            for ep in [900]:
+                for drop in [0.2]:
+                    base3_args = copy.deepcopy(base_v2_args)
+                    base3_args["batch_size"] = base3_args["batch_size"] * 2
+                    base3_args["pretrain_opts"]["initial_batch_size"] = (
+                        base3_args["pretrain_opts"]["initial_batch_size"] * 2
+                    )
+                    base3_args["accum_grad"] = 1
 
-                # double batch size
-                base3_args["batch_size"] = base3_args["batch_size"] * 2
-                base3_args["pretrain_opts"]["initial_batch_size"] = (
-                    base3_args["pretrain_opts"]["initial_batch_size"] * 2
-                )
-                base3_args["accum_grad"] = 1
+                    base3_args["encoder_args"].att_dropout = drop
+                    base3_args["encoder_args"].dropout = drop
+                    base3_args["decoder_args"].att_dropout = drop
+                    base3_args["decoder_args"].embed_dropout = drop
 
-                base3_args["encoder_args"].att_dropout = drop
-                base3_args["encoder_args"].dropout = drop
-                base3_args["decoder_args"].att_dropout = drop
-                base3_args["decoder_args"].embed_dropout = drop
-                base3_args["gradient_noise"] = 0.001
-                base3_args["gradient_clip"] = grad_clip
+                    base3_args["param_dropout"] = weight_drop
 
-                base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-                base3_args["oclr_opts"]["total_ep"] = ep
+                    base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+                    base3_args["oclr_opts"]["total_ep"] = ep
 
-                base3_args["specaug_version"] = 3
+                    base3_args["specaug_version"] = 3
 
-                run_default_exp(
-                    f"base3_conf_{12}l_lstm_1l_conv{6}_drop{drop}_ep{ep}_specaug3_gradNoise{1e-3}_gradClip{grad_clip}",
-                    train_args=base3_args,
-                    num_epochs=ep,
-                    gpu_mem=24,
-                )
+                    name = f"base3_conf_{12}l_lstm_1l_conv{6}_drop{drop}_wd{weight_drop}_ep{ep}_specaug3"
+
+                    if no_weight_drop_in_pretrain:
+                        base3_args["pretrain_opts"]["extra_net_dict_override"] = {"param_dropout": 0.0}
+                        name += "_noWeightDropInPretrain"
+
+                    run_default_exp(
+                        name,
+                        train_args=base3_args,
+                        num_epochs=ep,
+                        gpu_mem=24,
+                    )
+
+    # TODO: mixup

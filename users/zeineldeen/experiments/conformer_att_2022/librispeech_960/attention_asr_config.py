@@ -538,7 +538,7 @@ def create_config(
     config_override=None,
     freeze_bn=False,
     keep_all_epochs=False,
-    allow_lr_scheduling_for_retrain=False,
+    allow_lr_scheduling=True,
     learning_rates_list=None,
     min_lr=None,
     global_stats=None,
@@ -548,6 +548,8 @@ def create_config(
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
+    param_dropout=0.0,
+    mixup_aug_opts=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -571,6 +573,8 @@ def create_config(
         "max_seqs": max_seqs,
         "truncation": -1,
     }
+    if param_dropout:
+        hyperparams["param_dropout"] = param_dropout  # weight dropout applied to all params
     if param_variational_noise:
         assert isinstance(param_variational_noise, float)
         hyperparams["param_variational_noise"] = param_variational_noise  # applied to all params
@@ -593,18 +597,18 @@ def create_config(
     )  # for network construction
 
     # LR scheduling
-    if noam_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
+    if noam_opts and allow_lr_scheduling:
         noam_opts["model_d"] = encoder_args.enc_key_dim
         exp_config["learning_rate"] = noam_opts["lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + noam_lr_str.format(**noam_opts)
-    elif warmup_lr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
+    elif warmup_lr_opts and allow_lr_scheduling:
         if warmup_lr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = warmup_lr_opts["learning_rates"]
         exp_config["learning_rate"] = warmup_lr_opts["peak_lr"]
         exp_config["learning_rate_control"] = "constant"
         extra_python_code += "\n" + warmup_lr_str.format(**warmup_lr_opts)
-    elif oclr_opts and (retrain_checkpoint is None or allow_lr_scheduling_for_retrain):
+    elif oclr_opts and allow_lr_scheduling:
         if oclr_opts.get("learning_rates", None):
             exp_config["learning_rates"] = oclr_opts["learning_rates"]
         exp_config["learning_rate"] = oclr_opts["peak_lr"]
@@ -620,7 +624,7 @@ def create_config(
                 const_lr = 0
             if retrain_checkpoint is not None:
                 learning_rates = None
-            elif not allow_lr_scheduling_for_retrain:
+            elif not allow_lr_scheduling:
                 learning_rates = None
             elif isinstance(const_lr, int):
                 learning_rates = [wup_start_lr] * const_lr + list(numpy.linspace(wup_start_lr, lr, num=wup))
