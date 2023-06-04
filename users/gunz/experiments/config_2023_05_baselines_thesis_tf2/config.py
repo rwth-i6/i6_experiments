@@ -61,3 +61,7 @@ BLSTM_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
     in_encoder_output="concat_lstm_fwd_6_lstm_bwd_6/concat_sources/concat",
 )
+MLP_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
+    CONF_FH_DECODING_TENSOR_CONFIG,
+    in_encoder_output="linear__5/activation/Relu",
+)

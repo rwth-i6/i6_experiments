@@ -35,8 +35,8 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     CONF_CHUNKING,
-    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_SA_CONFIG,
+    MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -230,11 +230,7 @@ def run_single(
             "forward_weights_init": augment.DEFAULT_INIT,
             "n_out": model_dim,
         },
-        "encoder-output": {
-            "class": "copy",
-            "from": "linear-5",
-            "register_as_extern_data": "encoder-output"
-        },
+        "encoder-output": {"class": "copy", "from": "linear-5", "register_as_extern_data": "encoder-output"},
         "center-output": {
             "class": "softmax",
             "n_out": s.label_info.get_n_of_dense_classes(),
@@ -361,7 +357,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            tensor_map=MLP_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
 
