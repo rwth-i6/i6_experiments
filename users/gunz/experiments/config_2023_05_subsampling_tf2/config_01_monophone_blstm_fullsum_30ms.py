@@ -34,8 +34,8 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    BLSTM_FH_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
-    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
@@ -426,7 +426,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
 
