@@ -415,7 +415,12 @@ def run_single(
         smoothen=True,
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
     )
-    s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
+
+    decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    decoding_config.config["network"]["encoder-output"]["register_as_extern_data"] = "encoder-output"
+    decoding_config.config["network"]["center-output"]["register_as_extern_data"] = "center-output"
+
+    s.set_graph_for_experiment("fh", override_cfg=decoding_config)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
