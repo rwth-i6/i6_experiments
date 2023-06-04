@@ -235,6 +235,7 @@ def run_single(
             "n_out": s.label_info.get_n_of_dense_classes(),
             "from": "linear-5",
             "forward_weights_init": augment.DEFAULT_INIT,
+            "register_as_extern_data": "center-output",
         },
     }
     if subsampling_factor == 3:
