@@ -94,7 +94,6 @@ def run(returnn_root: tk.Path):
         exp: run_single(
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
-            dc_detection=exp.dc_detection,
             feature_time_shift=exp.feature_time_shift,
             lr=exp.lr,
             model_dim=exp.model_dim,
@@ -111,7 +110,6 @@ def run_single(
     *,
     alignment_name: str,
     bw_label_scale: float,
-    dc_detection: bool,
     feature_time_shift: float,
     lr: str,
     returnn_root: tk.Path,
@@ -131,7 +129,7 @@ def run_single(
         test_data_inputs,
     ) = lbs_data_setups.get_data_inputs()
 
-    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
+    rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=False)
     rasr_init_args.feature_extraction_args["gt"]["parallel"] = 50
     rasr_init_args.feature_extraction_args["gt"]["rtf"] = 0.5
     rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
