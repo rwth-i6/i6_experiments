@@ -983,6 +983,8 @@ def run_chunkwise_train(
     chunk_step_factors=None,
     suffix="",
     enable_check_align=True,
+    ctc_self_align_delay=None,
+    ctc_self_align_delay_scale=0.5,
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
@@ -1005,9 +1007,13 @@ def run_chunkwise_train(
 
                         train_args["max_seq_length"] = None  # no filtering!
 
-                        train_args["encoder_args"].with_ctc = False  # No CTC
-                        train_args["enable_check_align"] = enable_check_align  # to not break hashes
+                        if ctc_self_align_delay:
+                            train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
+                            train_args["encoder_args"].ctc_self_align_delay_scale = ctc_self_align_delay_scale
+                        else:
+                            train_args["encoder_args"].with_ctc = False  # No CTC
 
+                        train_args["enable_check_align"] = enable_check_align  # to not break hashes
                         decay_pt = int(total_epochs * decay_pt_factor)
 
                         train_args["chunk_size"] = chunk_size

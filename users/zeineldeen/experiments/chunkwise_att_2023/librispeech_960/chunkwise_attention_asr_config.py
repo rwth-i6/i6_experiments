@@ -338,6 +338,8 @@ class ConformerEncoderArgs(EncoderArgs):
     with_ctc: bool = True
     native_ctc: bool = True
     ctc_loss_scale: Optional[float] = None
+    ctc_self_align_delay: Optional[int] = None
+    ctc_self_align_scale: float = 0.5
 
     # param init
     ff_init: Optional[str] = None
@@ -700,7 +702,6 @@ def create_config(
         conformer_encoder.create_network()
 
         if chunk_level == "encoder":
-
             conformer_encoder.network["encoder"] = {
                 "class": "window",
                 "from": "encoder_full_seq",
@@ -721,7 +722,6 @@ def create_config(
                     )
 
         elif chunk_level == "input":
-
             if specaug_:
                 input_ = conformer_encoder.network.add_eval_layer(
                     "source",
