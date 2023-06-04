@@ -230,10 +230,15 @@ def run_single(
             "forward_weights_init": augment.DEFAULT_INIT,
             "n_out": model_dim,
         },
+        "encoder-output": {
+            "class": "copy",
+            "from": "linear-5",
+            "register_as_extern_data": "encoder-output"
+        },
         "center-output": {
             "class": "softmax",
             "n_out": s.label_info.get_n_of_dense_classes(),
-            "from": "linear-5",
+            "from": "encoder-output",
             "forward_weights_init": augment.DEFAULT_INIT,
             "register_as_extern_data": "center-output",
         },
