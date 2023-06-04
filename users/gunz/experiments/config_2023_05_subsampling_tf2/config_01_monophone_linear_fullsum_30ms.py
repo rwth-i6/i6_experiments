@@ -287,9 +287,7 @@ def run_single(
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
         "network": network,
-        "extern_data": {
-            "data": {"dim": 50},
-        },
+        "extern_data": {"data": {"dim": 50}},
     }
     keep_epochs = [458, 550, num_epochs]
     base_post_config = {
