@@ -58,6 +58,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
+    feature_stacking: bool
     feature_time_shift: float
     lr: str
     multitask: bool
@@ -77,26 +78,28 @@ def run(returnn_root: tk.Path):
         *(
             Experiment(
                 alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
+                bw_label_scale=0.3,
                 dc_detection=False,
+                feature_stacking=fs,
                 feature_time_shift=10 / 1000,
                 lr="v13",
                 multitask=False,
                 subsampling_factor=3,
             )
-            for bw_label_scale in [0.3]
+            for fs in [True, False]
         ),
         *(
             Experiment(
                 alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
+                bw_label_scale=0.3,
                 dc_detection=False,
+                feature_stacking=fs,
                 feature_time_shift=7.5 / 1000,
                 lr="v13",
                 multitask=False,
                 subsampling_factor=4,
             )
-            for bw_label_scale in [0.3]
+            for fs in [True, False]
         ),
     ]
     experiments = {
@@ -104,6 +107,7 @@ def run(returnn_root: tk.Path):
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
             dc_detection=exp.dc_detection,
+            feature_stacking=exp.feature_stacking,
             feature_time_shift=exp.feature_time_shift,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
@@ -122,6 +126,7 @@ def run_single(
     alignment_name: str,
     bw_label_scale: float,
     dc_detection: bool,
+    feature_stacking: bool,
     feature_time_shift: float,
     focal_loss: float,
     lr: str,
@@ -133,7 +138,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"conf-1-lr:{lr}-ss:{'fs' if feature_stacking else 'mp'}:{subsampling_factor}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -200,8 +205,8 @@ def run_single(
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
         conf_args={
-            "feature_stacking": False,
-            "reduction_factor": (1, subsampling_factor),
+            "feature_stacking": feature_stacking,
+            "reduction_factor": (1, subsampling_factor) if not feature_stacking else None,
         },
     )
     network = network_builder.network
