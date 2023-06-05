@@ -379,6 +379,7 @@ def run_single(
                 rtf_cpu=4,
             )
 
+        """
         for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd), tdp_scale in itertools.product(
             itertools.product([0.0, 3.0], [0.0, 3.0]),
             itertools.product([0.0, 3.0], [0.0, 3.0]),
@@ -400,6 +401,7 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
+        """
 
         if tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
