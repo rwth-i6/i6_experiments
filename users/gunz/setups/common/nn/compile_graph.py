@@ -22,26 +22,17 @@ def compile_tf_graph_from_returnn_config(
     else:
         tf_returnn_config = returnn.ReturnnConfig(copy.copy(returnn_config))
 
-    conf = returnn.ReturnnConfig(
-        {
-            "train": {
-                "class": "ExternSprintDataset",
-                "partitionEpoch": 1,
-                "sprintConfigStr": "",
-                "sprintTrainerExecPath": None,
-            },
-            "dev": {
-                "class": "ExternSprintDataset",
-                "partitionEpoch": 1,
-                "sprintConfigStr": "",
-                "sprintTrainerExecPath": None,
-            },
-        }
-    )
-    tf_returnn_config.update(conf)
+    dataset_cfg = {
+        "class": "ExternSprintDataset",
+        "partitionEpoch": 1,
+        "sprintConfigStr": "",
+        "sprintTrainerExecPath": None,
+    }
+    update_conf = returnn.ReturnnConfig({"train": dataset_cfg, "dev": dataset_cfg})
+    tf_returnn_config.update(update_conf)
 
     compile_job = returnn.CompileTFGraphJob(
-        conf,
+        tf_returnn_config,
         output_format=output_format,
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
