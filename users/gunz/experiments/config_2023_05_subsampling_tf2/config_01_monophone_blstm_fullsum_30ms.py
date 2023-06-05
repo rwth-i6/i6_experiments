@@ -357,7 +357,7 @@ def run_single(
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
         },
     }
-    keep_epochs = [458, 550, num_epochs]
+    keep_epochs = [400, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
