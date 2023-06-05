@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import re
 import typing
 from dataclasses import dataclass
 import itertools
@@ -58,6 +59,7 @@ class Experiment:
     feature_time_shift: float
     lr: str
     model_dim: int
+    subsampling_approach: str
     subsampling_factor: int
 
 
@@ -67,30 +69,48 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
+    model_dim = 2048
+
     configs = [
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=0.3,
-                context_window_size=15,
-                feature_time_shift=10 / 1000,
-                lr="v13",
-                model_dim=model_dim,
-                subsampling_factor=3,
-            )
-            for model_dim in [2048]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=10 / 1000,
+            lr="v13",
+            model_dim=model_dim,
+            subsampling_approach="fs:3",
+            subsampling_factor=3,
         ),
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=0.3,
-                context_window_size=15,
-                feature_time_shift=7.5 / 1000,
-                lr="v13",
-                model_dim=model_dim,
-                subsampling_factor=4,
-            )
-            for model_dim in [2048]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            model_dim=model_dim,
+            subsampling_approach="mp:2@0+mp:2@3",
+            subsampling_factor=4,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            model_dim=model_dim,
+            subsampling_approach="mp:4@0",
+            subsampling_factor=4,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            model_dim=model_dim,
+            subsampling_approach="fs:2+mp:2@3",
+            subsampling_factor=4,
         ),
     ]
     experiments = {
@@ -102,6 +122,7 @@ def run(returnn_root: tk.Path):
             lr=exp.lr,
             model_dim=exp.model_dim,
             returnn_root=returnn_root,
+            subsampling_approach=exp.subsampling_approach,
             subsampling_factor=exp.subsampling_factor,
         )
         for exp in configs
@@ -118,13 +139,14 @@ def run_single(
     feature_time_shift: float,
     lr: str,
     returnn_root: tk.Path,
+    subsampling_approach: str,
     subsampling_factor: int,
     model_dim: int,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_factor}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-d:{model_dim}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -264,28 +286,31 @@ def run_single(
             "register_as_extern_data": "center-output",
         },
     }
-    if subsampling_factor == 3:
-        network["window"]["stride"] = subsampling_factor
-    elif subsampling_factor == 4:
-        network["mp-0"] = {
-            "class": "pool",
-            "from": network["linear-0"]["from"],
-            "mode": "max",
-            "padding": "same",
-            "pool_size": (subsampling_factor // 2,),
-        }
-        network["linear-0"]["from"] = "mp-0"
 
-        network["mp-1"] = {
-            "class": "pool",
-            "from": network["linear-3"]["from"],
-            "mode": "max",
-            "padding": "same",
-            "pool_size": (subsampling_factor // 2,),
-        }
-        network["linear-3"]["from"] = "mp-1"
-    else:
-        assert False, f"unknown subsampling factor {subsampling_factor}"
+    assert subsampling_approach.count("fs:") == 1, "can only feature stack once"
+    for part in subsampling_approach.split("+"):
+        if part.startswith("fs"):
+            assert len(part) == len(subsampling_approach)
+
+            _, factor = part.split(":")
+            network["window"]["stride"] = int(factor)
+        elif part.startswith("mp"):
+            match = re.match(r"^mp:(\d+)@(\d+)$", part)
+
+            assert match is not None, f"syntax error: {part}"
+            _, factor, layer = match.groups()
+
+            l_name = f"mp-{layer}"
+            network[l_name] = {
+                "class": "pool",
+                "from": network[f"linear-{layer}"]["from"],
+                "mode": "max",
+                "padding": "same",
+                "pool_size": (int(factor),),
+            }
+            network[f"linear-{layer}"]["from"] = l_name
+        else:
+            assert False, f"unknown subsampling instruction {part}"
 
     base_config = {
         **s.initial_nn_args,
@@ -305,7 +330,7 @@ def run_single(
         "network": network,
         "extern_data": {"data": {"dim": 50}},
     }
-    keep_epochs = [458, 550, num_epochs]
+    keep_epochs = [400, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
