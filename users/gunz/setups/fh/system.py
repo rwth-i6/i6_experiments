@@ -79,7 +79,6 @@ class Graphs(typing.TypedDict):
 
 
 class Experiment(typing.TypedDict, total=False):
-    extra_returnn_code: ExtraReturnnCode
     name: str
     graph: Graphs
     priors: typing.Optional[PriorInfo]
@@ -208,7 +207,6 @@ class FactoredHybridSystem(NnSystem):
             "returnn_config": None,
             "align_job": None,
             "decode_job": {"runner": None, "args": None},
-            "extra_returnn_code": {"epilog": "", "prolog": ""},
         }
 
     def set_crp_pairings(self):
@@ -226,8 +224,6 @@ class FactoredHybridSystem(NnSystem):
     def set_returnn_config_for_experiment(self, key: str, returnn_config: returnn.ReturnnConfig):
         assert key in self.experiments.keys()
         self.experiments[key]["returnn_config"] = returnn_config
-        self.experiments[key]["extra_returnn_code"]["prolog"] = returnn_config.python_prolog
-        self.experiments[key]["extra_returnn_code"]["epilog"] = returnn_config.python_epilog
 
     # -------------------- Helpers --------------------
     def _add_output_alias_for_train_job(
@@ -1302,8 +1298,6 @@ class FactoredHybridSystem(NnSystem):
         config = copy.deepcopy(override_cfg if override_cfg is not None else self.experiments[key]["returnn_config"])
 
         name = self.experiments[key]["name"]
-        python_prolog = self.experiments[key]["extra_returnn_code"]["prolog"]
-        python_epilog = self.experiments[key]["extra_returnn_code"]["epilog"]
 
         if "source" in config.config["network"].keys():  # specaugment
             for v in config.config["network"].values():
@@ -1317,8 +1311,6 @@ class FactoredHybridSystem(NnSystem):
 
         infer_graph = compile_tf_graph_from_returnn_config(
             config,
-            python_prolog=python_prolog if override_cfg is None else None,
-            python_epilog=python_epilog if override_cfg is None else None,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe
             if not self.do_not_set_returnn_python_exe_for_graph_compiles
