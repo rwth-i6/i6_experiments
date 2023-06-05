@@ -298,7 +298,7 @@ def run_single(
             match = re.match(r"^mp:(\d+)@(\d+)$", part)
 
             assert match is not None, f"syntax error: {part}"
-            _, factor, layer = match.groups()
+            factor, layer = match.groups()
 
             l_name = f"mp-{layer}"
             network[l_name] = {
