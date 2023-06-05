@@ -54,6 +54,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
+    context_window_size: int
     feature_time_shift: float
     lr: str
     model_dim: int
@@ -70,30 +71,33 @@ def run(returnn_root: tk.Path):
         *(
             Experiment(
                 alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
+                bw_label_scale=0.3,
+                context_window_size=15,
                 feature_time_shift=10 / 1000,
                 lr="v13",
-                model_dim=2048,
+                model_dim=model_dim,
                 subsampling_factor=3,
             )
-            for bw_label_scale in [0.3]
+            for model_dim in [2048]
         ),
         *(
             Experiment(
                 alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
+                bw_label_scale=0.3,
+                context_window_size=15,
                 feature_time_shift=7.5 / 1000,
                 lr="v13",
-                model_dim=2048,
+                model_dim=model_dim,
                 subsampling_factor=4,
             )
-            for bw_label_scale in [0.3]
+            for model_dim in [2048]
         ),
     ]
     experiments = {
         exp: run_single(
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
+            context_window_size=exp.context_window_size,
             feature_time_shift=exp.feature_time_shift,
             lr=exp.lr,
             model_dim=exp.model_dim,
@@ -110,6 +114,7 @@ def run_single(
     *,
     alignment_name: str,
     bw_label_scale: float,
+    context_window_size: int,
     feature_time_shift: float,
     lr: str,
     returnn_root: tk.Path,
@@ -119,7 +124,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-ss:{subsampling_factor}-d:{model_dim}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -182,12 +187,25 @@ def run_single(
             "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
             "from": "data",
         },
+        "window": {
+            "class": "window",
+            "from": "source",
+            "window_left": context_window_size - 1,
+            "window_right": 0,
+            "window_size": context_window_size,
+        },
+        "window-merged": {
+            "axes": "except_time",
+            "class": "merge_dims",
+            "from": "window",
+        },
         "linear-0": {
             "class": "linear",
             "activation": "relu",
-            "from": "source",
+            "from": "window-merged",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
         "linear-1": {
@@ -196,6 +214,7 @@ def run_single(
             "from": "linear-0",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
         "linear-2": {
@@ -204,6 +223,7 @@ def run_single(
             "from": "linear-1",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
         "linear-3": {
@@ -212,6 +232,7 @@ def run_single(
             "from": "linear-2",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
         "linear-4": {
@@ -220,6 +241,7 @@ def run_single(
             "from": "linear-3",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
         "linear-5": {
@@ -228,9 +250,14 @@ def run_single(
             "from": "linear-4",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
+            "l2": 0.0001,
             "n_out": model_dim,
         },
-        "encoder-output": {"class": "copy", "from": "linear-5", "register_as_extern_data": "encoder-output"},
+        "encoder-output": {
+            "class": "copy",
+            "from": "linear-5",
+            "register_as_extern_data": "encoder-output",
+        },
         "center-output": {
             "class": "softmax",
             "n_out": s.label_info.get_n_of_dense_classes(),
@@ -240,20 +267,11 @@ def run_single(
         },
     }
     if subsampling_factor == 3:
-        network["feature-stacking"] = {
-            "class": "window",
-            "from": "source",
-            "stride": subsampling_factor,
-            "window_left": subsampling_factor - 1,
-            "window_right": 0,
-            "window_size": subsampling_factor,
-        }
-        network["feature-stacking-merged"] = {"axes": (2, 3), "class": "merge_dims", "from": "feature-stacking"}
-        network["linear-0"]["from"] = "feature-stacking-merged"
+        network["window"]["stride"] = subsampling_factor
     elif subsampling_factor == 4:
         network["mp-0"] = {
             "class": "pool",
-            "from": "source",
+            "from": network["linear-0"]["from"],
             "mode": "max",
             "padding": "same",
             "pool_size": (subsampling_factor // 2,),
@@ -262,7 +280,7 @@ def run_single(
 
         network["mp-1"] = {
             "class": "pool",
-            "from": "linear-2",
+            "from": network["linear-3"]["from"],
             "mode": "max",
             "padding": "same",
             "pool_size": (subsampling_factor // 2,),
