@@ -87,6 +87,15 @@ def run(returnn_root: tk.Path):
             feature_time_shift=7.5 / 1000,
             lr="v13",
             model_dim=model_dim,
+            subsampling_approach="fs:4",
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            model_dim=model_dim,
             subsampling_approach="mp:2@0+mp:2@3",
         ),
         Experiment(
