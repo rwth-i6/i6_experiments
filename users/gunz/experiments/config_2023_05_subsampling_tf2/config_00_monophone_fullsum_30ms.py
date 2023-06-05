@@ -80,7 +80,7 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=10 / 1000,
-                lr="v6",
+                lr="v13",
                 multitask=False,
                 subsampling_factor=3,
             )
@@ -92,7 +92,7 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=7.5 / 1000,
-                lr="v6",
+                lr="v13",
                 multitask=False,
                 subsampling_factor=4,
             )
@@ -133,7 +133,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"conf-1-lr:{lr}-ss:{subsampling_factor}-mp:{subsampling_factor}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -199,7 +199,10 @@ def run_single(
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
-        feature_stacking_size=subsampling_factor,
+        conf_args={
+            "feature_stacking": False,
+            "reduction_factor": (1, subsampling_factor),
+        },
     )
     network = network_builder.network
     network = augment_net_with_monophone_outputs(
@@ -219,7 +222,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 6144,
+        "batch_size": 12500,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -277,7 +280,7 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(train_cfg),
     }
-    s.returnn_rasr_training(
+    train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -285,6 +288,7 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
+    train_j.rqmt.update({"gpu_mem": 15})
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
