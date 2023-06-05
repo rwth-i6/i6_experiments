@@ -190,8 +190,6 @@ def run_single(
         "window": {
             "class": "window",
             "from": "source",
-            "window_left": context_window_size - 1,
-            "window_right": 0,
             "window_size": context_window_size,
         },
         "window-merged": {
