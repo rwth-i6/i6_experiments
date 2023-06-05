@@ -99,7 +99,7 @@ def run(returnn_root: tk.Path):
                 multitask=False,
                 subsampling_factor=4,
             )
-            for fs in [True, False]
+            for fs in [False]
         ),
     ]
     experiments = {
