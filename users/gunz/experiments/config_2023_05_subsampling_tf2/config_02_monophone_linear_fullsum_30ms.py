@@ -218,7 +218,7 @@ def run_single(
             "from": "window-merged",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "linear-1": {
@@ -227,7 +227,7 @@ def run_single(
             "from": "linear-0",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "linear-2": {
@@ -236,7 +236,7 @@ def run_single(
             "from": "linear-1",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "linear-3": {
@@ -245,7 +245,7 @@ def run_single(
             "from": "linear-2",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "linear-4": {
@@ -254,7 +254,7 @@ def run_single(
             "from": "linear-3",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "linear-5": {
@@ -263,7 +263,7 @@ def run_single(
             "from": "linear-4",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
-            "l2": 0.0001,
+            "L2": 0.0001,
             "n_out": model_dim,
         },
         "encoder-output": {
