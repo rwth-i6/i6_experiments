@@ -361,7 +361,7 @@ def run_single(
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
 
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [True, False], [0.1, 0.2]):
+        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [True, False], [0.1]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
 
             if tdp_simple:
@@ -382,7 +382,7 @@ def run_single(
         for (tdp_sil_loop, tdp_sil_fwd), (tdp_sp_loop, tdp_sp_fwd), tdp_scale in itertools.product(
             itertools.product([0.0, 3.0], [0.0, 3.0]),
             itertools.product([0.0, 3.0], [0.0, 3.0]),
-            [0.1, 0.2, 0.4],
+            [0.1],
         ):
             sil_non_w_tdp = (tdp_sil_loop, tdp_sil_fwd, "infinity", 20.0)
             cfg = dataclasses.replace(
