@@ -199,7 +199,7 @@ def get_init_args(
 def get_monophone_args(
     feature_flow: str = "mfcc+deriv+norm",
     *,
-    train_align_iter: int = 75,
+    train_align_iter: int = 35,
     allow_zero_weights: bool = False,
     zero_weights_in: str = "extra_config",
 ):
