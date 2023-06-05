@@ -60,7 +60,6 @@ class Experiment:
     lr: str
     model_dim: int
     subsampling_approach: str
-    subsampling_factor: int
 
 
 def run(returnn_root: tk.Path):
@@ -80,7 +79,6 @@ def run(returnn_root: tk.Path):
             lr="v13",
             model_dim=model_dim,
             subsampling_approach="fs:3",
-            subsampling_factor=3,
         ),
         Experiment(
             alignment_name="scratch",
@@ -90,7 +88,6 @@ def run(returnn_root: tk.Path):
             lr="v13",
             model_dim=model_dim,
             subsampling_approach="mp:2@0+mp:2@3",
-            subsampling_factor=4,
         ),
         Experiment(
             alignment_name="scratch",
@@ -100,7 +97,6 @@ def run(returnn_root: tk.Path):
             lr="v13",
             model_dim=model_dim,
             subsampling_approach="mp:4@0",
-            subsampling_factor=4,
         ),
         Experiment(
             alignment_name="scratch",
@@ -110,7 +106,6 @@ def run(returnn_root: tk.Path):
             lr="v13",
             model_dim=model_dim,
             subsampling_approach="fs:2+mp:2@3",
-            subsampling_factor=4,
         ),
     ]
     experiments = {
@@ -123,7 +118,6 @@ def run(returnn_root: tk.Path):
             model_dim=exp.model_dim,
             returnn_root=returnn_root,
             subsampling_approach=exp.subsampling_approach,
-            subsampling_factor=exp.subsampling_factor,
         )
         for exp in configs
     }
@@ -140,7 +134,6 @@ def run_single(
     lr: str,
     returnn_root: tk.Path,
     subsampling_approach: str,
-    subsampling_factor: int,
     model_dim: int,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
