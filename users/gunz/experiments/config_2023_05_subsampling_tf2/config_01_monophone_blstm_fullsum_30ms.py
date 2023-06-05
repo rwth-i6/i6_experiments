@@ -79,7 +79,7 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=10 / 1000,
-                lr="v6",
+                lr="v13",
                 multitask=False,
                 subsampling_factor=3,
             )
@@ -91,7 +91,7 @@ def run(returnn_root: tk.Path):
                 bw_label_scale=bw_label_scale,
                 dc_detection=False,
                 feature_time_shift=7.5 / 1000,
-                lr="v6",
+                lr="v13",
                 multitask=False,
                 subsampling_factor=4,
             )
@@ -341,7 +341,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 6144,
+        "batch_size": 12500,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
