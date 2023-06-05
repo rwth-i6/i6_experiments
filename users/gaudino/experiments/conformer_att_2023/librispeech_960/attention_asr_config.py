@@ -498,6 +498,10 @@ class RNNDecoderArgs(DecoderArgs):
 @dataclass
 class CTCDecoderArgs(DecoderArgs):
     add_lstm_lm: bool = False
+    lm_scale: float = 0.3
+    ctc_scale: float = 1.0
+    add_att_dec: bool = False
+    att_scale: float = 0.3
 
 
 def create_config(
@@ -898,6 +902,9 @@ def create_config(
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
         if joint_ctc_att_decode_args.get("remove_eos", False):
             python_prolog += [update_tensor_entry]
+
+    if dec_type == "ctc" and decoder_args['add_att_dec'] is True:
+        python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:
