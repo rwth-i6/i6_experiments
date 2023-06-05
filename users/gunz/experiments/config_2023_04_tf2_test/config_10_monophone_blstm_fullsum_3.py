@@ -34,8 +34,8 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
+    BLSTM_FH_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING,
-    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
@@ -406,9 +406,6 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
-
-    return
-
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
@@ -419,6 +416,10 @@ def run_single(
         via_hdf=True,
     )
 
+    decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    decoding_config.config["network"]["center-output"]["register_as_extern_data"] = "center-output"
+    s.set_graph_for_experiment("fh", decoding_config)
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
@@ -426,8 +427,9 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
+            tf_library=s.native_lstm2_job.out_op,
         )
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)

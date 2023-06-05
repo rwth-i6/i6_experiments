@@ -283,9 +283,6 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
-
-    return
-
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
@@ -295,6 +292,10 @@ def run_single(
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
         via_hdf=True,
     )
+
+    decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    decoding_config.config["network"]["center-output"]["register_as_extern_data"] = "center-output"
+    s.set_graph_for_experiment("fh", decoding_config)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         recognizer, recog_args = s.get_recognizer_and_args(
