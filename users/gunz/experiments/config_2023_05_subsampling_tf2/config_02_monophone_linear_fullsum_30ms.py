@@ -290,8 +290,6 @@ def run_single(
     assert subsampling_approach.count("fs:") <= 1, "can only feature stack once"
     for part in subsampling_approach.split("+"):
         if part.startswith("fs"):
-            assert len(part) == len(subsampling_approach)
-
             _, factor = part.split(":")
             network["window"]["stride"] = int(factor)
         elif part.startswith("mp"):
