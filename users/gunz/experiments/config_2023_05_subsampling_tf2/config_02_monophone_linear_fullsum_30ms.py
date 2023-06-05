@@ -367,6 +367,7 @@ def run_single(
 
     train_args = {
         **s.initial_train_args,
+        "time_rqmt": 60,
         "num_epochs": num_epochs,
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(train_cfg),
