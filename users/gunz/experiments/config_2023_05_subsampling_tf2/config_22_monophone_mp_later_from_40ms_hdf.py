@@ -98,7 +98,7 @@ def run(returnn_root: tk.Path):
             reduction_factor=red,
             run_performance_study=False,
             subsampling_factor=4,
-            tune_decoding=True,
+            tune_decoding=False,
         )
         for red, mp in [*itertools.product([(1, 2)], [[1], [3]]), *itertools.product([(1, 1)], [[0, 1], [1, 3]])]
     ]

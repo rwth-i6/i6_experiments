@@ -93,7 +93,7 @@ def run(returnn_root: tk.Path):
             multitask=True,
             run_performance_study=False,
             subsampling_factor=4,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
     ]
     for exp in configs:
