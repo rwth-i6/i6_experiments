@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import re
 import typing
 from dataclasses import dataclass
 import itertools
@@ -61,7 +62,7 @@ class Experiment:
     lr: str
     multitask: bool
     dc_detection: bool
-    subsampling_factor: int
+    subsampling_approach: str
 
     focal_loss: float = CONF_FOCAL_LOSS
 
@@ -73,29 +74,41 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     configs = [
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
-                dc_detection=False,
-                feature_time_shift=10 / 1000,
-                lr="v13",
-                multitask=False,
-                subsampling_factor=3,
-            )
-            for bw_label_scale in [0.3]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=10 / 1000,
+            lr="v13",
+            multitask=False,
+            subsampling_approach="fs:3",
         ),
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
-                dc_detection=False,
-                feature_time_shift=7.5 / 1000,
-                lr="v13",
-                multitask=False,
-                subsampling_factor=4,
-            )
-            for bw_label_scale in [0.3]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            multitask=False,
+            subsampling_approach="mp:4@3",
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            multitask=False,
+            subsampling_approach="mp:2@3+mp:2@4",
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=7.5 / 1000,
+            lr="v13",
+            multitask=False,
+            subsampling_approach="fs:2+mp:2@3",
         ),
     ]
     experiments = {
@@ -108,7 +121,7 @@ def run(returnn_root: tk.Path):
             lr=exp.lr,
             multitask=exp.multitask,
             returnn_root=returnn_root,
-            subsampling_factor=exp.subsampling_factor,
+            subsampling_approach=exp.subsampling_approach,
         )
         for exp in configs
     }
@@ -126,13 +139,13 @@ def run_single(
     lr: str,
     multitask: bool,
     returnn_root: tk.Path,
-    subsampling_factor: int,
+    subsampling_approach: str,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"blstm-1-lr:{lr}-ss:{subsampling_approach}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -197,25 +210,12 @@ def run_single(
             "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
             "from": "data",
         },
-        "feature_stacking": {
-            "class": "window",
-            "from": "source",
-            "stride": subsampling_factor,
-            "window_left": subsampling_factor - 1,
-            "window_right": 0,
-            "window_size": subsampling_factor,
-        },
-        "feature_stacking_merged": {
-            "axes": (2, 3),
-            "class": "merge_dims",
-            "from": ["feature_stacking"],
-        },
         "lstm_bwd_1": {
             "L2": 0.01,
             "class": "rec",
             "direction": -1,
             "dropout": 0.1,
-            "from": ["feature_stacking_merged"],
+            "from": ["source"],
             "n_out": blstm_size,
             "unit": "nativelstm2",
         },
@@ -269,7 +269,7 @@ def run_single(
             "class": "rec",
             "direction": 1,
             "dropout": 0.1,
-            "from": ["feature_stacking_merged"],
+            "from": ["source"],
             "n_out": blstm_size,
             "unit": "nativelstm2",
         },
@@ -336,6 +336,55 @@ def run_single(
         use_multi_task=False,
     )
     network["center-output"]["n_out"] = s.label_info.get_n_state_classes()
+
+    assert subsampling_approach.count("fs:") <= 1, "can only feature stack once"
+    for part in subsampling_approach.split("+"):
+        if part.startswith("fs"):
+            _, factor = part.split(":")
+            factor = int(factor)
+
+            network = {
+                **network,
+                "feature_stacking": {
+                    "class": "window",
+                    "from": "source",
+                    "stride": factor,
+                    "window_left": factor - 1,
+                    "window_right": 0,
+                    "window_size": factor,
+                },
+                "feature_stacking_merged": {
+                    "axes": "except_time",
+                    "class": "merge_dims",
+                    "from": "feature_stacking",
+                },
+                "lstm_fwd_1": {
+                    **network["lstm_fwd_1"],
+                    "from": "feature_stacking_merged",
+                },
+                "lstm_bwd_1": {
+                    **network["lstm_bwd_1"],
+                    "from": "feature_stacking_merged",
+                },
+            }
+        elif part.startswith("mp"):
+            match = re.match(r"^mp:(\d+)@(\d+)$", part)
+
+            assert match is not None, f"syntax error: {part}"
+            factor, layer = match.groups()
+
+            l_name = f"mp-{layer}"
+            network[l_name] = {
+                "class": "pool",
+                "from": network[f"lstm_fwd_{layer}"]["from"],
+                "mode": "max",
+                "padding": "same",
+                "pool_size": (int(factor),),
+            }
+            network[f"lstm_fwd_{layer}"]["from"] = l_name
+            network[f"lstm_bwd_{layer}"]["from"] = l_name
+        else:
+            assert False, f"unknown subsampling instruction {part}"
 
     base_config = {
         **s.initial_nn_args,
