@@ -33,7 +33,6 @@ cv_align_hdf = [
     for i in range(200)
 ]
 
-
 def get_sms_data() -> SMSHybridSetupData:
     datasets = {
         key: {

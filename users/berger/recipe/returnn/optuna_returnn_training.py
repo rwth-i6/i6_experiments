@@ -1,45 +1,46 @@
 __all__ = ["OptunaReturnnTrainingJob"]
 
 import glob
+import inspect
+import logging
 import os
-import time
 import subprocess as sp
 import sys
+import time
 from typing import Generator, List, Optional
+
+import optuna
+from sisyphus import Task, tk, Job
+
+import i6_core.util as util
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
-import i6_core.util as util
-from sisyphus import Task, tk, Job
-import logging
-import optuna
-import inspect
-
 from .optuna_config import OptunaReturnnConfig
 
 
 class OptunaReturnnTrainingJob(Job):
     def __init__(
-        self,
-        optuna_returnn_config: OptunaReturnnConfig,
-        study_name: Optional[str] = None,
-        study_storage: Optional[str] = None,
-        sampler_seed: int = 42,
-        score_key: str = "dev_score",
-        num_trials: int = 15,
-        num_parallel: int = 3,
-        *,
-        log_verbosity: int = 3,
-        device: str = "gpu",
-        num_epochs: int = 1,
-        save_interval: int = 1,
-        keep_epochs: Optional[List[int]] = None,
-        time_rqmt: int = 4,
-        mem_rqmt: int = 4,
-        cpu_rqmt: int = 2,
-        horovod_num_processes: Optional[int] = None,
-        multi_node_slots: Optional[int] = None,
-        returnn_python_exe: Optional[tk.Path] = None,
-        returnn_root: Optional[tk.Path] = None,
+            self,
+            optuna_returnn_config: OptunaReturnnConfig,
+            study_name: Optional[str] = None,
+            study_storage: Optional[str] = None,
+            sampler_seed: int = 42,
+            score_key: str = "dev_score",
+            num_trials: int = 15,
+            num_parallel: int = 3,
+            *,
+            log_verbosity: int = 3,
+            device: str = "gpu",
+            num_epochs: int = 1,
+            save_interval: int = 1,
+            keep_epochs: Optional[List[int]] = None,
+            time_rqmt: int = 4,
+            mem_rqmt: int = 4,
+            cpu_rqmt: int = 2,
+            horovod_num_processes: Optional[int] = None,
+            multi_node_slots: Optional[int] = None,
+            returnn_python_exe: Optional[tk.Path] = None,
+            returnn_root: Optional[tk.Path] = None,
     ) -> None:
         self.kwargs = locals()
         del self.kwargs["self"]
@@ -157,21 +158,21 @@ class OptunaReturnnTrainingJob(Job):
             # it automatically provides the information on multiple nodes to mpirun,
             # so it is not needed to explicitly pass on any hostnames here.
             run_cmd = [
-                "mpirun",
-                "-np",
-                str(self.horovod_num_processes),
-                "-bind-to",
-                "none",
-                "-map-by",
-                "slot",
-                "-mca",
-                "pml",
-                "ob1",
-                "-mca",
-                "btl",
-                "^openib",
-                "--report-bindings",
-            ] + run_cmd
+                          "mpirun",
+                          "-np",
+                          str(self.horovod_num_processes),
+                          "-bind-to",
+                          "none",
+                          "-map-by",
+                          "slot",
+                          "-mca",
+                          "pml",
+                          "ob1",
+                          "-mca",
+                          "btl",
+                          "^openib",
+                          "--report-bindings",
+                      ] + run_cmd
 
         return run_cmd
 
@@ -303,11 +304,11 @@ class OptunaReturnnTrainingJob(Job):
     @staticmethod
     def _check_trial_finished(study: optuna.Study, trial_num: int) -> bool:
         for frozen_trial in study.get_trials(
-            states=[
-                optuna.trial.TrialState.COMPLETE,
-                optuna.trial.TrialState.FAIL,
-                optuna.trial.TrialState.PRUNED,
-            ]
+                states=[
+                    optuna.trial.TrialState.COMPLETE,
+                    optuna.trial.TrialState.FAIL,
+                    optuna.trial.TrialState.PRUNED,
+                ]
         ):
             if frozen_trial.number != trial_num:
                 continue

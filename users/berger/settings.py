@@ -72,6 +72,7 @@ def worker_wrapper(job, task_name, call):
         "AlignmentJob",
         "Seq2SeqAlignmentJob",
         "EstimateMixturesJob",
+        "EstimateCMLLRJob",
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
