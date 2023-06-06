@@ -111,7 +111,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
     return x
 
 
-def specaugment_eval_func(data, network, time_factor=1):
+def specaugment_eval_func(data, network, mask_size, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
 
@@ -140,7 +140,7 @@ def specaugment_eval_func(data, network, time_factor=1):
             axis=data.feature_dim_axis,
             min_num=step1 + step2,
             max_num=2 + step1 + step2 * 2,
-            max_dims=data.dim // 5,
+            max_dims=data.dim // mask_size,
             sorted_indices=sorted_idce,
         )
         return x_masked
@@ -149,7 +149,7 @@ def specaugment_eval_func(data, network, time_factor=1):
     return x
 
 
-def specaug_layer_sorted(in_layer):
+def specaug_layer_sorted(in_layer, mask_size):
     """
     specaug layer with default hybrid settings
 
@@ -160,7 +160,8 @@ def specaug_layer_sorted(in_layer):
         "from": in_layer,
         "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
         "source(0, as_data=True, auto_convert=False), "
-        "network=self.network)",
+        "network=self.network),"
+        " "+str(mask_size),
     }
 
 

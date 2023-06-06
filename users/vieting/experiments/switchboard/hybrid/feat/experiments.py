@@ -186,13 +186,13 @@ def run_baseline_mel():
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 
-def run_baseline_scf():
+def run_baseline_scf(mask_size: int = 5):
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
-                returnn_args=dict(batch_size=14000),
+                returnn_args=dict(batch_size=7000, extra_args=dict(accum_grad_multiple_step = 2)),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
@@ -213,10 +213,14 @@ def run_specaug_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf": dict(
-                returnn_args=dict(batch_size=7000, specaug_mask_sorting=True),
+            "scf_mask_size-4": dict(
+                returnn_args=dict(batch_size=3500, specaug_mask_sorting=True, mask_size=4, extra_args=dict(accum_grad_multiple_step = 4)),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-            )
+            ),
+            "scf_mask_size-6": dict(
+                returnn_args=dict(batch_size=3500, specaug_mask_sorting=True, mask_size=6, extra_args=dict(accum_grad_multiple_step = 4)),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            ),
         },
         prefix="conformer_bs14k_specaug_sorted_",
         num_epochs=260,
