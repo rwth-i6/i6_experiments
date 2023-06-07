@@ -427,7 +427,7 @@ def run_single(
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
 
-        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [True, False], [0.1, 0.2]):
+        for pC, tdp_simple, tdp_scale in itertools.product([0.5], [True, False], [0.1, 0.2, 1.0]):
             cfg = recog_args.with_prior_scale(pC).with_tdp_scale(tdp_scale)
 
             if tdp_simple:
