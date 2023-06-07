@@ -17,7 +17,7 @@ from i6_core import rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
+from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -25,7 +25,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
@@ -40,15 +39,15 @@ from .config import (
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
     L2,
+    RASR_ARCH,
+    RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
-    RETURNN_PYTHON_TF23,
+    RETURNN_PYTHON_TF2_12,
 )
 
-RASR_TF2_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", gs.RASR_ARCH))
-RASR_TF2_BINARY_PATH.hash_override = "FH_RASR_PATH"
-RASR_TF2_BINARY_PATH.hash_override = "RS_RASR_PATH"
-
-RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF23, hash_overwrite="FH_RETURNN_PYTHON_EXE")
+RASR_BINARY_PATH = tk.Path(os.path.join(RASR_ROOT_NO_TF, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH")
+RASR_BINARY_PATH_TF = tk.Path(os.path.join(RASR_ROOT_TF2, "arch", RASR_ARCH), hash_overwrite="RASR_BINARY_PATH_TF")
+RETURNN_PYTHON_EXE = tk.Path(RETURNN_PYTHON_TF2_12, hash_overwrite="RETURNN_PYTHON_EXE")
 
 train_key = "train-other-960"
 
@@ -58,6 +57,7 @@ class Experiment:
     alignment_name: str
     bw_label_scale: float
     feature_time_shift: float
+    import_checkpoint: returnn.Checkpoint
     lr: str
     multitask: bool
     dc_detection: bool
@@ -73,29 +73,33 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     configs = [
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
-                dc_detection=False,
-                feature_time_shift=10 / 1000,
-                lr="v6",
-                multitask=False,
-                subsampling_factor=3,
-            )
-            for bw_label_scale in [0.3]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=10 / 1000,
+            import_checkpoint=returnn.Checkpoint(
+                tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/nn_mono-from-scratch-blstm-1-lr:v6-ss:3-fs:3-bw:0.3/epoch.600.index"
+                )
+            ),
+            lr="v6",
+            multitask=False,
+            subsampling_factor=3,
         ),
-        *(
-            Experiment(
-                alignment_name="scratch",
-                bw_label_scale=bw_label_scale,
-                dc_detection=False,
-                feature_time_shift=7.5 / 1000,
-                lr="v6",
-                multitask=False,
-                subsampling_factor=4,
-            )
-            for bw_label_scale in [0.3]
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            dc_detection=False,
+            feature_time_shift=7.5 / 1000,
+            import_checkpoint=returnn.Checkpoint(
+                tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/nn_mono-from-scratch-blstm-1-lr:v6-ss:4-fs:4-bw:0.3/epoch.600.index"
+                )
+            ),
+            lr="v6",
+            multitask=False,
+            subsampling_factor=4,
         ),
     ]
     experiments = {
@@ -123,6 +127,7 @@ def run_single(
     dc_detection: bool,
     feature_time_shift: float,
     focal_loss: float,
+    import_checkpoint: returnn.Checkpoint,
     lr: str,
     multitask: bool,
     returnn_root: tk.Path,
@@ -152,7 +157,7 @@ def run_single(
     steps = rasr_util.RasrSteps()
     steps.add_step("init", None)  # you can create the label_info and pass here
     s = fh_system.FactoredHybridSystem(
-        rasr_binary_path=RASR_TF2_BINARY_PATH,
+        rasr_binary_path=RASR_BINARY_PATH,
         rasr_init_args=rasr_init_args,
         returnn_root=returnn_root,
         returnn_python_exe=RETURNN_PYTHON_EXE,
@@ -356,7 +361,7 @@ def run_single(
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
         },
     }
-    keep_epochs = [458, 550, num_epochs]
+    keep_epochs = [num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -384,31 +389,14 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    train_cfg = baum_welch.augment_for_fast_bw(
-        crp=s.crp[s.crp_names["train"]],
-        log_linear_scales=baum_welch.BwScales(
-            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
-        ),
-        returnn_config=returnn_config,
-    )
+    class FakeReturnnJob:
+        def __init(self, ep: int, ckpt: returnn.Checkpoint):
+            self.out_checkpoints = {ep: ckpt}
 
-    train_args = {
-        **s.initial_train_args,
-        "num_epochs": num_epochs,
-        "partition_epochs": partition_epochs,
-        "returnn_config": copy.deepcopy(train_cfg),
-    }
-    s.returnn_rasr_training(
-        experiment_key="fh",
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        nn_train_args=train_args,
-        on_2080=False,
-        include_alignment=False,
-    )
+    s.experiments["fh"]["train_job"] = FakeReturnnJob(600, import_checkpoint)
     s.set_mono_priors_returnn_rasr(
         key="fh",
-        epoch=keep_epochs[-2],
+        epoch=600,
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
@@ -420,6 +408,8 @@ def run_single(
     s.set_graph_for_experiment("fh", decoding_config)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
+
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
