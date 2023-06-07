@@ -422,6 +422,7 @@ def run_single(
             tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
             tf_library=s.native_lstm2_job.out_op,
+            lm_gc_simple_hash=True,
         )
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)

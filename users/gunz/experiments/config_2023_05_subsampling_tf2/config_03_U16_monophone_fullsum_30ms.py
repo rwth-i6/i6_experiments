@@ -285,6 +285,7 @@ def run_single(
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
         )
 
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
