@@ -305,6 +305,7 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
+        output_layer_name="output",
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
     )
 
