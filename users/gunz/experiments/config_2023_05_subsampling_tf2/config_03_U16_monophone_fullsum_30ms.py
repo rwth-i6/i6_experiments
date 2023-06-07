@@ -206,6 +206,9 @@ def run_single(
     )
     network["center-output"]["n_out"] = s.label_info.get_n_state_classes()
 
+    for k in [k for k in network.keys() if k.startswith("aux")]:
+        network.pop(k)
+
     base_config = {
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
@@ -252,7 +255,7 @@ def run_single(
     )
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
-    s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
+    s.set_returnn_config_for_experiment("fh", remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
     class FakeReturnnJob:
         def __init__(self, epoch: int, ckpt: returnn.Checkpoint):
@@ -265,7 +268,6 @@ def run_single(
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
         smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
     )
 
     decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
