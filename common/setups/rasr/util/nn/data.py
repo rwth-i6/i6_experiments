@@ -483,7 +483,7 @@ class HdfDataInput:
         self.align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, **(self.align_args or {}))
         self.feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
         self.meta_dataset = MetaDataset(
-            data_map={"classes": ("align", "classes"), "data": ("feat", "data")},
+            data_map={"classes": ("align", "data"), "data": ("feat", "data")},
             datasets={"align": self.align_dataset, "feat": self.feature_dataset},
             seq_order_control_dataset="align",
             additional_options={"partition_epoch": self.partition_epoch, **(self.meta_args or {})},

@@ -2,13 +2,14 @@ from typing import Optional, Dict, Any, Tuple, Callable
 from sisyphus import tk
 
 from i6_core import corpus as corpus_recipe
+from i6_core.text import PipelineJob
 from i6_core.returnn import ReturnnDumpHDFJob
 from i6_core.features import FeatureExtractionJob
 
 from i6_experiments.common.datasets.tedlium2.constants import DURATIONS, NUM_SEGMENTS
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
-from i6_experiments.common.setups.rasr.util import HdfDataInput, AllophoneLabeling, ReturnnRasrDataInput
-from i6_experiments.common.baselines.tedlium2.hybrid.baseline_args import get_align_dev_args
+from i6_experiments.common.setups.rasr.util import HdfDataInput, AllophoneLabeling, ReturnnRasrDataInput, ForcedAlignmentArgs
+from i6_experiments.common.datasets.tedlium2.lexicon import get_bliss_lexicon
 from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT
 
 
@@ -67,7 +68,7 @@ def build_hdf_data_input(
         align_job.add_alias(alias_prefix + "/dump_alignments")
     align_hdf = align_job.out_hdf
 
-    return HdfDataInput(features=feat_hdf, alignments=align_hdf, partition_epoch=partition_epoch, acoustic_mixtures=acoustic_mixtures, seq_ordering=seq_ordering)
+    return HdfDataInput(features=feat_hdf, alignments=align_hdf, partition_epoch=partition_epoch, acoustic_mixtures=acoustic_mixtures, seq_ordering=seq_ordering, feat_args={"segment_file": segment_list})
 
 
 def dump_features_for_hybrid_training(
@@ -77,8 +78,9 @@ def dump_features_for_hybrid_training(
 ) -> Tuple[tk.Path, tk.Path, tk.Path]:
     features = {}
     for name in ["nn-train", "nn-cv", "nn-devtrain"]:
+        #print(gmm_system.crp[name].corpus_config.file, name)
         features[name] = list(feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle.values())[0]
-
+    print(features["nn-train"])
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
 
@@ -98,46 +100,43 @@ def get_corpus_data_inputs(
     train_corpus_path = gmm_system.corpora["train"].corpus_file
     cv_corpus_path = gmm_system.corpora["dev"].corpus_file
 
+    cv_corpus_path = corpus_recipe.FilterCorpusRemoveUnknownWordSegmentsJob(
+        bliss_corpus=cv_corpus_path,
+        bliss_lexicon=get_bliss_lexicon(),
+        all_unknown=False
+    ).out_corpus
+
     total_train_num_segments = NUM_SEGMENTS["train"]
-    total_cv_num_segments = NUM_SEGMENTS["dev"]
 
     all_train_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
-    all_cv_segments = corpus_recipe.SegmentCorpusJob(cv_corpus_path, 1).out_single_segment_files[1]
+    cv_segments = corpus_recipe.SegmentCorpusJob(cv_corpus_path, 1).out_single_segment_files[1]
 
     dev_train_size = 500 / total_train_num_segments
-    cv_size = 150 / total_cv_num_segments
-
     splitted_train_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
         all_train_segments,
         {"devtrain": dev_train_size, "unused": 1 - dev_train_size},
     )
-    splitted_cv_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
-        all_cv_segments,
-        {"cv": cv_size, "unused": 1 - cv_size},
-    )
-
     devtrain_segments = splitted_train_segments_job.out_segments["devtrain"]
-    cv_segments = splitted_cv_segments_job.out_segments["cv"]
 
-    cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(cv_corpus_path, cv_segments).out_corpus
     devtrain_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(train_corpus_path, devtrain_segments).out_corpus
-
     # ******************** NN Init ********************
     gmm_system.add_overlay("train", "nn-train")
     gmm_system.crp["nn-train"].segment_path = all_train_segments
     gmm_system.crp["nn-train"].concurrent = 1
+    gmm_system.crp["nn-train"].corpus_config.file = train_corpus_path
+    gmm_system.crp["nn-train"].corpus_duration = DURATIONS["train"]
 
     gmm_system.add_overlay("dev", "nn-cv")
     gmm_system.crp["nn-cv"].corpus_config.file = cv_corpus_path
     gmm_system.crp["nn-cv"].segment_path = cv_segments
     gmm_system.crp["nn-cv"].concurrent = 1
-    gmm_system.crp["nn-cv"].corus_duration = DURATIONS["dev"] * cv_size
+    gmm_system.crp["nn-cv"].corpus_duration = DURATIONS["dev"]
 
     gmm_system.add_overlay("train", "nn-devtrain")
     gmm_system.crp["nn-devtrain"].segment_path = devtrain_segments
     gmm_system.crp["nn-devtrain"].concurrent = 1
-    gmm_system.crp["nn-devtrain"].corpus_config.file = devtrain_corpus_path
-    gmm_system.crp["nn-devtrain"].corus_duration = DURATIONS["train"] * dev_train_size
+    #gmm_system.crp["nn-devtrain"].corpus_config.file = devtrain_corpus_path
+    gmm_system.crp["nn-devtrain"].corpus_duration = DURATIONS["train"] * dev_train_size
 
     # ******************** extract features ********************
 
@@ -153,7 +152,18 @@ def get_corpus_data_inputs(
         state_tying_file=gmm_system.jobs["train"]["state_tying"].out_state_tying,
     )
 
-    forced_align_args = get_align_dev_args(crp=cv_corpus_path)
+    forced_align_args = ForcedAlignmentArgs(
+        name="nn-cv",
+        target_corpus_keys=["nn-cv"],
+        flow="uncached_mfcc+context+lda+vtln+cmllr",  # TODO??
+        feature_scorer="train_vtln+sat",
+        scorer_index=-1,
+        bliss_lexicon={
+            "filename": get_bliss_lexicon(),
+            "normalize_pronunciation": False,
+        },
+        dump_alignment=True,
+    )
     gmm_system.run_forced_align_step(forced_align_args)
 
     nn_train_data = build_hdf_data_input(
