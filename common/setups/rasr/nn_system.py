@@ -12,6 +12,7 @@ import sisyphus.global_settings as gs
 # -------------------- Recipes --------------------
 
 import i6_core.returnn as returnn
+from i6_core.tools import CloneGitRepositoryJob
 
 from .rasr_system import RasrSystem
 
@@ -87,6 +88,7 @@ def returnn_training(
     returnn_config: returnn.ReturnnConfig,
     training_args: Union[Dict, ReturnnTrainingJobArgs],
     train_data: AllowedReturnnTrainingDataInput,
+    *,
     cv_data: Optional[AllowedReturnnTrainingDataInput] = None,
     additional_data: Optional[Dict[str, AllowedReturnnTrainingDataInput]] = None,
     register_output: bool = True,
