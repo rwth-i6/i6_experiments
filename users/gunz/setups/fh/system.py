@@ -236,10 +236,7 @@ class FactoredHybridSystem(NnSystem):
         name: str,
     ):
         train_job.add_alias(f"train/nn_{name}")
-        tk.register_output(
-            f"train/{name}_learning_rate.png",
-            train_job.out_plot_lr,
-        )
+        tk.register_output(f"train/{name}_scores.png", train_job.out_plot_se)
 
     def _compute_returnn_rasr_priors(
         self,
