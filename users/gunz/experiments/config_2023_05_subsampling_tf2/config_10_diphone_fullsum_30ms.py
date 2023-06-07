@@ -340,7 +340,7 @@ def run_single(
                     cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
                 )
 
-            s.recognize_cart(
+            search_jobs = s.recognize_cart(
                 key="fh",
                 epoch=ep,
                 crp_corpus=crp_k,
@@ -349,6 +349,11 @@ def run_single(
                 params=cfg,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
+            )
+            recognizer.align(
+                f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
+                crp=search_jobs.search_crp,
+                feature_scorer=search_jobs.search_feature_scorer,
             )
 
     return s
