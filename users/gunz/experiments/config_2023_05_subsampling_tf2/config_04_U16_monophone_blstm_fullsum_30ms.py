@@ -410,6 +410,9 @@ def run_single(
     decoding_config.config["network"]["center-output"]["register_as_extern_data"] = "center-output"
     s.set_graph_for_experiment("fh", decoding_config)
 
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
+    s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 

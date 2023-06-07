@@ -309,6 +309,9 @@ def run_single(
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config, except_layers=["pastLabel"]),
     )
 
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
+    s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
+
     nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config, label_info=s.label_info, out_joint_score_layer="output", log_softmax=True
     )
