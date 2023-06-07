@@ -127,7 +127,6 @@ def run_single(
     alignment: tk.Path,
     alignment_name: str,
     returnn_root: tk.Path,
-    conf_model_dim: int = 512,
     num_epochs: int = 600,
     focal_loss: float,
     dc_detection: bool,
@@ -427,7 +426,7 @@ def run_single(
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
-                num_encoder_output=conf_model_dim,
+                num_encoder_output=2 * blstm_size,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
             )
@@ -436,7 +435,7 @@ def run_single(
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
+                num_encoder_output=2 * blstm_size,
                 prior_scales=list(
                     itertools.product(
                         np.linspace(0.1, 0.5, 5),
@@ -449,7 +448,7 @@ def run_single(
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
+                num_encoder_output=2 * blstm_size,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
