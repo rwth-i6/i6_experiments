@@ -250,10 +250,15 @@ class FactoredHybridSystem(NnSystem):
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: typing.Union[int, float] = 12,
+        checkpoint: typing.Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
 
         train_data = self.train_input_data[train_corpus_key]
         dev_data = self.cv_input_data[dev_corpus_key]
@@ -326,10 +331,15 @@ class FactoredHybridSystem(NnSystem):
         returnn_config: returnn.ReturnnConfig,
         share: float,
         time_rqmt: typing.Union[int, float] = 12,
+        checkpoint: typing.Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
-        model_checkpoint = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        model_checkpoint = (
+            checkpoint
+            if checkpoint is not None
+            else self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        )
         returnn_config = self.get_hdf_config_from_returnn_rasr_data(
             alignment_allophones=None,
             dev_corpus_key=dev_corpus_key,
@@ -361,9 +371,6 @@ class FactoredHybridSystem(NnSystem):
         return prior_job
 
     def _get_model_checkpoint(self, model_job, epoch):
-        return model_job.out_checkpoints[epoch]
-
-    def _get_model_path(self, model_job, epoch):
         return model_job.out_checkpoints[epoch]
 
     def _delete_multitask_components(self, returnn_config):
@@ -1088,6 +1095,7 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
+        checkpoint: typing.Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1109,6 +1117,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=config,
                 share=data_share,
+                checkpoint=checkpoint,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1119,6 +1128,7 @@ class FactoredHybridSystem(NnSystem):
                 returnn_config=config,
                 share=data_share,
                 time_rqmt=4.9,
+                checkpoint=checkpoint,
             )
         )
 
@@ -1144,6 +1154,7 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
+        checkpoint: typing.Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1171,6 +1182,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
+                checkpoint=checkpoint,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1180,6 +1192,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
+                checkpoint=checkpoint,
             )
             for (ctx, cfg) in [("l", left_config), ("c", center_config)]
         }
@@ -1218,6 +1231,7 @@ class FactoredHybridSystem(NnSystem):
         data_share: float = 1.0 / 3.0,
         smoothen: bool = False,
         via_hdf: bool = False,
+        checkpoint: typing.Optional[returnn.Checkpoint] = None,
     ):
         self.set_graph_for_experiment(key)
 
@@ -1250,6 +1264,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
+                checkpoint=checkpoint,
             )
             if via_hdf
             else self._compute_returnn_rasr_priors(
@@ -1260,6 +1275,7 @@ class FactoredHybridSystem(NnSystem):
                 returnn_config=cfg,
                 share=data_share,
                 time_rqmt=30,
+                checkpoint=checkpoint,
             )
             for (ctx, cfg) in (
                 ("l", left_config),
@@ -1360,7 +1376,7 @@ class FactoredHybridSystem(NnSystem):
 
         assert self.label_info.sil_id is not None
 
-        model_path = self._get_model_path(self.experiments[key]["train_job"], epoch)
+        model_path = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         recognizer = FHDecoder(
             name=name,
             search_crp=self.crp[crp_corpus],
@@ -1477,7 +1493,7 @@ class FactoredHybridSystem(NnSystem):
 
         decoder.recognition(
             name=self.experiments[key]["name"],
-            checkpoints={epoch: self._get_model_path(self.experiments[key]["train_job"], epoch)},
+            checkpoints={epoch: self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)},
             epochs=[epoch],
             forward_output_layer=encoder_output_layer,
             prior_paths={
