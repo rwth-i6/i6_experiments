@@ -11,10 +11,9 @@ def get_wei_config():
   # partition_epochs: 5 for training data
   network = get_network()
   nn_config = make_nn_config(network)
-  nn_config['num_outputs'] = {
-    'data': [80,2], # input: 80-dimensional logmel features
-    'classes': [9001,1],
-
+  nn_config['extern_data'] = {
+    'data': {"dim": 80, "shape": (None, 80), "available_for_inference": True},  # input: 80-dimensional logmel features
+    'classes': {"dim": 9001, "shape": (None,), "available_for_inference": True, "sparse": True, "dtype": "int8"}
   }
 
 
