@@ -444,7 +444,7 @@ def run_single(
                 rtf_cpu=4,
             )
             recognizer.align(
-                f"{name}-pC{cfg.prior_info.center_state_prior.scale}",
+                f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
                 crp=search_jobs.search_crp,
                 feature_scorer=search_jobs.search_feature_scorer,
             )
