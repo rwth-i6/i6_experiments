@@ -94,6 +94,8 @@ class RecognitionJobs:
     lat2ctm: recog.LatticeToCtmJob
     sclite: recog.ScliteJob
     search: recog.AdvancedTreeSearchJob
+    search_crp: rasr.RasrConfig
+    search_feature_scorer: rasr.FeatureScorer
     search_stats: typing.Optional[ExtractSearchStatisticsJob]
 
 
@@ -1062,6 +1064,7 @@ class FHDecoder:
             is_multi_encoder_output=self.is_multi_encoder_output,
             set_is_batch_major=self.set_batch_major,
         )
+        self.feature_scorer = feature_scorer
 
         pre_path = (
             pre_path
@@ -1173,24 +1176,28 @@ class FHDecoder:
                     use_estimated_tdps=use_estimated_tdps,
                 )
 
-        return RecognitionJobs(lat2ctm=lat2ctm, sclite=scorer, search=search, search_stats=stat)
+        return RecognitionJobs(
+            lat2ctm=lat2ctm,
+            sclite=scorer,
+            search=search,
+            search_crp=search_crp,
+            search_feature_scorer=feature_scorer,
+            search_stats=stat,
+        )
 
     def align(
         self,
-        name,
-        crp,
+        name: str,
         rtf=10,
-        mem=8,
-        am_trainer_exe_path=None,
+        crp: typing.Optional[rasr.CommonRasrParameters] = None,
+        feature_scorer: typing.Optional[rasr.FeatureScorer] = None,
         default_tdp=True,
     ):
-        align_crp = copy.deepcopy(crp)
-        if am_trainer_exe_path is not None:
-            align_crp.acoustic_model_trainer_exe = am_trainer_exe_path
+        align_crp = copy.deepcopy(crp) if crp is not None else self.search_crp
 
         if default_tdp:
             v = (3.0, 0.0, "infinity", 0.0)
-            sv = (0.0, 3.0, "infinity", 0.0)
+            sv = (0.0, 3.0, "infinity", 3.0)
             keys = ["loop", "forward", "skip", "exit"]
             for i, k in enumerate(keys):
                 align_crp.acoustic_model_config.tdp["*"][k] = v[i]
@@ -1208,13 +1215,13 @@ class FHDecoder:
         alignment = mm.AlignmentJob(
             crp=align_crp,
             feature_flow=self.featureScorerFlow,
-            feature_scorer=self.feature_scorer,
+            feature_scorer=feature_scorer if feature_scorer is not None else self.feature_scorer,
             use_gpu=self.gpu,
             rtf=rtf,
         )
         alignment.rqmt.update({"cpu": 2, "mem": 8})
-        alignment.add_alias(f"alignments/align_{name}")
 
-        tk.register_output("alignments/{}".format(name), alignment.out_alignment_bundle)
+        alignment.add_alias(f"alignments/{name}")
+        tk.register_output(f"alignments/{name}", alignment.out_alignment_bundle)
 
         return alignment

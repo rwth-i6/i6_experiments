@@ -1349,6 +1349,7 @@ class FactoredHybridSystem(NnSystem):
         tf_library: typing.Union[tk.Path, str, typing.List[tk.Path], typing.List[str], None] = None,
         dummy_mixtures: typing.Optional[tk.Path] = None,
         lm_gc_simple_hash: typing.Optional[bool] = None,
+        crp: typing.Optional[rasr.RasrConfig] = None,
         **decoder_kwargs,
     ):
         if context_type in [
@@ -1379,7 +1380,7 @@ class FactoredHybridSystem(NnSystem):
         model_path = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
         recognizer = FHDecoder(
             name=name,
-            search_crp=self.crp[crp_corpus],
+            search_crp=self.crp[crp_corpus] if crp is None else crp,
             context_type=context_type,
             feature_path=self.feature_flows[crp_corpus],
             model_path=model_path,

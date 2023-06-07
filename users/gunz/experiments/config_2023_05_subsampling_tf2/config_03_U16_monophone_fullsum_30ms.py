@@ -298,13 +298,18 @@ def run_single(
                     cfg, tdp_non_word=sil_non_w_tdp, tdp_silence=sil_non_w_tdp, tdp_speech=(0.0, 0.0, "infinity", 0.0)
                 )
 
-            recognizer.recognize_count_lm(
+            search_jobs = recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 rtf_cpu=4,
+            )
+            recognizer.align(
+                f"{name}-pC{cfg.prior_info.center_state_prior.scale}",
+                crp=search_jobs.search_crp,
+                feature_scorer=search_jobs.search_feature_scorer,
             )
 
     return s
