@@ -255,8 +255,8 @@ def run_single(
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     class FakeReturnnJob:
-        def __init(self, ep: int, ckpt: returnn.Checkpoint):
-            self.out_checkpoints = {ep: ckpt}
+        def __init__(self, epoch: int, ckpt: returnn.Checkpoint):
+            self.out_checkpoints = {epoch: ckpt}
 
     s.experiments["fh"]["train_job"] = FakeReturnnJob(600, import_checkpoint)
     s.set_mono_priors_returnn_rasr(
