@@ -192,7 +192,7 @@ def run_baseline_scf():
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
-                returnn_args=dict(batch_size=7000, extra_args=dict(accum_grad_multiple_step = 2)),
+                returnn_args=dict(batch_size=14000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
@@ -213,12 +213,25 @@ def run_specaug_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf_mask_size-4": dict(
-                returnn_args=dict(batch_size=3500, specaug_mask_sorting=True, mask_divisor=4, extra_args=dict(accum_grad_multiple_step = 4)),
+            "scf": dict(returnn_args=dict(batch_size=7000, specaug_mask_sorting=True),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
-            "scf_mask_size-6": dict(
-                returnn_args=dict(batch_size=3500, specaug_mask_sorting=True, mask_divisor=6, extra_args=dict(accum_grad_multiple_step = 4)),
+            "scf_divisor-4": dict(
+                returnn_args=dict(
+                    batch_size=7000, 
+                    specaug_mask_sorting=True,
+                    mask_divisor=2,
+                    extra_args=dict(accum_grad_multiple_step=2)
+                ),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            ),
+            "scf_divisor-6": dict(
+                returnn_args=dict(
+                    batch_size=7000,
+                    specaug_mask_sorting=True,
+                    mask_divisor=2,
+                    extra_args=dict(accum_grad_multiple_step=2)
+                ),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
         },

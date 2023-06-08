@@ -111,7 +111,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, sorted_indices
     return x
 
 
-def specaugment_eval_func(data, network, mask_divisor, time_factor=1):
+def specaugment_eval_func(data, network, mask_divisor=5, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
 
@@ -159,8 +159,8 @@ def specaug_layer_sorted(in_layer, mask_divisor):
         "class": "eval",
         "from": in_layer,
         "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
-        "source(0, as_data=True, auto_convert=False), "
-        "network=self.network, "
+        "source(0, as_data=True, auto_convert=False),"
+        "network=self.network,"
         "mask_divisor="+str(mask_divisor)+")",
     }
 
