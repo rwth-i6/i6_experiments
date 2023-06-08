@@ -114,7 +114,7 @@ def run(returnn_root: tk.Path):
             dc_detection=True,
             decode_all_corpora=False,
             lr="v13",
-            own_priors=False,
+            own_priors=True,
             run_performance_study=False,
             tune_decoding=False,
         ),
