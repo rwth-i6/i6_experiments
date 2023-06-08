@@ -571,7 +571,7 @@ def add_ctc_forced_align_for_rescore(net):
 
 from sisyphus import tk
 from typing import Optional, Union, Set
-from .default_tools import SCTK_BINARY_PATH
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.default_tools import SCTK_BINARY_PATH
 
 
 def rescore_att_ctc_search(
