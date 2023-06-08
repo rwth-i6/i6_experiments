@@ -329,6 +329,7 @@ def run_single(
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
         )
         for cfg in [
             recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4),
@@ -376,6 +377,7 @@ def run_single(
                 gpu=False,
                 tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
                 set_batch_major_for_feature_scorer=True,
+                lm_gc_simple_hash=True,
             )
 
             cfgs = [recog_args.with_prior_scale(0.4, 0.4).with_tdp_scale(0.4)]
@@ -454,6 +456,7 @@ def run_single(
             epoch=ep,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            lm_gc_simple_hash=True,
         )
         for cfg in [recog_args.with_prior_scale(0.6).with_tdp_scale(0.4)]:
             s.recognize_cart(
