@@ -149,20 +149,30 @@ def specaugment_eval_func(data, network, mask_divisor=5, time_factor=1):
     return x
 
 
-def specaug_layer_sorted(in_layer, mask_divisor):
+def specaug_layer_sorted(in_layer, mask_divisor=None):
     """
     specaug layer with default hybrid settings
 
     :param in_layer:
+    :param mask_divisor:
     """
-    return {
-        "class": "eval",
-        "from": in_layer,
-        "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
-        "source(0, as_data=True, auto_convert=False),"
-        "network=self.network,"
-        "mask_divisor="+str(mask_divisor)+")",
-    }
+    if mask_divisor is not None:
+        return {
+            "class": "eval",
+            "from": in_layer,
+            "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
+            "source(0, as_data=True, auto_convert=False),"
+            "network=self.network,"
+            "mask_divisor="+str(mask_divisor)+")",
+        }
+    else:
+        return {
+            "class": "eval",
+            "from": in_layer,
+            "eval": "self.network.get_config().typed_value('specaugment_eval_func')("
+            "source(0, as_data=True, auto_convert=False),"
+            "network=self.network)",
+        }
 
 
 def get_funcs_sorted():

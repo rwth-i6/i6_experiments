@@ -175,7 +175,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     specaug_mask_sorting: bool = False,
-    mask_divisor: int = 5,
+    mask_divisor: int = None,
 ):
     base_config = {
         "extern_data": {
