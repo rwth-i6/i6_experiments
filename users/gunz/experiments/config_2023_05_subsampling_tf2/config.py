@@ -7,6 +7,9 @@ CART_TREE_DI_NUM_LABELS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies
 CART_TREE_TRI = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/cart-trees/ls960/tri.tree.xml.gz"
 CART_TREE_TRI_NUM_LABELS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/cart-trees/ls960/tri.num_labels"
 
+ALIGN_30MS_CONF_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/conf-1-lr-v6-ss-3-fs-3-bw-0.3-pC0.05-tdp0.1/output/alignment.cache.bundle"
+ALIGN_30MS_BLSTM_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-3-fs-3-bw-0.3-pC0.5-tdp0.1/output/alignment.cache.bundle"
+
 ZHOU_SUBSAMPLED_ALIGNMENT = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/zhou-subsample-4-dc-detection/alignment.cache.bundle"
 ZHOU_ALLOPHONES = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/allophones/ls-960/zhou-allophones"
 
@@ -22,7 +25,7 @@ FROM_SCRATCH_CV_INFO = {
 
 RASR_ARCH = "linux-x86_64-standard"
 RASR_ROOT_NO_TF_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_no_tf"
-RASR_ROOT_NO_TF_APPTAINER = "/u/berger/software/rasr_apptainer_no_tf"
+RASR_ROOT_NO_TF_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_ss_no_tf"
 RASR_ROOT_NO_TF = RASR_ROOT_NO_TF_APPTAINER
 RASR_ROOT_TF2 = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
 
