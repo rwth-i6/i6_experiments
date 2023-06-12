@@ -13,7 +13,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import am, rasr, returnn
+from i6_core import corpus, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -479,6 +479,7 @@ def run_single(
     crp = copy.deepcopy(align_search_jobs.search_crp)
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
     crp.concurrent = 300
+    crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_file, crp.concurrent).out_segment_path
 
     recognizer.align(
         f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
