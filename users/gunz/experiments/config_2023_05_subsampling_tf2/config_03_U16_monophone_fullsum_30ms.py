@@ -342,7 +342,7 @@ def run_single(
     crp = copy.deepcopy(align_search_jobs.search_crp)
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
     crp.concurrent = 300
-    crp.segment_path = corpus.SegmentCorpusJob(crp.corpus_file, crp.concurrent).out_segment_path
+    crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
     recognizer.align(
         f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
