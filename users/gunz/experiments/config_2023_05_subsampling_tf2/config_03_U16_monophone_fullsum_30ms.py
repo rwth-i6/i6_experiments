@@ -334,6 +334,7 @@ def run_single(
         add_sis_alias_and_output=False,
         calculate_stats=True,
         rtf_cpu=4,
+        lm_config=next(iter(dev_data_inputs.values())).lm,
     )
     crp = copy.deepcopy(align_search_jobs.search_crp)
     crp.acoustic_model_config = am.acoustic_model_config(

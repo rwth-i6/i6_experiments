@@ -630,6 +630,7 @@ class FHDecoder:
         pre_path: str = "decoding",
         rtf_cpu: float = 16,
         rtf_gpu: float = 4,
+        lm_config: rasr.RasrConfig = None,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -649,7 +650,7 @@ class FHDecoder:
             name_override=name_override,
             name_prefix=name_prefix,
             is_nn_lm=False,
-            lm_config=None,
+            lm_config=lm_config,
             pre_path=pre_path,
             crp_update=crp_update,
             rtf_cpu=rtf_cpu,

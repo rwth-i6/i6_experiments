@@ -151,6 +151,7 @@ def get_data_inputs(
     add_unknown_phoneme_and_mapping=True,
     use_eval_data_subset: bool = False,
     lm_cfg: dict = None,
+    add_lm_to_train = False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
@@ -184,6 +185,7 @@ def get_data_inputs(
         corpus_object=corpus_object_dict[train_corpus],
         concurrent=300,
         lexicon=train_lexicon,
+        lm=lm if add_lm_to_train else None,
     )
 
     dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
