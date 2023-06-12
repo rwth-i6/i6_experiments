@@ -464,9 +464,10 @@ def run_single(
             )
             extra_config = rasr.RasrConfig()
             extra_config.acoustic_model_config.tdp["silence"].exit = 3.0
+            align_crp, _ = baum_welch.get_bw_crp(crp, extra_rasr_config=extra_config)
             recognizer.align(
                 f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
-                crp=baum_welch.get_bw_crp(crp, extra_rasr_config=extra_config),
+                crp=align_crp,
                 feature_scorer=search_jobs.search_feature_scorer,
                 default_tdp=False,
             )
