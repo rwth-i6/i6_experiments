@@ -267,7 +267,7 @@ def run_single(
             **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=time_tag_name),
         },
     }
-    keep_epochs = [550, num_epochs]
+    keep_epochs = [300, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -328,7 +328,7 @@ def run_single(
         s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
     best_config = None
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([300, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         recognizer, recog_args = s.get_recognizer_and_args(
