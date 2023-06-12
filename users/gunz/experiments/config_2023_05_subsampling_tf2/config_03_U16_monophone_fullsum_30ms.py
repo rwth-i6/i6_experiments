@@ -312,6 +312,7 @@ def run_single(
             )
 
     s.set_binaries_for_crp("train-other-960", RASR_BINARY_PATH_TF)
+    s.create_stm_from_corpus("train-other-960")
     s._set_scorer_for_corpus("train-other-960")
     recognizer, recog_args = s.get_recognizer_and_args(
         key="fh",
