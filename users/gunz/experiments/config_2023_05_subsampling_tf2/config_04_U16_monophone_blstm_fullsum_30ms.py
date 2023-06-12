@@ -459,6 +459,7 @@ def run_single(
             rtf_cpu=4,
         )
         crp = copy.deepcopy(s.train_input_data[s.crp_names["train"]].get_crp())
+        crp.set_executables(RASR_BINARY_PATH_TF)
         crp.acoustic_model_config = am.acoustic_model_config(
             state_tying=str(RasrStateTying.triphone),
             states_per_phone=s.label_info.n_states_per_phone,
