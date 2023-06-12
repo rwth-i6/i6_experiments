@@ -451,7 +451,7 @@ def run_single(
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
     s.create_stm_from_corpus("train-other-960.train")
     s._set_scorer_for_corpus("train-other-960.train")
-    s._init_lm("train-other-960.train", next(iter(dev_data_inputs.values())).lm)
+    s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
     recognizer, recog_args = s.get_recognizer_and_args(
         key="fh",
         context_type=PhoneticContext.monophone,
