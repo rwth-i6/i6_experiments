@@ -448,11 +448,12 @@ def run_single(
                 rtf_cpu=4,
             )
 
-    s.set_binaries_for_crp(s.crp_names["train"], RASR_BINARY_PATH_TF)
+    s.set_binaries_for_crp("train-other-960", RASR_BINARY_PATH_TF)
+    s._set_scorer_for_corpus("train-other-960")
     recognizer, recog_args = s.get_recognizer_and_args(
         key="fh",
         context_type=PhoneticContext.monophone,
-        crp_corpus=s.crp_names["train"],
+        crp_corpus="train-other-960",
         epoch=600,
         gpu=False,
         tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
