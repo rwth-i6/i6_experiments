@@ -326,7 +326,9 @@ def run_single(
         lm_gc_simple_hash=True,
     )
     sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
-    align_cfg = recog_args.with_tdp_scale(0.1).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    align_cfg = (
+        recog_args.with_prior_scale(0.6).with_tdp_scale(0.1).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    )
     align_search_jobs = recognizer.recognize_count_lm(
         label_info=s.label_info,
         search_parameters=align_cfg,
@@ -338,19 +340,6 @@ def run_single(
         rtf_cpu=4,
     )
     crp = copy.deepcopy(align_search_jobs.search_crp)
-    crp.acoustic_model_config = am.acoustic_model_config(
-        state_tying=str(RasrStateTying.triphone),
-        states_per_phone=s.label_info.n_states_per_phone,
-        state_repetitions=1,
-        across_word_model=True,
-        early_recombination=False,
-        tdp_scale=align_cfg.tdp_scale,
-        tdp_transition=align_cfg.tdp_speech,
-        tdp_silence=align_cfg.tdp_silence,
-        tdp_nonword=align_cfg.tdp_non_word,
-        nonword_phones=align_cfg.non_word_phonemes,
-        tying_type="global-and-nonword",
-    )
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
     recognizer.align(
         f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",

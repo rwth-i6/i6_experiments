@@ -151,7 +151,7 @@ def get_data_inputs(
     add_unknown_phoneme_and_mapping=True,
     use_eval_data_subset: bool = False,
     lm_cfg: dict = None,
-    add_lm_to_train = False,
+    add_lm_to_train=False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
