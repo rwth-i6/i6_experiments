@@ -388,6 +388,9 @@ def run_single(
         smoothen=True,
         returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
     )
+
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
+    s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
     s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
