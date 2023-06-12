@@ -482,7 +482,8 @@ class HybridSystem(NnSystem):
         """
         # TODO remove, temporary hack
         cfg = returnn_config
-        del cfg.config["pretrain"]
+        if "pretrain" in cfg.config.keys():
+            del cfg.config["pretrain"]
         graph_compile_job = returnn.CompileTFGraphJob(
             cfg,
             epoch=epoch,

@@ -2,7 +2,7 @@ from .experiment import get_wei_config
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs, ReturnnTrainingJobArgs
 
-def get_nn_args(returnn_exe, returnn_root, num_epochs=125):
+def get_nn_args(num_epochs=125):
 
     base_config = get_wei_config()
 
@@ -17,8 +17,7 @@ def get_nn_args(returnn_exe, returnn_root, num_epochs=125):
         time_rqmt=168,
         mem_rqmt=8,
         cpu_rqmt=3,
-        returnn_python_exe=returnn_exe,
-        returnn_root=returnn_root)
+    )
 
     recognition_args = {
         "dev-other": {

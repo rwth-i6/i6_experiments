@@ -11,6 +11,9 @@ default_nn_config_args = {  # batching #
   'chunking': '64:32',  # better than 50:25
   'batching': 'random',
 
+  "min_seq_len": {"classes": 1},
+  "min_seq_length": {"classes": 1},
+
   # optimization #
   'nadam': True,
   'learning_rate': 0.0009,
@@ -37,7 +40,7 @@ default_nn_config_args = {  # batching #
 
   # pretraining #
   # better initialization and convergence (benefit momentum ?)
-  'pretrain': 'default',
+  #'pretrain': 'default',
 
   # default #
   'start_epoch': 'auto',

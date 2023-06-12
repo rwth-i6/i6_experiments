@@ -9,7 +9,7 @@ from i6_core.features import FeatureExtractionJob
 from i6_experiments.common.datasets.tedlium2.constants import DURATIONS, NUM_SEGMENTS
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
 from i6_experiments.common.setups.rasr.util import HdfDataInput, AllophoneLabeling, ReturnnRasrDataInput, ForcedAlignmentArgs
-from i6_experiments.common.datasets.tedlium2.lexicon import get_bliss_lexicon
+from i6_experiments.common.datasets.tedlium2.lexicon import get_g2p_augmented_bliss_lexicon
 from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT
 
 
@@ -49,6 +49,7 @@ def build_hdf_data_input(
         feat_job.add_alias(alias_prefix + "/dump_features")
     feat_hdf = feat_job.out_hdf
     align_dataset = {
+        "class": "SprintCacheDataset",
         "data": {
             "data": {
                 "filename": alignments,
@@ -61,7 +62,6 @@ def build_hdf_data_input(
             }
         },
         "seq_list_filter_file": segment_list,
-        "class": "SprintCacheDataset",
     }
     align_job = ReturnnDumpHDFJob(data=align_dataset, returnn_python_exe=RETURNN_EXE, returnn_root=RETURNN_RC_ROOT)
     if alias_prefix is not None:
@@ -80,7 +80,6 @@ def dump_features_for_hybrid_training(
     for name in ["nn-train", "nn-cv", "nn-devtrain"]:
         #print(gmm_system.crp[name].corpus_config.file, name)
         features[name] = list(feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle.values())[0]
-    print(features["nn-train"])
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
 
@@ -102,7 +101,7 @@ def get_corpus_data_inputs(
 
     cv_corpus_path = corpus_recipe.FilterCorpusRemoveUnknownWordSegmentsJob(
         bliss_corpus=cv_corpus_path,
-        bliss_lexicon=get_bliss_lexicon(),
+        bliss_lexicon=get_g2p_augmented_bliss_lexicon(),
         all_unknown=False
     ).out_corpus
 
@@ -123,7 +122,7 @@ def get_corpus_data_inputs(
     gmm_system.add_overlay("train", "nn-train")
     gmm_system.crp["nn-train"].segment_path = all_train_segments
     gmm_system.crp["nn-train"].concurrent = 1
-    gmm_system.crp["nn-train"].corpus_config.file = train_corpus_path
+    #gmm_system.crp["nn-train"].corpus_config.file = train_corpus_path
     gmm_system.crp["nn-train"].corpus_duration = DURATIONS["train"]
 
     gmm_system.add_overlay("dev", "nn-cv")
@@ -159,7 +158,7 @@ def get_corpus_data_inputs(
         feature_scorer="train_vtln+sat",
         scorer_index=-1,
         bliss_lexicon={
-            "filename": get_bliss_lexicon(),
+            "filename": get_g2p_augmented_bliss_lexicon(),
             "normalize_pronunciation": False,
         },
         dump_alignment=True,

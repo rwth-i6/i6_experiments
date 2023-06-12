@@ -10,7 +10,8 @@ from i6_experiments.common.baselines.tedlium2.default_tools import RASR_BINARY_P
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_log_mel_feature_extraction_args
-from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.wei_tedlium2_setup.nn_args import get_nn_args
+from i6_experiments.common.baselines.tedlium2.hybrid.torch_args import get_nn_args
+from i6_experiments.users.rossenbach.common_setups.rasr.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 
 
 def run_gmm_system():
@@ -22,9 +23,10 @@ def run_gmm_system():
     return system
 
 
-def run_tedlium2_hybrid_baseline():
+def run_tedlium2_torch_conformer():
+    prefix = "experiments/tedlium2/hybrid/conformer_baseline"
     gs.ALIAS_AND_OUTPUT_SUBDIR = (
-        "experiments/tedlium2/hybrid/wei_baseline"
+        prefix
     )
 
     gmm_system = run_gmm_system()
@@ -38,7 +40,13 @@ def run_tedlium2_hybrid_baseline():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs(gmm_system, rasr_init_args.feature_extraction_args, FilterbankJob, alias_prefix="experiments/tedlium2/hybrid/wei_baseline")
+    ) = get_corpus_data_inputs(gmm_system, rasr_init_args.feature_extraction_args, FilterbankJob, alias_prefix=prefix)
+
+    nn_args = get_nn_args(num_epochs=125)
+
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+
     # image only, so just python3
     returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     blas_lib = tk.Path(
@@ -46,12 +54,13 @@ def run_tedlium2_hybrid_baseline():
         hash_overwrite="TF23_MKL_BLAS",
     )
 
-    nn_args = get_nn_args(num_epochs=125)
-    nn_steps = RasrSteps()
-    nn_steps.add_step("nn", nn_args)
+    returnn_root = CloneGitRepositoryJob(
+        "https://github.com/rwth-i6/returnn",
+        commit="04c14d6a3745f90f0bd10b28ce4d51b1d61afb82",
+    ).out_repository
 
-    tedlium_nn_system = HybridSystem(
-        returnn_root=RETURNN_RC_ROOT,
+    tedlium_nn_system = PyTorchOnnxHybridSystem(
+        returnn_root=returnn_root,
         returnn_python_exe=returnn_exe,
         blas_lib=blas_lib,
         rasr_arch="linux-x86_64-standard",
