@@ -13,11 +13,11 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import rasr, returnn
+from i6_core import am, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -310,10 +310,28 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
+
+            crp = copy.deepcopy(s.train_input_data[s.crp_names["train"]].get_crp())
+            crp.acoustic_model_config = am.acoustic_model_config(
+                state_tying=str(RasrStateTying.triphone),
+                states_per_phone=s.label_info.n_states_per_phone,
+                state_repetitions=1,
+                across_word_model=True,
+                early_recombination=False,
+                tdp_scale=cfg.tdp_scale,
+                tdp_transition=cfg.tdp_speech,
+                tdp_silence=cfg.tdp_silence,
+                tdp_nonword=cfg.tdp_non_word,
+                nonword_phones=cfg.non_word_phonemes,
+                tying_type="global-and-nonword",
+            )
+            extra_config = rasr.RasrConfig()
+            extra_config.acoustic_model_config.tdp["silence"].exit = 3.0
             recognizer.align(
                 f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
-                crp=s.train_input_data[s.crp_names["train"]].get_crp(),
+                crp=baum_welch.get_bw_crp(crp, extra_rasr_config=extra_config),
                 feature_scorer=search_jobs.search_feature_scorer,
+                default_tdp=False,
             )
 
     return s
