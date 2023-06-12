@@ -478,6 +478,8 @@ def run_single(
     )
     crp = copy.deepcopy(align_search_jobs.search_crp)
     crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.concurrent = 300
+
     recognizer.align(
         f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
         crp=crp,
