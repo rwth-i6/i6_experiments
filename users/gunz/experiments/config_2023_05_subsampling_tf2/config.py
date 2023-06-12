@@ -24,10 +24,14 @@ FROM_SCRATCH_CV_INFO = {
 }
 
 RASR_ARCH = "linux-x86_64-standard"
-RASR_ROOT_NO_TF_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_no_tf"
+
 RASR_ROOT_NO_TF_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_ss_no_tf"
+RASR_ROOT_NO_TF_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_no_tf"
 RASR_ROOT_NO_TF = RASR_ROOT_NO_TF_APPTAINER
-RASR_ROOT_TF2 = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
+
+RASR_ROOT_TF2_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.8"
+RASR_ROOT_TF2_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
+RASR_ROOT_TF2 = RASR_ROOT_TF2_APPTAINER
 
 RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
 RETURNN_PYTHON_APPTAINER = "/usr/bin/python3"
