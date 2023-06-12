@@ -311,36 +311,48 @@ def run_single(
                 rtf_cpu=4,
             )
 
-        align_cfg = recog_args.with_tdp_scale(0.1).with_tdp_silence((*recog_args.tdp_silence[:3], 3.0))
-        align_cfg = align_cfg.with_tdp_non_word(align_cfg.tdp_silence)
-        align_search_jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=align_cfg,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            rtf_cpu=4,
-        )
-        crp = copy.deepcopy(s.train_input_data[s.crp_names["train"]].get_crp())
-        crp.set_executables(RASR_BINARY_PATH_TF)
-        crp.acoustic_model_config = am.acoustic_model_config(
-            state_tying=str(RasrStateTying.triphone),
-            states_per_phone=s.label_info.n_states_per_phone,
-            state_repetitions=1,
-            across_word_model=True,
-            early_recombination=False,
-            tdp_scale=align_cfg.tdp_scale,
-            tdp_transition=align_cfg.tdp_speech,
-            tdp_silence=align_cfg.tdp_silence,
-            tdp_nonword=align_cfg.tdp_non_word,
-            nonword_phones=align_cfg.non_word_phonemes,
-            tying_type="global-and-nonword",
-        )
-        recognizer.align(
-            f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
-            crp=crp,
-            feature_scorer=align_search_jobs.search_feature_scorer,
-            default_tdp=True,
-        )
+    s.set_binaries_for_crp(s.crp_names["train"], RASR_BINARY_PATH_TF)
+    recognizer, recog_args = s.get_recognizer_and_args(
+        key="fh",
+        context_type=PhoneticContext.monophone,
+        crp_corpus=s.crp_names["train"],
+        epoch=600,
+        gpu=False,
+        tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+        set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
+    )
+    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    align_cfg = recog_args.with_tdp_scale(0.1).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    align_search_jobs = recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=align_cfg,
+        num_encoder_output=conf_model_dim,
+        rerun_after_opt_lm=True,
+        add_sis_alias_and_output=False,
+        calculate_stats=True,
+        rtf_cpu=4,
+    )
+    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp.acoustic_model_config = am.acoustic_model_config(
+        state_tying=str(RasrStateTying.triphone),
+        states_per_phone=s.label_info.n_states_per_phone,
+        state_repetitions=1,
+        across_word_model=True,
+        early_recombination=False,
+        tdp_scale=align_cfg.tdp_scale,
+        tdp_transition=align_cfg.tdp_speech,
+        tdp_silence=align_cfg.tdp_silence,
+        tdp_nonword=align_cfg.tdp_non_word,
+        nonword_phones=align_cfg.non_word_phonemes,
+        tying_type="global-and-nonword",
+    )
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    recognizer.align(
+        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        crp=crp,
+        feature_scorer=align_search_jobs.search_feature_scorer,
+        default_tdp=True,
+    )
 
     return s
