@@ -100,14 +100,14 @@ def run(returnn_root: tk.Path):
             own_priors=True,
             tune_decoding=False,
         ),
-        Experiment(
-            alignment=scratch_align_daniel,
-            alignment_name="scratch_daniel",
-            dc_detection=True,
-            lr="v13",
-            own_priors=False,
-            tune_decoding=False,
-        ),
+        # Experiment(
+        #     alignment=scratch_align_daniel,
+        #     alignment_name="scratch_daniel",
+        #     dc_detection=True,
+        #     lr="v13",
+        #     own_priors=False,
+        #     tune_decoding=False,
+        # ),
     ]
     for exp in configs:
         run_single(
