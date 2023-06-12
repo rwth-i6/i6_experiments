@@ -1373,6 +1373,7 @@ class FactoredHybridSystem(NnSystem):
         assert self.label_info.sil_id is not None
 
         model_path = self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)
+        crp_corpus_base = crp_corpus.split(".", 1)[0]
         recognizer = FHDecoder(
             name=name,
             search_crp=self.crp[crp_corpus] if crp is None else crp,
@@ -1386,7 +1387,7 @@ class FactoredHybridSystem(NnSystem):
             is_multi_encoder_output=is_multi_encoder_output,
             silence_id=self.label_info.sil_id,
             gpu=gpu,
-            corpus_duration=durations[crp_corpus],
+            corpus_duration=durations[crp_corpus_base],
             lm_gc_simple_hash=lm_gc_simple_hash
             if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash
             else None,
