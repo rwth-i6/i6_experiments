@@ -17,7 +17,7 @@ from i6_core import rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -447,9 +447,11 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
+
+            base_crp = s.train_input_data[s.crp_names["train"]].get_crp()
             recognizer.align(
                 f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
-                crp=search_jobs.search_crp,
+                crp=baum_welch.get_bw_crp(base_crp),
                 feature_scorer=search_jobs.search_feature_scorer,
             )
 

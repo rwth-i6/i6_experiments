@@ -20,6 +20,54 @@ class BwScales:
         return cls(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
 
 
+def get_bw_crp(
+    base_crp: rasr.CommonRasrParameters,
+    extra_rasr_config: typing.Optional[rasr.RasrConfig] = None,
+    extra_rasr_post_config: typing.Optional[rasr.RasrConfig] = None,
+) -> typing.Tuple[rasr.RasrConfig, rasr.RasrConfig]:
+    crp = copy.deepcopy(base_crp)
+
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    transition_types = ["*", "silence"]
+    if crp.acoustic_model_config.tdp.tying_type == "global-and-nonword":
+        transition_types.extend([f"nonword-{i}" for i in [0, 1]])
+    for t in transition_types:
+        crp.acoustic_model_config.tdp[t].exit = 0.0
+
+    # Create additional Rasr config file for the automaton
+    mapping = {
+        "corpus": "neural-network-trainer.corpus",
+        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
+        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
+    }
+    config, post_config = rasr.build_config_from_mapping(crp, mapping)
+    post_config["*"].output_channel.file = "fastbw.log"
+
+    # Define action
+    config.neural_network_trainer.action = "python-control"
+
+    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
+        False
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
+        False
+    )
+    # neural_network_trainer.alignment_fsa_exporter
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
+        True
+    )
+    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
+        True
+    )
+
+    # additional config
+    config._update(extra_rasr_config)
+    post_config._update(extra_rasr_post_config)
+
+    return config, post_config
+
+
 def augment_for_fast_bw(
     *,
     crp: rasr.CommonRasrParameters,
@@ -106,44 +154,7 @@ def augment_for_fast_bw(
     returnn_config.config.pop("chunking", None)
     returnn_config.config.pop("pretrain", None)
 
-    crp.acoustic_model_config.tdp.applicator_type = "corrected"
-    transition_types = ["*", "silence"]
-    if crp.acoustic_model_config.tdp.tying_type == "global-and-nonword":
-        transition_types.extend([f"nonword-{i}" for i in [0, 1]])
-    for t in transition_types:
-        crp.acoustic_model_config.tdp[t].exit = 0.0
-
-    # Create additional Rasr config file for the automaton
-    mapping = {
-        "corpus": "neural-network-trainer.corpus",
-        "lexicon": ["neural-network-trainer.alignment-fsa-exporter.model-combination.lexicon"],
-        "acoustic_model": ["neural-network-trainer.alignment-fsa-exporter.model-combination.acoustic-model"],
-    }
-    config, post_config = rasr.build_config_from_mapping(crp, mapping)
-    post_config["*"].output_channel.file = "fastbw.log"
-
-    # Define action
-    config.neural_network_trainer.action = "python-control"
-
-    # neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.allow_for_silence_repetitions = (
-        False
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.allophone_state_graph_builder.orthographic_parser.normalize_lemma_sequence_scores = (
-        False
-    )
-    # neural_network_trainer.alignment_fsa_exporter
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.fix_allophone_context_at_word_boundaries = (
-        True
-    )
-    config.neural_network_trainer.alignment_fsa_exporter.model_combination.acoustic_model.transducer_builder_filter_out_invalid_allophones = (
-        True
-    )
-
-    # additional config
-    config._update(extra_rasr_config)
-    post_config._update(extra_rasr_post_config)
-
+    config, post_config = get_bw_crp(crp, extra_rasr_config, extra_rasr_post_config)
     rasr_cfg_job = rasr.WriteRasrConfigJob(config, post_config)
 
     network[bw_calc_layer_name] = {
