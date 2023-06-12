@@ -311,13 +311,13 @@ def run_single(
                 rtf_cpu=4,
             )
 
-    s.set_binaries_for_crp("train-other-960", RASR_BINARY_PATH_TF)
-    s.create_stm_from_corpus("train-other-960")
-    s._set_scorer_for_corpus("train-other-960")
+    s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
+    s.create_stm_from_corpus("train-other-960.train")
+    s._set_scorer_for_corpus("train-other-960.train")
     recognizer, recog_args = s.get_recognizer_and_args(
         key="fh",
         context_type=PhoneticContext.monophone,
-        crp_corpus="train-other-960",
+        crp_corpus="train-other-960.train",
         epoch=600,
         gpu=False,
         tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
