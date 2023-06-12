@@ -46,7 +46,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
         "save_interval": 1,
         "keep_epochs": None,
         "time_rqmt": 168,
-        "mem_rqmt": 7,
+        "mem_rqmt": 16,
         "cpu_rqmt": 3,
     }
     recognition_args = {
