@@ -226,6 +226,7 @@ def run_single(
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
         time_tag_name=time_tag_name,
+        upsampling=False,
     )
 
     base_config = {
