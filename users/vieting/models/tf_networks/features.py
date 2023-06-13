@@ -279,7 +279,15 @@ class ScfNetwork(NetworkDict):
     if norm is None:
       pass
     elif norm == "batch":
-      self._network[layer_name]["batch_norm"] = True
+      self._network[layer_name + "_no_norm"] = self._network[layer_name].copy()
+      self._network[layer_name] = {
+        "class": "batch_norm",
+        "from": "log10",
+        "momentum": 0.01,
+        "epsilon": 0.001,
+        "update_sample_only_in_training": True,
+        "delay_sample_update": True,
+      }
     elif norm == "layer":
       self._network[layer_name + "_no_norm"] = self._network[layer_name].copy()
       self._network[layer_name] = {"class": "layer_norm", "from": [layer_name + "_no_norm"]}
