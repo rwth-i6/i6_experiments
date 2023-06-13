@@ -453,6 +453,7 @@ def run_single(
         s.create_stm_from_corpus("train-other-960.train")
         s._set_scorer_for_corpus("train-other-960.train")
         s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+        s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
