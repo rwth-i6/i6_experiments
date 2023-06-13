@@ -926,6 +926,9 @@ def conformer_baseline():
     # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay60_1e-05_decayPt0.75                        2.28         5.64          2.48          5.74       60
     # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay100_0.0001_decayPt0.5                        2.28         5.63          2.47          5.68      100
 
+    causal_args = copy.deepcopy(oclr_args)
+    causal_args["encoder_args"].use_causal_layers = True
+
     # TODO: with higher LR
     args = copy.deepcopy(causal_args)
     for att_scale in [0.3, 0.5]:

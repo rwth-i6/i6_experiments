@@ -831,21 +831,22 @@ def conformer_baseline():
     )
 
     # TODO: Trafo LM
-    for beam_size in [12, 16, 24, 32]:
-        for lm_scale in [0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26]:
-            run_lm_fusion(
-                lm_type="trafo",
-                exp_name=f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{900}",
-                args=args,
-                epoch="avg",
-                lm_scales=[lm_scale],
-                train_job=train_j,
-                train_data=train_data,
-                feature_net=log10_net_10ms,
-                bpe_size=BPE_500,
-                test_set_names=["hub5e00"],
-                beam_size=beam_size,
-            )
+    for ep_ in ["avg", "best"]:
+        for beam_size in [12, 16, 24]:
+            for lm_scale in [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1]:
+                run_lm_fusion(
+                    lm_type="trafo",
+                    exp_name=f"base2_conf_{12}l_lstm_1l_conv{6}_decAttDrop{0.2}_embedDrop{0.2}_ep{900}",
+                    args=args,
+                    epoch=ep_,
+                    lm_scales=[lm_scale],
+                    train_job=train_j,
+                    train_data=train_data,
+                    feature_net=log10_net_10ms,
+                    bpe_size=BPE_500,
+                    test_set_names=["hub5e00"],
+                    beam_size=beam_size,
+                )
 
     for n in ["avg", "best"]:
         mini_lstm_exp_name = "base2_conf_12l_lstm_1l_conv6_decAttDrop0.2_embedDrop0.2_ep900"
