@@ -9,23 +9,27 @@ from sisyphus import tk
 Path = tk.setup_path(__package__)
 
 
-class ReturnnLegacySystem(
-    BaseSystem[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]
+class OptunaReturnnLegacySystem(
+    BaseSystem[
+        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
+    ]
 ):
     def _initialize_functors(
-        self,
-    ) -> functors.Functors[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]:
-        train_functor = functors.ReturnnTrainFunctor(
+            self,
+    ) -> functors.Functors[
+        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
+    ]:
+        train_functor = functors.OptunaReturnnTrainFunctor(
             self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe
         )
 
-        recog_functor = functors.AdvancedTreeSearchFunctor(
+        recog_functor = functors.OptunaAdvancedTreeSearchFunctor(
             self._tool_paths.returnn_root,
             self._tool_paths.returnn_python_exe,
             self._tool_paths.blas_lib,
         )
 
-        align_functor = functors.LegacyAlignmentFunctor(
+        align_functor = functors.OptunaLegacyAlignmentFunctor(
             self._tool_paths.returnn_root,
             self._tool_paths.returnn_python_exe,
             self._tool_paths.blas_lib,

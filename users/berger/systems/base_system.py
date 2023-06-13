@@ -13,7 +13,6 @@ from . import types
 from . import dataclasses
 from .functors import Functors
 
-
 Path = tk.setup_path(__package__)
 
 
@@ -32,9 +31,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         self._base_crp.set_executables(rasr_binary_path=tool_paths.rasr_binary_path)
 
         # exp-name mapped to ReturnnConfigs collection
-        self._returnn_configs: Dict[
-            str, dataclasses.ReturnnConfigs[types.ConfigType]
-        ] = {}
+        self._returnn_configs: Dict[str, dataclasses.ReturnnConfigs[types.ConfigType]] = {}
 
         # exp-name mapped to ReturnnConfigs collection
         self._train_jobs: Dict[str, types.TrainJobType] = {}
@@ -61,9 +58,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
     def cleanup_experiments(self) -> None:
         self._returnn_configs.clear()
 
-    def add_experiment_configs(
-        self, name: str, returnn_configs: dataclasses.ReturnnConfigs[types.ConfigType]
-    ) -> None:
+    def add_experiment_configs(self, name: str, returnn_configs: dataclasses.ReturnnConfigs[types.ConfigType]) -> None:
         self._returnn_configs[name] = returnn_configs
 
     def init_corpora(
@@ -92,17 +87,15 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
             corpus_info = dataclasses.CorpusInfo(data, crp)
             self._corpus_info[key] = corpus_info
 
+    @staticmethod
     def _get_scorer(
-        self,
         corpus_file: tk.Path,
         stm_kwargs: Dict,
         scorer_type: types.ScoreJobType,
         score_kwargs: Dict,
     ) -> dataclasses.ScorerInfo:
         stm_path = corpus.CorpusToStmJob(corpus_file, **stm_kwargs).out_stm_path
-        return dataclasses.ScorerInfo(
-            ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs
-        )
+        return dataclasses.ScorerInfo(ref_file=stm_path, job_type=scorer_type, score_kwargs=score_kwargs)
 
     def setup_scoring(
         self,
@@ -132,12 +125,8 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
 
     def run_train_step(self, **kwargs) -> None:
         for train_exp_name, configs in self._returnn_configs.items():
-            named_train_config = dataclasses.NamedConfig(
-                train_exp_name, configs.train_config
-            )
-            self._train_jobs[train_exp_name] = self._functors.train(
-                train_config=named_train_config, **kwargs
-            )
+            named_train_config = dataclasses.NamedConfig(train_exp_name, configs.train_config)
+            self._train_jobs[train_exp_name] = self._functors.train(train_config=named_train_config, **kwargs)
 
     def run_recogs_for_corpora(
         self,
@@ -151,9 +140,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
         for c_key in corpora:
             named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
             for recog_exp_name, recog_config in returnn_configs.recog_configs.items():
-                named_recog_config = dataclasses.NamedConfig(
-                    recog_exp_name, recog_config
-                )
+                named_recog_config = dataclasses.NamedConfig(recog_exp_name, recog_config)
                 recog_results = self._functors.recognize(
                     train_job=named_train_job,
                     prior_config=returnn_configs.prior_config,
@@ -165,11 +152,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
 
     def run_dev_recog_step(self, **kwargs) -> None:
         for train_exp_name in self._returnn_configs.keys():
-            self.run_recogs_for_corpora(
-                self._dev_corpora,
-                train_exp_name,
-                **kwargs,
-            )
+            self.run_recogs_for_corpora(self._dev_corpora, train_exp_name, **kwargs)
 
     def run_test_recog_step(self, **kwargs) -> None:
         for train_exp_name in self._returnn_configs.keys():
@@ -180,9 +163,7 @@ class BaseSystem(ABC, Generic[types.TrainJobType, types.ConfigType]):
             train_job = self._train_jobs[train_exp_name]
             named_train_job = dataclasses.NamedTrainJob(train_exp_name, train_job)
             for c_key in self._align_corpora:
-                named_corpus = dataclasses.NamedCorpusInfo(
-                    c_key, self._corpus_info[c_key]
-                )
+                named_corpus = dataclasses.NamedCorpusInfo(c_key, self._corpus_info[c_key])
                 prior_config = self._returnn_configs[train_exp_name].prior_config
                 align_config = self._returnn_configs[train_exp_name].align_config
                 self._functors.align(

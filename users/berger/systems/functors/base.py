@@ -1,18 +1,18 @@
+from abc import abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Generic, List
 
-from .. import dataclasses
-from .. import types
+from .. import dataclasses, types
 
 
 class TrainFunctor(Generic[types.TrainJobType, types.ConfigType]):
-    def __call__(
-        self, train_config: dataclasses.NamedConfig[types.ConfigType], **kwargs
-    ) -> types.TrainJobType:
-        raise NotImplementedError
+    @abstractmethod
+    def __call__(self, train_config: dataclasses.NamedConfig[types.ConfigType], **kwargs) -> types.TrainJobType:
+        pass
 
 
 class RecognitionFunctor(Generic[types.TrainJobType, types.ConfigType]):
+    @abstractmethod
     def __call__(
         self,
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
@@ -21,10 +21,11 @@ class RecognitionFunctor(Generic[types.TrainJobType, types.ConfigType]):
         recog_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> List[Dict]:
-        raise NotImplementedError
+        pass
 
 
 class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
+    @abstractmethod
     def __call__(
         self,
         train_job: dataclasses.NamedTrainJob[types.TrainJobType],
@@ -33,7 +34,7 @@ class AlignmentFunctor(Generic[types.TrainJobType, types.ConfigType]):
         align_corpus: dataclasses.NamedCorpusInfo,
         **kwargs,
     ) -> None:
-        raise NotImplementedError
+        pass
 
 
 @dataclass

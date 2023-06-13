@@ -32,32 +32,3 @@ class ReturnnSeq2SeqSystem(
         )
 
         return functors.Functors(train_functor, recog_functor, align_functor)
-
-
-class OptunaReturnnSeq2SeqSystem(
-    BaseSystem[
-        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
-    ]
-):
-    def _initialize_functors(
-        self,
-    ) -> functors.Functors[
-        returnn_custom.OptunaReturnnTrainingJob, returnn_custom.OptunaReturnnConfig
-    ]:
-        train_functor = functors.OptunaReturnnTrainFunctor(
-            self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe
-        )
-
-        recog_functor = functors.OptunaSeq2SeqSearchFunctor(
-            self._tool_paths.returnn_root,
-            self._tool_paths.returnn_python_exe,
-            self._tool_paths.blas_lib,
-        )
-
-        align_functor = functors.OptunaSeq2SeqAlignmentFunctor(
-            self._tool_paths.returnn_root,
-            self._tool_paths.returnn_python_exe,
-            self._tool_paths.blas_lib,
-        )
-
-        return functors.Functors(train_functor, recog_functor, align_functor)

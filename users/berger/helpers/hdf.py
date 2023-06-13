@@ -1,11 +1,12 @@
 from typing import Any, Dict
+
+import i6_core.features as features
+import i6_core.rasr as rasr
+from i6_core import rasr
 from i6_core.corpus.segments import SegmentCorpusJob
 from i6_core.meta.system import CorpusObject
-import i6_core.rasr as rasr
-import i6_core.features as features
-from sisyphus import tk
-
 from i6_core.returnn import ReturnnDumpHDFJob
+from sisyphus import tk
 
 
 def build_hdf_from_alignment(
@@ -39,10 +40,11 @@ def build_rasr_feature_hdf(
     split: int,
     feature_type: str,
     feature_extraction_args: Dict[str, Any],
+    returnn_python_exe: tk.Path,
+    returnn_root: tk.Path,
     rasr_binary_path: tk.Path,
     rasr_arch: str = "linux-x86_64-standard",
-):
-
+) -> tk.Path:
     # Build CRP
     base_crp = rasr.CommonRasrParameters()
     rasr.crp_add_default_output(base_crp)
@@ -56,11 +58,9 @@ def build_rasr_feature_hdf(
         "mfcc": features.MfccJob,
         "gt": features.GammatoneJob,
         "energy": features.EnergyJob,
-    }[feature_type](
-        crp=base_crp,
-        port_name_mapping={"features": feature_type},
-        **feature_extraction_args
-    )
+    }[
+        feature_type
+    ](crp=base_crp, **feature_extraction_args)
 
     dataset_config = {
         "class": "SprintCacheDataset",
@@ -72,6 +72,8 @@ def build_rasr_feature_hdf(
         },
     }
 
-    hdf_file = ReturnnDumpHDFJob(dataset_config).out_hdf
+    hdf_file = ReturnnDumpHDFJob(
+        dataset_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    ).out_hdf
 
     return hdf_file

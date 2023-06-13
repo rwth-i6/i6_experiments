@@ -18,6 +18,17 @@ class CTCSetupData:
 
 
 @dataclass
+class PytorchCTCSetupData:
+    train_key: str
+    dev_keys: List[str]
+    test_keys: List[str]
+    align_keys: List[str]
+    train_data_config: Dict
+    cv_data_config: Dict
+    data_inputs: Dict[str, helpers.RasrDataInput]
+
+
+@dataclass
 class SMSHybridSetupData:
     train_key: str
     dev_keys: List[str]

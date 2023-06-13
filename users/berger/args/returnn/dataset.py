@@ -37,11 +37,14 @@ class MetaDatasetBuilder:
         self,
         hdf_files: Union[tk.Path, List[tk.Path]],
         seq_ordering: Optional[str] = None,
-        **kwargs
+        dataset_config: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> None:
         if not isinstance(hdf_files, list):
             hdf_files = [hdf_files]
-        dataset_config = {"class": "HDFDataset", "files": hdf_files}
+        if dataset_config is None:
+            dataset_config = {}
+        dataset_config.update({"class": "HDFDataset", "files": hdf_files})
         if seq_ordering:
             dataset_config["seq_ordering"] = seq_ordering
         self.add_dataset(dataset_config=dataset_config, **kwargs)
@@ -54,7 +57,7 @@ class MetaDatasetBuilder:
         control: bool = False,
     ) -> None:
         self.datasets[name] = dataset_config
-        for key, val in key_mapping:
+        for key, val in key_mapping.items():
             self.data_map[val] = (name, key)
         if control:
             self.control_dataset = name

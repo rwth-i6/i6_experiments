@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+import i6_core.rasr as rasr
+from i6_core import am, corpus, meta, rasr
 from i6_experiments.users.berger.util import ToolPaths
-from i6_core import corpus, rasr, am, meta
 from sisyphus import tk
 
 from .rasr_lm_config import LMData
