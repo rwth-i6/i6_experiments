@@ -194,6 +194,10 @@ def run_baseline_scf():
             "scf": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            ),
+            "scf_first_layer_unsorted_specaug": dict(
+                returnn_args=dict(batch_size=3500, specaug_after_first_layer=True, extra_args=dict(accum_grad_multiple_step=4)),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
         prefix="conformer_bs14k_",

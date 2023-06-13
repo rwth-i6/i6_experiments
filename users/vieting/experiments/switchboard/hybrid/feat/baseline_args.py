@@ -175,6 +175,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     specaug_mask_sorting: bool = False,
+    specaug_after_first_layer: bool = False,
     mask_divisor: int = None,
 ):
     base_config = {
@@ -208,11 +209,17 @@ def get_returnn_config(
         network["source"] = {"class": "copy", "from": "features"}
     else:
         if specaug_mask_sorting:
+            assert specaug_after_first_layer, "Sorted specaug is only possible after the first layer!"
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
             network["source"] = {"class": "copy", "from": "features"}
         else:
-            network["source"] = specaug_layer_jingjing(in_layer=["features"])
+            if specaug_after_first_layer:
+                network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
+                network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+                network["source"] = {"class": "copy", "from": "features"}
+            else:
+                network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
         network = fix_network_for_sparse_output(network)
 
