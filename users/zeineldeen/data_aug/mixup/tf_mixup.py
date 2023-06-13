@@ -60,7 +60,7 @@ def make_mixup_layer_dict(
 
     if use_exp_feats:
         d["exp_feat"] = {"class": "activation", "from": src, "activation": "safe_exp"}
-        d["mixup"]["subnetwork"]["output"]["from"][0] = "exp_feat"
+        d["mixup"]["subnetwork"]["output"]["from"][0] = "base:exp_feat"
 
     return d
 
