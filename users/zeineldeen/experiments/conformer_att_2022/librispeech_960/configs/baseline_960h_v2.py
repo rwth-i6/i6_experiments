@@ -919,72 +919,9 @@ def conformer_baseline():
                     num_epochs=total_epochs,
                 )
 
-            # # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay40_1e-05_decayPt0.5                         2.27         5.66          2.49          5.76       40
-            # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay60_1e-05_decayPt0.75                        2.28         5.64          2.48          5.74       60
-            # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay100_0.0001_decayPt0.5                        2.28         5.63          2.47          5.68      100
-
-            # if total_epochs == 40 and start_lr == 1e-5 and decay_pt == (1 / 2):
-            #   retrain_args['speed_pert'] = False
-            #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
-            #           train_args=retrain_args, num_epochs=total_epochs)
-            #
-            # if total_epochs == 60 and start_lr == 1e-5 and decay_pt == (3 / 4):
-            #   retrain_args['speed_pert'] = False
-            #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
-            #           train_args=retrain_args, num_epochs=total_epochs)
-            #
-            # if total_epochs == 100 and start_lr == 1e-4 and decay_pt == (1 / 2):
-            #   retrain_args['speed_pert'] = False
-            #   run_exp(exp_name=name + f'_retrain1_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt}_noSpeedPert',
-            #           train_args=retrain_args, num_epochs=total_epochs)
-
-    # baseline with causal layers
-    # for total_epochs in [40, 100]:
-    #     decay_pt = int(total_epochs * 0.5)
-    #     causal_args = copy.deepcopy(oclr_args)
-    #     causal_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-    #     causal_args["learning_rates_list"] = [1e-4] * decay_pt + list(
-    #         numpy.linspace(1e-4, 1e-6, total_epochs - decay_pt)
-    #     )
-    #     causal_args["encoder_args"].use_causal_layers = True
-    #     causal_args["speed_pert"] = False
-    #     run_exp(
-    #         exp_name=name
-    #         + f"_retrain1_linDecay{total_epochs}_0.0001_{decay_pt}_causal",
-    #         train_args=causal_args,
-    #         num_epochs=100,
-    #         epoch_wise_filter=None,
-    #     )
-
-    # TODO: from scratch causal conformer exps
-
-    causal_args = copy.deepcopy(oclr_args)
-    causal_args["encoder_args"].use_causal_layers = True
-
-    # TODO: causal attention without CTC
-    # did not converge
-    # args = copy.deepcopy(causal_args)
-    # args["encoder_args"].with_ctc = False
-    # args["oclr_opts"]["peak_lr"] = 0.0008
-    # run_exp(
-    #     f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noCTC",
-    #     train_args=args,
-    #     num_epochs=435,
-    # )
-
-    # TODO: causal att+CTC with small scale or without att
-    # args = copy.deepcopy(causal_args)
-    # for att_scale in [0.0, 0.1, 0.3, 0.5]:
-    #     for ctc_shift_scale in [0.0, 0.5]:
-    #         args["encoder_args"].ctc_self_align_delay = 1
-    #         args["encoder_args"].ctc_self_align_scale = ctc_shift_scale
-    #         args["decoder_args"].ce_loss_scale = att_scale
-    #         args["oclr_opts"]["peak_lr"] = 0.0008
-    #         run_exp(
-    #             f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_attScale-{att_scale}_ctcShiftScale-{ctc_shift_scale}_shift-1",
-    #             train_args=args,
-    #             num_epochs=435,
-    #         )
+    # # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay40_1e-05_decayPt0.5                         2.27         5.66          2.49          5.76       40
+    # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay60_1e-05_decayPt0.75                        2.28         5.64          2.48          5.74       60
+    # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay100_0.0001_decayPt0.5                        2.28         5.63          2.47          5.68      100
 
     # TODO: with higher LR
     args = copy.deepcopy(causal_args)
@@ -996,19 +933,6 @@ def conformer_baseline():
             train_args=args,
             num_epochs=435,
         )
-
-    # TODO: without att
-    for with_pretrain in [True, False]:
-        args = copy.deepcopy(causal_args)
-        args["decoder_args"].ce_loss_scale = 0.0
-        args["oclr_opts"]["peak_lr"] = 0.0008
-        args["with_pretrain"] = with_pretrain
-        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0008_causal_noAtt"
-        if with_pretrain:
-            name += "_withPretrain"
-        else:
-            name += "_noPretrain"
-        run_exp(name, train_args=args, num_epochs=435)
 
     # TODO: epoch-based OCLR
     args = copy.deepcopy(causal_args)

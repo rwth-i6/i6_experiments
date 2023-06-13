@@ -746,15 +746,3 @@ def conformer_baseline():
     args["learning_rates_list"] = list(numpy.mean(lrs.reshape(-1, oclr_n_step), axis=-1))
     assert len(args["learning_rates_list"]) == 635
     run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_avgEpochOCLR", train_args=args, num_epochs=635)
-
-    # TODO: retrain
-    # retrain_args = copy.deepcopy(args)
-    # retrain_args["retrain_checkpoint"] = train_job_avg_ckpt["base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635"]
-    # train_j, train_data = run_exp(
-    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_retrain1",
-    #     train_args=retrain_args,
-    #     num_epochs=435,
-    #     epoch_wise_filter=None,
-    # )
-
-    # ------------------------------------------------------- #
