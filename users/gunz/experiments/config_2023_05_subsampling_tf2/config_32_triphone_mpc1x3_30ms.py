@@ -155,6 +155,7 @@ def run_single(
     s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
     s.lm_gc_simple_hash = True
     s.train_key = train_key
+    s.lexicon_args["add_all_allophones"] = True
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
