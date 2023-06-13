@@ -192,7 +192,11 @@ def run_baseline_scf():
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
-                returnn_args=dict(batch_size=14000),
+                returnn_args=dict(batch_size=7000, extra_args=dict(accum_grad_multiple_step=2)),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            ),
+            "scf_first_layer": dict(
+                returnn_args=dict(batch_size=3500, specaug_after_first_layer=True, extra_args=dict(accum_grad_multiple_step=4)),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             )
         },
