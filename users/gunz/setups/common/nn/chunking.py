@@ -9,8 +9,7 @@ def subsample_chunking(
     parts = [int(p.strip()) for p in ch.strip().split(":")]
     size, step = parts
 
-    # ceil div
-    size_part = {data_key: size, subsampled_key: (size + factor - 1) // factor}
-    step_part = {data_key: step, subsampled_key: (step + factor - 1) // factor}
+    size_part = {data_key: size, subsampled_key: (size + factor - 1) // factor}  # ceil div
+    step_part = {data_key: step, subsampled_key: step // factor}  # floor div
 
     return size_part, step_part
