@@ -35,7 +35,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CONF_CHUNKING,
+    CONF_CHUNKING_10MS,
     CONF_SA_CONFIG,
     MLP_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
@@ -194,7 +194,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=False,
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING,
+        chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="heuristic",

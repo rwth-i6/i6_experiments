@@ -42,7 +42,7 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    CONF_CHUNKING,
+    CONF_CHUNKING_10MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -179,7 +179,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=alignment_name == "scratch",
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING,
+        chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="default",
@@ -193,7 +193,7 @@ def run_single(
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
         conf_model_dim,
-        chunking=CONF_CHUNKING,
+        chunking=CONF_CHUNKING_10MS,
         focal_loss_factor=CONF_FOCAL_LOSS,
         label_smoothing=CONF_LABEL_SMOOTHING,
         num_classes=s.label_info.get_n_of_dense_classes(),
@@ -289,7 +289,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": subsample_chunking(CONF_CHUNKING, subsampling_factor),
+        "chunking": subsample_chunking(CONF_CHUNKING_10MS, subsampling_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,

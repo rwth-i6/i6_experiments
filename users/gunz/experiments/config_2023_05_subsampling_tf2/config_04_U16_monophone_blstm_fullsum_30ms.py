@@ -34,7 +34,7 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     BLSTM_FH_DECODING_TENSOR_CONFIG,
-    CONF_CHUNKING,
+    CONF_CHUNKING_10MS,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
@@ -183,7 +183,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=False,
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING,
+        chunk_size=CONF_CHUNKING_10MS,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="heuristic",
