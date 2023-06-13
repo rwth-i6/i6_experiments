@@ -164,7 +164,7 @@ def conformer_features():
     report_list = []
 
     for name, feature_net in feature_nets.items():
-        _, _, report = run_exp(
+        train_job, _, report = run_exp(
             name,
             train_args=args,
             num_epochs=635,
@@ -172,6 +172,8 @@ def conformer_features():
             feature_extraction_name="features",
         )
         report_list.append(report)
+        if "scf" in name:
+            train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
 
     report = Report.merge_reports(report_list)
     tk.register_report(
