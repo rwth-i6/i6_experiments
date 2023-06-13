@@ -311,6 +311,16 @@ def run_single(
                 rtf_cpu=4,
             )
 
+        cfg_beam = recog_args.with_beam_size(24).with_prior_scale(0.5).with_tdp_scale(0.1)
+        recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=cfg_beam,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            rtf_cpu=4,
+        )
+
     s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
     s.create_stm_from_corpus("train-other-960.train")
     s._set_scorer_for_corpus("train-other-960.train")
