@@ -10,7 +10,8 @@ def subsample_chunking(
     assert all((p % factor == 0 for p in parts)), "factor must evenly divide chunk size"
     size, step = parts
 
-    size_part = {data_key: size, subsampled_key: size // factor}
-    step_part = {data_key: step, subsampled_key: step // factor}
+    # ceil div
+    size_part = {data_key: size, subsampled_key: (size + factor - 1) // factor}
+    step_part = {data_key: step, subsampled_key: (step + factor - 1) // factor}
 
     return size_part, step_part
