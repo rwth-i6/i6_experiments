@@ -141,6 +141,8 @@ def pretrain_layers_and_dims(
     repeat_first=True,
     ignored_keys_for_reduce_dim=None,
     extra_net_dict_override=None,
+    feature_extraction_net=None,
+    feature_extraction_pretraining=False,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -159,6 +161,8 @@ def pretrain_layers_and_dims(
     :param second_bs:
     :param second_bs_idx:
     :param enc_dec_share_grow_frac:
+    :param feature_extraction_net:
+    :param feature_extraction_pretraining:
     :return:
     """
 
@@ -302,6 +306,18 @@ def pretrain_layers_and_dims(
     #     net_dict["decision"]["target"] = "bpe_labels_w_blank"
     # else:
     net_dict.update(decoder_model.network.get_net())
+
+    if feature_extraction_pretraining:
+        # this is currently specific to scf and could be generalized
+        feat_net = copy.deepcopy(feature_extraction_net)
+        feat_net["features"]["subnetwork"]["conv_h"]["n_out"] = max(
+            1, int(feat_net["features"]["subnetwork"]["conv_h"]["n_out"] * dim_frac_enc))
+        filter_shape = list(feat_net["features"]["subnetwork"]["conv_h_filter"]["shape"])
+        filter_shape[-1] = feat_net["features"]["subnetwork"]["conv_h"]["n_out"]
+        feat_net["features"]["subnetwork"]["conv_h_filter"]["shape"] = tuple(filter_shape)
+        feat_net["features"]["subnetwork"]["conv_l"]["n_out"] = max(
+            1, int(feat_net["features"]["subnetwork"]["conv_l"]["n_out"] * dim_frac_enc))
+        net_dict.update(feat_net)
 
     net_dict.update(extra_net_dict)
 
@@ -710,6 +726,7 @@ def create_config(
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
+        pretrain_opts["feature_extraction_net"] = feature_extraction_net
 
     if ctc_greedy_decode:
         # create bpe labels with blank extern data
@@ -817,7 +834,8 @@ def create_config(
                     break
                 net["#copy_param_mode"] = "subset"
                 if feature_extraction_net:
-                    net.update(feature_extraction_net)
+                    if not pretrain_opts.get("feature_extraction_pretraining", False):
+                        net.update(feature_extraction_net)
                     if global_stats:
                         net["global_mean"] = {
                             "class": "eval",
