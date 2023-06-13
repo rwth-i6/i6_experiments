@@ -251,6 +251,8 @@ def run_single(
             "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
             **extern_data.get_extern_data_config(label_info=s.label_info, time_tag_name=None),
         },
+        "dev": {"reduce_target_factor": ss_factor},
+        "train": {"reduce_target_factor": ss_factor},
     }
     keep_epochs = [550, num_epochs]
     base_post_config = {
