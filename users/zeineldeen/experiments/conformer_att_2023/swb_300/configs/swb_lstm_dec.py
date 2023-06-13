@@ -826,40 +826,147 @@ def conformer_baseline():
 
     # ----------------------------------------------- #
 
-    for no_weight_drop_in_pretrain in [True, False]:
-        for weight_drop in [0.1, 0.15, 0.2]:
+    for reduce_factor in [0.7, 1.0]:
+        for weight_drop in [0.05, 0.08]:
             for ep in [900]:
-                for drop in [0.2]:
-                    base3_args = copy.deepcopy(base_v2_args)
-                    base3_args["batch_size"] = base3_args["batch_size"] * 2
-                    base3_args["pretrain_opts"]["initial_batch_size"] = (
-                        base3_args["pretrain_opts"]["initial_batch_size"] * 2
-                    )
-                    base3_args["accum_grad"] = 1
+                base3_args = copy.deepcopy(base_v2_args)
+                base3_args = get_modified_base_args(base3_args, 12, reduce_factor)
+                base3_args["batch_size"] = base3_args["batch_size"] * 2
+                base3_args["pretrain_opts"]["initial_batch_size"] = (
+                    base3_args["pretrain_opts"]["initial_batch_size"] * 2
+                )
+                base3_args["accum_grad"] = 1
 
-                    base3_args["encoder_args"].att_dropout = drop
-                    base3_args["encoder_args"].dropout = drop
-                    base3_args["decoder_args"].att_dropout = drop
-                    base3_args["decoder_args"].embed_dropout = drop
+                base3_args["encoder_args"].att_dropout = 0.15
+                base3_args["encoder_args"].dropout = 0.1
+                base3_args["decoder_args"].att_dropout = 0.2
+                base3_args["decoder_args"].embed_dropout = 0.05
 
-                    base3_args["param_dropout"] = weight_drop
+                base3_args["encoder_args"].ff_weight_dropout = weight_drop
+                base3_args["encoder_args"].mhsa_weight_dropout = weight_drop
+                base3_args["encoder_args"].conv_weight_dropout = weight_drop
 
-                    base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-                    base3_args["oclr_opts"]["total_ep"] = ep
+                base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+                base3_args["oclr_opts"]["total_ep"] = ep
 
-                    base3_args["specaug_version"] = 3
+                base3_args["specaug_version"] = 3
 
-                    name = f"base3_conf_{12}l_lstm_1l_conv{6}_drop{drop}_wd{weight_drop}_ep{ep}_specaug3"
+                name = f"base3_conf_{12}l_lstm_1l_conv{6}_drop{0.1}_wd{weight_drop}_ep{ep}_specaug3_dimReduce{reduce_factor}_embedDrop0.05_attDrop0.2_selfAttDrop0.15"
 
-                    if no_weight_drop_in_pretrain:
-                        base3_args["pretrain_opts"]["extra_net_dict_override"] = {"param_dropout": 0.0}
-                        name += "_noWeightDropInPretrain"
-
-                    run_default_exp(
-                        name,
-                        train_args=base3_args,
-                        num_epochs=ep,
-                        gpu_mem=24,
-                    )
+                run_default_exp(
+                    name,
+                    train_args=base3_args,
+                    num_epochs=ep,
+                    gpu_mem=24,
+                )
 
     # TODO: mixup
+    for ep in [900]:
+        for drop in [0.2]:
+            base3_args = copy.deepcopy(base_v2_args)
+            base3_args["batch_size"] = base3_args["batch_size"] * 2
+            base3_args["pretrain_opts"]["initial_batch_size"] = base3_args["pretrain_opts"]["initial_batch_size"] * 2
+            base3_args["accum_grad"] = 1
+
+            base3_args["mixup_aug_opts"] = {
+                "buffer_size": 1_000_000,
+                "apply_prob": 0.4,
+                "max_num_mix": 4,
+                "lambda_min": 0.15,
+                "lambda_max": 0.3,
+                "use_exp_feats": True,
+            }
+
+            base3_args["encoder_args"].att_dropout = drop
+            base3_args["encoder_args"].dropout = drop
+            base3_args["decoder_args"].att_dropout = drop
+            base3_args["decoder_args"].embed_dropout = drop
+
+            base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+            base3_args["oclr_opts"]["total_ep"] = ep
+
+            base3_args["specaug_version"] = 3
+
+            base3_args["with_pretrain"] = False
+            from i6_core.returnn.training import Checkpoint
+
+            base3_args["preload_from_files"] = {
+                "model": {
+                    "filename": Checkpoint(
+                        index_path=tk.Path(
+                            "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.d98A7p9ythSa/output/models/epoch.040.index"
+                        )
+                    ),
+                    "ignore_missing": True,
+                    "init_for_train": True,
+                }
+            }
+
+            name = f"base3_conf_{12}l_lstm_1l_conv{6}_drop{drop}_ep{ep}_specaug3_initEp40"
+            name += "_mixup_0.4_4_0.15_0.3_expFeat"
+
+            run_default_exp(
+                name,
+                train_args=base3_args,
+                num_epochs=ep,
+                gpu_mem=24,
+            )
+
+    # # TODO: mixup + wd
+    # for reduce_dim_factor in [0.7]:
+    #     for weight_drop in [0.0, 0.1, 0.2]:
+    #         for ep in [300, 600, 900]:
+    #             for drop in [0.2]:
+    #                 base3_args = copy.deepcopy(base_v2_args)
+    #                 base3_args["batch_size"] = base3_args["batch_size"] * 2
+    #                 base3_args["pretrain_opts"]["initial_batch_size"] = (
+    #                     base3_args["pretrain_opts"]["initial_batch_size"] * 2
+    #                 )
+    #                 base3_args["accum_grad"] = 1
+    #
+    #                 base3_args["mixup_aug_opts"] = {
+    #                     "buffer_size": 1_000_000,
+    #                     "apply_prob": 0.4,
+    #                     "max_num_mix": 4,
+    #                     "lambda_min": 0.15,
+    #                     "lambda_max": 0.3,
+    #                 }
+    #
+    #                 base3_args["encoder_args"].att_dropout = drop
+    #                 base3_args["encoder_args"].dropout = drop
+    #                 base3_args["decoder_args"].att_dropout = drop
+    #                 base3_args["decoder_args"].embed_dropout = drop
+    #
+    #                 base3_args["encoder_args"].ff_weight_dropout = weight_drop
+    #                 base3_args["encoder_args"].mhsa_weight_dropout = weight_drop
+    #                 base3_args["encoder_args"].conv_weight_dropout = weight_drop
+    #
+    #                 base3_args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
+    #                 base3_args["oclr_opts"]["total_ep"] = ep
+    #
+    #                 base3_args["specaug_version"] = 3
+    #
+    #                 base3_args["with_pretrain"] = False
+    #                 from i6_core.returnn.training import Checkpoint
+    #
+    #                 base3_args["preload_from_files"] = {
+    #                     "model": {
+    #                         "filename": Checkpoint(
+    #                             index_path=tk.Path(
+    #                                 "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/ReturnnTrainingJob.d98A7p9ythSa/output/models/epoch.040.index"
+    #                             )
+    #                         ),
+    #                         "ignore_missing": True,
+    #                         "init_for_train": True,
+    #                     }
+    #                 }
+    #
+    #                 name = f"base3_conf_{12}l_lstm_1l_conv{6}_drop{drop}_wd{weight_drop}_ep{ep}_specaug3_initEp40_dimReduce{reduce_dim_factor}"
+    #                 name += "_mixup_0.4_4_0.15_0.3"
+    #
+    #                 run_default_exp(
+    #                     name,
+    #                     train_args=base3_args,
+    #                     num_epochs=ep,
+    #                     gpu_mem=24,
+    #                 )

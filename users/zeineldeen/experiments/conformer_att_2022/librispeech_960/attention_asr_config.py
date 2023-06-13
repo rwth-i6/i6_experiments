@@ -322,6 +322,7 @@ class ConformerEncoderArgs(EncoderArgs):
     att_num_heads: int = 8
     ff_dim: int = 2048
     conv_kernel_size: int = 32
+    input: str = "data"
     input_layer: str = "lstm-6"
     input_layer_conv_act: str = "relu"
     pos_enc: str = "rel"
@@ -350,6 +351,11 @@ class ConformerEncoderArgs(EncoderArgs):
     dropout_in: float = 0.1
     att_dropout: float = 0.1
     lstm_dropout: float = 0.1
+
+    # weight dropout
+    ff_weight_dropout: Optional[float] = None
+    mhsa_weight_dropout: Optional[float] = None
+    conv_weight_dropout: Optional[float] = None
 
     # norms
     batch_norm_opts: Optional[Dict[str, Any]] = None
@@ -674,6 +680,9 @@ def create_config(
         # freeze BN during training (e.g when retraining.)
         encoder_args["batch_norm_opts"] = {"momentum": 0.0, "use_sample": 1.0}
 
+    if mixup_aug_opts:
+        encoder_args.update({"input": "mixup"})  # name of mixup layer which will be input to specaug
+
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
 
@@ -805,6 +814,22 @@ def create_config(
             "eval": "(source(0) - source(1)) / source(2)",
         }
 
+    from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
+
+    if mixup_aug_opts:
+        use_exp_feats = mixup_aug_opts.pop("use_exp_feats", False)
+        exp_config["network"].update(
+            make_mixup_layer_dict(
+                src="log_mel_features",
+                dim=feature_extraction_net["mel_filterbank"]["n_out"],
+                opts=mixup_aug_opts,
+                use_exp_feats=use_exp_feats,
+            )
+        )
+        if use_exp_feats:
+            exp_config["network"]["source_log"] = {"class": "activation", "from": "mixup", "activation": "safe_log"}
+            exp_config["network"]["source"]["from"] = "source_log"
+
     staged_network_dict = None
 
     # add pretraining
@@ -838,6 +863,12 @@ def create_config(
                             "from": ["log10_", "global_mean", "global_stddev"],
                             "eval": "(source(0) - source(1)) / source(2)",
                         }
+                if mixup_aug_opts:
+                    net["mixup"] = make_mixup_layer_dict(
+                        src="log_mel_features",
+                        dim=feature_extraction_net["mel_filterbank"]["n_out"],
+                        opts=mixup_aug_opts,
+                    )
                 staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
             staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
@@ -891,6 +922,20 @@ def create_config(
         python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
         if joint_ctc_att_decode_args.get("remove_eos", False):
             python_prolog += [update_tensor_entry]
+
+    if mixup_aug_opts:
+        from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import (
+            _mixup_eval_layer_func,
+            _mixup_eval_layer_out_type_func,
+            _get_raw_func,
+        )
+
+        python_prolog += ["from typing import Union, Dict, Any"]
+        python_prolog += [
+            _mixup_eval_layer_func,
+            _mixup_eval_layer_out_type_func,
+            _get_raw_func,
+        ]
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:
