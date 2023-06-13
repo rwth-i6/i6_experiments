@@ -175,6 +175,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     specaug_mask_sorting: bool = False,
+    mask_divisor: int = None,
 ):
     base_config = {
         "extern_data": {
@@ -207,7 +208,7 @@ def get_returnn_config(
         network["source"] = {"class": "copy", "from": "features"}
     else:
         if specaug_mask_sorting:
-            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"])
+            network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
             network["source"] = {"class": "copy", "from": "features"}
         else:
