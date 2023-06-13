@@ -8,7 +8,7 @@ from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
     GenericDataset,
 )
 from .data import AlignmentTrainingDatasets
-from ..serializer import get_network_serializer, get_pytorch_serializer, get_pytorch_serializer_v2
+from ..serializer import get_network_serializer, get_pytorch_serializer
 
 
 def get_training_config(
@@ -18,8 +18,6 @@ def get_training_config(
         net_args: Dict[str, Any],
         config: Dict[str, Any],
         debug: bool = False,
-        pytorch_mode=False,
-        v2_mode=False,
         use_custom_engine=False,
 ):
     """
@@ -43,14 +41,8 @@ def get_training_config(
     }
     config = {**base_config, **copy.deepcopy(config)}
 
-    if pytorch_mode:
-        get_serializer = get_pytorch_serializer
-        post_config["backend"] = "torch"
-        if v2_mode:
-            get_serializer = get_pytorch_serializer_v2
-    else:
-        get_serializer = get_network_serializer
-        post_config["backend"] = "tensorflow"
+    get_serializer = get_pytorch_serializer
+    post_config["backend"] = "torch"
 
     serializer = get_serializer(
         training=True,

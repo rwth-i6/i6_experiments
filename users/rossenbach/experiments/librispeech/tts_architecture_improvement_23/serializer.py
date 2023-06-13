@@ -129,3 +129,62 @@ def get_pytorch_serializer(
     )
 
     return serializer
+
+
+from i6_experiments.users.rossenbach.common_setups.returnn.serializer import Import as ImportV2, PartialImport
+
+
+def get_pytorch_serializer_v2(
+        network_module: str,
+        net_args: Dict[str, Any],
+        use_custom_engine=False,
+        forward=False,
+        debug=False,
+        **kwargs
+) -> TorchCollection:
+
+    package = PACKAGE + ".pytorch_networks"
+
+    pytorch_model_import = PartialImport(
+        code_object_path=package + ".%s.Model" % network_module,
+        unhashed_package_root=PACKAGE,
+        hashed_arguments=net_args,
+        unhashed_arguments={},
+        import_as="get_model",
+    )
+    pytorch_train_step = ImportV2(
+        code_object_path=package + ".%s.train_step" % network_module,
+        unhashed_package_root=PACKAGE
+    )
+
+    serializer_objects = [
+        pytorch_model_import,
+        pytorch_train_step,
+    ]
+    if forward:
+        forward_step = Import(
+            package + ".%s.forward_step" % network_module
+        )
+        init_hook = Import(
+            package + ".%s.forward_init_hook" % network_module
+        )
+        finish_hook = Import(
+            package + ".%s.forward_finish_hook" % network_module
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    if use_custom_engine:
+        pytorch_engine = Import(
+            package + ".%s.CustomEngine" % network_module
+        )
+        serializer_objects.append(pytorch_engine)
+    serializer = TorchCollection(
+        serializer_objects=serializer_objects,
+        make_local_package_copy=not debug,
+        packages={
+            package,
+        },
+    )
+
+    return serializer

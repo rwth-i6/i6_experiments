@@ -81,6 +81,9 @@ class DbMelFeatureExtraction(nn.Module):
             pad_mode="constant",
             return_complex=True,
         )) ** 2
+        if len(S.size()) == 2:
+            # For some reason torch.stft "eats" batch sizes of 1, so we need to add it again if needed
+            S = torch.unsqueeze(S, 0)
         melspec = torch.einsum("...ft,mf->...mt", S, self.mel_basis)
         melspec = 20 * torch.log10(torch.max(self.min_amp, melspec))
         feature_data = torch.transpose(melspec, 1, 2)
@@ -229,7 +232,6 @@ class Model(torch.nn.Module):
 def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     audio_features = data["audio_features"]  # [B, T, F]
-
     audio_features_len = data["audio_features:size1"]  # [B]
 
     # perform local length sorting for more efficient packing
@@ -381,6 +383,7 @@ def forward_finish_hook(run_ctx, **kwargs):
 
 def forward_step(*, model: Model, data, run_ctx, **kwargs):
     tags = data["seq_tag"]
+
     audio_features = data["audio_features"]  # [B, T, F]
     audio_features_len = data["audio_features:size1"]  # [B]
 

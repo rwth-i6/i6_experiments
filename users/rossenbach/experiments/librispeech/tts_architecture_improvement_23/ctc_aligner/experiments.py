@@ -5,7 +5,7 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config, get_pt_forward_config
+from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config
 from .pipeline import ctc_training, ctc_forward
 from ..data import get_tts_log_mel_datastream
 
@@ -146,7 +146,6 @@ def get_pytorch_ctc_alignment():
             datastreams=training_datasets.datastreams,
             network_module=net_module,
             net_args=params,
-            pytorch_mode=True
         )
         train_job = ctc_training(
             config=aligner_config,
@@ -228,13 +227,14 @@ def get_pytorch_raw_ctc_alignment():
         #############
         "batch_size": 56000*samples_per_frame,
         "max_seq_length": {"audio_features": 1600*samples_per_frame},
+        "batch_drop_last": True,  # otherwise might cause issues in indexing after local sort in train_step
         "max_seqs": 200,
     }
 
     prefix = "experiments/librispeech/tts_architecture/ctc_aligner/pytorch/"
     training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True)
 
-    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False):
+    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False):
         aligner_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
             training_datasets=training_datasets,
@@ -243,15 +243,16 @@ def get_pytorch_raw_ctc_alignment():
             config=config,
             debug=debug,
             use_custom_engine=use_custom_engine,
-            pytorch_mode=True
+            pytorch_mode=True,
+            v2_mode=v2,
         )  # implicit reconstruction loss
-        forward_config = get_forward_config(
+        forward_config = get_pt_raw_forward_config(
             returnn_common_root=RETURNN_COMMON,
             forward_dataset=training_datasets.joint,
             datastreams=training_datasets.datastreams,
             network_module=net_module,
             net_args=params,
-            pytorch_mode=True
+            debug=debug,
         )
         train_job = ctc_training(
             config=aligner_config,
@@ -305,5 +306,6 @@ def get_pytorch_raw_ctc_alignment():
 
 
     duration_hdf = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
+    _ = run_exp(net_module + "_drop035_bs56k_seriv2", params, net_module, config, debug=True, v2=True)
 
     return duration_hdf
