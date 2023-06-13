@@ -34,7 +34,7 @@ RASR_ROOT_TF2_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
 RASR_ROOT_TF2 = RASR_ROOT_TF2_APPTAINER
 
 RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
-RETURNN_PYTHON_APPTAINER = "/usr/bin/python3"
+RETURNN_PYTHON_APPTAINER = "/u/mgunz/src/bin/returnn_tf2.8_apptainer_launcher.sh"
 RETURNN_PYTHON = RETURNN_PYTHON_APPTAINER
 
 BLSTM_CHUNKING = "64:32"
