@@ -156,6 +156,8 @@ def conformer_features():
         "logmel": LogMelNetwork(norm=False),
         "logmel_batchnorm": LogMelNetwork(),
         "scf": ScfNetwork(),
+        "scf_batchnorm": ScfNetwork(normalization_env="batch"),
+        "scf_nonorm": ScfNetwork(normalization_env=None),
         "gammatone": GammatoneNetwork(),
     }
 
