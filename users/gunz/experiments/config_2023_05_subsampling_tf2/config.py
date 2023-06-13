@@ -7,8 +7,8 @@ CART_TREE_DI_NUM_LABELS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies
 CART_TREE_TRI = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/cart-trees/ls960/tri.tree.xml.gz"
 CART_TREE_TRI_NUM_LABELS = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/cart-trees/ls960/tri.num_labels"
 
-ALIGN_30MS_CONF_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/conf-1-lr-v6-ss-3-fs-3-bw-0.3-pC0.05-tdp0.1/output/alignment.cache.bundle"
-ALIGN_30MS_BLSTM_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-3-fs-3-bw-0.3-pC0.5-tdp0.1/output/alignment.cache.bundle"
+ALIGN_30MS_CONF_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/conf-1-lr-v6-ss-3-fs-3-bw-0.3-pC-0.6-tdp-0.1/alignment.cache.bundle"
+ALIGN_30MS_BLSTM_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-3-fs-3-bw-0.3-pC-0.6-tdp-0.1/alignment.cache.bundle"
 
 ZHOU_SUBSAMPLED_ALIGNMENT = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/zhou-subsample-4-dc-detection/alignment.cache.bundle"
 ZHOU_ALLOPHONES = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/allophones/ls-960/zhou-allophones"
