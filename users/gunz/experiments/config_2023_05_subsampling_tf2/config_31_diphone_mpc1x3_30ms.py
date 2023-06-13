@@ -19,6 +19,7 @@ import i6_core.returnn as returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
     random_mask as sa_random_mask,
@@ -242,7 +243,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": CONF_CHUNKING,
+        "chunking": subsample_chunking(CONF_CHUNKING, ss_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
