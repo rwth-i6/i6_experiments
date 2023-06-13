@@ -172,7 +172,12 @@ def search_single(
         tk.register_output(prefix_name + "/sclite/wer", sclite_job.out_wer)
         tk.register_output(prefix_name + "/sclite/report", sclite_job.out_report_dir)
 
-    wer = ReturnnComputeWERJob(search_words, recognition_reference)
+    wer = ReturnnComputeWERJob(
+        search_words,
+        recognition_reference,
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+    )
 
     tk.register_output(prefix_name + "/search_out_words.py", search_words)
     tk.register_output(prefix_name + "/wer", wer.out_wer)
