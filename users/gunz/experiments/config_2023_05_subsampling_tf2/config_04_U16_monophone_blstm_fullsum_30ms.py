@@ -452,7 +452,7 @@ def run_single(
         recognizer.recognize_count_lm(
             label_info=s.label_info,
             search_parameters=cfg_beam,
-            num_encoder_output=conf_model_dim,
+            num_encoder_output=2 * blstm_size,
             rerun_after_opt_lm=True,
             calculate_stats=True,
             rtf_cpu=4,
