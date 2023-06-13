@@ -175,6 +175,7 @@ def get_returnn_config(
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
     specaug_mask_sorting: bool = False,
+    specaug_after_first_layer: bool = False,
     mask_divisor: int = None,
 ):
     base_config = {
@@ -221,6 +222,7 @@ def get_returnn_config(
                 network["source"] = specaug_layer_jingjing(in_layer=["features"])
 
         network = fix_network_for_sparse_output(network)
+        
     if specaug_mask_sorting:
         prolog = get_funcs_sorted()
     else:
