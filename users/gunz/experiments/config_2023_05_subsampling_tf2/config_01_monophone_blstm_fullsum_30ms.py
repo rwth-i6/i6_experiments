@@ -15,7 +15,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import rasr, returnn
+from i6_core import corpus, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
