@@ -43,6 +43,7 @@ class ReturnnNetwork:
         forward_weights_init=None,
         strides=None,
         param_variational_noise=None,
+        param_dropout=None,
         **kwargs,
     ):
         d = {
@@ -62,6 +63,8 @@ class ReturnnNetwork:
             d["forward_weights_init"] = forward_weights_init
         if param_variational_noise:
             d["param_variational_noise"] = param_variational_noise
+        if param_dropout:
+            d["param_dropout"] = param_dropout
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -76,6 +79,7 @@ class ReturnnNetwork:
         dropout=0.0,
         l2=0.0,
         forward_weights_init=None,
+        param_dropout=None,
         **kwargs,
     ):
         d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source, "n_out": n_out}
@@ -85,6 +89,8 @@ class ReturnnNetwork:
             d["L2"] = l2
         if forward_weights_init:
             d["forward_weights_init"] = forward_weights_init
+        if param_dropout:
+            d["param_dropout"] = param_dropout
         d.update(kwargs)
         self._net[name] = d
         return name
@@ -278,6 +284,7 @@ class ReturnnNetwork:
         l2=0.0,
         attention_left_only=False,
         param_variational_noise=None,
+        param_dropout=None,
         **kwargs,
     ):
         d = {
@@ -486,7 +493,6 @@ class ReturnnNetwork:
         pool_idx = 0
 
         for layer in range(num_layers):
-
             # Forward LSTM
             lstm_fw_name = self.add_rec_layer(
                 name="lstm%i_fw" % layer,

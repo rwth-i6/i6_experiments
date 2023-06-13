@@ -70,6 +70,9 @@ class ConformerEncoder:
         weight_noise=None,
         weight_noise_layers=None,
         convolution_first=False,
+        ff_weight_dropout=None,
+        mhsa_weight_dropout=None,
+        conv_weight_dropout=None,
     ):
         """
         :param str input: input layer name
@@ -211,6 +214,10 @@ class ConformerEncoder:
 
         self.convolution_first = convolution_first
 
+        self.ff_weight_drop = ff_weight_dropout
+        self.conv_weight_drop = conv_weight_dropout
+        self.mhsa_weight_drop = mhsa_weight_dropout
+
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
         Add Feed Forward Module:
@@ -234,6 +241,7 @@ class ConformerEncoder:
             l2=self.l2,
             forward_weights_init=self.ff_init,
             with_bias=self.ff_bias,
+            param_dropout=self.ff_weight_drop,
         )
 
         if self.use_sqrd_relu:
@@ -255,6 +263,7 @@ class ConformerEncoder:
             l2=self.l2,
             forward_weights_init=self.ff_init,
             with_bias=self.ff_bias,
+            param_dropout=self.ff_weight_drop,
         )
 
         drop2 = self.network.add_dropout_layer("{}_drop2".format(prefix_name), ff2, dropout=self.dropout)
@@ -305,6 +314,7 @@ class ConformerEncoder:
             l2=self.self_att_l2,
             attention_left_only=self.use_causal_layers,
             param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+            param_dropout=self.mhsa_weight_drop,
         )
 
         mhsa_linear = self.network.add_linear_layer(
@@ -314,6 +324,7 @@ class ConformerEncoder:
             l2=self.l2,
             forward_weights_init=self.mhsa_out_init,
             with_bias=False,
+            param_dropout=self.mhsa_weight_drop,
         )
 
         drop = self.network.add_dropout_layer("{}_dropout".format(prefix_name), mhsa_linear, dropout=self.dropout)
@@ -348,6 +359,7 @@ class ConformerEncoder:
             l2=self.l2,
             with_bias=self.ff_bias,
             forward_weights_init=self.conv_module_init,
+            param_dropout=self.conv_weight_drop,
         )
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
@@ -370,6 +382,7 @@ class ConformerEncoder:
                 l2=self.l2,
                 forward_weights_init=self.conv_module_init,
                 padding="valid",
+                param_dropout=self.conv_weight_drop,
             )
 
             # Fix time dim, match with the original input
@@ -387,6 +400,7 @@ class ConformerEncoder:
                 groups=self.enc_key_dim,
                 l2=self.l2,
                 forward_weights_init=self.conv_module_init,
+                param_dropout=self.conv_weight_drop,
             )
 
         if self.use_ln:
@@ -406,6 +420,7 @@ class ConformerEncoder:
             l2=self.l2,
             with_bias=self.ff_bias,
             forward_weights_init=self.conv_module_init,
+            param_dropout=self.conv_weight_drop,
         )
 
         drop = self.network.add_dropout_layer("{}_drop".format(prefix_name), pointwise_conv2, dropout=self.dropout)
