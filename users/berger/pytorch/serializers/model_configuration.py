@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from dataclasses import dataclass, field, fields
 from inspect import isfunction
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -23,7 +24,7 @@ class FunctionCall(SerializerObject):
 
     func_name: str
     args: List[Union[str, DelayedBase]] = field(default_factory=list)
-    kwargs: Dict[str, Union[str, DelayedBase]] = field(default_factory=dict)
+    kwargs: OrderedDict[str, Union[str, DelayedBase]] = field(default_factory=OrderedDict)
     variable_name: Optional[str] = None
 
     def get(self) -> str:
@@ -74,7 +75,7 @@ def get_config_constructor(
     # Import the class of <cfg>
     imports = [Import(f"{type(cfg).__module__}.{type(cfg).__name__}")]
 
-    attrs = {}
+    attrs = OrderedDict()
 
     # Iterate over all dataclass fields
     for key in fields(type(cfg)):
@@ -101,7 +102,7 @@ def get_config_constructor(
             imports.append(Import(f"{SubassemblyWithOptions.__module__}.SubassemblyWithOptions"))
             attrs[key.name] = FunctionCall(
                 func_name="SubassemblyWithOptions",
-                kwargs={"module_class": attr.module_class.__name__, "cfg": subcall},
+                kwargs=OrderedDict([("module_class", attr.module_class.__name__), ("cfg", subcall)]),
             )
         elif isinstance(attr, torch.nn.Module):
             # Example:
@@ -119,6 +120,9 @@ def get_config_constructor(
             if attr.__module__ != "builtins":
                 imports.append(Import(f"{attr.__module__}.{attr.__name__}"))
             attrs[key.name] = attr.__name__
+        elif isinstance(attr, DelayedBase):
+            # sisyphus variables are just given as-is and will be instanciated only when calling "get".
+            attrs[key.name] = attr
         else:
             # No special case (usually python primitives)
             # -> Just get string representation
