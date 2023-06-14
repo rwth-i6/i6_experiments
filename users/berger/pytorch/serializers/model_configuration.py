@@ -1,35 +1,54 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from inspect import isfunction
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from i6_experiments.common.setups.serialization import Import, SerializerObject
 from i6_models.config import ModelConfiguration, SubassemblyWithOptions
+from sisyphus.delayed_ops import DelayedBase, DelayedFunction
 from sisyphus.hash import sis_hash_helper
 from sisyphus.tools import try_get
 
 
 @dataclass
-class ConstructorCall(SerializerObject):
-    class_name: str
-    args: Dict[str, Any]
+class FunctionCall(SerializerObject):
+    """
+    SerializerObject that serializes the call of a function with a given name with given arguments.
+    The return value is optionally assigned to a variable of a given name.
+    Example:
+    FunctionCall(func_name="range", args=[1, 10], kwargs={"step": 2}, variable_name="number_range")
+    ->
+    number_range = range(1, 10, step=2)
+    """
+
+    func_name: str
+    args: List[Union[str, DelayedBase]] = field(default_factory=list)
+    kwargs: Dict[str, Union[str, DelayedBase]] = field(default_factory=dict)
     variable_name: Optional[str] = None
 
     def get(self) -> str:
         result = ""
+
+        # Variable assignment
         if self.variable_name is not None:
             result += f"{self.variable_name} = "
-        result += f"{self.class_name}("
-        arg_strings = []
-        for key, val in self.args.items():
-            arg_strings.append(f"{key}={try_get(val)}")
-        result += ", ".join(arg_strings)
+
+        # Function call
+        result += f"{self.func_name}("
+
+        args_str = ", ".join([str(try_get(val)) for val in self.args])
+        kwargs_str = ", ".join([f"{key}={try_get(val)}" for key, val in self.kwargs.items()])
+
+        # Account for calls where args and/or kwargs is empty
+        result += ", ".join([args_str, kwargs_str])
+
         result += ")"
+
         return result
 
     def _sis_hash(self):
         h = {
-            "class_name": self.class_name,
+            "class_name": self.func_name,
             "args": self.args,
         }
         return sis_hash_helper(h)
@@ -37,14 +56,14 @@ class ConstructorCall(SerializerObject):
 
 def get_config_constructor(
     cfg: ModelConfiguration, variable_name: Optional[str] = None
-) -> Tuple[ConstructorCall, List[Import]]:
+) -> Tuple[FunctionCall, List[Import]]:
     """
     Creates a SerializerObject that constructs a ModelConfiguration instance
-    and assigns it to a variable.
+    and optionally assigns it to a variable.
 
     :param cfg: ModelConfiguration object that will be re-created by the serializer
     :param variable_name: Name of the variable which the constructed ModelConfiguration
-                          will be assigned to. If none, the result will not be assigned
+                          will be assigned to. If None, the result will not be assigned
                           to a variable.
     :return: Tuple of ConstructorCall serializer object and list of all imports
              that are necessary to construct the ModelConfiguration.
@@ -77,9 +96,9 @@ def get_config_constructor(
             subcall, subimports = get_config_constructor(attr.cfg)
             imports += subimports
             imports.append(Import(f"{attr.module_class.__module__}.{attr.module_class.__name__}"))
-            attrs[key.name] = ConstructorCall(
-                class_name="SubassemblyWithOptions",
-                args={"module_class": attr.module_class.__name__, "cfg": subcall},
+            attrs[key.name] = FunctionCall(
+                func_name="SubassemblyWithOptions",
+                kwargs={"module_class": attr.module_class.__name__, "cfg": subcall},
             )
         elif isinstance(attr, torch.nn.Module):
             # Example:
@@ -102,4 +121,4 @@ def get_config_constructor(
             # -> Just get string representation
             attrs[key.name] = str(attr)
 
-    return ConstructorCall(class_name=type(cfg).__name__, args=attrs, variable_name=variable_name), imports
+    return FunctionCall(func_name=type(cfg).__name__, kwargs=attrs, variable_name=variable_name), imports
