@@ -7,6 +7,7 @@ __all__ = ["ContextEnum",
            "RasrFeatureAndAlignmentWithDenseAndCARTStateTyingsToHDF"]
 
 from sisyphus import *
+import i6_core.lib.rasr_cache as rasr_cache
 from i6_core.lib.rasr_cache import FileArchive, FileArchiveBundle
 
 import h5py
@@ -230,6 +231,82 @@ class RasrFeatureAndAlignmentToHDF(Job):
 
             for allophone in alignmentStates:
                 targets.append(state_tying[allophone])
+
+            alignment_data.create_dataset(seq_names[-1].replace('/', '\\'), data=targets)
+
+        out.create_dataset('seq_names', data=[s.encode() for s in seq_names], dtype=string_dt)
+
+class RasrFeatureAndDeduplicatedPhonemeSequenceToHDF(Job):
+    def __init__(self, feature_caches, alignment_bundle, allophones, state_tying):
+        self.feature_caches = feature_caches
+        self.alignment_bundle = alignment_bundle
+        self.state_tying = state_tying
+        self.allophones = allophones
+        self.hdf_files = [self.output_path('data.hdf.%d' % d, cached=False) for d in range(len(feature_caches))]
+        self.rqmt = {'cpu': 1, 'mem': 8, 'time': 0.5}
+
+    def tasks(self):
+        yield Task('run', resume='run', rqmt=self.rqmt, args=range(1, (len(self.feature_caches) + 1)))
+
+    def run(self, task_id):
+        num_classes = 0
+        for line in open(self.state_tying.get_path(), 'rt'):
+            if not line.startswith('#'):
+                num_classes = max(num_classes, int(line.strip().split()[1]))
+
+        string_dt = h5py.special_dtype(vlen=str)
+        state_tying = dict(
+            (k, int(v)) for l in open(self.state_tying.get_path()) for k, v in [l.strip().split()[0:2]])
+
+        feature_cache = FileArchive(self.feature_caches[task_id - 1].get_path())
+
+        alignment_path = self.alignment_bundle.get_path()
+        alignment_cache = rasr_cache.open_file_archive(alignment_path)
+        allo_align_path = list(alignment_cache.archives.keys())[0]
+        alignment_cache.setAllophones(self.allophones)
+        allophones = alignment_cache.archives[allo_align_path].allophones
+
+
+        seq_names = []
+        out = h5py.File(self.hdf_files[task_id - 1].get_path(), 'w')
+
+        # root
+        streams_group = out.create_group('streams')
+
+        # first level
+        feature_group = streams_group.create_group('features')
+        feature_group.attrs['parser'] = 'feature_sequence'
+
+        alignment_group = streams_group.create_group('alignment')
+        alignment_group.attrs['parser'] = 'sparse'
+        alignment_group.create_dataset('feature_names', data=[b'label_%d' % l for l in range(num_classes + 1)],
+                                       dtype=string_dt)
+
+        # second level
+        feature_data = feature_group.create_group('data')
+        alignment_data = alignment_group.create_group('data')
+
+        for file in feature_cache.ft:
+            info = feature_cache.ft[file]
+            if info.name.endswith('.attribs'):
+                continue
+
+            seq_names.append(info.name)
+
+            # features
+            times, features = feature_cache.read(file, 'feat')
+            feature_data.create_dataset(seq_names[-1].replace('/', '\\'), data=features)
+
+            # alignment
+            alignment = alignment_cache.read(file, 'align')
+
+            targets = []
+
+            alignmentStates = ['%s.%d' % (allophones[t[1]], t[2]) for t in alignment]
+            import itertools as it
+            for allophone, g in it.groupby(alignmentStates):
+                if 'SILENCE' not in allophone:
+                    targets.append(state_tying[allophone])
 
             alignment_data.create_dataset(seq_names[-1].replace('/', '\\'), data=targets)
 
