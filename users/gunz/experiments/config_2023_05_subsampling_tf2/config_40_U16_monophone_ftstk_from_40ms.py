@@ -338,6 +338,7 @@ def run_single(
                 cart_tree_or_tying_config=tying_cfg,
                 crp_corpus=crp_k,
                 epoch=ep,
+                gpu=True,
                 key="fh",
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=decoding_config,
