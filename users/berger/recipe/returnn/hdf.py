@@ -3,7 +3,7 @@ __all__ = [
 ]
 
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from i6_core.lib import corpus, lexicon
 from i6_core.util import uopen
 
@@ -67,14 +67,12 @@ class BlissCorpusToTargetHdfJob(Job):
         return lookup_dict
 
     @lru_cache
-    def _get_segment_whitelist(self) -> Optional[set[str]]:
+    def _get_segment_whitelist(self) -> Optional[Set[str]]:
         # Create whitelist of allowed segments
         if self.segment_file is None:
             return None
         with uopen(self.segment_file, "rt") as f:
-            segments_whitelist = set(
-                l.strip() for l in f.readlines() if len(l.strip()) > 0
-            )
+            segments_whitelist = set(l.strip() for l in f.readlines() if len(l.strip()) > 0)
         return segments_whitelist
 
     def _segment_allowed(self, segment_name: str) -> bool:
@@ -98,9 +96,7 @@ class BlissCorpusToTargetHdfJob(Job):
             word_separation_targets = []
 
         # Create hdf writer
-        out_hdf_writer = get_returnn_simple_hdf_writer(self.returnn_root.get())(
-            filename=self.out_hdf, dim=None
-        )
+        out_hdf_writer = get_returnn_simple_hdf_writer(self.returnn_root.get())(filename=self.out_hdf, dim=None)
 
         # Load corpus
         c = corpus.Corpus()

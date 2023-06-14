@@ -1,35 +1,27 @@
 from dataclasses import dataclass
 
 import torch
-
+from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+from i6_experiments.users.berger.pytorch.serializers.basic import get_basic_pt_network_serializer
 from i6_models.assemblies.conformer import conformer
-from i6_models.parts.conformer.frontend import (
-    ConformerVGGFrontendV1,
-    ConformerVGGFrontendV1Config,
-)
-from i6_models.config import ModelConfiguration
-from i6_models.config import SubassemblyWithOptions
+from i6_models.config import ModelConfiguration, SubassemblyWithOptions
+
 from ..custom_parts import specaugment, vgg_frontend
-from functools import partial
 
 
 @dataclass
-class Config(ModelConfiguration):
+class ConformerCTCConfig(ModelConfiguration):
     specaugment_cfg: specaugment.SpecaugmentConfigV1
     conformer_cfg: conformer.ConformerEncoderV1Config
     target_size: int
 
 
-class Model(torch.nn.Module):
-    def __init__(self, step: int, config: Config, **kwargs):
+class ConformerCTCModel(torch.nn.Module):
+    def __init__(self, step: int, cfg: ConformerCTCConfig, **kwargs):
         super().__init__()
-        self.specaugment = specaugment.SpecaugmentModuleV1(
-            step=step, config=config.specaugment_cfg
-        )
-        self.conformer = conformer.ConformerEncoderV1(config.conformer_cfg)
-        self.final_linear = torch.nn.Linear(
-            config.conformer_cfg.block_cfg.ff_cfg.input_dim, config.target_size
-        )
+        self.specaugment = specaugment.SpecaugmentModuleV1(step=step, cfg=cfg.specaugment_cfg)
+        self.conformer = conformer.ConformerEncoderV1(cfg.conformer_cfg)
+        self.final_linear = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size)
 
     def forward(
         self,
@@ -44,7 +36,18 @@ class Model(torch.nn.Module):
         return log_probs
 
 
-def get_default_config_v1(num_inputs: int, num_outputs: int) -> Config:
+def get_serializer(
+    model_config: ConformerCTCConfig,
+) -> Collection:
+    pytorch_package = __package__.rpartition(".")[0]
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.ConformerCTCModel",
+        train_step_import_path=f"{pytorch_package}.train_steps.ctc",
+        model_config=model_config,
+    )
+
+
+def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
         max_time_mask_num=1,
         max_time_mask_size=15,
@@ -98,7 +101,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> Config:
         block_cfg=block_cfg,
     )
 
-    return Config(
+    return ConformerCTCConfig(
         specaugment_cfg=specaugment_cfg,
         conformer_cfg=conformer_cfg,
         target_size=num_outputs,

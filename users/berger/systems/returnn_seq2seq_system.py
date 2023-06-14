@@ -9,15 +9,13 @@ from sisyphus import tk
 Path = tk.setup_path(__package__)
 
 
-class ReturnnSeq2SeqSystem(
-    BaseSystem[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]
-):
+class ReturnnSeq2SeqSystem(BaseSystem[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]):
     def _initialize_functors(
         self,
     ) -> functors.Functors[returnn.ReturnnTrainingJob, returnn.ReturnnConfig]:
-        train_functor = functors.ReturnnTrainFunctor(
-            self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe
-        )
+        assert self._tool_paths.returnn_root is not None
+        assert self._tool_paths.returnn_python_exe is not None
+        train_functor = functors.ReturnnTrainFunctor(self._tool_paths.returnn_root, self._tool_paths.returnn_python_exe)
 
         recog_functor = functors.Seq2SeqSearchFunctor(
             self._tool_paths.returnn_root,

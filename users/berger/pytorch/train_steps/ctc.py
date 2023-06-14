@@ -30,7 +30,7 @@ def train_step(*, model: torch.nn.Module, data: dict, run_ctx: RunCtx, **kwargs)
         target_lengths=targets_len,
         blank=0,
         reduction="sum",
-        zero_infinity=True
+        zero_infinity=True,
     )
 
     run_ctx.mark_as_loss(name="CTC", loss=loss)

@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from typing import Dict, Any, Optional, List, Union
 
 import i6_core.returnn as returnn
@@ -6,9 +7,13 @@ import i6_experiments.users.berger.args.returnn.learning_rates as learning_rates
 import i6_experiments.users.berger.args.returnn.regularization as regularization
 
 
-def get_base_config() -> Dict[str, Any]:
-    return {
-        "use_tensorflow": True,
+class Backend(Enum):
+    TENSORFLOW = auto()
+    PYTORCH = auto()
+
+
+def get_base_config(backend: Backend) -> Dict[str, Any]:
+    result = {
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
         "tf_log_memory_usage": True,
@@ -17,6 +22,13 @@ def get_base_config() -> Dict[str, Any]:
         "window": 1,
         "update_on_device": True,
     }
+    if backend == Backend.TENSORFLOW:
+        result["use_tensorflow"] = True
+    elif backend == Backend.PYTORCH:
+        result["backend"] = "torch"
+    else:
+        raise NotImplementedError
+    return result
 
 
 def get_extern_data_config(
@@ -44,6 +56,7 @@ def get_network_config(network: Dict) -> Dict[str, Dict]:
 def get_returnn_config(
     network: Optional[Dict] = None,
     *,
+    backend: Backend = Backend.TENSORFLOW,
     target: Optional[str] = "classes",
     num_inputs: Optional[int] = None,
     num_outputs: Optional[int] = None,
@@ -66,7 +79,7 @@ def get_returnn_config(
         assert num_inputs and num_outputs
         assert target
         config_dict.update(get_extern_data_config(num_inputs, num_outputs, target))
-    config_dict.update(get_base_config())
+    config_dict.update(get_base_config(backend))
 
     if network:
         config_dict.update(get_network_config(network))

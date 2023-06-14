@@ -73,7 +73,7 @@ def get_tedlium2_data(
         seq_ordering="random",
         name="targets",
         key_mapping={"classes": ("targets", "data")},
-        dataset_config={"partition_epoch": train_data_inputs["train"].concurrent},
+        dataset_config={"partition_epoch": 5},
         control=True,
     )
 
