@@ -1,12 +1,12 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field, fields
 from inspect import isfunction
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 from i6_experiments.common.setups.serialization import Import, SerializerObject
 from i6_models.config import ModelConfiguration, SubassemblyWithOptions
-from sisyphus.delayed_ops import DelayedBase, DelayedFunction
+from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
 from sisyphus.tools import try_get
 
