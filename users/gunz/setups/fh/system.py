@@ -1422,6 +1422,7 @@ class FactoredHybridSystem(NnSystem):
         opt_lm_am_scale: bool = False,
         rtf: typing.Optional[float] = None,
         lm_gc_simple_hash: typing.Optional[bool] = None,
+        parallel: typing.Optional[int] = None,
     ):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1488,6 +1489,29 @@ class FactoredHybridSystem(NnSystem):
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
 
+        adv_tree_search_args = AdvTreeSearchJobArgs(
+            search_parameters={
+                "beam-pruning": params.beam,
+                "beam-pruning-limit": params.beam_limit,
+                "word-end-pruning": params.we_pruning,
+                "word-end-pruning-limit": params.we_pruning_limit,
+            },
+            use_gpu=gpu,
+            mem=mem_rqmt,
+            cpu=cpu_rqmt,
+            lm_lookahead=True,
+            lmgc_mem=12,
+            lookahead_options=None,
+            create_lattice=True,
+            eval_best_in_lattice=True,
+            eval_single_best=True,
+            extra_config=adv_search_extra_config,
+            extra_post_config=None,
+            rtf=rtf if rtf is not None else 4,
+        )
+        if parallel is not None:
+            adv_search_extra_config["parallel"] = parallel
+
         decoder.recognition(
             name=self.experiments[key]["name"],
             checkpoints={epoch: self._get_model_checkpoint(self.experiments[key]["train_job"], epoch)},
@@ -1537,26 +1561,7 @@ class FactoredHybridSystem(NnSystem):
             },
             returnn_config=log_softmax_returnn_config,
             lm_configs={crp_corpus: RasrConfigWrapper(obj=crp.language_model_config)},
-            search_job_args=AdvTreeSearchJobArgs(
-                search_parameters={
-                    "beam-pruning": params.beam,
-                    "beam-pruning-limit": params.beam_limit,
-                    "word-end-pruning": params.we_pruning,
-                    "word-end-pruning-limit": params.we_pruning_limit,
-                },
-                use_gpu=gpu,
-                mem=mem_rqmt,
-                cpu=cpu_rqmt,
-                lm_lookahead=True,
-                lmgc_mem=12,
-                lookahead_options=None,
-                create_lattice=True,
-                eval_best_in_lattice=True,
-                eval_single_best=True,
-                extra_config=adv_search_extra_config,
-                extra_post_config=None,
-                rtf=rtf if rtf is not None else 4,
-            ),
+            search_job_args=adv_tree_search_args,
             lat_2_ctm_args=Lattice2CtmArgs(
                 parallelize=True,
                 best_path_algo="bellman-ford",

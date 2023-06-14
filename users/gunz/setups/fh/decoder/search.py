@@ -198,6 +198,8 @@ class FHDecoder:
         self.set_batch_major = set_batch_major_for_feature_scorer
         self.lm_gc_simple_hash = lm_gc_simple_hash
 
+        self.parallel = None
+
         self.tensor_map = (
             dataclasses.replace(DecodingTensorMap.default(), **tensor_map)
             if isinstance(tensor_map, dict)
@@ -1079,6 +1081,11 @@ class FHDecoder:
             crp_update(search_crp)
 
         use_gpu = gpu if gpu is not None else self.gpu
+
+        ts_args = {}
+        if self.parallel is not None:
+            ts_args["parallel"] = self.parallel
+
         search = recog.AdvancedTreeSearchJob(
             crp=search_crp,
             feature_flow=self.featureScorerFlow,
@@ -1095,6 +1102,7 @@ class FHDecoder:
             extra_config=adv_search_extra_config,
             extra_post_config=None,
             create_dummy_feature_scorer_from_mixtures=self.mixtures if self.lm_gc_simple_hash else None,
+            **ts_args,
         )
         if not use_gpu:
             # newer CPUs that support OpenFST v1.6
