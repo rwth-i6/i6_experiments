@@ -497,11 +497,14 @@ class RNNDecoderArgs(DecoderArgs):
 
 @dataclass
 class CTCDecoderArgs(DecoderArgs):
-    add_lstm_lm: bool = False
+    add_ext_lm: bool = False
+    lm_type: Optional[str] = None
+    ext_lm_opts: Optional[dict] = None
     lm_scale: float = 0.3
     ctc_scale: float = 1.0
     add_att_dec: bool = False
     att_scale: float = 0.3
+    use_ts_discount: bool = False
 
 
 def create_config(
