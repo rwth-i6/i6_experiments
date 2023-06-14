@@ -27,6 +27,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
@@ -280,14 +281,11 @@ def run_single(
             "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/train/nn_mono-from-scratch-conf-lr:v7-ss:4/output/models/epoch.600.index"
         )
     )
-    s.experiments["fh"]["train_job"] = FakeReturnnJob(600, import_checkpoint)
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=600,
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-    )
+    s.experiments["fh"] = {
+        **s.experiments["fh"],
+        "train_job": FakeReturnnJob(600, import_checkpoint),
+        "priors": PriorInfo.from_monophone_job("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/priors/nn_mono-from-scratch-conf-lr:v7-ss:4"),
+    }
 
     decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     decoding_config.config["network"]["center-output"] = {
