@@ -577,6 +577,7 @@ class TransducerSystem:
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
+        extra_name: str = "",
         **kwargs,
     ) -> None:
         crp = self.crp[recognition_corpus_key]
@@ -640,7 +641,7 @@ class TransducerSystem:
                 epoch_str = f"{epoch:03d}"
             else:
                 epoch_str = epoch
-            exp_full = f"{recog_exp_name}_e-{epoch_str}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}"
+            exp_full = f"{recog_exp_name}_e-{epoch_str}_prior-{prior_scale:02.2f}_lm-{lm_scale:02.2f}{extra_name}"
 
             if trial_num is None:
                 path = f"nn_recog/{recognition_corpus_key}/{train_exp_name}/{exp_full}"
@@ -897,6 +898,7 @@ class TransducerSystem:
         self,
         recog_args: Optional[Dict] = None,
         search_type: SearchTypes = SearchTypes.GenericSeq2SeqSearchJob,
+        **kwargs,
     ) -> None:
         for train_exp_name in self.returnn_configs.keys():
             self.run_recogs_for_corpora(
@@ -904,6 +906,7 @@ class TransducerSystem:
                 train_exp_name,
                 search_type,
                 **(recog_args or {}),
+                **kwargs,
             )
 
     def run_test_recog_step(
