@@ -10,9 +10,8 @@ from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 
 from i6_core import am, corpus, features, lexicon, mm, rasr, recognition, returnn
 from i6_experiments.common.setups.rasr.util.rasr import RasrDataInput
-from i6_experiments.users.berger.args.jobs.search_types import SearchTypes
 from i6_experiments.users.berger.recipe import mm as custom_mm
-from i6_experiments.users.berger.recipe import rasr as custom_rasr
+from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition as custom_recognition
 from i6_experiments.users.berger.recipe import summary as custom_summary
 from i6_experiments.users.berger.util import lru_cache_with_signature
@@ -86,6 +85,12 @@ class SummaryKey(Enum):
     DEL = "Del"
     INS = "Ins"
     ERR = "#Err"
+
+
+class SearchTypes(Enum):
+    AdvancedTreeSearch = auto()
+    GenericSeq2SeqSearchJob = auto()
+    ReturnnSearch = auto()
 
 
 # -------------------- System --------------------
