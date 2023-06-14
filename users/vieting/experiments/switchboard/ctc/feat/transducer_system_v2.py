@@ -13,8 +13,8 @@ from i6_experiments.common.setups.rasr.util.rasr import RasrDataInput
 from i6_experiments.users.berger.recipe import mm as custom_mm
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition as custom_recognition
-from i6_experiments.users.berger.recipe import summary as custom_summary
 from i6_experiments.users.berger.util import lru_cache_with_signature
+from i6_experiments.users.vieting.tools.report import Report
 from .recipe import returnn as custom_returnn
 
 
@@ -69,22 +69,6 @@ class ScorerInfo:
     def get_score_job(self, ctm: tk.Path) -> ScoreJob:
         assert self.ref_file is not None
         return self.job_type(hyp=ctm, ref=self.ref_file, **self.score_kwargs)
-
-
-class SummaryKey(Enum):
-    TRAIN_NAME = "Train name"
-    RECOG_NAME = "Recog name"
-    CORPUS = "Corpus"
-    EPOCH = "Epoch"
-    TRIAL = "Trial"
-    PRON = "Pron"
-    PRIOR = "Prior"
-    LM = "Lm"
-    WER = "WER"
-    SUB = "Sub"
-    DEL = "Del"
-    INS = "Ins"
-    ERR = "#Err"
 
 
 class SearchTypes(Enum):
@@ -154,7 +138,7 @@ class TransducerSystem:
         # corpus-key to ScorerInfo
         self.scorers: Dict[str, ScorerInfo] = {}
 
-        self._summary_report: Optional[custom_summary.SummaryReport] = None
+        self._report: Optional[Report] = None
 
         self.alignments: Dict[str, rasr.FlagDependentFlowAttribute] = {}
 
@@ -168,7 +152,7 @@ class TransducerSystem:
         corpus_data: Dict[str, RasrDataInput] = {},
         am_args: Dict = {},
         scorer_info: Optional[ScorerInfo] = None,
-        summary_keys: Optional[List[SummaryKey]] = None,
+        report: Optional[Report] = None,
     ) -> None:
 
         self.returnn_configs = returnn_configs
@@ -188,18 +172,11 @@ class TransducerSystem:
         for key in set(dev_keys + test_keys):
             self._set_scorer(key, scorer_info or ScorerInfo())
 
-        if summary_keys:
-            col_names = [key.value for key in summary_keys]
-        else:
-            col_names = [key.value for key in SummaryKey]
-        self._summary_report = custom_summary.SummaryReport(
-            col_names=col_names,
-            col_sort_key=SummaryKey.ERR.value,
-        )
+        self._report = report
 
     @property
-    def summary_report(self) -> Optional[custom_summary.SummaryReport]:
-        return self._summary_report
+    def report(self) -> Optional[Report]:
+        return self._report
 
     # -------------------- Helpers ---------------------
 
@@ -663,21 +640,20 @@ class TransducerSystem:
                 **lattice_to_ctm_kwargs,
             )
 
-            if self._summary_report:
-                self._summary_report.add_row(
+            if self._report:
+                self._report.add(
                     {
-                        SummaryKey.TRAIN_NAME.value: train_exp_name,
-                        SummaryKey.RECOG_NAME.value: recog_exp_name,
-                        SummaryKey.CORPUS.value: recognition_corpus_key,
-                        SummaryKey.TRIAL.value: self._get_trial_value(train_exp_name, trial_num),
-                        SummaryKey.EPOCH.value: self._get_epoch_value(train_exp_name, epoch, trial_num),
-                        SummaryKey.PRIOR.value: prior_scale,
-                        SummaryKey.LM.value: lm_scale,
-                        SummaryKey.WER.value: scorer_job.out_wer,
-                        SummaryKey.SUB.value: scorer_job.out_percent_substitution,
-                        SummaryKey.DEL.value: scorer_job.out_percent_deletions,
-                        SummaryKey.INS.value: scorer_job.out_percent_insertions,
-                        SummaryKey.ERR.value: scorer_job.out_num_errors,
+                        "train_name": train_exp_name,
+                        "recog_name": recog_exp_name,
+                        "corpus": recognition_corpus_key,
+                        "trial": self._get_trial_value(train_exp_name, trial_num),
+                        "epoch": self._get_epoch_value(train_exp_name, epoch, trial_num),
+                        "prior_scale": prior_scale,
+                        "lm_scale": lm_scale,
+                        "wer": scorer_job.out_wer,
+                        "sub": scorer_job.out_percent_substitution,
+                        "del": scorer_job.out_percent_deletions,
+                        "ins": scorer_job.out_percent_insertions,
                     }
                 )
 
