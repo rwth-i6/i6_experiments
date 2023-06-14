@@ -24,7 +24,6 @@ def get_basic_pt_network_serializer(
         additional_serializer_objects = []
     if additional_packages is None:
         additional_packages = set()
-    subassembly_import = Import("i6_models.config.SubassemblyWithOptions")
     model_import = Import(module_import_path)
     train_step_import = Import(train_step_import_path)
 
@@ -37,7 +36,6 @@ def get_basic_pt_network_serializer(
         serializer_objects=[
             model_import,
             train_step_import,
-            subassembly_import,
             *imports,
             *additional_serializer_objects,
             constructor_call,

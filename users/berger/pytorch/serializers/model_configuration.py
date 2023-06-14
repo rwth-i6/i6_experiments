@@ -40,7 +40,7 @@ class FunctionCall(SerializerObject):
         kwargs_str = ", ".join([f"{key}={try_get(val)}" for key, val in self.kwargs.items()])
 
         # Account for calls where args and/or kwargs is empty
-        result += ", ".join([args_str, kwargs_str])
+        result += ", ".join(filter(lambda s: s != "", [args_str, kwargs_str]))
 
         result += ")"
 
@@ -48,8 +48,10 @@ class FunctionCall(SerializerObject):
 
     def _sis_hash(self):
         h = {
-            "class_name": self.func_name,
+            "func_name": self.func_name,
             "args": self.args,
+            "kwargs": self.kwargs,
+            "variable_name": self.variable_name,
         }
         return sis_hash_helper(h)
 
@@ -91,11 +93,12 @@ def get_config_constructor(
             # Example:
             # ConformerEncoderConfig(
             #     frontend=SubassemblyWithOptions(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
-            # -> Import class VGGFrontend
-            # -> Sub-Constructor-Call and imports for VGGFrontendConfig
+            # -> Import classes SubassemblyWithOptions, VGGFrontend and VGGFrontendConfig
+            # -> Sub-Constructor-Call for VGGFrontendConfig
             subcall, subimports = get_config_constructor(attr.cfg)
             imports += subimports
             imports.append(Import(f"{attr.module_class.__module__}.{attr.module_class.__name__}"))
+            imports.append(Import(f"{SubassemblyWithOptions.__module__}.SubassemblyWithOptions"))
             attrs[key.name] = FunctionCall(
                 func_name="SubassemblyWithOptions",
                 kwargs={"module_class": attr.module_class.__name__, "cfg": subcall},

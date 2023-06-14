@@ -42,7 +42,7 @@ def get_serializer(
     pytorch_package = __package__.rpartition(".")[0]
     return get_basic_pt_network_serializer(
         module_import_path=f"{__name__}.ConformerCTCModel",
-        train_step_import_path=f"{pytorch_package}.train_steps.ctc",
+        train_step_import_path=f"{pytorch_package}.train_steps.ctc.train_step",
         model_config=model_config,
     )
 
