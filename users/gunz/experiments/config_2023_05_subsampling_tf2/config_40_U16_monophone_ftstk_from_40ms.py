@@ -331,7 +331,7 @@ def run_single(
             s.recognize_cart(
                 cart_tree_or_tying_config=tying_cfg,
                 crp_corpus=crp_k,
-                encoder_output_layer="center-output",
+                encoder_output_layer="center__output",
                 epoch=ep,
                 gpu=True,
                 key="fh",
