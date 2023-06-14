@@ -153,7 +153,7 @@ def get_returnn_config(
     feature_net: Dict[str, Any],
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
-    specaug_old: bool = False,
+    specaug_old: Optional[Dict[str, Any]] = None,
     batch_size: int = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFunction
@@ -138,7 +138,7 @@ def make_conformer_fullsum_ctc_model(
     conformer_args: Optional[Dict] = None,
     output_args: Optional[Dict] = None,
     conformer_type: str = "wei",
-    specaug_old: bool = False,
+    specaug_old: Optional[Dict[str, Any]] = None,
     recognition: bool = False,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
@@ -147,15 +147,15 @@ def make_conformer_fullsum_ctc_model(
     if recognition:
         python_code = []
     else:
-        if specaug_old:
-            from_list, python_code = add_specaug_layer(
-                network,
-                from_list=from_list,
-                max_time_num=1,
-                max_time=15,
-                max_feature_num=5,
-                max_feature=4,
-            )
+        if specaug_old is not None:
+            specaug_old_args = {
+                "max_time_num": 1,
+                "max_time": 15,
+                "max_feature_num": 5,
+                "max_feature": 4,
+                **specaug_old,
+            }
+            from_list, python_code = add_specaug_layer(network, from_list=from_list, **specaug_old_args)
         else:
             from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
