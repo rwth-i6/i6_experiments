@@ -282,7 +282,7 @@ class ScfNetwork(NetworkDict):
       self._network[layer_name + "_no_norm"] = self._network[layer_name].copy()
       self._network[layer_name] = {
         "class": "batch_norm",
-        "from": "log10",
+        "from": [layer_name + "_no_norm"],
         "momentum": 0.01,
         "epsilon": 0.001,
         "update_sample_only_in_training": True,
