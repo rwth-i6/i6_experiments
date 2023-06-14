@@ -303,17 +303,13 @@ def run_single(
     tying_cfg.type = str(RasrStateTying.monophone)
 
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus=crp_k,
-            epoch=ep,
-            gpu=True,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
+        recog_args = dataclasses.replace(
+            s.get_cart_params("fh"),
+            beam=22,
+            beam_limit=500_000,
+            lm_scale=1.0,
+            tdp_scale=0.1,
         )
-
-        recog_args = recog_args.with_lm_scale(1.0)
 
         for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in itertools.product(
             np.linspace(0.5, 1.0, 3),
@@ -330,7 +326,6 @@ def run_single(
                 tdp_non_word=sil_non_w_tdp,
                 tdp_silence=sil_non_w_tdp,
                 tdp_speech=(sp_loop, sp_fwd, "infinity", sp_exit),
-                tdp_scale=0.1,
             ).with_prior_scale(pC)
 
             s.recognize_cart(
@@ -345,24 +340,6 @@ def run_single(
                 opt_lm_am_scale=False,
                 parallel=20,
                 params=cfg,
-            )
-
-        if tune_decoding:
-            best_config = recognizer.recognize_optimize_scales(
-                label_info=s.label_info,
-                search_parameters=recog_args,
-                num_encoder_output=conf_model_dim,
-                prior_scales=np.linspace(0.5, 1.0, 6),
-                tdp_scales=[0.1],
-            )
-            recognizer.recognize_count_lm(
-                label_info=s.label_info,
-                search_parameters=best_config,
-                num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
-                calculate_stats=True,
-                name_override="best/4gram",
-                rtf_gpu=8,
             )
 
     return s
