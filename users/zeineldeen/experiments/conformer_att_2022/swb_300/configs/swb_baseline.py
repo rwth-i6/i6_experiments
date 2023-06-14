@@ -854,14 +854,38 @@ def conformer_baseline():
             ckpt = train_job_avg_ckpt[mini_lstm_exp_name]
         else:
             ckpt = train_job_best_epoch[mini_lstm_exp_name]
-        for lr in [1e-3, 8e-4]:
-            train_mini_lstm(
-                exp_name=mini_lstm_exp_name,
-                checkpoint=ckpt,
-                args=args,
-                lr=lr,
-                name=f"mini_lstm_{n}_lr{lr}_ep20",
-                w_drop=True,
-                num_epochs=20,
-                bpe_size=BPE_500,
-            )
+
+        train_j = train_mini_lstm(
+            exp_name=mini_lstm_exp_name,
+            checkpoint=ckpt,
+            args=args,
+            lr=1e-3,
+            name=f"mini_lstm_{n}_lr{1e-3}_ep20",
+            w_drop=True,
+            num_epochs=20,
+            bpe_size=BPE_500,
+        )
+
+        if n != "avg":
+            continue
+
+        for beam_size in [12, 16, 24]:
+            for lm_scale in [0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]:
+                for prior_scale in [0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24]:
+                    run_lm_fusion(
+                        lm_type="trafo",
+                        exp_name=mini_lstm_exp_name,
+                        args=args,
+                        epoch="avg",
+                        lm_scales=[lm_scale],
+                        prior_scales=[prior_scale],
+                        train_job=train_j,
+                        train_data=train_data,
+                        feature_net=log10_net_10ms,
+                        bpe_size=BPE_500,
+                        test_set_names=["hub5e00"],
+                        beam_size=beam_size,
+                        prior_type="mini_lstm",
+                        prior_type_name=f"mini_lstm_{n}_lr0.001",
+                        mini_lstm_ckpt=get_best_checkpoint(train_j, key="dev_score"),
+                    )
