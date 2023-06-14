@@ -1,6 +1,6 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.corpora.corpora import SWBCorpora
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBSprintCorpora
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.legacy_v1.segmental import SegmentalSWBExtendedConfig
@@ -37,13 +37,12 @@ def get_train_config(
         initial_lr: Optional[float] = None
   ) -> ReturnnConfig:
   data_opts = {}
-  for corpus_key in SWBCorpora.train_corpus_keys:
+  for corpus_key in SWBSprintCorpora.train_corpus_keys:
     data_opts[corpus_key] = {
       "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
       "segment_file": dependencies.segment_paths[corpus_key],
       "alignment": dependencies.alignment_paths[corpus_key] if alignments is None else alignments[corpus_key],
       "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "features": variant_params["config"]["features"],
-      "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
     }
 
     if corpus_key == "train":
@@ -68,8 +67,6 @@ def get_train_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
-  del config_params["returnn_python_exe"]
-  del config_params["returnn_root"]
   do_chunk_fix = config_params.pop("do_chunk_fix")
 
   train_config_obj = SegmentalSWBExtendedConfig(
@@ -116,7 +113,7 @@ def get_recog_config(
   data_opts = {
     "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
     "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict,
-    "features": variant_params["config"]["features"], "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
+    "features": variant_params["config"]["features"]
   }
 
   config_params = copy.deepcopy(variant_params["config"])
@@ -129,8 +126,6 @@ def get_recog_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
-  del config_params["returnn_python_exe"]
-  del config_params["returnn_root"]
   del config_params["do_chunk_fix"]
   config = SegmentalSWBExtendedConfig(
     task="search", search_data_opts=data_opts, target="bpe", search_use_recomb=use_recomb, dump_output=dump_output,
@@ -149,8 +144,6 @@ def get_compile_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
-  del config_params["returnn_python_exe"]
-  del config_params["returnn_root"]
   del config_params["do_chunk_fix"]
 
   returnn_config = SegmentalSWBExtendedConfig(

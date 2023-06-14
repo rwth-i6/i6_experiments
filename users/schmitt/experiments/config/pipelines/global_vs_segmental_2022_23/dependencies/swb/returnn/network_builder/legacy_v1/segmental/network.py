@@ -266,7 +266,9 @@ def get_extended_net_dict(
   label_dep_means=None, max_seg_len=None, hybrid_hmm_like_label_model=False, length_model_focal_loss=2.0,
   label_model_focal_loss=2.0, specaugment="albert", ctc_aux_loss=True, length_model_loss_scale=1.,
   use_time_sync_loop=True, use_eos=False, conf_use_blstm=False, conf_batch_norm=True, conf_num_blocks=12,
-  use_zoneout=False, conf_dropout=0.03, conf_l2=None, behavior_version=None, force_eos=False):
+  use_zoneout=False, conf_dropout=0.03, conf_l2=None, behavior_version=None, force_eos=False,
+  seg_boundary_random_shift=None
+):
 
   assert ctx_size == "inf" or type(ctx_size) == int
   assert not sep_sil_model or sil_idx == 0  # assume in order to construct output_prob vector (concat sil_prob, label_prob, blank_prob)
@@ -295,12 +297,31 @@ def get_extended_net_dict(
     })
 
   if task == "train":
+    if seg_boundary_random_shift is not None:
+      assert type(seg_boundary_random_shift) == int
+      net_dict.update({
+        "existing_alignment0": {
+          "class": "reinterpret_data",
+          "from": "data:alignment",
+          "set_sparse": True,
+          "set_sparse_dim": 1031,
+          "size_base": "encoder",
+        },
+        "existing_alignment": {
+          "class": "eval",
+          "from": "existing_alignment0",
+          "eval": "self.network.get_config().typed_value('shift_alignment_boundaries')(source(0, as_data=True), blank_idx=%d, max_shift=%d, network=self.network)" % (targetb_blank_idx, seg_boundary_random_shift)
+        }
+      })
+    else:
+      net_dict.update({
+        "existing_alignment": {
+          "class": "reinterpret_data", "from": "data:alignment", "set_sparse": True,  # not sure what the HDF gives us
+          "set_sparse_dim": targetb_num_labels, "size_base": "encoder",  # for RNA...
+        },
+      })
     net_dict.update({
       # "cur_label": {"class": "gather", "from": "data:targetb", "axis": "t", "position": ":i"},
-      "existing_alignment": {
-        "class": "reinterpret_data", "from": "data:alignment", "set_sparse": True,  # not sure what the HDF gives us
-        "set_sparse_dim": targetb_num_labels, "size_base": "encoder",  # for RNA...
-      },
       "is_label": {"class": "compare", "from": "existing_alignment", "value": targetb_blank_idx, "kind": "not_equal"},
       "segment_starts_masked": {
         "class": "masked_computation", "from": "output/segment_starts", "mask": "is_label",

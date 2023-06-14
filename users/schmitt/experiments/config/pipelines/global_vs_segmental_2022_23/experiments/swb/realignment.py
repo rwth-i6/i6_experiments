@@ -1,4 +1,4 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
 
 # experiments
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import SegmentalReturnnDecodingExperiment, RasrDecodingExperiment, DecodingExperiment, GlobalReturnnDecodingExperiment
@@ -54,7 +54,15 @@ def run_rasr_segmental_realignment(
       max_segment_len = 8
       concurrent = 8
       label_pruning = 4.0
-      label_pruning_limit = 500 if label_pruning_limit is None else label_pruning_limit
+      if label_pruning_limit is not None:
+        label_pruning_limit = label_pruning_limit
+      elif length_scale == 0.0:
+        if "rna-bpe-split-sil" in variant_params["config"]["label_type"]:
+          label_pruning_limit = 100
+        else:
+          label_pruning_limit = 200
+      else:
+        label_pruning_limit = 500
   else:
     if dependencies.model_hyperparameters.sil_idx is None:
       time_rqmt = 2 if time_rqmt is None else time_rqmt
@@ -69,7 +77,15 @@ def run_rasr_segmental_realignment(
       max_segment_len = 8
       concurrent = 1
       label_pruning = 4.0
-      label_pruning_limit = 500 if label_pruning_limit is None else label_pruning_limit
+      if label_pruning_limit is not None:
+        label_pruning_limit = label_pruning_limit
+      elif length_scale == 0.0:
+        if "rna-bpe-split-sil" in variant_params["config"]["label_type"]:
+          label_pruning_limit = 100
+        else:
+          label_pruning_limit = 200
+      else:
+        label_pruning_limit = 500
 
   base_alias = "%s/rasr_realign_length_scale%0.1f/%s" % (base_alias, length_scale, corpus_key)
 

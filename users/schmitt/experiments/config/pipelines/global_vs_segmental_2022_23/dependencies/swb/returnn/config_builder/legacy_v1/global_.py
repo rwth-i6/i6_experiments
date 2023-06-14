@@ -3,11 +3,15 @@ from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.network import 
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.network_builder.legacy_v1.global_ import get_best_net_dict, get_new_net_dict, get_net_dict, get_net_dict_like_seg_model
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.dataset.legacy_v1 import *
 # from i6_experiments.users.schmitt.experiments.swb.dataset import *
-from i6_experiments.users.schmitt.conformer_pretrain import *
+from i6_experiments.users.schmitt.conformer_pretrain import custom_construction_algo_mohammad_conf, get_network
 from i6_experiments.users.schmitt.specaugment import *
 from i6_experiments.users.schmitt.specaugment import _mask
+from i6_experiments.users.schmitt.dynamic_lr import dynamic_lr_str
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
+
+import os
+import re
 
 
 class GlobalEncoderDecoderConfig:
@@ -21,7 +25,7 @@ class GlobalEncoderDecoderConfig:
           weight_dropout=0.0, with_state_vector=True, with_weight_feedback=True, prev_target_in_readout=True,
           use_l2=True, att_ctx_with_bias=False, focal_loss=0.0, pretrain_type="best", att_ctx_reg=False,
           import_model_train_epoch1=None, set_dim_tag_correctly=True, features="gammatone",
-          initial_lr=None
+          initial_lr=None, dynamic_lr=False
   ):
 
     self.post_config = post_config
@@ -112,9 +116,6 @@ class GlobalEncoderDecoderConfig:
                           "from subprocess import check_output, CalledProcessError"]
     self.function_prolog = [custom_construction_algo_func, _mask, random_mask, transform]
 
-    if self.task == "train" and enc_type == "conf-mohammad-11-7":
-      self.function_prolog += [speed_pert]
-
     if glob_model_type == "best":
       self.network = get_net_dict_func(
         lstm_dim=lstm_dim, att_num_heads=att_num_heads, att_key_dim=lstm_dim, beam_size=beam_size, sos_idx=sos_idx,
@@ -155,10 +156,15 @@ class GlobalEncoderDecoderConfig:
 
   def get_config(self):
     config_dict = {k: v for k, v in self.__dict__.items() if
-                   not (k.endswith("_prolog") or k.endswith("_epilog") or k == "post_config")}
+                   not (k.endswith("_prolog") or k.endswith("_epilog") or k == "post_config" or k == "networks_dict")}
     prolog = [prolog_item for k, prolog_list in self.__dict__.items() if k.endswith("_prolog") for prolog_item in
               prolog_list]
     epilog = [epilog_item for k, epilog_list in self.__dict__.items() if k.endswith("_epilog") for epilog_item in
               epilog_list]
 
-    return ReturnnConfig(config=config_dict, post_config=self.post_config, python_prolog=prolog, python_epilog=epilog)
+    return ReturnnConfig(
+      config=config_dict,
+      post_config=self.post_config,
+      python_prolog=prolog,
+      python_epilog=epilog,
+    )

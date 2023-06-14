@@ -1,9 +1,8 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_ROOT
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import LabelDefinition, SegmentalLabelDefinition, GlobalLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import LabelDefinition, SegmentalLabelDefinition, GlobalLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.graph import ReturnnGraph
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.corpora.corpora import SWBCorpora
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_recog_config as get_segmental_recog_config
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_compile_config as get_segmental_compile_config
@@ -16,7 +15,7 @@ from i6_experiments.users.schmitt.alignment.alignment import DumpAlignmentFromTx
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchWordsToCTMJob, SearchBPEtoWordsJob
 from i6_core.rasr.config import RasrConfig
 from i6_core.rasr.crp import CommonRasrParameters
-from i6_core.recognition.scoring import Hub5ScoreJob
+from i6_core.recognition.scoring import Hub5ScoreJob, ScliteJob
 from i6_core.returnn.training import Checkpoint
 from i6_core.returnn.config import ReturnnConfig
 from i6_core.corpus.segments import SplitSegmentFileJob
@@ -58,12 +57,16 @@ class DecodingExperiment(ABC):
   def get_ctm_path(self) -> Path:
     pass
 
-  def run_eval(self):
-    score_job = Hub5ScoreJob(
-      ref=self.dependencies.stm_paths[self.corpus_key],
-      glm=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
-      hyp=self.get_ctm_path()
-    )
+  def run_eval(self, use_hub5_score_job=True):
+    if use_hub5_score_job:
+      score_job = Hub5ScoreJob(
+        ref=self.dependencies.stm_paths[self.corpus_key],
+        glm=Path("/work/asr2/oberdorfer/kaldi-stable/egs/swbd/s5/data/eval2000/glm"),
+        hyp=self.get_ctm_path()
+      )
+    else:
+      score_job = ScliteJob(ref=self.dependencies.stm_paths[self.corpus_key], hyp=self.get_ctm_path())
+
     score_job.add_alias("%s/scores_%s" % (self.base_alias, self.corpus_key))
     tk.register_output(score_job.get_one_alias(), score_job.out_report_dir)
 
@@ -72,8 +75,8 @@ class ReturnnDecodingExperiment(DecodingExperiment):
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
 
-    self.returnn_python_exe = self.variant_params["config"]["returnn_python_exe"]
-    self.returnn_root = self.variant_params["config"]["returnn_root"]
+    self.returnn_python_exe = self.variant_params["returnn_python_exe"]
+    self.returnn_root = self.variant_params["returnn_root"]
 
   def get_ctm_path(self) -> Path:
     if self.dump_best_traces:

@@ -90,7 +90,7 @@ def get_dataset_dict(data):
 
 def get_dataset_dict_wo_alignment(
         data, rasr_config_path, rasr_nn_trainer_exe, vocab, features,
-        epoch_split=6, concat_seqs=False, concat_seq_tags=None, raw_audio_path=None,
+        epoch_split=6, concat_seqs=False, concat_seq_tags=None,
         concat_seq_lens=None):
   assert data in {"train", "devtrain", "cv", "dev", "hub5e_01", "rt03s"}
   assert not concat_seqs or (concat_seq_tags is not None and concat_seq_lens is not None)
@@ -105,29 +105,11 @@ def get_dataset_dict_wo_alignment(
           "--*.segment-order-sort-by-time-length=true" if not concat_seqs else "--*.segment-order-sort-by-time-length=false",
           "--*.segment-order-sort-by-time-length-chunk-size=%i" % {"train": epoch_split * 1000}.get(data, -1)]
 
-  if features == "gammatone":
-    d = {
-      "class": "ExternSprintDataset",
-      "sprintTrainerExecPath": rasr_nn_trainer_exe,
-      "sprintConfigStr": args, "suppress_load_seqs_print": True,  # less verbose
-      "input_stddev": 3.}
-  else:
-    assert features == "raw"
-    assert type(raw_audio_path) == Path
-    d = {
-      "class": "OggZipDataset",
-      "path": raw_audio_path,
-      "use_cache_manager": True,
-      "audio": {
-        "features": "raw", "peak_normalization": True, "preemphasis": None, },
-      "targets": {
-        "class": "BytePairEncoding",
-        "bpe_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.codes",
-        "vocab_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.vocab",
-        "unknown_label": None,
-        "seq_postfix": [0], },
-      "seq_ordering": "sorted_reverse",
-    }
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": args, "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
 
   if vocab is not None and features != "raw":
     if "bpe_file" in vocab:
@@ -153,38 +135,16 @@ def get_dataset_dict_wo_alignment(
 
 def get_dataset_dict_w_alignment(
   data, rasr_config_path, rasr_nn_trainer_exe, segment_file, alignment, features, epoch_split=6, concat_seqs=False,
-  concat_seq_tags=None, correct_concat_ep_split=False, raw_audio_path=None):
+  concat_seq_tags=None, correct_concat_ep_split=False):
 
   hdf_files = [alignment]
 
-  if features == "gammatone":
-    d = {
-      "class": "ExternSprintDataset",
-      "sprintTrainerExecPath": rasr_nn_trainer_exe,
-      "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
-      "suppress_load_seqs_print": True,  # less verbose
-      "input_stddev": 3.}
-  else:
-    assert features == "raw"
-    assert type(raw_audio_path) == Path
-    d = {
-      "class": "OggZipDataset",
-      "path": raw_audio_path,
-      "use_cache_manager": True,
-      "audio": {
-        "features": "raw", "peak_normalization": True, "preemphasis": None, },
-      "targets": {
-        "class": "BytePairEncoding",
-        "bpe_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.codes",
-        "vocab_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.vocab",
-        "unknown_label": None,
-        "seq_postfix": [0], },
-      "segment_file": segment_file,
-      "partition_epoch": epoch_split if data == "train" else 1,
-      "seq_ordering": "sorted_reverse" if data != "train" else "laplace:6000",
-    }
-    if data == "train":
-      d["audio"]["pre_process"] = CodeWrapper("speed_pert")
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
+    "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
 
   align_opts = {
     "class": "HDFDataset", "files": hdf_files, "use_cache_manager": True,
@@ -220,38 +180,16 @@ def get_dataset_dict_w_alignment(
 
 def get_dataset_dict_w_labels(
   data, rasr_config_path, rasr_nn_trainer_exe, segment_file, label_hdf, label_name, features,
-  epoch_split=6, concat_seqs=False, raw_audio_path=None,
+  epoch_split=6, concat_seqs=False,
   concat_seq_tags=None):
   hdf_files = [label_hdf]
 
-  if features == "gammatone":
-    d = {
-      "class": "ExternSprintDataset",
-      "sprintTrainerExecPath": rasr_nn_trainer_exe,
-      "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
-      "suppress_load_seqs_print": True,  # less verbose
-      "input_stddev": 3.}
-  else:
-    assert features == "raw"
-    assert type(raw_audio_path) == Path
-    d = {
-      "class": "OggZipDataset",
-      "path": raw_audio_path,
-      "use_cache_manager": True,
-      "audio": {
-        "features": "raw", "peak_normalization": True, "preemphasis": None, },
-      "targets": {
-        "class": "BytePairEncoding",
-        "bpe_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.codes",
-        "vocab_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.FLNETa4J87YO/output/bpe.vocab",
-        "unknown_label": None,
-        "seq_postfix": [0], },
-      "segment_file": segment_file,
-      "partition_epoch": epoch_split if data == "train" else 1,
-      "seq_ordering": "sorted_reverse" if data != "train" else "laplace:6000",
-    }
-    if data == "train":
-      d["audio"]["pre_process"] = CodeWrapper("speed_pert")
+  d = {
+    "class": "ExternSprintDataset",
+    "sprintTrainerExecPath": rasr_nn_trainer_exe,
+    "sprintConfigStr": DelayedFormat("--config={}", rasr_config_path),
+    "suppress_load_seqs_print": True,  # less verbose
+    "input_stddev": 3.}
 
   label_opts = {
     "class": "HDFDataset", "files": hdf_files, "use_cache_manager": True,

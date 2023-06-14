@@ -1,4 +1,4 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.graph import ReturnnGraph
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.config import RasrConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
@@ -167,7 +167,7 @@ class BestAlignmentChooser:
       returnn_config=self.returnn_config,
       rasr_config_path=self.dependencies.rasr_config_paths["feature_extraction"][self.corpus_key],
       rasr_nn_trainer_exe=RasrExecutables.nn_trainer_path,
-      segment_path=self.dependencies.segment_paths[self.corpus_key],
+      segment_path=self.dependencies.realignment_segment_paths[self.corpus_key],
       align1_hdf_path=self.align1_hdf_path,
       align2_hdf_path=self.align2_hdf_path,
       label_name=self.label_name,

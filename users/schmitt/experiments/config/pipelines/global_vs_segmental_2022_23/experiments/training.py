@@ -1,7 +1,8 @@
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.returnn.exes import RETURNN_EXE, RETURNN_ROOT
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_train_config as get_segmental_train_config
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.config_builder import GlobalConfigBuilder
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.global_ import get_train_config as get_global_train_config
 
 from i6_core.returnn.training import ReturnnTrainingJob, Checkpoint
@@ -28,8 +29,8 @@ class TrainExperiment(ABC):
     self.variant_params = variant_params
     self.num_epochs = num_epochs
     self.import_model_train_epoch1 = import_model_train_epoch1
-    self.returnn_python_exe = self.variant_params["config"]["returnn_python_exe"]
-    self.returnn_root = self.variant_params["config"]["returnn_root"]
+    self.returnn_python_exe = self.variant_params["returnn_python_exe"]
+    self.returnn_root = self.variant_params["returnn_root"]
     self.initial_lr = initial_lr
 
     self.alias = "%s/train" % base_alias
@@ -102,10 +103,16 @@ class GlobalTrainExperiment(TrainExperiment):
 
   @property
   def returnn_config(self):
-    return get_global_train_config(
-      self.dependencies,
-      self.variant_params,
-      load=None,
-      import_model_train_epoch1=self.import_model_train_epoch1,
-      initial_lr=self.initial_lr
-    )
+    if self.variant_params["config"]["enc_type"] == "conf-mohammad-11.4":
+      return GlobalConfigBuilder(
+        dependencies=self.dependencies,
+        variant_params=self.variant_params
+      ).get_train_config()
+    else:
+      return get_global_train_config(
+        self.dependencies,
+        self.variant_params,
+        load=None,
+        import_model_train_epoch1=self.import_model_train_epoch1,
+        initial_lr=self.initial_lr
+      )

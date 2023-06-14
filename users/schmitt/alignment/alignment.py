@@ -4,6 +4,7 @@ from recipe.i6_core.util import create_executable
 from recipe.i6_core.rasr.config import build_config_from_mapping
 from recipe.i6_core.rasr.command import RasrCommand
 from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.forward import ReturnnForwardJob
 
 from sisyphus import Path
 
@@ -582,10 +583,19 @@ class ChooseBestAlignmentJob(Job):
       "--align2_hdf_path", self.align2_hdf_path.get_path(),
       "--label_name", self.label_name,
       "--blank_idx", str(self.blank_idx),
+      "--output_path", self.out_hdf_align.get_path(),
       "--returnn_root", self.returnn_root
     ]
 
     create_executable("rnn.sh", command)
     subprocess.check_call(["./rnn.sh"])
 
-    shutil.move("out_hdf_align", self.out_hdf_align.get_path())
+    # shutil.move("out_hdf_align", self.out_hdf_align.get_path())
+
+
+def extract_ctc_alignment(
+        returnn_config: ReturnnConfig,
+        ctc_layer_name: str,
+        topology: str
+):
+  pass

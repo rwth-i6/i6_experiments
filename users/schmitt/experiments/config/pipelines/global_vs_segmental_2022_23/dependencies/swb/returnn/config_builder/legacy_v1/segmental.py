@@ -9,6 +9,7 @@ from i6_experiments.users.schmitt.specaugment import *
 from i6_experiments.users.schmitt.specaugment import _mask
 from i6_experiments.users.schmitt.vocab import *
 from i6_experiments.users.schmitt.dynamic_lr import *
+from i6_experiments.users.schmitt.augmentation.alignment import shift_alignment_boundaries
 
 from i6_core.returnn.config import ReturnnConfig, CodeWrapper
 
@@ -39,7 +40,7 @@ class SegmentalSWBExtendedConfig:
     _attention_type=0, post_config={}, task="train", num_epochs=150, min_learning_rate=0.001/50.,
     search_output_layer="decision", max_seqs=200, gradient_clip=0, gradient_noise=0.0,
     newbob_learning_rate_decay=.7, newbob_multi_num_epochs=6, lr_measure="dev_error_output/label_prob",
-    initial_lr=None, force_non_blank_in_last_frame=False):
+    initial_lr=None, force_non_blank_in_last_frame=False, seg_boundary_random_shift=None):
 
     self.post_config = post_config
     self.post_config["cleanup_old_models"] = {
@@ -136,8 +137,6 @@ class SegmentalSWBExtendedConfig:
     self.accum_grad_multiple_step = 2
 
     self.function_prolog = [_mask, random_mask, transform if specaugment == "albert" else transform_wei]
-    if dynamic_lr:
-      self.function_prolog += [dynamic_learning_rate]
 
     if import_model is not None:
       self.load = import_model
@@ -181,6 +180,9 @@ class SegmentalSWBExtendedConfig:
 
     if self.task == "train" and enc_type == "conf-mohammad-11-7":
       self.function_prolog += [speed_pert]
+
+    if seg_boundary_random_shift is not None:
+      self.function_prolog += [shift_alignment_boundaries]
     # if self.task == "train":
     #   self.function_prolog += [
     #     switchout_target,
@@ -205,7 +207,7 @@ class SegmentalSWBExtendedConfig:
         conf_batch_norm=conf_batch_norm, conf_num_blocks=conf_num_blocks, use_zoneout=use_zoneout,
         conf_dropout=conf_dropout, conf_l2=conf_l2, behavior_version=behavior_version, force_eos=force_eos,
         att_weights_kl_div_scale=att_weights_kl_div_scale, set_dim_tag_correctly=set_dim_tag_correctly,
-        force_non_blank_in_last_frame=force_non_blank_in_last_frame
+        force_non_blank_in_last_frame=force_non_blank_in_last_frame, seg_boundary_random_shift=seg_boundary_random_shift
       )
       if use_attention:
         self.network = add_attention(

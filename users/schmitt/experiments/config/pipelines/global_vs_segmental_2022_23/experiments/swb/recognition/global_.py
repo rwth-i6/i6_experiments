@@ -1,10 +1,11 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import GlobalLabelDefinition
 
 # experiments
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import SegmentalReturnnDecodingExperiment, RasrDecodingExperiment, DecodingExperiment, GlobalReturnnDecodingExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.analysis import AlignmentComparer, SegmentalAttentionWeightsPlotter, GlobalAttentionWeightsPlotter
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import DecodingExperiment, GlobalReturnnDecodingExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import GlobalSearchErrorExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.analysis import GlobalAttentionWeightsPlotter
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.global_ import get_recog_config as get_global_recog_config
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config_builder.config_builder import GlobalConfigBuilder
 
 from i6_core.returnn.training import Checkpoint
 
@@ -34,10 +35,18 @@ class ReturnnLabelSyncBeamSearchPipeline(SWBSearchPipeline):
   def analysis_sequences(self) -> List[Tuple[str, Path]]:
     # return [("ground_truth", self.dependencies.label_paths["cv"])] + super().analysis_sequences
     return super().analysis_sequences
+
   def get_decoding_experiment(self, corpus_key, dump_best_traces) -> DecodingExperiment:
-    returnn_config = get_global_recog_config(
-      self.dependencies, self.variant_params, corpus_key,
-      dump_output=dump_best_traces, beam_size=self.beam_size)
+    if self.variant_params["config"]["enc_type"] == "conf-mohammad-11.4":
+      returnn_config = GlobalConfigBuilder(
+        dependencies=self.dependencies,
+        variant_params=self.variant_params
+      ).get_recog_config(search_corpus_key=corpus_key)
+    else:
+      returnn_config = get_global_recog_config(
+        self.dependencies, self.variant_params, corpus_key,
+        dump_output=dump_best_traces, beam_size=self.beam_size)
+
     return GlobalReturnnDecodingExperiment(
       dependencies=self.dependencies,
       returnn_config=returnn_config,

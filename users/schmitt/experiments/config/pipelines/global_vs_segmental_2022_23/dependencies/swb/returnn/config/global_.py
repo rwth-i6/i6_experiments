@@ -1,6 +1,6 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import GlobalLabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import GlobalLabelDefinition
 
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.corpora.corpora import SWBCorpora
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.corpora.swb import SWBSprintCorpora
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.general.rasr.exes import RasrExecutables
 
 # from i6_experiments.users.schmitt.experiments.swb.global_enc_dec.config import GlobalEncoderDecoderConfig
@@ -22,6 +22,12 @@ def update_global_att_config_to_match_seg_att_config(returnn_config: ReturnnConf
   :param returnn_config: the global attention config which is meant to be changed.
   :return:
   """
+
+  # in case of Mohammad's conformer, we use a `get_network` function to get different networks for pretraining
+  # in this case, for now, we just returnn the given returnn_config
+  if "network" not in returnn_config.config:
+    return returnn_config
+
   # in the segmental model, the enc_ctx is inside the recurrent loop (because it depends on the predicted segments)
   returnn_config.config["network"]["enc_ctx"]["name_scope"] = "output/rec/att_ctx"
 
@@ -59,17 +65,15 @@ def get_train_config(
         initial_lr: Optional[float] = None
   ) -> ReturnnConfig:
   data_opts = {}
-  for corpus_key in SWBCorpora.train_corpus_keys:
-    if variant_params["config"]["features"] == "gammatone":
-      segment_path = dependencies.segment_paths[corpus_key]
-    else:
-      segment_path = dependencies.raw_audio_train_segment_paths[corpus_key]
+  for corpus_key in SWBSprintCorpora.train_corpus_keys:
+    segment_path = dependencies.segment_paths[corpus_key]
+
     data_opts[corpus_key] = {
       "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
       "segment_file": segment_path,
       "label_hdf": dependencies.label_paths[corpus_key],
       "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "label_name": "bpe",
-      "raw_audio_path": dependencies.raw_audio_paths[corpus_key], "features": variant_params["config"]["features"],
+      "features": variant_params["config"]["features"],
     }
     if corpus_key == "train":
       data_opts[corpus_key].update({
@@ -91,8 +95,6 @@ def get_train_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
-  del config_params["returnn_python_exe"]
-  del config_params["returnn_root"]
 
   config_builder = config_params["config_builder"]
   del config_params["config_builder"]
@@ -123,7 +125,7 @@ def get_recog_config(
   data_opts = {
     "data": corpus_key, "rasr_config_path": dependencies.rasr_config_paths["feature_extraction"][corpus_key],
     "rasr_nn_trainer_exe": RasrExecutables.nn_trainer_path, "vocab": dependencies.vocab_dict,
-    "features": variant_params["config"]["features"], "raw_audio_path": dependencies.raw_audio_paths[corpus_key]
+    "features": variant_params["config"]["features"]
   }
 
   config_params = copy.deepcopy(variant_params["config"])
@@ -131,8 +133,6 @@ def get_recog_config(
   # these parameters are not needed for the config class
   del config_params["label_type"]
   del config_params["model_type"]
-  del config_params["returnn_python_exe"]
-  del config_params["returnn_root"]
   del config_params["config_builder"]
 
   returnn_config = GlobalEncoderDecoderConfig(

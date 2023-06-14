@@ -1,10 +1,10 @@
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.labels.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.labels.v2.general import SegmentalLabelDefinition, GlobalLabelDefinition, LabelDefinition
 
 # experiments
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.recognition import SegmentalReturnnDecodingExperiment, RasrDecodingExperiment, DecodingExperiment, GlobalReturnnDecodingExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.realignment import RasrRealignmentExperiment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment, SearchErrorExperiment
-from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, GlobalSearchErrorExperiment
+from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.search_errors import SegmentalSearchErrorExperiment, SegmentalSearchErrorExperimentV2
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.analysis import AlignmentComparer, SegmentalAttentionWeightsPlotter, GlobalAttentionWeightsPlotter
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.experiments.swb.realignment import run_rasr_segmental_realignment
 from i6_experiments.users.schmitt.experiments.config.pipelines.global_vs_segmental_2022_23.dependencies.swb.returnn.config.segmental import get_recog_config as get_segmental_recog_config
@@ -65,6 +65,16 @@ class SWBSegmentalSearchPipeline(SWBSearchPipeline, ABC):
       corpus_key=self.search_error_corpus_key,
       length_scale=self.length_scale,
       base_alias=self.alias).create_calc_search_error_job()
+
+    # SegmentalSearchErrorExperimentV2(
+    #   dependencies=self.dependencies,
+    #   checkpoint=self.checkpoint,
+    #   variant_params=self.variant_params,
+    #   search_targets=search_aligns,
+    #   ref_targets=self.cv_realignment if self.cv_realignment is not None else self.dependencies.alignment_paths["cv"],
+    #   corpus_key=self.search_error_corpus_key,
+    #   length_scale=self.length_scale,
+    #   base_alias=self.alias).create_calc_search_error_job()
 
   def run(self):
     super().run()
