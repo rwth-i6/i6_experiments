@@ -294,6 +294,7 @@ def run_single(
         "activation": "log_softmax",
         "register_as_extern_data": "center-output",
     }
+    s.set_graph_for_experiment("fh", decoding_config)
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
