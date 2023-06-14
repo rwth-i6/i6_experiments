@@ -153,6 +153,7 @@ def get_returnn_config(
     feature_net: Dict[str, Any],
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
+    specaug_old: bool = False,
     batch_size: int = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
@@ -204,6 +205,7 @@ def get_returnn_config(
             },
         },
         conformer_type=conformer_type,
+        specaug_old=specaug_old,
         recognition=recognition,
     )
     for layer in list(network.keys()):

@@ -6,7 +6,7 @@ import i6_core.rasr as rasr
 from i6_core.am.config import acoustic_model_config
 from i6_core.returnn import CodeWrapper
 from i6_experiments.users.berger.network.helpers.conformer import add_conformer_stack as add_conformer_stack_simon
-from .network_helpers.specaug import add_specaug_layer_v2
+from .network_helpers.specaug import add_specaug_layer, add_specaug_layer_v2
 from .network_helpers.conformer_wei import add_conformer_stack as add_conformer_stack_wei
 from .network_helpers.conformer_wei import add_vgg_stack as add_vgg_stack_wei
 
@@ -138,6 +138,7 @@ def make_conformer_fullsum_ctc_model(
     conformer_args: Optional[Dict] = None,
     output_args: Optional[Dict] = None,
     conformer_type: str = "wei",
+    specaug_old: bool = False,
     recognition: bool = False,
 ) -> Tuple[Dict, Union[str, List[str]]]:
     network = {}
@@ -146,7 +147,17 @@ def make_conformer_fullsum_ctc_model(
     if recognition:
         python_code = []
     else:
-        from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
+        if specaug_old:
+            from_list, python_code = add_specaug_layer(
+                network,
+                from_list=from_list,
+                max_time_num=1,
+                max_time=15,
+                max_feature_num=5,
+                max_feature=4,
+            )
+        else:
+            from_list, python_code = add_specaug_layer_v2(network, from_list=from_list)
 
     if conformer_type == "wei":
         network, from_list = add_vgg_stack_wei(network, from_list)
