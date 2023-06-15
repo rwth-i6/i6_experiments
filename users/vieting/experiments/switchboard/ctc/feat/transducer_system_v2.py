@@ -4,7 +4,7 @@ import copy
 import itertools
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union, Any
 
 # -------------------- Recipes --------------------
 
@@ -561,6 +561,7 @@ class TransducerSystem:
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
         extra_name: str = "",
+        report_args: Dict[str, Any] = None,
         **kwargs,
     ) -> None:
         crp = self.crp[recognition_corpus_key]
@@ -642,6 +643,7 @@ class TransducerSystem:
             )
 
             if self._report:
+                report_args = report_args or {}
                 self._report.add(
                     {
                         "train_name": train_exp_name,
@@ -655,6 +657,7 @@ class TransducerSystem:
                         "sub": scorer_job.out_percent_substitution,
                         "del": scorer_job.out_percent_deletions,
                         "ins": scorer_job.out_percent_insertions,
+                        **report_args.get(train_exp_name, {}),
                     }
                 )
 

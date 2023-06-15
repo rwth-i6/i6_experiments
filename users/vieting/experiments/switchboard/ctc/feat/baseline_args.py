@@ -33,12 +33,14 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
     returnn_configs = {}
     returnn_recog_configs = {}
+    report_args_collection = {}
 
     for name, args in nn_base_args.items():
-        returnn_config, returnn_recog_config = get_nn_args_single(
+        returnn_config, returnn_recog_config, report_args = get_nn_args_single(
             num_epochs=num_epochs, evaluation_epochs=evaluation_epochs, **copy.deepcopy(args))
         returnn_configs[prefix + name] = returnn_config
         returnn_recog_configs[prefix + name] = returnn_recog_config
+        report_args_collection[prefix + name] = report_args
 
     training_args = {
         "log_verbosity": 4,
@@ -90,12 +92,12 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
         test_recognition_args=test_recognition_args,
     )
 
-    return nn_args
+    return nn_args, report_args_collection
 
 
 def get_nn_args_single(
     num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
-    lr_args=None, feature_args=None, returnn_args=None,
+    lr_args=None, feature_args=None, returnn_args=None, report_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
@@ -137,7 +139,14 @@ def get_nn_args_single(
         **(returnn_args or {}),
     )
 
-    return returnn_config, returnn_recog_config
+    report_args = {
+        "features": feature_network_class.__name__,
+        "preemphasis": preemphasis,
+        "wave_norm": wave_norm,
+        **(report_args or {}),
+    }
+
+    return returnn_config, returnn_recog_config, report_args
 
 
 def get_returnn_config(

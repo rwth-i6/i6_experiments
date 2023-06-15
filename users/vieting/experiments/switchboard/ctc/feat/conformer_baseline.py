@@ -1,4 +1,5 @@
 import copy
+import os.path
 from sisyphus import tk, gs
 
 from i6_core.meta.system import CorpusObject
@@ -7,6 +8,7 @@ from i6_core.recognition import Hub5ScoreJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
 from i6_experiments.users.berger.recipe.lexicon.modification import DeleteEmptyOrthJob, MakeBlankLexiconJob
+from i6_experiments.users.vieting.tools.report import Report
 from i6_experiments.users.vieting.experiments.switchboard.hybrid.feat.experiments import run_gmm_system_from_common  # TODO: might be copied here for stability
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_system_v2 import (
     TransducerSystem,
@@ -99,7 +101,7 @@ def run_test_mel():
         "fft_size": 256
     }
 
-    nn_args = get_nn_args_baseline(
+    nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
             # "lgm80_conf-simon": dict(
             #     returnn_args={"conformer_type": "simon", **returnn_args},
@@ -189,6 +191,7 @@ def run_test_mel():
             "phon_future_length": 0,
         },
         scorer_info=score_info,
+        report=Report(columns_start=["train_name"], columns_end=["sub", "del", "ins", "wer"]),
     )
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
@@ -198,4 +201,10 @@ def run_test_mel():
         cached=True
     )
     ctc_nn_system.run_train_step(nn_args.training_args)
-    ctc_nn_system.run_dev_recog_step(recog_args=recog_args)
+    ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+
+    tk.register_report(
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
+        values=ctc_nn_system.report.get_values(),
+        template=ctc_nn_system.report.get_template())
+
