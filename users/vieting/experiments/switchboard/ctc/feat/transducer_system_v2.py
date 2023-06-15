@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Literal, Optional, Tuple, Type, Union
 from i6_core import am, corpus, features, lexicon, mm, rasr, recognition, returnn
 from i6_experiments.common.setups.rasr.util.rasr import RasrDataInput
 from i6_experiments.users.berger.recipe import mm as custom_mm
+from i6_experiments.users.berger.recipe.rasr import GenerateLabelFileFromStateTyingJobV2
 from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import recognition as custom_recognition
 from i6_experiments.users.berger.util import lru_cache_with_signature
@@ -522,7 +523,7 @@ class TransducerSystem:
     @lru_cache_with_signature
     def _get_label_file(self, key: str) -> tk.Path:
         state_tying_file = lexicon.DumpStateTyingJob(self.crp[key]).out_state_tying
-        return custom_rasr.GenerateLabelFileFromStateTyingJobV2(
+        return GenerateLabelFileFromStateTyingJobV2(
             state_tying_file,
         ).out_label_file
 
