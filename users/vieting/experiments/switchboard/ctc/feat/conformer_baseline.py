@@ -14,6 +14,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
     TransducerSystem,
     ReturnnConfigs,
     ScorerInfo,
+    SearchTypes,
 )
 
 from .baseline_args import get_nn_args as get_nn_args_baseline
@@ -257,8 +258,22 @@ def run_test_mel():
     )
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
+    ctc_nn_system.run_recogs_for_corpora(  # test for single model with larger prior_scales
+        ["hub5e00"],
+        "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4",
+        search_type=SearchTypes.GenericSeq2SeqSearchJob,
+        report_args=report_args_collection,
+        **{**recog_args, "prior_scales": [0.4, 0.6, 0.7, 0.9]},
+    )
+    ctc_nn_system.run_recogs_for_corpora(  # test for single model with larger prior_scales
+        ["hub5e00"],
+        "conformer_bs10k_lgm80_conf-wei_old-lr",
+        search_type=SearchTypes.GenericSeq2SeqSearchJob,
+        report_args=report_args_collection,
+        **{**recog_args, "prior_scales": [0.5], "epochs": [260]},
+    )
 
-    # same lm as in wei's setup
+    # same lm as in wei's setup, results indicate that this is not better (if any, slightly worse)
     ctc_nn_system_wei_lm = copy.deepcopy(ctc_nn_system)
     for train_name in list(ctc_nn_system_wei_lm.returnn_configs.keys()):
         if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
@@ -276,7 +291,7 @@ def run_test_mel():
     ctc_nn_system_wei_lm.crp["hub5e00"].language_model_config.file = wei_lm
     ctc_nn_system_wei_lm.run_dev_recog_step(recog_args=recog_args, extra_name="_lm-wei", report_args=report_args_wei_lm)
 
-    # same lexicon as in wei's setup
+    # same lexicon as in wei's setup, results indicate that this is not better (less del, but overall slightly worse)
     ctc_nn_system_wei_lex = copy.deepcopy(ctc_nn_system)
     for train_name in list(ctc_nn_system_wei_lex.returnn_configs.keys()):
         if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
@@ -291,12 +306,12 @@ def run_test_mel():
         cached=True,
     )
     ctc_nn_system_wei_lex.corpus_data["hub5e00"].lexicon["filename"] = wei_lex
-    ctc_nn_system_wei_lex.crp["hub5e00"].lexicon_config.file = wei_lex
     ctc_nn_system_wei_lex.run_dev_recog_step(
         recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex)
 
     report = Report.merge_reports([ctc_nn_system.report, ctc_nn_system_wei_lm.report, ctc_nn_system_wei_lex.report])
     report.delete_redundant_columns()
+    report.delete_redundant_rows()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
