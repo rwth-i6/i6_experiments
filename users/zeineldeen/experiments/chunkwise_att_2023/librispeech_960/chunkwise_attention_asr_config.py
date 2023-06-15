@@ -362,6 +362,7 @@ class ConformerEncoderArgs(EncoderArgs):
     l2: float = 0.0001
     self_att_l2: float = 0.0
     rel_pos_clipping: int = 16
+    frontend_conv_l2: float = 0.0001
 
     use_sqrd_relu: bool = False
 
