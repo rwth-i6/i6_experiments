@@ -42,6 +42,13 @@ class Report:
             if len(set(values)) == 1:
                 self.delete_column(col)
 
+    def delete_redundant_rows(self):
+        rows_reduced = []
+        for row in self._data:
+            if row not in rows_reduced:
+                rows_reduced.append(row)
+        self._data = rows_reduced
+
     def get_columns(self):
         columns = set()
         for data in self._data:
