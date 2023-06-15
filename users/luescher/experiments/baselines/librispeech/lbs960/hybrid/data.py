@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, Tuple, Type, Union
 from enum import Enum
 
-from sisyphus import tk
+from sisyphus import tk, delayed_ops
 
 import i6_core.corpus as corpus_recipe
 import i6_core.returnn as returnn
@@ -38,13 +38,34 @@ def get_corpora_for_hybrid_training(
     dev_clean_corpus_path = gmm_system.corpora["dev-clean"].corpus_file
     dev_other_corpus_path = gmm_system.corpora["dev-other"].corpus_file
 
+    no_oov_dev_clean_corpus_path = corpus_recipe.FilterCorpusRemoveUnknownWordSegmentsJob(
+        bliss_corpus=dev_clean_corpus_path,
+        bliss_lexicon=gmm_system.crp["train-other-960"].lexicon_config.file,
+        case_sensitive=False,
+        all_unknown=False,
+    ).out_corpus
+    no_oov_dev_other_corpus_path = corpus_recipe.FilterCorpusRemoveUnknownWordSegmentsJob(
+        bliss_corpus=dev_other_corpus_path,
+        bliss_lexicon=gmm_system.crp["train-other-960"].lexicon_config.file,
+        case_sensitive=False,
+        all_unknown=False,
+    ).out_corpus
+
     total_train_num_segments = num_segments["train-other-960"]
     total_dev_clean_num_segments = num_segments["dev-clean"]
     total_dev_other_num_segments = num_segments["dev-other"]
 
+    all_dev_clean_segments_job = corpus_recipe.SegmentCorpusJob(no_oov_dev_clean_corpus_path, 1)
+    all_dev_other_segments_job = corpus_recipe.SegmentCorpusJob(no_oov_dev_other_corpus_path, 1)
+
     all_train_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
-    all_dev_clean_segments = corpus_recipe.SegmentCorpusJob(dev_clean_corpus_path, 1).out_single_segment_files[1]
-    all_dev_other_segments = corpus_recipe.SegmentCorpusJob(dev_other_corpus_path, 1).out_single_segment_files[1]
+    all_dev_clean_segments = all_dev_clean_segments_job.out_single_segment_files[1]
+    all_dev_other_segments = all_dev_other_segments_job.out_single_segment_files[1]
+
+    no_oov_dev_clean_num_segments = corpus_recipe.CountSegmentsInCorpusJob(no_oov_dev_clean_corpus_path).out_num_segments
+    tk.register_output("dev_clean_no_oov_num_segments.txt", no_oov_dev_clean_num_segments)
+    no_oov_dev_other_num_segments = corpus_recipe.CountSegmentsInCorpusJob(no_oov_dev_other_corpus_path).out_num_segments
+    tk.register_output("dev_other_no_oov_num_segments.txt", no_oov_dev_other_num_segments)
 
     dev_train_size = 300 / total_train_num_segments
     cv_clean_size = 150 / total_dev_clean_num_segments

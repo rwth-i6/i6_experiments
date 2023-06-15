@@ -34,7 +34,7 @@ from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 # -------------------- flags --------------------
 
-USE_CORRECTED_APPLICATOR = False
+USE_CORRECTED_APPLICATOR = True
 
 # -------------------- helpers --------------------
 
@@ -225,6 +225,7 @@ def get_monophone_args(
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
+        "split_extra_rqmt": {"time": 24},
         "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
