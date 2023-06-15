@@ -243,7 +243,10 @@ def run_test_mel():
             "phon_future_length": 0,
         },
         scorer_info=score_info,
-        report=Report(columns_start=["train_name"], columns_end=["sub", "del", "ins", "wer"]),
+        report=Report(
+            columns_start=["train_name"],
+            columns_end=["lm_scale", "prior_scale", "sub", "del", "ins", "wer"],
+        ),
     )
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_from_lexicon = False
     ctc_nn_system.crp["hub5e00"].acoustic_model_config.allophones.add_all = True
@@ -255,8 +258,46 @@ def run_test_mel():
     ctc_nn_system.run_train_step(nn_args.training_args)
     ctc_nn_system.run_dev_recog_step(recog_args=recog_args, report_args=report_args_collection)
 
+    # same lm as in wei's setup
+    ctc_nn_system_wei_lm = copy.deepcopy(ctc_nn_system)
+    for train_name in list(ctc_nn_system_wei_lm.returnn_configs.keys()):
+        if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
+            # only use some trainings
+            ctc_nn_system_wei_lm.returnn_configs.pop(train_name)
+    report_args_wei_lm = copy.deepcopy(report_args_collection)
+    for name in report_args_wei_lm:
+        report_args_wei_lm[name]["lm"] = "wei"
+    wei_lm = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/zoltan_4gram.gz",
+        hash_overwrite="ZOLTAN_SWB_LM_4GRAM",
+        cached=True,
+    )
+    ctc_nn_system_wei_lm.corpus_data["hub5e00"].lm["filename"] = wei_lm
+    ctc_nn_system_wei_lm.crp["hub5e00"].language_model_config.file = wei_lm
+    ctc_nn_system_wei_lm.run_dev_recog_step(recog_args=recog_args, extra_name="_lm-wei", report_args=report_args_wei_lm)
+
+    # same lexicon as in wei's setup
+    ctc_nn_system_wei_lex = copy.deepcopy(ctc_nn_system)
+    for train_name in list(ctc_nn_system_wei_lex.returnn_configs.keys()):
+        if train_name not in ["conformer_bs10k_lgm80_conf-wei2", "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"]:
+            # only use some trainings
+            ctc_nn_system_wei_lex.returnn_configs.pop(train_name)
+    report_args_wei_lex = copy.deepcopy(report_args_collection)
+    for name in report_args_wei_lex:
+        report_args_wei_lex[name]["lex"] = "wei"
+    wei_lex = tk.Path(
+        "/u/vieting/setups/swb/20230406_feat/dependencies/lexicon_wei_blank.xml",
+        hash_overwrite="WEI_SWB_LEX",
+        cached=True,
+    )
+    ctc_nn_system_wei_lex.corpus_data["hub5e00"].lexicon["filename"] = wei_lex
+    ctc_nn_system_wei_lex.crp["hub5e00"].lexicon_config.file = wei_lex
+    ctc_nn_system_wei_lex.run_dev_recog_step(
+        recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex)
+
+    report = Report.merge_reports([ctc_nn_system.report, ctc_nn_system_wei_lm.report, ctc_nn_system_wei_lex.report])
+    report.delete_redundant_columns()
     tk.register_report(
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
-        values=ctc_nn_system.report.get_values(),
-        template=ctc_nn_system.report.get_template())
-
+        values=report.get_values(),
+        template=report.get_template())
