@@ -19,6 +19,29 @@ class Report:
     def add(self, report_args):
         self._data.append(report_args)
 
+    def delete_column(self, column):
+        for data in self._data:
+            data.pop(column, None)
+
+    def delete_redundant_columns(self, delete_columns_start=False, delete_columns_end=False, columns_skip=None):
+        """
+        Delete columns for which all entries have the same value.
+        """
+        if len(self._data) < 2:
+            return
+
+        columns_skip = columns_skip or []
+        for col in self.get_columns():
+            if (
+                (col in columns_skip) or
+                (not delete_columns_start and col in self._columns_start) or
+                (not delete_columns_end and col in self._columns_end)
+            ):
+                continue
+            values = [data.get(col, None) for data in self._data]
+            if len(set(values)) == 1:
+                self.delete_column(col)
+
     def get_columns(self):
         columns = set()
         for data in self._data:
