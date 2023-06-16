@@ -979,7 +979,6 @@ def get_ctc_rna_based_chunk_alignments(
 
 
 def run_chunkwise_train(
-    ctc_chunksync_align,
     total_epochs,
     chunk_sizes,
     chunk_step_factors,
@@ -995,6 +994,9 @@ def run_chunkwise_train(
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
+    ctc_chunksync_align = get_ctc_rna_based_chunk_alignments(
+        fixed_ctc_rna_align_without_eos=True, chunk_sizes=chunk_sizes, chunk_step_factors=chunk_step_factors
+    )
 
     for total_epochs in total_epochs:
         for chunk_size in chunk_sizes:
@@ -1033,7 +1035,8 @@ def run_chunkwise_train(
                         decay_pt = int(total_epochs * decay_pt_factor)
 
                         train_args["chunk_size"] = chunk_size
-                        train_args["chunk_step"] = max(1, int(chunk_size * chunk_step_factor))
+                        chunk_step = max(1, int(chunk_size * chunk_step_factor))
+                        train_args["chunk_step"] = chunk_step
 
                         train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
                             numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
@@ -1043,28 +1046,13 @@ def run_chunkwise_train(
                         train_args["chunk_level"] = chunk_level
                         train_args["eoc_idx"] = 0
 
-                        exp_name = f"att_chunk-{chunk_size}_step-{chunk_step_factor}"
+                        exp_name = f"att_chunk-{chunk_size}_step-{chunk_step}"
                         exp_name += f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
                         exp_name += f"_bs{batch_size}_accum{accum_grad}"
                         if suffix:
                             exp_name += suffix
 
-                        if ctc_chunksync_align:
-                            run_exp(
-                                prefix_name=prefix_name,
-                                exp_name=exp_name,
-                                train_args=train_args,
-                                num_epochs=total_epochs,
-                                train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step_factor}"],
-                                cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step_factor}"],
-                                epoch_wise_filter=None,
-                                time_rqmt=time_rqmt,
-                                selected_datasets=["dev-other"],
-                                key="dev_score",
-                                use_sclite=True,
-                                **kwargs,
-                            )
-                        elif on_the_fly_align:
+                        if on_the_fly_align:
                             train_args["search_type"] = "end-of-chunk"  # on-the-fly alignment
                             run_exp(
                                 prefix_name=prefix_name,
@@ -1079,7 +1067,21 @@ def run_chunkwise_train(
                                 **kwargs,
                             )
                         else:
-                            raise ValueError("Unknown alignment mode")
+                            assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
+                            run_exp(
+                                prefix_name=prefix_name,
+                                exp_name=exp_name,
+                                train_args=train_args,
+                                num_epochs=total_epochs,
+                                train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
+                                cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
+                                epoch_wise_filter=None,
+                                time_rqmt=time_rqmt,
+                                selected_datasets=["dev-other"],
+                                key="dev_score",
+                                use_sclite=True,
+                                **kwargs,
+                            )
 
 
 def _run_exp_full_sum_simple_approx(
@@ -1165,15 +1167,11 @@ def _run_exp_full_sum_simple_approx(
 def baseline():
     # NOTE: no attention weight feedback is used for streaming exps
 
-    # imported from `/work/asr4/zeyer/setups-data/combined/2021-05-31/work`
-    fixed_ctc_align_wo_speed_pert = get_ctc_rna_based_chunk_alignments(fixed_ctc_rna_align_without_eos=True)
-
     # TODO: chunkwise attention
     # exps in /u/zeineldeen/setups/librispeech/2023-02-17--chunkwise-att
 
     # TODO: chunked encoder + chunkwise attention (decoder operators on chunks)
     run_chunkwise_train(
-        fixed_ctc_align_wo_speed_pert,
         run_all_for_best_last_avg=True,
         enable_check_align=False,
         enc_stream_type="chunked",
