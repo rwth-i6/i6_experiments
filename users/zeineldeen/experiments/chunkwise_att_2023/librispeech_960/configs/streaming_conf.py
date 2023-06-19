@@ -979,18 +979,20 @@ def get_ctc_rna_based_chunk_alignments(
 
 
 def run_chunkwise_train(
-    total_epochs,
-    chunk_sizes,
-    chunk_step_factors,
-    enc_stream_type="global",
-    suffix="",
-    enable_check_align=True,
-    on_the_fly_align=False,
-    ctc_self_align_delay=None,
-    ctc_self_align_delay_scale=0.5,
-    batch_size=15_000,
-    accum_grad=2,
-    time_rqmt=72,
+    total_epochs: List[int],
+    chunk_sizes: List[int],
+    chunk_step_factors: List[float],
+    enc_stream_type: str = "global",
+    suffix: str = "",
+    enable_check_align: bool = True,
+    on_the_fly_align: bool = False,
+    ctc_self_align_delay: int = None,
+    ctc_self_align_delay_scale: float = 0.5,
+    batch_size: int = 15_000,
+    accum_grad: int = 2,
+    time_rqmt: float = 72,
+    start_lrs: Union[float, List[float]] = 1e-4,
+    decay_pt_factors: Union[float, List[float]] = 1 / 3,
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
@@ -998,11 +1000,16 @@ def run_chunkwise_train(
         fixed_ctc_rna_align_without_eos=True, chunk_sizes=chunk_sizes, chunk_step_factors=chunk_step_factors
     )
 
+    if isinstance(start_lrs, float):
+        start_lrs = [start_lrs]
+    if isinstance(decay_pt_factors, float):
+        decay_pt_factors = [decay_pt_factors]
+
     for total_epochs in total_epochs:
         for chunk_size in chunk_sizes:
             for chunk_step_factor in chunk_step_factors:
-                for start_lr in [1e-4]:
-                    for decay_pt_factor in [1 / 3]:
+                for start_lr in start_lrs:
+                    for decay_pt_factor in decay_pt_factors:
                         train_args = copy.deepcopy(default_args)
                         train_args["speed_pert"] = False  # no speed pert
                         train_args["search_type"] = None  # fixed alignment
@@ -1170,15 +1177,57 @@ def baseline():
     # TODO: chunkwise attention
     # exps in /u/zeineldeen/setups/librispeech/2023-02-17--chunkwise-att
 
-    # TODO: chunked encoder + chunkwise attention (decoder operators on chunks)
+    # running on test node for 200 subepochs:
+    # 100, 2e-4, 1/3  2.6/6.3/2.8/6.4
+    # 100, 3e-4, 1/3  2.6/6.2/2.8/6.4
+    # 100, 1e-4, 0.4  2.7/6.3/2.9/6.5
     run_chunkwise_train(
         run_all_for_best_last_avg=True,
         enable_check_align=False,
         enc_stream_type="chunked",
-        chunk_sizes=[50, 100],
+        chunk_sizes=[100],
         chunk_step_factors=[1],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
         gpu_mem=24,
         total_epochs=[200],
         batch_size=30_000,
         accum_grad=1,
+        time_rqmt=40,
     )
+
+
+    # TODO: chunked encoder + chunkwise attention (decoder operators on chunks)
+    for chunk_size, chunk_step in [(10, 1), (20, 1), (10, 0.25), (20, 0.25), (10, 0.5)]:
+        # running locally: (20, 0.5)
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[chunk_size],
+            chunk_step_factors=[chunk_step],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[300],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=40,
+        )
+    # running locally: (100, 50)
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[100],
+        chunk_step_factors=[0.25],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=40,
+    )
+
+    # TODO: use previous chunks as memory
