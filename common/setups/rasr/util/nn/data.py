@@ -459,6 +459,7 @@ class HdfDataInput:
         align_args: Optional[Dict[str, Any]] = None,
         feat_args: Optional[Dict[str, Any]] = None,
         acoustic_mixtures: Optional[tk.Path] = None,
+        segment_file: Optional[tk.Path] = None
     ):
         """
         :param features: hdf files which contain raw wve form or features, like GT or MFCC
@@ -469,6 +470,7 @@ class HdfDataInput:
         :param align_args: parameters for the `HDFDataset` for the alignments
         :param feat_args: parameters for the `HDFDataset` for the features
         :param acoustic_mixtures: path to a RASR acoustic mixture file (used in System classes, not RETURNN training)
+        :param segment_file: path to the segment file which defines which segments from corpus to use
         """
         self.features = features
         self.alignments = alignments
@@ -478,15 +480,23 @@ class HdfDataInput:
         self.align_args = align_args
         self.feat_args = feat_args
         self.acoustic_mixtures = acoustic_mixtures
+        self.segment_file = segment_file
 
         from returnn_common.datasets import MetaDataset, HDFDataset
-        self.align_dataset = HDFDataset(files=self.alignments, seq_ordering=self.seq_ordering, partition_epoch=self.partition_epoch, **(self.align_args or {}))
+
+        self.align_dataset = HDFDataset(
+            files=self.alignments,
+            seq_ordering=self.seq_ordering,
+            partition_epoch=self.partition_epoch,
+            segment_file=self.segment_file,
+            **(self.align_args or {}),
+        )
         self.feature_dataset = HDFDataset(files=self.features, **(self.feat_args or {}))
         self.meta_dataset = MetaDataset(
             data_map={"classes": ("align", "data"), "data": ("feat", "data")},
             datasets={"align": self.align_dataset, "feat": self.feature_dataset},
             seq_order_control_dataset="align",
-            additional_options={**(self.meta_args or {})}
+            additional_options={**(self.meta_args or {})},
         )
 
     def get_data_dict(self):

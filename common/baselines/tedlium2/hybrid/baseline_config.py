@@ -27,7 +27,7 @@ def run_tedlium2_hybrid_baseline():
 
     gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    rasr_init_args.scorer_args["sctk_binary_path"] = SCTK_BINARY_PATH2
+    rasr_init_args.scorer_args["sctk_binary_path"] = SCTK_BINARY_PATH2  # Hack to have a U16 compiled SCTK
     rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
     (
         nn_train_data_inputs,
@@ -97,7 +97,7 @@ def run_tedlium2_hybrid_baseline_full_u16():
         alias_prefix="experiments/tedlium2/hybrid/wei_baseline",
     )
     # image only, so just python3
-    returnn_exe = tk.Path("/usr/bin/python3")
+    returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
     blas_lib = tk.Path(
         "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
         hash_overwrite="TF23_MKL_BLAS",
