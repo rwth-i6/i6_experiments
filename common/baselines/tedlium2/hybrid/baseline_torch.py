@@ -33,15 +33,16 @@ def run_tedlium2_torch_conformer():
 
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
-
     (
         nn_train_data_inputs,
         nn_cv_data_inputs,
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs(gmm_system, rasr_init_args.feature_extraction_args, FilterbankJob, alias_prefix=prefix)
-
+    ) = get_corpus_data_inputs(gmm_system, rasr_init_args.feature_extraction_args['fb'], FilterbankJob, alias_prefix=prefix)
+    steps = RasrSteps()
+    steps.add_step("extract", rasr_init_args.feature_extraction_args)
+    gmm_system.run(steps)
     nn_args = get_nn_args(num_epochs=125)
 
     nn_steps = RasrSteps()
@@ -56,7 +57,7 @@ def run_tedlium2_torch_conformer():
 
     returnn_root = CloneGitRepositoryJob(
         "https://github.com/rwth-i6/returnn",
-        commit="04c14d6a3745f90f0bd10b28ce4d51b1d61afb82",
+        commit="0963d5b0ad55145a092c1de9bba100c94ee8600c",
     ).out_repository
 
     tedlium_nn_system = PyTorchOnnxHybridSystem(

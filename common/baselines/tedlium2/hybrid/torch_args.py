@@ -30,7 +30,7 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
         recognition=True, debug=debug,
     )
 
-    training_args = ReturnnTrainingJobArgs(log_verbosity=4, num_epochs=num_epochs, save_interval=1, keep_epochs=None, time_rqmt=168, mem_rqmt=8, cpu_rqmt=3)
+    training_args = ReturnnTrainingJobArgs(log_verbosity=5, num_epochs=num_epochs, save_interval=1, keep_epochs=None, time_rqmt=168, mem_rqmt=8, cpu_rqmt=3)
 
     recognition_args = {
         "dev-other": {
@@ -109,6 +109,7 @@ def get_pytorch_returnn_configs(
             "learning_rate_control_min_num_epochs_per_new_lr": 3,
             "learning_rate_control_relative_error_relative_lr": True,
             # "min_learning_rate": 1e-5,
+            "min_seq_length": {"classes": 1},
             "newbob_learning_rate_decay": 0.707,
             "newbob_multi_num_epochs": 40,
             "newbob_multi_update_interval": 1,
@@ -149,7 +150,7 @@ def get_pytorch_returnn_configs(
             serializer_objects.append(pytorch_export)
         i6_models_repo = CloneGitRepositoryJob(
             url="https://github.com/rwth-i6/i6_models",
-            commit="d4b926ef0bed4ce59706217b31703488d19143ec",
+            commit="6503aa13ec3eacf2ff82198eaee48f5454aea63f",
             checkout_folder_name="i6_models",
             branch="bene_conf_enc"
         ).out_repository
@@ -174,6 +175,11 @@ def get_pytorch_returnn_configs(
         )
 
         return returnn_config
+    smaller_config = copy.deepcopy(blstm_base_config)
+    smaller_config["batch_size"] = {"classes": 2 * 2000, "data": 2 * 320000}
+    smaller_config["accum_grad_multiple_step"] = 2
+
     return {
        "torch_conformer_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "conformer"}),
+       "torch_conformer2_baseline": construct_from_net_kwargs(smaller_config, {"model_type": "conformer2"}),
     }

@@ -30,6 +30,7 @@ def get_gammatone_feature_extraction_args():
 def get_log_mel_feature_extraction_args():
 
     return {
+        "fb":{
         "filterbank_options":{
         "warping_function": "mel",
         "filter_width": filter_width_from_channels(channels=80, warping_function="mel", f_max=8000),
@@ -44,4 +45,4 @@ def get_log_mel_feature_extraction_args():
         "add_features_output": True,
         "apply_log": True,
         "add_epsilon": True,
-    }}
+    }}}

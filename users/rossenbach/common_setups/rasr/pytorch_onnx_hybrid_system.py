@@ -22,7 +22,7 @@ Path = tk.setup_path(__package__)
 
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
-from i6_experiments.users.rossenbach.returnn.onnx import ExportPyTorchModelToOnnxJob
+from i6_experiments.users.hilmes.tools.onnx import ExportPyTorchModelToOnnxJob
 
 
 class OnnxFeatureScorer(rasr.FeatureScorer):
@@ -99,13 +99,15 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                 assert epoch in checkpoints.keys()
                 assert acoustic_mixture_path is not None
 
-                onnx_model = ExportPyTorchModelToOnnxJob(
+                onnx_job = ExportPyTorchModelToOnnxJob(
                     pytorch_checkpoint=checkpoints[epoch],
                     returnn_config=returnn_config,
                     returnn_root=self.returnn_root,
                     quantize_dynamic=quantize_dynamic,
-                ).out_onnx_model
+                )
+                onnx_job.add_alias(name + "export_onnx")
 
+                onnx_model = onnx_job.out_onnx_model
 
                 io_map = {
                     "features": "data",

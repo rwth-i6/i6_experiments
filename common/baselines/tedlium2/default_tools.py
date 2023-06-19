@@ -15,11 +15,13 @@ from i6_core.tools.git import CloneGitRepositoryJob
 
 PACKAGE = __package__
 
-#RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
+# RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
 #    branch="apptainer_tf_2_8", configure_options=["--apptainer-patch=2023-05-08_tensorflow-2.8_v1"]
-#)  #  use most recent RASR
+# )  #  use most recent RASR
 RASR_BINARY_PATH = compile_rasr_binaries_i6mode(
-    branch="apptainer_tf_2_8", configure_options=["--apptainer-setup=2023-05-08_tensorflow-2.8_v1"], commit="5e7adf5034dbafac90caf0e50b5bfd6410c98d5e"
+    branch="apptainer_tf_2_8",
+    configure_options=["--apptainer-setup=2023-05-08_tensorflow-2.8_v1"],
+    commit="5e7adf5034dbafac90caf0e50b5bfd6410c98d5e",
 )  #  use most recent RASR
 assert RASR_BINARY_PATH, "Please set a specific RASR_BINARY_PATH before running the pipeline"
 RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
@@ -27,6 +29,8 @@ RASR_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
 
 SCTK_BINARY_PATH = compile_sctk()  # use last published version
 SCTK_BINARY_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_SCTK_BINARY_PATH"
+
+SCTK_BINARY_PATH2 = compile_sctk(alias="wei_u16_sctk")  # use last published version, HACK to have u16 compiled
 
 SRILM_PATH = tk.Path("/work/tools/users/luescher/srilm-1.7.3/bin/i686-m64/")
 SRILM_PATH.hash_overwrite = "TEDLIUM2_DEFAULT_SRILM_PATH"

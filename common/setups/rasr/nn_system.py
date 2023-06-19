@@ -65,7 +65,7 @@ class NnSystem(RasrSystem):
             returnn_python_exe=self.returnn_python_exe,
             blas_lib=self.blas_lib,
         )
-        native_op_job.add_alias("native_ops/compile_native_%s" % op_name)
+        native_op_job.add_alias("wei_native_ops/compile_native_%s" % op_name)
         self.native_ops[op_name] = native_op_job.out_op
 
     def get_native_ops(self, op_names: Optional[List[str]]) -> Optional[List[tk.Path]]:

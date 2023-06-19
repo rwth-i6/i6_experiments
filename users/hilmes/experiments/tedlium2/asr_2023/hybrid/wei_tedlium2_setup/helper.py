@@ -63,7 +63,8 @@ def get_network(num_layers=6, layer_size=512, **kwargs):
                'size': layer_size,
                'l2': 0.01,
                'dropout': 0.1,
-               'bidirectional': True
+               'bidirectional': True,
+               'unit': 'nativelstm2'
                }
   network, fromList = build_encoder_network(**lstm_args)
 
