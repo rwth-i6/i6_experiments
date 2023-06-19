@@ -5,13 +5,12 @@ from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.features import FilterbankJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
-from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
-from i6_experiments.common.baselines.tedlium2.default_tools import RASR_BINARY_PATH, RETURNN_RC_ROOT
+from i6_experiments.common.baselines.tedlium2.default_tools import RASR_BINARY_PATH
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_log_mel_feature_extraction_args
 from i6_experiments.common.baselines.tedlium2.hybrid.torch_args import get_nn_args
-from i6_experiments.users.rossenbach.common_setups.rasr.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
+from i6_experiments.common.setups.rasr.pytorch_onnx_hybrid_system import PyTorchOnnxHybridSystem
 
 
 def run_gmm_system():

@@ -104,7 +104,6 @@ def returnn_training(
         config.config["eval_datasets"] = {}
         for name, data in additional_data.items():
             config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get_data_dict()
-
     returnn_training_job = returnn.ReturnnTrainingJob(
         returnn_config=config,
         **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,

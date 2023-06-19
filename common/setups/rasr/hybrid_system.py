@@ -21,6 +21,7 @@ from i6_core.returnn.flow import (
     add_tf_flow_to_base_flow,
 )
 from i6_core.util import MultiPath, MultiOutputPath
+from i6_core.mm import CreateDummyMixturesJob
 
 from .hybrid_decoder import HybridDecoder
 from .nn_system import NnSystem, returnn_training
@@ -355,7 +356,7 @@ class HybridSystem(NnSystem):
         name: str,
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, returnn.Checkpoint],
-        acoustic_mixture_path: tk.Path,  # TODO maybe Optional if prior file provided -> automatically construct dummy file
+        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
@@ -393,6 +394,21 @@ class HybridSystem(NnSystem):
 
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
+                acoustic_mixture_path = CreateDummyMixturesJob(
+                    num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
+                    num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
+                from i6_core.returnn import ReturnnComputePriorJobV2
+                prior_job = ReturnnComputePriorJobV2(
+                    model_checkpoint=checkpoints[epoch],
+                    returnn_config=train_job.returnn_config,
+                    returnn_python_exe=train_job.returnn_python_exe,
+                    returnn_root=train_job.returnn_root,
+                    log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
+                )
+
+                prior_job.add_alias(name + "extract_nn_prior")
+                prior_file = prior_job.out_prior_xml_file
+                assert prior_file is not None
                 assert acoustic_mixture_path is not None
 
                 if use_epoch_for_compile:
@@ -401,6 +417,7 @@ class HybridSystem(NnSystem):
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
+                    prior_file=prior_file,
                 )
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
@@ -438,6 +455,7 @@ class HybridSystem(NnSystem):
         returnn_config: Path,
         checkpoints: Dict[int, returnn.Checkpoint],
         step_args: HybridArgs,
+        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
     ):
         for recog_name, recog_args in step_args.recognition_args.items():
             for dev_c in self.dev_corpora:
@@ -445,7 +463,7 @@ class HybridSystem(NnSystem):
                     name=f"{train_corpus_key}-{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    train_job=train_job,
                     recognition_corpus_key=dev_c,
                     **recog_args,
                 )
@@ -460,7 +478,7 @@ class HybridSystem(NnSystem):
                     name=f"{train_name}-{recog_name}",
                     returnn_config=returnn_config,
                     checkpoints=checkpoints,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
+                    train_job=train_job,
                     recognition_corpus_key=tst_c,
                     **r_args,
                 )
@@ -544,6 +562,7 @@ class HybridSystem(NnSystem):
                     returnn_config=returnn_recog_config,
                     checkpoints=returnn_train_job.out_checkpoints,
                     step_args=step_args,
+                    train_job=returnn_train_job,
                 )
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
