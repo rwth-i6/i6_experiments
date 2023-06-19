@@ -866,10 +866,7 @@ def conformer_baseline():
             bpe_size=BPE_500,
         )
 
-        if n != "avg":
-            continue
-
-        for beam_size in [12, 16, 24]:
+        for beam_size in [12, 16, 24, 32, 64]:
             for lm_scale in [0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32]:
                 for prior_scale in [0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22, 0.24]:
                     run_lm_fusion(
