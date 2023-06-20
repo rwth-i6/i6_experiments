@@ -215,6 +215,10 @@ class CTCDecoder:
         att_scale=0.3,
         use_ts_discount=False,
         ctc_scale=1.0,
+        blank_prob_scale=0.0,  # in log space
+        repeat_prob_scale=0.0,  # in log space
+        ctc_prior_correction=False,
+        prior_scale=1.0,
         # loc_conv_att_filter_size=None,
         # loc_conv_att_num_channels=None,
         # reduceout=True,
@@ -304,6 +308,10 @@ class CTCDecoder:
         self.use_ts_discount = use_ts_discount
 
         self.ctc_scale = ctc_scale
+        self.blank_prob_scale = blank_prob_scale
+        self.repeat_prob_scale = repeat_prob_scale
+        self.ctc_prior_correction = ctc_prior_correction
+        self.prior_scale = prior_scale
         # self.loc_conv_att_filter_size = loc_conv_att_filter_size
         # self.loc_conv_att_num_channels = loc_conv_att_num_channels
         #
@@ -379,13 +387,35 @@ class CTCDecoder:
         )
 
     def add_ctc_scores(self, subnet_unit: ReturnnNetwork):
-        subnet_unit.update(
-            {
+        if self.ctc_prior_correction:
+            subnet_unit.update({
+                "ctc_log_scores_no_prior": {
+                    "class": "activation",
+                    "activation": "safe_log",
+                    "from": "data:source",
+                },
+                "scaled_ctc_log_prior": {
+                    "class": "eval",
+                    "from": "base:ctc_log_prior",
+                    "eval": f"source(0) * {self.prior_scale}",
+                },
+                "ctc_log_scores": {
+                    "class": "combine",
+                    "from": ["ctc_log_scores_no_prior", "scaled_ctc_log_prior"],
+                    "kind": "sub",
+                },
+            })
+        else:
+            subnet_unit.update({
                 "ctc_log_scores": {
                     "class": "activation",
                     "activation": "safe_log",
                     "from": "data:source",
                 },  # [B,V+1]
+            })
+
+        subnet_unit.update(
+            {
                 "blank_log_prob": {
                     "class": "gather",
                     "from": "ctc_log_scores",
@@ -408,7 +438,6 @@ class CTCDecoder:
 
     def add_score_combination(self, subnet_unit: ReturnnNetwork, att_layer: str = None, lm_layer: str = None):
         one_minus_term_scale = 1
-        ctc_probs_scale = 1
         combine_list = []
         if self.ctc_scale > 0:
             combine_list.append("scaled_ctc_log_scores")
@@ -452,7 +481,7 @@ class CTCDecoder:
                         "false_from": "prev:n_att_contrib",
                         "initial_output": 0,
                     },
-                    "n_att_contrib_plus_1":{
+                    "n_att_contrib_plus_1": {
                         "class": "add",
                         "from": ["n_att_contrib", "const1"],
                     },
@@ -527,7 +556,7 @@ class CTCDecoder:
                 "scaled_blank_log_prob": {
                     "class": "eval",
                     "from": "blank_log_prob",
-                    "eval": f"{ctc_probs_scale} * source(0)",
+                    "eval": f"source(0) - {self.blank_prob_scale} ",
                 },
                 "scaled_blank_log_prob_expand": {
                     "class": "expand_dims",
@@ -582,7 +611,7 @@ class CTCDecoder:
                 "scaled_ctc_log_scores_slice": {
                     "class": "eval",
                     "from": "ctc_log_scores_slice",
-                    "eval": f"{ctc_probs_scale} * source(0)",
+                    "eval": f"source(0) - {self.repeat_prob_scale}",
                 },
                 "scaled_label_score": {
                     "class": "switch",
@@ -608,16 +637,84 @@ class CTCDecoder:
         )
 
     def add_greedy_decoder(self, subnet_unit: ReturnnNetwork):
+        source = "data:source"
+        input_type = None
+        if self.blank_prob_scale > 0.0:
+            subnet_unit.update(
+                {
+                    "ctc_log_scores": {
+                        "class": "activation",
+                        "activation": "safe_log",
+                        "from": "data:source",
+                    },
+                    "ctc_log_scores_slice": {
+                        "class": "slice",
+                        "from": "ctc_log_scores",
+                        "axis": "f",
+                        "slice_start": 0,
+                        "slice_end": 10025,
+                    },
+                    "blank_log_prob": {
+                        "class": "gather",
+                        "from": "ctc_log_scores",
+                        "position": 10025,
+                        "axis": "f",
+                    },
+                    "scaled_blank_log_prob": {
+                        "class": "eval",
+                        "from": "blank_log_prob",
+                        "eval": f"source(0) - {self.blank_prob_scale}",
+                    },
+                    "scaled_blank_log_prob_expand": {
+                        "class": "expand_dims",
+                        "from": "scaled_blank_log_prob",
+                        "axis": "f",
+                    },
+                    "ctc_w_blank_scale": {
+                        "class": "concat",
+                        "from": [
+                            ("ctc_log_scores_slice", "f"),
+                            ("scaled_blank_log_prob_expand", "f"),
+                        ],
+                    },
+                }
+            )
+            source = "ctc_w_blank_scale"
+            input_type = "log_prob"
+
+        elif self.ctc_prior_correction:
+            subnet_unit.update(
+                {
+                    "scaled_ctc_log_prior": {
+                        "class": "eval",
+                        "from": "base:ctc_log_prior",
+                        "eval": f"source(0) * {self.prior_scale}",
+                    },
+                    "ctc_log_scores": {
+                        "class": "activation",
+                        "activation": "safe_log",
+                        "from": "data:source",
+                    },
+                    "ctc_log_scores_w_prior": {
+                        "class": "combine",
+                        "kind": "sub",
+                        "from": ["ctc_log_scores", "scaled_ctc_log_prior"],
+                    },
+                }
+            )
+            source = "ctc_log_scores_w_prior"
+
         if self.length_normalization:
             subnet_unit.add_choice_layer(
-                "output", "data:source", target=self.target_w_blank, beam_size=1, initial_output=0
+                "output", source, target=self.target_w_blank, beam_size=1, input_type=input_type, initial_output=0
             )
         else:
             subnet_unit.add_choice_layer(
                 "output",
-                "data:source",
+                source,
                 target=self.target_w_blank,
                 beam_size=1,
+                input_type=input_type,
                 initial_output=0,
             )
 

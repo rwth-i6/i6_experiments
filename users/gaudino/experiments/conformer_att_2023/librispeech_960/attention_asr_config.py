@@ -504,7 +504,11 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_scale: float = 1.0
     add_att_dec: bool = False
     att_scale: float = 0.3
-    use_ts_discount: bool = False
+    use_ts_discount: bool = False # wip
+    blank_prob_scale: float = 0.0
+    repeat_prob_scale: float = 0.0
+    ctc_prior_correction: bool = False
+    prior_scale: float = 1.0
 
 
 def create_config(
@@ -561,6 +565,7 @@ def create_config(
     joint_ctc_att_decode_args=None,
     staged_hyperparams: dict = None,
     keep_best_n=None,
+    ctc_log_prior_file=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -818,6 +823,18 @@ def create_config(
             "from": ["log10_", "global_mean", "global_stddev"],
             "eval": "(source(0) - source(1)) / source(2)",
         }
+
+    if ctc_log_prior_file:
+        python_prolog += ["import numpy"]
+        from sisyphus.delayed_ops import DelayedFormat
+        tmp = DelayedFormat("{}", ctc_log_prior_file)
+        # CodeWrapper(DelayedFormat("numpy.loadtxt('{}')", ctc_prior_file))
+        exp_config["network"]["ctc_log_prior"] = {
+            "class": "constant",
+            "value": CodeWrapper(f"numpy.loadtxt('{tmp}', dtype='float32')"),
+        }
+        # TODO: name of ctc layer standalone
+        # TODO: name of ctc layer combined with LM/Att
 
     staged_network_dict = None
 
