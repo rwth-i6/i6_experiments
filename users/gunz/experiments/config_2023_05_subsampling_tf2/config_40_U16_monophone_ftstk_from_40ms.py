@@ -284,7 +284,7 @@ def run_single(
     s.experiments["fh"] = {
         **s.experiments["fh"],
         "train_job": FakeReturnnJob(600, import_checkpoint),
-        "priors": PriorInfo.from_monophone_job("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/priors/nn_mono-from-scratch-conf-lr:v7-ss:4"),
+        "priors": PriorInfo.from_monophone_job("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/priors/nn_mono-from-scratch-conf-lr-v7-ss-4"),
     }
 
     decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
