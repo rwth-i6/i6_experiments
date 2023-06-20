@@ -32,7 +32,7 @@ class ExportPyTorchModelToOnnxJob(Job):
         self.returnn_config.write("returnn.config")
         config.load_file("returnn.config")
         
-        model_state = torch.load(str(self.pytorch_checkpoint))
+        model_state = torch.load(str(self.pytorch_checkpoint), map_location=torch.device('cpu'))
         if isinstance(model_state, dict):
             epoch = model_state["epoch"]
             step = model_state["step"]
@@ -43,7 +43,7 @@ class ExportPyTorchModelToOnnxJob(Job):
         
         get_model_func = config.typed_value("get_model")
         assert get_model_func, "get_model not defined"
-        model = get_model_func(epoch=epoch, step=step)
+        model = get_model_func(epoch=epoch, step=step, onnx_export=True)
         assert isinstance(model, torch.nn.Module)
 
         model.load_state_dict(model_state)
