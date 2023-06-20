@@ -950,6 +950,7 @@ def create_config(
     if seq_train_opts:
         from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
             add_double_softmax,
+            add_min_wer,
         )
 
         assert retrain_checkpoint, "seq train requires retrain checkpoint"
@@ -960,7 +961,7 @@ def create_config(
         if seq_train_type == "mmi":
             raise NotImplementedError
         elif seq_train_type == "min_wer":
-            raise NotImplementedError
+            raise add_min_wer(net=exp_config["network"], **opts)
         elif seq_train_type == "double_softmax":
             add_double_softmax(net=exp_config["network"], **opts)
 
