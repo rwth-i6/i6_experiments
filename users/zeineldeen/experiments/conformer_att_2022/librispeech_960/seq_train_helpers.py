@@ -93,6 +93,9 @@ def add_double_softmax(net, loss_scale, ce_scale, am_scale, lm_scale, ce_label_s
 
 
 def add_min_wer(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_label_smoothing=0.0):
+    """
+    Add minimum WER training criterion. For reference: https://arxiv.org/abs/1712.01818
+    """
     subnet = net["output"]["unit"]
 
     # add LM

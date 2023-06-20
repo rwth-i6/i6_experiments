@@ -1,6 +1,7 @@
 import copy, os
 
 import numpy
+import sisyphus.toolkit as tk
 
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.attention_asr_config import (
     create_config,
@@ -40,6 +41,7 @@ from i6_experiments.users.rossenbach.experiments.librispeech.kazuki_lm.experimen
     get_lm,
     ZeineldeenLM,
 )
+from i6_experiments.users.berger.recipe.summary import SummaryReport
 
 train_jobs_map = {}  # dict[str, ReturnnTrainJob]
 train_job_avg_ckpt = {}
@@ -89,6 +91,7 @@ trafo_lm_opts_map = {
     BPE_5K: trafo_5k_lm_opts,
 }
 
+jobs_summary_reports = {}  # dict[str, SummaryReport]
 
 # ----------------------------------------------------------- #
 
@@ -186,7 +189,7 @@ def conformer_baseline():
             feature_extraction_net=feature_extraction_net,
             is_recog=True,
         )
-        search_single(
+        wer = search_single(
             exp_prefix,
             returnn_search_config,
             checkpoint,
@@ -199,6 +202,7 @@ def conformer_baseline():
             time_rqmt=time_rqmt,
             **kwargs,
         )
+        return wer
 
     def run_lm_fusion(
         lm_type,
@@ -337,7 +341,7 @@ def conformer_baseline():
 
                 test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
-                run_single_search(
+                wer = run_single_search(
                     exp_name=name,
                     train_data=train_data,
                     search_args=search_args,
@@ -348,6 +352,22 @@ def conformer_baseline():
                     recog_bliss=test_dataset_tuples[test_set][2],
                     time_rqmt=kwargs.get("time_rqmt", time_rqmt),
                 )
+
+                if exp_name not in jobs_summary_reports:
+                    jobs_summary_reports[exp_name] = SummaryReport(
+                        col_names=["test_set", "lm_scale", "prior_scale", "beam_size", "wer"], col_sort_key="wer"
+                    )
+
+                jobs_summary_reports[exp_name].add_row(
+                    {
+                        "test_set": test_set,
+                        "lm_scale": lm_scale,
+                        "prior_scale": prior_scale if prior_scale is not None else "-",
+                        "beam_size": beam_size,
+                        "wer": wer,
+                    }
+                )
+                tk.register_report(f"{prefix_name}/{exp_name}/summary", jobs_summary_reports[exp_name])
 
     def run_search(
         exp_name,
@@ -764,22 +784,22 @@ def conformer_baseline():
         num_epochs=600,
     )
 
-    # for beam_size in [32, 40, 45, 50, 55, 60, 65, 70]:
-    #     for lm_scale in [0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5]:
-    #         run_lm_fusion(
-    #             lm_type="trafo",
-    #             exp_name=retrain_exp_name,
-    #             epoch="avg",
-    #             test_set_names=["dev-clean", "dev-other"],
-    #             lm_scales=[lm_scale],
-    #             train_job=train_j,
-    #             train_data=train_data,
-    #             feature_net=log10_net_10ms,
-    #             args=oclr_args,
-    #             beam_size=beam_size,
-    #             batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-    #             bpe_size=BPE_10K,
-    #         )
+    for beam_size in [32, 40, 45, 50, 55, 60, 65, 70]:
+        for lm_scale in [0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5]:
+            run_lm_fusion(
+                lm_type="trafo",
+                exp_name=retrain_exp_name,
+                epoch="avg",
+                test_set_names=["dev-clean", "dev-other"],
+                lm_scales=[lm_scale],
+                train_job=train_j,
+                train_data=train_data,
+                feature_net=log10_net_10ms,
+                args=oclr_args,
+                beam_size=beam_size,
+                batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+                bpe_size=BPE_10K,
+            )
 
     mini_lstm_j = train_mini_lstm(
         exp_name=retrain_exp_name,
@@ -789,9 +809,9 @@ def conformer_baseline():
         w_drop=True,
     )
 
-    for beam_size in [32, 40, 45, 50, 55, 60, 65, 70]:
-        for lm_scale in [0.48, 0.5, 0.52, 0.54]:
-            for prior_scale in [0.34, 0.36, 0.38, 0.4]:
+    for beam_size in [32, 40, 45, 50]:
+        for lm_scale in [0.4, 0.42, 0.44, 0.46, 0.48]:
+            for prior_scale in [0.3, 0.32, 0.34, 0.36, 0.38]:
                 run_lm_fusion(
                     lm_type="trafo",
                     exp_name=retrain_exp_name,
@@ -810,23 +830,24 @@ def conformer_baseline():
                     bpe_size=BPE_10K,
                 )
 
-    run_lm_fusion(
-        lm_type="trafo",
-        exp_name=retrain_exp_name,
-        epoch="avg",
-        test_set_names=["test-other"],
-        lm_scales=[0.54],
-        prior_scales=[0.38],
-        prior_type="mini_lstm",
-        mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
-        train_job=train_j,
-        train_data=train_data,
-        feature_net=log10_net_10ms,
-        args=oclr_args,
-        beam_size=70,
-        batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-        bpe_size=BPE_10K,
-    )
+    for test_set, lm, prior, beam in [("test-other", 0.54, 0.38, 70), ("test-clean", 0.48, 0.37, 32)]:
+        run_lm_fusion(
+            lm_type="trafo",
+            exp_name=retrain_exp_name,
+            epoch="avg",
+            test_set_names=[test_set],
+            lm_scales=[lm],
+            prior_scales=[prior],
+            prior_type="mini_lstm",
+            mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
+            train_job=train_j,
+            train_data=train_data,
+            feature_net=log10_net_10ms,
+            args=oclr_args,
+            beam_size=beam,
+            batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+            bpe_size=BPE_10K,
+        )
 
     # --------------------------- Seq. Training --------------------------- #
 
@@ -860,8 +881,18 @@ def conformer_baseline():
 
     # TODO: min_wer
     # beam size 4 and 5 seqs per batch use 9.4 GB GPU mem
+    # beam size 8 and 3 seqs per batch use 8.1 GB GPU mem
     for total_ep, lr, const_ep in [(20, 1e-5, 20)]:
-        for abs_scale, rel_scale, ce_scale in [(1.0, 0.1, 0.0)]:
+        for abs_scale, rel_scale, ce_scale, beam in [
+            (1.0, 0.1, 0.0, 4),
+            (1.0, 0.1, 0.1, 4),
+            (1.0, 0.2, 0.0, 4),
+            (1.0, 0.2, 0.1, 4),
+            (1.0, 0.1, 0.0, 8),
+            (1.0, 0.1, 0.1, 8),
+            (1.0, 0.2, 0.0, 8),
+            (1.0, 0.2, 0.1, 8),
+        ]:
             am_scale = abs_scale
             lm_scale = rel_scale * am_scale
             seq_train_opts = {
@@ -870,20 +901,26 @@ def conformer_baseline():
                 "am_scale": am_scale,
                 "lm_scale": lm_scale,
                 "ce_scale": ce_scale,
-                "beam_size": 4,
+                "beam_size": beam,
             }
 
             args = copy.deepcopy(retrain_args)
-            args["accum_grad"] = 2
-            args["max_seqs"] = 5
+            if beam == 4:
+                args["accum_grad"] = 2
+                args["max_seqs"] = 5
+            else:
+                assert beam == 8
+                args["accum_grad"] = 3
+                args["max_seqs"] = 3
 
             args["learning_rates_list"] = [lr] * const_ep + list(numpy.linspace(lr, 1e-6, total_ep - const_ep))
             run_seq_train(
-                exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
+                exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
                 seq_train_opts=seq_train_opts,
                 train_args=args,
                 num_epochs=total_ep,
                 bpe_size=BPE_10K,
+                time_rqmt=total_ep + 4,
             )
 
     # TODO: MMI
