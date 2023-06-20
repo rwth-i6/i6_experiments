@@ -139,6 +139,7 @@ def get_pytorch_serializer_v2(
         net_args: Dict[str, Any],
         use_custom_engine=False,
         forward=False,
+        search=False,
         debug=False,
         **kwargs
 ) -> TorchCollection:
@@ -170,6 +171,26 @@ def get_pytorch_serializer_v2(
         )
         finish_hook = Import(
             package + ".%s.forward_finish_hook" % network_module
+        )
+        serializer_objects.extend(
+            [forward_step, init_hook, finish_hook]
+        )
+    elif search:
+        # Just a hack to test the phoneme-based recognition
+        forward_step = Import(
+            package + ".%s.search_step" % network_module,
+            import_as="forward_step"
+        )
+        init_hook = PartialImport(
+            code_object_path=package + ".%s.search_init_hook" % network_module,
+            unhashed_package_root=PACKAGE,
+            hashed_arguments=kwargs["search_args"],
+            unhashed_arguments={},
+            import_as="forward_init_hook",
+            )
+        finish_hook = Import(
+            package + ".%s.search_finish_hook" % network_module,
+            import_as="forward_init_hook"
         )
         serializer_objects.extend(
             [forward_step, init_hook, finish_hook]

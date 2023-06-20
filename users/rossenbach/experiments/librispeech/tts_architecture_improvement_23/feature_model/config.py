@@ -7,13 +7,13 @@ from i6_core.returnn import ReturnnConfig
 from i6_experiments.users.rossenbach.common_setups.returnn.datasets import (
     GenericDataset,
 )
-from .data import AlignmentTrainingDatasets
-from ..serializer import get_network_serializer, get_pytorch_serializer
+from .data import FeatureModelTrainingDatasets
+from ..serializer import get_pytorch_serializer_v2
 
 
 def get_training_config(
         returnn_common_root: tk.Path,
-        training_datasets: AlignmentTrainingDatasets,
+        training_datasets: FeatureModelTrainingDatasets,
         network_module: str,
         net_args: Dict[str, Any],
         config: Dict[str, Any],
@@ -41,7 +41,7 @@ def get_training_config(
     }
     config = {**base_config, **copy.deepcopy(config)}
 
-    get_serializer = get_pytorch_serializer
+    get_serializer = get_pytorch_serializer_v2
     post_config["backend"] = "torch"
 
     serializer = get_serializer(
@@ -57,71 +57,6 @@ def get_training_config(
         config=config, post_config=post_config, python_epilog=[serializer]
     )
     return returnn_config
-
-
-def get_forward_config(
-        returnn_common_root, forward_dataset: GenericDataset, datastreams, network_module, net_args, debug=False, pytorch_mode=False,
-):
-    """
-    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
-    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
-    :param training_datasets: datasets for training
-    :param kwargs: arguments to be passed to the network construction
-    :return: RETURNN forward config
-    """
-    config = {
-        "behavior_version": 16,
-        "forward_batch_size": 28000,
-        "max_seq_length": {"audio_features": 1000},
-        "max_seqs": 200,
-        "forward_use_search": True,
-        "target": "extract_alignment",
-        #############
-        "eval": forward_dataset.as_returnn_opts()
-    }
-    get_serializer = get_pytorch_serializer if pytorch_mode else get_network_serializer
-
-    serializer = get_serializer(
-        training=False,
-        returnn_common_root=returnn_common_root,
-        datastreams=datastreams,
-        network_module=network_module,
-        net_args=net_args,
-        debug=debug
-    )
-    returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
-    return returnn_config
-
-def get_pt_forward_config(
-        returnn_common_root, forward_dataset: GenericDataset, datastreams, network_module, net_args, debug=False
-):
-    """
-    Returns the RETURNN config serialized by :class:`ReturnnCommonSerializer` in returnn_common for forward_ctc_aligner
-    :param returnn_common_root: returnn_common version to be used, usually output of CloneGitRepositoryJob
-    :param training_datasets: datasets for training
-    :param kwargs: arguments to be passed to the network construction
-    :return: RETURNN forward config
-    """
-    config = {
-        "batch_size": 28000,
-        "max_seqs": 200,
-        #############
-        "forward": forward_dataset.as_returnn_opts()
-    }
-    get_serializer = get_pytorch_serializer
-
-    serializer = get_serializer(
-        training=False,
-        returnn_common_root=returnn_common_root,
-        datastreams=datastreams,
-        network_module=network_module,
-        forward=True,
-        net_args=net_args,
-        debug=debug
-    )
-    returnn_config = ReturnnConfig(config=config, python_epilog=[serializer])
-    return returnn_config
-
 
 
 def get_pt_raw_forward_config(
@@ -140,7 +75,7 @@ def get_pt_raw_forward_config(
         #############
         "forward": forward_dataset.as_returnn_opts()
     }
-    get_serializer = get_pytorch_serializer
+    get_serializer = get_pytorch_serializer_v2
 
     serializer = get_serializer(
         training=False,

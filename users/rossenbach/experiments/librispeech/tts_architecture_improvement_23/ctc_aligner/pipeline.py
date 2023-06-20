@@ -36,3 +36,19 @@ def ctc_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     tk.register_output(prefix + "/training.alignment", alignment_hdf)
 
     return alignment_hdf
+
+
+def ctc_search(checkpoint, config, returnn_exe, returnn_root, prefix):
+    last_forward_job = ReturnnForwardJob(
+        model_checkpoint=checkpoint,
+        returnn_config=config,
+        hdf_outputs=["recognition.txt"],
+        returnn_python_exe=returnn_exe,
+        returnn_root=returnn_root,
+        device="cpu",
+        cpu_rqmt=8,
+        mem_rqmt=8,
+    )
+    last_forward_job.add_alias(prefix + "/forward")
+    recognition = last_forward_job.out_hdf_files["recognition.txt"]
+    tk.register_output(prefix + "/search.recognition.txt", recognition)

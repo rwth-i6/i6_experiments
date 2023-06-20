@@ -5,8 +5,8 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config
-from .pipeline import ctc_training, ctc_forward
+from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config, get_pt_raw_search_config
+from .pipeline import ctc_training, ctc_forward, ctc_search
 from ..data import get_tts_log_mel_datastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
@@ -267,6 +267,24 @@ def get_pytorch_raw_ctc_alignment():
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name
         )
+        if v2:
+            from ..data import get_text_lexicon
+            search_config = get_pt_raw_search_config(
+                returnn_common_root=RETURNN_COMMON,
+                forward_dataset=training_datasets.cv,
+                datastreams=training_datasets.datastreams,
+                network_module=net_module,
+                net_args=params,
+                debug=debug,
+                search_args={"text_lexicon": get_text_lexicon()},
+            )
+            ctc_search(
+                checkpoint=train_job.out_checkpoints[100],
+                config=search_config,
+                returnn_exe=RETURNN_PYTORCH_EXE,
+                returnn_root=MINI_RETURNN_ROOT,
+                prefix=prefix + name + "_search"
+            )
         return duration_hdf
 
     net_module = "ctc_aligner_v1_fe"
@@ -305,7 +323,8 @@ def get_pytorch_raw_ctc_alignment():
     }
 
 
-    duration_hdf = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
-    _ = run_exp(net_module + "_drop035_bs56k_seriv2", params, net_module, config, debug=True, v2=True)
+    _ = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
+    duration_hdf = run_exp(net_module + "_drop035_bs56k_seriv2", params, net_module, config, debug=True, v2=True)
+    add_duration(net_module + "_drop_035_bs56k_seriv2", duration_hdf)
 
     return duration_hdf

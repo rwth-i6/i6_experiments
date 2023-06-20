@@ -1,3 +1,9 @@
+"""
+Like v1, but with LayerNorm in the duration prediction, similar to Timurs/Benedikts implementation
+
+Adds
+"""
+
 from dataclasses import dataclass
 import torch
 import numpy
@@ -10,7 +16,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from returnn.torch.context import get_run_ctx
 
-from .nar_taco_v1_config import (
+from .nar_taco_v2_config import (
     NarEncoderConfig,
     NarTacoDecoderConfig,
     ConvDurationSigmaPredictorConfig,
@@ -179,6 +185,43 @@ class Conv1DBlock(torch.nn.Module):
         return x
 
 
+class DPConvBlock(torch.nn.Module):
+    """
+    A 1D-Convolution with ReLU, batch-norm and non-broadcasted dropout
+    Will pad to the same output length
+
+    Extended with xavier_init
+    """
+
+    def __init__(self, in_size, out_size, filter_size, dropout):
+        """
+        :param in_size: input feature size
+        :param out_size: output feature size
+        :param filter_size: filter size
+        :param dropout: dropout probability
+        """
+        super().__init__()
+        assert filter_size % 2 == 1, "Only odd filter sizes allowed"
+        self.conv = nn.Conv1d(in_size, out_size, filter_size, padding=filter_size // 2)
+        self.ln = nn.LayerNorm(normalized_shape=out_size)
+        self.dropout = dropout
+
+        nn.init.xavier_normal_(self.conv.weight)
+
+    def forward(self, x):
+        """
+        :param x: [B, F_in, T]
+        :return: [B, F_out, T]
+        """
+        x = self.conv(x)
+        x = nn.functional.relu(x)
+        x = x.transpose(1, 2)
+        x = self.ln(x)
+        x = x.transpose(1, 2)
+        x = nn.functional.dropout(x, p=self.dropout, training=self.training)
+        return x
+
+
 class ConvDurationSigmaPredictor(torch.nn.Module):
     """
     Convolution based duration predictor
@@ -191,14 +234,14 @@ class ConvDurationSigmaPredictor(torch.nn.Module):
         """
         super().__init__()
         self.duration_convs = nn.Sequential(
-            Conv1DBlock(in_size, config.hidden_size,
+            DPConvBlock(in_size, config.hidden_size,
                         filter_size=config.filter_size, dropout=config.dropout),
-            Conv1DBlock(config.hidden_size, config.hidden_size, filter_size=config.filter_size, dropout=config.dropout),
+            DPConvBlock(config.hidden_size, config.hidden_size, filter_size=config.filter_size, dropout=config.dropout),
         )
         self.sigma_convs = nn.Sequential(
-            Conv1DBlock(in_size, config.hidden_size,
+            DPConvBlock(in_size, config.hidden_size,
                         filter_size=config.filter_size, dropout=config.dropout),
-            Conv1DBlock(config.hidden_size, config.hidden_size, filter_size=config.filter_size, dropout=config.dropout),
+            DPConvBlock(config.hidden_size, config.hidden_size, filter_size=config.filter_size, dropout=config.dropout),
         )
         self.duration_linear = nn.Linear(config.hidden_size, 1)
         self.sigma_linear = nn.Linear(config.hidden_size, 1)
@@ -271,9 +314,11 @@ class NarTacoDecoder(torch.nn.Module):
             hidden_size=config.lstm_size,
             num_layers=2,
             bidirectional=True,
-            batch_first=True
+            batch_first=True,
+            dropout=config.dropout,
         )
 
+        self.final_dropout = nn.Dropout(p=config.dropout, inplace=True)
         self.log_mel_linear = nn.Linear(2*config.lstm_size, mel_target_size)
 
     def forward(self, upsampling_output: torch.Tensor, masked_durations: torch.Tensor, speaker_embeddings: torch.Tensor):
@@ -299,6 +344,7 @@ class NarTacoDecoder(torch.nn.Module):
             blstm_packed_out, padding_value=0.0, batch_first=True
         )  # [B, T, lstm_size*2]
 
+        blstm_out = self.final_dropout(blstm_out)
         norm_log_mel_out = self.log_mel_linear(blstm_out)
         return norm_log_mel_out
 

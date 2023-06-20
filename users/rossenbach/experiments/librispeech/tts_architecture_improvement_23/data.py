@@ -41,6 +41,12 @@ def get_librispeech_lexicon(corpus_key="train-clean-100") -> tk.Path:
     return extend_lexicon_with_tts_lemmas(get_g2p_augmented_bliss_lexicon_dict(use_stress_marker=False)[corpus_key])
 
 
+def get_text_lexicon(corpus_key="train-clean-100") -> tk.Path:
+    bliss_lex = get_librispeech_lexicon(corpus_key)
+    from i6_experiments.users.rossenbach.lexicon.conversion import BlissLexiconToWordLexicon
+    word_lexicon = BlissLexiconToWordLexicon(bliss_lex).out_lexicon
+    return word_lexicon
+
 def get_tts_extended_bliss(ls_corpus_key) -> tk.Path:
     """
     get a modified ls corpus using the TTS processing

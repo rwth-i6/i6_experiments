@@ -5,20 +5,20 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config, get_pt_raw_forward_config, get_pt_forward_config
+from .config import get_training_config,get_pt_raw_forward_config
 from .pipeline import tts_training
-from ..data import get_tts_log_mel_datastream
+from ..data import get_tts_log_mel_datastream, get_vocab_datastream
 
 from i6_experiments.users.rossenbach.common_setups.returnn.datastreams.audio import DBMelFilterbankOptions
 
 from ..default_tools import RETURNN_EXE, RETURNN_ROOT, RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
-from ..storage import add_duration
+from ..storage import duration_alignments
 
 
 from ..rc_networks.ctc_aligner.parameters import ConvBlstmRecParams
 
 
-def get_pytorch_raw_ctc_alignment():
+def get_pytorch_raw_ctc_tts():
     """
     Baseline for the ctc aligner in returnn_common with serialization
 
@@ -43,16 +43,17 @@ def get_pytorch_raw_ctc_alignment():
         "newbob_multi_update_interval": 1,
         "newbob_relative_error_threshold": 0,
         #############
-        "batch_size": 56000*samples_per_frame,
+        "batch_size": 18000*samples_per_frame,
         "max_seq_length": {"audio_features": 1600*samples_per_frame},
         "batch_drop_last": True,  # otherwise might cause issues in indexing after local sort in train_step
         "max_seqs": 200,
     }
 
     prefix = "experiments/librispeech/tts_architecture/tts_feature_model/pytorch/"
-    training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True)
 
-    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False):
+    
+    def run_exp(name, params, net_module, config, duration_hdf, use_custom_engine=False, debug=False):
+        training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True, duration_hdf=duration_hdf)
         training_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
             training_datasets=training_datasets,
@@ -77,7 +78,6 @@ def get_pytorch_raw_ctc_alignment():
             prefix=prefix + name,
         )
 
-    net_module = "nar_taco_v1"
     log_mel_datastream = get_tts_log_mel_datastream()
 
     # verify that normalization exists
@@ -86,7 +86,13 @@ def get_pytorch_raw_ctc_alignment():
 
     norm = (log_mel_datastream.additional_options["norm_mean"], log_mel_datastream.additional_options["norm_std_dev"])
 
-    from ..pytorch_networks.nar_taco_v1 import DbMelFeatureExtractionConfig, Config
+    from ..pytorch_networks.nar_taco_v1_config import (
+        DbMelFeatureExtractionConfig,
+        NarEncoderConfig,
+        NarTacoDecoderConfig,
+        ConvDurationSigmaPredictorConfig,
+        ModelConfig
+    )
     assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
     fe_config = DbMelFeatureExtractionConfig(
         sample_rate=log_mel_datastream.options.sample_rate,
@@ -100,22 +106,100 @@ def get_pytorch_raw_ctc_alignment():
         norm=norm
     )
 
-
-
-    model_config = Config(
+    encoder_config = NarEncoderConfig(
+        label_in_dim=get_vocab_datastream(with_blank=True).vocab_size,  # forgot to remove the blank :(
+        embedding_size=256,
         conv_hidden_size=256,
-        lstm_size=512,
+        filter_size=3,
+        dropout=0.5,
+        lstm_size=256
+    )
+    decoder_config = NarTacoDecoderConfig(
+        lstm_size=1024,
+    )
+    duration_predictor_config = ConvDurationSigmaPredictorConfig(
+        hidden_size=256,
+        filter_size=3,
+        dropout=0.5,
+    )
+    model_config = ModelConfig(
         speaker_embedding_size=256,
-        dropout=0.35,
-        target_size=44,
+        dropout=0.5,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        duration_predictor_config=duration_predictor_config,
         feature_extraction_config=fe_config,
     )
 
     params = {
         "config": asdict(model_config)
     }
+    net_module = "nar_taco_v1"
 
+    duration_hdf = duration_alignments["ctc_aligner_v1_fe_drop_035_bs56k_seriv2"]
 
-    duration_hdf = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
+    run_exp(net_module + "_ctc_drop035_bs56k", params, net_module, config, duration_hdf=duration_hdf, debug=True)
+
+    config_adamw = copy.deepcopy(config)
+    config_adamw["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-7}
+    run_exp(net_module + "_ctc_drop035_bs56k+adamw_1e7", params, net_module, config_adamw, duration_hdf=duration_hdf, debug=True)
+
+    # explicit_duration_hdf = tk.Path("/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_experiments/users/rossenbach/tts/duration_extraction/ViterbiAlignmentToDurationsJob.AyAO6JWXTnVc/output/durations.hdf")
+    # run_exp(net_module + "_ctc_drop035_bs56k+custom_dur_tftts", params, net_module, config, duration_hdf=explicit_duration_hdf, debug=True)
+
+    net_module = "nar_taco_v2"
+    
+
+    from ..pytorch_networks.nar_taco_v2_config import (
+        DbMelFeatureExtractionConfig,
+        NarEncoderConfig,
+        NarTacoDecoderConfig,
+        ConvDurationSigmaPredictorConfig,
+        ModelConfig
+    )
+    assert isinstance(log_mel_datastream.options.feature_options, DBMelFilterbankOptions)
+    fe_config = DbMelFeatureExtractionConfig(
+        sample_rate=log_mel_datastream.options.sample_rate,
+        win_size=log_mel_datastream.options.window_len,
+        hop_size=log_mel_datastream.options.step_len,
+        f_min=log_mel_datastream.options.feature_options.fmin,
+        f_max=log_mel_datastream.options.feature_options.fmax,
+        min_amp=log_mel_datastream.options.feature_options.min_amp,
+        num_filters=log_mel_datastream.options.num_feature_filters,
+        center=log_mel_datastream.options.feature_options.center,
+        norm=norm
+    )
+
+    encoder_config = NarEncoderConfig(
+        label_in_dim=get_vocab_datastream(with_blank=True).vocab_size,  # forgot to remove the blank :(
+        embedding_size=256,
+        conv_hidden_size=256,
+        filter_size=3,
+        dropout=0.5,
+        lstm_size=256
+    )
+    decoder_config = NarTacoDecoderConfig(
+        lstm_size=1024,
+        dropout=0.5,
+    )
+    duration_predictor_config = ConvDurationSigmaPredictorConfig(
+        hidden_size=256,
+        filter_size=3,
+        dropout=0.5,
+    )
+    model_config = ModelConfig(
+        speaker_embedding_size=256,
+        dropout=0.5,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        duration_predictor_config=duration_predictor_config,
+        feature_extraction_config=fe_config,
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    
+    run_exp(net_module + "_ctc_drop035_bs56k", params, net_module, config, duration_hdf=duration_hdf, debug=True)
 
     return duration_hdf
