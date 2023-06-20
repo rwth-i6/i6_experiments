@@ -321,16 +321,17 @@ def run_single(
             [3.0, 10.0],
             [0.0],
             [0.0],
+            [True],
         )
         all_cfgs = (
             *permutation,
-            (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
-            (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
-            (0.5, 15.0, 10.0, 10.0, 10.0, 0.0, 0.0),
-            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 3.0),
-            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0),
+            (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),
+            (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),
+            (0.5, 15.0, 10.0, 10.0, 10.0, 0.0, 0.0, False),
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 3.0, False),
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0, False),
         )
-        for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in all_cfgs:
+        for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit, gpu in all_cfgs:
             sil_non_w_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
             cfg = dataclasses.replace(
                 recog_args,
@@ -344,13 +345,13 @@ def run_single(
                 crp_corpus=crp_k,
                 encoder_output_layer="center__output",
                 epoch=ep,
-                gpu=True,
+                gpu=gpu,
                 key="fh",
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=decoding_config,
                 n_cart_out=s.label_info.get_n_of_dense_classes(),
                 opt_lm_am_scale=False,
-                parallel=20,
+                parallel=20 if gpu else None,
                 params=cfg,
                 rtf=16,
             )
