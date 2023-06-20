@@ -326,6 +326,8 @@ def run_single(
             *permutation,
             (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
             (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 3.0),
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0),
         )
         for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in all_cfgs:
             sil_non_w_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
