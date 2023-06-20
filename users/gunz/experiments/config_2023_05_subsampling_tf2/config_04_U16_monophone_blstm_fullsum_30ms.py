@@ -13,7 +13,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import corpus, rasr, returnn
+from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -502,5 +502,8 @@ def run_single(
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=True,
         )
+
+        allophones = lexicon.StoreAllophonesJob(crp)
+        tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
     return s
