@@ -859,5 +859,30 @@ def conformer_baseline():
             )
 
     # TODO: min_wer
+    for total_ep, lr, const_ep in [(20, 1e-5, 20)]:
+        for abs_scale, rel_scale, ce_scale in [(1.0, 0.1, 0.0)]:
+            am_scale = abs_scale
+            lm_scale = rel_scale * am_scale
+            seq_train_opts = {
+                "type": "min_wer",
+                "loss_scale": 1.0,
+                "am_scale": am_scale,
+                "lm_scale": lm_scale,
+                "ce_scale": ce_scale,
+                "beam_size": 4,
+            }
+
+            args = copy.deepcopy(retrain_args)
+            args["accum_grad"] = 10
+            args["max_seqs"] = 1
+
+            args["learning_rates_list"] = [lr] * const_ep + list(numpy.linspace(lr, 1e-6, total_ep - const_ep))
+            run_seq_train(
+                exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
+                seq_train_opts=seq_train_opts,
+                train_args=args,
+                num_epochs=total_ep,
+                bpe_size=BPE_10K,
+            )
 
     # TODO: MMI
