@@ -141,6 +141,7 @@ def add_min_wer(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_lab
     extra_search_subnet["output"]["length_normalization"] = False
     extra_search_subnet["output"]["cheating"] = "exclusive"
     extra_search_subnet["output"]["beam_size"] = beam_size
+    extra_search_subnet["output"]["input_type"] = "log_prob"
 
     # CE loss
     if "loss_opts" in subnet["output_prob"]:
