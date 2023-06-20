@@ -284,7 +284,9 @@ def run_single(
     s.experiments["fh"] = {
         **s.experiments["fh"],
         "train_job": FakeReturnnJob(600, import_checkpoint),
-        "priors": PriorInfo.from_monophone_job("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/priors/nn_mono-from-scratch-conf-lr-v7-ss-4"),
+        "priors": PriorInfo.from_monophone_job(
+            "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling/priors/nn_mono-from-scratch-conf-lr-v7-ss-4"
+        ),
     }
 
     decoding_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
@@ -311,7 +313,7 @@ def run_single(
             tdp_scale=0.1,
         )
 
-        for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in itertools.product(
+        permutation = itertools.product(
             np.linspace(0.5, 1.0, 3),
             [0.0, 3.0, 10.0],
             [0.0, 3.0, 10.0],
@@ -319,7 +321,13 @@ def run_single(
             [3.0, 10.0],
             [0.0],
             [0.0],
-        ):
+        )
+        all_cfgs = (
+            *permutation,
+            (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
+            (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0),
+        )
+        for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in all_cfgs:
             sil_non_w_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
             cfg = dataclasses.replace(
                 recog_args,
