@@ -961,7 +961,7 @@ def create_config(
         if seq_train_type == "mmi":
             raise NotImplementedError
         elif seq_train_type == "min_wer":
-            raise add_min_wer(net=exp_config["network"], **opts)
+            add_min_wer(net=exp_config["network"], **opts)
         elif seq_train_type == "double_softmax":
             add_double_softmax(net=exp_config["network"], **opts)
 
