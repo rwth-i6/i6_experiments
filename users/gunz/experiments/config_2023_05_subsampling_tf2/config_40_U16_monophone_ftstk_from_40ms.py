@@ -325,12 +325,12 @@ def run_single(
         )
         all_cfgs = (
             *permutation,
-            (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),
-            (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),
-            (0.5, 15.0, 10.0, 10.0, 10.0, 0.0, 0.0, False),
-            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 3.0, False),
-            (0.5, 10.0, 15.0, 10.0, 10.0, 0.0, 3.0, False),
-            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0, False),
+            (0.3, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),  # default cfg w/ other prior scales
+            (0.5, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, True),  # default cfg w/ other prior scales
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 3.0, False),  # try speech exit penalty to make model stick to words
+            (0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0, False),  # try speech exit penalty to make model stick to words
+            (0.5, 10.0, 15.0, 10.0, 10.0, 0.0, 3.0, False),  # speech exit penalty + even higher sil loop
+            (0.5, 15.0, 10.0, 10.0, 10.0, 0.0, 0.0, False),  # even higher silence loop
         )
         for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit, gpu in all_cfgs:
             sil_non_w_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
