@@ -859,6 +859,7 @@ def conformer_baseline():
             )
 
     # TODO: min_wer
+    # beam size 4 and 5 seqs per batch use 9.4 GB GPU mem
     for total_ep, lr, const_ep in [(20, 1e-5, 20)]:
         for abs_scale, rel_scale, ce_scale in [(1.0, 0.1, 0.0)]:
             am_scale = abs_scale
@@ -873,8 +874,8 @@ def conformer_baseline():
             }
 
             args = copy.deepcopy(retrain_args)
-            args["accum_grad"] = 10
-            args["max_seqs"] = 1
+            args["accum_grad"] = 2
+            args["max_seqs"] = 5
 
             args["learning_rates_list"] = [lr] * const_ep + list(numpy.linspace(lr, 1e-6, total_ep - const_ep))
             run_seq_train(
