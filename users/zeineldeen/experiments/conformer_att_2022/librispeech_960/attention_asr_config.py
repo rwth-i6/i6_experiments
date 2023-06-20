@@ -556,6 +556,7 @@ def create_config(
     keep_best_n=None,
     param_dropout=0.0,
     mixup_aug_opts=None,
+    seq_train_opts=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -945,6 +946,23 @@ def create_config(
             assert ep not in staged_hyperparams
             assert ep > max(staged_hyperparams.keys())
             staged_network_dict[ep] = base_net
+
+    if seq_train_opts:
+        from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.seq_train_helpers import (
+            add_double_softmax,
+        )
+
+        assert retrain_checkpoint, "seq train requires retrain checkpoint"
+        seq_train_type = seq_train_opts["type"]
+        assert seq_train_type in ["mmi", "minWER", "double_softmax"], f"Unknown seq train type {seq_train_type}"
+        opts = copy.deepcopy(seq_train_opts)
+        del opts["type"]
+        if seq_train_type == "mmi":
+            raise NotImplementedError
+        elif seq_train_type == "min_wer":
+            raise NotImplementedError
+        elif seq_train_type == "double_softmax":
+            add_double_softmax(net=exp_config["network"], **opts)
 
     returnn_config = ReturnnConfig(
         exp_config,
