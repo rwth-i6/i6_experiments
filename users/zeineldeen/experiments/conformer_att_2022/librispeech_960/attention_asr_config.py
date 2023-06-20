@@ -955,7 +955,7 @@ def create_config(
 
         assert retrain_checkpoint, "seq train requires retrain checkpoint"
         seq_train_type = seq_train_opts["type"]
-        assert seq_train_type in ["mmi", "minWER", "double_softmax"], f"Unknown seq train type {seq_train_type}"
+        assert seq_train_type in ["mmi", "min_wer", "double_softmax"], f"Unknown seq train type {seq_train_type}"
         opts = copy.deepcopy(seq_train_opts)
         del opts["type"]
         if seq_train_type == "mmi":
