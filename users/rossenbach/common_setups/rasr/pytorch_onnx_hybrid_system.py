@@ -8,7 +8,8 @@ from sisyphus import tk
 # -------------------- Recipes --------------------
 
 import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core.returnn.config import ReturnnConfig
+from i6_core.returnn.training import PtCheckpoint
 
 from i6_core.returnn.flow import (
     make_precomputed_hybrid_tf_feature_flow,
@@ -39,7 +40,7 @@ class OnnxFeatureScorer(rasr.FeatureScorer):
         inter_op_threads=1,
         **kwargs
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
         self.config.feature_scorer_type = "onnx-feature-scorer"
         self.config.file = mixtures
@@ -64,8 +65,8 @@ class PyTorchOnnxHybridSystem(HybridSystem):
     def nn_recognition(
         self,
         name: str,
-        returnn_config: returnn.ReturnnConfig,
-        checkpoints: Dict[int, returnn.Checkpoint],
+        returnn_config: ReturnnConfig,
+        checkpoints: Dict[int, PtCheckpoint],
         acoustic_mixture_path: tk.Path,  # TODO maybe Optional if prior file provided -> automatically construct dummy file
         prior_scales: List[float],
         pronunciation_scales: List[float],
@@ -99,13 +100,14 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                 assert epoch in checkpoints.keys()
                 assert acoustic_mixture_path is not None
 
-                onnx_model = ExportPyTorchModelToOnnxJob(
+                onnx_model_job = ExportPyTorchModelToOnnxJob(
                     pytorch_checkpoint=checkpoints[epoch],
                     returnn_config=returnn_config,
                     returnn_root=self.returnn_root,
                     quantize_dynamic=quantize_dynamic,
-                ).out_onnx_model
-
+                )
+                onnx_model_job.add_alias(f"nn_recog/{name}/onnx_export_e{epoch:03d}")
+                onnx_model = onnx_model_job.out_onnx_model
 
                 io_map = {
                     "features": "data",
