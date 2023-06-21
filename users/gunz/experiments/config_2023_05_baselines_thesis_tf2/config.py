@@ -35,7 +35,7 @@ RASR_ROOT_TF2 = RASR_ROOT_U16_APPTAINER
 
 RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
 RETURNN_PYTHON_APPTAINER = "/u/mgunz/src/bin/returnn_tf2.8_apptainer_launcher.sh"
-RETURNN_PYTHON_APPTAINER_2_3 = "/u/mgunz/src/bin/returnn_tf2.3_launcher.sh"
+RETURNN_PYTHON_APPTAINER_2_3 = "/u/mgunz/src/bin/returnn_tf2.3_apptainer_u16_launcher.sh"
 RETURNN_PYTHON = RETURNN_PYTHON_APPTAINER_2_3
 
 BLSTM_CHUNKING = "64:32"
