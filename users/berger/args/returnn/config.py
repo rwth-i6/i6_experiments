@@ -32,16 +32,19 @@ def get_base_config(backend: Backend) -> Dict[str, Any]:
 
 
 def get_extern_data_config(
-    num_inputs: int,
-    num_outputs: int,
-    target: str = "classes",
+    num_inputs: Optional[int],
+    num_outputs: Optional[int],
+    extern_data_kwargs: Dict = {},
+    extern_target_kwargs: Dict = {},
+    target: Optional[str] = "classes",
+    **kwargs,
 ) -> Dict[str, Any]:
-    return {
-        "extern_data": {
-            "data": {"dim": num_inputs},
-            target: {"dim": num_outputs, "sparse": True},
-        }
-    }
+    result = {}
+    if num_inputs is not None:
+        result["data"] = {"dim": num_inputs, **extern_data_kwargs}
+    if num_outputs is not None and target is not None:
+        result[target] = {"dim": num_outputs, "sparse": True, **extern_target_kwargs}
+    return {"extern_data": result}
 
 
 def get_base_post_config(**kwargs) -> Dict[str, Any]:
@@ -76,9 +79,9 @@ def get_returnn_config(
     if num_outputs is not None:
         config_dict["num_outputs"] = {target: num_outputs}
     if extern_data_config:
-        assert num_inputs and num_outputs
-        assert target
-        config_dict.update(get_extern_data_config(num_inputs, num_outputs, target))
+        config_dict.update(
+            get_extern_data_config(num_inputs=num_inputs, num_outputs=num_outputs, target=target, **kwargs)
+        )
     config_dict.update(get_base_config(backend))
 
     if network:

@@ -73,6 +73,8 @@ def worker_wrapper(job, task_name, call):
         "Seq2SeqAlignmentJob",
         "EstimateMixturesJob",
         "EstimateCMLLRJob",
+        "DumpStateTyingJob",
+        "StoreAllophonesJob",
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
@@ -124,7 +126,7 @@ DEFAULT_ENVIRONMENT_SET["LD_LIBRARY_PATH"] = ":".join(
         "/usr/local/lib/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/tensorflow/",
         "/usr/local/lib/python3.8/dist-packages/scipy/.libs",
-        "/usr/local/lob/python3.8/dist-packages/numpy.libs",
+        "/usr/local/lib/python3.8/dist-packages/numpy.libs",
         "/usr/local/cuda/extras/CUPTI/lib64",
         "/usr/local/cuda/compat/lib",
         "/usr/local/nvidia/lib",

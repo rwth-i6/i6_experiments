@@ -1,14 +1,15 @@
-from returnn.tensor.tensor_dict import TensorDict
-import returnn.frontend as rf
 import torch
 
+from returnn_mini.torch.context import RunCtx
 
-def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
-    audio_features = extern_data["data"].raw_tensor
-    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
 
-    targets = extern_data["targets"].raw_tensor.long()
-    targets_len = extern_data["targets"].dims[1].dyn_size_ext.raw_tensor
+def train_step(*, model: torch.nn.Module, run_ctx: RunCtx, data: dict, **kwargs):
+    print(data)
+    audio_features = data["data"]
+    audio_features_len = data["data:size1"]
+
+    targets = data["targets"]
+    targets_len = data["targets:size1"]
 
     log_probs = model(
         audio_features=audio_features,
@@ -31,6 +32,4 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         zero_infinity=True,
     )
 
-    loss /= sum(sequence_lengths)
-
-    rf.get_run_ctx().mark_as_loss(name="CTC", loss=loss)
+    run_ctx.mark_as_loss(name="CTC", loss=loss)

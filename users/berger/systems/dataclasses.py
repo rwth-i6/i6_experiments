@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Generic, Optional
 from i6_core import rasr, recognition, returnn
 from i6_experiments.users.berger.helpers import RasrDataInput
+from recipe.i6_experiments.users.berger.helpers.hdf import build_hdf_from_alignment
 from . import types
 
 from sisyphus import tk
@@ -25,6 +26,24 @@ class DualSpeakerConfig(Generic[types.ConfigType]):
 
 
 DualSpeakerReturnnConfig = DualSpeakerConfig[returnn.ReturnnConfig]
+
+
+@dataclass
+class AlignmentData:
+    alignment_cache_bundle: tk.Path
+    allophone_file: tk.Path
+    state_tying_file: tk.Path
+    silence_phone: str = "<blank>"
+
+    def get_hdf(self, returnn_python_exe: tk.Path, returnn_root: tk.Path) -> tk.Path:
+        return build_hdf_from_alignment(
+            alignment_cache=self.alignment_cache_bundle,
+            allophone_file=self.allophone_file,
+            state_tying_file=self.state_tying_file,
+            silence_phone=self.silence_phone,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+        )
 
 
 @dataclass

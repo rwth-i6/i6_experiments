@@ -1,4 +1,5 @@
 from typing import List
+import copy
 
 from i6_core import returnn, corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
@@ -28,7 +29,7 @@ def get_librispeech_data(
         add_unknown_phoneme_and_mapping=add_unknown,
     )
 
-    _, wav_dev_data_inputs, wav_test_data_inputs = data.get_data_inputs(
+    wav_train_data_inputs, wav_dev_data_inputs, wav_test_data_inputs = data.get_data_inputs(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
@@ -40,6 +41,7 @@ def get_librispeech_data(
     )
 
     # ********** Train data **********
+
     train_corpus = train_data_inputs[train_key].corpus_object.corpus_file
     train_lexicon = train_data_inputs[train_key].lexicon.filename
     assert train_corpus is not None
@@ -69,6 +71,7 @@ def get_librispeech_data(
     }
 
     # ********** CV data **********
+
     if not add_unknown:
         for corpus_object in [dev_data_inputs[key].corpus_object for key in dev_keys]:
             assert corpus_object.corpus_file is not None
@@ -117,11 +120,27 @@ def get_librispeech_data(
     for rasr_input in {**wav_dev_data_inputs, **wav_test_data_inputs}.values():
         rasr_input.lexicon.filename = recog_lexicon
 
+    # ********** Align data **********
+
+    align_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
+
+    align_data_inputs = {f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**wav_train_data_inputs, **wav_dev_data_inputs}.items()}
+    for data_input in align_data_inputs.values():
+        data_input.lexicon.filename = align_lexicon
+
+        if not add_unknown:
+            assert data_input.corpus_object.corpus_file is not None
+            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                data_input.corpus_object.corpus_file,
+                align_lexicon,
+                all_unknown=False,
+            ).out_corpus
+
     return CTCSetupData(
         train_key=train_key,
         dev_keys=dev_keys,
         test_keys=test_keys,
-        align_keys=[train_key, *dev_keys],
+        align_keys=[f"{train_key}_align", *[f"{key}_align" for key in dev_keys]],
         train_data_config=train_data_config,
         cv_data_config=cv_data_config,
         loss_corpus=loss_corpus,
@@ -130,5 +149,6 @@ def get_librispeech_data(
             **train_data_inputs,
             **wav_dev_data_inputs,
             **wav_test_data_inputs,
+            **align_data_inputs,
         },
     )

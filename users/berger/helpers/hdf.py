@@ -13,6 +13,8 @@ def build_hdf_from_alignment(
     alignment_cache: tk.Path,
     allophone_file: tk.Path,
     state_tying_file: tk.Path,
+    returnn_python_exe: tk.Path,
+    returnn_root: tk.Path,
     silence_phone: str = "[SILENCE]",
 ):
     dataset_config = {
@@ -30,7 +32,9 @@ def build_hdf_from_alignment(
         },
     }
 
-    hdf_file = ReturnnDumpHDFJob(dataset_config).out_hdf
+    hdf_file = ReturnnDumpHDFJob(
+        dataset_config, returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+    ).out_hdf
 
     return hdf_file
 
@@ -58,9 +62,7 @@ def build_rasr_feature_hdf(
         "mfcc": features.MfccJob,
         "gt": features.GammatoneJob,
         "energy": features.EnergyJob,
-    }[
-        feature_type
-    ](crp=base_crp, **feature_extraction_args)
+    }[feature_type](crp=base_crp, **feature_extraction_args)
 
     dataset_config = {
         "class": "SprintCacheDataset",

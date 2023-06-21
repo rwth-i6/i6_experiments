@@ -20,6 +20,7 @@ def get_hybrid_train_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
+        "log_verbosity": 5,
     }
     return recursive_update(default_args, kwargs)
 

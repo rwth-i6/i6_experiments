@@ -60,7 +60,7 @@ def get_tedlium2_data(
     train_dataset_builder.add_hdf_dataset(
         train_feature_hdf,
         name="features",
-        key_mapping={"data": ("features", "data")},
+        key_mapping={"data": "data"},
     )
 
     train_targets_hdf = BlissCorpusToTargetHdfJob(
@@ -72,7 +72,7 @@ def get_tedlium2_data(
         train_targets_hdf,
         seq_ordering="random",
         name="targets",
-        key_mapping={"classes": ("targets", "data")},
+        key_mapping={"data": "targets"},
         dataset_config={"partition_epoch": 5},
         control=True,
     )
@@ -103,7 +103,7 @@ def get_tedlium2_data(
     cv_dataset_builder.add_hdf_dataset(
         cv_feature_hdf,
         name="features",
-        key_mapping={"data": ("features", "data")},
+        key_mapping={"data": "data"},
     )
 
     cv_targets_hdf = BlissCorpusToTargetHdfJob(
@@ -115,7 +115,7 @@ def get_tedlium2_data(
         cv_targets_hdf,
         seq_ordering="sorted",
         name="targets",
-        key_mapping={"classes": ("targets", "data")},
+        key_mapping={"data": "targets"},
         dataset_config={"partition_epoch": 1},
         control=True,
     )

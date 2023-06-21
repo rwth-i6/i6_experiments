@@ -1,4 +1,3 @@
-import copy
 from typing import Dict
 
 from i6_experiments.users.berger.args.jobs.recognition_args import (
@@ -8,26 +7,19 @@ from i6_experiments.users.berger.args.jobs.recognition_args import (
 from i6_experiments.users.berger.util import recursive_update
 
 
-ctc_loss_am_args = {
-    "state_tying": "monophone-eow",
+transducer_recog_am_args = {
+    "state_tying": "monophone",
     "states_per_phone": 1,
     "tdp_scale": 1.0,
     "tdp_transition": (0.0, 0.0, "infinity", 0.0),
     "tdp_silence": (0.0, 0.0, "infinity", 0.0),
     "tdp_nonword": (0.0, 0.0, "infinity", 0.0),
+    "phon_history_length": 0,
+    "phon_future_length": 0,
 }
 
-ctc_recog_am_args = copy.deepcopy(ctc_loss_am_args)
-ctc_recog_am_args.update(
-    {
-        "state_tying": "monophone",
-        "phon_history_length": 0,
-        "phon_future_length": 0,
-    }
-)
 
-
-def get_ctc_train_args(**kwargs) -> Dict:
+def get_transducer_train_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
@@ -36,18 +28,24 @@ def get_ctc_train_args(**kwargs) -> Dict:
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_transducer_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "lm_scales": [0.9],
         "prior_scales": [0.3],
         "use_gpu": False,
+        "label_scorer_type": "tf-ffnn-transducer",
         "label_scorer_args": {
-            "use_prior": True,
+            "use_prior": False,
             "num_classes": num_classes,
             "extra_args": {
                 "blank_label_index": 0,
                 "reduction_factors": reduction_factor,
+                "context_size": 1,
+                "max_batch_size": 256,
+                "use_start_label": True,
+                "start_label_index": num_classes,
+                "transform_output_negate": True,
             },
         },
         "label_tree_args": {
@@ -58,7 +56,7 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "search_parameters": get_seq2seq_search_parameters(
             lp=18.0,
             allow_blank=True,
-            allow_loop=True,
+            allow_loop=False,
         ),
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": True,
@@ -67,13 +65,13 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
             "mem_rqmt": 16,
         },
         "rtf": 5,
-        "mem": 16,
+        "mem": 8,
     }
 
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_transducer_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "prior_scales": [0.3],
@@ -85,6 +83,7 @@ def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "align_node_options": {
             "allow-label-loop": False,
         },
+        "label_scorer_type": "tf-ffnn-transducer",
         "label_scorer_args": {
             "use_prior": True,
             "num_classes": num_classes,
@@ -93,7 +92,6 @@ def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
                 "reduction_factors": reduction_factor,
             },
         },
-        "rtf": 5,
     }
 
     return recursive_update(default_args, kwargs)

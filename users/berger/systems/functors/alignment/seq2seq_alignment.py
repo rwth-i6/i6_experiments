@@ -1,10 +1,11 @@
 import copy
 import itertools
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple, Union
 
 from i6_core import returnn
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
 from i6_experiments.users.berger.recipe import mm
+from recipe.i6_core.lexicon.allophones import DumpStateTyingJob, StoreAllophonesJob
 from sisyphus import tk
 
 from ... import dataclasses
@@ -31,7 +32,12 @@ class Seq2SeqAlignmentFunctor(
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
         **kwargs,
-    ) -> None:
+    ) -> Union[
+        Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData],
+        dataclasses.AlignmentData,
+    ]:
+        result = {}
+
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
 
         mod_label_scorer_args = copy.deepcopy(label_scorer_args)
@@ -79,11 +85,19 @@ class Seq2SeqAlignmentFunctor(
                 **kwargs,
             )
 
+            allophone_file = StoreAllophonesJob(crp=crp).out_allophone_file
+            state_tying_file = DumpStateTyingJob(crp=crp).out_state_tying
+            result[(prior_scale, epoch)] = dataclasses.AlignmentData(
+                alignment_cache_bundle=align.out_alignment_bundle,
+                allophone_file=allophone_file,
+                state_tying_file=state_tying_file,
+            )
+
             exp_full = (
                 f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
             )
 
-            path = f"nn_recog/{align_corpus.name}/{train_job.name}/{exp_full}"
+            path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
 
             align.set_vis_name(f"Alignment {path}")
             align.add_alias(path)
@@ -92,3 +106,6 @@ class Seq2SeqAlignmentFunctor(
                 f"{path}.alignment.cache.bundle",
                 align.out_alignment_bundle,
             )
+        if len(result) == 1:
+            result = next(iter(result.values()))
+        return result

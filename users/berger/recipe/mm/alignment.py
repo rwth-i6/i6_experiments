@@ -201,7 +201,7 @@ class Seq2SeqAlignmentJob(rasr.RasrCommand, Job):
             for k, v in alignopt.items():
                 node_config.aligner[k] = v
             # scorer
-            label_scorer.apply_config("label-scorer", node_config, node_config)
+            label_scorer.apply_config("label-scorer", node_config.model_combination, node_config.model_combination)
 
         alignment_flow.apply_config(
             "acoustic-model-trainer.aligning-feature-extractor.feature-extraction",

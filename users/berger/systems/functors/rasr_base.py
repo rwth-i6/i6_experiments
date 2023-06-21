@@ -31,9 +31,7 @@ class RasrFunctor(ABC):
         self, train_job: returnn.ReturnnTrainingJob, epoch: types.EpochType
     ) -> Union[int, tk.Variable]:
         if epoch == "best":
-            return custom_returnn.GetBestEpochJob(
-                train_job.out_learning_rates
-            ).out_epoch
+            return custom_returnn.GetBestEpochJob(train_job.out_learning_rates).out_epoch
         return epoch
 
     @lru_cache_with_signature
@@ -49,9 +47,7 @@ class RasrFunctor(ABC):
         epoch: types.EpochType,
         label_scorer_type: str = "precomputed-log-posterior",
     ) -> tk.Path:
-        rec_step_by_step = (
-            "output" if self._is_autoregressive_decoding(label_scorer_type) else None
-        )
+        rec_step_by_step = "output" if self._is_autoregressive_decoding(label_scorer_type) else None
         graph_compile_job = returnn.CompileTFGraphJob(
             returnn_config,
             returnn_root=self.returnn_root,

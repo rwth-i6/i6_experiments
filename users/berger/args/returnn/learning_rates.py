@@ -21,7 +21,6 @@ def get_learning_rate_config(
     optimizer: Optimizers = Optimizers.Nadam,
     **kwargs,
 ) -> Tuple[Dict, List]:
-
     config = {}
     extra_python = []
 
@@ -32,7 +31,7 @@ def get_learning_rate_config(
     elif schedule == LearningRateSchedules.OCLR:
         config.update(get_oclr_config(**kwargs))
     elif schedule == LearningRateSchedules.CONST_DECAY:
-        extra_python.append(get_const_decay_function(**kwargs))
+        config.update(get_const_decay_config(**kwargs))
     else:
         raise NotImplementedError
 
@@ -161,6 +160,28 @@ def get_oclr_function(
                        tf.where(global_train_step <= 2*steps, peak_lr - step_size * (n - steps), 
                            tf.maximum(initial_lr - step_size_final * (n - 2*steps), final_lr)))"""
     )
+
+
+def get_const_decay_config(
+    num_epochs: int,
+    const_lr: float = 1e-03,
+    cycle_epoch: Optional[int] = None,
+    decay_lr: Optional[float] = None,
+    final_lr: Optional[float] = None,
+    **kwargs,
+) -> dict:
+    decay_lr = decay_lr or const_lr / 5
+    final_lr = final_lr or const_lr / 50
+    cycle_epoch = cycle_epoch or (num_epochs * 9) // 20  # 45% of the training
+    lr_list = (
+        [const_lr] * (cycle_epoch - 1)
+        + list(np.linspace(const_lr, decay_lr, cycle_epoch, endpoint=False))
+        + list(np.linspace(decay_lr, final_lr, num_epochs - 2 * cycle_epoch))
+    )
+
+    return {
+        "learning_rates": lr_list,
+    }
 
 
 def get_const_decay_function(

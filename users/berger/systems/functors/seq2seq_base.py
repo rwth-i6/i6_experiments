@@ -1,4 +1,5 @@
 from abc import ABC
+import copy
 
 from i6_core import lexicon, rasr, returnn
 from i6_experiments.users.berger.recipe import rasr as custom_rasr
@@ -19,9 +20,7 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
             state_tying_file,
         ).out_label_file
 
-    def _make_model_loader_config(
-        self, tf_graph: tk.Path, tf_checkpoint: returnn.Checkpoint
-    ) -> rasr.RasrConfig:
+    def _make_model_loader_config(self, tf_graph: tk.Path, tf_checkpoint: returnn.Checkpoint) -> rasr.RasrConfig:
         loader_config = rasr.RasrConfig()
         loader_config.type = "meta"
         loader_config.meta_graph_file = tf_graph
@@ -37,14 +36,12 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         checkpoint: returnn.Checkpoint,
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
-            feature_flow = self._make_tf_feature_flow(
-                base_feature_flow, tf_graph, checkpoint
-            )
+            feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
         else:
-            feature_flow = base_feature_flow
+            feature_flow = copy.deepcopy(base_feature_flow)
+            feature_flow.config = feature_flow.config or rasr.RasrConfig()
+            feature_flow.config.main_port_name = "samples"
             label_scorer.set_input_config()
-            label_scorer.set_loader_config(
-                self._make_model_loader_config(tf_graph, checkpoint)
-            )
+            label_scorer.set_loader_config(self._make_model_loader_config(tf_graph, checkpoint))
 
         return feature_flow

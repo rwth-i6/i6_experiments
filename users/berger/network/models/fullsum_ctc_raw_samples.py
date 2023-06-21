@@ -34,6 +34,8 @@ def make_ctc_rasr_loss_config_v1(
     loss_crp.lexicon_config.file = loss_lexicon_path  # type: ignore
 
     loss_crp.acoustic_model_config = acoustic_model_config(**am_args)  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_all = True  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_from_lexicon = False  # type: ignore
 
     # Make config from crp
     mapping = {
@@ -69,15 +71,14 @@ def make_ctc_rasr_loss_config_v1(
 
 
 def make_ctc_rasr_loss_config_v2(
-    loss_corpus_path: str,
-    loss_lexicon_path: str,
+    loss_corpus_path: tk.Path,
+    loss_lexicon_path: tk.Path,
     am_args: Dict,
     allow_label_loop: bool = True,
     min_duration: int = 1,
     extra_config: Optional[rasr.RasrConfig] = None,
     extra_post_config: Optional[rasr.RasrConfig] = None,
 ):
-
     # Make crp and set loss_corpus and lexicon
     loss_crp = rasr.CommonRasrParameters()
     rasr.crp_add_default_output(loss_crp)
@@ -90,6 +91,8 @@ def make_ctc_rasr_loss_config_v2(
     loss_crp.lexicon_config.file = loss_lexicon_path  # type: ignore
 
     loss_crp.acoustic_model_config = acoustic_model_config(**am_args)  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_all = True  # type: ignore
+    loss_crp.acoustic_model_config.allophones.add_from_lexicon = False  # type: ignore
 
     # Make config from crp
     mapping = {
@@ -134,9 +137,13 @@ def format_func(s, *args, **kwargs):
 
 
 def make_rasr_ctc_loss_opts(
-    rasr_binary_path: str, rasr_arch: str = "linux-x86_64-standard", v2: bool = True, num_instances: int = 2, **kwargs
+    rasr_binary_path: tk.Path,
+    rasr_arch: str = "linux-x86_64-standard",
+    v2: bool = True,
+    num_instances: int = 2,
+    **kwargs,
 ):
-    trainer_exe = Path(rasr_binary_path) / f"nn-trainer.{rasr_arch}"
+    trainer_exe = rasr_binary_path.join_right(f"nn-trainer.{rasr_arch}")
 
     if v2:
         config, post_config = make_ctc_rasr_loss_config_v2(**kwargs)
@@ -145,10 +152,8 @@ def make_rasr_ctc_loss_opts(
 
     loss_opts = {
         "sprint_opts": {
-            "sprintExecPath": trainer_exe.as_posix(),
-            "sprintConfigStr": DelayedFunction(
-                "%s %s --*.LOGFILE=nn-trainer.loss.log --*.TASK=1", format_func, config, post_config
-            ),
+            "sprintExecPath": trainer_exe,
+            "sprintConfigStr": f"{config} {post_config} --*.LOGFILE=nn-trainer.loss.log --*.TASK=1",
             "minPythonControlVersion": 4,
             "numInstances": num_instances,
             "usePythonSegmentOrder": False,
