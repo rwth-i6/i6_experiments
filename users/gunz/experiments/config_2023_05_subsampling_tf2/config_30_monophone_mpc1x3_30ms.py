@@ -273,11 +273,8 @@ def run_single(
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
-    ss_rasr_config = rasr.RasrConfig()
-    ss_rasr_config.neural_network_trainer.subsampling_factor = ss_factor
     train_args = {
         **s.initial_train_args,
-        "extra_rasr_config": ss_rasr_config,
         "num_epochs": num_epochs,
         "partition_epochs": partition_epochs,
         "returnn_config": returnn_config,
