@@ -27,15 +27,17 @@ RASR_ARCH = "linux-x86_64-standard"
 
 RASR_ROOT_NO_TF_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_ss_no_tf"
 RASR_ROOT_NO_TF_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_no_tf"
-RASR_ROOT_NO_TF = RASR_ROOT_NO_TF_APPTAINER
+RASR_ROOT_U16_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.3_u16"
+RASR_ROOT_NO_TF = RASR_ROOT_U16_APPTAINER
 
 RASR_ROOT_TF2_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_tf2.8"
 RASR_ROOT_TF2_WORK_TOOLS = "/work/tools/users/raissi/shared/mgunz/rasr_tf2"
-RASR_ROOT_TF2 = RASR_ROOT_TF2_APPTAINER
+RASR_ROOT_TF2 = RASR_ROOT_U16_APPTAINER
 
 RETURNN_PYTHON_TF2_12 = "/u/mgunz/src/bin/returnn_tf2.12_launcher.sh"
 RETURNN_PYTHON_APPTAINER = "/u/mgunz/src/bin/returnn_tf2.8_apptainer_launcher.sh"
-RETURNN_PYTHON = RETURNN_PYTHON_APPTAINER
+RETURNN_PYTHON_APPTAINER_2_3 = "/u/mgunz/src/bin/returnn_tf2.3_apptainer_u16_launcher.sh"
+RETURNN_PYTHON = RETURNN_PYTHON_APPTAINER_2_3
 
 BLSTM_CHUNKING = "64:32"
 
