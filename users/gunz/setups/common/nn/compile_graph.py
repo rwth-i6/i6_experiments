@@ -37,6 +37,7 @@ def compile_tf_graph_from_returnn_config(
         returnn_root=returnn_root,
         returnn_python_exe=returnn_python_exe,
     )
+    compile_job.rqmt = {"cpu": 1, "mem": 2, "time": 0.3}
 
     if alias:
         compile_job.add_alias(alias)

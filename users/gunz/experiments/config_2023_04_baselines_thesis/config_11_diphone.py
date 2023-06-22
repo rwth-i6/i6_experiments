@@ -424,6 +424,7 @@ def run_single(
                 returnn_root=returnn_root,
                 returnn_python_exe=RETURNN_PYTHON_EXE,
             )
+            generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
                 context_type=PhoneticContext.diphone,

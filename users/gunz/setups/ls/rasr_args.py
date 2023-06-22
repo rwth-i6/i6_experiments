@@ -11,7 +11,6 @@ from sisyphus import tk
 
 # -------------------- Recipes --------------------
 import i6_core.features as features
-from i6_core.returnn import CompileNativeOpJob
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util

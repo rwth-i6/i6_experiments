@@ -190,6 +190,8 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_exe=returnn_python_exe,
             blas_lib=None,
         )
+        compile_native_op_job.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
+
         self.native_lstm2_job = compile_native_op_job
 
         self.inputs = {}

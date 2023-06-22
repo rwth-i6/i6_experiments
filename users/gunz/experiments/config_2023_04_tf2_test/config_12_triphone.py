@@ -320,6 +320,7 @@ def run_single(
             returnn_root=returnn_root,
             returnn_python_exe=RETURNN_PYTHON_EXE,
         )
+        generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
         for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other", "dev-clean", "test-clean", "test-other"]):
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
