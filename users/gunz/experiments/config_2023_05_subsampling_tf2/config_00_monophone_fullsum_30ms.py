@@ -82,7 +82,7 @@ def run(returnn_root: tk.Path):
                 dc_detection=False,
                 feature_stacking=fs,
                 feature_time_shift=10 / 1000,
-                lr="v13",
+                lr="v6",
                 multitask=False,
                 subsampling_factor=3,
             )
@@ -95,7 +95,7 @@ def run(returnn_root: tk.Path):
                 dc_detection=False,
                 feature_stacking=fs,
                 feature_time_shift=7.5 / 1000,
-                lr="v13",
+                lr="v6",
                 multitask=False,
                 subsampling_factor=4,
             )
@@ -227,7 +227,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -293,7 +293,6 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
-    train_j.rqmt.update({"gpu_mem": 15})
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
