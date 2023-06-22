@@ -15,7 +15,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import corpus, rasr, returnn
+from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -74,24 +74,24 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     configs = [
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            dc_detection=False,
-            feature_time_shift=10 / 1000,
-            lr="v13",
-            multitask=False,
-            subsampling_approach="fs:3",
-        ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            dc_detection=False,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            multitask=False,
-            subsampling_approach="mp:4@3",
-        ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     bw_label_scale=0.3,
+        #     dc_detection=False,
+        #     feature_time_shift=10 / 1000,
+        #     lr="v13",
+        #     multitask=False,
+        #     subsampling_approach="fs:3",
+        # ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     bw_label_scale=0.3,
+        #     dc_detection=False,
+        #     feature_time_shift=7.5 / 1000,
+        #     lr="v13",
+        #     multitask=False,
+        #     subsampling_approach="mp:4@3",
+        # ),
         Experiment(
             alignment_name="scratch",
             bw_label_scale=0.3,
@@ -101,15 +101,15 @@ def run(returnn_root: tk.Path):
             multitask=False,
             subsampling_approach="mp:2@3+mp:2@4",
         ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            dc_detection=False,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            multitask=False,
-            subsampling_approach="fs:2+mp:2@3",
-        ),
+        # Experiment(
+        #     alignment_name="scratch",
+        #     bw_label_scale=0.3,
+        #     dc_detection=False,
+        #     feature_time_shift=7.5 / 1000,
+        #     lr="v13",
+        #     multitask=False,
+        #     subsampling_approach="fs:2+mp:2@3",
+        # ),
     ]
     experiments = {
         exp: run_single(
@@ -508,11 +508,6 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
-            recognizer.align(
-                f"{name}-pC{cfg.prior_info.center_state_prior.scale}-tdp{cfg.tdp_scale}",
-                crp=search_jobs.search_crp,
-                feature_scorer=search_jobs.search_feature_scorer,
-            )
 
         s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
         s.create_stm_from_corpus("train-other-960.train")
@@ -557,5 +552,8 @@ def run_single(
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=True,
         )
+
+        allophones = lexicon.StoreAllophonesJob(crp)
+        tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
     return s

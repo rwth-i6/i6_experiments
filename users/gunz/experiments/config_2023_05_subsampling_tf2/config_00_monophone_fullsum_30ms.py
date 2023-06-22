@@ -14,7 +14,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import rasr, returnn
+from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -86,7 +86,7 @@ def run(returnn_root: tk.Path):
                 multitask=False,
                 subsampling_factor=3,
             )
-            for fs in [True, False]
+            for fs in [False]
         ),
         *(
             Experiment(
@@ -99,7 +99,7 @@ def run(returnn_root: tk.Path):
                 multitask=False,
                 subsampling_factor=4,
             )
-            for fs in [True, False]
+            for fs in [False]
         ),
     ]
     experiments = {
@@ -343,5 +343,51 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
+
+    s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
+    s.create_stm_from_corpus("train-other-960.train")
+    s._set_scorer_for_corpus("train-other-960.train")
+    s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+    s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
+    recognizer, recog_args = s.get_recognizer_and_args(
+        key="fh",
+        context_type=PhoneticContext.monophone,
+        crp_corpus="train-other-960.train",
+        epoch=600,
+        gpu=False,
+        tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+        set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
+    )
+    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    align_cfg = (
+        recog_args.with_prior_scale(0.6).with_tdp_scale(0.1).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    )
+    align_search_jobs = recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=align_cfg,
+        num_encoder_output=conf_model_dim,
+        rerun_after_opt_lm=False,
+        opt_lm_am=False,
+        add_sis_alias_and_output=False,
+        calculate_stats=True,
+        rtf_cpu=4,
+    )
+    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.acoustic_model_config.allophones.add_all = False
+    crp.acoustic_model_config.allophones.add_from_lexicon = True
+    crp.concurrent = 300
+    crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
+
+    recognizer.align(
+        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        crp=crp,
+        feature_scorer=align_search_jobs.search_feature_scorer,
+        default_tdp=True,
+    )
+
+    allophones = lexicon.StoreAllophonesJob(crp)
+    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
     return s
