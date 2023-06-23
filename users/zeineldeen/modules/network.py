@@ -554,6 +554,20 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
+    def add_generic_layer(self, name: str, *, cls: str, source=None, **kwargs):
+        """
+        :param name: layer name
+        :param source: layer source
+        :param cls: layer class
+        :param kwargs: layer kwargs
+        :return: layer name
+        """
+        self._net[name] = {"class": cls}
+        if source:
+            self._net[name]["from"] = source
+        self._net[name].update(kwargs)
+        return name
+
     def __setitem__(self, key, value):
         self._net[key] = value
 
