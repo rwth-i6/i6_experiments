@@ -4,6 +4,8 @@ Conformer encoder
 
 from __future__ import annotations
 from typing import Optional
+from dataclasses import dataclass
+from returnn.tensor import Dim, SpatialDim
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
 
@@ -73,6 +75,7 @@ class ConformerEncoder:
         ff_weight_dropout=None,
         mhsa_weight_dropout=None,
         conv_weight_dropout=None,
+        memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None,
     ):
         """
         :param str input: input layer name
@@ -218,6 +221,8 @@ class ConformerEncoder:
         self.conv_weight_drop = conv_weight_dropout
         self.mhsa_weight_drop = mhsa_weight_dropout
 
+        self.memory_variant_opts = memory_variant_opts
+
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
         Add Feed Forward Module:
@@ -302,20 +307,65 @@ class ConformerEncoder:
                 clipping=self.rel_pos_clipping,
             )
 
-        mhsa = self.network.add_self_att_layer(
-            "{}".format(prefix_name),
-            ln,
-            n_out=self.enc_value_dim,
-            num_heads=self.att_num_heads,
-            total_key_dim=self.enc_key_dim,
-            att_dropout=self.att_dropout,
-            forward_weights_init=self.mhsa_init,
-            key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
-            l2=self.self_att_l2,
-            attention_left_only=self.use_causal_layers,
-            param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
-            param_dropout=self.mhsa_weight_drop,
-        )
+        if self.memory_variant_opts is not None:
+            # ln: [B*C, W, D]
+            # We want now to have [B, C, W, D]
+            ln_split_chunk = self.network.add_generic_layer(
+                f"{prefix_name}_ln_split_chunk",
+                cls="split_batch_time",
+                source=ln,
+                base=self.memory_variant_opts.split_batch_time_base,
+            )  # [B, C, W, D], C = chunked_time_dim
+            ln_chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_ln_chunk_shifted",
+                cls="shift_axis",
+                source=ln_split_chunk,
+                axis=self.memory_variant_opts.chunked_time_dim,  # C
+                amount=1,
+                pad=True,
+                adjust_size_info=False,  # no change in dim tag, C stays the same
+            )  # [B, C, W, D]
+            # Merge batch and chunk dim again.
+            ln_chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_ln_chunk_shifted_",
+                cls="merge_dims",
+                source=ln_chunk_shifted,
+                axes=("B", self.memory_variant_opts.chunked_time_dim),
+            )  # [B*C, W, D]
+            # Make sure the time_dim_axis (T) is set to the correct dim (W).
+            ln_chunk_shifted = self.network.add_generic_layer(
+                f"{prefix_name}_ln_chunk_shifted__",
+                cls="reinterpret_data",
+                source=ln_chunk_shifted,
+                set_axes={"T": "spatial"},
+            )  # [B*C, W, D] but not time_dim_axis is set to W
+            # Concatenate the shifted and the original tensor.
+            ln = self.network.add_generic_layer(
+                f"{prefix_name}_ln_concat",
+                cls="concat",
+                source=[(ln_chunk_shifted, "T"), (ln, "T")],
+            )  # [B*C, W*2, D]
+
+            # We cannot use SelfAttentionLayer on the concatenated tensor,
+            # because it would waste compute time for the frames of the last chunk.
+            # So reimplement the SelfAttentionLayer here explicitly.
+            # key, value: via concatenated, [B*C, W*2, D]
+
+        else:
+            mhsa = self.network.add_self_att_layer(
+                name=prefix_name,
+                source=ln,
+                n_out=self.enc_value_dim,
+                num_heads=self.att_num_heads,
+                total_key_dim=self.enc_key_dim,
+                att_dropout=self.att_dropout,
+                forward_weights_init=self.mhsa_init,
+                key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
+                l2=self.self_att_l2,
+                attention_left_only=self.use_causal_layers,
+                param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                param_dropout=self.mhsa_weight_drop,
+            )
 
         mhsa_linear = self.network.add_linear_layer(
             "{}_linear".format(prefix_name),
@@ -435,6 +485,13 @@ class ConformerEncoder:
         )
         return res
 
+    def _block_prefix_name(self, layer_index):
+        if self.add_to_prefix_name:
+            prefix_name = "conformer_block_%s_%02i" % (self.add_to_prefix_name, layer_index)
+        else:
+            prefix_name = "conformer_block_%02i" % layer_index
+        return prefix_name
+
     def _create_conformer_block(self, i, source):
         """
         Add the whole Conformer block:
@@ -448,10 +505,7 @@ class ConformerEncoder:
         :return: last layer name of this module
         :rtype: str
         """
-        if self.add_to_prefix_name:
-            prefix_name = "conformer_block_%s_%02i" % (self.add_to_prefix_name, i)
-        else:
-            prefix_name = "conformer_block_%02i" % i
+        prefix_name = self._block_prefix_name(i)
         ff_module1 = self._create_ff_module(prefix_name, 1, source, i)
 
         if self.convolution_first:
@@ -678,3 +732,9 @@ class ConformerEncoder:
         if self.create_only_blocks:
             return self._create_conformer_blocks(input=self.input)
         return self._create_all_network_parts()
+
+
+@dataclass
+class ConformerMemoryVariantOpts:
+    split_batch_time_base: str
+    chunked_time_dim: Dim
