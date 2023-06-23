@@ -993,6 +993,8 @@ def run_chunkwise_train(
     time_rqmt: float = 72,
     start_lrs: Union[float, List[float]] = 1e-4,
     decay_pt_factors: Union[float, List[float]] = 1 / 3,
+    window_left_padding=None,
+    end_slice_size=None,
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
