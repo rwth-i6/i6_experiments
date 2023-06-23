@@ -151,6 +151,7 @@ class RNNDecoder:
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
         prev_target_embed_direct: bool = False,
+        end_slice_size: Optional[int] = None,
     ):
         """
         :param base_model: base/encoder model instance
@@ -802,7 +803,6 @@ class RNNDecoder:
 
         # Filter blank / EOS / EOC
         if not self.full_sum_simple_approx:
-
             self.base_model.network["out_best_non_blank_mask"] = {
                 "class": "compare",
                 "from": "out_best",

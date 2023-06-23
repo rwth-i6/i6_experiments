@@ -546,6 +546,8 @@ def create_config(
     dump_ctc_dataset=None,  # train, dev, etc
     enable_check_align=True,
     recog_ext_pipeline=False,
+    window_left_padding=None,
+    end_slice_size=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -710,7 +712,8 @@ def create_config(
                 "stride": chunk_step,
                 "out_spatial_dim": chunked_time_dim,
             }
-
+            assert end_slice_size is None  # not implemented
+            assert window_left_padding is None, "not implemented"
             if not dump_ctc_dataset:  # to not break hashes for CTC dumping
                 if chunk_size == chunk_step:
                     conformer_encoder.network["encoder"]["window_left"] = 0
@@ -731,15 +734,21 @@ def create_config(
                     "(source(0, as_data=True), network=self.network)",
                 )
 
+            if window_left_padding is None:
+                if in_chunk_size > 1:
+                    window_left_padding = (
+                        (in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1)
+                    )
+                else:
+                    window_left_padding = 0
+
             conformer_encoder.network["_input_chunked"] = {
                 "class": "window",
                 "from": input_,
                 "window_dim": input_chunk_size_dim,
                 "stride": in_chunk_step,
                 "out_spatial_dim": chunked_time_dim,
-                "window_left": ((in_chunk_size // 2 - 1) * (in_chunk_size - in_chunk_step) // (in_chunk_size - 1))
-                if in_chunk_size > 1
-                else 0,
+                "window_left": window_left_padding,
             }
             conformer_encoder.network["__input_chunked"] = {
                 "class": "merge_dims",
@@ -763,9 +772,21 @@ def create_config(
                 "from": "_encoder",
                 "base": "_input_chunked",
             }
+            src = "__encoder"
+            if end_slice_size is not None:
+                new_chunk_size_dim = SpatialDim("sliced-chunk-size", end_slice_size)
+                conformer_encoder.network["___encoder"] = {
+                    "class": "slice",
+                    "from": "__encoder",
+                    "axis": chunk_size_dim,
+                    "slice_start": chunk_size - end_slice_size,
+                    "out_dim": new_chunk_size_dim,
+                }
+                chunk_size_dim = new_chunk_size_dim
+                src = "___encoder"
             conformer_encoder.network["encoder"] = {
                 "class": "reinterpret_data",
-                "from": "__encoder",
+                "from": src,
                 "set_axes": {"T": chunked_time_dim},
             }
 

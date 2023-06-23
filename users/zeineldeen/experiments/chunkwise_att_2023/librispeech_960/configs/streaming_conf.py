@@ -1056,6 +1056,15 @@ def run_chunkwise_train(
                         exp_name = f"att_chunk-{chunk_size}_step-{chunk_step}"
                         exp_name += f"_linDecay{total_epochs}_{start_lr}_decayPt{decay_pt_factor}"
                         exp_name += f"_bs{batch_size}_accum{accum_grad}"
+
+                        if window_left_padding is not None:
+                            train_args["window_left_padding"] = window_left_padding
+                            exp_name += f"_winLeft{window_left_padding}"
+
+                        if end_slice_size is not None:
+                            train_args["end_slice_size"] = end_slice_size
+                            exp_name += f"_endSlice{end_slice_size}"
+
                         if suffix:
                             exp_name += suffix
 
