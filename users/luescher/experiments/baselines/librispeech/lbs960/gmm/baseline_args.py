@@ -348,7 +348,7 @@ def get_triphone_args(
         "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "align_extra_rqmt": {"mem": 8},
         "accumulate_extra_rqmt": {"mem": 8},
-        "split_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8, "time": 24},
     }
 
     triphone_recognition_args = {
@@ -432,10 +432,10 @@ def get_vtln_args(
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": f"{feature_flow}+vtln",
-        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
+            "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
             "accumulate_extra_rqmt": {"mem": 8},
             "align_extra_rqmt": {"mem": 8},
-            "split_extra_rqmt": {"mem": 8},
+            "split_extra_rqmt": {"mem": 8, "time": 24},
         },
     }
 
@@ -514,7 +514,7 @@ def get_sat_args(
         "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 8},
         "align_extra_rqmt": {"mem": 8},
-        "split_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8, "time": 24},
     }
 
     sat_recognition_args = {
@@ -602,7 +602,7 @@ def get_vtln_sat_args(
         "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 8},
         "align_extra_rqmt": {"mem": 8},
-        "split_extra_rqmt": {"mem": 8},
+        "split_extra_rqmt": {"mem": 8, "time": 24},
     }
 
     vtln_sat_recognition_args = {
