@@ -1,6 +1,7 @@
 """
 RETURNN network dict creation helper
 """
+from typing import Optional, List, Union, Tuple, Any
 
 
 class ReturnnNetwork:
@@ -554,7 +555,9 @@ class ReturnnNetwork:
         self._net[name].update(kwargs)
         return name
 
-    def add_generic_layer(self, name: str, *, cls: str, source=None, **kwargs):
+    def add_generic_layer(
+        self, name: str, *, cls: str, source: Optional[Union[str, List[str], List[Tuple[str, Any]]]], **kwargs
+    ):
         """
         :param name: layer name
         :param source: layer source
