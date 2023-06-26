@@ -1,9 +1,3 @@
-import functools
-import numpy as np
-import torch
-import torchaudio
-
-
 class PerturbationFactor:
   """
   Class to wrap perturbation factors, e.g. for speed or tempo perturbation.
@@ -22,6 +16,8 @@ class WaveformPerturbation:
     """
     :param speed:
     """
+    import torch
+    import functools
     from functools import partial
     self._speed = PerturbationFactor(**speed) if speed else None
     self._tempo = PerturbationFactor(**tempo) if tempo else None
@@ -44,6 +40,7 @@ class WaveformPerturbation:
     return audio
 
   def sox(self, audio, sample_rate, random_state, sox_effects):
+    import torchaudio
     sox_effects = sox_effects or []
     speed = False
     if self._speed is not None:
@@ -61,6 +58,7 @@ class WaveformPerturbation:
 
   @staticmethod
   def preemphasis(audio, sample_rate, random_state, factor):
+    import torch
     if random_state.random() < factor.prob:
       preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
       # audio[i,j] -= preemphasis_coefficient * audio[i, max(0, j-1)] for all i,j
@@ -72,6 +70,7 @@ class WaveformPerturbation:
 
   @staticmethod
   def apply_codecs(audio, sample_rate, random_state, codecs):
+    import torchaudio
     for codec in codecs:
       prob = codec.pop("prob", 1.0)
       if random_state.random() < prob:

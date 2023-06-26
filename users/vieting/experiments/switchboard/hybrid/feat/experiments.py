@@ -326,7 +326,7 @@ def run_audio_perturbation_scf():
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
         },
-        prefix="conformer_bs14k_audio_Perturbation_",
+        prefix="conformer_bs14k_audio_perturbation_",
         num_epochs=260,
     )
     nn_steps = RasrSteps()
