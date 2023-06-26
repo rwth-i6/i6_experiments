@@ -22,6 +22,7 @@ class WaveformPerturbation:
     """
     :param speed:
     """
+    from functools import partial
     self._speed = PerturbationFactor(**speed) if speed else None
     self._tempo = PerturbationFactor(**tempo) if tempo else None
     self._perturbations = [functools.partial(self.sox, sox_effects=sox_effects)]
