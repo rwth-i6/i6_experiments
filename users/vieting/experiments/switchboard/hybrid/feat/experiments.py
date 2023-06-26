@@ -266,12 +266,7 @@ def run_specaug_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf": dict(returnn_args=dict(
-                batch_size=3500,
-                specaug_mask_sorting=True,
-                specaug_after_first_layer=True,
-                extra_args=dict(accum_grad_multiple_step=4)
-                ),
+            "scf": dict(returnn_args=dict(batch_size=7000, specaug_mask_sorting=True, extra_args=dict(accum_grad_multiple_step=2)),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
             "scf_divisor-4": dict(
@@ -336,7 +331,7 @@ def run_audio_perturbation_scf():
     hybrid_nn_system.run(nn_steps)
     for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
         # noinspection PyUnresolvedReferences
-        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
+        train_job.rqmt.update({"gpu_mem": 11, "mem": 10})
 
 def run_all():
     run_baseline_gt()

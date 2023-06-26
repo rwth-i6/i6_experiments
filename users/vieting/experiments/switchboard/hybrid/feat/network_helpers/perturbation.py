@@ -18,7 +18,6 @@ class WaveformPerturbation:
     """
     import torch
     import functools
-    from functools import partial
     self._speed = PerturbationFactor(**speed) if speed else None
     self._tempo = PerturbationFactor(**tempo) if tempo else None
     self._perturbations = [functools.partial(self.sox, sox_effects=sox_effects)]
@@ -33,8 +32,6 @@ class WaveformPerturbation:
     for perturbation in self._perturbations:
       audio = perturbation(audio, sample_rate, random_state)
     audio = audio.numpy().squeeze()
-    # output_shape = audio.shape
-    # print("change shape from {} to {}".format(input_shape, output_shape))
     assert isinstance(audio, np.ndarray)
     assert len(audio.shape) == 1
     return audio
