@@ -27,6 +27,12 @@ from .specaug_sorted import (
     get_funcs_sorted,
 )
 
+from .network_helpers.perturbation import (
+    PerturbationFactor,
+    WaveformPerturbation,
+    get_classes_perturbation,
+)
+    
 RECUSRION_LIMIT = """
 import sys
 sys.setrecursionlimit(3000)
@@ -178,6 +184,7 @@ def get_returnn_config(
     specaug_mask_sorting: bool = False,
     specaug_after_first_layer: bool = False,
     mask_divisor: int = None,
+    audio_perturbation: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -228,6 +235,9 @@ def get_returnn_config(
         prolog = get_funcs_sorted()
     else:
         prolog = get_funcs_jingjing()
+
+    if audio_perturbation:
+        prolog += get_classes_perturbation()   
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {

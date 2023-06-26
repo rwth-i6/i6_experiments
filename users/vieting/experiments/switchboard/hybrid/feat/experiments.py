@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 from sisyphus import gs, tk
 
 from i6_core.features.common import samples_flow
+from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -265,13 +266,19 @@ def run_specaug_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf": dict(returnn_args=dict(batch_size=7000, specaug_mask_sorting=True, extra_args=dict(accum_grad_multiple_step=2)),
+            "scf": dict(returnn_args=dict(
+                batch_size=3500,
+                specaug_mask_sorting=True,
+                specaug_after_first_layer=True,
+                extra_args=dict(accum_grad_multiple_step=4)
+                ),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
             "scf_divisor-4": dict(
                 returnn_args=dict(
                     batch_size=3500, 
                     specaug_mask_sorting=True,
+                    specaug_after_first_layer=True,
                     mask_divisor=4,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
@@ -281,6 +288,7 @@ def run_specaug_scf():
                 returnn_args=dict(
                     batch_size=3500,
                     specaug_mask_sorting=True,
+                    specaug_after_first_layer=True,
                     mask_divisor=6,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
@@ -299,9 +307,40 @@ def run_specaug_scf():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
+def run_audio_perturbation_scf():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
+    audio_opts = {"features": "raw", "peak_normalization": True, "pre_process": CodeWrapper("audio_perturb_runner.run")}
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "scf": dict(returnn_args=dict(
+                batch_size=14000,
+                audio_perturbation=True,
+                extra_args=dict(
+                    audio_perturb_args={  
+                        "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                        "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                        },
+                    audio_perturb_runner=CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    )
+                ),
+                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            ),
+        },
+        prefix="conformer_bs14k_audio_Perturbation_",
+        num_epochs=260,
+    )
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+
+    hybrid_nn_system = get_hybrid_nn_system(context_window=249, audio_opts=audio_opts) 
+    hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 def run_all():
     run_baseline_gt()
     run_baseline_mel()
     run_baseline_scf()
     run_specaug_scf()
+    run_audio_perturbation_scf()
