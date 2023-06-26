@@ -27,7 +27,6 @@ class WaveformPerturbation:
       self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
 
   def run(self, audio, sample_rate, random_state):
-    # input_shape = audio.shape
     audio = torch.from_numpy(audio).unsqueeze(0).to(torch.float32)
     for perturbation in self._perturbations:
       audio = perturbation(audio, sample_rate, random_state)
@@ -57,12 +56,8 @@ class WaveformPerturbation:
   def preemphasis(audio, sample_rate, random_state, factor):
     import torch
     if random_state.random() < factor.prob:
-      preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
-      # audio[i,j] -= preemphasis_coefficient * audio[i, max(0, j-1)] for all i,j
-      offset_audio = torch.nn.functional.pad(audio.unsqueeze(0), (1, 0), mode="replicate").squeeze(
-          0
-      )  # size (m, window_size + 1)
-      audio = audio - preemphasis_coefficient * offset_audio[:, :-1]
+        preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
+        audio = torchaudio.functional.preemphasis(audio, coeff=preemphasis_coefficient)
     return audio
 
   @staticmethod
