@@ -5,7 +5,8 @@ Conformer encoder
 from __future__ import annotations
 from typing import Optional
 from dataclasses import dataclass
-from returnn.tensor import Dim, SpatialDim
+from returnn.tensor import Dim
+from returnn.tf.util.data import SpatialDim, FeatureDim
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 
 
