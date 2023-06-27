@@ -121,7 +121,7 @@ class WaveformPerturbation:
 
 
 def get_code_for_perturbation():
-    classes = ["import torch", "import numpy as np", "import torchaudio", "import functools", "import random", "from typing import List, Dict"]
+    classes = ["import torch", "import numpy as np", "import torchaudio", "import functools", "import random", "from typing import List, Dict, Any, Optional"]
     for cls_name, cls in list(globals().items()):
         if isinstance(cls, type):
             classes.append(cls)
