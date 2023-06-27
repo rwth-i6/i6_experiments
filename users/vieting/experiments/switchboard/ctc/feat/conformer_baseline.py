@@ -173,7 +173,7 @@ def run_test_mel():
                     "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
                     "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
                 },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "speed": "0.6_0.88_1.12", "tempo": "0.6_0.83_1.17"},
             ),
             # "lgm80_conf-wei2-nadam": dict(  # does not work well
             #     returnn_args={
