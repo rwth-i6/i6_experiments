@@ -21,12 +21,7 @@ from i6_experiments.users.vieting.models.tf_networks.features import (
 )
 from .fullsum_ctc_raw_samples import make_conformer_fullsum_ctc_model
 from .network_helpers.learning_rates import oclr_default_schedule
-
-from .network_helpers.perturbation import (
-    PerturbationFactor,
-    WaveformPerturbation,
-    get_code_for_perturbation,
-)
+from .network_helpers.perturbation import get_code_for_perturbation
 
 RECURSION_LIMIT = """
 import sys
