@@ -27,6 +27,8 @@ class WaveformPerturbation:
       self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
 
   def run(self, audio, sample_rate, random_state):
+    import torch
+    import numpy as np
     audio = torch.from_numpy(audio).unsqueeze(0).to(torch.float32)
     for perturbation in self._perturbations:
       audio = perturbation(audio, sample_rate, random_state)
