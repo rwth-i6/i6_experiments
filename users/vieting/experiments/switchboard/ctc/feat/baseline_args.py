@@ -22,6 +22,12 @@ from i6_experiments.users.vieting.models.tf_networks.features import (
 from .fullsum_ctc_raw_samples import make_conformer_fullsum_ctc_model
 from .network_helpers.learning_rates import oclr_default_schedule
 
+from .network_helpers.perturbation import (
+    PerturbationFactor,
+    WaveformPerturbation,
+    get_code_for_perturbation,
+)
+
 RECURSION_LIMIT = """
 import sys
 sys.setrecursionlimit(3000)
@@ -168,6 +174,7 @@ def get_returnn_config(
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
+    audio_perturbation: bool = False,
 ):
     base_config = {
         "extern_data": {
@@ -217,6 +224,9 @@ def get_returnn_config(
         specaug_old=specaug_old,
         recognition=recognition,
     )
+
+    if audio_perturbation:
+        prolog += get_code_for_perturbation()
     for layer in list(network.keys()):
         if network[layer]["from"] == "data":
             network[layer]["from"] = "features"

@@ -30,7 +30,7 @@ from .specaug_sorted import (
 from .network_helpers.perturbation import (
     PerturbationFactor,
     WaveformPerturbation,
-    get_classes_perturbation,
+    get_code_for_perturbation,
 )
     
 RECUSRION_LIMIT = """
@@ -237,7 +237,7 @@ def get_returnn_config(
         prolog = get_funcs_jingjing()
 
     if audio_perturbation:
-        prolog += get_classes_perturbation()   
+        prolog += get_code_for_perturbation() 
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {

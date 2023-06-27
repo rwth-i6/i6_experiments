@@ -273,7 +273,6 @@ def run_specaug_scf():
                 returnn_args=dict(
                     batch_size=3500, 
                     specaug_mask_sorting=True,
-                    specaug_after_first_layer=True,
                     mask_divisor=4,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
@@ -283,7 +282,6 @@ def run_specaug_scf():
                 returnn_args=dict(
                     batch_size=3500,
                     specaug_mask_sorting=True,
-                    specaug_after_first_layer=True,
                     mask_divisor=6,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),

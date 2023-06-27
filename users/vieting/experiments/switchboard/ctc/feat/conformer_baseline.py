@@ -4,6 +4,7 @@ from sisyphus import tk, gs
 
 from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
@@ -103,56 +104,23 @@ def run_test_mel():
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
-            # "lgm80_conf-simon": dict(
-            #     returnn_args={"conformer_type": "simon", **returnn_args},
-            #     feature_args=feature_args,
-            # ),
-            "lgm80_conf-wei_old-lr": dict(
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                report_args={"architecture": "conf-wei", "lr": "default"},
-            ),
-            "lgm80_conf-wei_old-lr-4e-4": dict(
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                lr_args={"peak_lr": 4e-4},
-                report_args={"architecture": "conf-wei", "lr": "default_peak_4e-4"},
-            ),
-            "lgm80_conf-wei": dict(  # matches original lr schedule from wei
-                returnn_args={"conformer_type": "wei", **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 1, "decrease_epochs": 120, "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
-            ),
-            "lgm80_conf-wei2": dict(  # almost matches original lr schedule from wei
-                returnn_args={"conformer_type": "wei", **returnn_args},
+            "lgm80_conf-audio_perturbation": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "extra_args": dict(
+                        audio_perturb_args={  
+                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                            },
+                        audio_perturb_runner=CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    ),
+                    **returnn_args},
                 feature_args=feature_args,
                 lr_args={
                     "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
                     "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4"},
-            ),
-            "lgm80_conf-wei-oldspecaug": dict(  # specaugment as in wei's setup
-                returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
-            ),
-            "lgm80_conf-wei-oldspecaug2": dict(  # specaugment as in wei's setup but double feature dim due to log Mel
-                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
-                },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
             ),
             # "lgm80_conf-wei2-nadam": dict(  # does not work well
             #     returnn_args={
@@ -301,3 +269,5 @@ def run_test_mel():
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
         template=report.get_template())
+
+
