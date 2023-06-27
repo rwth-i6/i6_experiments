@@ -28,7 +28,6 @@ def get_tedlium2_data(
         ctc_lexicon=True,
         use_augmented_lexicon=augmented_lexicon,
         add_all_allophones=True,
-        audio_format="wav",
         add_unknown_phoneme_and_mapping=add_unknown,
     )
 

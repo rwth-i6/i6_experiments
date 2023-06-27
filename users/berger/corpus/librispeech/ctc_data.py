@@ -122,7 +122,7 @@ def get_librispeech_data(
 
     # ********** Align data **********
 
-    align_lexicon = AddEowPhonemesToLexiconJob(train_lexicon).out_lexicon
+    align_lexicon = copy.deepcopy(recog_lexicon)
 
     align_data_inputs = {f"{key}_align": copy.deepcopy(data_input) for key, data_input in {**wav_train_data_inputs, **wav_dev_data_inputs}.items()}
     for data_input in align_data_inputs.values():

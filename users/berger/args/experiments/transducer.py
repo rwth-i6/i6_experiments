@@ -28,18 +28,21 @@ def get_transducer_train_args(**kwargs) -> Dict:
     return recursive_update(default_args, kwargs)
 
 
-def get_transducer_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_transducer_recog_args(
+    num_classes: int, reduction_subtrahend: int = 1039, reduction_factor: int = 640, **kwargs
+) -> Dict:
     default_args = {
         "epochs": ["best"],
-        "lm_scales": [0.9],
-        "prior_scales": [0.3],
+        "lm_scales": [0.5, 0.7, 0.9, 1.1],
+        "prior_scales": [0.0, 0.2, 0.4],
         "use_gpu": False,
         "label_scorer_type": "tf-ffnn-transducer",
         "label_scorer_args": {
-            "use_prior": False,
+            "use_prior": True,
             "num_classes": num_classes,
             "extra_args": {
                 "blank_label_index": 0,
+                "reduction_subtrahend": reduction_subtrahend,
                 "reduction_factors": reduction_factor,
                 "context_size": 1,
                 "max_batch_size": 256,

@@ -32,10 +32,7 @@ class Seq2SeqAlignmentFunctor(
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
         **kwargs,
-    ) -> Union[
-        Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData],
-        dataclasses.AlignmentData,
-    ]:
+    ) -> Union[Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData], dataclasses.AlignmentData,]:
         result = {}
 
         crp = copy.deepcopy(align_corpus.corpus_info.crp)
@@ -44,9 +41,7 @@ class Seq2SeqAlignmentFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(
-            align_corpus.corpus_info, **flow_args
-        )
+        base_feature_flow = self._make_base_feature_flow(align_corpus.corpus_info, **flow_args)
 
         for prior_scale, epoch in itertools.product(prior_scales, epochs):
             tf_graph = self._make_tf_graph(
@@ -59,19 +54,15 @@ class Seq2SeqAlignmentFunctor(
             checkpoint = self._get_checkpoint(train_job=train_job.job, epoch=epoch)
 
             if label_scorer_args.get("use_prior", False) and prior_scale:
-                prior_file = self._get_prior_file(
-                    prior_config=prior_config, checkpoint=checkpoint, **prior_args
-                )
+                prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
                 mod_label_scorer_args["prior_file"] = prior_file
             else:
                 mod_label_scorer_args.pop("prior_file", None)
             mod_label_scorer_args["prior_scale"] = prior_scale
 
-            label_scorer = custom_rasr.LabelScorer(
-                label_scorer_type, **mod_label_scorer_args
-            )
+            label_scorer = custom_rasr.LabelScorer(label_scorer_type, **mod_label_scorer_args)
 
-            feature_flow = self._get_feature_flow_for_label_scorer(
+            feature_flow = self._get_tf_feature_flow_for_label_scorer(
                 label_scorer=label_scorer,
                 base_feature_flow=base_feature_flow,
                 tf_graph=tf_graph,
@@ -93,9 +84,7 @@ class Seq2SeqAlignmentFunctor(
                 state_tying_file=state_tying_file,
             )
 
-            exp_full = (
-                f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
-            )
+            exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
 
             path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
 

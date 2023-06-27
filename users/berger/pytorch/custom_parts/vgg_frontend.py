@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Tuple
 
 import torch
 
@@ -79,7 +80,7 @@ class VGGFrontendV1(torch.nn.Module):
         self.dropout = config.dropout
         self.layer_norm = torch.nn.LayerNorm(config.linear_size)
 
-    def forward(self, x: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x = x[:, None, :, :]  # [B, 1, T, F]
         x = self.conv1(x)  # [B, C_1, T', F]
         x = torch.nn.functional.silu(x)  # [B, C_1, T', F]

@@ -28,7 +28,7 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
         loader_config.required_libraries = self._get_native_lstm_op()
         return loader_config
 
-    def _get_feature_flow_for_label_scorer(
+    def _get_tf_feature_flow_for_label_scorer(
         self,
         label_scorer: custom_rasr.LabelScorer,
         base_feature_flow: rasr.FlowNetwork,
@@ -45,3 +45,12 @@ class Seq2SeqFunctor(RasrFunctor, ABC):
             label_scorer.set_loader_config(self._make_model_loader_config(tf_graph, checkpoint))
 
         return feature_flow
+
+    def _get_onnx_feature_flow_for_label_scorer(
+        self,
+        label_scorer: custom_rasr.LabelScorer,
+        base_feature_flow: rasr.FlowNetwork,
+        onnx_model: tk.Path,
+    ) -> rasr.FlowNetwork:
+        assert custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type)
+        return self._make_onnx_feature_flow(base_feature_flow, onnx_model)

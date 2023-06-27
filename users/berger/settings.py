@@ -78,7 +78,7 @@ def worker_wrapper(job, task_name, call):
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
-    binds = ["/work/asr4", "/work/asr3", "/work/common"]
+    binds = ["/work/asr4", "/work/asr3", "/work/common", "/u/corpora"]
     ts = {t.name(): t for t in job.tasks()}
     t = ts[task_name]
 

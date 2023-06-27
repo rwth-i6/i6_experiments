@@ -83,7 +83,7 @@ def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
             "label-pruning-limit": 100000,
         },
         "align_node_options": {
-            "allow-label-loop": False,
+            "allophone-state-graph-builder.topology": "rna",  # No label loop for transducer
         },
         "label_scorer_args": {
             "use_prior": True,

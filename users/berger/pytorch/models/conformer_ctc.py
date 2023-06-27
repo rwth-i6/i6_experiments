@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+import functools
 
 import torch
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
 from i6_experiments.users.berger.pytorch.serializers.basic import (
-    get_basic_pt_network_serializer,
+    get_basic_pt_network_recog_serializer,
+    get_basic_pt_network_train_serializer,
 )
 from i6_models.assemblies.conformer import conformer
 from i6_models.config import ModelConfiguration, SubassemblyWithOptions
@@ -29,7 +31,7 @@ def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     max_length = int(torch.max(lengths).item())
     padding_mask = torch.arange(max_length, device=lengths.device, dtype=lengths.dtype).expand(
         batch_size, max_length
-    ) >= lengths.unsqueeze(1)
+    ) > lengths.unsqueeze(1)
     return padding_mask
 
 
@@ -40,15 +42,16 @@ class ConformerCTCModel(torch.nn.Module):
         self.conformer = conformer.ConformerEncoderV1(cfg.conformer_cfg)
         self.final_linear = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size)
 
-        self.export_mode = False
-
     def forward(
         self,
         audio_features: torch.Tensor,
         audio_features_len: torch.Tensor,
     ):
         x = self.specaugment(audio_features)  # [B, T, F]
-        encoder_padding_mask = None if self.export_mode else _lengths_to_padding_mask(audio_features_len)
+        if self.train:
+            encoder_padding_mask = _lengths_to_padding_mask(audio_features_len)
+        else:
+            encoder_padding_mask = None
         x = self.conformer(x, encoder_padding_mask)  # [B, T, F]
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
@@ -58,13 +61,21 @@ class ConformerCTCModel(torch.nn.Module):
 
 def get_serializer(
     model_config: ConformerCTCConfig,
+    train: bool = True,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
-    return get_basic_pt_network_serializer(
-        module_import_path=f"{__name__}.ConformerCTCModel",
-        train_step_import_path=f"{pytorch_package}.train_steps.ctc.train_step",
-        model_config=model_config,
-    )
+    if train:
+        return get_basic_pt_network_train_serializer(
+            module_import_path=f"{__name__}.ConformerCTCModel",
+            train_step_import_path=f"{pytorch_package}.train_steps.ctc.train_step",
+            model_config=model_config,
+        )
+    else:
+        return get_basic_pt_network_recog_serializer(
+            module_import_path=f"{__name__}.ConformerCTCModel",
+            export_import_path=f"{pytorch_package}.export.ctc.export",
+            model_config=model_config,
+        )
 
 
 def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
@@ -73,6 +84,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         max_time_mask_size=15,
         max_feature_mask_num=num_inputs // 10,
         max_feature_mask_size=5,
+        increase_steps=[2000],
     )
 
     frontend_cfg = vgg_frontend.VGGFrontendConfigV1(
@@ -95,7 +107,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         input_dim=512,
         hidden_dim=2048,
         dropout=0.1,
-        activation=torch.nn.functional.silu,
+        activation=torch.nn.SiLU(),
     )
 
     mhsa_cfg = conformer.ConformerMHSAV1Config(
@@ -109,7 +121,7 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         channels=512,
         kernel_size=31,
         dropout=0.1,
-        activation=torch.nn.functional.silu,
+        activation=torch.nn.SiLU(),
         norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
     )
 

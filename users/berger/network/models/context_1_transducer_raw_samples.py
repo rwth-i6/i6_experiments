@@ -18,6 +18,7 @@ import i6_experiments.users.berger.network.helpers.label_context as label_contex
 from recipe.i6_experiments.users.berger.network.helpers.feature_extraction import (
     add_gt_feature_extraction,
 )
+from recipe.i6_experiments.users.berger.util import skip_layer
 
 
 def make_context_1_conformer_transducer(
@@ -193,6 +194,16 @@ def make_context_1_conformer_transducer_recog(
     from_list, _ = add_conformer_stack(network, from_list, **conformer_args)
 
     network["encoder"] = {"class": "copy", "from": from_list}
+
+    # bn_layers = []
+    # for layer_name, layer_desc in network.items():
+    #     if layer_desc.get("class") == "batch_norm":
+    #         bn_layers.append(layer_name)
+    # for layer_name in bn_layers:
+    #     skip_layer(network, layer_name)
+    # if layer_desc.get("class") == "batch_norm":
+    #    layer_desc["param_version"] = 0
+    #    layer_desc.pop("delay_sample_update")
 
     joint_output, decoder_unit = label_context.add_context_1_decoder_recog(
         network,

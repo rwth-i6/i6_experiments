@@ -1,15 +1,9 @@
-from enum import Enum, auto
-from typing import Dict, Any, Optional, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import i6_core.returnn as returnn
-from i6_core.returnn import CodeWrapper
 import i6_experiments.users.berger.args.returnn.learning_rates as learning_rates
 import i6_experiments.users.berger.args.returnn.regularization as regularization
-
-
-class Backend(Enum):
-    TENSORFLOW = auto()
-    PYTORCH = auto()
+from i6_experiments.users.berger.recipe.returnn.training import Backend
 
 
 def get_base_config(backend: Backend) -> Dict[str, Any]:

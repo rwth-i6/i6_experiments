@@ -58,6 +58,18 @@ class RasrFunctor(ABC):
         )
         return graph_compile_job.out_graph
 
+    def _make_onnx_model(
+        self,
+        returnn_config: returnn.ReturnnConfig,
+        checkpoint: returnn.PtCheckpoint,
+    ) -> tk.Path:
+        onnx_export_job = custom_returnn.ExportPyTorchModelToOnnxJob(
+            pytorch_checkpoint=checkpoint,
+            returnn_config=returnn_config,
+            returnn_root=self.returnn_root,
+        )
+        return onnx_export_job.out_onnx_model
+
     def _make_base_feature_flow(self, corpus_info: dataclasses.CorpusInfo, **kwargs):
         audio_format = corpus_info.data.corpus_object.audio_format
         args = {
@@ -74,17 +86,19 @@ class RasrFunctor(ABC):
         self,
         train_job: returnn.ReturnnTrainingJob,
         epoch: types.EpochType,
-    ) -> returnn.Checkpoint:
+    ) -> types.CheckpointType:
         if epoch == "best":
             return custom_returnn.GetBestCheckpointJob(
-                train_job.out_model_dir, train_job.out_learning_rates
+                model_dir=train_job.out_model_dir,
+                learning_rates=train_job.out_learning_rates,
+                backend=custom_returnn.get_backend(train_job.returnn_config),
             ).out_checkpoint
         return train_job.out_checkpoints[epoch]
 
     def _get_prior_file(
         self,
         prior_config: returnn.ReturnnConfig,
-        checkpoint: returnn.Checkpoint,
+        checkpoint: types.CheckpointType,
         **kwargs,
     ) -> tk.Path:
         prior_job = returnn.ReturnnComputePriorJobV2(
@@ -157,6 +171,49 @@ class RasrFunctor(ABC):
         )
 
         ext_flow.interconnect_outputs(tf_flow, tf_mapping)
+        # ensure cache_mode as base feature net
+        ext_flow.add_flags(base_flow.flags)
+        return ext_flow
+
+    def _make_onnx_feature_flow(
+        self,
+        base_flow: rasr.FlowNetwork,
+        onnx_model: tk.Path,
+    ) -> rasr.FlowNetwork:
+        # tf flow (model scoring done in tf flow node) #
+        input_name = "onnx-fwd_input"
+
+        onnx_flow = rasr.FlowNetwork()
+        onnx_flow.add_input(input_name)
+        onnx_flow.add_output("features")
+        onnx_flow.add_param("id")
+
+        onnx_fwd = onnx_flow.add_node("onnx-forward", "onnx-fwd", {"id": "$(id)"})
+        onnx_flow.link(f"network:{input_name}", f"{onnx_fwd}:input")
+        onnx_flow.link(f"{onnx_fwd}:log-posteriors", "network:features")
+
+        onnx_flow.config = rasr.RasrConfig()  # type: ignore
+        onnx_flow.config[onnx_fwd].io_map.features = "data"
+        onnx_flow.config[onnx_fwd].io_map.output = "classes"
+
+        onnx_flow.config[onnx_fwd].session.file = onnx_model
+        onnx_flow.config[onnx_fwd].session.inter_op_num_threads = 2
+        onnx_flow.config[onnx_fwd].session.intra_op_num_threads = 2
+
+        # interconnect flows #
+        ext_flow = rasr.FlowNetwork()
+        base_mapping = ext_flow.add_net(base_flow)
+        tf_mapping = ext_flow.add_net(onnx_flow)
+        ext_flow.interconnect_inputs(base_flow, base_mapping)
+        ext_flow.interconnect(
+            base_flow,
+            base_mapping,
+            onnx_flow,
+            tf_mapping,
+            {list(base_flow.outputs)[0]: input_name},
+        )
+
+        ext_flow.interconnect_outputs(onnx_flow, tf_mapping)
         # ensure cache_mode as base feature net
         ext_flow.add_flags(base_flow.flags)
         return ext_flow
