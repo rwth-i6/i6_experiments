@@ -360,7 +360,7 @@ class ConformerEncoder:
                     n_out=self.enc_key_per_head_dim,
                     forward_weights_init=self.ff_init,
                     clipping=self.rel_pos_clipping,
-                )
+                )  # [B*C, W*2, D/H]
                 # same param name as before
                 mhsa_ = self.network.add_self_att_layer(
                     name=prefix_name,
@@ -455,6 +455,33 @@ class ConformerEncoder:
                     var1="auto",
                     var2="auto",
                 )  # [B*C, H, W*2, W]
+
+                ln_rel_pos_enc = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_rel_pos_enc",
+                    cls="relative_positional_encoding",
+                    source=ln,
+                    out_dim=self.enc_key_dim,
+                    forward_weights_init=self.ff_init,
+                    clipping=self.rel_pos_clipping,
+                )  # [B*C, W*2, D/H]
+
+                energy_rel_pos = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_energy_rel_pos",
+                    cls="dot",
+                    source=[Q_H, ln_rel_pos_enc],
+                    reduce=self.enc_per_head_dim,  # D/H
+                    var1="auto",
+                    var2="auto",
+                )  # [B*C, H, W, W*2]
+
+                energy = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_energy_",
+                    cls="combine",
+                    source=[energy, energy_rel_pos],
+                    kind="add",
+                    allow_broadcast_all_sources=False,
+                )  # [B*C, H, W*2, W]
+
                 weights = self.network.add_generic_layer(
                     f"{prefix_name}_ln_weights",
                     cls="softmax_over_spatial",
