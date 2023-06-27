@@ -11,7 +11,37 @@ class PerturbationFactor:
 
 class WaveformPerturbation:
     """
-    Helper class to perform perturbation techniques on audio waveforms.
+    This class enables the perturbation of audio waveforms by applying a variety of transformations such as speed and tempo modification,
+    SoX effects, codec application, and pre-emphasis filtering. 
+
+    :param speed: A dictionary that specifies the parameters for speed perturbation. 
+        - 'prob' (float): The probability of applying speed perturbation. 
+        - 'minimum' (float): The minimum factor by which the audio speed will be decreased.
+        - 'maximum' (float): The maximum factor by which the audio speed will be increased.
+        Example: {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}
+
+    :param tempo: A dictionary specifying the parameters for tempo perturbation.
+        - 'prob' (float): The probability of applying tempo perturbation. 
+        - 'minimum' (float): The minimum factor by which the audio tempo will be decreased.
+        - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
+        Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
+
+    :param sox_effects: A list of dictionaries, each dictionary representing a SoX effect.
+
+    :param codecs: A list of dictionaries where each dictionary represents a codec with its parameters.
+        - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
+        - 'encoding' or 'compression' (str/float): The encoding or compression technique and its level to be used.
+        - 'prob' (float): The probability of applying this specific codec.
+        Example: [{"format": "wav", "encoding": "ULAW", "prob": 0.4}]
+
+    :param preemphasis: A dictionary containing parameters for the preemphasis filter.
+        - 'prob' (float): The probability of applying the preemphasis filter.
+        - 'minimum' (float): The minimum preemphasis factor.
+        - 'maximum' (float): The maximum preemphasis factor.
+        Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
+        
+    The parameters `speed`, `tempo`, `codecs`, and `preemphasis` contain a 'prob' key
+    which determines the probability that the corresponding transformation is applied. 
     """
 
     def __init__(
