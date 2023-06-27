@@ -323,5 +323,3 @@ def run_test_mel():
         os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report.csv"),
         values=report.get_values(),
         template=report.get_template())
-
-
