@@ -155,7 +155,7 @@ def run_test_mel():
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
             ),
-            "lgm80_conf-audio_perturbation": dict(
+            "lgm80_conf-wei-oldspecaug-audio_perturbation": dict(
                 returnn_args={
                     "conformer_type": "wei",
                     "specaug_old": {},
