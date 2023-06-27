@@ -327,9 +327,6 @@ def run_audio_perturbation_scf():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=249, audio_opts=audio_opts) 
     hybrid_nn_system.run(nn_steps)
-    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
-        # noinspection PyUnresolvedReferences
-        train_job.rqmt.update({"gpu_mem": 11, "mem": 10})
 
 def run_all():
     run_baseline_gt()

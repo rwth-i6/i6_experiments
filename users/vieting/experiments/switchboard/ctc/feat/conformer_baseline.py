@@ -158,14 +158,15 @@ def run_test_mel():
             "lgm80_conf-audio_perturbation": dict(
                 returnn_args={
                     "conformer_type": "wei",
-                    extra_args=dict(
-                        audio_perturb_args={  
+                    "extra_args": {
+                        "audio_perturb_args": {
                             "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
                             "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                            },
-                        audio_perturb_runner=CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
-                    ),
-                    **returnn_args},
+                        },
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    },
+                    **returnn_args
+                },
                 feature_args=feature_args,
                 lr_args={
                     "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,

@@ -1,3 +1,10 @@
+import functools
+import torchaudio
+import torch
+import numpy as np
+import random
+from typing import List, Dict, Optional, Any
+
 class PerturbationFactor:
     """
     Class to wrap perturbation factors, e.g. for speed or tempo perturbation.
@@ -46,11 +53,11 @@ class WaveformPerturbation:
 
     def __init__(
         self,
-        speed: dict = None,
-        tempo: dict = None,
-        sox_effects: list[dict] = None,
-        codecs: list[dict] = None,
-        preemphasis: dict = None,
+        speed: Optional[Dict[str, Any]] = None,
+        tempo: Optional[Dict[str, Any]] = None,
+        sox_effects: Optional[List[Dict[str, Any]]] = None,
+        codecs: Optional[List[Dict[str, Any]]] = None,
+        preemphasis: Optional[Dict[str, Any]] = None,
     ):
         """
         Initializes an instance of a class.
@@ -114,7 +121,7 @@ class WaveformPerturbation:
 
 
 def get_code_for_perturbation():
-    classes = ["import torch", "import numpy as np", "import torchaudio", "import functools", "import random"]
+    classes = ["import torch", "import numpy as np", "import torchaudio", "import functools", "import random", "from typing import List, Dict"]
     for cls_name, cls in list(globals().items()):
         if isinstance(cls, type):
             classes.append(cls)
