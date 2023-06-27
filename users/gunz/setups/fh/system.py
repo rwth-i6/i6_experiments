@@ -1425,6 +1425,8 @@ class FactoredHybridSystem(NnSystem):
         rtf: typing.Optional[float] = None,
         lm_gc_simple_hash: typing.Optional[bool] = None,
         parallel: typing.Optional[int] = None,
+        adv_search_extra_config: typing.Optional[rasr.RasrConfig] = None,
+        alias_output_prefix: str = "",
     ):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1458,6 +1460,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_python_exe=self.returnn_python_exe,
             required_native_ops=native_ops,
             search_job_class=SearchJob,
+            alias_output_prefix=alias_output_prefix,
         )
         decoder.set_crp("init", crp)
 
@@ -1482,12 +1485,12 @@ class FactoredHybridSystem(NnSystem):
                 return self.obj
 
         if params.altas is not None:
-            adv_search_extra_config = rasr.RasrConfig()
+            if adv_search_extra_config is None:
+                adv_search_extra_config = rasr.RasrConfig()
             adv_search_extra_config.flf_lattice_tool.network.recognizer.recognizer.acoustic_lookahead_temporal_approximation_scale = (
                 params.altas
             )
-        else:
-            adv_search_extra_config = None
+
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
 

@@ -357,6 +357,36 @@ def run_single(
                 rtf=16,
             )
 
+        cfg_w_phoneme_errors = [(0.5, 10.0, 10.0, 10.0, 10.0, 0.0, 10.0)]
+        for pC, sil_loop, sil_fwd, sil_exit, sp_loop, sp_fwd, sp_exit in cfg_w_phoneme_errors:
+            sil_non_w_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
+            cfg = dataclasses.replace(
+                recog_args,
+                tdp_non_word=sil_non_w_tdp,
+                tdp_silence=sil_non_w_tdp,
+                tdp_speech=(sp_loop, sp_fwd, "infinity", sp_exit),
+            ).with_prior_scale(pC)
+
+            extra_config = rasr.RasrConfig()
+            extra_config.flf_lattice_tool.network.evaluator.phoneme_errors = True
+
+            s.recognize_cart(
+                cart_tree_or_tying_config=tying_cfg,
+                crp_corpus=crp_k,
+                encoder_output_layer="center__output",
+                epoch=ep,
+                gpu=False,
+                key="fh",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=decoding_config,
+                n_cart_out=s.label_info.get_n_of_dense_classes(),
+                opt_lm_am_scale=False,
+                params=cfg,
+                rtf=1,
+                adv_search_extra_config=extra_config,
+                alias_output_prefix="ph_",
+            )
+
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone, n_states_per_phone=2)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
 
