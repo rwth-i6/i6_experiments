@@ -139,33 +139,28 @@ def run_baseline_gt():
 def run_baseline_mel():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
+    log_mel_args_8khz = {
+        "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+    }
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "lm80_fft256": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={
-                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
-                },
+                feature_args=log_mel_args_8khz,
             ),
             "lm80_fft256_lr8e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={
-                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
-                },
+                feature_args=log_mel_args_8khz,
                 peak_lr=8e-4,
             ),
             "lm80_fft256_lr9e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={
-                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
-                },
+                feature_args=log_mel_args_8khz,
                 peak_lr=9e-4,
             ),
             "lm80_fft256_lr15e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={
-                    "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
-                },
+                feature_args=log_mel_args_8khz,
                 peak_lr=15e-4,
             ),
             "lm80_fft512": dict(
@@ -189,42 +184,47 @@ def run_baseline_mel():
 def run_baseline_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
+    scf_args_8khz = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+                feature_args=scf_args_8khz,
             ),
-            "scf_first_layer_unsorted_specaug": dict(
-                returnn_args=dict(batch_size=3500, specaug_after_first_layer=True, extra_args=dict(accum_grad_multiple_step=4)),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+            "scf_specaug_first_layer": dict(
+                returnn_args=dict(
+                    batch_size=3500,
+                    specaug_after_first_layer=True,
+                    extra_args=dict(accum_grad_multiple_step=4),
+                ),
+                feature_args=scf_args_8khz,
             ),
             "scf_lr8e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                feature_args=scf_args_8khz,
                 peak_lr=8e-4,
             ),
             "scf_lr9e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                feature_args=scf_args_8khz,
                 peak_lr=9e-4,
             ),
             "scf_lr13e-4": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                feature_args=scf_args_8khz,
                 peak_lr=13e-4,
             ),
             "scf_freeze-scf-180": dict(
                 returnn_args=dict(batch_size=14000, staged_opts={180: "freeze_features"}),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+                feature_args=scf_args_8khz,
             ),
             # "scf_rm-aux-180": dict(
             #     returnn_args=dict(batch_size=14000, staged_opts={180: "remove_aux"}),
-            #     feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            #     feature_args=scf_args_8khz,
             # ),
             # "scf_max": dict(
             #     returnn_args=dict(batch_size=7000, extra_args={"accum_grad_multiple_step": 2}),
-            #     feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            #     feature_args=scf_args_8khz,
             # )
             "scf_tf150x256x5": dict(
                 returnn_args=dict(batch_size=14000),
@@ -240,7 +240,11 @@ def run_baseline_scf():
             ),
             "scf_batchnorm": dict(
                 returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "normalization_env": "batch"},
+                feature_args={
+                    "class": "ScfNetwork",
+                    "size_tf": 256 // 2,
+                    "stride_tf": 10 // 2,
+                    "normalization_env": "batch"},
             ),
         },
         prefix="conformer_bs14k_",
@@ -260,9 +264,11 @@ def run_baseline_scf():
     )
     hybrid_nn_system.returnn_python_exe = returnn_python_exe
 
+
 def run_specaug_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
 
+    scf_args_8khz = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
     nn_args = get_nn_args_baseline(
         nn_base_args={
             "scf": dict(
@@ -272,7 +278,7 @@ def run_specaug_scf():
                     specaug_after_first_layer=True,
                     extra_args=dict(accum_grad_multiple_step=2)
                 ),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+                feature_args=scf_args_8khz,
             ),
             "scf_divisor-4": dict(
                 returnn_args=dict(
@@ -282,7 +288,7 @@ def run_specaug_scf():
                     mask_divisor=4,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+                feature_args=scf_args_8khz,
             ),
             "scf_divisor-6": dict(
                 returnn_args=dict(
@@ -292,7 +298,7 @@ def run_specaug_scf():
                     mask_divisor=6,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
+                feature_args=scf_args_8khz,
             ),
         },
         prefix="conformer_bs14k_specaug_sorted_",

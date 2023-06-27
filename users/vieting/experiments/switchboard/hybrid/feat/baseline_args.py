@@ -102,7 +102,7 @@ def get_nn_args_single(
     num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     peak_lr=1e-3, feature_args=None, returnn_args=None,
 ):
-    feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
+    feature_args = copy.deepcopy(feature_args) or {"class": "GammatoneNetwork", "sample_rate": 8000}
     preemphasis = feature_args.pop("preemphasis", None)
     wave_norm = feature_args.pop("wave_norm", False)
     feature_network_class = {
