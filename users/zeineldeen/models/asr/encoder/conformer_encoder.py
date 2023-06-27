@@ -223,6 +223,10 @@ class ConformerEncoder:
         self.mhsa_weight_drop = mhsa_weight_dropout
 
         self.memory_variant_opts = memory_variant_opts
+        if self.memory_variant_opts:
+            self.concat_window_dim = SpatialDim("concat-window")
+            self.enc_att_num_heads_dim = SpatialDim("enc-att-num-heads", att_num_heads)
+            self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -345,13 +349,145 @@ class ConformerEncoder:
                 f"{prefix_name}_ln_concat",
                 cls="concat",
                 source=[(ln_chunk_shifted, "T"), (ln, "T")],
+                out_dim=self.concat_window_dim,
             )  # [B*C, W*2, D]
 
-            # We cannot use SelfAttentionLayer on the concatenated tensor,
-            # because it would waste compute time for the frames of the last chunk.
-            # So reimplement the SelfAttentionLayer here explicitly.
-            # key, value: via concatenated, [B*C, W*2, D]
-
+            if self.memory_variant_opts.self_att_version == 0:
+                # this implementation is not efficient.
+                ln_rel_pos_enc = self.network.add_relative_pos_encoding_layer(
+                    f"{prefix_name}_ln_rel_pos_enc",
+                    ln,
+                    n_out=self.enc_key_per_head_dim,
+                    forward_weights_init=self.ff_init,
+                    clipping=self.rel_pos_clipping,
+                )
+                # same param name as before
+                mhsa_ = self.network.add_self_att_layer(
+                    name=prefix_name,
+                    source=ln,
+                    n_out=self.enc_value_dim,
+                    num_heads=self.att_num_heads,
+                    total_key_dim=self.enc_key_dim,
+                    att_dropout=self.att_dropout,
+                    forward_weights_init=self.mhsa_init,
+                    key_shift=ln_rel_pos_enc if ln_rel_pos_enc is not None else None,
+                    l2=self.self_att_l2,
+                    attention_left_only=self.use_causal_layers,
+                    param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
+                    param_dropout=self.mhsa_weight_drop,
+                )  # [B*C, W*2, D]
+                mhsa_splits = self.network.add_generic_layer(
+                    f"{prefix_name}_splits",
+                    cls="split",
+                    source=mhsa_,
+                    axis="T",
+                    num_splits=2,
+                )  # two tensors of shape [B*C, W, D]
+                mhsa = self.network.add_generic_layer(
+                    f"{prefix_name}_split_2",
+                    cls="copy",
+                    source=mhsa_splits + "/1",  # select second half
+                )  # [B*C, W, D]
+            else:
+                # For efficient computation:
+                # We cannot use SelfAttentionLayer on the concatenated tensor,
+                # because it would waste compute time for the frames of the last chunk.
+                # So reimplement the SelfAttentionLayer here explicitly.
+                # key, value: via concatenated, [B*C, W*2, D]
+                K = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_K",
+                    cls="linear",
+                    source=ln,
+                    n_out=self.enc_key_dim,
+                    forward_weights_init=self.mhsa_init,
+                    with_bias=False,
+                )  # [B*C, W*2, D]
+                K_H = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_K_H",
+                    cls="split_dims",
+                    source=K,
+                    axis="f",
+                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+                )  # [B*C, W*2, H, D/H]
+                V = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_V",
+                    cls="linear",
+                    source=ln,
+                    n_out=self.enc_value_dim,
+                    forward_weights_init=self.mhsa_init,
+                    with_bias=False,
+                )  # [B*C, W*2, D]
+                V_H = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_V_H",
+                    cls="split_dims",
+                    source=V,
+                    axis="f",
+                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+                )  # [B*C, W*2, H, D/H]
+                Q_split = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_Q_split",
+                    cls="split",
+                    num_splits=2,
+                    source=ln,
+                    axis=self.concat_window_dim,
+                )  # two tensors of shape [B*C, W, D]
+                # TODO: add relative positional encoding
+                Q = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_Q",
+                    cls="linear",
+                    source=Q_split + "/1",
+                    n_out=self.enc_key_dim,
+                    forward_weights_init=self.mhsa_init,
+                    with_bias=False,
+                )  # second half of shape [B*C, W, D]
+                Q_H = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_Q_H",
+                    cls="split_dims",
+                    source=Q,
+                    axis="f",
+                    dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+                )  # [B*C, W, H, D/H]
+                energy = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_energy",
+                    cls="dot",
+                    source=[K_H, Q_H],
+                    reduce=self.enc_per_head_dim,  # D/H
+                    var1="auto",
+                    var2="auto",
+                )  # [B*C, H, W*2, W]
+                weights = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_weights",
+                    cls="softmax_over_spatial",
+                    source=energy,
+                    energy_factor=self.enc_key_per_head_dim**-0.5,
+                )  # [B*C, H, W*2, W]
+                weights_drop = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_weights_drop",
+                    cls="dropout",
+                    source=weights,
+                    dropout=self.att_dropout,
+                    dropout_noise_shape={"*": None},
+                )  # [B*C, H, W*2, W]
+                att0 = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_att0",
+                    cls="dot",
+                    source=[weights_drop, V_H],
+                    reduce=self.concat_window_dim,  # 2*W
+                    var1="auto",
+                    var2="auto",
+                )  # [B*C, H, W, D/H]
+                mhsa_ = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_att_",
+                    cls="merge_dims",
+                    source=att0,
+                    axes=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
+                )  # [B*C, W, D]
+                mhsa = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_att",
+                    cls="reinterpret_data",
+                    source=mhsa_,
+                    set_axes={"T": "dim:100"},
+                )  # [B*C, W, D]
         else:
             mhsa = self.network.add_self_att_layer(
                 name=prefix_name,
@@ -739,3 +875,4 @@ class ConformerEncoder:
 class ConformerMemoryVariantOpts:
     split_batch_time_base: str
     chunked_time_dim: Dim
+    self_att_version: int  # TODO: just for testing
