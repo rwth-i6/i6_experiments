@@ -1,6 +1,7 @@
 import copy
 import os.path
 from sisyphus import tk, gs
+from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
@@ -273,6 +274,33 @@ def run_test_mel():
         **{**recog_args, "prior_scales": [0.5], "epochs": [260]},
     )
 
+    # test blank penalty as we have more deletions than insertions
+    ctc_nn_system_blank_penalty = copy.deepcopy(ctc_nn_system)
+    exp_name = "conformer_bs10k_lgm80_conf-wei_old-lr-4e-4"
+    recog_config = ctc_nn_system_blank_penalty.returnn_configs[exp_name].recog_configs.pop("recog")
+    for blank_penalty in [0.2, 0.3, 0.5, 0.8]:
+        config = copy.deepcopy(recog_config)
+        blank_index = 0
+        num_outputs = 88
+        config.config["network"]["output_blank_penalty"] = {
+            "class": "eval",
+            "from": "output",
+            "is_output_layer": True,
+            "eval": f"source(0) - tf.expand_dims("
+                    f"tf.one_hot([{blank_index}], {num_outputs}, on_value={blank_penalty}, dtype=tf.float32), axis=0)",
+        }
+        ctc_nn_system_blank_penalty.returnn_configs[exp_name].recog_configs[
+            f"recog_blank-penalty-{blank_penalty}"] = config
+    ctc_nn_system_blank_penalty.run_recogs_for_corpora(
+        ["hub5e00"],
+        exp_name,
+        search_type=SearchTypes.GenericSeq2SeqSearchJob,
+        report_args=report_args_collection,
+        extra_name=f"_blank-pen-{blank_penalty}",
+        tf_flow_args={"output_layer_name": "output_blank_penalty"},
+        **{**recog_args, "prior_scales": [0.5]},
+    )
+
     # same lm as in wei's setup, results indicate that this is not better (if any, slightly worse)
     ctc_nn_system_wei_lm = copy.deepcopy(ctc_nn_system)
     for train_name in list(ctc_nn_system_wei_lm.returnn_configs.keys()):
@@ -309,7 +337,12 @@ def run_test_mel():
     ctc_nn_system_wei_lex.run_dev_recog_step(
         recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex)
 
-    report = Report.merge_reports([ctc_nn_system.report, ctc_nn_system_wei_lm.report, ctc_nn_system_wei_lex.report])
+    report = Report.merge_reports([
+        ctc_nn_system.report,
+        ctc_nn_system_blank_penalty.report,
+        ctc_nn_system_wei_lm.report,
+        ctc_nn_system_wei_lex.report,
+    ])
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
