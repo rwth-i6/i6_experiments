@@ -300,7 +300,7 @@ def run_specaug_scf():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
-def run_audio_perturbation_scf():
+#def run_audio_perturbation_scf():
     #gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
     #audio_opts = {"features": "raw", "peak_normalization": True, "pre_process": CodeWrapper("audio_perturb_runner.run")}
     #nn_args = get_nn_args_baseline(
