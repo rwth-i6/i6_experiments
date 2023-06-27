@@ -265,13 +265,20 @@ def run_specaug_scf():
 
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf": dict(returnn_args=dict(batch_size=7000, specaug_mask_sorting=True, extra_args=dict(accum_grad_multiple_step=2)),
+            "scf": dict(
+                returnn_args=dict(
+                    batch_size=7000,
+                    specaug_mask_sorting=True,
+                    specaug_after_first_layer=True,
+                    extra_args=dict(accum_grad_multiple_step=2)
+                ),
                 feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
             ),
             "scf_divisor-4": dict(
                 returnn_args=dict(
                     batch_size=3500, 
                     specaug_mask_sorting=True,
+                    specaug_after_first_layer=True,
                     mask_divisor=4,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
@@ -281,6 +288,7 @@ def run_specaug_scf():
                 returnn_args=dict(
                     batch_size=3500,
                     specaug_mask_sorting=True,
+                    specaug_after_first_layer=True,
                     mask_divisor=6,
                     extra_args=dict(accum_grad_multiple_step=4)
                 ),
