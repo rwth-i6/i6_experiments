@@ -533,9 +533,10 @@ class TransducerSystem:
         base_feature_flow: rasr.FlowNetwork,
         tf_graph: tk.Path,
         checkpoint: returnn.Checkpoint,
+        **kwargs
     ) -> rasr.FlowNetwork:
         if custom_rasr.LabelScorer.need_tf_flow(label_scorer.scorer_type):
-            feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint)
+            feature_flow = self._make_tf_feature_flow(base_feature_flow, tf_graph, checkpoint, **kwargs)
         else:
             feature_flow = base_feature_flow
             label_scorer.set_input_config()
@@ -560,6 +561,7 @@ class TransducerSystem:
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
         flow_args: Dict = {},
+        tf_flow_args: Dict = {},
         extra_name: str = "",
         report_args: Dict[str, Any] = None,
         **kwargs,
@@ -610,6 +612,7 @@ class TransducerSystem:
                 base_feature_flow=base_feature_flow,
                 tf_graph=tf_graph,
                 checkpoint=checkpoint,
+                **tf_flow_args,
             )
 
             rec = custom_recognition.GenericSeq2SeqSearchJob(
