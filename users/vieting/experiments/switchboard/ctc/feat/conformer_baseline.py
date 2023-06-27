@@ -158,6 +158,7 @@ def run_test_mel():
             "lgm80_conf-audio_perturbation": dict(
                 returnn_args={
                     "conformer_type": "wei",
+                    "specaug_old": {},
                     "audio_perturbation": True,
                     "extra_args": {
                         "audio_perturb_args": {
