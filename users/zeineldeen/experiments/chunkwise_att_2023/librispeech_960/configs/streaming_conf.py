@@ -993,8 +993,10 @@ def run_chunkwise_train(
     time_rqmt: float = 72,
     start_lrs: Union[float, List[float]] = 1e-4,
     decay_pt_factors: Union[float, List[float]] = 1 / 3,
-    window_left_padding=None,
-    end_slice_size=None,
+    window_left_padding: Optional[int] = None,
+    end_slice_size: Optional[int] = None,
+    pos_enc: Optional[str] = "rel",
+    enc_memory_version: Optional[int] = None,
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
@@ -1066,6 +1068,17 @@ def run_chunkwise_train(
                         if end_slice_size is not None:
                             train_args["end_slice_size"] = end_slice_size
                             exp_name += f"_endSlice{end_slice_size}"
+
+                        if pos_enc is None:
+                            train_args["encoder_args"].pos_enc = pos_enc
+                            exp_name += f"_woPosEnc"
+                        else:
+                            assert pos_enc == "rel"
+
+                        if enc_memory_version is not None:
+                            train_args["enc_memory_version"] = enc_memory_version
+                            exp_name += f"_memVariant{enc_memory_version}"
+                            train_args["recursion_limit"] = 4000
 
                         if suffix:
                             exp_name += suffix
@@ -1259,26 +1272,9 @@ def baseline():
         time_rqmt=50,
     )
 
-    # TODO: overlap without padding
-    # running locally
-    # run_chunkwise_train(
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     enc_stream_type="chunked",
-    #     chunk_sizes=[100],
-    #     chunk_step_factors=[0.5],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[200],
-    #     batch_size=15_000,
-    #     accum_grad=2,
-    #     time_rqmt=40,
-    #     window_left_padding=0,
-    # )
-
     # TODO: end slice chunk size + left padding: chunk_size - end_slice_size
-    for end_slice_size in [60, 50]:
+    # chunk size 100 and 50% overlap
+    for end_slice_size in [90, 80, 70, 60, 50]:
         run_chunkwise_train(
             run_all_for_best_last_avg=True,
             enable_check_align=False,
@@ -1292,8 +1288,91 @@ def baseline():
             batch_size=15_000 if end_slice_size <= 10 else 10_000,
             accum_grad=2 if end_slice_size <= 10 else 3,
             time_rqmt=40,
-            window_left_padding=100 - end_slice_size,
+            window_left_padding=(100 - end_slice_size) * 6,  # on input level!
             end_slice_size=end_slice_size,
         )
 
     # TODO: use previous chunks as memory
+    # running locally
+    # att_chunk-50_step-25_linDecay200_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant0/training/work/learning_rates
+    # att_chunk-20_step-10_linDecay200_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant0/training/work/learning_rates
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[100, 50, 20],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=10_000,
+        accum_grad=3,
+        time_rqmt=40,
+        enc_memory_version=0,
+    )
+
+    # TODO: 100, 50, 20 with memory and no overlap
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[100, 50, 20],
+        chunk_step_factors=[1.0],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=40,
+        enc_memory_version=0,
+    )
+
+    # TODO: 50, 20 with 50% overlap
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[50],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=40,
+    )
+
+    # TODO: more efficient implementation
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[100],
+        chunk_step_factors=[1.0],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=40,
+        enc_memory_version=1,  # more efficient
+    )
+
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[50],
+        chunk_step_factors=[1.0],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=30_000,
+        accum_grad=1,
+        time_rqmt=40,
+    )

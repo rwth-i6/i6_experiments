@@ -460,10 +460,13 @@ class ConformerEncoder:
                     f"{prefix_name}_ln_rel_pos_enc",
                     cls="relative_positional_encoding",
                     source=ln,
-                    out_dim=self.enc_key_dim,
+                    out_dim=self.enc_per_head_dim,  # D/H
                     forward_weights_init=self.ff_init,
                     clipping=self.rel_pos_clipping,
-                )  # [B*C, W*2, D/H]
+                    query_spatial_dim="T",
+                    key_value_spatial_dim=self.concat_window_dim,
+                    query_offset=self.memory_variant_opts.chunk_size,
+                )  # [W, W*2, D/H]
 
                 energy_rel_pos = self.network.add_generic_layer(
                     f"{prefix_name}_ln_energy_rel_pos",
@@ -902,4 +905,5 @@ class ConformerEncoder:
 class ConformerMemoryVariantOpts:
     split_batch_time_base: str
     chunked_time_dim: Dim
+    chunk_size: int
     self_att_version: int  # TODO: just for testing

@@ -6,8 +6,10 @@ from i6_experiments.common.tools.sctk import compile_sctk
 RETURNN_EXE = tk.Path("/u/zeineldeen/bin/returnn_tf_ubuntu22_launcher.sh", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
 RETURNN_CPU_EXE = RETURNN_EXE
 
+# old commit: b8187f47437a368eda8ad369631521515ee5e209
+# 3250f48475f12078d214282709b31b94efa6d20f
 RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn", commit="b8187f47437a368eda8ad369631521515ee5e209"
+    "https://github.com/rwth-i6/returnn", commit="3142783f052eb9f4fcceb485d78cf846570b106e"
 ).out_repository
 RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 

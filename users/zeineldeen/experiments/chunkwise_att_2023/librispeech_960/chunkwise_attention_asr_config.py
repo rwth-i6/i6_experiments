@@ -11,6 +11,7 @@ from dataclasses import dataclass, asdict
 
 from i6_experiments.users.zeineldeen.models.asr.encoder.conformer_encoder import (
     ConformerEncoder,
+    ConformerMemoryVariantOpts,
 )
 from i6_experiments.users.zeineldeen.models.asr.decoder.transformer_decoder import (
     TransformerDecoder,
@@ -133,6 +134,21 @@ def transform(data, network, max_time_dim={max_time_dim}, freq_dim_factor={freq_
   x = network.cond_on_train(get_masked, lambda: x)
   return x
 """
+
+
+def load_qkv_mats(name, shape, reader):
+    idx = name.split("_")[2]
+    qkv_tensor = reader.get_tensor("conformer_block_%s_self_att/QKV" % idx)
+    import numpy
+
+    q, k, v = numpy.split(qkv_tensor, 3, axis=-1)
+    if name == "conformer_block_%s_self_att_ln_K/W" % idx:
+        return k
+    elif name == "conformer_block_%s_self_att_ln_Q/W" % idx:
+        return q
+    elif name == "conformer_block_%s_self_att_ln_V/W" % idx:
+        return v
+    return None
 
 
 # -------------------------- Pretraining -------------------------- #
@@ -368,6 +384,8 @@ class ConformerEncoderArgs(EncoderArgs):
 
     output_layer_name: str = "encoder"
 
+    memory_variant_opts: Optional[ConformerMemoryVariantOpts] = None
+
 
 class DecoderArgs:
     pass
@@ -548,6 +566,7 @@ def create_config(
     recog_ext_pipeline=False,
     window_left_padding=None,
     end_slice_size=None,
+    enc_memory_version=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -700,6 +719,14 @@ def create_config(
             input_chunk_size_dim = SpatialDim("input-chunk-size", in_chunk_size)
             encoder_args["specaug"] = False  # need to do it before
             encoder_args["fix_merge_dims"] = True  # broken otherwise
+
+        if enc_memory_version is not None:
+            encoder_args["memory_variant_opts"] = ConformerMemoryVariantOpts(
+                split_batch_time_base="_input_chunked",
+                chunked_time_dim=chunked_time_dim,
+                self_att_version=enc_memory_version,
+                chunk_size=chunk_size,
+            )
 
         conformer_encoder = encoder_type(**encoder_args)
         conformer_encoder.create_network()
@@ -907,6 +934,11 @@ def create_config(
     # add hyperparmas
     exp_config.update(hyperparams)
 
+    if enc_memory_version == 1:
+        assert retrain_checkpoint_opts is None
+        retrain_checkpoint_opts = {}
+        retrain_checkpoint_opts["custom_missing_load_func"] = load_qkv_mats
+
     if retrain_checkpoint is not None:
         if retrain_checkpoint_opts:
             # Use the preload_from_files mechanism, which can do the same as import_model_train_epoch1,
@@ -1011,6 +1043,10 @@ def create_config(
 
     if feature_extraction_net_global_norm:
         python_prolog += ["import numpy"]
+
+    if enc_memory_version == 1:
+        # python_prolog += [load_qkv_mats]
+        assert retrain_checkpoint_opts is not None, "preload_from_files should be used."
 
     returnn_config = ReturnnConfig(
         exp_config,
