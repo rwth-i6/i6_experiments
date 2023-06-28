@@ -60,8 +60,8 @@ def run(returnn_root: tk.Path):
     tri_gmm_align = tk.Path(GMM_TRI_ALIGNMENT, cached=True)
 
     for (n_phones, cart_tree, cart_num_labels, lr) in [
-        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v13"),
-        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v13"),
+        (3, CART_TREE_TRI, CART_TREE_TRI_NUM_LABELS, "v6"),
+        (2, CART_TREE_DI, CART_TREE_DI_NUM_LABELS, "v6"),
     ]:
         with open(cart_num_labels, "r") as file:
             num_labels = int(file.read().strip())
@@ -168,7 +168,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -236,10 +236,6 @@ def run_single(
         nn_train_args=train_args,
         on_2080=False,
     )
-    if n_cart_phones == 3:
-        # Triphone CART is memory hungry
-        train_j.rqmt["mem"] = 16
-        train_j.rqmt["gpu_mem"] = 16
 
     s.set_mono_priors_returnn_rasr(
         key="fh",

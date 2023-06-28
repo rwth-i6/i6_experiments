@@ -85,7 +85,7 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=False,
-            lr="v13",
+            lr="v6",
             run_performance_study=False,
             tune_decoding=False,
         ),
@@ -223,7 +223,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": 6144,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -299,7 +299,6 @@ def run_single(
         on_2080=False,
     )
     # Joint softmax is memory hungry
-    train_job.rqmt["gpu_mem"] = 16
     train_job.rqmt["mem"] = 16
 
     s.set_mono_priors_returnn_rasr(
