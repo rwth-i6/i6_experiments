@@ -28,7 +28,7 @@ class WaveformPerturbation:
         self,
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
-        sox_effects: Optional[List[List[str, Any]]] = None,
+        sox_effects: Optional[List[List[str]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
     ):
