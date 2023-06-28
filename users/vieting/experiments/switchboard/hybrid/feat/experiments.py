@@ -299,6 +299,7 @@ def run_specaug_scf():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
+
 def run_all():
     run_baseline_gt()
     run_baseline_mel()
