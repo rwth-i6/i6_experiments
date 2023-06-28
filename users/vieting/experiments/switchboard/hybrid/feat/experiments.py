@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 from sisyphus import gs, tk
 
 from i6_core.features.common import samples_flow
-from i6_core.returnn.config import CodeWrapper
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -300,37 +299,8 @@ def run_specaug_scf():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
-#def run_audio_perturbation_scf():
-    #gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
-    #audio_opts = {"features": "raw", "peak_normalization": True, "pre_process": CodeWrapper("audio_perturb_runner.run")}
-    #nn_args = get_nn_args_baseline(
-        #nn_base_args={
-            #"scf": dict(returnn_args=dict(
-                #batch_size=14000,
-                #audio_perturbation=True,
-                #extra_args=dict(
-                    #audio_perturb_args={  
-                        #"speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
-                        #"tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                        #},
-                    #audio_perturb_runner=CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
-                    #)
-                #),
-                #feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
-            #),
-        #},
-        #prefix="conformer_bs14k_audio_perturbation_",
-        #num_epochs=260,
-    #)
-    #nn_steps = RasrSteps()
-    #nn_steps.add_step("nn", nn_args)
-
-    #hybrid_nn_system = get_hybrid_nn_system(context_window=249, audio_opts=audio_opts) 
-    #hybrid_nn_system.run(nn_steps)
-
 def run_all():
     run_baseline_gt()
     run_baseline_mel()
     run_baseline_scf()
     run_specaug_scf()
-    #run_audio_perturbation_scf()

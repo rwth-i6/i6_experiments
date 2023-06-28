@@ -28,7 +28,7 @@ class WaveformPerturbation:
         self,
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
-        sox_effects: Optional[List[Dict[str, Any]]] = None,
+        sox_effects: Optional[List[List[str, Any]]] = None,
         codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
     ):
@@ -46,7 +46,7 @@ class WaveformPerturbation:
             - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
             Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
 
-        :param sox_effects: A list of dictionaries, each dictionary representing a SoX effect.
+        :param sox_effects: A list of Lists, each dictionary representing a SoX effect.
 
         :param codecs: A list of dictionaries where each dictionary represents a codec with its parameters.
             - 'format' (str): The audio format such as 'wav', 'vorbis' etc.
