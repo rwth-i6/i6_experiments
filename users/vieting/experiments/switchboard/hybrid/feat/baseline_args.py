@@ -26,7 +26,7 @@ from .specaug_sorted import (
     specaug_layer_sorted,
     get_funcs_sorted,
 )
-    
+
 RECUSRION_LIMIT = """
 import sys
 sys.setrecursionlimit(3000)
