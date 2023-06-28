@@ -202,7 +202,8 @@ def get_returnn_config(
 
     from .network_helpers.reduced_dim import network
     network = copy.deepcopy(network)
-    network["features"] = feature_net
+    network["features"] = copy.deepcopy(feature_net)
+    prolog = None
     if recognition:
         for layer in list(network.keys()):
             if "aux" in layer:
@@ -214,6 +215,7 @@ def get_returnn_config(
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
             network["source"] = {"class": "copy", "from": "features"}
+            prolog = get_funcs_sorted()
         else:
             if specaug_after_first_layer:
                 network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
@@ -221,13 +223,10 @@ def get_returnn_config(
                 network["source"] = {"class": "copy", "from": "features"}
             else:
                 network["source"] = specaug_layer_jingjing(in_layer=["features"])
+            prolog = get_funcs_jingjing()
 
         network = fix_network_for_sparse_output(network)
 
-    if specaug_mask_sorting:
-        prolog = get_funcs_sorted()
-    else:
-        prolog = get_funcs_jingjing()
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
