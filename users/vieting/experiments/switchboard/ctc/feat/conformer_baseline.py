@@ -5,6 +5,7 @@ from sisyphus.delayed_ops import DelayedFormat
 
 from i6_core.meta.system import CorpusObject
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
+from i6_core.returnn.config import CodeWrapper
 from i6_core.recognition import Hub5ScoreJob
 from i6_experiments.common.datasets.switchboard.corpus_eval import get_hub5e00
 from i6_experiments.common.setups.rasr.util import RasrDataInput
@@ -155,6 +156,27 @@ def run_test_mel():
                     "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
+            ),
+            "lgm80_conf-wei-oldspecaug-audio_perturbation": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {},
+                    "audio_perturbation": True,
+                    "extra_args": {
+                        "audio_perturb_args": {
+                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                        },
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    },
+                    **returnn_args
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "speed": "0.6_0.88_1.12", "tempo": "0.6_0.83_1.17"},
             ),
             # "lgm80_conf-wei2-nadam": dict(  # does not work well
             #     returnn_args={
