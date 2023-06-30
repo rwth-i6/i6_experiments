@@ -598,7 +598,13 @@ def test_import_search():
         data.placeholder = batch_data[key]
         key_seq_lens = f"{key}_seq_lens"
         if key_seq_lens in batch_data:
-            data.size_placeholder[0] = batch_data[key_seq_lens]
+            seq_lens = data.dims[1]
+            if not seq_lens.dyn_size_ext:
+                seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
+            seq_lens.placeholder = batch_data[key_seq_lens]
+    if not batch_dim.dyn_size_ext:
+        batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
+        batch_dim.placeholder = batch_data["batch_dim"]
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
