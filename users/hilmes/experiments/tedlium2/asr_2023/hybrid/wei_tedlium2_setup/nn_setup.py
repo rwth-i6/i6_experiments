@@ -32,7 +32,7 @@ def add_specaug_source_layer(network, name='source', nextLayers=['fwd_lstm_1', '
                    }
   for layer in nextLayers:
     if not layer in network2: continue
-    network2[layer]['from'] = name
+    network2[layer]['from'] = [name]
   return network2, name 
 
 def add_linear_layer(network: object, name: object, fromList: object, size: object, l2: object = 0.01, dropout: object = None, bias: object = None, activation: object = None, **kwargs) -> object:

@@ -22,6 +22,7 @@ from i6_core.returnn.flow import (
 )
 from i6_core.util import MultiPath, MultiOutputPath
 from i6_core.mm import CreateDummyMixturesJob
+from i6_core.returnn import ReturnnComputePriorJobV2
 
 from .hybrid_decoder import HybridDecoder
 from .nn_system import NnSystem, returnn_training
@@ -372,6 +373,7 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
+        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -397,7 +399,7 @@ class HybridSystem(NnSystem):
                 acoustic_mixture_path = CreateDummyMixturesJob(
                     num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
                     num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
-                from i6_core.returnn import ReturnnComputePriorJobV2
+                lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
                 prior_job = ReturnnComputePriorJobV2(
                     model_checkpoint=checkpoints[epoch],
                     returnn_config=train_job.returnn_config,
@@ -406,19 +408,19 @@ class HybridSystem(NnSystem):
                     log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
                 )
 
-                prior_job.add_alias(name + "extract_nn_prior")
+                prior_job.add_alias("extract_nn_prior/" + name)
                 prior_file = prior_job.out_prior_xml_file
                 assert prior_file is not None
-                assert acoustic_mixture_path is not None
-
-                if use_epoch_for_compile:
-                    tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
-
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
                     prior_file=prior_file,
                 )
+                assert acoustic_mixture_path is not None
+
+                if use_epoch_for_compile:
+                    tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
+
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
                     tf_checkpoint=checkpoints[epoch],
@@ -445,6 +447,8 @@ class HybridSystem(NnSystem):
                     parallelize_conversion=parallelize_conversion,
                     rtf=rtf,
                     mem=mem,
+                    lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
+                    lmgc_scorer=lmgc_scorer,
                     **kwargs,
                 )
 
@@ -465,6 +469,7 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=dev_c,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **recog_args,
                 )
 
@@ -480,6 +485,7 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=tst_c,
+                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **r_args,
                 )
 

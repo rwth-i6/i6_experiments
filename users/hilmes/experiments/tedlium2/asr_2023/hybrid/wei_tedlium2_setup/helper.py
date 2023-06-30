@@ -2,7 +2,7 @@ from sisyphus import tk
 import copy
 
 
-from .nn_setup import build_encoder_network, add_output_layer
+from .nn_setup import build_encoder_network, add_output_layer, add_specaug_source_layer, get_spec_augment_mask_python
 
 
 default_nn_config_args = {  # batching #
@@ -15,13 +15,14 @@ default_nn_config_args = {  # batching #
   "min_seq_length": {"classes": 1},
 
   # optimization #
-  'nadam': True,
+  #'nadam': True,
   'learning_rate': 0.0009,
   'gradient_clip': 0,
   'gradient_noise': 0.1,  # together with l2 and dropout for overfit
 
   # Note: (default 1e-8) likely not too much impact
-  'optimizer_epsilon': 1e-8,
+  #'optimizer_epsilon': 1e-8,
+  "optimizer": {"class": "nadam", "epsilon": 1e-08},
 
   # let it stop and adjust in time
   # Note: for inf or nan, sth. is too big (e.g. lr warm up)
@@ -40,7 +41,7 @@ default_nn_config_args = {  # batching #
 
   # pretraining #
   # better initialization and convergence (benefit momentum ?)
-  #'pretrain': 'default',
+  'pretrain': 'default',
 
   # default #
   'start_epoch': 'auto',
@@ -57,7 +58,7 @@ default_nn_config_args = {  # batching #
 
 
 
-def get_network(num_layers=6, layer_size=512, **kwargs):
+def get_network(num_layers=6, layer_size=512, spec_augment=False, **kwargs):
 
   lstm_args = {'num_layers': num_layers,
                'size': layer_size,
@@ -66,7 +67,7 @@ def get_network(num_layers=6, layer_size=512, **kwargs):
                'bidirectional': True,
                'unit': 'nativelstm2'
                }
-  network, fromList = build_encoder_network(**lstm_args)
+  network, from_list = build_encoder_network(**lstm_args)
 
   output_args = {'loss': 'ce',
                  'loss_opts': {  # less weight on loss of easy samples (larger p)
@@ -74,9 +75,12 @@ def get_network(num_layers=6, layer_size=512, **kwargs):
                  }
                  }
 
-  network = add_output_layer(network, fromList, **output_args)
+  network = add_output_layer(network, from_list, **output_args)
 
-  return network
+  if spec_augment:
+    network, from_list2 = add_specaug_source_layer(network)
+
+  return copy.deepcopy(network)
 
 
 
@@ -84,8 +88,6 @@ def get_network(num_layers=6, layer_size=512, **kwargs):
 
 def make_nn_config(network, nn_config_args=default_nn_config_args, **kwargs):
 
-  # train, dev dataset not defined
-  # num_outputs not defined
   nn_config = copy.deepcopy(nn_config_args)
   nn_config['network'] = network
 

@@ -15,7 +15,7 @@ from i6_models.assemblies.conformer.conformer_v1 import (
     ConformerConvolutionV1Config,
     ConformerMHSAV1Config,
 )
-from i6_models.parts.conformer.norm import LayerNormNC
+from i6_models.parts.conformer.norm import LayerNormNC, LayerNormNCConfig
 
 from i6_models.parts.conformer.convolution import ConformerConvolutionV1
 from typing import Callable, Union
@@ -26,19 +26,46 @@ from i6_models.config import ModelConfiguration, SubassemblyWithConfig
 from typing import Optional, Tuple
 
 import torch
-
+IntTupleIntType = Union[int, Tuple[int, int]]
 
 __all__ = ["Conformer"]
+
+import torch
+import torch.nn as nn
+from abc import abstractmethod
+from typing import Protocol, Tuple
+
+
+class BaseFrontendInterface(Protocol):
+    @abstractmethod
+    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param tensor: input tensor of shape [B,T,F]
+        :param sequence_mask: masking tensor of shape [B,T], contains length information of the sequences
+        :return: torch.Tensor of shape [B,T',F']
+        """
+        raise NotImplementedError
+
+
+class FrontendInterface(BaseFrontendInterface, nn.Module):
+    @abstractmethod
+    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param tensor: input tensor of shape [B,T,F]
+        :param sequence_mask: masking tensor of shape [B,T], contains length information of the sequences
+        :return: torch.Tensor of shape [B,T',F']
+        """
+        return tensor, sequence_mask
 
 
 @dataclass
 class VGG4LayerActFrontendV1Config(ModelConfiguration):
     """
     Attributes:
-        conv1_channels: number of channels for first conv layers
-        conv2_channels: number of channels for second conv layers
-        conv3_channels: number of channels for third conv layers
-        conv4_channels: number of channels for fourth dconv layers
+        conv1_channels: number of channels for first conv layer
+        conv2_channels: number of channels for second conv layer
+        conv3_channels: number of channels for third conv layer
+        conv4_channels: number of channels for fourth conv layer
         conv_kernel_size: kernel size of conv layers
         conv_padding: padding for the convolution
         pool1_kernel_size: kernel size of first pooling layer
@@ -48,21 +75,25 @@ class VGG4LayerActFrontendV1Config(ModelConfiguration):
         pool2_stride: stride of second pooling layer
         pool2_padding: padding for second pooling layer
         activation: activation function at the end
+        linear_input_dim: input size of the final linear layer
+        linear_output_dim: output size of the final linear layer
     """
 
     conv1_channels: int
     conv2_channels: int
     conv3_channels: int
     conv4_channels: int
-    conv_kernel_size: Union[int, Tuple[int, ...]]
-    conv_padding: Optional[Union[int, Tuple[int, ...]]]
-    pool1_kernel_size: Union[int, Tuple[int, ...]]
-    pool1_stride: Optional[Union[int, Tuple[int, ...]]]
-    pool1_padding: Optional[Union[int, Tuple[int, ...]]]
-    pool2_kernel_size: Union[int, Tuple[int, ...]]
-    pool2_stride: Optional[Union[int, Tuple[int, ...]]]
-    pool2_padding: Optional[Union[int, Tuple[int, ...]]]
+    conv_kernel_size: IntTupleIntType
+    conv_padding: Optional[IntTupleIntType]
+    pool1_kernel_size: IntTupleIntType
+    pool1_stride: Optional[IntTupleIntType]
+    pool1_padding: Optional[IntTupleIntType]
+    pool2_kernel_size: IntTupleIntType
+    pool2_stride: Optional[IntTupleIntType]
+    pool2_padding: Optional[IntTupleIntType]
     activation: Union[nn.Module, Callable[[torch.Tensor], torch.Tensor]]
+    linear_input_dim: Optional[int]
+    linear_output_dim: Optional[int]
 
     def check_valid(self):
         if isinstance(self.conv_kernel_size, int):
@@ -80,11 +111,9 @@ class VGG4LayerActFrontendV1Config(ModelConfiguration):
 class VGG4LayerActFrontendV1(nn.Module):
     """
     Convolutional Front-End
-
     The frond-end utilizes convolutional and pooling layers, as well as activation functions
     to transform a feature vector, typically Log-Mel or Gammatone for audio, into an intermediate
     representation.
-
     Structure of the front-end:
       - Conv
       - Conv
@@ -94,7 +123,6 @@ class VGG4LayerActFrontendV1(nn.Module):
       - Conv
       - Activation
       - Pool
-
     Uses explicit padding for ONNX exportability, see:
     https://github.com/pytorch/pytorch/issues/68880
     """
@@ -112,6 +140,8 @@ class VGG4LayerActFrontendV1(nn.Module):
         )
         pool1_padding = model_cfg.pool1_padding if model_cfg.pool1_padding is not None else 0
         pool2_padding = model_cfg.pool2_padding if model_cfg.pool2_padding is not None else 0
+
+        self.include_linear_layer = True if model_cfg.linear_output_dim is not None else False
 
         self.conv1 = nn.Conv2d(
             in_channels=1,
@@ -148,14 +178,19 @@ class VGG4LayerActFrontendV1(nn.Module):
             padding=pool2_padding,
         )
         self.activation = model_cfg.activation
-        self.final_linear = nn.Linear(19456, 256)
+        if self.include_linear_layer:
+            self.linear = nn.Linear(
+                in_features=model_cfg.linear_input_dim,
+                out_features=model_cfg.linear_output_dim,
+                bias=True,
+            )
 
-    def forward(self, tensor: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, tensor: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         T might be reduced to T' or T'' depending on stride of the layers
-
         :param tensor: input tensor of shape [B,T,F]
-        :return: torch.Tensor of shape [B,T",F']
+        :param sequence_mask: the sequence mask for the tensor
+        :return: torch.Tensor of shape [B,T",F'] and the shape of the sequence mask
         """
         # and add a dim
         tensor = tensor[:, None, :, :]  # [B,C=1,T,F]
@@ -164,21 +199,53 @@ class VGG4LayerActFrontendV1(nn.Module):
         tensor = self.conv2(tensor)
 
         tensor = self.activation(tensor)
-        tensor = self.pool1(tensor)  # [B,C,T',F]
+        tensor = self.pool1(tensor)  # [B,C,T',F']
+        if sequence_mask is not None:
+            sequence_mask = sequence_mask.float()
+            sequence_mask = _mask_pool(
+                sequence_mask,
+                _get_int_tuple_int(self.pool1.kernel_size, 0),
+                _get_int_tuple_int(self.pool1.stride, 0),
+                _get_int_tuple_int(self.pool1.padding, 0),
+            )
 
         tensor = self.conv3(tensor)
         tensor = self.conv4(tensor)
 
         tensor = self.activation(tensor)
-        tensor = self.pool2(tensor)  # [B,C,T",F]
+        tensor = self.pool2(tensor)  # [B,C,T",F"]
+        if sequence_mask is not None:
+            sequence_mask = _mask_pool(
+                sequence_mask,
+                _get_int_tuple_int(self.pool2.kernel_size, 0),
+                _get_int_tuple_int(self.pool2.stride, 0),
+                _get_int_tuple_int(self.pool2.padding, 0),
+            )
+            sequence_mask = sequence_mask.bool()
 
-        tensor = torch.transpose(tensor, 1, 2)  # transpose to [B,T",C,F]
-        tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B,T",C*F]
+        tensor = torch.transpose(tensor, 1, 2)  # transpose to [B,T",C,F"]
+        tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B,T",C*F"]
 
-        tensor = self.final_linear(tensor)
+        if self.include_linear_layer:
+            tensor = self.linear(tensor)
 
-        return tensor, mask
+        return tensor, sequence_mask
 
+
+def _mask_pool(seq_mask: torch.Tensor, kernel_size: int, stride: int, padding: int):
+    """
+    :param seq_mask: [B,T]
+    :param kernel_size:
+    :param stride:
+    :param padding:
+    :return: [B,T'] using maxpool
+    """
+    seq_mask = seq_mask.float()
+    seq_mask = torch.unsqueeze(seq_mask, 1)  # [B,1,T]
+    seq_mask = nn.functional.max_pool1d(seq_mask, kernel_size, stride, padding)  # [B,1,T']
+    seq_mask = torch.squeeze(seq_mask, 1)  # [B,T']
+    seq_mask = seq_mask.bool()
+    return seq_mask
 
 def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     """
@@ -191,9 +258,11 @@ def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     max_length = int(torch.max(lengths).item())
     padding_mask = torch.arange(max_length, device=lengths.device, dtype=lengths.dtype).expand(
         batch_size, max_length
-    ) >= lengths.unsqueeze(1)
+    ) < lengths.unsqueeze(1)
     return padding_mask
 
+def _get_int_tuple_int(variable: IntTupleIntType, index: int) -> int:
+    return variable[index] if isinstance(variable, Tuple) else variable
 
 def _get_padding(input_size: Union[int, Tuple[int, ...]]) -> Union[int, Tuple[int, ...]]:
     """
@@ -218,11 +287,11 @@ class Model(torch.nn.Module):
     def __init__(self, epoch, step, **kwargs):
         super().__init__()
 
-        conformer_size = 256
+        conformer_size = 384
         target_size = 9001
 
         conv_cfg = ConformerConvolutionV1Config(
-            channels=conformer_size, kernel_size=31, dropout=0.2, activation=nn.SiLU(), norm=LayerNormNC(conformer_size)
+            channels=conformer_size, kernel_size=31, dropout=0.2, activation=nn.SiLU(), norm=SubassemblyWithConfig(LayerNormNC, LayerNormNCConfig(channels=conformer_size))
         )
         mhsa_cfg = ConformerMHSAV1Config(
             input_dim=conformer_size, num_att_heads=4, att_weights_dropout=0.2, dropout=0.2
@@ -231,21 +300,11 @@ class Model(torch.nn.Module):
             input_dim=conformer_size, hidden_dim=2048, activation=nn.SiLU(), dropout=0.2
         )
         block_cfg = ConformerBlockV1Config(ff_cfg=ff_cfg, mhsa_cfg=mhsa_cfg, conv_cfg=conv_cfg)
-        frontend_cfg = VGG4LayerActFrontendV1Config(
-            activation=nn.SiLU(),
-            conv1_channels=32,
-            conv2_channels=32,
-            conv3_channels=64,
-            conv4_channels=conformer_size,
-            conv_kernel_size=(3, 3),
-            pool1_kernel_size=(3, 3),
-            pool2_kernel_size=(3, 3),
-            pool1_stride=1,
-            pool2_stride=1,
-            pool1_padding=0,
-            pool2_padding=0,
-            conv_padding=None,
-        )
+        frontend_cfg = VGG4LayerActFrontendV1Config(linear_input_dim=1248, conv1_channels=32, conv2_channels=64,
+            conv3_channels=64, conv4_channels=32, conv_kernel_size=3, pool1_kernel_size=(1, 2),
+            pool1_stride=(2, 1), activation=nn.ReLU(), conv_padding=None, pool1_padding=None,
+            linear_output_dim=conformer_size, pool2_kernel_size=(1, 2),
+            pool2_stride=None, pool2_padding=None)
         frontend = SubassemblyWithConfig(module_class=VGG4LayerActFrontendV1, cfg=frontend_cfg)
         conformer_cfg = ConformerEncoderV1Config(num_layers=12, frontend=frontend, block_cfg=block_cfg)
         self.conformer = ConformerEncoderV1(cfg=conformer_cfg)
@@ -255,6 +314,7 @@ class Model(torch.nn.Module):
         )
         #self.initial_linear = nn.Linear(80, conformer_size)
         self.final_linear = nn.Linear(conformer_size, target_size)
+        self.export_mode = False
 
     def forward(
         self,
@@ -276,8 +336,11 @@ class Model(torch.nn.Module):
 
         #conformer_in = self.initial_linear(audio_features_masked_2)
 
-        mask = _lengths_to_padding_mask(audio_features_len)
-
+        if not self.export_mode:
+            mask = _lengths_to_padding_mask(audio_features_len)
+            #mask = torch.logical_not(mask)
+        else:
+            mask = None
         conformer_out, _ = self.conformer(audio_features_masked_2, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
@@ -285,7 +348,7 @@ class Model(torch.nn.Module):
         # slice for correct length
         upsampled = upsampled[:, 0 : audio_features.size()[1], :]
 
-        upsampled_dropped = nn.functional.dropout(upsampled, p=0.2)
+        upsampled_dropped = nn.functional.dropout(upsampled, p=0.2, training=self.training)
         logits = self.final_linear(upsampled_dropped)  # [B, T, F]
         logits_ce_order = torch.permute(logits, dims=(0, 2, 1))  # CE expects [B, F, T]
         log_probs = torch.log_softmax(logits, dim=2)
@@ -306,7 +369,6 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     # from returnn.frontend import Tensor
     phonemes = extern_data["classes"].raw_tensor[indices, :].long()
     phonemes_len = extern_data["classes"].dims[1].dyn_size_ext.raw_tensor[indices]
-    print(audio_features_len)
     # if scripted_model is None:
     #    model.eval()
     #    model.to("cpu")
@@ -330,10 +392,11 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 
 
 def export(*, model: Model, model_filename: str):
-    scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
-    dummy_data = torch.randn(1, 30, 50, device="cpu")
-    dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32),
-        descending=True)
+    model.export_mode = True
+    dummy_data = torch.randn(1, 30, 80, device="cpu")
+    # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
+    dummy_data_len = torch.ones((1,)) * 30
+    scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),
@@ -341,6 +404,7 @@ def export(*, model: Model, model_filename: str):
         verbose=True,
         input_names=["data", "data_len"],
         output_names=["classes"],
+        opset_version=14,
         dynamic_axes={
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},

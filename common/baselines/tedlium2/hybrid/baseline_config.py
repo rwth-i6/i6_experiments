@@ -52,7 +52,7 @@ def run_tedlium2_hybrid_baseline():
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args(num_epochs=125)
+    nn_args = get_nn_args(num_epochs=160)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
@@ -77,12 +77,12 @@ def run_tedlium2_hybrid_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
 
 
-def run_tedlium2_hybrid_baseline_full_u16():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = "baselines/tedlium2/hybrid/wei_baseline_u16"
+def run_tedlium2_hybrid_pre_filtered():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "baselines/tedlium2/hybrid/wei_pre_filtered"
 
     gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    rasr_init_args.scorer_args["sctk_binary_path"] = SCTK_BINARY_PATH2
+    rasr_init_args.scorer_args["sctk_binary_path"] = SCTK_BINARY_PATH2  # Hack to have a U16 compiled SCTK
     rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
     (
         nn_train_data_inputs,
@@ -94,7 +94,8 @@ def run_tedlium2_hybrid_baseline_full_u16():
         gmm_system,
         rasr_init_args.feature_extraction_args["fb"],
         FilterbankJob,
-        alias_prefix="experiments/tedlium2/hybrid/wei_baseline",
+        alias_prefix="baselines/tedlium2/hybrid/wei_pre_filtered",
+        remove_faulty_segments=True,
     )
     # image only, so just python3
     returnn_exe = tk.Path("/usr/bin/python3", hash_overwrite="GENERIC_RETURNN_LAUNCHER")
@@ -102,11 +103,12 @@ def run_tedlium2_hybrid_baseline_full_u16():
         "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so",
         hash_overwrite="TF23_MKL_BLAS",
     )
+    blas_lib.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
     rasr_binary = tk.Path("/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/arch/linux-x86_64-standard")
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args(num_epochs=125)
+    nn_args = get_nn_args(num_epochs=160, no_min_seq_len=True)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
@@ -129,3 +131,4 @@ def run_tedlium2_hybrid_baseline_full_u16():
     tedlium_nn_system.run(nn_steps)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""
+

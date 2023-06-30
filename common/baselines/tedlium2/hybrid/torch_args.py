@@ -33,19 +33,19 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
     training_args = ReturnnTrainingJobArgs(log_verbosity=5, num_epochs=num_epochs, save_interval=1, keep_epochs=None, time_rqmt=168, mem_rqmt=8, cpu_rqmt=3)
 
     recognition_args = {
-        "dev-other": {
+        "dev": {
             "epochs": evaluation_epochs,
-            "feature_flow_key": "mfcc",
-            "prior_scales": [0.3],
-            "pronunciation_scales": [6.0],
-            "lm_scales": [20.0],
+            "feature_flow_key": "fb",
+            "prior_scales": [0.3, 0.5, 0.7],
+            "pronunciation_scales": [0.0, 6.0],
+            "lm_scales": [20.0, 15.0, 5.0],
             "lm_lookahead": True,
             "lookahead_options": None,
             "create_lattice": True,
             "eval_single_best": True,
             "eval_best_in_lattice": True,
             "search_parameters": {
-                "beam-pruning": 12.0,
+                "beam-pruning": 14.0,
                 "beam-pruning-limit": 100000,
                 "word-end-pruning": 0.5,
                 "word-end-pruning-limit": 15000,
@@ -122,6 +122,12 @@ def get_pytorch_returnn_configs(
             "keep": evaluation_epochs,
         }
 
+    medium_lchunk_config = copy.deepcopy(blstm_base_config)
+    medium_lchunk_config["learning_rates"] = list(np.linspace(8e-5, 8e-4, 50)) + list(np.linspace(8e-4, 8e-5, 50))
+    medium_lchunk_config["chunking"] = "250:200"
+    medium_lchunk_config["gradient_clip"] = 1.0
+    medium_lchunk_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+
     # those are hashed
     package = PACKAGE + ".hybrid"
     pytorch_package = package + ".pytorch_networks"
@@ -180,6 +186,8 @@ def get_pytorch_returnn_configs(
     smaller_config["accum_grad_multiple_step"] = 2
 
     return {
-       "torch_conformer_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "conformer"}),
-       "torch_conformer2_baseline": construct_from_net_kwargs(smaller_config, {"model_type": "conformer2"}),
+       "torch_conformer_baseline": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer"}),
+       "torch_conformer_no_cast": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer2"}),
+       "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
+       "torch_blstm_baseline2": construct_from_net_kwargs(smaller_config, {"model_type": "blstm"})
     }

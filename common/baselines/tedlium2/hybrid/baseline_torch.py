@@ -42,7 +42,7 @@ def run_tedlium2_torch_conformer():
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args(num_epochs=125)
+    nn_args = get_nn_args(num_epochs=160)
 
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)

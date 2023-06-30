@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Dict
 
+from sisyphus import tk
 from i6_experiments.common.datasets.tedlium2.constants import CONCURRENT
 from i6_experiments.common.datasets.tedlium2.corpus import get_corpus_object_dict
 from i6_experiments.common.datasets.tedlium2.lexicon import (
@@ -28,6 +29,7 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = False) -> Dic
     lms_system = run_tedlium2_ngram_lm(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
     lm = lms_system.interpolated_lms["dev-pruned"]["4gram"]
     comb_lm = ArpaLmRasrConfig(lm_path=lm.ngram_lm)
+    kaldi_small_lm = ArpaLmRasrConfig(lm_path=tk.Path("/work/asr3/zhou/kaldi/egs/tedlium/s5_r2/data/local/local_lm/data/arpa/4gram_small.arpa.gz"))
 
     rasr_data_input_dict = defaultdict(dict)
 
@@ -38,5 +40,11 @@ def get_corpus_data_inputs(add_unknown_phoneme_and_mapping: bool = False) -> Dic
             concurrent=CONCURRENT[name],
             lm=comb_lm.get_dict() if name == "dev" or name == "test" else None,
         )
+    rasr_data_input_dict["dev"]["dev_kaldi_small_4_gram"] = RasrDataInput(
+        corpus_object=crp_obj,
+        lexicon=train_lexicon.get_dict(),
+        concurrent=CONCURRENT[name],
+        lm=kaldi_small_lm.get_dict(),
+    )
 
     return rasr_data_input_dict

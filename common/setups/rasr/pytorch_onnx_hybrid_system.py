@@ -19,6 +19,8 @@ from i6_core.returnn.flow import (
 # -------------------- Init --------------------
 
 Path = tk.setup_path(__package__)
+from i6_core.mm import CreateDummyMixturesJob
+from i6_core.returnn import ReturnnComputePriorJobV2
 
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -81,6 +83,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
         epochs: Optional[List[int]] = None,
         quantize_dynamic: bool = False,
         needs_features_size = True,
+        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -97,22 +100,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
 
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
-                from i6_core.mm import CreateDummyMixturesJob
-                acoustic_mixture_path = CreateDummyMixturesJob(
-                    num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
-                    num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
-                from i6_core.returnn import ReturnnComputePriorJobV2
-                prior_job = ReturnnComputePriorJobV2(
-                    model_checkpoint=checkpoints[epoch],
-                    returnn_config=train_job.returnn_config,
-                    returnn_python_exe=train_job.returnn_python_exe,
-                    returnn_root=train_job.returnn_root,
-                    log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
-                )
-
-                prior_job.add_alias(name + "extract_nn_prior")
-                prior_file = prior_job.out_prior_xml_file
-                assert prior_file is not None
                 assert acoustic_mixture_path is not None
 
                 onnx_job = ExportPyTorchModelToOnnxJob(
@@ -121,8 +108,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     returnn_root=self.returnn_root,
                     quantize_dynamic=quantize_dynamic,
                 )
-                onnx_job.add_alias(name + "export_onnx")
-
+                onnx_job.add_alias(name + "/export_onnx")
                 onnx_model = onnx_job.out_onnx_model
 
                 io_map = {
@@ -139,7 +125,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     io_map=io_map,
                     inter_op_threads=kwargs.get("cpu", 1),
                     intra_op_threads=kwargs.get("cpu", 1),
-                    prior_file=prior_file
                 )
 
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
@@ -159,5 +144,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     parallelize_conversion=parallelize_conversion,
                     rtf=rtf,
                     mem=mem,
+                    lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
+                    lmgc_scorer=scorer,
                     **kwargs,
                 )

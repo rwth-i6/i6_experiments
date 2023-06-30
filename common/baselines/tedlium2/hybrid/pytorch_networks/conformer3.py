@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torch.onnx import export as onnx_export
 from torchaudio.functional import mask_along_axis
+from torchaudio.models.conformer import Conformer
 
 import returnn.frontend as rf
 
@@ -25,8 +26,9 @@ from i6_models.config import ModelConfiguration, SubassemblyWithConfig
 from typing import Optional, Tuple
 
 import torch
-IntTupleIntType = Union[Tuple[int, int], int]
+IntTupleIntType = Union[int, Tuple[int, int]]
 
+__all__ = ["Conformer"]
 
 import torch
 import torch.nn as nn
@@ -360,26 +362,24 @@ class VGG4LayerActFrontendV1(nn.Module):
 
         tensor = self.activation(tensor)
         tensor = self.pool1(tensor)  # [B,C,T',F']
-        if sequence_mask is not None:
-            sequence_mask = _mask_pool(
+        sequence_mask = _mask_pool(
             sequence_mask,
             _get_int_tuple_int(self.pool1.kernel_size, 0),
             _get_int_tuple_int(self.pool1.stride, 0),
             _get_int_tuple_int(self.pool1.padding, 0),
-            )
+        )
 
         tensor = self.conv3(tensor)
         tensor = self.conv4(tensor)
 
         tensor = self.activation(tensor)
         tensor = self.pool2(tensor)  # [B,C,T",F"]
-        if sequence_mask is not None:
-            sequence_mask = _mask_pool(
-                sequence_mask,
-                _get_int_tuple_int(self.pool2.kernel_size, 0),
-                _get_int_tuple_int(self.pool2.stride, 0),
-                _get_int_tuple_int(self.pool2.padding, 0),
-            )
+        sequence_mask = _mask_pool(
+            sequence_mask,
+            _get_int_tuple_int(self.pool2.kernel_size, 0),
+            _get_int_tuple_int(self.pool2.stride, 0),
+            _get_int_tuple_int(self.pool2.padding, 0),
+        )
 
         tensor = torch.transpose(tensor, 1, 2)  # transpose to [B,T",C,F"]
         tensor = torch.flatten(tensor, start_dim=2, end_dim=-1)  # [B,T",C*F"]
@@ -389,8 +389,7 @@ class VGG4LayerActFrontendV1(nn.Module):
 
         return tensor, sequence_mask
 
-
-def _mask_pool(seq_mask: torch.Tensor, kernel_size: int, stride: int, padding: int) -> Optional[torch.Tensor]:
+def _mask_pool(seq_mask, kernel_size, stride, padding):
     """
     :param seq_mask: [B,T]
     :param kernel_size:
@@ -444,6 +443,7 @@ class Model(torch.nn.Module):
 
     def __init__(self, epoch, step, **kwargs):
         super().__init__()
+
         conformer_size = 384
         target_size = 9001
 
@@ -462,7 +462,6 @@ class Model(torch.nn.Module):
             pool1_stride=(2, 1), activation=nn.ReLU(), conv_padding=None, pool1_padding=None,
             linear_output_dim=conformer_size, pool2_kernel_size=(1, 2),
             pool2_stride=None, pool2_padding=None)
-
         frontend = SubassemblyWithConfig(module_class=VGG4LayerActFrontendV1, cfg=frontend_cfg)
         conformer_cfg = ConformerEncoderV1Config(num_layers=12, frontend=frontend, block_cfg=block_cfg)
         self.conformer = ConformerEncoderV1(cfg=conformer_cfg)
@@ -472,7 +471,6 @@ class Model(torch.nn.Module):
         )
         #self.initial_linear = nn.Linear(80, conformer_size)
         self.final_linear = nn.Linear(conformer_size, target_size)
-        self.export_mode = False
 
     def forward(
         self,
@@ -494,10 +492,8 @@ class Model(torch.nn.Module):
 
         #conformer_in = self.initial_linear(audio_features_masked_2)
 
-        if not self.export_mode:
-            mask = _lengths_to_padding_mask(audio_features_len)
-        else:
-            mask = None
+        mask = _lengths_to_padding_mask(audio_features_len)
+        mask = torch.logical_not(mask)
         conformer_out, _ = self.conformer(audio_features_masked_2, mask)
 
         upsampled = self.upsample_conv(conformer_out.transpose(1, 2)).transpose(1, 2)  # final upsampled [B, T, F]
@@ -505,7 +501,7 @@ class Model(torch.nn.Module):
         # slice for correct length
         upsampled = upsampled[:, 0 : audio_features.size()[1], :]
 
-        upsampled_dropped = nn.functional.dropout(upsampled, p=0.2, training=self.training)
+        upsampled_dropped = nn.functional.dropout(upsampled, p=0.2)
         logits = self.final_linear(upsampled_dropped)  # [B, T, F]
         logits_ce_order = torch.permute(logits, dims=(0, 2, 1))  # CE expects [B, F, T]
         log_probs = torch.log_softmax(logits, dim=2)
@@ -513,7 +509,7 @@ class Model(torch.nn.Module):
         return log_probs, logits_ce_order
 
 
-# scripted_model = None
+scripted_model = None
 
 
 def train_step(*, model: Model, extern_data, **_kwargs):
@@ -526,8 +522,8 @@ def train_step(*, model: Model, extern_data, **_kwargs):
     # from returnn.frontend import Tensor
     phonemes = extern_data["classes"].raw_tensor[indices, :].long()
     phonemes_len = extern_data["classes"].dims[1].dyn_size_ext.raw_tensor[indices]
-    # if scripted_model is None:
-    #     scripted_model = torch.jit.script(model)
+    if scripted_model is None:
+        scripted_model = torch.jit.script(model)
 
     # distributed_model = DataParallel(model)
     log_probs, logits = model(
@@ -546,11 +542,10 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 
 
 def export(*, model: Model, model_filename: str):
-    model.export_mode = True
+    scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
     dummy_data = torch.randn(1, 30, 80, device="cpu")
-    # dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32), descending=True)
-    dummy_data_len = torch.ones((1,)) * 30
-    scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
+    dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32),
+        descending=True)
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),
@@ -558,7 +553,6 @@ def export(*, model: Model, model_filename: str):
         verbose=True,
         input_names=["data", "data_len"],
         output_names=["classes"],
-        opset_version=14,
         dynamic_axes={
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},
@@ -566,17 +560,3 @@ def export(*, model: Model, model_filename: str):
             "classes": {0: "batch", 1: "time"}
         }
     )
-
-def forward_step(*, model: Model, extern_data, **kwargs):
-    """
-    Function used in inference.
-    """
-    data = extern_data["data"]
-    audio_features = extern_data["data"].raw_tensor
-    audio_features_len = extern_data["data"].dims[1].dyn_size_ext.raw_tensor
-
-    audio_features_len, indices = torch.sort(audio_features_len, descending=True)
-    audio_features = audio_features[indices, :, :]
-    # from returnn.frontend import Tensor
-    log_probs, logits = model(audio_features, audio_features_len.to("cuda"))
-    rf.get_run_ctx().mark_as_default_output(tensor=log_probs)
