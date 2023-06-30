@@ -594,7 +594,7 @@ def test_import_search():
         extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
     )
     batch_data = data_provider.get_next_batch()
-    for key, data in extern_data.data.keys():
+    for key, data in extern_data.data.items():
         data.placeholder = batch_data[key]
         key_seq_lens = f"{key}_seq_lens"
         if key_seq_lens in batch_data:
