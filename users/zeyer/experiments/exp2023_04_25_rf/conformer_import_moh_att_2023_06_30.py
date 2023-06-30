@@ -433,6 +433,7 @@ def model_recog(
         seq_backrefs.append(backrefs)
         decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
         ended = rf.gather(ended, indices=backrefs)
+        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
         ended = rf.logical_or(ended, target == model.eos_idx)
