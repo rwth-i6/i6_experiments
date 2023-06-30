@@ -604,7 +604,7 @@ def test_import_search():
             seq_lens.dyn_size_ext.placeholder = batch_data[key_seq_lens]
     if not batch_dim.dyn_size_ext:
         batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
-    batch_dim.dyn_size_ext.placeholder = batch_data["batch_dim"]
+    batch_dim.dyn_size_ext.placeholder = numpy.array(batch_data["batch_dim"], dtype="int32")
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
