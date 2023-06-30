@@ -98,15 +98,12 @@ class ConvertTfCheckpointToRfPtJob(Job):
         pt_model = rf_module_to_pt_module(model)
 
         os.makedirs(self._out_model_dir.get_path(), exist_ok=True)
-        torch.save(
-            {"model": pt_model.state_dict(), "epoch": epoch, "step": step},
-            self._out_model_dir.get_path() + "/" + ckpt_name + ".pt",
-        )
+        filename = self._out_model_dir.get_path() + "/" + ckpt_name + ".pt"
+        print(f"*** saving PyTorch model checkpoint: {filename}")
+        torch.save({"model": pt_model.state_dict(), "epoch": epoch, "step": step}, filename)
 
         if ckpt_name != "checkpoint":
-            filename = self._out_model_dir.get_path() + "/" + ckpt_name + ".pt"
-            os.symlink(
-                os.path.basename(filename),
-                self._out_model_dir.get_path() + "/checkpoint.pt",
-            )
+            symlink_filename = self._out_model_dir.get_path() + "/checkpoint.pt"
+            print(f"*** creating symlink {symlink_filename} -> {os.path.basename(filename)}")
+            os.symlink(os.path.basename(filename), symlink_filename)
         assert os.path.exists(self.out_checkpoint.get_path())
