@@ -726,6 +726,7 @@ def create_config(
                 chunked_time_dim=chunked_time_dim,
                 self_att_version=enc_memory_version,
                 chunk_size=chunk_size,
+                chunk_size_dim=chunk_size_dim,
             )
 
         conformer_encoder = encoder_type(**encoder_args)
