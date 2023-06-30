@@ -469,3 +469,9 @@ def test_import():
 
     print("*** Done, all correct (!), exit now ***")
     raise SystemExit("done")
+
+
+# `py` is the default sis config function name. so when running this directly, run the import test.
+# So you can just run:
+# `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
+py = test_import
