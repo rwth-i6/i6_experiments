@@ -22,7 +22,7 @@ from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_
 # test-other  5.51
 _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 _returnn_tf_ckpt_filename = "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-
+_load_existing_ckpt_in_test = False
 
 _ParamMapping = {}  # type: Dict[str,str]
 
@@ -295,8 +295,16 @@ def test_import():
     with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
-        print(f"*** Load model params from {_returnn_tf_ckpt_filename}")
-        net.load_params_from_file(_returnn_tf_ckpt_filename, session=session)
+        if _load_existing_ckpt_in_test:
+            print(f"*** Load model params from {_returnn_tf_ckpt_filename}")
+            net.load_params_from_file(_returnn_tf_ckpt_filename, session=session)
+            old_tf_ckpt_filename = _returnn_tf_ckpt_filename
+        else:
+            print("*** Random init old model")
+            net.initialize_params(session)
+            print("*** Save old model to disk")
+            net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
+            old_tf_ckpt_filename = ckpt_dir + "/old_model/model.index"
 
         print("*** Forwarding ...")
 
@@ -325,7 +333,7 @@ def test_import():
 
     print("*** Convert old model to new model")
     converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=tk.Path(_returnn_tf_ckpt_filename)),
+        checkpoint=Checkpoint(index_path=tk.Path(old_tf_ckpt_filename)),
         make_model_func=_make_new_model,
         map_func=map_param_func_v2,
         epoch=1,
