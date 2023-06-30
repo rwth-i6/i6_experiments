@@ -565,7 +565,6 @@ def test_import_search():
         "seq_order_control_dataset": "zip_dataset",
     }
 
-    from returnn.tensor.utils import tensor_dict_fill_random_numpy_
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
     from returnn.tf.network import TFNetwork
     import tensorflow as tf
@@ -683,4 +682,4 @@ def test_import_search():
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-py = test_import_forward
+py = test_import_search
