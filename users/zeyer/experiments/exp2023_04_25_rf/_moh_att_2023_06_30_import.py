@@ -193,7 +193,6 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 # See comment below, use `py = test_import` to easily run this.
 def test_import():
     from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
-    from returnn.frontend.attention import RelPosSelfAttention
     from pprint import pprint
 
     # Pick some layers to check outputs for equality.
@@ -206,7 +205,6 @@ def test_import():
         "conformer_block_01_ffmod_1_drop2": (ConformerEncoderLayer.__call__, 0, "x_ffn1", 0),
         "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
         "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
-        # "conformer_block_01_self_att_ln_rel_pos_enc": (RelPosSelfAttention.__call__, 0, "x_mhsa", 0),
         "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
         "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
         "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
@@ -366,7 +364,6 @@ def test_import():
         Model.decode_logits,
         ConformerEncoder.__call__,
         ConformerEncoderLayer.__call__,
-        RelPosSelfAttention.__call__,
         ConformerConvSubsample.__call__,
         from_scratch_training,
     ]
