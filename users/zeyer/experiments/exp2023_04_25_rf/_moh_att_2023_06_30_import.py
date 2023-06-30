@@ -585,7 +585,7 @@ def test_import_search():
     dataset = init_dataset(search_data_opts)
     dataset.init_seq_order(
         epoch=1,
-        seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(34)],
+        seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
     )
     batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
