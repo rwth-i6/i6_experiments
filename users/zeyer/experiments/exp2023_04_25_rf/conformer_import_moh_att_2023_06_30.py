@@ -225,8 +225,8 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
         if name.endswith(".filter"):
             value = convert_params_np.convert_tf_conv_to_pt_conv_filter(value)
-        assert value.shape == var.batch_shape, name
-        assert value.dtype.name == var.dtype, name
+        assert value.shape == var.batch_shape, f"new param {name} vs old param {var_name}"
+        assert value.dtype.name == var.dtype, f"new param {name} vs old param {var_name}"
         return value
 
     if name == "s.ff_weight":
@@ -306,7 +306,7 @@ def test_import():
 
     from returnn.datasets.util.vocabulary import Vocabulary
 
-    in_dim = Dim(name="in", dimension=1, kind=Dim.Types.Feature)
+    in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
     time_dim = Dim(
         name="time",
         dimension=None,
@@ -405,7 +405,7 @@ def test_import():
         step=0,
     )
     converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
-    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/model.pt")
+    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
     converter.run()
 
     print("*** Create new model")
@@ -421,7 +421,7 @@ def test_import():
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(ckpt_dir + "/new_model/model.pt")
+    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
     pt_module.load_state_dict(checkpoint_state["model"])
 
     print("*** Forwarding with tracing ...")
