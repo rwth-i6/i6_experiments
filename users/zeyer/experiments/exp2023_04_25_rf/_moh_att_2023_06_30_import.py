@@ -22,7 +22,7 @@ from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_
 # test-other  5.51
 _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 _returnn_tf_ckpt_filename = "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-_load_existing_ckpt_in_test = False
+_load_existing_ckpt_in_test = True
 
 _ParamMapping = {}  # type: Dict[str,str]
 
