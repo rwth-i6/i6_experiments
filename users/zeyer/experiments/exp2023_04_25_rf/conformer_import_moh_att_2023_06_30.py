@@ -395,6 +395,7 @@ def model_recog(
     beam_size = 12
     length_normalization_exponent = 1.0
     max_seq_len = enc_spatial_dim.get_size_tensor()
+    print("** max seq len:", max_seq_len.raw_tensor)
 
     # Eager-mode implementation of beam search.
     # Initial state.
@@ -410,6 +411,7 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
+        print("** step", i)
         input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,
