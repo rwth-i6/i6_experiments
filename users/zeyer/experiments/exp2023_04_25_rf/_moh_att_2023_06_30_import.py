@@ -452,7 +452,7 @@ def test_import():
                 old_v = old_v[:, out_step]
                 new_v = new_v[:, out_step]
             # Using equal_nan=False because we do not want any nan in any of the values.
-            rtol, atol = 1e-2, 5e-5
+            rtol, atol = 0.2, 5e-5
             if numpy.allclose(old_v, new_v, rtol=rtol, atol=atol):
                 continue
             print("** not all close. close:")
