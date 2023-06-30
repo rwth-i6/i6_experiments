@@ -12,7 +12,7 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training
+from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
 
 
 # From Mohammad, 2023-06-29
@@ -191,7 +191,7 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
 
 
 # See comment below, use `py = test_import` to easily run this.
-def test_import():
+def test_import_forward():
     from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerEncoderLayer, ConformerConvSubsample
     from pprint import pprint
 
@@ -490,7 +490,197 @@ def test_import():
     raise SystemExit("done")
 
 
+def test_import_search():
+    from i6_experiments.common.setups.returnn_common import serialization
+
+    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
+
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+    in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
+    time_dim = Dim(
+        name="time",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("time_size", dims=[batch_dim], dtype="int32"),
+    )
+    target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
+    data = Tensor("data", dim_tags=[batch_dim, time_dim])
+    target_spatial_dim = Dim(
+        name="target_spatial",
+        dimension=None,
+        kind=Dim.Types.Spatial,
+        dyn_size_ext=Tensor("target_spatial_size", dims=[batch_dim], dtype="int32"),
+    )
+    target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
+
+    from .load_tf_net_dict_from_cfg import load_net_dict_from_cfg
+
+    net_dict = load_net_dict_from_cfg(_returnn_tf_config_filename, output_probs_output_layer=True)
+
+    num_layers = 12
+
+    from returnn.config import Config
+
+    config = Config(
+        dict(
+            log_verbositiy=5,
+            network=net_dict,
+            extern_data={
+                "audio_features": {"dim_tags": data.dims},
+                "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
+            },
+        )
+    )
+
+    search_data_opts = {
+        "class": "MetaDataset",
+        "data_map": {
+            "audio_features": ("zip_dataset", "data"),
+            "bpe_labels": ("zip_dataset", "classes"),
+        },
+        "datasets": {
+            "zip_dataset": {
+                "class": "OggZipDataset",
+                "path": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.NSdIHfk1iw2M/output/out.ogg.zip",
+                "use_cache_manager": True,
+                "audio": {
+                    "features": "raw",
+                    "peak_normalization": True,
+                    "preemphasis": None,
+                },
+                "targets": {
+                    "class": "BytePairEncoding",
+                    "bpe_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes",
+                    "vocab_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab",
+                    "unknown_label": "<unk>",
+                    "seq_postfix": [0],
+                },
+                "segment_file": None,
+                "partition_epoch": 1,
+                "seq_ordering": "sorted_reverse",
+            }
+        },
+        "seq_order_control_dataset": "zip_dataset",
+    }
+
+    from returnn.tensor.utils import tensor_dict_fill_random_numpy_
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
+    from returnn.tf.network import TFNetwork
+    import tensorflow as tf
+    import tempfile
+    import atexit
+    import shutil
+
+    ckpt_dir = tempfile.mkdtemp("returnn-import-test")
+    atexit.register(lambda: shutil.rmtree(ckpt_dir))
+
+    print("*** Construct TF graph for old model")
+    extern_data = TensorDict()
+    extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
+
+    from returnn.datasets.basic import init_dataset, Batch
+    from returnn.tf.data_pipeline import FeedDictDataProvider, BatchSetGenerator
+
+    dataset = init_dataset(search_data_opts)
+    dataset.init_seq_order(epoch=1)
+    batch_num_seqs = 10
+    dataset.load_seqs(0, batch_num_seqs)
+    batch = Batch()
+    for seq_idx in range(batch_num_seqs):
+        batch.add_frames(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
+    batches = BatchSetGenerator(dataset, generator=iter([batch]))
+    data_provider = FeedDictDataProvider(
+        extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
+    )
+    batch_data = data_provider.get_next_batch()
+    for key, data in extern_data.data.keys():
+        data.placeholder = batch_data[key]
+        key_seq_lens = f"{key}_seq_lens"
+        if key_seq_lens in batch_data:
+            data.size_placeholder[0] = batch_data[key_seq_lens]
+    extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
+    extern_data.reset_content()
+
+    tf1 = tf.compat.v1
+    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+        net = TFNetwork(config=config, search_flag=True)
+        net.construct_from_dict(config.typed_dict["network"])
+        if _load_existing_ckpt_in_test:
+            print(f"*** Load model params from {_returnn_tf_ckpt_filename}")
+            net.load_params_from_file(_returnn_tf_ckpt_filename, session=session)
+            old_tf_ckpt_filename = _returnn_tf_ckpt_filename
+        else:
+            print("*** Random init old model")
+            net.initialize_params(session)
+            print("*** Save old model to disk")
+            net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
+            old_tf_ckpt_filename = ckpt_dir + "/old_model/model.index"
+
+        print("*** Search ...")
+
+        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
+        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
+        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
+        fetches = net.get_fetches_dict()
+        old_model_outputs_data = {}
+        for old_layer_name in ["output"]:
+            layer = net.get_layer(old_layer_name)
+            out = layer.output.copy_as_batch_major()
+            old_model_outputs_data[old_layer_name] = out
+            fetches["layer:" + old_layer_name] = out.placeholder
+            for i, tag in enumerate(out.dim_tags):
+                if tag.is_batch_dim():
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
+                elif tag.dyn_size_ext:
+                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
+        old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
+
+    def _make_new_model():
+        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+
+    rf.select_backend_torch()
+
+    print("*** Convert old model to new model")
+    converter = ConvertTfCheckpointToRfPtJob(
+        checkpoint=Checkpoint(index_path=tk.Path(old_tf_ckpt_filename)),
+        make_model_func=_make_new_model,
+        map_func=map_param_func_v2,
+        epoch=1,
+        step=0,
+    )
+    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
+    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
+    converter.run()
+
+    print("*** Create new model")
+    new_model = _make_new_model()
+
+    rf.init_train_step_run_ctx(train_flag=False)
+    extern_data.reset_content()
+    extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
+    tensor_dict_numpy_to_torch_(extern_data)
+
+    import torch
+    from returnn.torch.frontend.bridge import rf_module_to_pt_module
+
+    print("*** Load new model params from disk")
+    pt_module = rf_module_to_pt_module(new_model)
+    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
+    pt_module.load_state_dict(checkpoint_state["model"])
+
+    print("*** Search ...")
+    model_recog(
+        model=new_model,
+        data=extern_data["audio_features"],
+        data_spatial_dim=time_dim,
+        targets_dim=target_dim,
+    )
+
+
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
-py = test_import
+py = test_import_forward
