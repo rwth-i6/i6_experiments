@@ -345,7 +345,7 @@ class ConformerEncoder:
                 set_axes={"T": "spatial"},
             )  # [B*C, W, D] but not time_dim_axis is set to W
             # Concatenate the shifted and the original tensor.
-            ln = self.network.add_generic_layer(
+            ln_ = self.network.add_generic_layer(
                 f"{prefix_name}_ln_concat",
                 cls="concat",
                 source=[(ln_chunk_shifted, "T"), (ln, "T")],
@@ -356,7 +356,7 @@ class ConformerEncoder:
                 # this implementation is not efficient.
                 ln_rel_pos_enc = self.network.add_relative_pos_encoding_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
-                    ln,
+                    ln_,
                     n_out=self.enc_key_per_head_dim,
                     forward_weights_init=self.ff_init,
                     clipping=self.rel_pos_clipping,
@@ -364,7 +364,7 @@ class ConformerEncoder:
                 # same param name as before
                 mhsa_ = self.network.add_self_att_layer(
                     name=prefix_name,
-                    source=ln,
+                    source=ln_,
                     n_out=self.enc_value_dim,
                     num_heads=self.att_num_heads,
                     total_key_dim=self.enc_key_dim,
@@ -397,10 +397,11 @@ class ConformerEncoder:
                 K = self.network.add_generic_layer(
                     f"{prefix_name}_ln_K",
                     cls="linear",
-                    source=ln,
+                    source=ln_,
                     n_out=self.enc_key_dim,
                     forward_weights_init=self.mhsa_init,
                     with_bias=False,
+                    L2=self.self_att_l2,
                 )  # [B*C, W*2, D]
                 K_H = self.network.add_generic_layer(
                     f"{prefix_name}_ln_K_H",
@@ -412,10 +413,11 @@ class ConformerEncoder:
                 V = self.network.add_generic_layer(
                     f"{prefix_name}_ln_V",
                     cls="linear",
-                    source=ln,
+                    source=ln_,
                     n_out=self.enc_value_dim,
                     forward_weights_init=self.mhsa_init,
                     with_bias=False,
+                    L2=self.self_att_l2,
                 )  # [B*C, W*2, D]
                 V_H = self.network.add_generic_layer(
                     f"{prefix_name}_ln_V_H",
@@ -424,21 +426,14 @@ class ConformerEncoder:
                     axis="f",
                     dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
                 )  # [B*C, W*2, H, D/H]
-                Q_split = self.network.add_generic_layer(
-                    f"{prefix_name}_ln_Q_split",
-                    cls="split",
-                    num_splits=2,
-                    source=ln,
-                    axis=self.concat_window_dim,
-                )  # two tensors of shape [B*C, W, D]
-                # TODO: add relative positional encoding
                 Q = self.network.add_generic_layer(
                     f"{prefix_name}_ln_Q",
                     cls="linear",
-                    source=Q_split + "/1",
+                    source=ln,
                     n_out=self.enc_key_dim,
                     forward_weights_init=self.mhsa_init,
                     with_bias=False,
+                    L2=self.self_att_l2,
                 )  # second half of shape [B*C, W, D]
                 Q_H = self.network.add_generic_layer(
                     f"{prefix_name}_ln_Q_H",
@@ -459,11 +454,11 @@ class ConformerEncoder:
                 ln_rel_pos_enc = self.network.add_generic_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
                     cls="relative_positional_encoding",
-                    source=ln,
+                    source=ln_,
                     out_dim=self.enc_per_head_dim,  # D/H
                     forward_weights_init=self.ff_init,
                     clipping=self.rel_pos_clipping,
-                    query_spatial_dim="T",
+                    query_spatial_dim=self.memory_variant_opts.chunk_size_dim,
                     key_value_spatial_dim=self.concat_window_dim,
                     query_offset=self.memory_variant_opts.chunk_size,
                 )  # [W, W*2, D/H]
@@ -905,5 +900,6 @@ class ConformerEncoder:
 class ConformerMemoryVariantOpts:
     split_batch_time_base: str
     chunked_time_dim: Dim
+    chunk_size_dim: Dim
     chunk_size: int
     self_att_version: int  # TODO: just for testing
