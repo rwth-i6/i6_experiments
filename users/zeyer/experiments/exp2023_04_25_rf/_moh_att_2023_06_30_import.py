@@ -559,7 +559,7 @@ def test_import_search():
                 },
                 "segment_file": None,
                 "partition_epoch": 1,
-                "seq_ordering": "sorted_reverse",
+                # "seq_ordering": "sorted_reverse",
             }
         },
         "seq_order_control_dataset": "zip_dataset",
@@ -583,7 +583,10 @@ def test_import_search():
     from returnn.tf.data_pipeline import FeedDictDataProvider, BatchSetGenerator
 
     dataset = init_dataset(search_data_opts)
-    dataset.init_seq_order(epoch=1)
+    dataset.init_seq_order(
+        epoch=1,
+        seq_list=[f"dev-other/116-288045-0000/116-288045-{i:04d}" for i in range(34)],
+    )
     batch_num_seqs = 10
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
