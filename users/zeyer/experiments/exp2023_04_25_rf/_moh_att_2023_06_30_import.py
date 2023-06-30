@@ -207,7 +207,7 @@ def test_import():
         "conformer_block_01_ffmod_1_res": (ConformerEncoderLayer.__call__, 0, "x_ffn1_out", 0),
         "conformer_block_01_self_att_ln": (ConformerEncoderLayer.__call__, 0, "x_mhsa_ln", 0),
         # "conformer_block_01_self_att_ln_rel_pos_enc": (RelPosSelfAttention.__call__, 0, "x_mhsa", 0),
-        "conformer_block_01_self_att": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
+        "conformer_block_01_self_att_linear": (ConformerEncoderLayer.__call__, 0, "x_mhsa", 0),
         "conformer_block_01_self_att_res": (ConformerEncoderLayer.__call__, 0, "x_mhsa_out", 0),
         "conformer_block_01_conv_mod_res": (ConformerEncoderLayer.__call__, 0, "x_conv_out", 0),
         "conformer_block_01_ffmod_2_res": (ConformerEncoderLayer.__call__, 0, "x_ffn2_out", 0),
