@@ -196,6 +196,9 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
+        if source.feature_dim:
+            assert source.feature_dim.dimension == 1
+            source = rf.squeeze(source, source.feature_dim)
         # log mel filterbank features
         source, in_spatial_dim, in_dim_ = rf.stft(
             source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512

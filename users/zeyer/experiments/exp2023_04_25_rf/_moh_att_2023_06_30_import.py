@@ -506,7 +506,7 @@ def test_import_search():
     )
     target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
     target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
-    data = Tensor("data", dim_tags=[batch_dim, time_dim])
+    data = Tensor("data", dim_tags=[batch_dim, time_dim, Dim(1, name="dummy-feature")], feature_dim_axis=-1)
     target_spatial_dim = Dim(
         name="target_spatial",
         dimension=None,
@@ -528,7 +528,7 @@ def test_import_search():
             log_verbositiy=5,
             network=net_dict,
             extern_data={
-                "audio_features": {"dim_tags": data.dims},
+                "audio_features": {"dim_tags": data.dims, "feature_dim_axis": -1},
                 "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
             },
         )
