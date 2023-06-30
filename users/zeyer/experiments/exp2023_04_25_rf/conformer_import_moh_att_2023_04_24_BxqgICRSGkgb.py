@@ -677,7 +677,9 @@ class Model(rf.Module):
         state = rf.State(
             s=self.s.default_initial_state(batch_dims=batch_dims),
             att=rf.zeros(list(batch_dims) + [self.att_num_heads * self.encoder.out_dim]),
-            accum_att_weights=rf.zeros(list(batch_dims) + [enc_spatial_dim, self.att_num_heads]),
+            accum_att_weights=rf.zeros(
+                list(batch_dims) + [enc_spatial_dim, self.att_num_heads], feature_dim=self.att_num_heads
+            ),
         )
         state.att.feature_dim_axis = len(state.att.dims) - 1
         return state
