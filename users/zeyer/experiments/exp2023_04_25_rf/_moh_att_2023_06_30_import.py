@@ -680,12 +680,13 @@ def test_import_search():
     pt_module.load_state_dict(checkpoint_state["model"])
 
     print("*** Search ...")
-    model_recog(
-        model=new_model,
-        data=extern_data["audio_features"],
-        data_spatial_dim=time_dim,
-        targets_dim=target_dim,
-    )
+    with torch.no_grad():
+        model_recog(
+            model=new_model,
+            data=extern_data["audio_features"],
+            data_spatial_dim=time_dim,
+            targets_dim=target_dim,
+        )
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
