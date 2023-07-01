@@ -688,7 +688,7 @@ def test_import_search():
             data_spatial_dim=time_dim,
             targets_dim=target_dim,
         )
-    print(seq_targets)
+    print(seq_targets, seq_targets.raw_tensor)
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
