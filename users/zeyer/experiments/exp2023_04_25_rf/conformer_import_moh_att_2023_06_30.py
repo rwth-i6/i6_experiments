@@ -463,7 +463,7 @@ def model_recog(
     for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
-        seq_targets_.insert(0, rf.gather(seq_targets[i], indices=indices))
+        seq_targets_.insert(0, rf.gather(target, indices=indices))
         indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
 
     seq_targets__ = TensorArray(seq_targets_[0])
