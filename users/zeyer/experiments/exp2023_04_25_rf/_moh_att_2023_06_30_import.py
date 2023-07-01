@@ -645,6 +645,7 @@ def test_import_search():
                     old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
                     fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
         old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
+        print(old_model_outputs_fetch)
 
     def _make_new_model():
         return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
@@ -681,12 +682,13 @@ def test_import_search():
 
     print("*** Search ...")
     with torch.no_grad():
-        model_recog(
+        seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
             model=new_model,
             data=extern_data["audio_features"],
             data_spatial_dim=time_dim,
             targets_dim=target_dim,
         )
+    print(seq_targets)
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
