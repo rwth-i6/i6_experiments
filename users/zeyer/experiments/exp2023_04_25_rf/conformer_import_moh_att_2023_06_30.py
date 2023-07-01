@@ -460,7 +460,7 @@ def model_recog(
     # Backtrack via backrefs, resolve beams.
     seq_targets_ = []
     indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
-    for backrefs, target in reversed(zip(seq_backrefs, seq_targets)):
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
         # indices: FinalBeam -> Beam
         # backrefs: Beam -> PrevBeam
         seq_targets_.insert(0, rf.gather(seq_targets[i], indices=indices))
