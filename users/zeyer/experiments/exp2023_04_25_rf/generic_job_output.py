@@ -7,6 +7,7 @@ but in a way that it is keeps the has just as if it would be the output of the c
 
 from __future__ import annotations
 
+import os
 import importlib
 
 from sisyphus import Job
@@ -38,7 +39,13 @@ def generic_job_output(filename: str) -> tk.Path:
     assert issubclass(cls, Job)
 
     fake_job = make_fake_job(module=module_s, name=cls_name, sis_hash=sis_hash)
+    expected_sis_id = (module_s + "." + cls_name).replace(".", "/") + "." + sis_hash
     # noinspection PyProtectedMember
-    assert fake_job._sis_id() == module_s + "." + cls_name + "." + sis_hash
+    assert fake_job._sis_id() == expected_sis_id, (
+        f"fake job {fake_job} with sis_id {fake_job._sis_id()} does not match expected sis_id {expected_sis_id},"
+        f" module {module_s}, class {cls_name}, sis_hash {sis_hash}"
+    )
     assert parts[basename_idx + 1] == "output"
-    return tk.Path("/".join(parts[basename_idx + 2:]), creator=fake_job)
+    path = tk.Path("/".join(parts[basename_idx + 2 :]), creator=fake_job)
+    assert os.path.exists(path.get_path()), f"file {path.get_path()} does not exist"
+    return path
