@@ -13,18 +13,26 @@ import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
 from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
-
+from .generic_job_output import generic_job_output
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
 # dev-other  5.39
 # test-clean  2.41
 # test-other  5.51
-_returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
-_returnn_tf_ckpt_filename = "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+# _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
+# # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
+_returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 _load_existing_ckpt_in_test = True
 
 _ParamMapping = {}  # type: Dict[str,str]
+
+
+def _get_tf_checkpoint_path() -> tk.Path:
+    """
+    :return: Sisyphus tk.Path to the checkpoint file
+    """
+    return generic_job_output(_returnn_tf_ckpt_filename)
 
 
 def _add_params():
@@ -249,9 +257,7 @@ def test_import_forward():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from .load_tf_net_dict_from_cfg import load_net_dict_from_cfg
-
-    net_dict = load_net_dict_from_cfg(_returnn_tf_config_filename, output_probs_output_layer=True)
+    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
 
     num_layers = 12
 
@@ -294,15 +300,16 @@ def test_import_forward():
         net = TFNetwork(config=config)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
-            print(f"*** Load model params from {_returnn_tf_ckpt_filename}")
-            net.load_params_from_file(_returnn_tf_ckpt_filename, session=session)
-            old_tf_ckpt_filename = _returnn_tf_ckpt_filename
+            ckpt_path = _get_tf_checkpoint_path()
+            print(f"*** Load model params from {ckpt_path.get_path()}")
+            net.load_params_from_file(ckpt_path.get_path(), session=session)
+            old_tf_ckpt_path = ckpt_path
         else:
             print("*** Random init old model")
             net.initialize_params(session)
             print("*** Save old model to disk")
             net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
-            old_tf_ckpt_filename = ckpt_dir + "/old_model/model.index"
+            old_tf_ckpt_path = tk.Path(ckpt_dir + "/old_model/model.index")
 
         print("*** Forwarding ...")
 
@@ -331,7 +338,7 @@ def test_import_forward():
 
     print("*** Convert old model to new model")
     converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=tk.Path(old_tf_ckpt_filename)),
+        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
         make_model_func=_make_new_model,
         map_func=map_param_func_v2,
         epoch=1,
@@ -515,9 +522,7 @@ def test_import_search():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from .load_tf_net_dict_from_cfg import load_net_dict_from_cfg
-
-    net_dict = load_net_dict_from_cfg(_returnn_tf_config_filename, output_probs_output_layer=True)
+    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
 
     num_layers = 12
 
@@ -534,6 +539,7 @@ def test_import_search():
         )
     )
 
+    # data e.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
     search_data_opts = {
         "class": "MetaDataset",
         "data_map": {
@@ -543,7 +549,9 @@ def test_import_search():
         "datasets": {
             "zip_dataset": {
                 "class": "OggZipDataset",
-                "path": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/oggzip/BlissToOggZipJob.NSdIHfk1iw2M/output/out.ogg.zip",
+                "path": generic_job_output(
+                    "i6_core/returnn/oggzip/BlissToOggZipJob.NSdIHfk1iw2M/output/out.ogg.zip"
+                ).get_path(),
                 "use_cache_manager": True,
                 "audio": {
                     "features": "raw",
@@ -552,8 +560,12 @@ def test_import_search():
                 },
                 "targets": {
                     "class": "BytePairEncoding",
-                    "bpe_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes",
-                    "vocab_file": "/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab",
+                    "bpe_file": generic_job_output(
+                        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"
+                    ).get_path(),
+                    "vocab_file": generic_job_output(
+                        "i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"
+                    ).get_path(),
                     "unknown_label": "<unk>",
                     "seq_postfix": [0],
                 },
@@ -616,15 +628,16 @@ def test_import_search():
         net = TFNetwork(config=config, search_flag=True)
         net.construct_from_dict(config.typed_dict["network"])
         if _load_existing_ckpt_in_test:
-            print(f"*** Load model params from {_returnn_tf_ckpt_filename}")
-            net.load_params_from_file(_returnn_tf_ckpt_filename, session=session)
-            old_tf_ckpt_filename = _returnn_tf_ckpt_filename
+            ckpt_path = _get_tf_checkpoint_path()
+            print(f"*** Load model params from {ckpt_path.get_path()}")
+            net.load_params_from_file(ckpt_path.get_path(), session=session)
+            old_tf_ckpt_path = ckpt_path
         else:
             print("*** Random init old model")
             net.initialize_params(session)
             print("*** Save old model to disk")
             net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
-            old_tf_ckpt_filename = ckpt_dir + "/old_model/model.index"
+            old_tf_ckpt_path = tk.Path(ckpt_dir + "/old_model/model.index")
 
         print("*** Search ...")
 
@@ -654,7 +667,7 @@ def test_import_search():
 
     print("*** Convert old model to new model")
     converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=tk.Path(old_tf_ckpt_filename)),
+        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
         make_model_func=_make_new_model,
         map_func=map_param_func_v2,
         epoch=1,
