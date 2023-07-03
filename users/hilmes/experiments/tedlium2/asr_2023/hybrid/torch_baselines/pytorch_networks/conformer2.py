@@ -26,6 +26,7 @@ from i6_models.config import ModelConfiguration, SubassemblyWithConfig
 from typing import Optional, Tuple
 
 import torch
+
 IntTupleIntType = Union[int, Tuple[int, int]]
 
 __all__ = ["Conformer"]
@@ -247,6 +248,7 @@ def _mask_pool(seq_mask: torch.Tensor, kernel_size: int, stride: int, padding: i
     seq_mask = seq_mask.bool()
     return seq_mask
 
+
 def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     """
     Convert lengths to a pytorch MHSA compatible key mask
@@ -261,8 +263,10 @@ def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
     ) < lengths.unsqueeze(1)
     return padding_mask
 
+
 def _get_int_tuple_int(variable: IntTupleIntType, index: int) -> int:
     return variable[index] if isinstance(variable, Tuple) else variable
+
 
 def _get_padding(input_size: Union[int, Tuple[int, ...]]) -> Union[int, Tuple[int, ...]]:
     """
@@ -291,7 +295,11 @@ class Model(torch.nn.Module):
         target_size = 9001
 
         conv_cfg = ConformerConvolutionV1Config(
-            channels=conformer_size, kernel_size=31, dropout=0.2, activation=nn.SiLU(), norm=SubassemblyWithConfig(LayerNormNC, LayerNormNCConfig(channels=conformer_size))
+            channels=conformer_size,
+            kernel_size=31,
+            dropout=0.2,
+            activation=nn.SiLU(),
+            norm=SubassemblyWithConfig(LayerNormNC, LayerNormNCConfig(channels=conformer_size)),
         )
         mhsa_cfg = ConformerMHSAV1Config(
             input_dim=conformer_size, num_att_heads=4, att_weights_dropout=0.2, dropout=0.2
@@ -300,11 +308,23 @@ class Model(torch.nn.Module):
             input_dim=conformer_size, hidden_dim=2048, activation=nn.SiLU(), dropout=0.2
         )
         block_cfg = ConformerBlockV1Config(ff_cfg=ff_cfg, mhsa_cfg=mhsa_cfg, conv_cfg=conv_cfg)
-        frontend_cfg = VGG4LayerActFrontendV1Config(linear_input_dim=1248, conv1_channels=32, conv2_channels=64,
-            conv3_channels=64, conv4_channels=32, conv_kernel_size=3, pool1_kernel_size=(1, 2),
-            pool1_stride=(2, 1), activation=nn.ReLU(), conv_padding=None, pool1_padding=None,
-            linear_output_dim=conformer_size, pool2_kernel_size=(1, 2),
-            pool2_stride=None, pool2_padding=None)
+        frontend_cfg = VGG4LayerActFrontendV1Config(
+            linear_input_dim=1248,
+            conv1_channels=32,
+            conv2_channels=64,
+            conv3_channels=64,
+            conv4_channels=32,
+            conv_kernel_size=3,
+            pool1_kernel_size=(1, 2),
+            pool1_stride=(2, 1),
+            activation=nn.ReLU(),
+            conv_padding=None,
+            pool1_padding=None,
+            linear_output_dim=conformer_size,
+            pool2_kernel_size=(1, 2),
+            pool2_stride=None,
+            pool2_padding=None,
+        )
         frontend = SubassemblyWithConfig(module_class=VGG4LayerActFrontendV1, cfg=frontend_cfg)
         conformer_cfg = ConformerEncoderV1Config(num_layers=12, frontend=frontend, block_cfg=block_cfg)
         self.conformer = ConformerEncoderV1(cfg=conformer_cfg)
@@ -312,7 +332,7 @@ class Model(torch.nn.Module):
         self.upsample_conv = torch.nn.ConvTranspose1d(
             in_channels=conformer_size, out_channels=conformer_size, kernel_size=5, stride=2, padding=1
         )
-        #self.initial_linear = nn.Linear(80, conformer_size)
+        # self.initial_linear = nn.Linear(80, conformer_size)
         self.final_linear = nn.Linear(conformer_size, target_size)
         self.export_mode = False
 
@@ -334,11 +354,11 @@ class Model(torch.nn.Module):
         else:
             audio_features_masked_2 = audio_features
 
-        #conformer_in = self.initial_linear(audio_features_masked_2)
+        # conformer_in = self.initial_linear(audio_features_masked_2)
 
         if not self.export_mode:
             mask = _lengths_to_padding_mask(audio_features_len)
-            #mask = torch.logical_not(mask)
+            # mask = torch.logical_not(mask)
         else:
             mask = None
         conformer_out, _ = self.conformer(audio_features_masked_2, mask)
@@ -409,6 +429,6 @@ def export(*, model: Model, model_filename: str):
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},
             "data_len": {0: "batch"},
-            "classes": {0: "batch", 1: "time"}
-        }
+            "classes": {0: "batch", 1: "time"},
+        },
     )

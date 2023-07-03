@@ -148,7 +148,10 @@ def get_corpus_data_inputs(
 
     all_train_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
     if remove_faulty_segments:
-        all_train_segments = corpus_recipe.FilterSegmentsByListJob(segment_files={1: all_train_segments}, filter_list=["TED-LIUM-realease2/AndrewMcAfee_2013/23", "TED-LIUM-realease2/iOTillettWright_2012X/43"]).out_single_segment_files[1]
+        all_train_segments = corpus_recipe.FilterSegmentsByListJob(
+            segment_files={1: all_train_segments},
+            filter_list=["TED-LIUM-realease2/AndrewMcAfee_2013/23", "TED-LIUM-realease2/iOTillettWright_2012X/43"],
+        ).out_single_segment_files[1]
     cv_segments = corpus_recipe.SegmentCorpusJob(cv_corpus_path, 1).out_single_segment_files[1]
 
     dev_train_size = 500 / total_train_num_segments
@@ -250,7 +253,7 @@ def get_corpus_data_inputs(
 
     nn_dev_data_inputs = {
         "dev": gmm_system.outputs["dev"]["final"].as_returnn_rasr_data_input(),
-        "dev_kaldi_small": gmm_system.outputs["dev_kaldi_small_4_gram"]["final"].as_returnn_rasr_data_input()
+        "dev_kaldi_small": gmm_system.outputs["dev_kaldi_small_4_gram"]["final"].as_returnn_rasr_data_input(),
     }
     nn_test_data_inputs = {
         # "test": gmm_system.outputs["test"][

@@ -1,16 +1,15 @@
 import copy
 from sisyphus import gs, tk
 
-from i6_core.tools.git import CloneGitRepositoryJob
 from i6_core.features import FilterbankJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 from i6_experiments.common.baselines.librispeech.default_tools import RASR_BINARY_PATH
 
-from .data import get_corpus_data_inputs
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.data import get_corpus_data_inputs
 from .baseline_args import get_log_mel_feature_extraction_args
-from .wei_tedlium2_setup.nn_args import get_nn_args
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.wei_tedlium2_setup.nn_args import get_nn_args
 from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.hybrid.default_tools import RETURNN_RC_ROOT
 
 
@@ -24,9 +23,7 @@ def run_gmm_system():
 
 
 def run_tedlium2_hybrid_baseline():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = (
-        "experiments/tedlium2/hybrid/wei_baseline"
-    )
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/tedlium2/hybrid/wei_baseline"
 
     gmm_system = run_gmm_system()
 
@@ -39,7 +36,12 @@ def run_tedlium2_hybrid_baseline():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs(gmm_system, rasr_init_args.feature_extraction_args, FilterbankJob, alias_prefix="experiments/tedlium2/hybrid/wei_baseline")
+    ) = get_corpus_data_inputs(
+        gmm_system,
+        rasr_init_args.feature_extraction_args,
+        FilterbankJob,
+        alias_prefix="experiments/tedlium2/hybrid/wei_baseline",
+    )
 
     nn_args = get_nn_args(num_epochs=125)
 

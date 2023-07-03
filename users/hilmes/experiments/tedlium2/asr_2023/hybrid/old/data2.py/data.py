@@ -7,11 +7,20 @@ from i6_core.features import FeatureExtractionJob
 
 from i6_experiments.common.datasets.tedlium2.constants import DURATIONS, NUM_SEGMENTS
 from i6_experiments.common.setups.rasr.gmm_system import GmmSystem
-from .util.data import HdfDataInput, AllophoneLabeling, ReturnnRasrDataInput
-from .baseline_args import get_align_dev_args
-#from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT
-from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.hybrid.default_tools import RETURNN_RC_ROOT, RETURNN_EXE
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.old.data import (
+    HdfDataInput,
+    AllophoneLabeling,
+    ReturnnRasrDataInput,
+)
+from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.old.baseline_args import get_align_dev_args
+
+# from ..default_tools import RETURNN_EXE, RETURNN_RC_ROOT
+from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.hybrid.default_tools import (
+    RETURNN_RC_ROOT,
+    RETURNN_EXE,
+)
 from i6_core.lexicon import DumpStateTyingJob
+
 
 def build_hdf_data_input(
     features: tk.Path,
@@ -144,7 +153,7 @@ def get_corpus_data_inputs(
         feature_extraction_args,
         feature_extraction_class,
     )
-    states = DumpStateTyingJob(gmm_system.crp['train'])
+    states = DumpStateTyingJob(gmm_system.crp["train"])
     allophone_labeling = AllophoneLabeling(
         silence_phoneme="[SILENCE]",
         allophone_file=gmm_system.allophone_files["train"],

@@ -462,6 +462,11 @@ class HybridSystem(NnSystem):
         train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
     ):
         for recog_name, recog_args in step_args.recognition_args.items():
+            recog_args = copy.deepcopy(recog_args)
+            whitelist = recog_args.pop("training_whitelist", None)
+            if whitelist:
+                if train_name not in whitelist:
+                    continue
             for dev_c in self.dev_corpora:
                 self.nn_recognition(
                     name=f"{train_corpus_key}-{train_name}-{recog_name}",

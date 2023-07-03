@@ -83,12 +83,11 @@ class BlstmEncoderV1(torch.nn.Module):
 
 
 class Model(torch.nn.Module):
-
     def __init__(self, epoch, step, **kwargs):
         super().__init__()
-        lstm_size = 1024
+        lstm_size = 512
         target_size = 9001
-        blstm_cfg = BlstmEncoderV1Config(num_layers=8, input_dim=80, hidden_dim=lstm_size, dropout=0.0)
+        blstm_cfg = BlstmEncoderV1Config(num_layers=6, input_dim=80, hidden_dim=lstm_size, dropout=0.0)
         self.blstm_stack = BlstmEncoderV1(config=blstm_cfg)
         self.final_linear = nn.Linear(2 * lstm_size, target_size)
         self.lstm_size = lstm_size
@@ -100,14 +99,18 @@ class Model(torch.nn.Module):
     ):
         if self.training:
             audio_features_time_masked = mask_along_axis(audio_features, mask_param=20, mask_value=0.0, axis=1)
-            audio_features_time_masked_2 = mask_along_axis(audio_features_time_masked, mask_param=20, mask_value=0.0, axis=1)
-            audio_features_time_masked_3 = mask_along_axis(audio_features_time_masked_2, mask_param=20, mask_value=0.0, axis=1)
+            audio_features_time_masked_2 = mask_along_axis(
+                audio_features_time_masked, mask_param=20, mask_value=0.0, axis=1
+            )
+            audio_features_time_masked_3 = mask_along_axis(
+                audio_features_time_masked_2, mask_param=20, mask_value=0.0, axis=1
+            )
             audio_features_masked = mask_along_axis(audio_features_time_masked_3, mask_param=10, mask_value=0.0, axis=2)
             audio_features_masked_2 = mask_along_axis(audio_features_masked, mask_param=10, mask_value=0.0, axis=2)
         else:
             audio_features_masked_2 = audio_features
 
-        #blstm_in = torch.swapaxes(audio_features_masked_2, 0, 1)  # [B, T, F] -> [T, B, F]
+        # blstm_in = torch.swapaxes(audio_features_masked_2, 0, 1)  # [B, T, F] -> [T, B, F]
         blstm_in = audio_features_masked_2
         blstm_out = self.blstm_stack(blstm_in, audio_features_len)
 
@@ -141,7 +144,9 @@ def train_step(*, model: Model, extern_data, **_kwargs):
         audio_features_len=audio_features_len,
     )
 
-    targets_packed = nn.utils.rnn.pack_padded_sequence(phonemes, phonemes_len.to("cpu"), batch_first=True, enforce_sorted=False)
+    targets_packed = nn.utils.rnn.pack_padded_sequence(
+        phonemes, phonemes_len.to("cpu"), batch_first=True, enforce_sorted=False
+    )
     targets_masked, _ = nn.utils.rnn.pad_packed_sequence(targets_packed, batch_first=True, padding_value=-100)
 
     loss = nn.functional.cross_entropy(logits, targets_masked)
@@ -150,10 +155,10 @@ def train_step(*, model: Model, extern_data, **_kwargs):
 
 
 def export(*, model: Model, model_filename: str):
-    scripted_model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()))
-    dummy_data = torch.randn(1, 30, 50, device="cpu")
-    dummy_data_len, _ = torch.sort(torch.randint(low=10, high=30, size=(1,), device="cpu", dtype=torch.int32),
-        descending=True)
+    model.export_mode = True
+    dummy_data = torch.randn(1, 30, 80, device="cpu")
+    dummy_data_len = torch.ones((1,), dtype=torch.int32) * 30
+    scripted_model = torch.jit.trace(model.eval(), example_inputs=(dummy_data, dummy_data_len))
     onnx_export(
         scripted_model,
         (dummy_data, dummy_data_len),
@@ -161,12 +166,11 @@ def export(*, model: Model, model_filename: str):
         verbose=True,
         input_names=["data", "data_len"],
         output_names=["classes"],
+        opset_version=14,
         dynamic_axes={
             # dict value: manually named axes
             "data": {0: "batch", 1: "time"},
             "data_len": {0: "batch"},
-            "classes": {0: "batch", 1: "time"}
-        }
+            "classes": {0: "batch", 1: "time"},
+        },
     )
-
-

@@ -14,6 +14,7 @@ def get_nn_args(num_epochs=125, no_min_seq_len=False):
 
     returnn_config = ReturnnConfig(config=base_config)
 
+    # two variants of spec augment
     best_args = {"max_time_num": 3, "max_time": 10, "max_feature_num": 5, "max_feature": 8, "conservatvie_step": 2000}
     specaug = get_spec_augment_mask_python(**best_args)
     best_args2 = {"max_time_num": 3, "max_time": 10, "max_feature_num": 5, "max_feature": 18, "conservatvie_step": 2000}
@@ -22,31 +23,28 @@ def get_nn_args(num_epochs=125, no_min_seq_len=False):
     spec_cfg = ReturnnConfig(config=copy.deepcopy(specaug_config), python_epilog=specaug)
     spec_cfg2 = ReturnnConfig(config=copy.deepcopy(specaug_config), python_epilog=specaug2)
 
-    van_config = deepcopy(base_config)
-    for key in van_config["network"]:
-        if "lstm" in key:
-            van_config["network"][key]["unit"] = "vanillalstm"
-    vanilla_config = ReturnnConfig(config=van_config)
-
-    # Lets look at the diff between native and vanilla
-
     no_pretrain_config = deepcopy(base_config)
     del no_pretrain_config["pretrain"]
-
     wei_no_pretrain = ReturnnConfig(config=no_pretrain_config)
+
+    no_pretrain_spec_config = deepcopy(specaug_config)
+    del no_pretrain_spec_config["pretrain"]
+    wei_no_pretrain_spec = ReturnnConfig(config=no_pretrain_spec_config, python_epilog=specaug)
 
     configs = {
         "wei_config": returnn_config,
-        "vanilla_training": vanilla_config,
         "wei_specaug_config": spec_cfg,
         "wei_specaug2_config": spec_cfg2,
         "wei_no_pretrain": wei_no_pretrain,
+        "wei_specaug_no_pretrain": wei_no_pretrain_spec,
     }
+
     if no_min_seq_len:
         del configs["vanilla_training"]
         del configs["wei_specaug_config"]
         del configs["wei_no_pretrain"]
         del configs["wei_specaug2_config"]
+        del configs["wei_specaug_no_pretrain"]
 
     # change softmax to log softmax for hybrid
     recog_configs = deepcopy(configs)
@@ -76,7 +74,7 @@ def get_nn_args(num_epochs=125, no_min_seq_len=False):
             "epochs": [num_epochs],
             "feature_flow_key": "fb",
             "prior_scales": [0.7, 0.8, 0.9],
-            "pronunciation_scales": [0.0, 6.0],
+            "pronunciation_scales": [0.0],
             "lm_scales": [15.0, 10.0, 7.5, 5.0],
             "lm_lookahead": True,
             "lookahead_options": None,

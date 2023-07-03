@@ -77,21 +77,23 @@ def get_gammatone_feature_extraction_args():
         }
     }
 
+
 def get_log_mel_feature_extraction_args():
 
     return {
-        "filterbank_options":{
-        "warping_function": "mel",
-        "filter_width": filter_width_from_channels(channels=20, warping_function="mel", f_max=8000),
-        "normalize": True,
-        "normalization_options": None,
-        "without_samples": False,
-        "samples_options": {
-        "audio_format": "wav",
-        "dc_detection": False,
-        },
-        "fft_options": None,
-        "add_features_output": True,
-        "apply_log": True,
-        "add_epsilon": True,
-    }}
+        "filterbank_options": {
+            "warping_function": "mel",
+            "filter_width": filter_width_from_channels(channels=20, warping_function="mel", f_max=8000),
+            "normalize": True,
+            "normalization_options": None,
+            "without_samples": False,
+            "samples_options": {
+                "audio_format": "wav",
+                "dc_detection": False,
+            },
+            "fft_options": None,
+            "add_features_output": True,
+            "apply_log": True,
+            "add_epsilon": True,
+        }
+    }
