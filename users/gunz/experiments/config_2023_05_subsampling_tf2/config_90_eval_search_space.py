@@ -34,10 +34,7 @@ def run():
         allophone_detail_level=AllophoneDetails.MONOPHONE,
         x_steps_per_log_time_step=1,
     )
-    for i, out in enumerate(non_ss.out_print_files.values()):
-        tk.register_output(f"non-ss/out.{i}.txt", out)
-    for i, out in enumerate(non_ss.out_plot_files.values()):
-        tk.register_output(f"non-ss/out.{i}.png", out)
+    alias_output_visualize(non_ss, "non-ss")
 
     ss = VisualizeBestTraceJob(
         rasr_logs=Path("/u/mgunz/gunz/ma/state-space-comparison/recog-ss/rasr.log"),
@@ -47,7 +44,13 @@ def run():
         allophone_detail_level=AllophoneDetails.MONOPHONE,
         x_steps_per_log_time_step=4,
     )
-    for i, out in enumerate(ss.out_print_files.values()):
+    alias_output_visualize(ss, "ss-40ms")
+
+
+def alias_output_visualize(j: VisualizeBestTraceJob, name: str):
+    j.add_alias(f"search-space/{name}")
+
+    for i, out in enumerate(j.out_print_files.values()):
         tk.register_output(f"non-ss/out.{i}.txt", out)
-    for i, out in enumerate(ss.out_plot_files.values()):
+    for i, out in enumerate(j.out_plot_files.values()):
         tk.register_output(f"non-ss/out.{i}.png", out)
