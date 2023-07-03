@@ -64,7 +64,7 @@ class VisualizeBestTraceJob(Job):
             if isinstance(rasr_logs, dict)
             else [rasr_logs]
         )
-        self.segments_to_process = segments_to_process
+        self.segments_to_process = set(segments_to_process)
         self.state_tying = state_tying
         self.x_steps_per_log_time_step = x_steps_per_log_time_step
 
@@ -90,9 +90,11 @@ class VisualizeBestTraceJob(Job):
 
         for segment, search_space in parsed_search_space.items():
             if segment not in self.segments_to_process:
+                logging.info(f"{segment} not in list to process, skipping")
                 continue
+            else:
+                logging.info(f"processing {segment}")
 
-            logging.info(f"processing {segment}")
 
             best_hyps = {t: min(hyps, key=lambda hyp: hyp.sc) for t, hyps in search_space.items()}
 
@@ -113,7 +115,7 @@ class VisualizeBestTraceJob(Job):
 
             segments_done.add(segment)
 
-        not_processed = set(self.segments_to_process) - segments_done
+        not_processed = self.segments_to_process - segments_done
         if len(not_processed) > 0:
             raise AttributeError(f"did not process all requested segments: {not_processed}")
 
