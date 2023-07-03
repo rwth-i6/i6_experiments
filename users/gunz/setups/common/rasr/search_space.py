@@ -71,7 +71,7 @@ class VisualizeBestTraceJob(Job):
         self.out_print_files = {seg: self.output_path(f"segment.{i}.txt") for i, seg in enumerate(segments_to_process)}
         self.out_plot_files = {seg: self.output_path(f"segment.{i}.png") for i, seg in enumerate(segments_to_process)}
 
-        self.rqmt = {"cpu": 1, "mem": 6}
+        self.rqmt = {"cpu": 1, "mem": 6, "time": 0.3}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt, args=range(len(self.rasr_logs)))
