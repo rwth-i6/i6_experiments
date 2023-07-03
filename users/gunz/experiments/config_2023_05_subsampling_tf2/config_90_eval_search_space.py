@@ -16,6 +16,8 @@ def run():
 
     # ********************* Plots **********************
 
+    print("search-space analysis")
+
     li = dataclasses.replace(LabelInfo.default_ls(), state_tying=RasrStateTying.monophone, n_states_per_phone=3)
     li_ss = dataclasses.replace(li, n_states_per_phone=1)
 
