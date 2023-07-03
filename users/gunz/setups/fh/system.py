@@ -169,9 +169,9 @@ class FactoredHybridSystem(NnSystem):
         self.initial_nn_args = {"num_input": 50}
 
         self.initial_train_args = {
-            "cpu_rqmt": 4,
+            "cpu_rqmt": 2,
             "time_rqmt": 168,
-            "mem_rqmt": 12,
+            "mem_rqmt": 7,
             "log_verbosity": 3,
         }
 
