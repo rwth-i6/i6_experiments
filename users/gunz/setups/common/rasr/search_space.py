@@ -134,7 +134,7 @@ class VisualizeBestTraceJob(Job):
 
         root = xml.getroot()
         obj = {
-            segment.attrib["name"]: {
+            segment.attrib["full-name"]: {
                 int(step.attrib["time"]): [Hyp.from_node(n) for n in step.findall("./hyp")]
                 for step in segment.findall(".//step")
             }
