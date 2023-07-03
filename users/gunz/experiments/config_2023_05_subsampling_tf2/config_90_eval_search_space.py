@@ -22,11 +22,11 @@ def run():
     li_ss = dataclasses.replace(li, n_states_per_phone=1)
 
     segments = [
-        "dev-other/116-288045-0015",
-        "dev-other/116-288045-0025",
-        "dev-other/116-288046-0005",
-        "dev-other/6123-59150-0012",
-        "dev-other/6123-59150-0006",
+        "dev-other/116-288045-0015/116-288045-0015",
+        "dev-other/116-288045-0025/116-288045-0025",
+        "dev-other/116-288046-0005/116-288046-0005",
+        "dev-other/6123-59150-0012/6123-59150-0012",
+        "dev-other/6123-59150-0006/6123-59150-0006",
     ]
     non_ss = VisualizeBestTraceJob(
         rasr_logs=Path("/u/mgunz/gunz/ma/state-space-comparison/recog-normal/rasr.log"),
