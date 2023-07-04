@@ -90,7 +90,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             multitask=True,
             run_performance_study=False,
-            tune_decoding=False,
+            tune_decoding=True,
         ),
     ]
     for exp in configs:
@@ -323,7 +323,7 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 prior_scales=np.linspace(0.0, 0.6, 7),
-                tdp_scales=np.linspace(0.2, 0.6, 5),
+                tdp_scales=np.linspace(0.1, 0.5, 3),
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
