@@ -43,6 +43,7 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     ALIGN_30MS_CONF_V2,
+    ALIGN_30MS_CONF_V3,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -83,11 +84,22 @@ def run(returnn_root: tk.Path):
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     scratch_align = tk.Path(ALIGN_30MS_CONF_V2, cached=True)
+    scratch_align_v3 = tk.Path(ALIGN_30MS_CONF_V3, cached=True)
 
     configs = [
         Experiment(
             alignment=scratch_align,
-            alignment_name="30ms-C",
+            alignment_name="30ms-C-v2",
+            dc_detection=False,
+            decode_all_corpora=False,
+            lr="v13",
+            own_priors=True,
+            run_performance_study=False,
+            tune_decoding=False,
+        ),
+        Experiment(
+            alignment=scratch_align_v3,
+            alignment_name="30ms-C-v3",
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
