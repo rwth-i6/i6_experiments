@@ -1,4 +1,4 @@
-__all__ = ["AllophoneDetails", "Hyp", "VisualizeBestTraceJob"]
+__all__ = ["AllophoneDetails", "Hyp", "TraceSource", "VisualizeBestTraceJob"]
 
 import logging
 from dataclasses import dataclass

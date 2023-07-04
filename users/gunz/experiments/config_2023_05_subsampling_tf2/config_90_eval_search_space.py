@@ -48,5 +48,5 @@ def run():
         allophone_detail_level=AllophoneDetails.MONOPHONE,
     )
     j.add_alias("search-space/analysis")
-    for seg, img in j.out_plot_files:
+    for seg, img in j.out_plot_files.items():
         tk.register_output(f"search-space/{seg}.png", img)
