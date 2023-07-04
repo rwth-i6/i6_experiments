@@ -428,7 +428,7 @@ def run_single(
             crp.acoustic_model_config.tdp.applicator_type = "corrected"
             crp.acoustic_model_config.allophones.add_all = False
             crp.acoustic_model_config.allophones.add_from_lexicon = True
-            crp.concurrent = 300
+            crp.concurrent = 20
             crp.segment_path = corpus.SegmentCorpusJob(
                 s.corpora[s.train_key].corpus_file, crp.concurrent
             ).out_segment_path
