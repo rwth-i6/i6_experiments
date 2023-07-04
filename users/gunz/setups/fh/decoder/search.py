@@ -262,11 +262,11 @@ class FHDecoder:
 
         if nn_lm:
             rtf += 20
-            mem = 16.0
+            mem = 12.0
             if "eval" in self.name:
                 rtf *= 2
         else:
-            mem = 8
+            mem = 4
 
         return {"rtf": rtf, "mem": mem}
 
