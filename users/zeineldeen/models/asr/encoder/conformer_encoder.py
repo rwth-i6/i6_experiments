@@ -533,7 +533,7 @@ class ConformerEncoder:
                     f"{prefix_name}_ln_att",
                     cls="reinterpret_data",
                     source=mhsa_,
-                    set_axes={"T": "dim:100"},
+                    set_axes={"T": f"dim:{self.memory_variant_opts.chunk_size}"},
                 )  # [B*C, W, D]
         else:
             mhsa = self.network.add_self_att_layer(
