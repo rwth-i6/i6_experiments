@@ -682,6 +682,7 @@ class FHDecoder:
         mem_rqmt: typing.Optional[int] = None,
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
         pre_path: str = "scales",
+        cpu_slow: bool = True,
     ) -> SearchParameters:
         assert len(prior_scales) > 0
         assert len(tdp_scales) > 0
@@ -738,6 +739,9 @@ class FHDecoder:
             recog_jobs.search.add_alias(pre_name)
             tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
             tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
+
+            if cpu_slow:
+                recog_jobs.search.rqmt["cpu_slow"] = True
 
         best_overall = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
