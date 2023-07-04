@@ -43,79 +43,72 @@ class AllophoneDetails(Enum):
             assert False, "unknown details"
 
 
+@dataclass(frozen=True)
+class TraceSource:
+    rasr_log: Path
+    state_tying: Path
+    num_tied_phonemes: int
+    x_steps_per_time_step: int
+
+
 class VisualizeBestTraceJob(Job):
     def __init__(
-        self,
-        rasr_logs: typing.Union[Path, typing.List[Path], typing.Dict[typing.Any, Path]],
-        segments_to_process: typing.List[str],
-        state_tying: Path,
-        num_tied_phonemes: int,
-        x_steps_per_log_time_step: int,
-        allophone_detail_level: AllophoneDetails,
+        self, sources: typing.List[TraceSource], segments: typing.List[str], allophone_detail_level: AllophoneDetails
     ):
         super().__init__()
 
         self.allophone_detail_level = allophone_detail_level
-        self.num_tied_phonemes = num_tied_phonemes
-        self.rasr_logs = (
-            rasr_logs
-            if isinstance(rasr_logs, list)
-            else list(rasr_logs.values())
-            if isinstance(rasr_logs, dict)
-            else [rasr_logs]
-        )
-        self.segments_to_process = set(segments_to_process)
-        self.state_tying = state_tying
-        self.x_steps_per_log_time_step = x_steps_per_log_time_step
+        self.sources = sources
+        self.segments = segments
 
-        self.out_print_files = {seg: self.output_path(f"segment.{i}.txt") for i, seg in enumerate(segments_to_process)}
-        self.out_plot_files = {seg: self.output_path(f"segment.{i}.png") for i, seg in enumerate(segments_to_process)}
+        self.out_print_files = {
+            (seg, j): self.output_path(f"segment.{i}.{j}.txt")
+            for i, seg in enumerate(segments)
+            for j in range(len(sources))
+        }
+        self.out_plot_files = {seg: self.output_path(f"segment.{i}.png") for i, seg in enumerate(segments)}
 
-        self.rqmt = {"cpu": 1, "mem": 6, "time": 0.3}
+        self.rqmt = {"cpu": 1, "mem": 16, "time": 0.5}
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt, args=range(len(self.rasr_logs)))
+        yield Task("run", rqmt=self.rqmt)
 
-    def run(self, index: int):
+    def run(self):
         import matplotlib.pyplot as plt
 
-        logging.info(f"loading state tying {self.state_tying}")
-        parsed_tying = VisualizeBestTraceJob.parse_state_tying(self.state_tying, self.allophone_detail_level)
-
-        log_file = self.rasr_logs[index]
-        logging.info(f"loading search log {log_file}")
-        parsed_search_space = VisualizeBestTraceJob.parse_search_space(log_file)
+        tyings = [
+            VisualizeBestTraceJob.parse_state_tying(src.state_tying, self.allophone_detail_level)
+            for src in self.sources
+        ]
+        search_spaces = [VisualizeBestTraceJob.parse_search_space(src.rasr_log) for src in self.sources]
 
         segments_done = set()
 
-        for segment, search_space in parsed_search_space.items():
-            if segment not in self.segments_to_process:
-                logging.info(f"{segment} not in list to process, skipping")
-                continue
-            else:
-                logging.info(f"processing {segment}")
+        for segment in self.segments:
+            scores_per_source = []
 
+            for j, (tying, search_space, source) in enumerate(zip(tyings, search_spaces, self.sources)):
+                hyps = search_space[segment]
+                best_hyp = {t: min(hyps, key=lambda hyp: hyp.sc) for t, hyps in hyps.items()}
 
-            best_hyps = {t: min(hyps, key=lambda hyp: hyp.sc) for t, hyps in search_space.items()}
+                keys = sorted(best_hyp.keys())
+                best_hyps = [best_hyp[k] for k in keys]
+                best_hyps_widened = [el for hyp in best_hyps for el in [hyp] * source.x_steps_per_time_step]
 
-            keys = sorted(best_hyps.keys())
-            scores = [best_hyps[k] for k in keys]
-            pad_w = max((len(parsed_tying.get(hyp.l, "N/A")) for hyp in scores))
+                pad_w = max((len(tying.get(hyp.l, "N/A")) for hyp in best_hyps))
+                label_per_hyp = [tying.get(hyp.l, "N/A").ljust(pad_w) for hyp in best_hyps_widened]
+                with open(self.out_print_files[(segment, j)], "wt") as file:
+                    file.write("||".join(label_per_hyp))
 
-            with open(self.out_print_files[segment], "wt") as f:
-                for hyp in scores:
-                    allophone = parsed_tying.get(hyp.l, "N/A")
-                    w = pad_w * self.x_steps_per_log_time_step + (self.x_steps_per_log_time_step - 1) * 2
-
-                    f.write(f"{allophone.ljust(w)}||")
+                scores_per_source.append([float(hyp.l) / source.num_tied_phonemes for hyp in best_hyps_widened])
 
             plt.clf()
-            plt.imshow([[hyp.l for hyp in scores]], vmin=0, vmax=self.num_tied_phonemes)
+            plt.imshow(scores_per_source, vmin=0, vmax=1.0, aspect="auto")
             plt.savefig(self.out_plot_files[segment])
 
             segments_done.add(segment)
 
-        not_processed = self.segments_to_process - segments_done
+        not_processed = set(self.segments) - segments_done
         if len(not_processed) > 0:
             raise AttributeError(f"did not process all requested segments: {not_processed}")
 
@@ -123,6 +116,8 @@ class VisualizeBestTraceJob(Job):
     def parse_search_space(
         cls, log_file: typing.Union[str, Path]
     ) -> typing.Dict[str, typing.Dict[int, typing.List[Hyp]]]:
+        logging.info(f"loading log {log_file}")
+
         p = log_file.get_path() if isinstance(log_file, Path) else log_file
 
         if p.endswith(".gz"):
@@ -145,10 +140,10 @@ class VisualizeBestTraceJob(Job):
 
     @classmethod
     def parse_state_tying(
-        cls,
-        path: typing.Union[str, Path],
-        allophone_detail_level: AllophoneDetails,
+        cls, path: typing.Union[str, Path], allophone_detail_level: AllophoneDetails
     ) -> typing.Dict[int, str]:
+        logging.info(f"loading tying {path}")
+
         tying = {}
 
         with open(path, "rt") as f:
