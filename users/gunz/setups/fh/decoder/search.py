@@ -731,6 +731,9 @@ class FHDecoder:
         jobs_num_e = {k: v.sclite.out_num_errors for k, v in jobs.items()}
 
         for ((c, l, r), tdp, tdp_sl, tdp_sp), recog_jobs in jobs.items():
+            if cpu_slow:
+                recog_jobs.search.update_rqmt("run", {"cpu_slow": True})
+
             pre_name = f"{pre_path}/{self.name}/Lm{recog_args.lm_scale}-Pron{recog_args.pron_scale}-pC{c}-pL{l}-pR{r}-tdp{tdp}-tdpSil{format_tdp(tdp_sl)}-tdpSp{format_tdp(tdp_sp)}"
 
             recog_jobs.lat2ctm.set_keep_value(keep_value)
@@ -739,9 +742,6 @@ class FHDecoder:
             recog_jobs.search.add_alias(pre_name)
             tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
             tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
-
-            if cpu_slow:
-                recog_jobs.search.rqmt["cpu_slow"] = True
 
         best_overall = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
