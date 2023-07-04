@@ -393,51 +393,54 @@ def run_single(
         allophones = lexicon.StoreAllophonesJob(crp)
         tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
-    for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
-        s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
+    if subsampling_factor == 3:
+        for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
+            s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.monophone,
-            crp_corpus=crp_k,
-            epoch=600,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
-        align_cfg = (
-            recog_args.with_prior_scale(0.6)
-            .with_tdp_scale(1.0)
-            .with_tdp_silence(sil_tdp)
-            .with_tdp_non_word(sil_tdp)
-        )
-        align_search_jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=align_cfg,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=False,
-            opt_lm_am=False,
-            add_sis_alias_and_output=False,
-            calculate_stats=True,
-            rtf_cpu=4,
-        )
-        crp = copy.deepcopy(align_search_jobs.search_crp)
-        crp.acoustic_model_config.tdp.applicator_type = "corrected"
-        crp.acoustic_model_config.allophones.add_all = False
-        crp.acoustic_model_config.allophones.add_from_lexicon = True
-        crp.concurrent = 300
-        crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
+            recognizer, recog_args = s.get_recognizer_and_args(
+                key="fh",
+                context_type=PhoneticContext.monophone,
+                crp_corpus=crp_k,
+                epoch=600,
+                gpu=False,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                set_batch_major_for_feature_scorer=True,
+                lm_gc_simple_hash=True,
+            )
+            sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+            align_cfg = (
+                recog_args.with_prior_scale(0.6)
+                .with_tdp_scale(1.0)
+                .with_tdp_silence(sil_tdp)
+                .with_tdp_non_word(sil_tdp)
+            )
+            align_search_jobs = recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=align_cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=False,
+                opt_lm_am=False,
+                add_sis_alias_and_output=False,
+                calculate_stats=True,
+                rtf_cpu=4,
+            )
+            crp = copy.deepcopy(align_search_jobs.search_crp)
+            crp.acoustic_model_config.tdp.applicator_type = "corrected"
+            crp.acoustic_model_config.allophones.add_all = False
+            crp.acoustic_model_config.allophones.add_from_lexicon = True
+            crp.concurrent = 300
+            crp.segment_path = corpus.SegmentCorpusJob(
+                s.corpora[s.train_key].corpus_file, crp.concurrent
+            ).out_segment_path
 
-        recognizer.align(
-            f"{name}-{crp_k}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
-            crp=crp,
-            feature_scorer=align_search_jobs.search_feature_scorer,
-            default_tdp=True,
-        )
+            recognizer.align(
+                f"{name}-{crp_k}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+                crp=crp,
+                feature_scorer=align_search_jobs.search_feature_scorer,
+                default_tdp=True,
+            )
 
-        allophones = lexicon.StoreAllophonesJob(crp)
-        tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+            allophones = lexicon.StoreAllophonesJob(crp)
+            tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
     return s
