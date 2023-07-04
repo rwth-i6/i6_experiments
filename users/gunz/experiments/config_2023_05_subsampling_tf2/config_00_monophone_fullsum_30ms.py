@@ -393,13 +393,13 @@ def run_single(
         allophones = lexicon.StoreAllophonesJob(crp)
         tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
 
-    for corpus in ["dev-other", "dev-clean", "test-other", "test-clean"]:
-        s.set_binaries_for_crp(corpus, RASR_BINARY_PATH_TF)
+    for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
+        s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
-            crp_corpus=corpus,
+            crp_corpus=crp_k,
             epoch=600,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
@@ -431,7 +431,7 @@ def run_single(
         crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
         recognizer.align(
-            f"{name}-{corpus}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+            f"{name}-{crp_k}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
             crp=crp,
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=True,
