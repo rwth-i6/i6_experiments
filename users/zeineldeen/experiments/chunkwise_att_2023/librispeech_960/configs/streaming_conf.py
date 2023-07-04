@@ -8,7 +8,7 @@ from typing import Optional, Union, List
 import copy
 import os
 
-import numpy
+import numpy, math
 
 from sisyphus import tk
 
@@ -446,6 +446,7 @@ def run_search(
         use_sclite=kwargs.get("use_sclite", False),
         recog_ext_pipeline=recog_ext_pipeline,
         remove_label=remove_label,
+        enable_mail=True,
     )
 
 
@@ -996,7 +997,7 @@ def run_chunkwise_train(
     window_left_padding: Optional[int] = None,
     end_slice_size: Optional[int] = None,
     pos_enc: Optional[str] = "rel",
-    enc_memory_version: Optional[int] = None,
+    conf_mem_opts: Optional[dict] = None,
     **kwargs,
 ):
     # train with ctc chunk-sync alignment
@@ -1075,9 +1076,12 @@ def run_chunkwise_train(
                         else:
                             assert pos_enc == "rel"
 
-                        if enc_memory_version is not None:
-                            train_args["enc_memory_version"] = enc_memory_version
-                            exp_name += f"_memVariant{enc_memory_version}"
+                        if conf_mem_opts is not None:
+                            train_args["conf_mem_opts"] = conf_mem_opts
+                            exp_name += f"_memVariant{conf_mem_opts['self_att_version']}"
+                            mem_size = conf_mem_opts.get("mem_size", 1)
+                            if mem_size > 1:
+                                exp_name += f"_memSize{mem_size}"
                             train_args["recursion_limit"] = 4000
 
                         if suffix:
@@ -1309,7 +1313,7 @@ def baseline():
         batch_size=10_000,
         accum_grad=3,
         time_rqmt=40,
-        enc_memory_version=0,
+        conf_mem_opts={"self_att_version": 0},
     )
 
     # TODO: 100, 50, 20 with memory and no overlap
@@ -1326,7 +1330,7 @@ def baseline():
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=40,
-        enc_memory_version=0,
+        conf_mem_opts={"self_att_version": 0},
     )
 
     # TODO: 50, 20 with 50% overlap
@@ -1359,7 +1363,7 @@ def baseline():
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=40,
-        enc_memory_version=1,  # more efficient
+        conf_mem_opts={"self_att_version": 1},  # more efficient
     )
 
     run_chunkwise_train(
@@ -1376,3 +1380,79 @@ def baseline():
         accum_grad=1,
         time_rqmt=40,
     )
+
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[20, 15],
+        chunk_step_factors=[1.0],
+        start_lrs=[2e-4, 3e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[300, 400],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=72,
+        conf_mem_opts={"self_att_version": 0},
+    )
+
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[20, 25],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4, 3e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[300, 400],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=72,
+        conf_mem_opts={"self_att_version": 0},
+    )
+
+    for mem_size in [2]:
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[25],
+            chunk_step_factors=[0.5],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[300, 400],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=72,
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
+        )
+
+    # here chunk_size represents past context and slice is the actual chunk we attend to
+    # e.g. chunk_size 10 (.) and end_slice_size 3 (*):
+    #           ^: speech starts here. first we pad
+    # |..........***|
+    #    |..........***|
+    # Note: getting OOM with bs 10k and chunk_size >= 100
+    # compare with using overlap as context
+    for chunk_size in [50]:
+        for end_slice_size in [25]:
+            chunk_size_with_slice = chunk_size + end_slice_size
+            run_chunkwise_train(
+                run_all_for_best_last_avg=True,
+                enable_check_align=False,
+                enc_stream_type="chunked",
+                chunk_sizes=[chunk_size_with_slice],
+                chunk_step_factors=[end_slice_size / chunk_size_with_slice],
+                start_lrs=[2e-4],
+                decay_pt_factors=[1 / 3],
+                gpu_mem=24,
+                total_epochs=[300],
+                batch_size=10_000,
+                accum_grad=3,
+                time_rqmt=72,
+                window_left_padding=(chunk_size_with_slice - end_slice_size) * 6,  # on input level!
+                end_slice_size=end_slice_size,
+            )
