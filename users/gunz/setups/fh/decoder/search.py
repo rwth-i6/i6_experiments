@@ -1108,9 +1108,6 @@ class FHDecoder:
             create_dummy_feature_scorer_from_mixtures=self.mixtures if self.lm_gc_simple_hash else None,
             **ts_args,
         )
-        if not use_gpu:
-            # newer CPUs that support OpenFST v1.6
-            search.rqmt["qsub_args"] = "-l qname=*7D*"
 
         if add_sis_alias_and_output:
             search.add_alias(f"{pre_path}/{name}")
