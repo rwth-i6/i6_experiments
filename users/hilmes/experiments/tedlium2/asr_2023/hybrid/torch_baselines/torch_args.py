@@ -17,8 +17,8 @@ from i6_experiments.common.baselines.tedlium2.default_tools import PACKAGE
 def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **net_kwargs):
     evaluation_epochs = list(range(num_epochs, num_epochs + 1, 10))
 
-    batch_size = {"classes": 4 * 2000, "data": 4 * 320000}
-    chunking = ({"classes": 100, "data": 100 * 160}, {"classes": 50, "data": 50 * 160})
+    batch_size = {"classes": 4 * 2000, "data": 4 * 320000} # change to 14000 probably more
+    chunking = ({"classes": 400, "data": 100 * 160}, {"classes": 50, "data": 50 * 160}) # TODO change to 400:200/500:250
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=80,
         num_outputs=num_outputs,
