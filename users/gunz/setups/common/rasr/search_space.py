@@ -103,8 +103,11 @@ class VisualizeBestTraceJob(Job):
 
                 scores_per_source.append([float(hyp.l) / source.num_tied_phonemes for hyp in best_hyps_widened])
 
+            min_len = min((len(a) for a in scores_per_source))
+            lens_fixed = [a[:min_len] for a in scores_per_source]
+
             plt.clf()
-            plt.imshow(np.array(scores_per_source), vmin=0, vmax=1.0, aspect="auto")
+            plt.imshow(lens_fixed, vmin=0, vmax=1.0, aspect="auto", interpolation="none")
             plt.savefig(self.out_plot_files[segment])
 
             segments_done.add(segment)
