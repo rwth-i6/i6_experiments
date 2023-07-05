@@ -1058,6 +1058,8 @@ def create_config(
     if conf_mem_opts and conf_mem_opts["self_att_version"] == 1:
         assert retrain_checkpoint_opts is not None, "preload_from_files should be used."
 
+    post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}}
+
     returnn_config = ReturnnConfig(
         exp_config,
         staged_network_dict=staged_network_dict,
