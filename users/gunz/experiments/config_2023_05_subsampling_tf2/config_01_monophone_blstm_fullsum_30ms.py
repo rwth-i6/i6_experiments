@@ -522,7 +522,7 @@ def run_single(
             epoch=600,
             gpu=False,
             tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
+            set_batch_major_for_feature_scorer=False,
             tf_library=s.native_lstm2_job.out_op,
             lm_gc_simple_hash=True,
         )
@@ -572,7 +572,7 @@ def run_single(
             epoch=600,
             gpu=False,
             tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
+            set_batch_major_for_feature_scorer=False,
             tf_library=s.native_lstm2_job.out_op,
             lm_gc_simple_hash=True,
         )
