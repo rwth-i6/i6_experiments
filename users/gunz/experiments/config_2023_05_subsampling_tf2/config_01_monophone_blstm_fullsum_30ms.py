@@ -568,7 +568,7 @@ def run_single(
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
-            crp_corpus="train-other-960.train",
+            crp_corpus=crp_k,
             epoch=600,
             gpu=False,
             tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
