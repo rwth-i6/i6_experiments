@@ -118,7 +118,6 @@ def run(returnn_root: tk.Path):
             lr="v13",
             run_performance_study=False,
             tune_decoding=True,
-            filter_segments=["train-other-960/4051-10927-0005/4051-10927-0005"],
         ),
     ]
     for exp in configs:
