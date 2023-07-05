@@ -1229,7 +1229,7 @@ class FHDecoder:
             use_gpu=self.gpu,
             rtf=rtf,
         )
-        alignment.rqmt.update({"cpu": 2, "mem": 8})
+        alignment.update_rqmt("run", {"mem": 4})
 
         alignment.add_alias(f"alignments/{name}")
         tk.register_output(f"alignments/{name}", alignment.out_alignment_bundle)
