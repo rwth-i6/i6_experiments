@@ -82,22 +82,11 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_v1 = tk.Path(ALIGN_30MS_CONF_V1, cached=True)
     scratch_align_v2 = tk.Path(ALIGN_30MS_CONF_V2, cached=True)
     scratch_align_v3 = tk.Path(ALIGN_30MS_CONF_V3, cached=True)
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
 
     configs = [
-        Experiment(
-            alignment=scratch_align_v1,
-            alignment_name="30ms-C-v1",
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            multitask=True,
-            run_performance_study=False,
-            tune_decoding=True,
-        ),
         Experiment(
             alignment=scratch_align_v2,
             alignment_name="30ms-C-v2",
