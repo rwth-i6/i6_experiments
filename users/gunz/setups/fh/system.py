@@ -586,11 +586,12 @@ class FactoredHybridSystem(NnSystem):
         total_train_num_segments = num_segments[self.train_key]
         cv_size = 3000 / total_train_num_segments
 
-        all_segments = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1).out_single_segment_files[1]
+        segment_job = corpus_recipe.SegmentCorpusJob(train_corpus_path, 1)
+        all_segments = segment_job.out_single_segment_files[1]
 
         if self.filter_segments:
             all_segments = corpus_recipe.FilterSegmentsByListJob(
-                all_segments, self.filter_segments
+                segment_job.out_single_segment_files, self.filter_segments
             ).out_single_segment_files[1]
 
         splitted_segments_job = corpus_recipe.ShuffleAndSplitSegmentsJob(
