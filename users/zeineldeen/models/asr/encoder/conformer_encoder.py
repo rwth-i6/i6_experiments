@@ -68,6 +68,7 @@ class ConformerEncoder:
         proj_input=False,
         use_sqrd_relu=False,
         use_causal_layers=False,
+        use_causal_conv=None,
         conv_alternative_name: Optional[str] = None,
         fix_merge_dims=False,
         weight_noise=None,
@@ -206,6 +207,8 @@ class ConformerEncoder:
         self.use_sqrd_relu = use_sqrd_relu
 
         self.use_causal_layers = use_causal_layers
+        self.use_causal_conv = use_causal_conv if use_causal_conv is not None else self.use_causal_layers
+
         self.conv_alternative_name = conv_alternative_name
         self.fix_merge_dims = fix_merge_dims
 
@@ -598,7 +601,7 @@ class ConformerEncoder:
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
 
-        if self.use_causal_layers:
+        if self.use_causal_conv:
             # pad to the left to make it causal
             depthwise_conv_input_padded = self.network.add_pad_layer(
                 "{}_depthwise_conv_input_padded".format(prefix_name),
