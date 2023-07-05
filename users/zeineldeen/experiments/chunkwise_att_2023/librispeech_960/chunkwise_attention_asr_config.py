@@ -357,6 +357,7 @@ class ConformerEncoderArgs(EncoderArgs):
     subsample: Optional[str] = None
     conv_alternative_name: Optional[str] = None
     use_causal_layers: bool = False
+    use_causal_conv: Optional[bool] = None
 
     # ctc
     with_ctc: bool = True
