@@ -509,6 +509,8 @@ class CTCDecoderArgs(DecoderArgs):
     repeat_prob_scale: float = 0.0
     ctc_prior_correction: bool = False
     prior_scale: float = 1.0
+    logits: bool = False
+    remove_eos: bool = False
 
 
 def create_config(
