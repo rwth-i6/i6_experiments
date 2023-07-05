@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import typing
 from dataclasses import dataclass
 import itertools
 
@@ -75,6 +76,7 @@ class Experiment:
     run_performance_study: bool
     tune_decoding: bool
 
+    filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
 
 
@@ -118,6 +120,7 @@ def run(returnn_root: tk.Path):
             own_priors=True,
             run_performance_study=False,
             tune_decoding=False,
+            filter_segments=["train-other-960/4051-10927-0005/4051-10927-0005"],
         ),
     ]
     for exp in configs:
@@ -131,6 +134,7 @@ def run(returnn_root: tk.Path):
             own_priors=exp.own_priors,
             returnn_root=returnn_root,
             run_performance_study=exp.run_performance_study,
+            filter_segments=exp.filter_segments,
             tune_decoding=exp.tune_decoding,
         )
 
@@ -147,6 +151,7 @@ def run_single(
     returnn_root: tk.Path,
     run_performance_study: bool,
     tune_decoding: bool,
+    filter_segments: typing.Optional[typing.List[str]],
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
@@ -180,6 +185,8 @@ def run_single(
     s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
     s.lm_gc_simple_hash = True
     s.train_key = train_key
+    if filter_segments is not None:
+        s.filter_segments = filter_segments
     s.run(steps)
 
     # *********** Preparation of data input for rasr-returnn training *****************
