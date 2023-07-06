@@ -548,9 +548,7 @@ def run_single(
         crp.acoustic_model_config.allophones.add_all = False
         crp.acoustic_model_config.allophones.add_from_lexicon = True
         crp.concurrent = 300
-        crp.segment_path = corpus.SegmentCorpusJob(
-            s.corpora[s.train_key].corpus_file, crp.concurrent
-        ).out_segment_path
+        crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
 
         recognizer.align(
             f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
@@ -578,10 +576,7 @@ def run_single(
         )
         sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
         align_cfg = (
-            recog_args.with_prior_scale(0.6)
-            .with_tdp_scale(1.0)
-            .with_tdp_silence(sil_tdp)
-            .with_tdp_non_word(sil_tdp)
+            recog_args.with_prior_scale(0.6).with_tdp_scale(1.0).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
         )
         align_search_jobs = recognizer.recognize_count_lm(
             label_info=s.label_info,
