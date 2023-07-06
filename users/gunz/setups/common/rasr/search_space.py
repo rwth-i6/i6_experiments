@@ -46,6 +46,7 @@ class AllophoneDetails(Enum):
 
 @dataclass(frozen=True)
 class TraceSource:
+    name: str
     rasr_log: Path
     state_tying: Path
     num_tied_phonemes: int
@@ -63,9 +64,9 @@ class VisualizeBestTraceJob(Job):
         self.segments = segments
 
         self.out_print_files = {
-            (seg, j): self.output_path(f"segment.{i}.{j}.txt")
+            (seg, s.name): self.output_path(f"segment.{i}.{s.name}.txt")
             for i, seg in enumerate(segments)
-            for j in range(len(sources))
+            for s in sources
         }
         self.out_plot_files = {seg: self.output_path(f"segment.{i}.png") for i, seg in enumerate(segments)}
 
@@ -88,7 +89,7 @@ class VisualizeBestTraceJob(Job):
         for segment in self.segments:
             scores_per_source = []
 
-            for j, (tying, search_space, source) in enumerate(zip(tyings, search_spaces, self.sources)):
+            for tying, search_space, source in zip(tyings, search_spaces, self.sources):
                 hyps = search_space[segment]
                 best_hyp = {t: min(hyps, key=lambda hyp: hyp.sc) for t, hyps in hyps.items()}
 
@@ -100,7 +101,7 @@ class VisualizeBestTraceJob(Job):
                     source.x_steps_per_time_step - 1
                 )
                 label_per_hyp = [tying.get(hyp.l, "N/A").ljust(pad_w) for hyp in best_hyps]
-                with open(self.out_print_files[(segment, j)], "wt") as file:
+                with open(self.out_print_files[(segment, source.name)], "wt") as file:
                     file.write("|".join(label_per_hyp))
 
                 scores_per_source.append([float(hyp.l) / source.num_tied_phonemes for hyp in best_hyps_widened])

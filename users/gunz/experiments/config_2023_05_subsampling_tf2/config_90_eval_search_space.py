@@ -30,12 +30,14 @@ def run():
     ]
     sources = [
         TraceSource(
+            name="10ms",
             rasr_log=Path("/u/mgunz/gunz/ma/state-space-comparison/recog-normal/rasr.log"),
             state_tying=Path("/u/mgunz/gunz/ma/state-space-comparison/monophone-dense-state-tying-n3"),
             num_tied_phonemes=li.get_n_of_dense_classes(),
             x_steps_per_time_step=1,
         ),
         TraceSource(
+            name="30ms",
             rasr_log=Path("/u/mgunz/gunz/ma/state-space-comparison/recog-ss/rasr.log"),
             state_tying=Path("/u/mgunz/gunz/ma/state-space-comparison/monophone-dense-state-tying-n1"),
             num_tied_phonemes=li_ss.get_n_of_dense_classes(),
@@ -50,5 +52,5 @@ def run():
     j.add_alias("search-space/analysis")
     for seg, img in j.out_plot_files.items():
         tk.register_output(f"search-space/{seg}.png", img)
-    for (seg, i), txt in j.out_print_files.items():
-        tk.register_output(f"search-space/{seg}.{i}.txt", txt)
+    for (seg, s), txt in j.out_print_files.items():
+        tk.register_output(f"search-space/{seg}.{s}.txt", txt)
