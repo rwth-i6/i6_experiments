@@ -29,7 +29,7 @@ sys.setrecursionlimit(3000)
 """
 
 
-def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
+def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix="", training_args=None):
     evaluation_epochs = evaluation_epochs or [num_epochs]
 
     returnn_configs = {}
@@ -43,7 +43,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
         returnn_recog_configs[prefix + name] = returnn_recog_config
         report_args_collection[prefix + name] = report_args
 
-    training_args = {
+    training_args = training_args or {
         "log_verbosity": 4,
         "num_epochs": num_epochs,
         "save_interval": 1,
@@ -67,7 +67,7 @@ def get_nn_args(nn_base_args, num_epochs, evaluation_epochs=None, prefix=""):
 
 
 def get_nn_args_single(
-    num_outputs: int = 9001, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
+    num_outputs: int = 88, num_epochs: int = 500, evaluation_epochs: Optional[List[int]] = None,
     lr_args=None, feature_args=None, returnn_args=None, report_args=None,
 ):
     feature_args = feature_args or {"class": "GammatoneNetwork", "sample_rate": 8000}
@@ -166,14 +166,13 @@ def get_returnn_config(
         "state_tying": "monophone-eow",
         "states_per_phone": 1,
         "tdp_transition": (0.0, 0.0, "infinity", 0.0),
-        "tdp_silence": (0.0, 0.0, "infinity", 0.0),  # TODO Not contained for librispeech
+        "tdp_silence": (0.0, 0.0, "infinity", 0.0),
         "phon_history_length": 0,
         "phon_future_length": 0,
-        "allophone_file": tk.Path(  # TODO: allow setting librispeech allophone file
+        "allophone_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
             hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
         ),
-        # TODO: state-tying.type = monophone-eow
         "state_tying_file": tk.Path(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
             hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
@@ -181,7 +180,7 @@ def get_returnn_config(
     }
 
     network, prolog = make_conformer_fullsum_ctc_model(
-        num_outputs=88,
+        num_outputs=num_outputs,
         output_args={
             "rasr_binary_path": rasr_binary_path,
             "loss_corpus_path": rasr_loss_corpus_path,
@@ -230,7 +229,7 @@ def get_returnn_config(
             "learning_rate_control_relative_error_relative_lr": True,
             "min_learning_rate": 1e-5,
             "newbob_learning_rate_decay": 0.9,
-            "newbob_multi_num_epochs": 6,
+            "newbob_multi_num_epochs": datasets["train"]["partition_epoch"],
             "newbob_multi_update_interval": 1,
         }
     )
