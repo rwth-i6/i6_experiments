@@ -275,7 +275,7 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    keep_epochs = [550, num_epochs]
+    keep_epochs = [100, 300, 400, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
@@ -315,17 +315,19 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
         nn_train_args=train_args,
     )
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-    )
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if ep <= keep_epochs[-2]:
+            s.set_mono_priors_returnn_rasr(
+                key="fh",
+                epoch=ep,
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
