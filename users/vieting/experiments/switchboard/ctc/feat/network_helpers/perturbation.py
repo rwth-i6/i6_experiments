@@ -1,9 +1,5 @@
-import functools
-import torchaudio
-import torch
-import numpy as np
-import random
 from typing import List, Dict, Optional, Any
+
 
 class PerturbationFactor:
     """
@@ -18,8 +14,8 @@ class PerturbationFactor:
 
 class WaveformPerturbation:
     """
-    This class enables the perturbation of audio waveforms by applying a variety of transformations such as speed and tempo modification,
-    SoX effects, codec application, and pre-emphasis filtering. 
+    This class enables the perturbation of audio waveforms by applying a variety of transformations such as speed and
+    tempo modification, SoX effects, codec application, and pre-emphasis filtering.
     The parameters `speed`, `tempo`, `codecs`, and `preemphasis` contain a 'prob' key
     which determines the probability that the corresponding transformation is applied. 
     """
