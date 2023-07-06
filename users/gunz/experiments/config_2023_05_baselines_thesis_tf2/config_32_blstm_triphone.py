@@ -429,6 +429,7 @@ def run_single(
                 num_encoder_output=2 * blstm_size,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
+                rtf_cpu=24,
             )
 
         if tune_decoding:
