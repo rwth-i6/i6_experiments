@@ -50,3 +50,5 @@ def run():
     j.add_alias("search-space/analysis")
     for seg, img in j.out_plot_files.items():
         tk.register_output(f"search-space/{seg}.png", img)
+    for (seg, i), txt in j.out_print_files.items():
+        tk.register_output(f"search-space/{seg}.{i}.txt", txt)
