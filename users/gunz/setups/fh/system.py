@@ -102,6 +102,7 @@ class FactoredHybridSystem(NnSystem):
         train_data: Dict[str, RasrDataInput] = None,
         dev_data: Dict[str, RasrDataInput] = None,
         test_data: Dict[str, RasrDataInput] = None,
+        blas_lib: Optional[Path] = None,
     ):
         super().__init__(
             returnn_root=returnn_root,
@@ -188,7 +189,7 @@ class FactoredHybridSystem(NnSystem):
             "NativeLstm2",
             returnn_root=returnn_root,
             returnn_python_exe=returnn_python_exe,
-            blas_lib=None,
+            blas_lib=blas_lib,
         )
         compile_native_op_job.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
 
