@@ -26,6 +26,7 @@ FROM_SCRATCH_CV_INFO = {
     "features_tkpath_train": "/work/asr_archive/assis/luescher/best-models/librispeech/960h_2019-04-10/FeatureExtraction.Gammatone.de79otVcMWSK/output/gt.cache.bundle",
 }
 
+BLAS_LIB = "/work/tools/asr/tensorflow/2.3.4-generic+cuda10.1+mkl/bazel_out/external/mkl_linux/lib/libmklml_intel.so"
 RASR_ARCH = "linux-x86_64-standard"
 
 RASR_ROOT_NO_TF_APPTAINER = "/work/tools/users/raissi/shared/mgunz/rasr_apptainer_ss_no_tf"
