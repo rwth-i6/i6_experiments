@@ -1,6 +1,6 @@
 import copy
 import numpy as np
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 from sisyphus import tk
 from i6_core.returnn.config import ReturnnConfig
@@ -164,7 +164,7 @@ def get_returnn_config(
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
-    batch_size: int = 10000,
+    batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
@@ -238,11 +238,14 @@ def get_returnn_config(
         # network["source"] = specaug_layer_jingjing(in_layer=["features"])
         pass
 
+    if isinstance(batch_size, int):
+        # If batch size is int, adapt to waveform. If it is dict, assume it is already correct.
+        batch_size = {"classes": batch_size, "data": batch_size * sample_rate // 100}
     conformer_base_config = copy.deepcopy(base_config)
     conformer_base_config.update(
         {
             "network": network,
-            "batch_size": {"classes": batch_size, "data": batch_size * sample_rate // 100},
+            "batch_size": batch_size,
             "max_seqs": 128,
             "optimizer": {"class": "nadam", "epsilon": 1e-8},
             "gradient_noise": 0.0,
