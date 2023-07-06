@@ -178,31 +178,33 @@ def conformer_features():
         if "scf" in name:
             train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
 
-    # scf with pretraining
-    args = get_train_base_args()
-    args["pretrain_opts"]["feature_extraction_pretraining"] = True
-    train_job, _, report = run_exp(
-        "scf_pretrain",
-        train_args=args,
-        num_epochs=635,
-        feature_extraction_net=_get_feature_net(feature_nets["scf"]),
-        feature_extraction_name="features",
-    )
-    report_list.append(report)
-    train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
-
-    # scf without pretraining of depthwise conv in conformer
-    args = get_train_base_args()
-    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-    train_job, _, report = run_exp(
-        "scf_no-conv-pretrain",
-        train_args=args,
-        num_epochs=635,
-        feature_extraction_net=_get_feature_net(feature_nets["scf"]),
-        feature_extraction_name="features",
-    )
-    report_list.append(report)
-    train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+    # # scf with pretraining
+    # # does not converge
+    # args = get_train_base_args()
+    # args["pretrain_opts"]["feature_extraction_pretraining"] = True
+    # train_job, _, report = run_exp(
+    #     "scf_pretrain",
+    #     train_args=args,
+    #     num_epochs=635,
+    #     feature_extraction_net=_get_feature_net(feature_nets["scf"]),
+    #     feature_extraction_name="features",
+    # )
+    # report_list.append(report)
+    # train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+    #
+    # # scf without pretraining of depthwise conv in conformer
+    # # looks clearly worse than other trainings after ~100 sub-epochs
+    # args = get_train_base_args()
+    # args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    # train_job, _, report = run_exp(
+    #     "scf_no-conv-pretrain",
+    #     train_args=args,
+    #     num_epochs=635,
+    #     feature_extraction_net=_get_feature_net(feature_nets["scf"]),
+    #     feature_extraction_name="features",
+    # )
+    # report_list.append(report)
+    # train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
 
     report = Report.merge_reports(report_list)
     tk.register_report(
