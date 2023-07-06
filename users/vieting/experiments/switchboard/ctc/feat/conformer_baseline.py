@@ -103,6 +103,8 @@ def run_test_mel():
         "frame_shift": 80,
         "fft_size": 256
     }
+    returnn_datasets_laplace25 = copy.deepcopy(returnn_datasets)
+    returnn_datasets_laplace25["train"]["seq_ordering"] = "laplace:.25"
 
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
@@ -176,7 +178,55 @@ def run_test_mel():
                     "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
                     "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
                 },
-                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "speed": "0.6_0.88_1.12", "tempo": "0.6_0.83_1.17"},
+                report_args={
+                    "architecture": "conf-wei", "lr": "wei_peak_4e-4", "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",
+                },
+            ),
+            "lgm80_conf-wei-oldspecaug-bs3200step": dict(
+                returnn_args={
+                    "conformer_type": "wei", "specaug_old": {}, **returnn_args, "batch_size": {"data": 514635},
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
+            ),
+            "lgm80_conf-wei-oldspecaug2-bs3200step": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    **returnn_args,
+                    "batch_size": {"data": 514635},
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
+            ),
+            "lgm80_conf-wei-oldspecaug-laplace25": dict(
+                returnn_args={
+                    "conformer_type": "wei", "specaug_old": {}, **returnn_args, "datasets": returnn_datasets_laplace25,
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei"},
+            ),
+            "lgm80_conf-wei-oldspecaug2-lrv1": dict(
+                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 2 * 4e-4, "start_lr": 2 * 1.325e-05, "end_lr": 2 * 1e-5,
+                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_8e-4", "specaug": "wei_adapt_80dim"},
             ),
             # "lgm80_conf-wei2-nadam": dict(  # does not work well
             #     returnn_args={
@@ -359,8 +409,53 @@ def run_test_mel():
     ctc_nn_system_wei_lex.run_dev_recog_step(
         recog_args=recog_args, extra_name="_lex-wei", report_args=report_args_wei_lex)
 
+    # longer training to compensate for fewer steps per epoch
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "lgm80_conf-wei-oldspecaug2-e450v1": dict(
+                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450", "specaug": "wei_adapt_80dim"},
+            ),
+            "lgm80_conf-wei-oldspecaug2-e450v2": dict(
+                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 160, "decrease_epochs": 160, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450", "specaug": "wei_adapt_80dim"},
+            ),
+        },
+        num_epochs=450,
+        prefix="conformer_bs10k_"
+    )
+
+    returnn_configs = {}
+    for exp in nn_args.returnn_training_configs:
+        prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
+        prior_config.config["batch_size"] = prior_config.config["batch_size"]["data"]
+        assert isinstance(prior_config.config["batch_size"], int)
+        returnn_configs[exp] = ReturnnConfigs(
+            train_config=nn_args.returnn_training_configs[exp],
+            prior_config=prior_config,
+            recog_configs={"recog": nn_args.returnn_recognition_configs[exp]},
+        )
+
+    recog_args_e450 = copy.deepcopy(recog_args)
+    recog_args_e450["epochs"] = [300, 400, 450]
+    ctc_nn_system_e450 = copy.deepcopy(ctc_nn_system)
+    ctc_nn_system_e450.returnn_configs = returnn_configs
+    ctc_nn_system_e450.run_train_step(nn_args.training_args)
+    ctc_nn_system_e450.run_dev_recog_step(recog_args=recog_args_e450, report_args=report_args_collection)
+
     report = Report.merge_reports([
         ctc_nn_system.report,
+        ctc_nn_system_e450.report,
         ctc_nn_system_blank_penalty.report,
         ctc_nn_system_wei_lm.report,
         ctc_nn_system_wei_lex.report,
