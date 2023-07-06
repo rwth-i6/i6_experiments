@@ -96,10 +96,12 @@ class VisualizeBestTraceJob(Job):
                 best_hyps = [best_hyp[k] for k in keys]
                 best_hyps_widened = [el for hyp in best_hyps for el in [hyp] * source.x_steps_per_time_step]
 
-                pad_w = max((len(tying.get(hyp.l, "N/A")) for hyp in best_hyps))
-                label_per_hyp = [tying.get(hyp.l, "N/A").ljust(pad_w) for hyp in best_hyps_widened]
+                pad_w = max((len(tying.get(hyp.l, "N/A")) for hyp in best_hyps)) * source.x_steps_per_time_step + (
+                    source.x_steps_per_time_step - 1
+                )
+                label_per_hyp = [tying.get(hyp.l, "N/A").ljust(pad_w) for hyp in best_hyps]
                 with open(self.out_print_files[(segment, j)], "wt") as file:
-                    file.write("||".join(label_per_hyp))
+                    file.write("|".join(label_per_hyp))
 
                 scores_per_source.append([float(hyp.l) / source.num_tied_phonemes for hyp in best_hyps_widened])
 
