@@ -91,26 +91,26 @@ def run(returnn_root: tk.Path):
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
 
     configs = [
-        Experiment(
-            alignment=scratch_align,
-            alignment_name="30ms-C-v2",
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            own_priors=True,
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
-        Experiment(
-            alignment=scratch_align_v3,
-            alignment_name="30ms-C-v3",
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            own_priors=True,
-            run_performance_study=False,
-            tune_decoding=False,
-        ),
+        # Experiment(
+        #     alignment=scratch_align,
+        #     alignment_name="30ms-C-v2",
+        #     dc_detection=False,
+        #     decode_all_corpora=False,
+        #     lr="v13",
+        #     own_priors=True,
+        #     run_performance_study=False,
+        #     tune_decoding=False,
+        # ),
+        # Experiment(
+        #     alignment=scratch_align_v3,
+        #     alignment_name="30ms-C-v3",
+        #     dc_detection=False,
+        #     decode_all_corpora=False,
+        #     lr="v13",
+        #     own_priors=True,
+        #     run_performance_study=False,
+        #     tune_decoding=False,
+        # ),
         Experiment(
             alignment=scratch_align_blstm_v2,
             alignment_name="30ms-B-v2",
