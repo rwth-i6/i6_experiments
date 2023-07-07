@@ -2,6 +2,7 @@ from i6_core.returnn.config import CodeWrapper
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.attention import AttentionMechanism
 
+
 attention_decoder_dict = {
     # reinterpreted for target_embed
     "output_reinterpret": {
@@ -180,6 +181,27 @@ attention_decoder_dict = {
     # },
 }
 
+ctc_beam_search_tf_string = """
+def ctc_beam_search_decoder_tf(source, **kwargs):
+    # import beam_search_decoder from tensorflow
+    from tensorflow.python.ops.ctc_ops import ctc_beam_search_decoder
+    import tensorflow as tf
+
+    ctc_logits = source(0, as_data=True)
+
+    # TODO: get_sequence_lengths() is deprecated
+    decoded, log_probs = ctc_beam_search_decoder(
+        ctc_logits.get_placeholder_as_time_major(),
+        ctc_logits.get_sequence_lengths(),
+        merge_repeated=True,
+        beam_width={beam_size},
+    )
+
+    # t1 = tf.sparse.to_dense(decoded[0])
+    t1 = tf.expand_dims(tf.sparse.to_dense(decoded[0]), axis=-1)
+    return t1
+    """
+
 
 class CTCDecoder:
     """
@@ -232,6 +254,7 @@ class CTCDecoder:
         # use_zoneout_output: bool = False,
         logits=False,
         remove_eos=False,
+        ctc_beam_search_tf=False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -333,10 +356,22 @@ class CTCDecoder:
         self.logits = logits
         self.remove_eos = remove_eos
 
+        self.ctc_beam_search_tf = ctc_beam_search_tf
+
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
         self.dec_output = None
         self.output_prob = None
+
+    def get_python_prolog(self):
+        """Called in attention_asr_config to add ctc decoder specific python code to the config."""
+        python_prolog = []
+        if self.add_att_dec:
+            python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+        if self.ctc_beam_search_tf:
+            python_prolog += [ctc_beam_search_tf_string.format(beam_size=self.beam_size)]
+
+        return python_prolog
 
     def add_norm_layer(self, subnet_unit: ReturnnNetwork, name: str):
         """Add layer norm layer"""
@@ -665,18 +700,20 @@ class CTCDecoder:
         )
 
         if self.remove_eos:
-            subnet_unit.update({
-                "combined_ts_log_scores": {
-                    "class": "combine",
-                    "kind": "add",
-                    "from": ["scaled_att_log_scores", "scaled_lm_log_scores"],
-                },
-                "combined_ts_scores": {
-                    "class": "activation",
-                    "activation": "safe_exp",
-                    "from": "combined_ts_log_scores",
-                },
-            })
+            subnet_unit.update(
+                {
+                    "combined_ts_log_scores": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": ["scaled_att_log_scores", "scaled_lm_log_scores"],
+                    },
+                    "combined_ts_scores": {
+                        "class": "activation",
+                        "activation": "safe_exp",
+                        "from": "combined_ts_log_scores",
+                    },
+                }
+            )
             if self.add_ext_lm and not self.add_att_dec:
                 ts_score = lm_layer
             elif self.add_att_dec and not self.add_ext_lm:
@@ -686,11 +723,11 @@ class CTCDecoder:
 
             subnet_unit.update(
                 {
-                    "t": {"class": "copy", "from": ":i", "debug_print_layer_output": True},
+                    "t": {"class": "copy", "from": ":i"},
                     "last_frame": {
                         "class": "eval",
                         "from": ["t", "base:enc_seq_len"],
-                        "eval": "tf.equal(source(0)+1, source(1))",  # [B] (bool)
+                        "eval": "tf.equal(source(0), source(1))",  # [B] (bool)
                         "out_type": {"dtype": "bool"},
                     },
                     "ts_eos_prob": {
@@ -728,7 +765,7 @@ class CTCDecoder:
             )
 
     def add_greedy_decoder(self, subnet_unit: ReturnnNetwork):
-        source = "data:source"
+        choice_layer_source = "data:source"
         input_type = None
         if self.blank_prob_scale > 0.0:
             subnet_unit.update(
@@ -770,7 +807,7 @@ class CTCDecoder:
                     },
                 }
             )
-            source = "ctc_w_blank_scale"
+            choice_layer_source = "ctc_w_blank_scale"
             input_type = "log_prob"
 
         elif self.ctc_prior_correction:
@@ -793,16 +830,21 @@ class CTCDecoder:
                     },
                 }
             )
-            source = "ctc_log_scores_w_prior"
+            choice_layer_source = "ctc_log_scores_w_prior"
 
         if self.length_normalization:
             subnet_unit.add_choice_layer(
-                "output", source, target=self.target_w_blank, beam_size=1, input_type=input_type, initial_output=0
+                "output",
+                choice_layer_source,
+                target=self.target_w_blank,
+                beam_size=1,
+                input_type=input_type,
+                initial_output=0,
             )
         else:
             subnet_unit.add_choice_layer(
                 "output",
-                source,
+                choice_layer_source,
                 target=self.target_w_blank,
                 beam_size=2,
                 input_type=input_type,
@@ -814,6 +856,36 @@ class CTCDecoder:
             "output", unit=subnet_unit.get_net(), target=self.target_w_blank, source=self.ctc_source
         )
         self.network["output"].pop("max_seq_len", None)
+
+        return dec_output
+
+    def add_ctc_beam_search_decoder_tf(self):
+        dec_output = self.network.update(
+            {
+                "ctc_log": {
+                    "class": "activation",
+                    "from": "ctc",
+                    "activation": "safe_log",
+                },
+                "ctc_decoder": {
+                    "class": "eval",
+                    "from": ["ctc_log"],
+                    "eval": CodeWrapper("ctc_beam_search_decoder_tf"),
+                    "out_type": {
+                        "shape": (None, 1),
+                        "dtype": "int64",
+                    },
+                    # "debug_print_layer_output": True,
+                },
+                "ctc_decoder_output": {
+                    "class": "merge_dims",
+                    "from": "ctc_decoder",
+                    "axes": ["T", "F"],
+                    # "target": "bpe_labels",
+                    "is_output_layer": True,
+                },
+            }
+        )
 
         return dec_output
 
@@ -936,13 +1008,13 @@ class CTCDecoder:
 
     def remove_eos_from_ctc_logits(self):
         """Remove eos from ctc logits and set ctc_source to the new logits."""
-        self.base_model.network.add_slice_layer(
+        self.network.add_slice_layer(
             "ctc_no_eos_no_blank_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10025
         )
-        self.base_model.network.add_slice_layer("ctc_eos_slice", self.ctc_source, axis="f", slice_start=0, slice_end=1)
-        self.base_model.network.add_slice_layer("ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025, slice_end=10026)
-        self.base_model.network.add_eval_layer("zeros", "ctc_eos_slice", eval="source(0)*0.0")
-        self.base_model.network.update(
+        self.network.add_slice_layer("ctc_eos_slice", self.ctc_source, axis="f", slice_start=0, slice_end=1)
+        self.network.add_slice_layer("ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025, slice_end=10026)
+        self.network.add_eval_layer("zeros", "ctc_eos_slice", eval="source(0)*0.0")
+        self.network.update(
             {
                 "ctc_blank_plus_eos": {
                     "class": "combine",
@@ -961,7 +1033,7 @@ class CTCDecoder:
         )
         self.ctc_source = "ctc_no_eos"
         if self.add_att_dec or self.add_ext_lm:
-            self.base_model.network.update(
+            self.network.update(
                 {
                     "ctc_no_eos_postfix_in_time": {
                         "class": "postfix_in_time",
@@ -972,10 +1044,12 @@ class CTCDecoder:
             self.ctc_source = "ctc_no_eos_postfix_in_time"
 
     def create_network(self):
+        self.decision_layer_name = "out_best_wo_blank"
+
         if self.remove_eos:
             self.remove_eos_from_ctc_logits()
         if self.add_ext_lm and not self.add_att_dec:
-            self.base_model.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
+            self.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
             self.dec_output = self.add_greedy_with_ext_lm_decoder(self.subnet_unit)
         elif self.add_att_dec and not self.add_ext_lm:
             self.add_enc_output_for_att()
@@ -983,11 +1057,13 @@ class CTCDecoder:
         elif self.add_att_dec and self.add_ext_lm:
             self.add_enc_output_for_att()
             self.dec_output = self.add_greedy_decoder_with_lm_and_att(self.subnet_unit)
+        elif self.ctc_beam_search_tf:
+            self.dec_output = self.add_ctc_beam_search_decoder_tf()
+            self.decision_layer_name = "ctc_decoder_output"
         else:
             self.dec_output = self.add_greedy_decoder(self.subnet_unit)
 
-        self.add_filter_blank_and_merge_labels_layers(self.base_model.network)
-        self.decision_layer_name = "out_best_wo_blank"
+        self.add_filter_blank_and_merge_labels_layers(self.network)
 
         return self.dec_output
 
@@ -1050,13 +1126,13 @@ class CTCDecoder:
 
     def add_enc_output_for_att(self):
         # add to base model
-        self.base_model.network.add_linear_layer(
+        self.network.add_linear_layer(
             "enc_ctx", "encoder", with_bias=True, n_out=self.enc_key_dim, l2=self.base_model.l2
         )
-        self.base_model.network.add_split_dim_layer(
+        self.network.add_split_dim_layer(
             "enc_value", "encoder", dims=(self.att_num_heads, self.enc_value_dim // self.att_num_heads)
         )
-        self.base_model.network.add_linear_layer(
+        self.network.add_linear_layer(
             "inv_fertility", "encoder", activation="sigmoid", n_out=self.att_num_heads, with_bias=False
         )
-        self.base_model.network.add_length_layer("enc_seq_len", "encoder", sparse=False)
+        self.network.add_length_layer("enc_seq_len", "encoder", sparse=False)

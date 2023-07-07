@@ -925,8 +925,9 @@ def create_config(
         if joint_ctc_att_decode_args.get("remove_eos", False):
             python_prolog += [update_tensor_entry]
 
-    if dec_type == "ctc" and decoder_args['add_att_dec'] is True:
-        python_prolog += ["from returnn.tf.compat import v1 as tf_v1"]
+    if dec_type == "ctc":
+        python_prolog += transformer_decoder.get_python_prolog()
+
 
     # modify hyperparameters based on epoch
     if staged_hyperparams:
