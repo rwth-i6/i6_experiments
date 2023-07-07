@@ -42,12 +42,13 @@ class CreateTaskDataJob(Job):
         :param str|None path_must_contain: if set, path must contain this substring
             for a file to be included in the task
         """
+        
         if isinstance(corpus_paths, tk.Path):
             self.corpus_paths = [corpus_paths]
         else:
             assert isinstance(corpus_paths, list)
             self.corpus_paths = corpus_paths
-        assert min([isinstance(path, tk.Path) for path in self.corpus_paths])
+        assert all([isinstance(path, tk.Path) for path in self.corpus_paths])
 
         self.file_extension = file_extension
         self.valid_percent = valid_percent
