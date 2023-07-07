@@ -412,6 +412,15 @@ def run_test_mel():
     # longer training to compensate for fewer steps per epoch
     nn_args, report_args_collection = get_nn_args_baseline(
         nn_base_args={
+            "lgm80_conf-wei-oldspecaug-e450v1": dict(
+                returnn_args={"conformer_type": "wei", "specaug_old": {}, **returnn_args},
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450", "specaug": "wei"},
+            ),
             "lgm80_conf-wei-oldspecaug2-e450v1": dict(
                 returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
                 feature_args=feature_args,
@@ -427,6 +436,15 @@ def run_test_mel():
                 lr_args={
                     "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
                     "increase_epochs": 160, "decrease_epochs": 160, "final_epochs": 0,
+                },
+                report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450", "specaug": "wei_adapt_80dim"},
+            ),
+            "lgm80_conf-wei-oldspecaug2-e450v3": dict(
+                returnn_args={"conformer_type": "wei", "specaug_old": {"max_feature": 8}, **returnn_args},
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 200, "decrease_epochs": 200, "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4_e450", "specaug": "wei_adapt_80dim"},
             ),
