@@ -354,6 +354,25 @@ def run_single(
                 calculate_stats=True,
             )
 
+        if ep in [500]:
+            for sc, sil_fwd, sp_exit in itertools.product([0.1, 0.2], [0, 3, 10], [0, 3, 10]):
+                tdp_sil = (10, sil_fwd, "infinity", 10)
+                tdp_sp = (10, 0, "infinity", sp_exit)
+
+                cfg = (
+                    recog_args.with_tdp_scale(sc)
+                    .with_tdp_silence(tdp_sil)
+                    .with_tdp_non_word(tdp_sil)
+                    .with_tdp_speech(tdp_sp)
+                )
+                recognizer.recognize_count_lm(
+                    label_info=s.label_info,
+                    search_parameters=cfg,
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=False,
+                    calculate_stats=True,
+                )
+
         if tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
