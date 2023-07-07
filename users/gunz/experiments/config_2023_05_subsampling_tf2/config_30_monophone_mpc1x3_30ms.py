@@ -322,6 +322,7 @@ def run_single(
 
         if ep <= 300:
             s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
+            s.set_graph_for_experiment("fh")
         elif ep <= keep_epochs[-2]:
             s.set_mono_priors_returnn_rasr(
                 key="fh",
