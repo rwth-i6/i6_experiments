@@ -37,6 +37,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_label_pops,
     remove_label_pops_and_losses_from_returnn_config,
 )
+from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -319,7 +320,9 @@ def run_single(
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if ep <= keep_epochs[-2]:
+        if ep <= 300:
+            s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
+        elif ep <= keep_epochs[-2]:
             s.set_mono_priors_returnn_rasr(
                 key="fh",
                 epoch=ep,
