@@ -5,10 +5,9 @@ import random
 import subprocess
 from typing import List, Union, Optional 
 
-from i6_core.lib import corpus
-
 from sisyphus import Job, Task, tk
 
+from i6_core.lib import corpus
 
 class CreateFairseqLabeledDataJob(Job):
     """
@@ -52,8 +51,6 @@ class CreateFairseqLabeledDataJob(Job):
         self.seed = seed
         self.path_must_contain = path_must_contain
 
-        self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
-
         self.out_task_path = self.output_path("task", directory=True)
 
         self.out_train_tsv_path = self.output_path("task/train.tsv")
@@ -65,6 +62,9 @@ class CreateFairseqLabeledDataJob(Job):
         self.out_train_wrd_path = self.output_path("task/train.wrd")
         self.out_valid_ltr_path = self.output_path("task/valid.ltr")
         self.out_valid_wrd_path = self.output_path("task/valid.wrd")
+
+        self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
+
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
@@ -80,9 +80,9 @@ class CreateFairseqLabeledDataJob(Job):
         # TODO test this
         common_dir = None
         for corpus_path in self.corpus_paths:
-            c = corpus.Corpus()
-            c.load(corpus_path.get())
-            for segment in c.segments():
+            corpus_object = corpus.Corpus()
+            corpus_object.load(corpus_path.get())
+            for segment in corpus_object.segments():
                 audio_path = segment.recording.audio
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
                 if common_dir is None:
@@ -115,9 +115,9 @@ class CreateFairseqLabeledDataJob(Job):
 
         # iterate over all corpora
         for corpus_path in self.corpus_paths:
-            c = corpus.Corpus()
-            c.load(corpus_path.get())
-            for segment in c.segments():
+            corpus_object = corpus.Corpus()
+            corpus_object.load(corpus_path.get())
+            for segment in corpus_object.segments():
                 audio_path = segment.recording.audio
                 audio_trans = segment.orth
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
