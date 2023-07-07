@@ -10,37 +10,40 @@ import time
 from typing import Generator, List, Optional
 
 import optuna
+from i6_experiments.users.berger.recipe.returnn.training import Backend
 from sisyphus import Task, tk, Job
 
 import i6_core.util as util
 from i6_core.returnn.config import ReturnnConfig
-from i6_core.returnn.training import Checkpoint, ReturnnTrainingJob
+from i6_core.returnn.training import Checkpoint, PtCheckpoint, ReturnnTrainingJob
 from .optuna_config import OptunaReturnnConfig
 
 
 class OptunaReturnnTrainingJob(Job):
     def __init__(
-            self,
-            optuna_returnn_config: OptunaReturnnConfig,
-            study_name: Optional[str] = None,
-            study_storage: Optional[str] = None,
-            sampler_seed: int = 42,
-            score_key: str = "dev_score",
-            num_trials: int = 15,
-            num_parallel: int = 3,
-            *,
-            log_verbosity: int = 3,
-            device: str = "gpu",
-            num_epochs: int = 1,
-            save_interval: int = 1,
-            keep_epochs: Optional[List[int]] = None,
-            time_rqmt: int = 4,
-            mem_rqmt: int = 4,
-            cpu_rqmt: int = 2,
-            horovod_num_processes: Optional[int] = None,
-            multi_node_slots: Optional[int] = None,
-            returnn_python_exe: Optional[tk.Path] = None,
-            returnn_root: Optional[tk.Path] = None,
+        self,
+        optuna_returnn_config: OptunaReturnnConfig,
+        study_name: Optional[str] = None,
+        study_storage: Optional[str] = None,
+        sampler_seed: int = 42,
+        score_key: str = "dev_score",
+        num_trials: int = 15,
+        num_parallel: int = 3,
+        *,
+        backend: Backend = Backend.TENSORFLOW,
+        log_verbosity: int = 3,
+        device: str = "gpu",
+        num_epochs: int = 1,
+        min_epochs: int = 0,
+        save_interval: int = 1,
+        keep_epochs: Optional[List[int]] = None,
+        time_rqmt: int = 4,
+        mem_rqmt: int = 4,
+        cpu_rqmt: int = 2,
+        horovod_num_processes: Optional[int] = None,
+        multi_node_slots: Optional[int] = None,
+        returnn_python_exe: Optional[tk.Path] = None,
+        returnn_root: Optional[tk.Path] = None,
     ) -> None:
         self.kwargs = locals()
         del self.kwargs["self"]
@@ -60,60 +63,62 @@ class OptunaReturnnTrainingJob(Job):
         self.multi_node_slots = multi_node_slots
 
         self.num_epochs = num_epochs
+        self.min_epochs = min_epochs
 
-        stored_epochs = list(range(save_interval, num_epochs, save_interval)) + [
-            num_epochs
-        ]
+        stored_epochs = list(range(save_interval, num_epochs, save_interval)) + [num_epochs]
         if keep_epochs is None:
             self.keep_epochs = set(stored_epochs)
         else:
             self.keep_epochs = set(keep_epochs)
 
         self.out_trial_returnn_config_files = {
-            i: self.output_path(f"trial-{i:03d}/returnn.config")
-            for i in range(self.num_trials)
+            i: self.output_path(f"trial-{i:03d}/returnn.config") for i in range(self.num_trials)
         }
         self.out_returnn_config_file = self.output_path("returnn.config")
         self.out_trial_learning_rates = {
-            i: self.output_path(f"trial-{i:03d}/learning_rates")
-            for i in range(self.num_trials)
+            i: self.output_path(f"trial-{i:03d}/learning_rates") for i in range(self.num_trials)
         }
         self.out_learning_rates = self.output_path("learning_rates")
         self.out_trial_model_dir = {
-            i: self.output_path(f"trial-{i:03d}/models", directory=True)
-            for i in range(self.num_trials)
+            i: self.output_path(f"trial-{i:03d}/models", directory=True) for i in range(self.num_trials)
         }
         self.out_model_dir = self.output_path("models", directory=True)
-        self.out_trial_checkpoints = {
-            i: {
-                k: Checkpoint(
-                    self.output_path(f"trial-{i:03d}/models/epoch.{k:03d}.index")
-                )
+
+        if backend == Backend.TENSORFLOW:
+            self.out_trial_checkpoints = {
+                i: {
+                    k: Checkpoint(self.output_path(f"trial-{i:03d}/models/epoch.{k:03d}.index"))
+                    for k in stored_epochs
+                    if k in self.keep_epochs
+                }
+                for i in range(self.num_trials)
+            }
+            self.out_checkpoints = {
+                k: Checkpoint(self.output_path(f"models/epoch.{k:03d}.index"))
                 for k in stored_epochs
                 if k in self.keep_epochs
             }
-            for i in range(self.num_trials)
-        }
-        self.out_checkpoints = {
-            k: Checkpoint(self.output_path(f"models/epoch.{k:03d}.index"))
-            for k in stored_epochs
-            if k in self.keep_epochs
-        }
+        elif backend == Backend.PYTORCH:
+            self.out_trial_checkpoints = {
+                i: {
+                    k: PtCheckpoint(self.output_path(f"trial-{i:03d}/models/epoch.{k:03d}.pt"))
+                    for k in stored_epochs
+                    if k in self.keep_epochs
+                }
+                for i in range(self.num_trials)
+            }
+            self.out_checkpoints = {
+                k: PtCheckpoint(self.output_path(f"models/epoch.{k:03d}.pt"))
+                for k in stored_epochs
+                if k in self.keep_epochs
+            }
+        else:
+            raise NotImplementedError
 
-        self.out_trial_nums = {
-            i: self.output_var(f"trial-{i:03d}/trial_num")
-            for i in range(self.num_trials)
-        }
-        self.out_trials = {
-            i: self.output_var(f"trial-{i:03d}/trial", pickle=True)
-            for i in range(self.num_trials)
-        }
-        self.out_trial_params = {
-            i: self.output_var(f"trial-{i:03d}/params") for i in range(self.num_trials)
-        }
-        self.out_trial_scores = {
-            i: self.output_var(f"trial-{i:03d}/score") for i in range(self.num_trials)
-        }
+        self.out_trial_nums = {i: self.output_var(f"trial-{i:03d}/trial_num") for i in range(self.num_trials)}
+        self.out_trials = {i: self.output_var(f"trial-{i:03d}/trial", pickle=True) for i in range(self.num_trials)}
+        self.out_trial_params = {i: self.output_var(f"trial-{i:03d}/params") for i in range(self.num_trials)}
+        self.out_trial_scores = {i: self.output_var(f"trial-{i:03d}/score") for i in range(self.num_trials)}
         self.out_best_trial_num = self.output_var("best_trial_num")
         self.out_best_trial = self.output_var("best_trial", pickle=True)
         self.out_best_params = self.output_var("best_params")
@@ -130,9 +135,7 @@ class OptunaReturnnTrainingJob(Job):
         }
 
         if self.multi_node_slots:
-            assert (
-                self.horovod_num_processes
-            ), "multi_node_slots only supported together with Horovod currently"
+            assert self.horovod_num_processes, "multi_node_slots only supported together with Horovod currently"
             assert self.horovod_num_processes >= self.multi_node_slots
             assert self.horovod_num_processes % self.multi_node_slots == 0
             self.rqmt["multi_node_slots"] = self.multi_node_slots
@@ -158,21 +161,21 @@ class OptunaReturnnTrainingJob(Job):
             # it automatically provides the information on multiple nodes to mpirun,
             # so it is not needed to explicitly pass on any hostnames here.
             run_cmd = [
-                          "mpirun",
-                          "-np",
-                          str(self.horovod_num_processes),
-                          "-bind-to",
-                          "none",
-                          "-map-by",
-                          "slot",
-                          "-mca",
-                          "pml",
-                          "ob1",
-                          "-mca",
-                          "btl",
-                          "^openib",
-                          "--report-bindings",
-                      ] + run_cmd
+                "mpirun",
+                "-np",
+                str(self.horovod_num_processes),
+                "-bind-to",
+                "none",
+                "-map-by",
+                "slot",
+                "-mca",
+                "pml",
+                "ob1",
+                "-mca",
+                "btl",
+                "^openib",
+                "--report-bindings",
+            ] + run_cmd
 
         return run_cmd
 
@@ -202,20 +205,14 @@ class OptunaReturnnTrainingJob(Job):
 
     def get_returnn_config(self, trial: optuna.Trial, task_id: int) -> ReturnnConfig:
         returnn_config = self.optuna_returnn_config.generate_config(trial)
-        returnn_config.post_config["model"] = os.path.join(
-            self.out_trial_model_dir[task_id].get_path(), "epoch"
-        )
+        returnn_config.post_config["model"] = os.path.join(self.out_trial_model_dir[task_id].get_path(), "epoch")
         returnn_config.post_config.pop("learning_rate_file", None)
-        returnn_config.config[
-            "learning_rate_file"
-        ] = f"trial-{task_id:03d}/learning_rates"
+        returnn_config.config["learning_rate_file"] = f"trial-{task_id:03d}/learning_rates"
 
         returnn_config.post_config["log"] = f"./trial-{task_id:03d}/returnn.log"
 
         ReturnnTrainingJob.check_blacklisted_parameters(returnn_config)
-        returnn_config = ReturnnTrainingJob.create_returnn_config(
-            returnn_config, **self.kwargs
-        )
+        returnn_config = ReturnnTrainingJob.create_returnn_config(returnn_config, **self.kwargs)
 
         return returnn_config
 
@@ -223,9 +220,7 @@ class OptunaReturnnTrainingJob(Job):
         config_file = self.out_trial_returnn_config_files[task_id]
         returnn_config.write(config_file.get_path())
         os.mkdir(f"trial-{task_id:03d}")
-        util.create_executable(
-            f"trial-{task_id:03d}/rnn.sh", self._get_run_cmd(config_file)
-        )
+        util.create_executable(f"trial-{task_id:03d}/rnn.sh", self._get_run_cmd(config_file))
 
         # Additional import packages that are created by returnn common
         for f in glob.glob("../output/*"):
@@ -294,8 +289,10 @@ class OptunaReturnnTrainingJob(Job):
         optuna.create_study(
             study_name=self.study_name,
             storage=self.study_storage,
-            sampler=optuna.samplers.TPESampler(
-                n_startup_trials=max(5, self.num_parallel), seed=self.sampler_seed
+            sampler=optuna.samplers.TPESampler(n_startup_trials=max(5, self.num_parallel), seed=self.sampler_seed),
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=max(5, self.num_parallel),
+                n_warmup_steps=self.min_epochs,
             ),
             direction="minimize",
             load_if_exists=True,
@@ -304,11 +301,11 @@ class OptunaReturnnTrainingJob(Job):
     @staticmethod
     def _check_trial_finished(study: optuna.Study, trial_num: int) -> bool:
         for frozen_trial in study.get_trials(
-                states=[
-                    optuna.trial.TrialState.COMPLETE,
-                    optuna.trial.TrialState.FAIL,
-                    optuna.trial.TrialState.PRUNED,
-                ]
+            states=[
+                optuna.trial.TrialState.COMPLETE,
+                optuna.trial.TrialState.FAIL,
+                optuna.trial.TrialState.PRUNED,
+            ]
         ):
             if frozen_trial.number != trial_num:
                 continue
@@ -333,9 +330,7 @@ class OptunaReturnnTrainingJob(Job):
             # Retreive the trial id for reporting purposes
             # Returnn config should already exist and does not need to be created again
             study_id = storage.get_study_id_from_name(self.study_name)
-            trial_id = storage.get_trial_id_from_study_id_trial_number(
-                study_id, trial_num
-            )
+            trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, trial_num)
             trial = optuna.Trial(study, trial_id)
 
         else:
@@ -346,9 +341,7 @@ class OptunaReturnnTrainingJob(Job):
             self.prepare_trial_files(returnn_config, task_id)
             self.out_trial_nums[task_id].set(trial_num)
             self.out_trial_params[task_id].set(trial.params)
-            self.out_trials[task_id].set(
-                optuna.trial.FixedTrial(trial.params, trial_num)
-            )
+            self.out_trials[task_id].set(optuna.trial.FixedTrial(trial.params, trial_num))
 
         config_file = self.out_trial_returnn_config_files[task_id]
 
@@ -403,9 +396,7 @@ class OptunaReturnnTrainingJob(Job):
             raise sp.CalledProcessError(-1, cmd=run_cmd)
 
     def select_best_trial(self) -> None:
-        study = optuna.load_study(
-            study_name=self.study_name, storage=self.study_storage
-        )
+        study = optuna.load_study(study_name=self.study_name, storage=self.study_storage)
         self.out_best_params.set(study.best_params)
         self.out_best_trial.set(study.best_trial)
         self.out_best_score.set(study.best_value)
@@ -419,38 +410,20 @@ class OptunaReturnnTrainingJob(Job):
         data = self.parse_lr_file()
 
         epochs = list(sorted(data.keys()))
-        train_score_keys = [
-            k for k in data[epochs[0]]["error"] if k.startswith("train_score")
-        ]
-        dev_score_keys = [
-            k for k in data[epochs[0]]["error"] if k.startswith("dev_score")
-        ]
-        dev_error_keys = [
-            k for k in data[epochs[0]]["error"] if k.startswith("dev_error")
-        ]
+        train_score_keys = [k for k in data[epochs[0]]["error"] if k.startswith("train_score")]
+        dev_score_keys = [k for k in data[epochs[0]]["error"] if k.startswith("dev_score")]
+        dev_error_keys = [k for k in data[epochs[0]]["error"] if k.startswith("dev_error")]
 
         train_scores = [
-            [
-                (epoch, data[epoch]["error"][tsk])
-                for epoch in epochs
-                if tsk in data[epoch]["error"]
-            ]
+            [(epoch, data[epoch]["error"][tsk]) for epoch in epochs if tsk in data[epoch]["error"]]
             for tsk in train_score_keys
         ]
         dev_scores = [
-            [
-                (epoch, data[epoch]["error"][dsk])
-                for epoch in epochs
-                if dsk in data[epoch]["error"]
-            ]
+            [(epoch, data[epoch]["error"][dsk]) for epoch in epochs if dsk in data[epoch]["error"]]
             for dsk in dev_score_keys
         ]
         dev_errors = [
-            [
-                (epoch, data[epoch]["error"][dek])
-                for epoch in epochs
-                if dek in data[epoch]["error"]
-            ]
+            [(epoch, data[epoch]["error"][dek]) for epoch in epochs if dek in data[epoch]["error"]]
             for dek in dev_error_keys
         ]
         learing_rates = [data[epoch]["learning_rate"] for epoch in epochs]
@@ -492,12 +465,8 @@ class OptunaReturnnTrainingJob(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config_generator": inspect.getsource(
-                kwargs["optuna_returnn_config"].config_generator
-            ),
-            "returnn_config_generator_kwargs": list(
-                sorted(kwargs["optuna_returnn_config"].config_kwargs)
-            ),
+            "returnn_config_generator": inspect.getsource(kwargs["optuna_returnn_config"].config_generator),
+            "returnn_config_generator_kwargs": list(sorted(kwargs["optuna_returnn_config"].config_kwargs)),
             "sampler_seed": kwargs["sampler_seed"],
             "score_key": kwargs["score_key"],
             "num_trials": kwargs["num_trials"],

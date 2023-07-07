@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-__all__ = ["ConformerBlockV1Config", "ConformerEncoderV1Config", "ConformerBlockV1", "ConformerEncoderV1"]
+__all__ = [
+    "ConformerBlockConvFirstV1Config",
+    "ConformerEncoderConvFirstV1Config",
+    "ConformerBlockConvFirstV1",
+    "ConformerEncoderConvFirstV1",
+]
 
 import torch
 from torch import nn
@@ -18,7 +23,7 @@ from i6_models.parts.conformer import (
 
 
 @dataclass
-class ConformerBlockV1Config(ModelConfiguration):
+class ConformerBlockConvFirstV1Config(ModelConfiguration):
     """
     Attributes:
         ff_cfg: Configuration for ConformerPositionwiseFeedForwardV1
@@ -32,12 +37,12 @@ class ConformerBlockV1Config(ModelConfiguration):
     conv_cfg: ConformerConvolutionV1Config
 
 
-class ConformerBlockV1(nn.Module):
+class ConformerBlockConvFirstV1(nn.Module):
     """
     Conformer block module
     """
 
-    def __init__(self, cfg: ConformerBlockV1Config):
+    def __init__(self, cfg: ConformerBlockConvFirstV1Config):
         """
         :param cfg: conformer block configuration with subunits for the different conformer parts
         """
@@ -57,9 +62,9 @@ class ConformerBlockV1(nn.Module):
         residual = tensor  #  [B, T, F]
         x = self.ff_1(residual)  #  [B, T, F]
         residual = 0.5 * x + residual  #  [B, T, F]
-        x = self.mhsa(residual, sequence_mask)  #  [B, T, F]
-        residual = x + residual  # [B, T, F]
         x = self.conv(residual)  #  [B, T, F]
+        residual = x + residual  # [B, T, F]
+        x = self.mhsa(residual, sequence_mask)  #  [B, T, F]
         residual = x + residual  # [B, T, F]
         x = self.ff_2(residual)  #  [B, T, F]
         x = 0.5 * x + residual  #  [B, T, F]
@@ -68,7 +73,7 @@ class ConformerBlockV1(nn.Module):
 
 
 @dataclass
-class ConformerEncoderV1Config(ModelConfiguration):
+class ConformerEncoderConvFirstV1Config(ModelConfiguration):
     """
     Attributes:
         num_layers: Number of conformer layers in the conformer encoder
@@ -80,24 +85,26 @@ class ConformerEncoderV1Config(ModelConfiguration):
 
     # nested configurations
     frontend: SubassemblyWithOptions
-    block_cfg: ConformerBlockV1Config
+    block_cfg: ConformerBlockConvFirstV1Config
 
 
-class ConformerEncoderV1(nn.Module):
+class ConformerEncoderConvFirstV1(nn.Module):
     """
     Implementation of the convolution-augmented Transformer (short Conformer), as in the original publication.
     The model consists of a frontend and a stack of N conformer blocks.
     C.f. https://arxiv.org/pdf/2005.08100.pdf
     """
 
-    def __init__(self, cfg: ConformerEncoderV1Config):
+    def __init__(self, cfg: ConformerEncoderConvFirstV1Config):
         """
         :param cfg: conformer encoder configuration with subunits for frontend and conformer blocks
         """
         super().__init__()
 
         self.frontend = cfg.frontend.construct()
-        self.module_list = torch.nn.ModuleList([ConformerBlockV1(cfg.block_cfg) for _ in range(cfg.num_layers)])
+        self.module_list = torch.nn.ModuleList(
+            [ConformerBlockConvFirstV1(cfg.block_cfg) for _ in range(cfg.num_layers)]
+        )
 
     def forward(self, data_tensor: torch.Tensor, sequence_mask: torch.Tensor):
         """

@@ -24,13 +24,14 @@ class OptunaSeq2SeqAlignmentFunctor(
         prior_config: returnn.OptunaReturnnConfig,
         align_config: returnn.OptunaReturnnConfig,
         align_corpus: dataclasses.NamedCorpusInfo,
-        trial_nums: List[Optional[int]] = [None],
+        trial_nums: List[types.TrialType] = ["best"],
         epochs: List[types.EpochType] = [],
         prior_scales: List[float] = [0],
         prior_args: Dict = {},
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         **kwargs,
     ) -> None:
@@ -40,7 +41,9 @@ class OptunaSeq2SeqAlignmentFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(align_corpus.corpus_info, **flow_args)
+        base_feature_flow = self._make_base_feature_flow(
+            align_corpus.corpus_info, feature_type=feature_type, **flow_args
+        )
 
         for prior_scale, epoch, trial_num in itertools.product(prior_scales, epochs, trial_nums):
             tf_graph = self._make_tf_graph(
@@ -84,8 +87,8 @@ class OptunaSeq2SeqAlignmentFunctor(
 
             exp_full = f"align_e-{self._get_epoch_string(epoch)}_prior-{prior_scale:02.2f}"
 
-            if trial_num is None:
-                path = f"nn_align/{align_corpus.name}/{train_job.name}/{exp_full}"
+            if trial_num == "best":
+                path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num}/{exp_full}"
             else:
                 path = f"nn_align/{align_corpus.name}/{train_job.name}/trial-{trial_num:03d}/{exp_full}"
 

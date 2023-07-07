@@ -28,6 +28,7 @@ class AdvancedTreeSearchFunctor(
         pronunciation_scales: List[float] = [0],
         prior_args: Dict = {},
         lattice_to_ctm_kwargs: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         **kwargs,
     ) -> List[Dict]:
@@ -37,7 +38,7 @@ class AdvancedTreeSearchFunctor(
         acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, 1).out_mixtures
 
         base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, **flow_args
+            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
         recog_results = []
@@ -103,9 +104,7 @@ class AdvancedTreeSearchFunctor(
                     dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
                     dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
                     dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
-                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(
-                        train_job.job, epoch
-                    ),
+                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch),
                     dataclasses.SummaryKey.PRON.value: pronunciation_scale,
                     dataclasses.SummaryKey.PRIOR.value: prior_scale,
                     dataclasses.SummaryKey.LM.value: lm_scale,

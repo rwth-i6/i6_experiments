@@ -30,6 +30,7 @@ class Seq2SeqAlignmentFunctor(
         label_unit: str = "phoneme",
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         **kwargs,
     ) -> Union[Dict[Tuple[float, types.EpochType], dataclasses.AlignmentData], dataclasses.AlignmentData,]:
@@ -41,7 +42,9 @@ class Seq2SeqAlignmentFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(align_corpus.corpus_info, **flow_args)
+        base_feature_flow = self._make_base_feature_flow(
+            align_corpus.corpus_info, feature_type=feature_type, **flow_args
+        )
 
         for prior_scale, epoch in itertools.product(prior_scales, epochs):
             tf_graph = self._make_tf_graph(

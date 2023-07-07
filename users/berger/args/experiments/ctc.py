@@ -66,7 +66,7 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
         "prior_args": {
             "mem_rqmt": 16,
         },
-        "rtf": 5,
+        "rtf": 20,
         "mem": 16,
     }
 

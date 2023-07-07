@@ -34,6 +34,7 @@ class Seq2SeqSearchFunctor(
         label_tree_args: Dict = {},
         label_scorer_type: str = "precomputed-log-posterior",
         label_scorer_args: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         **kwargs,
     ) -> List[Dict]:
@@ -50,7 +51,9 @@ class Seq2SeqSearchFunctor(
         if self.requires_label_file(label_unit):
             mod_label_scorer_args["label_file"] = self._get_label_file(crp)
 
-        base_feature_flow = self._make_base_feature_flow(recog_corpus.corpus_info, **flow_args)
+        base_feature_flow = self._make_base_feature_flow(
+            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
+        )
 
         recog_results = []
 
@@ -62,7 +65,6 @@ class Seq2SeqSearchFunctor(
             crp.language_model_config.scale = lm_scale  # type: ignore
 
             if label_scorer_args.get("use_prior", False):
-                assert backend == Backend.TENSORFLOW
                 prior_file = self._get_prior_file(prior_config=prior_config, checkpoint=checkpoint, **prior_args)
                 mod_label_scorer_args["prior_file"] = prior_file
             else:

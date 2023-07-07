@@ -8,19 +8,21 @@ from i6_experiments.users.berger.recipe import lexicon
 
 
 def get_data_inputs(
-        add_unknown_phoneme_and_mapping: bool = False,
-        ctc_lexicon: bool = False,
-        use_augmented_lexicon: bool = True,
-        add_all_allophones: bool = False,
+    add_unknown_phoneme_and_mapping: bool = False,
+    ctc_lexicon: bool = False,
+    use_augmented_lexicon: bool = True,
+    add_all_allophones: bool = False,
 ) -> Tuple[Dict[str, helpers.RasrDataInput], ...]:
     data_inputs = get_corpus_data_inputs(add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
 
     original_bliss_lexicon = tdl_lexicon.get_bliss_lexicon(
-        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+        add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
+    )
 
     if use_augmented_lexicon:
         bliss_lexicon = tdl_lexicon.get_g2p_augmented_bliss_lexicon(
-            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping)
+            add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping
+        )
     else:
         bliss_lexicon = original_bliss_lexicon
 
@@ -37,7 +39,6 @@ def get_data_inputs(
         add_allophones_from_lexicon=not add_all_allophones,
     )
 
-
     train_data_input = data_inputs["train"]["train"]
     dev_data_input = data_inputs["dev"]["dev"]
     test_data_input = data_inputs["test"]["test"]
@@ -45,7 +46,7 @@ def get_data_inputs(
     assert dev_data_input.lm
 
     lm = helpers.ArpaLMData(filename=dev_data_input.lm["filename"], scale=dev_data_input.lm.get("scale", 1.0))
-    
+
     train_data_inputs = {
         "train": helpers.RasrDataInput(
             corpus_object=train_data_input.corpus_object,

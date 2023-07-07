@@ -16,9 +16,7 @@ from ..rasr_base import RasrFunctor
 
 
 class DualSpeakerAdvancedTreeSearchFunctor(
-    RecognitionFunctor[
-        returnn.ReturnnTrainingJob, dataclasses.DualSpeakerReturnnConfig
-    ],
+    RecognitionFunctor[returnn.ReturnnTrainingJob, dataclasses.DualSpeakerReturnnConfig],
     RasrFunctor,
 ):
     def _multi_lattice_scoring(
@@ -29,9 +27,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
         **kwargs,
     ) -> types.ScoreJob:
         lat2ctms = {
-            s_idx: recognition.LatticeToCtmJob(
-                crp=crp, lattice_cache=lattice_bundle, **kwargs
-            ).out_ctm_file
+            s_idx: recognition.LatticeToCtmJob(crp=crp, lattice_cache=lattice_bundle, **kwargs).out_ctm_file
             for s_idx, lattice_bundle in lattice_bundles.items()
         }
 
@@ -41,8 +37,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
         }
 
         scoring_reports = {
-            s_idx: scorer.get_score_job(ctm_file).out_report_dir
-            for s_idx, ctm_file in ctm_files.items()
+            s_idx: scorer.get_score_job(ctm_file).out_report_dir for s_idx, ctm_file in ctm_files.items()
         }
 
         min_perm_ctm = MinimumPermutationCtmJob(
@@ -66,6 +61,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
         pronunciation_scales: List[float] = [0],
         prior_args: Dict = {},
         lattice_to_ctm_kwargs: Dict = {},
+        feature_type: dataclasses.FeatureType = dataclasses.FeatureType.SAMPLES,
         flow_args: Dict = {},
         **kwargs,
     ) -> List[Dict]:
@@ -75,7 +71,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
         acoustic_mixture_path = mm.CreateDummyMixturesJob(num_classes, 1).out_mixtures
 
         base_feature_flow = self._make_base_feature_flow(
-            recog_corpus.corpus_info, **flow_args
+            recog_corpus.corpus_info, feature_type=feature_type, **flow_args
         )
 
         recog_results = []
@@ -90,9 +86,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
             for speaker_idx in [0, 1]:
                 tf_graph = self._make_tf_graph(
                     train_job=train_job.job,
-                    returnn_config=recog_config.config.get_config_for_speaker(
-                        speaker_idx
-                    ),
+                    returnn_config=recog_config.config.get_config_for_speaker(speaker_idx),
                     epoch=epoch,
                 )
                 checkpoint = self._get_checkpoint(train_job.job, epoch)
@@ -150,9 +144,7 @@ class DualSpeakerAdvancedTreeSearchFunctor(
                     dataclasses.SummaryKey.TRAIN_NAME.value: train_job.name,
                     dataclasses.SummaryKey.RECOG_NAME.value: recog_config.name,
                     dataclasses.SummaryKey.CORPUS.value: recog_corpus.name,
-                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(
-                        train_job.job, epoch
-                    ),
+                    dataclasses.SummaryKey.EPOCH.value: self._get_epoch_value(train_job.job, epoch),
                     dataclasses.SummaryKey.PRON.value: pronunciation_scale,
                     dataclasses.SummaryKey.PRIOR.value: prior_scale,
                     dataclasses.SummaryKey.LM.value: lm_scale,

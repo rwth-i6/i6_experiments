@@ -33,12 +33,12 @@ def get_transducer_recog_args(
 ) -> Dict:
     default_args = {
         "epochs": ["best"],
-        "lm_scales": [0.5, 0.7, 0.9, 1.1],
-        "prior_scales": [0.0, 0.2, 0.4],
+        "lm_scales": [0.7],
+        "prior_scales": [0.0],
         "use_gpu": False,
         "label_scorer_type": "tf-ffnn-transducer",
         "label_scorer_args": {
-            "use_prior": True,
+            "use_prior": False,
             "num_classes": num_classes,
             "extra_args": {
                 "blank_label_index": 0,
@@ -67,8 +67,8 @@ def get_transducer_recog_args(
         "prior_args": {
             "mem_rqmt": 16,
         },
-        "rtf": 5,
-        "mem": 8,
+        "rtf": 50,
+        "mem": 16,
     }
 
     return recursive_update(default_args, kwargs)

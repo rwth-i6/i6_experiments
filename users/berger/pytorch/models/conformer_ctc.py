@@ -1,13 +1,14 @@
 from dataclasses import dataclass
-import functools
+from typing import List, Optional
+from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 
 import torch
 from i6_experiments.common.setups.returnn_pytorch.serialization import Collection
+from i6_experiments.common.setups.serialization import Import
 from i6_experiments.users.berger.pytorch.serializers.basic import (
-    get_basic_pt_network_recog_serializer,
-    get_basic_pt_network_train_serializer,
+    get_basic_pt_network_serializer,
 )
-from i6_models.assemblies.conformer import conformer
+from i6_experiments.users.berger.pytorch.custom_parts import conformer
 from i6_models.config import ModelConfiguration, SubassemblyWithOptions
 
 from ..custom_parts import specaugment, vgg_frontend
@@ -16,7 +17,7 @@ from ..custom_parts import specaugment, vgg_frontend
 @dataclass
 class ConformerCTCConfig(ModelConfiguration):
     specaugment_cfg: specaugment.SpecaugmentConfigV1
-    conformer_cfg: conformer.ConformerEncoderV1Config
+    conformer_cfg: conformer.ConformerEncoderConvFirstV1Config
     target_size: int
 
 
@@ -39,16 +40,17 @@ class ConformerCTCModel(torch.nn.Module):
     def __init__(self, step: int, cfg: ConformerCTCConfig, **kwargs):
         super().__init__()
         self.specaugment = specaugment.SpecaugmentModuleV1(step=step, cfg=cfg.specaugment_cfg)
-        self.conformer = conformer.ConformerEncoderV1(cfg.conformer_cfg)
+        self.conformer = conformer.ConformerEncoderConvFirstV1(cfg.conformer_cfg)
         self.final_linear = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size)
 
     def forward(
         self,
         audio_features: torch.Tensor,
-        audio_features_len: torch.Tensor,
+        audio_features_len: Optional[torch.Tensor] = None,
     ):
         x = self.specaugment(audio_features)  # [B, T, F]
-        if self.train:
+        if self.training:
+            assert audio_features_len is not None
             encoder_padding_mask = _lengths_to_padding_mask(audio_features_len)
         else:
             encoder_padding_mask = None
@@ -59,23 +61,56 @@ class ConformerCTCModel(torch.nn.Module):
         return log_probs
 
 
-def get_serializer(
+def get_train_serializer(
     model_config: ConformerCTCConfig,
-    train: bool = True,
 ) -> Collection:
     pytorch_package = __package__.rpartition(".")[0]
-    if train:
-        return get_basic_pt_network_train_serializer(
-            module_import_path=f"{__name__}.ConformerCTCModel",
-            train_step_import_path=f"{pytorch_package}.train_steps.ctc.train_step",
-            model_config=model_config,
-        )
-    else:
-        return get_basic_pt_network_recog_serializer(
-            module_import_path=f"{__name__}.ConformerCTCModel",
-            export_import_path=f"{pytorch_package}.export.ctc.export",
-            model_config=model_config,
-        )
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            Import(f"{pytorch_package}.train_steps.ctc.train_step"),
+        ],
+    )
+
+
+def get_prior_serializer(
+    model_config: ConformerCTCConfig,
+) -> Collection:
+    pytorch_package = __package__.rpartition(".")[0]
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            Import(f"{pytorch_package}.forward.basic.forward_step"),
+            Import(f"{pytorch_package}.forward.prior_callback.ComputePriorCallback", import_as="forward_callback"),
+        ],
+    )
+
+
+def get_recog_serializer(
+    model_config: ConformerCTCConfig,
+) -> Collection:
+    pytorch_package = __package__.rpartition(".")[0]
+    return get_basic_pt_network_serializer(
+        module_import_path=f"{__name__}.{ConformerCTCModel.__name__}",
+        model_config=model_config,
+        additional_serializer_objects=[
+            Import(f"{pytorch_package}.export.ctc.export"),
+        ],
+    )
+
+
+def get_serializer(model_config: ConformerCTCConfig, variant: ConfigVariant) -> Collection:
+    if variant == ConfigVariant.TRAIN:
+        return get_train_serializer(model_config)
+    if variant == ConfigVariant.PRIOR:
+        return get_prior_serializer(model_config)
+    if variant == ConfigVariant.ALIGN:
+        return get_recog_serializer(model_config)
+    if variant == ConfigVariant.RECOG:
+        return get_recog_serializer(model_config)
+    raise NotImplementedError
 
 
 def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConfig:
@@ -125,13 +160,13 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
     )
 
-    block_cfg = conformer.ConformerBlockV1Config(
+    block_cfg = conformer.ConformerBlockConvFirstV1Config(
         ff_cfg=ff_cfg,
         mhsa_cfg=mhsa_cfg,
         conv_cfg=conv_cfg,
     )
 
-    conformer_cfg = conformer.ConformerEncoderV1Config(
+    conformer_cfg = conformer.ConformerEncoderConvFirstV1Config(
         num_layers=12,
         frontend=frontend,
         block_cfg=block_cfg,

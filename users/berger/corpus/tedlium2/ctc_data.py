@@ -1,3 +1,4 @@
+import copy
 from i6_core import corpus
 from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from i6_experiments.users.berger.args.jobs.rasr_init_args import (
@@ -20,15 +21,16 @@ def get_tedlium2_data(
     rasr_binary_path: tk.Path,
     rasr_arch: str = "linux-x86_64-standard",
     add_unknown: bool = False,
-    augmented_lexicon: bool = False,
+    augmented_lexicon: bool = True,
 ) -> PytorchCTCSetupData:
     # ********** Data inputs **********
-
-    train_data_inputs, dev_data_inputs, test_data_inputs = data.get_data_inputs(
-        ctc_lexicon=True,
-        use_augmented_lexicon=augmented_lexicon,
-        add_all_allophones=True,
-        add_unknown_phoneme_and_mapping=add_unknown,
+    train_data_inputs, dev_data_inputs, test_data_inputs = copy.deepcopy(
+        data.get_data_inputs(
+            ctc_lexicon=True,
+            use_augmented_lexicon=augmented_lexicon,
+            add_all_allophones=True,
+            add_unknown_phoneme_and_mapping=add_unknown,
+        )
     )
 
     # ********** Train data **********
@@ -79,7 +81,7 @@ def get_tedlium2_data(
     train_data_config = train_dataset_builder.get_dict()
 
     # ********** CV data **********
-    cv_corpus_object = dev_data_inputs["dev"].corpus_object
+    cv_corpus_object = copy.deepcopy(dev_data_inputs["dev"].corpus_object)
 
     if not add_unknown:
         cv_corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(

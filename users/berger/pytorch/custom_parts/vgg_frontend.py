@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -39,7 +39,7 @@ def subsample_mask(sequence_mask: torch.Tensor, subsampling_factor: int):
 
     reshaped_mask = padded_mask.reshape(padded_mask.shape[0], -1, subsampling_factor)
 
-    subsampled_mask = torch.any(reshaped_mask == 1, dim=2)
+    subsampled_mask = torch.all(reshaped_mask == 1, dim=2)
     subsampled_mask = subsampled_mask.type(sequence_mask.dtype)
 
     return subsampled_mask
@@ -80,7 +80,9 @@ class VGGFrontendV1(torch.nn.Module):
         self.dropout = config.dropout
         self.layer_norm = torch.nn.LayerNorm(config.linear_size)
 
-    def forward(self, x: torch.Tensor, sequence_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, sequence_mask: Optional[torch.Tensor]
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         x = x[:, None, :, :]  # [B, 1, T, F]
         x = self.conv1(x)  # [B, C_1, T', F]
         x = torch.nn.functional.silu(x)  # [B, C_1, T', F]
@@ -95,4 +97,9 @@ class VGGFrontendV1(torch.nn.Module):
         x = torch.nn.functional.dropout(x, p=self.dropout, training=self.training)  # [B, T''', F'']
         x = self.layer_norm(x)  # [B, T''', F'']
 
-        return x, subsample_mask(sequence_mask, self.subsample_factor)
+        if sequence_mask is None:
+            subsampled_mask = None
+        else:
+            subsampled_mask = subsample_mask(sequence_mask, self.subsample_factor)
+
+        return x, subsampled_mask

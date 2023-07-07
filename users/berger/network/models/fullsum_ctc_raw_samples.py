@@ -1,7 +1,5 @@
 import copy
-from pathlib import Path
 from i6_core.am.config import acoustic_model_config
-from sisyphus.delayed_ops import DelayedFunction, DelayedFormat
 import i6_core.rasr as rasr
 from sisyphus import tk
 from typing import Dict, List, Optional, Tuple, Union

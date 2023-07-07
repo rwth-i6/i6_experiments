@@ -75,6 +75,7 @@ def worker_wrapper(job, task_name, call):
         "EstimateCMLLRJob",
         "DumpStateTyingJob",
         "StoreAllophonesJob",
+        "FeatureExtractionJob",
     }
     if type(job).__name__ not in wrapped_jobs:
         return call
