@@ -22,7 +22,7 @@ class CreateFairseqLabeledDataJob(Job):
     - dict.ltr.txt
 
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
-    https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py aswell as
+    https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py as well as
     the issue https://github.com/facebookresearch/fairseq/issues/2493 for .wrd and .ltr creation.
     """
 
