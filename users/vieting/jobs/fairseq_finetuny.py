@@ -73,7 +73,6 @@ class CreateFairseqLabeledDataJob(Job):
         yield Task("run", rqmt=self.rqmt)
 
     def run(self):
-        #self.create_manifest()
         self.create_tsv_and_labels()
         self.download_dict_ltr()
     
