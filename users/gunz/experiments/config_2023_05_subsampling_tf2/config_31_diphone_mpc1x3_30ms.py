@@ -352,12 +352,13 @@ def run_single(
 
         for cfg in [
             recog_args.with_prior_scale(0.4, 0.4),
+            recog_args.with_prior_scale(0.4, 0.2),
         ]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=True,
+                rerun_after_opt_lm=False,
                 calculate_stats=True,
             )
 
