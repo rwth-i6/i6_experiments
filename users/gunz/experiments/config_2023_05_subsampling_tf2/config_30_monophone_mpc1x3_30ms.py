@@ -339,12 +339,12 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_tdp_scale(0.1)
+        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_prior_scale(0.6)
 
         for cfg in [
-            recog_args.with_prior_scale(0.6),
-            recog_args.with_prior_scale(0.6).with_beam_size(24),
-            recog_args.with_prior_scale(0.6).with_beam_size(18),
+            recog_args.with_tdp_scale(0.1),
+            recog_args.with_tdp_scale(0.2),
+            recog_args.with_tdp_scale(0.4),
         ]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
