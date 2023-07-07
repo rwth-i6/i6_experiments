@@ -1131,8 +1131,8 @@ class FactoredHybridSystem(NnSystem):
             )
         )
 
-        job.add_alias(f"priors/{name}/{epoch}/c")
-        tk.register_output(f"priors/{name}/{epoch}/center-state.xml", job.out_prior_xml_file)
+        job.add_alias(f"priors/{name}/c")
+        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
         p_info = PriorInfo(
             center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
@@ -1197,7 +1197,7 @@ class FactoredHybridSystem(NnSystem):
         }
 
         for (ctx, job) in prior_jobs.items():
-            job.add_alias(f"priors/{name}/{epoch}/{ctx}")
+            job.add_alias(f"priors/{name}/{ctx}")
 
         center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
         center_priors_xml = center_priors.out_prior_xml
@@ -1207,7 +1207,7 @@ class FactoredHybridSystem(NnSystem):
             ("left-context", prior_jobs["l"].out_prior_xml_file),
         ]
         for context_name, file in results:
-            xml_name = f"priors/{name}/{epoch}/{context_name}.xml" if name is not None else f"priors/{epoch}/{context_name}.xml"
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
         p_info = PriorInfo(
@@ -1284,7 +1284,7 @@ class FactoredHybridSystem(NnSystem):
         }
 
         for (ctx, job) in prior_jobs.items():
-            job.add_alias(f"priors/{name}/{epoch}/{ctx}")
+            job.add_alias(f"priors/{name}/{ctx}")
 
         center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
         center_priors_xml = center_priors.out_prior_xml
@@ -1298,7 +1298,7 @@ class FactoredHybridSystem(NnSystem):
             ("right-context", right_prior_xml),
         ]
         for context_name, file in results:
-            xml_name = f"priors/{name}/{epoch}/{context_name}.xml" if name is not None else f"priors/{epoch}/{context_name}.xml"
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
             tk.register_output(xml_name, file)
 
         p_info = PriorInfo(
