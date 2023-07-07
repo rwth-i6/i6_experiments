@@ -207,7 +207,7 @@ def get_returnn_config(
             "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
             hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
         ),
-    },
+    }
 
     network, prolog = make_conformer_fullsum_ctc_model(
         num_outputs=88,
