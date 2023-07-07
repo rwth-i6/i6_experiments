@@ -10,7 +10,7 @@ from i6_core.lib import corpus
 from sisyphus import Job, Task, tk
 
 
-class CreateTaskDataJob(Job):
+class CreateFairseqLabeledDataJob(Job):
     """
     Creates required task files for wav2vec finetuning with fairseq. This includes the following files:
     - train.tsv
