@@ -164,6 +164,7 @@ def get_returnn_config(
     lr_args: Optional[Dict[str, Any]] = None,
     conformer_type: str = "wei",
     specaug_old: Optional[Dict[str, Any]] = None,
+    am_args: Optional[Dict[str, Any]] = None,
     batch_size: Union[int, Dict[str, int]] = 10000,
     sample_rate: int = 8000,
     recognition: bool = False,
@@ -190,6 +191,23 @@ def get_returnn_config(
             "keep_best_n": 5,
             "keep": evaluation_epochs,
         }
+    am_args = am_args or {
+        "state_tying": "monophone-eow",
+        "states_per_phone": 1,
+        "tdp_transition": (0.0, 0.0, "infinity", 0.0),
+        "tdp_silence": (0.0, 0.0, "infinity", 0.0),  # TODO Not contained for librispeech
+        "phon_history_length": 0,
+        "phon_future_length": 0,
+        "allophone_file": tk.Path(  # TODO: allow setting librispeech allophone file
+            "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
+            hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
+        ),
+        # TODO: state-tying.type = monophone-eow
+        "state_tying_file": tk.Path(
+            "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
+            hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
+        ),
+    },
 
     network, prolog = make_conformer_fullsum_ctc_model(
         num_outputs=88,
@@ -198,22 +216,7 @@ def get_returnn_config(
             "loss_corpus_path": rasr_loss_corpus_path,
             "loss_corpus_segments": rasr_loss_corpus_segments,
             "loss_lexicon_path": rasr_loss_lexicon_path,
-            "am_args": {
-                "state_tying": "monophone-eow",
-                "states_per_phone": 1,
-                "tdp_transition": (0.0, 0.0, "infinity", 0.0),
-                "tdp_silence": (0.0, 0.0, "infinity", 0.0),
-                "phon_history_length": 0,
-                "phon_future_length": 0,
-                "allophone_file": tk.Path(
-                    "/u/vieting/setups/swb/20230406_feat/dependencies/allophones_blank",
-                    hash_overwrite="SWB_ALLOPHONE_FILE_WEI_BLANK"
-                ),
-                "state_tying_file": tk.Path(
-                    "/u/vieting/setups/swb/20230406_feat/dependencies/state-tying_blank",
-                    hash_overwrite="SWB_STATE_TYING_FILE_WEI_BLANK"
-                ),
-            },
+            "am_args": am_args,
         },
         conformer_type=conformer_type,
         specaug_old=specaug_old,
