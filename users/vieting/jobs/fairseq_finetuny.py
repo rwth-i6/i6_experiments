@@ -3,7 +3,7 @@ import glob
 import os
 import random
 import subprocess
-import os
+from typing import List, Union, Optional 
 
 from i6_core.lib import corpus
 
@@ -28,18 +28,18 @@ class CreateTaskDataJob(Job):
 
     def __init__(
         self,
-        corpus_paths,
-        file_extension="wav",
-        valid_percent=0.01,
-        seed=42,
-        path_must_contain=None
+        corpus_paths: Union[List[tk.Path], tk.Path],
+        file_extension: str="wav",
+        valid_percent: float=0.01,
+        seed: int=42,
+        path_must_contain: Optional[str]=None
     ):
         """
-        :param [tk.Path]|tk.Path audio_dir_path: list of paths or single path to raw audio files to be included
-        :param str file_extension: file extension to look for in audio_dir_path
-        :param float valid_percent: percentage of files to be in validation set
-        :param int seed: random seed for splitting into train and valid set
-        :param str|None path_must_contain: if set, path must contain this substring
+        :param audio_dir_path: list of paths or single path to raw audio files to be included
+        :param file_extension: file extension to look for in audio_dir_path
+        :param valid_percent: percentage of files to be in validation set
+        :param seed: random seed for splitting into train and valid set
+        :param path_must_contain: if set, path must contain this substring
             for a file to be included in the task
         """
         if not isinstance(corpus_paths, list):
