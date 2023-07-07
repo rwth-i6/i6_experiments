@@ -158,6 +158,8 @@ def conformer_features():
         "scf": ScfNetwork(),
         "scf_batchnorm": ScfNetwork(normalization_env="batch"),
         "scf_nonorm": ScfNetwork(normalization_env=None),
+        "scf_Tnorm": ScfNetwork(normalization_env="T"),
+        "scf_TFnorm": ScfNetwork(normalization_env="TF"),
         "gammatone": GammatoneNetwork(),
     }
 
@@ -205,6 +207,20 @@ def conformer_features():
     # )
     # report_list.append(report)
     # train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+
+    # scf with more SpecAugment
+    for name_ext, max_time, freq_div in [("T25", 25, 5), ("F6", 20, 6), ("F4", 20, 4), ("F3", 20, 3)]:
+        args = get_train_base_args()
+        args["specaug_str_func_opts"] = {"max_time_dim": max_time, "freq_dim_factor": freq_div}
+        train_job, _, report = run_exp(
+            f"scf_specaug{name_ext}",
+            train_args=args,
+            num_epochs=635,
+            feature_extraction_net=_get_feature_net(feature_nets["scf"]),
+            feature_extraction_name="features",
+        )
+        report_list.append(report)
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 16, "cpu": 8})
 
     report = Report.merge_reports(report_list)
     tk.register_report(
