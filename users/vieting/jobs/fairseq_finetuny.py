@@ -99,31 +99,16 @@ class CreateFairseqLabeledDataJob(Job):
         
         common_dir = self.get_common_dir()
 
-        valid_tsv = (
-            open(self.out_valid_tsv_path, "w")
-            if self.valid_percent > 0
-            else None
-        )
-
+        valid_tsv = open(self.out_valid_tsv_path, "w")
         train_tsv = open(self.out_train_tsv_path, "w")
 
-        valid_ltr = (
-            open(self.out_valid_ltr_path, "w")
-            if self.valid_percent > 0
-            else None
-        )
-
+        valid_ltr = open(self.out_valid_ltr_path, "w")
         train_ltr = open(self.out_train_ltr_path, "w")
 
-        valid_wrd = (
-            open(self.out_valid_wrd_path, "w")
-            if self.valid_percent > 0
-            else None
-        )
-
+        valid_wrd = open(self.out_valid_wrd_path, "w") 
         train_wrd = open(self.out_train_wrd_path, "w")
 
-        if valid_tsv is not None:
+        if self.valid_percent > 0:
             print(common_dir, file=valid_tsv)
 
         print(common_dir, file=train_tsv)
@@ -161,12 +146,9 @@ class CreateFairseqLabeledDataJob(Job):
                 print(audio_trans, file=wrd_out)
         
         # close all files
-        if valid_tsv is not None:
-            valid_tsv.close()
-        if valid_ltr is not None:
-            valid_ltr.close()
-        if valid_wrd is not None:
-            valid_wrd.close()
+        valid_tsv.close()
+        valid_ltr.close()
+        valid_wrd.close()
         
         train_tsv.close()
         train_ltr.close()
