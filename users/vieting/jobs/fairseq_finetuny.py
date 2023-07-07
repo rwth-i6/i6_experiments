@@ -72,7 +72,7 @@ class CreateTaskDataJob(Job):
     def run(self):
         #self.create_manifest()
         self.create_tsv_and_labels()
-        self.download_dict_ltr()
+        self.create_dict_ltr()
     
     def get_common_dir(self):
         """
@@ -175,8 +175,39 @@ class CreateTaskDataJob(Job):
 
 
 
-    def download_dict_ltr(self):
+    def create_dict_ltr(self):
         """
-        Downloads the dict.ltr.txt file for fairseq wav2vec finetuning.
+        Creates the dict.ltr.txt file for fairseq wav2vec finetuning, as given by
+        https://dl.fbaipublicfiles.com/fairseq/wav2vec/dict.ltr.txt
         """
-        subprocess.check_call(["wget", "-O", self.out_dict_ltr_path.get(), "https://dl.fbaipublicfiles.com/fairseq/wav2vec/dict.ltr.txt"])
+        dict_ltr_content = """| 94802
+E 51860
+T 38431
+A 33152
+O 31495
+N 28855
+I 28794
+H 27187
+S 26071
+R 23546
+D 18289
+L 16308
+U 12400
+M 10685
+W 10317
+C 9844
+F 9062
+G 8924
+Y 8226
+P 6890
+B 6339
+V 3936
+K 3456
+' 1023
+X 636
+J 598
+Q 437
+Z 213
+"""
+        with open(self.out_dict_ltr_path.get(), 'w') as f:
+            f.write(dict_ltr_content)
