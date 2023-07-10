@@ -111,7 +111,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"blstm-1-lr:{lr}-ss:{subsampling_factor}-fs:{subsampling_factor}-bw:{bw_label_scale}"
+    name = f"blstm-1-fs_tina-ss:{subsampling_factor}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
