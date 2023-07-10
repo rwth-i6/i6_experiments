@@ -17,19 +17,8 @@ from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
-from ...setups.common.nn.specaugment import (
-    mask as sa_mask,
-    random_mask as sa_random_mask,
-    summary as sa_summary,
-    transform as sa_transform,
-)
 from ...setups.fh import system as fh_system
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
-from ...setups.fh.network.augment import (
-    augment_net_with_monophone_outputs,
-    remove_label_pops_and_losses_from_returnn_config,
-)
 from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
@@ -37,9 +26,6 @@ from .config import (
     BLSTM_FH_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING_10MS,
     CONF_FOCAL_LOSS,
-    CONF_LABEL_SMOOTHING,
-    CONF_SA_CONFIG,
-    L2,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -180,12 +166,12 @@ def run_single(
 
     s.set_experiment_dict("fh", "scratch", "mono", postfix_name=name)
 
-
     class FakeReturnnJob:
         def __init__(self, epoch: int, ckpt: returnn.Checkpoint):
             self.out_checkpoints = {epoch: ckpt}
 
     s.experiments["fh"]["train_job"] = FakeReturnnJob(493, import_checkpoint)
+
     s.experiments["fh"]["graph"]["inference"] = tk.Path("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/graph.meta")
     s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
 
