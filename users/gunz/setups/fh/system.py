@@ -1356,9 +1356,9 @@ class FactoredHybridSystem(NnSystem):
             PhoneticContext.diphone_state_transition,
             PhoneticContext.tri_state_transition,
         ]:
-            name = f'{self.experiments[key]["name"]}-delta-e{epoch}-'
+            name = f'{self.experiments[key]["name"]}-delta/e{epoch}/{crp_corpus}'
         else:
-            name = f"{self.experiments[key]['name']}-{crp_corpus}-e{epoch}"
+            name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
         graph = self.experiments[key]["graph"].get("inference", None)
         assert graph is not None, "set graph first"
