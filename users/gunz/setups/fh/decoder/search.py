@@ -1202,6 +1202,7 @@ class FHDecoder:
         crp: typing.Optional[rasr.CommonRasrParameters] = None,
         feature_scorer: typing.Optional[rasr.FeatureScorer] = None,
         default_tdp=True,
+        set_do_not_normalize_lemma_sequence_scores: bool = True,
     ):
         align_crp = copy.deepcopy(crp) if crp is not None else self.search_crp
 
@@ -1221,6 +1222,8 @@ class FHDecoder:
         align_crp.acoustic_model_config["*"]["transducer-builder-filter-out-invalid-allophones"] = True
         align_crp.acoustic_model_config["*"]["allow-for-silence-repetitions"] = False
         align_crp.acoustic_model_config["*"]["fix-tdp-leaving-epsilon-arc"] = True
+        if set_do_not_normalize_lemma_sequence_scores:
+            align_crp.acoustic_model_config["*"]["normalize-lemma-sequence-scores"] = False
 
         alignment = mm.AlignmentJob(
             crp=align_crp,
