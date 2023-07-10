@@ -368,7 +368,7 @@ def run_single(
                 rtf_cpu=35,
             )
 
-        if tune_decoding:
+        if tune_decoding and ep >= keep_epochs[-2]:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
