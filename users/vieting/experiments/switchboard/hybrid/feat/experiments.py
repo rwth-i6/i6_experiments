@@ -17,7 +17,7 @@ def run_gmm_system_from_common():
     flow = samples_flow(dc_detection=False, input_options={"block-size": "1"}, scale_input=2**-15)
     system = run_switchboard_baseline_ldc_v5(recognition=True)
     system.extract_features(
-        feat_args={"samples": {"feature_flow": flow}},
+        feat_args={"samples": {"feature_flow": flow, "port_name": "samples"}},
         corpus_list=system.dev_corpora + system.test_corpora,
     )
     return system
