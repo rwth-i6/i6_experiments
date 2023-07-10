@@ -1,4 +1,4 @@
-__all__ = ["get_transcription_priors"]
+__all__ = ["get_mono_transcription_priors"]
 
 import numpy as np
 from typing import Iterator, List
