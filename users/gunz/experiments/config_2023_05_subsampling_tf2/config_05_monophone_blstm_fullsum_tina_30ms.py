@@ -30,6 +30,7 @@ from ...setups.fh.network.augment import (
     augment_net_with_monophone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
+from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -177,7 +178,16 @@ def run_single(
         add_base_allophones=False,
     )
 
+    s.set_experiment_dict("fh", "scratch", "mono", postfix_name=name)
+
+
+    class FakeReturnnJob:
+        def __init__(self, epoch: int, ckpt: returnn.Checkpoint):
+            self.out_checkpoints = {epoch: ckpt}
+
+    s.experiments["fh"]["train_job"] = FakeReturnnJob(493, import_checkpoint)
     s.experiments["fh"]["graph"]["inference"] = tk.Path("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/graph.meta")
+    s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
