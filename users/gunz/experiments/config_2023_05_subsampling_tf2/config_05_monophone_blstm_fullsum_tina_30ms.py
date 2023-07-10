@@ -23,7 +23,7 @@ from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    BLSTM_FH_DECODING_TENSOR_CONFIG,
+    BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
     CONF_CHUNKING_10MS,
     CONF_FOCAL_LOSS,
     RASR_ARCH,
@@ -188,7 +188,7 @@ def run_single(
         crp_corpus="train-other-960.train",
         epoch=493,
         gpu=False,
-        tensor_map=BLSTM_FH_DECODING_TENSOR_CONFIG,
+        tensor_map=BLSTM_FH_TINA_DECODING_TENSOR_CONFIG,
         set_batch_major_for_feature_scorer=False,
         tf_library=s.native_lstm2_job.out_op,
         lm_gc_simple_hash=True,
