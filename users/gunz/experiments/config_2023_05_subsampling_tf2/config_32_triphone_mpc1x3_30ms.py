@@ -325,27 +325,27 @@ def run_single(
         nn_train_args=train_args,
     )
 
-    if own_priors:
-        s.set_triphone_priors_returnn_rasr(
-            key="fh",
-            epoch=keep_epochs[-2],
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-    else:
-        s.set_graph_for_experiment("fh")
-        prior_info = PriorInfo.from_triphone_job(
-            "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
-            if alignment_name == "scratch_daniel"
-            else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
-        )
-        s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
-
     best_config = None
     for ep, crp_k in itertools.product([300, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        if own_priors:
+            s.set_triphone_priors_returnn_rasr(
+                key="fh",
+                epoch=ep,
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+            )
+        else:
+            s.set_graph_for_experiment("fh")
+            prior_info = PriorInfo.from_triphone_job(
+                "/u/mgunz/gunz/kept-experiments/2023-02--from-scratch-daniel/priors/tri-from-scratch-conf-ph-3-dim-512-ep-60-cls-WE-lr-v6-sa-v1-bs-6144-epoch-575"
+                if alignment_name == "scratch_daniel"
+                else "/u/mgunz/gunz/kept-experiments/2022-07--baselines/priors/tri-from-GMMtri-conf-ph-3-dim-512-ep-600-cls-WE-lr-v6-sa-v1-bs-6144-fls-False-rp-epoch-550"
+            )
+            s.experiments["fh"]["priors"] = smoothen_priors(prior_info)
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
