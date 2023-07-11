@@ -92,8 +92,8 @@ def specaug_layer_jingjing(in_layer):
         "class": "eval",
         "from": in_layer,
         "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
-             "source(0, as_data=True), "
-             "network=self.network)"
+               "source(0, as_data=True), "
+               "network=self.network)"
     }
 
 def get_funcs_jingjing():
