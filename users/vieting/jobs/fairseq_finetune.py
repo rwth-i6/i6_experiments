@@ -23,6 +23,8 @@ class CreateFairseqLabeledDataJob(Job):
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
     https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py as well as
     the issue https://github.com/facebookresearch/fairseq/issues/2493 for .wrd and .ltr creation.
+
+    See also https://github.com/rwth-i6/i6_experiments/blob/main/users/dierkes/preprocessing/wav2vec.py for only manifest creation job (e.g. for fairseq pre-training).
     """
 
     def __init__(
@@ -193,4 +195,3 @@ Z 213
                 else:
                     common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
         return common_dir
-        
