@@ -30,12 +30,12 @@ def run_librispeech_960_gmm_baseline(add_unknown: bool = True):
     # ******************** GMM Init ********************
 
     rasr_init_args = baseline_args.get_init_args()
-    mono_args = baseline_args.get_monophone_args()
+    mono_args = baseline_args.get_monophone_args(allow_zero_weights=True)
     cart_args = baseline_args.get_cart_args(max_leaves=9001, add_unknown=add_unknown)
-    tri_args = baseline_args.get_triphone_args()
-    vtln_args = baseline_args.get_vtln_args()
-    sat_args = baseline_args.get_sat_args()
-    vtln_sat_args = baseline_args.get_vtln_sat_args()
+    tri_args = baseline_args.get_triphone_args(allow_zero_weights=True)
+    vtln_args = baseline_args.get_vtln_args(allow_zero_weights=True)
+    sat_args = baseline_args.get_sat_args(allow_zero_weights=True)
+    vtln_sat_args = baseline_args.get_vtln_sat_args(allow_zero_weights=True)
     align_args = baseline_args.get_align_dev_args()
     final_output_args = baseline_args.get_final_output()
 
@@ -47,13 +47,16 @@ def run_librispeech_960_gmm_baseline(add_unknown: bool = True):
     steps.add_step("vtln", vtln_args)
     steps.add_step("sat", sat_args)
     steps.add_step("vtln+sat", vtln_sat_args)
-    #steps.add_step("forced_align", align_args)
+    # steps.add_step("forced_align", align_args)
     steps.add_step("output", final_output_args)
 
     # ******************** Data ********************
 
     corpus_data = get_corpus_data_inputs(
-        corpus_key="train-other-960", use_g2p_training=True, use_stress_marker=False, add_unknown_phoneme_and_mapping=True,
+        corpus_key="train-other-960",
+        use_g2p_training=True,
+        use_stress_marker=False,
+        add_unknown_phoneme_and_mapping=True,
     )
 
     # ******************** GMM System ********************

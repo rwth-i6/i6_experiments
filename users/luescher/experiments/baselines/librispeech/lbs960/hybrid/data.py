@@ -1,5 +1,6 @@
-from typing import Any, Callable, Dict, Tuple, Type, Union
 from enum import Enum
+from typing import Any, Callable, Dict, Tuple, Type, Union
+from dataclasses import asdict
 
 from sisyphus import tk, delayed_ops
 
@@ -17,7 +18,13 @@ from i6_experiments.users.luescher.experiments.baselines.librispeech.lbs960.gmm.
 
 from experimental.rasr.archiver import ArchiverJob
 
-from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import RASR_BINARY_PATH, SCTK_BINARY_PATH, RETURNN_EXE_PATH, RETURNN_ROOT_PATH, RETURNN_COMMON_PATH
+from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import (
+    RASR_BINARY_PATH,
+    SCTK_BINARY_PATH,
+    RETURNN_EXE_PATH,
+    RETURNN_ROOT_PATH,
+    RETURNN_COMMON_PATH,
+)
 
 
 class CvSplit(Enum):
@@ -62,9 +69,13 @@ def get_corpora_for_hybrid_training(
     all_dev_clean_segments = all_dev_clean_segments_job.out_single_segment_files[1]
     all_dev_other_segments = all_dev_other_segments_job.out_single_segment_files[1]
 
-    no_oov_dev_clean_num_segments = corpus_recipe.CountSegmentsInCorpusJob(no_oov_dev_clean_corpus_path).out_num_segments
+    no_oov_dev_clean_num_segments = corpus_recipe.CountSegmentsInCorpusJob(
+        no_oov_dev_clean_corpus_path
+    ).out_num_segments
     tk.register_output("dev_clean_no_oov_num_segments.txt", no_oov_dev_clean_num_segments)
-    no_oov_dev_other_num_segments = corpus_recipe.CountSegmentsInCorpusJob(no_oov_dev_other_corpus_path).out_num_segments
+    no_oov_dev_other_num_segments = corpus_recipe.CountSegmentsInCorpusJob(
+        no_oov_dev_other_corpus_path
+    ).out_num_segments
     tk.register_output("dev_other_no_oov_num_segments.txt", no_oov_dev_other_num_segments)
 
     dev_train_size = 300 / total_train_num_segments
@@ -118,27 +129,28 @@ def get_corpora_for_hybrid_training(
 
 
 def dump_features_for_hybrid_training(
-    gmm_system: GmmSystem, feature_extraction_args: Dict[str, Any], feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob]
-) -> Tuple[Dict[int, tk.Path], Dict[int, tk.Path], Dict[int, tk.Path]]:
+    gmm_system: GmmSystem,
+    feature_extraction_args: Dict[str, Any],
+    feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob],
+) -> Tuple[tk.Path, tk.Path, tk.Path]:
     features = {}
     for name in ["nn-train", "nn-cv", "nn-devtrain"]:
-        features[name] = feature_extraction_class(
-            gmm_system.crp[name], **feature_extraction_args
-        ).out_single_feature_caches
+        features[name] = list(
+            feature_extraction_class(gmm_system.crp[name], **feature_extraction_args).out_feature_bundle.values()
+        )[0]
 
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
 
 def dump_features_into_hdf(
-    features: Dict[int, tk.Path], allophone_labeling: AllophoneLabeling, filter_keep_list: tk.Path
+    feature_bundle_path: tk.Path, allophone_labeling: AllophoneLabeling, filter_keep_list: tk.Path
 ) -> tk.Path:
     dataset = {
         "class": "SprintCacheDataset",
         "data": {
             "data": {
-                "filename": list(features.values()),
+                "filename": delayed_ops.DelayedFormat("{}", feature_bundle_path),
                 "data_type": "feat",
-                "allophone_labeling": allophone_labeling,
             },
         },
         "seq_list_filter_file": filter_keep_list,
@@ -235,9 +247,9 @@ def get_corpus_data_inputs(
     )
 
     allophone_labeling = AllophoneLabeling(
-        silence_phoneme="[SILENCE]",
-        allophone_file=gmm_system.allophone_files["train-other-960"],
-        state_tying_file=gmm_system.cart_trees["train-other-960"]["cart_mono"],
+        silence_phone="[SILENCE]",
+        allophone_file=delayed_ops.DelayedFormat("{}", gmm_system.allophone_files["train-other-960"]),
+        state_tying_file=delayed_ops.DelayedFormat("{}", gmm_system.cart_trees["train-other-960"]["cart_mono"]),
     )
 
     # ******************** dump features ********************
@@ -264,14 +276,14 @@ def get_corpus_data_inputs(
 
     cv_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
 
-#    dev_clean_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
-#    dev_other_alignments = gmm_system.alignments["dev-other"]["nn-cv"].alternatives["task_dependent"].hidden_paths
-#
-#    cv_alignments: Dict[str, tk.Path] = {}
-#    for k, v in dev_clean_alignments.items():
-#        cv_alignments[f"dev-clean-{k}"] = v
-#    for k, v in dev_other_alignments.items():
-#        cv_alignments[f"dev-other-{k}"] = v
+    #    dev_clean_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+    #    dev_other_alignments = gmm_system.alignments["dev-other"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+    #
+    #    cv_alignments: Dict[str, tk.Path] = {}
+    #    for k, v in dev_clean_alignments.items():
+    #        cv_alignments[f"dev-clean-{k}"] = v
+    #    for k, v in dev_other_alignments.items():
+    #        cv_alignments[f"dev-other-{k}"] = v
 
     train_align_hdf = dump_alignments_into_hdf(train_alignments, allophone_labeling, train_segments)
     cv_align_hdf = dump_alignments_into_hdf(cv_alignments, allophone_labeling, cv_segments)

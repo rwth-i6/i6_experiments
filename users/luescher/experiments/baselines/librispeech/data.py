@@ -26,7 +26,10 @@ class CorpusData:
 
 
 def get_corpus_data_inputs(
-    corpus_key: str, use_g2p_training: bool = True, use_stress_marker: bool = False, add_unknown_phoneme_and_mapping: bool = True,
+    corpus_key: str,
+    use_g2p_training: bool = True,
+    use_stress_marker: bool = False,
+    add_unknown_phoneme_and_mapping: bool = True,
 ) -> CorpusData:
     """
     Create the corpus data for any LibriSpeech RASR setup
@@ -35,6 +38,7 @@ def get_corpus_data_inputs(
     :param use_g2p_training: If true, uses Sequitur to generate full lexicon coverage for the training data
     :param use_stress_marker: If the phoneme representation should include the ARPA stress marker
         Sometimes this is also referred to as "unfolded" lexicon.
+    :param add_unknown_phoneme_and_mapping: If true, add an unknown phoneme to phoneme set and mapping to unknown lemma
     :return: (train_data, dev_data, test_data)
     """
 
@@ -45,7 +49,7 @@ def get_corpus_data_inputs(
     lm = {
         "filename": get_arpa_lm_dict()["4gram"],
         "type": "ARPA",
-        "scale": 10,
+        "scale": None,
     }
 
     # This is the standard LibriSpeech lexicon
@@ -63,7 +67,7 @@ def get_corpus_data_inputs(
         train_lexicon = {
             "filename": get_g2p_augmented_bliss_lexicon_dict(
                 use_stress_marker=use_stress_marker,
-                add_unknown_phoneme_and_mapping=False,
+                add_unknown_phoneme_and_mapping=add_unknown_phoneme_and_mapping,
             )[corpus_key],
             "normalize_pronunciation": False,
         }

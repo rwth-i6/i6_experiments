@@ -36,9 +36,10 @@ from i6_experiments.common.helpers.g2p import G2PBasedOovAugmenter
 
 USE_CORRECTED_APPLICATOR = True
 
-# -------------------- helpers --------------------
 
+# -------------------- helpers --------------------
 # -------------------- functions --------------------
+
 
 def get_init_args(
     *,
@@ -51,21 +52,25 @@ def get_init_args(
     mfcc_extra_args: Optional[Dict] = None,
     gt_normalization: bool = True,
     gt_options_extra_args: Optional[Dict] = None,
-    tying_type: str = "global",
-    nonword_phones: str = "",
-    tdp_transition: Tuple[
-        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ] = (3.0, 0.0, "infinity", 0.0),
-    tdp_silence: Tuple[
-        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ] = (0.0, 3.0, "infinity", 20.0),
-    tdp_nonword: Tuple[
-        Union[float, str], Union[float, str], Union[float, str], Union[float, str]
-    ] = (
+    tying_type: str = "global-and-nonword",
+    nonword_phones: str = "[*",
+    tdp_transition: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]] = (
+        3.0,
+        0.0,
+        "infinity",
+        0.0,
+    ),
+    tdp_silence: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]] = (
         0.0,
         3.0,
         "infinity",
-        6.0,
+        20.0,
+    ),
+    tdp_nonword: Tuple[Union[float, str], Union[float, str], Union[float, str], Union[float, str]] = (
+        0.0,
+        3.0,
+        "infinity",
+        21.0,
     ),
 ):
     """
@@ -264,15 +269,9 @@ def get_monophone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        monophone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        monophone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        monophone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        monophone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         monophone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -292,15 +291,13 @@ def get_monophone_args(
 
 def get_cart_args(
     use_stress_marker: bool = False,
-    max_leaves: int = 12001,
+    max_leaves: int = 9001,
     min_obs: int = 1000,
     hmm_states: int = 3,
     feature_flow: str = "mfcc+deriv+norm",
     add_unknown: bool = False,
 ):
-    CartQuestions = (
-        CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
-    )
+    CartQuestions = CartQuestionsWithStress if use_stress_marker else CartQuestionsWithoutStress
     cart_questions_class = CartQuestions(
         max_leaves=max_leaves,
         min_obs=min_obs,
@@ -381,15 +378,9 @@ def get_triphone_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        triphone_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        triphone_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        triphone_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        triphone_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         triphone_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -469,15 +460,9 @@ def get_vtln_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_training_args["train"]["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_training_args["train"]["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_training_args["train"]["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_training_args["train"]["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -557,15 +542,9 @@ def get_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -645,15 +624,9 @@ def get_vtln_sat_args(
         allow_zero_weights_extra_config = rasr.RasrConfig()
         allow_zero_weights_extra_config.allow_zero_weights = True
 
-        vtln_sat_training_args["align_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["accumulate_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
-        vtln_sat_training_args["split_extra_args"] = {
-            zero_weights_in: allow_zero_weights_extra_config
-        }
+        vtln_sat_training_args["align_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["accumulate_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
+        vtln_sat_training_args["split_extra_args"] = {zero_weights_in: allow_zero_weights_extra_config}
         vtln_sat_recognition_args[zero_weights_in] = allow_zero_weights_extra_config
 
     sdm_args = {
@@ -669,7 +642,9 @@ def get_vtln_sat_args(
     )
 
 
-def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Optional[List[str]] = None) -> rasr_util.ForcedAlignmentArgs:
+def get_align_dev_args(
+    name: str = "dev-clean-other", target_corpus_keys: Optional[List[str]] = None
+) -> rasr_util.ForcedAlignmentArgs:
     if target_corpus_keys is None:
         target_corpus_keys = ["dev-clean", "dev-other"]
 
@@ -684,12 +659,8 @@ def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Option
 
     dev_clean_other_corpus = corpus_recipe.MergeCorporaJob(
         [
-            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)[
-                "dev-clean"
-            ],
-            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)[
-                "dev-other"
-            ],
+            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)["dev-clean"],
+            lbs_dataset.get_bliss_corpus_dict("wav", output_prefix=alias_path)["dev-other"],
         ],
         name="dev-clean-other",
         merge_strategy=corpus_recipe.MergeStrategy.FLAT,
@@ -781,9 +752,7 @@ def get_data_inputs(
         lexicon=augmented_bliss_lexicon,
     )
 
-    dev_corpus_keys = (
-        ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
-    )
+    dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]
     test_corpus_keys = [] if use_eval_data_subset else ["test-clean", "test-other"]
 
     for dev_key in dev_corpus_keys:
