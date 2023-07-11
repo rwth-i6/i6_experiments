@@ -26,6 +26,10 @@ from .specaug_sorted import (
     specaug_layer_sorted,
     get_funcs_sorted,
 )
+from .time_specaug import ( 
+    specaug_layer_only_time,
+    get_funcs_only_time,
+)
 
 RECUSRION_LIMIT = """
 import sys
@@ -223,12 +227,14 @@ def get_returnn_config(
                 network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
                 network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
                 network["source"] = {"class": "copy", "from": "features"}
+                prolog = get_funcs_jingjing()
             else:
                 if specaug_time_only:
-                    network["source"] = specaug_layer_jingjing(in_layer=["features"], specaug_time_only=True)
+                    network["source"] = specaug_layer_only_time(in_layer=["features"])
+                    prolog = get_funcs_only_time()
                 else:
                     network["source"] = specaug_layer_jingjing(in_layer=["features"])
-            prolog = get_funcs_jingjing()
+                    prolog = get_funcs_jingjing()
 
         network = fix_network_for_sparse_output(network)
     else:

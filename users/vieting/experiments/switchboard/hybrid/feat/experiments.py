@@ -187,51 +187,53 @@ def run_baseline_scf():
     scf_args_8khz = {"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2}
     nn_args = get_nn_args_baseline(
         nn_base_args={
-            "scf": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args=scf_args_8khz,
-            ),
-            "scf_specaug_first_layer": dict(
-                returnn_args=dict(
-                    batch_size=3500,
-                    specaug_after_first_layer=True,
-                    extra_args=dict(accum_grad_multiple_step=4),
-                ),
-                feature_args=scf_args_8khz,
-            ),
+            #"scf": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args=scf_args_8khz,
+            #),
+            #"scf_specaug_first_layer": dict(
+            #    returnn_args=dict(
+            #        batch_size=3500,
+            #        specaug_after_first_layer=True,
+            #        extra_args=dict(accum_grad_multiple_step=4),
+            #    ),
+            #    feature_args=scf_args_8khz,
+            #),
             "scf_no_specaug": dict(
                 returnn_args=dict(
-                    batch_size=14000,
+                    batch_size=7000,
                     enable_specaug=False,
+                    extra_args=dict(accum_grad_multiple_step=2),
                 ),
                 feature_args=scf_args_8khz,
             ),
             "scf_specaug_time_only": dict(
                 returnn_args=dict(
-                    batch_size=14000,
+                    batch_size=7000,
                     specaug_time_only=True,
+                    extra_args=dict(accum_grad_multiple_step=2),
                 ),
                 feature_args=scf_args_8khz,
             ),
-            "scf_lr8e-4": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args=scf_args_8khz,
-                peak_lr=8e-4,
-            ),
-            "scf_lr9e-4": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args=scf_args_8khz,
-                peak_lr=9e-4,
-            ),
-            "scf_lr13e-4": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args=scf_args_8khz,
-                peak_lr=13e-4,
-            ),
-            "scf_freeze-scf-180": dict(
-                returnn_args=dict(batch_size=14000, staged_opts={180: "freeze_features"}),
-                feature_args=scf_args_8khz,
-            ),
+            #"scf_lr8e-4": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args=scf_args_8khz,
+            #    peak_lr=8e-4,
+            #),
+            #"scf_lr9e-4": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args=scf_args_8khz,
+            #    peak_lr=9e-4,
+            #),
+            #"scf_lr13e-4": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args=scf_args_8khz,
+            #    peak_lr=13e-4,
+            #),
+            #"scf_freeze-scf-180": dict(
+            #    returnn_args=dict(batch_size=14000, staged_opts={180: "freeze_features"}),
+            #    feature_args=scf_args_8khz,
+            #),
             # "scf_rm-aux-180": dict(
             #     returnn_args=dict(batch_size=14000, staged_opts={180: "remove_aux"}),
             #     feature_args=scf_args_8khz,
@@ -240,26 +242,26 @@ def run_baseline_scf():
             #     returnn_args=dict(batch_size=7000, extra_args={"accum_grad_multiple_step": 2}),
             #     feature_args=scf_args_8khz,
             # )
-            "scf_tf150x256x5": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256, "stride_tf": 10 // 2},
-            ),
-            "scf_tf100x128x5": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "num_tf": 100, "size_tf": 256 // 2, "stride_tf": 10 // 2},
-            ),
-            "scf_wavenorm": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
-            ),
-            "scf_batchnorm": dict(
-                returnn_args=dict(batch_size=14000),
-                feature_args={
-                    "class": "ScfNetwork",
-                    "size_tf": 256 // 2,
-                    "stride_tf": 10 // 2,
-                    "normalization_env": "batch"},
-            ),
+            #"scf_tf150x256x5": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args={"class": "ScfNetwork", "size_tf": 256, "stride_tf": 10 // 2},
+            #),
+            #"scf_tf100x128x5": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args={"class": "ScfNetwork", "num_tf": 100, "size_tf": 256 // 2, "stride_tf": 10 // 2},
+            #),
+            #"scf_wavenorm": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args={"class": "ScfNetwork", "size_tf": 256 // 2, "stride_tf": 10 // 2, "wave_norm": True},
+            #),
+            #"scf_batchnorm": dict(
+            #    returnn_args=dict(batch_size=14000),
+            #    feature_args={
+            #        "class": "ScfNetwork",
+            #        "size_tf": 256 // 2,
+            #        "stride_tf": 10 // 2,
+            #        "normalization_env": "batch"},
+            #),
         },
         prefix="conformer_bs14k_",
         num_epochs=260,
@@ -269,9 +271,9 @@ def run_baseline_scf():
 
     hybrid_nn_system = get_hybrid_nn_system(context_window=249)
     hybrid_nn_system.run(nn_steps)
-    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+    #for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
         # noinspection PyUnresolvedReferences
-        train_job.rqmt.update({"gpu_mem": 24, "mem": 10, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+        #train_job.rqmt.update({"gpu_mem": 11, "mem": 10, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
     returnn_python_exe = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/returnn_tf2.3.4_mkl_launcher.sh",
         hash_overwrite="GENERIC_RETURNN_LAUNCHER",

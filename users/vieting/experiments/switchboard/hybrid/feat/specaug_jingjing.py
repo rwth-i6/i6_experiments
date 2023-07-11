@@ -60,7 +60,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
             loop_vars=(0, x))
     return x
 
-def specaugment_eval_func(data, network, time_factor=1, specaug_time_only=False):
+def specaugment_eval_func(data, network, time_factor=1):
     x = data.placeholder
     from returnn.tf.compat import v1 as tf
     # summary("features", x)
@@ -73,40 +73,28 @@ def specaugment_eval_func(data, network, time_factor=1, specaug_time_only=False)
             x_masked, batch_axis=data.batch_dim_axis, axis=data.time_dim_axis,
             min_num=step1 + step2, max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
             max_dims=20 // time_factor)
-        if not specaug_time_only:
-            x_masked = _random_mask(
-                x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-                min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-                max_dims=data.dim // 5)
+        x_masked = _random_mask(
+            x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
+            min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
+            max_dims=data.dim // 5)
         return x_masked
     x = network.cond_on_train(get_masked, lambda: x)
     return x
 
 
-def specaug_layer_jingjing(in_layer, specaug_time_only=False):
+def specaug_layer_jingjing(in_layer):
     """
     specaug layer with default hybrid settings
 
     :param in_layer:
-    :param specaug_time_only: 
     """
-    if specaug_time_only:
-        return {
-            "class": "eval",
-            "from": in_layer,
-            "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
-                "source(0, as_data=True),"
-                "network=self.network),"
-                "specaug_time_only=True,"
-        }
-    else:
-        return {
-            "class": "eval",
-            "from": in_layer,
-            "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
-                "source(0, as_data=True),"
-                "network=self.network)"
-        }
+    return {
+        "class": "eval",
+        "from": in_layer,
+        "eval":"self.network.get_config().typed_value('specaugment_eval_func')("
+            "source(0, as_data=True),"
+            "network=self.network)"
+    }
 
 def get_funcs_jingjing():
     funcs = []
