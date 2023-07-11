@@ -91,8 +91,8 @@ class DecodingTensorMap:
 
 @dataclass
 class RecognitionJobs:
-    lat2ctm: recog.LatticeToCtmJob
-    sclite: recog.ScliteJob
+    lat2ctm: typing.Optional[recog.LatticeToCtmJob]
+    sclite: typing.Optional[recog.ScliteJob]
     search: recog.AdvancedTreeSearchJob
     search_crp: rasr.RasrConfig
     search_feature_scorer: rasr.FeatureScorer
@@ -633,6 +633,7 @@ class FHDecoder:
         rtf_cpu: float = 16,
         rtf_gpu: float = 4,
         lm_config: rasr.RasrConfig = None,
+        create_lattice: bool = True,
     ) -> RecognitionJobs:
         return self.recognize(
             label_info=label_info,
@@ -657,6 +658,7 @@ class FHDecoder:
             crp_update=crp_update,
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
+            create_lattice=create_lattice,
         )
 
     def recognize_optimize_scales(
@@ -859,6 +861,7 @@ class FHDecoder:
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
         rtf_gpu: typing.Optional[float] = None,
         rtf_cpu: typing.Optional[float] = None,
+        create_lattice: bool = True,
     ) -> RecognitionJobs:
         return self.recognize(
             add_sis_alias_and_output=add_sis_alias_and_output,
@@ -883,6 +886,7 @@ class FHDecoder:
             crp_update=crp_update,
             rtf_cpu=rtf_cpu,
             rtf_gpu=rtf_gpu,
+            create_lattice=create_lattice,
         )
 
     def recognize(
@@ -911,6 +915,7 @@ class FHDecoder:
         crp_update: typing.Optional[typing.Callable[[rasr.RasrConfig], typing.Any]] = None,
         rtf_cpu: typing.Optional[float] = None,
         rtf_gpu: typing.Optional[float] = None,
+        create_lattice: bool = True,
     ) -> RecognitionJobs:
         if isinstance(search_parameters, SearchParameters):
             assert len(search_parameters.tdp_speech) == 4
@@ -989,6 +994,8 @@ class FHDecoder:
                 name += f"-ALTAS{search_parameters.altas}"
             if search_parameters.add_all_allophones:
                 name += "-allAllos"
+            if not create_lattice:
+                name += "-noLattice"
 
         state_tying = search_crp.acoustic_model_config.state_tying.type
 
@@ -1106,6 +1113,7 @@ class FHDecoder:
             extra_config=adv_search_extra_config,
             extra_post_config=None,
             create_dummy_feature_scorer_from_mixtures=self.mixtures if self.lm_gc_simple_hash else None,
+            create_lattice=create_lattice,
             **ts_args,
         )
 
@@ -1123,6 +1131,16 @@ class FHDecoder:
 
         if keep_value is not None:
             search.keep_value(keep_value)
+
+        if not create_lattice:
+            return RecognitionJobs(
+                lat2ctm=None,
+                sclite=None,
+                search=search,
+                search_crp=search_crp,
+                search_feature_scorer=feature_scorer,
+                search_stats=stat,
+            )
 
         lat2ctm_extra_config = rasr.RasrConfig()
         lat2ctm_extra_config.flf_lattice_tool.network.to_lemma.links = "best"
