@@ -28,10 +28,10 @@ class CreateFairseqLabeledDataJob(Job):
     def __init__(
         self,
         corpus_paths: Union[List[tk.Path], tk.Path],
-        file_extension: str="wav",
-        valid_percent: float=0.01,
-        seed: int=42,
-        path_must_contain: Optional[str]=None
+        file_extension: str = "wav",
+        valid_percent: float = 0.01,
+        seed: int = 42,
+        path_must_contain: Optional[str] = None
     ):
         """
         :param audio_dir_path: list of paths or single path to raw audio files to be included
