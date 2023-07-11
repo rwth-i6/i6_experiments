@@ -18,6 +18,7 @@ from ...default_tools import RASR_BINARY_PATH
 def run_librispeech_960_common_baseline(
     alias_prefix="baselines/librispeech/ls960/gmm/common_baseline",
     recognition=True,
+    add_unknown=False,
 ):
 
     # the RASR-System pipelines need global alias and output settings
@@ -29,7 +30,7 @@ def run_librispeech_960_common_baseline(
     rasr_init_args = baseline_args.get_init_args()
     mono_args = baseline_args.get_monophone_args()
     # no unknown question needed when G2P is used
-    cart_args = baseline_args.get_cart_args(add_unknown=False)
+    cart_args = baseline_args.get_cart_args(max_leaves=9001, add_unknown=add_unknown)
     tri_args = baseline_args.get_triphone_args()
     vtln_args = baseline_args.get_vtln_args()
     sat_args = baseline_args.get_sat_args()
@@ -54,7 +55,12 @@ def run_librispeech_960_common_baseline(
 
     # ******************** Data ********************
 
-    corpus_data = get_corpus_data_inputs(corpus_key="train-other-960", use_g2p_training=True, use_stress_marker=False)
+    corpus_data = get_corpus_data_inputs(
+        corpus_key="train-other-960",
+        use_g2p_training=True,
+        use_stress_marker=False,
+        add_unknown_phoneme_and_mapping=add_unknown,
+    )
 
     # ******************** GMM System ********************
 

@@ -15,6 +15,9 @@ from i6_experiments.common.datasets.librispeech.cart import (
 from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
 
 
+USE_CORRECTED_APPLICATOR = True
+
+
 def get_init_args() -> util.RasrInitArgs:
     dc_detection = False
     samples_options = {
@@ -37,7 +40,7 @@ def get_init_args() -> util.RasrInitArgs:
             0.0,
             3.0,
             "infinity",
-            21.0,
+            6.0,
         ),  # only used when tying_type = global-and-nonword
     }
 
@@ -74,7 +77,7 @@ def get_init_args() -> util.RasrInitArgs:
             "energy_options": {
                 "without_samples": False,
                 "samples_options": samples_options,
-                "fft_options": None,
+                "fft_options": {},
             }
         },
     }
@@ -99,6 +102,7 @@ def get_monophone_args(feature_flow: str = "mfcc+deriv+norm") -> util.GmmMonopho
         "minimum_speech_proportion": 0.7,
         "save_alignment": False,
         "keep_accumulators": False,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "extra_merge_args": None,
         "extra_config": None,
         "extra_post_config": None,
@@ -108,10 +112,12 @@ def get_monophone_args(feature_flow: str = "mfcc+deriv+norm") -> util.GmmMonopho
         "name": "mono",
         "feature_flow": feature_flow,
         "feature_energy_flow_key": "energy," + feature_flow,
-        "align_iter": 75,
+        "align_iter": 35,
         "splits": 10,
         "accs_per_split": 2,
         "dump_alignment_score_report": True,
+        "split_extra_rqmt": {"time": 24},
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
     }
 
     monophone_recognition_args = {
@@ -211,9 +217,10 @@ def get_triphone_args(feature_flow: str = "mfcc+context+lda") -> util.GmmTriphon
         "feature_flow": feature_flow,
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "align_extra_rqmt": {"mem": 6},
         "accumulate_extra_rqmt": {"mem": 6},
-        "split_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6, "time": 24},
     }
 
     triphone_recognition_args = {
@@ -279,9 +286,10 @@ def get_vtln_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnArgs:
             "splits": 10,
             "accs_per_split": 2,
             "feature_flow": f"{feature_flow}+vtln",
+            "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
             "accumulate_extra_rqmt": {"mem": 6},
             "align_extra_rqmt": {"mem": 6},
-            "split_extra_rqmt": {"mem": 6},
+            "split_extra_rqmt": {"mem": 6, "time": 24},
         },
     }
 
@@ -338,9 +346,10 @@ def get_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmSatArgs:
         "cache_regex": f"^{base_flow}.*$",
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 6},
         "align_extra_rqmt": {"mem": 6},
-        "split_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6, "time": 24},
     }
 
     sat_recognition_args = {
@@ -405,9 +414,10 @@ def get_vtln_sat_args(feature_flow: str = "mfcc+context+lda") -> util.GmmVtlnSat
         "cache_regex": "^.*\\+vtln$",
         "splits": 10,
         "accs_per_split": 2,
+        "use_corrected_applicator": USE_CORRECTED_APPLICATOR,
         "accumulate_extra_rqmt": {"mem": 6},
         "align_extra_rqmt": {"mem": 6},
-        "split_extra_rqmt": {"mem": 6},
+        "split_extra_rqmt": {"mem": 6, "time": 24},
     }
 
     vtln_sat_recognition_args = {
