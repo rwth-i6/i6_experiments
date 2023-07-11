@@ -141,6 +141,7 @@ def conformer_baseline():
         train_args,
         num_epochs,
         bpe_size,
+        ckpt_select_score_key,
         feature_extraction_net=log10_net_10ms,
         time_rqmt=72,
     ):
@@ -175,7 +176,7 @@ def conformer_baseline():
             seq_train_opts=None,
             **train_args,
         )
-        best_checkpoint = get_best_checkpoint(train_job)
+        best_checkpoint = get_best_checkpoint(train_job, key=ckpt_select_score_key)
         train_job_best_epoch[exp_name] = best_checkpoint
         search(
             exp_prefix + "/default_best",
@@ -192,6 +193,7 @@ def conformer_baseline():
             returnn_exe=RETURNN_CPU_EXE,
             returnn_root=RETURNN_ROOT,
             num_average=4,
+            key=ckpt_select_score_key,
         )
         train_job_avg_ckpt[exp_name] = averaged_checkpoint
         search(
@@ -914,11 +916,12 @@ def conformer_baseline():
                 train_args=args,
                 num_epochs=total_ep,
                 bpe_size=BPE_10K,
+                ckpt_select_score_key="dev_score_output/double_softmax_loss",
             )
 
             # att_retrain1_doubleSoftmax_am2.0_lm0.5_transLM_ep200_lr0.0001_const20_ce0.0
             # Avg: dev-clean: 2.49 - dev-other: 6.02 - test-clean: 2.69 - test-other: 6.16
-            #if am_scale == 2 and rel_scale == 0.25 and ce_scale == 0.0:
+            # if am_scale == 2 and rel_scale == 0.25 and ce_scale == 0.0:
             for search_beam in [40]:
                 for search_lm_scale in [0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5]:
                     run_lm_fusion(
@@ -972,6 +975,7 @@ def conformer_baseline():
                 num_epochs=total_ep,
                 bpe_size=BPE_10K,
                 time_rqmt=total_ep + 4,
+                ckpt_select_score_key="dev_score_min_wer",
             )
 
             for search_beam in [40]:
@@ -992,34 +996,36 @@ def conformer_baseline():
                     )
 
             # att_retrain1_minWER_am1.0_lm0.3_beam8_transLM_ep20_lr2e-05_const20_ce0.01
-            if lr == 2e-5 and abs_scale == 1.0 and rel_scale == 0.3 and ce_scale == 0.01:
-                mini_lstm_j = train_mini_lstm(
-                    exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
-                    checkpoint=train_job_avg_ckpt[f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}"],
-                    args=oclr_args,
-                    num_epochs=40,
-                    w_drop=True,
-                )
-
-                for search_beam in [70]:
-                    for search_lm_scale in [0.54, 0.56, 0.58]:
-                        for search_ilm_scale in [0.38, 0.4, 0.42]:
-                            run_lm_fusion(
-                                lm_type="trafo",
-                                exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
-                                epoch="avg",
-                                test_set_names=["dev-other"],
-                                lm_scales=[search_lm_scale],
-                                train_job=train_j,
-                                train_data=train_data,
-                                feature_net=log10_net_10ms,
-                                args=oclr_args,
-                                beam_size=search_beam,
-                                batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
-                                bpe_size=BPE_10K,
-                                prior_type="mini_lstm",
-                                prior_scales=[search_ilm_scale],
-                                mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
-                            )
+            # if lr == 2e-5 and abs_scale == 1.0 and rel_scale == 0.3 and ce_scale == 0.01:
+            #     mini_lstm_j = train_mini_lstm(
+            #         exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
+            #         checkpoint=train_job_avg_ckpt[
+            #             f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}"
+            #         ],
+            #         args=oclr_args,
+            #         num_epochs=40,
+            #         w_drop=True,
+            #     )
+            #
+            #     for search_beam in [40, 50, 70]:
+            #         for search_lm_scale in [0.58, 0.6, 0.62, 0.64, 0.66, 0.68]:
+            #             for search_ilm_scale in [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.45]:
+            #                 run_lm_fusion(
+            #                     lm_type="trafo",
+            #                     exp_name=f"att_retrain1_minWER_am{am_scale}_lm{lm_scale}_beam{beam}_transLM_ep{total_ep}_lr{lr}_const{const_ep}_ce{ce_scale}",
+            #                     epoch="avg",
+            #                     test_set_names=["dev-other"],
+            #                     lm_scales=[search_lm_scale],
+            #                     train_job=train_j,
+            #                     train_data=train_data,
+            #                     feature_net=log10_net_10ms,
+            #                     args=oclr_args,
+            #                     beam_size=search_beam,
+            #                     batch_size=(1000 * 160) if beam_size > 40 else (2000 * 160),
+            #                     bpe_size=BPE_10K,
+            #                     prior_type="mini_lstm",
+            #                     prior_scales=[search_ilm_scale],
+            #                     mini_lstm_ckpt=get_best_checkpoint(mini_lstm_j, key="dev_score"),
+            #                 )
 
     # TODO: MMI
