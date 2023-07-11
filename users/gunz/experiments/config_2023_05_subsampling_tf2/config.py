@@ -12,6 +12,7 @@ ALIGN_30MS_CONF_V2 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/
 ALIGN_30MS_CONF_V3 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/conf-1-lr-v6-ss-3-fs-3-bw-0.3-pC-0.6-tdp-1.0-v3/alignment.cache.bundle"
 ALIGN_30MS_BLSTM_V1 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-3-fs-3-bw-0.3-pC-0.6-tdp-0.1-v1/alignment.cache.bundle"
 ALIGN_30MS_BLSTM_V2 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-lr-v6-ss-4-mp-2,3-mp-2,4-bw-0.3-pC0.6-tdp-1.0-v2/alignment.cache.bundle"
+ALIGN_30MS_BLSTM_V3 = "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/alignments/30ms/blstm-1-tina-v3/alignment.cache.bundle"
 
 ZHOU_SUBSAMPLED_ALIGNMENT = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/alignments/ls-960/scratch/zhou-subsample-4-dc-detection/alignment.cache.bundle"
 ZHOU_ALLOPHONES = "/work/asr3/raissi/shared_workspaces/gunz/dependencies/allophones/ls-960/zhou-allophones"

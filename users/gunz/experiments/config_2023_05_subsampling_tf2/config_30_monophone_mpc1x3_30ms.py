@@ -45,6 +45,7 @@ from .config import (
     ALIGN_30MS_CONF_V2,
     ALIGN_30MS_CONF_V3,
     ALIGN_30MS_BLSTM_V2,
+    ALIGN_30MS_BLSTM_V3,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -88,6 +89,7 @@ def run(returnn_root: tk.Path):
     scratch_align_v2 = tk.Path(ALIGN_30MS_CONF_V2, cached=True)
     scratch_align_v3 = tk.Path(ALIGN_30MS_CONF_V3, cached=True)
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
+    scratch_align_blstm_v3 = tk.Path(ALIGN_30MS_BLSTM_V3, cached=True)
 
     configs = [
         # Experiment(
@@ -112,7 +114,17 @@ def run(returnn_root: tk.Path):
         # ),
         Experiment(
             alignment=scratch_align_blstm_v2,
-            alignment_name="30ms-B-v1",
+            alignment_name="30ms-B-v2",
+            dc_detection=False,
+            decode_all_corpora=False,
+            lr="v13",
+            multitask=True,
+            run_performance_study=False,
+            tune_decoding=True,
+        ),
+        Experiment(
+            alignment=scratch_align_blstm_v3,
+            alignment_name="30ms-B-v3",
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
