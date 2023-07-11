@@ -1124,8 +1124,9 @@ class FHDecoder:
             stat = ExtractSearchStatisticsJob(list(search.out_log_file.values()), self.corpus_duration)
 
             if add_sis_alias_and_output:
-                stat.add_alias(f"statistics/{name}")
-                tk.register_output(f"statistics/rtf/{name}.rtf", stat.decoding_rtf)
+                pre = f"{pre_path}-" if pre_path != "decoding" and pre_path != "decoding-gridsearch" else ""
+                stat.add_alias(f"{pre}statistics/{name}")
+                tk.register_output(f"{pre}statistics/rtf/{name}.rtf", stat.decoding_rtf)
         else:
             stat = None
 
