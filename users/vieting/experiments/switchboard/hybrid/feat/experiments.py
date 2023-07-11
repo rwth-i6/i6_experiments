@@ -209,7 +209,7 @@ def run_baseline_scf():
             "scf_specaug_time_only": dict(
                 returnn_args=dict(
                     batch_size=14000,
-                    specaug_time_only=False,
+                    specaug_time_only=True,
                 ),
                 feature_args=scf_args_8khz,
             ),
