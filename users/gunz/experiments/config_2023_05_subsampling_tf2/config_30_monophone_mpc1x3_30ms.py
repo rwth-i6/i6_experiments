@@ -288,7 +288,7 @@ def run_single(
         "dev": {"reduce_target_factor": ss_factor},
         "train": {"reduce_target_factor": ss_factor},
     }
-    keep_epochs = [100, 300, 500, 550, num_epochs]
+    keep_epochs = [100, 300, 400, 500, 550, num_epochs]
     base_post_config = {
         "cleanup_old_models": {
             "keep_best_n": 3,
