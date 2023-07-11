@@ -397,11 +397,20 @@ def run_single(
             )
 
     if run_performance_study:
+        ep = 500
+        s.set_diphone_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.diphone,
             crp_corpus="dev-other",
-            epoch=500,
+            epoch=ep,
             gpu=False,
             tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
