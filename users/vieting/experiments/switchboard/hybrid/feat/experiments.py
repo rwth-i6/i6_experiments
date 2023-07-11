@@ -199,6 +199,20 @@ def run_baseline_scf():
                 ),
                 feature_args=scf_args_8khz,
             ),
+            "scf_no_specaug": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=False,
+                ),
+                feature_args=scf_args_8khz,
+            ),
+            "scf_specaug_time_only": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    specaug_time_only=False,
+                ),
+                feature_args=scf_args_8khz,
+            ),
             "scf_lr8e-4": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args=scf_args_8khz,
@@ -273,10 +287,10 @@ def run_specaug_scf():
         nn_base_args={
             "scf": dict(
                 returnn_args=dict(
-                    batch_size=7000,
+                    batch_size=3500,
                     specaug_mask_sorting=True,
                     specaug_after_first_layer=True,
-                    extra_args=dict(accum_grad_multiple_step=2)
+                    extra_args=dict(accum_grad_multiple_step=4)
                 ),
                 feature_args=scf_args_8khz,
             ),

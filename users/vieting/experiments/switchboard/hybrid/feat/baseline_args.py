@@ -175,8 +175,10 @@ def get_returnn_config(
     recognition: bool = False,
     extra_args: Optional[Dict[str, Any]] = None,
     staged_opts: Optional[Dict[int, Any]] = None,
+    enable_specaug: bool = True,
     specaug_mask_sorting: bool = False,
     specaug_after_first_layer: bool = False,
+    specaug_time_only: bool = False,
     mask_divisor: int = None,
 ):
     base_config = {
@@ -209,7 +211,7 @@ def get_returnn_config(
             if "aux" in layer:
                 network.pop(layer)
         network["source"] = {"class": "copy", "from": "features"}
-    else:
+    elif enable_specaug:
         if specaug_mask_sorting:
             assert specaug_after_first_layer, "Sorted specaug is only possible after the first layer!"
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
@@ -222,9 +224,15 @@ def get_returnn_config(
                 network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
                 network["source"] = {"class": "copy", "from": "features"}
             else:
-                network["source"] = specaug_layer_jingjing(in_layer=["features"])
+                if specaug_time_only:
+                    network["source"] = specaug_layer_jingjing(in_layer=["features"], specaug_time_only=True)
+                else:
+                    network["source"] = specaug_layer_jingjing(in_layer=["features"])
             prolog = get_funcs_jingjing()
 
+        network = fix_network_for_sparse_output(network)
+    else:
+        network["source"] = {"class": "copy", "from": "features"}
         network = fix_network_for_sparse_output(network)
 
     conformer_base_config = copy.deepcopy(base_config)
