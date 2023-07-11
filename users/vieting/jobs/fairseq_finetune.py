@@ -193,3 +193,4 @@ Z 213
                 else:
                     common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
         return common_dir
+        
