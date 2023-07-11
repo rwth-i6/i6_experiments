@@ -72,24 +72,6 @@ class CreateFairseqLabeledDataJob(Job):
     def run(self):
         self.create_tsv_and_labels()
         self.create_dict_ltr()
-    
-    def get_common_dir(self):
-        """
-        Returns the common directory of all audios given in the corpora.
-        """
-        # TODO test this
-        common_dir = None
-        for corpus_path in self.corpus_paths:
-            corpus_object = corpus.Corpus()
-            corpus_object.load(corpus_path.get())
-            for segment in corpus_object.segments():
-                audio_path = segment.recording.audio
-                assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
-                if common_dir is None:
-                    common_dir = os.path.dirname(audio_path)
-                else:
-                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
-        return common_dir
 
     def create_tsv_and_labels(self):
         """
@@ -192,3 +174,22 @@ Z 213
 """
         with open(self.out_dict_ltr_path.get(), 'w') as f:
             f.write(dict_ltr_content)
+
+    
+    def get_common_dir(self):
+        """
+        Returns the common directory of all audios given in the corpora.
+        """
+        # TODO test this
+        common_dir = None
+        for corpus_path in self.corpus_paths:
+            corpus_object = corpus.Corpus()
+            corpus_object.load(corpus_path.get())
+            for segment in corpus_object.segments():
+                audio_path = segment.recording.audio
+                assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
+                if common_dir is None:
+                    common_dir = os.path.dirname(audio_path)
+                else:
+                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
+        return common_dir
