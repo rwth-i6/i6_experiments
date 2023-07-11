@@ -17,7 +17,7 @@ from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
 
 from sisyphus import tk
-from sisyphus.delayed_ops import DelayedFormat
+from sisyphus.delayed_ops import DelayedFormat, DelayedBase
 
 import i6_core.am as am
 import i6_core.rasr as rasr
@@ -241,10 +241,10 @@ class ReturnnRasrDataInput:
 
 @dataclass()
 class AllophoneLabeling:
-    silence_phoneme: str
-    allophone_file: tk.Path
-    phoneme_file: Optional[tk.Path] = None
-    state_tying_file: Optional[tk.Path] = None
+    silence_phone: str
+    allophone_file: Union[tk.Path, DelayedBase]
+    phoneme_file: Optional[Union[tk.Path, DelayedBase]] = None
+    state_tying_file: Optional[Union[tk.Path, DelayedBase]] = None
 
 
 class OggZipRasrCacheDataInput:
@@ -459,7 +459,7 @@ class HdfDataInput:
         align_args: Optional[Dict[str, Any]] = None,
         feat_args: Optional[Dict[str, Any]] = None,
         acoustic_mixtures: Optional[tk.Path] = None,
-        segment_file: Optional[tk.Path] = None
+        segment_file: Optional[tk.Path] = None,
     ):
         """
         :param features: hdf files which contain raw wve form or features, like GT or MFCC
