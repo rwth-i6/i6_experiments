@@ -47,7 +47,7 @@ def build_hdf_data_input(
                 "filename": features,
                 "data_type": "feat",
                 "allophone_labeling": {
-                    "silence_phone": allophone_labeling.silence_phoneme,
+                    "silence_phone": allophone_labeling.silence_phone,
                     "allophone_file": allophone_labeling.allophone_file,
                     "state_tying_file": allophone_labeling.state_tying_file,
                 },
@@ -71,7 +71,7 @@ def build_hdf_data_input(
                 "filename": alignments,
                 "data_type": "align",
                 "allophone_labeling": {
-                    "silence_phone": allophone_labeling.silence_phoneme,
+                    "silence_phone": allophone_labeling.silence_phone,
                     "allophone_file": allophone_labeling.allophone_file,
                     "state_tying_file": allophone_labeling.state_tying_file,
                 },
@@ -188,7 +188,7 @@ def get_corpus_data_inputs(
     )
 
     allophone_labeling = AllophoneLabeling(
-        silence_phoneme="[SILENCE]",
+        silence_phone="[SILENCE]",
         allophone_file=gmm_system.allophone_files["train"],
         state_tying_file=gmm_system.jobs["train"]["state_tying"].out_state_tying,
     )
