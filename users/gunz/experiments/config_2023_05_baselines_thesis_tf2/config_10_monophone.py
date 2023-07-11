@@ -386,7 +386,7 @@ def run_single(
     if run_performance_study:
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.diphone,
+            context_type=PhoneticContext.monophone,
             crp_corpus="dev-other",
             epoch=max(keep_epochs),
             gpu=False,
