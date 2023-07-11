@@ -555,7 +555,7 @@ def run_single(
             crp=crp,
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=True,
-                set_do_not_normalize_lemma_sequence_scores=False,
+            set_do_not_normalize_lemma_sequence_scores=False,
         )
 
         allophones = lexicon.StoreAllophonesJob(crp)
@@ -600,7 +600,7 @@ def run_single(
             crp=crp,
             feature_scorer=align_search_jobs.search_feature_scorer,
             default_tdp=True,
-                set_do_not_normalize_lemma_sequence_scores=False,
+            set_do_not_normalize_lemma_sequence_scores=False,
         )
 
         allophones = lexicon.StoreAllophonesJob(crp)

@@ -172,7 +172,9 @@ def run_single(
 
     s.experiments["fh"]["train_job"] = FakeReturnnJob(493, import_checkpoint)
 
-    s.experiments["fh"]["graph"]["inference"] = tk.Path("/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/graph.meta")
+    s.experiments["fh"]["graph"]["inference"] = tk.Path(
+        "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/graph.meta"
+    )
     s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
