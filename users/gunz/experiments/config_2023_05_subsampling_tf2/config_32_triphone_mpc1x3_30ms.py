@@ -434,7 +434,7 @@ def run_single(
                 mem_rqmt=4,
                 create_lattice=create_lattice,
             )
-            jobs.search.rqmt.update({"sbatch_args", "-w cluster-cn-30"})
+            jobs.search.rqmt.update({"sbatch_args": ["-w", "cluster-cn-30"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"

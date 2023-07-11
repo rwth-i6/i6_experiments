@@ -435,7 +435,7 @@ def run_single(
                 cpu_rqmt=2,
                 mem_rqmt=4,
             )
-            jobs.search.rqmt.update({"sbatch_args", "-w cluster-cn-30"})
+            jobs.search.rqmt.update({"sbatch_args": ["-w", "cluster-cn-30"]})
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
