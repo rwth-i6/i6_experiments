@@ -103,11 +103,13 @@ class TransducerSystem:
         rasr_python_home: Optional[tk.Path] = None,
         rasr_python_exe: Optional[tk.Path] = None,
         blas_lib: Optional[tk.Path] = None,
+        require_native_lstm: bool = True,
     ) -> None:
         self.rasr_binary_path = rasr_binary_path
         self.returnn_root = returnn_root
         self.returnn_python_exe = returnn_python_exe
         self.blas_lib = blas_lib
+        self._require_native_lstm = require_native_lstm
 
         # Build base crp
         self.base_crp = rasr.CommonRasrParameters()
@@ -217,7 +219,10 @@ class TransducerSystem:
             self._generate_stm_for_corpus(key)
 
     @lru_cache_with_signature
-    def _get_native_op(self) -> tk.Path:
+    def _get_native_op(self) -> Optional[tk.Path]:
+        if not self._require_native_lstm:
+            return None
+
         # DO NOT USE BLAS ON I6, THIS WILL SLOW DOWN RECOGNITION ON OPTERON MACHNIES BY FACTOR 4
         compile_job = returnn.CompileNativeOpJob(
             "NativeLstm2",
