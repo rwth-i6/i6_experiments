@@ -314,7 +314,7 @@ def run_single(
 
     exp_config = copy.deepcopy(returnn_config)
     if not multitask:
-        exp_config.config["network"]["center-state"]["n_out"] = s.label_info.get_n_state_classes()
+        exp_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
@@ -332,7 +332,7 @@ def run_single(
     )
     prior_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     if not multitask:
-        prior_config.config["network"]["center-state"]["n_out"] = s.label_info.get_n_state_classes()
+        prior_config.config["network"]["center-output"]["n_out"] = s.label_info.get_n_state_classes()
     s.set_mono_priors_returnn_rasr(
         key="fh",
         epoch=keep_epochs[-2],
