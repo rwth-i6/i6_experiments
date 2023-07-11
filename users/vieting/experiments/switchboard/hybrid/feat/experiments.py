@@ -287,10 +287,10 @@ def run_specaug_scf():
         nn_base_args={
             "scf": dict(
                 returnn_args=dict(
-                    batch_size=3500,
+                    batch_size=7000,
                     specaug_mask_sorting=True,
                     specaug_after_first_layer=True,
-                    extra_args=dict(accum_grad_multiple_step=4)
+                    extra_args=dict(accum_grad_multiple_step=2)
                 ),
                 feature_args=scf_args_8khz,
             ),
