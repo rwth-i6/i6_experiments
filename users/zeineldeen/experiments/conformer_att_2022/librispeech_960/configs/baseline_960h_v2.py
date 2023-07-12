@@ -926,32 +926,32 @@ def conformer_baseline():
     # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay60_1e-05_decayPt0.75                        2.28         5.64          2.48          5.74       60
     # base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc915_ep2035_peak0.0009_retrain1_linDecay100_0.0001_decayPt0.5                        2.28         5.63          2.47          5.68      100
 
-    causal_args = copy.deepcopy(oclr_args)
-    causal_args["encoder_args"].use_causal_layers = True
-
-    # TODO: with higher LR
-    args = copy.deepcopy(causal_args)
-    for att_scale in [0.3, 0.5]:
-        args["decoder_args"].ce_loss_scale = att_scale
-        args["oclr_opts"]["peak_lr"] = 0.0008 * 2
-        run_exp(
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}",
-            train_args=args,
-            num_epochs=435,
-        )
-
-    # TODO: epoch-based OCLR
-    args = copy.deepcopy(causal_args)
-    for att_scale in [0.1, 0.2, 0.3, 0.5]:
-        args["decoder_args"].ce_loss_scale = att_scale
-        args.pop("oclr_opts", None)
-        args["learning_rates_list"] = (
-            list(numpy.linspace(8e-5, 8e-4, 195))
-            + list(numpy.linspace(8e-4, 8e-5, 195))
-            + list(numpy.linspace(8e-5, 1e-6, 45))
-        )
-        run_exp(
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}_epochOCLR",
-            train_args=args,
-            num_epochs=435,
-        )
+    # causal_args = copy.deepcopy(oclr_args)
+    # causal_args["encoder_args"].use_causal_layers = True
+    #
+    # # TODO: with higher LR
+    # args = copy.deepcopy(causal_args)
+    # for att_scale in [0.3, 0.5]:
+    #     args["decoder_args"].ce_loss_scale = att_scale
+    #     args["oclr_opts"]["peak_lr"] = 0.0008 * 2
+    #     run_exp(
+    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}",
+    #         train_args=args,
+    #         num_epochs=435,
+    #     )
+    #
+    # # TODO: epoch-based OCLR
+    # args = copy.deepcopy(causal_args)
+    # for att_scale in [0.1, 0.2, 0.3, 0.5]:
+    #     args["decoder_args"].ce_loss_scale = att_scale
+    #     args.pop("oclr_opts", None)
+    #     args["learning_rates_list"] = (
+    #         list(numpy.linspace(8e-5, 8e-4, 195))
+    #         + list(numpy.linspace(8e-4, 8e-5, 195))
+    #         + list(numpy.linspace(8e-5, 1e-6, 45))
+    #     )
+    #     run_exp(
+    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_ep435_peakLR-0.0016_causal_attScale-{att_scale}_epochOCLR",
+    #         train_args=args,
+    #         num_epochs=435,
+    #     )

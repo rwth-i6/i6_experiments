@@ -726,26 +726,26 @@ def conformer_baseline():
     )
 
     # baseline with 635 epochs and epoch-based OCLR
-    args = copy.deepcopy(oclr_args)
-    args.pop("oclr_opts")
-    args["learning_rates_list"] = (
-        list(numpy.linspace(8e-5, 8e-4, 285))
-        + list(numpy.linspace(8e-4, 8e-5, 285))
-        + list(numpy.linspace(8e-5, 1e-6, 65))
-    )
-    run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_epochOCLR", train_args=args, num_epochs=635)
-
-    # TODO: average epoch-based OCLR
-    args = copy.deepcopy(oclr_args)
-    oclr_n_step = args["oclr_opts"]["n_step"]
-    args.pop("oclr_opts")
-    lrs = numpy.concatenate(
-        [
-            numpy.linspace(8e-5, 8e-4, 285 * oclr_n_step),
-            numpy.linspace(8e-4, 8e-5, 285 * oclr_n_step),
-            numpy.linspace(8e-5, 1e-6, 65 * oclr_n_step),
-        ]
-    )  # (num_epochs * n_step,)
-    args["learning_rates_list"] = list(numpy.mean(lrs.reshape(-1, oclr_n_step), axis=-1))
-    assert len(args["learning_rates_list"]) == 635
-    run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_avgEpochOCLR", train_args=args, num_epochs=635)
+    # args = copy.deepcopy(oclr_args)
+    # args.pop("oclr_opts")
+    # args["learning_rates_list"] = (
+    #     list(numpy.linspace(8e-5, 8e-4, 285))
+    #     + list(numpy.linspace(8e-4, 8e-5, 285))
+    #     + list(numpy.linspace(8e-5, 1e-6, 65))
+    # )
+    # run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_epochOCLR", train_args=args, num_epochs=635)
+    #
+    # # TODO: average epoch-based OCLR
+    # args = copy.deepcopy(oclr_args)
+    # oclr_n_step = args["oclr_opts"]["n_step"]
+    # args.pop("oclr_opts")
+    # lrs = numpy.concatenate(
+    #     [
+    #         numpy.linspace(8e-5, 8e-4, 285 * oclr_n_step),
+    #         numpy.linspace(8e-4, 8e-5, 285 * oclr_n_step),
+    #         numpy.linspace(8e-5, 1e-6, 65 * oclr_n_step),
+    #     ]
+    # )  # (num_epochs * n_step,)
+    # args["learning_rates_list"] = list(numpy.mean(lrs.reshape(-1, oclr_n_step), axis=-1))
+    # assert len(args["learning_rates_list"]) == 635
+    # run_exp("base_conf_12l_lstm_1l_conv6_sqrdReLU_cyc285_ep635_avgEpochOCLR", train_args=args, num_epochs=635)
