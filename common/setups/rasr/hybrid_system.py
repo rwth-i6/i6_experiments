@@ -1,4 +1,4 @@
-__all__ = ["HybridSystem"]
+__all__ = ["HybridArgs", "HybridSystem"]
 
 import copy
 import itertools
@@ -94,17 +94,13 @@ class HybridSystem(NnSystem):
         self.cv_corpora = []
         self.devtrain_corpora = []
 
-        self.train_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.cv_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.devtrain_input_data = (
-            None
-        )  # type:Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]]
-        self.dev_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
-        self.test_input_data = None  # type:Optional[Dict[str, ReturnnRasrDataInput]]
+        self.train_input_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None
+        self.cv_input_data: Optional[Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]] = None
+        self.devtrain_input_data: Optional[
+            Dict[str, Union[ReturnnRasrDataInput, AllowedReturnnTrainingDataInput]]
+        ] = None
+        self.dev_input_data: Optional[Dict[str, ReturnnRasrDataInput]] = None
+        self.test_input_data: Optional[Dict[str, ReturnnRasrDataInput]] = None
 
         self.train_cv_pairing = None
 
@@ -373,7 +369,6 @@ class HybridSystem(NnSystem):
         use_epoch_for_compile=False,
         forward_output_layer="output",
         native_ops: Optional[List[str]] = None,
-        acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
     ):
         with tk.block(f"{name}_recognition"):
@@ -395,6 +390,7 @@ class HybridSystem(NnSystem):
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
+
                 assert epoch in checkpoints.keys()
                 acoustic_mixture_path = CreateDummyMixturesJob(
                     num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
@@ -408,16 +404,15 @@ class HybridSystem(NnSystem):
                     returnn_root=train_job.returnn_root,
                     log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
                 )
-
                 prior_job.add_alias("extract_nn_prior/" + name)
                 prior_file = prior_job.out_prior_xml_file
                 assert prior_file is not None
+
                 scorer = rasr.PrecomputedHybridFeatureScorer(
                     prior_mixtures=acoustic_mixture_path,
                     priori_scale=prior,
                     prior_file=prior_file,
                 )
-                assert acoustic_mixture_path is not None
 
                 if use_epoch_for_compile:
                     tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
@@ -474,7 +469,6 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=dev_c,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **recog_args,
                 )
 
@@ -490,7 +484,6 @@ class HybridSystem(NnSystem):
                     checkpoints=checkpoints,
                     train_job=train_job,
                     recognition_corpus_key=tst_c,
-                    acoustic_mixture_path=self.train_input_data[train_corpus_key].acoustic_mixtures,
                     **r_args,
                 )
 
@@ -509,12 +502,8 @@ class HybridSystem(NnSystem):
             e.g. `def get_network(epoch=...)` in the config
         :return: the TF graph
         """
-        # TODO remove, temporary hack
-        cfg = returnn_config
-        if "pretrain" in cfg.config.keys():
-            del cfg.config["pretrain"]
         graph_compile_job = returnn.CompileTFGraphJob(
-            cfg,
+            returnn_config=returnn_config,
             epoch=epoch,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
