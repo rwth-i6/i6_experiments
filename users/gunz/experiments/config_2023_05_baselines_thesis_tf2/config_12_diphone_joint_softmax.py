@@ -342,4 +342,24 @@ def run_single(
                 calculate_statistics=True,
             )
 
+    if run_performance_study:
+        recog_args = dataclasses.replace(recog_args.with_prior_scale(0.4, 0.4), altas=2, beam=20, tdp_scale=0.4)
+
+        for create_lattice in [True, False]:
+            s.recognize_cart(
+                key="fh",
+                epoch=max(keep_epochs),
+                crp_corpus="dev-other",
+                n_cart_out=s.label_info.get_n_state_classes() * s.label_info.n_contexts,
+                cart_tree_or_tying_config=tying_cfg,
+                params=recog_args,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+                cpu_rqmt=2,
+                mem_rqmt=4,
+                alias_output_prefix="perf-eval" + ("-no-lattice" if not create_lattice else ""),
+                search_rqmt_update={"sbatch_args": ["-w", "cn-30"]},
+                create_lattice=create_lattice,
+            )
+
     return s

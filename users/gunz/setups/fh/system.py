@@ -1429,6 +1429,8 @@ class FactoredHybridSystem(NnSystem):
         parallel: typing.Optional[int] = None,
         adv_search_extra_config: typing.Optional[rasr.RasrConfig] = None,
         alias_output_prefix: str = "",
+        create_lattice: bool = True,
+        search_rqmt_update: Optional[dict] = None,
     ):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1454,6 +1456,8 @@ class FactoredHybridSystem(NnSystem):
                 kwargs["parallel"] = parallel
 
             adv_tree_search_job = recognition.AdvancedTreeSearchJob(*args, **kwargs)
+            if search_rqmt_update is not None:
+                adv_tree_search_job.rqmt.update(search_rqmt_update)
             return adv_tree_search_job
 
         decoder = HybridDecoder(
@@ -1558,7 +1562,7 @@ class FactoredHybridSystem(NnSystem):
                 lm_lookahead=True,
                 lmgc_mem=12,
                 lookahead_options=None,
-                create_lattice=True,
+                create_lattice=create_lattice,
                 eval_best_in_lattice=True,
                 eval_single_best=True,
                 extra_config=adv_search_extra_config,
