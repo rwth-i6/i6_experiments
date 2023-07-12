@@ -1,3 +1,4 @@
+import copy
 import itertools
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -20,7 +21,6 @@ from i6_core.returnn.flow import (
 
 Path = tk.setup_path(__package__)
 from i6_core.mm import CreateDummyMixturesJob
-from i6_core.returnn import ReturnnComputePriorJobV2
 
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -108,7 +108,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     returnn_root=self.returnn_root,
                     quantize_dynamic=quantize_dynamic,
                 )
-                onnx_job.add_alias(name + "/export_onnx")
+                onnx_job.add_alias("export_onnx/" +  name + "/epoch_" + str(epoch))
                 onnx_model = onnx_job.out_onnx_model
 
                 io_map = {
@@ -118,6 +118,37 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                 if needs_features_size:
                     io_map["features-size"] = "data_len"
 
+                from i6_experiments.users.hilmes.experiments.tedlium2.asr_2023.hybrid.torch_baselines.pytorch_networks.prior.forward import ReturnnForwardComputePriorJob
+                acoustic_mixture_path = CreateDummyMixturesJob(
+                    num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
+                    num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
+                lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
+                prior_config = copy.deepcopy(returnn_config)
+                assert len(self.train_cv_pairing) == 1, "multiple train corpora not supported yet"
+                train_data = self.train_input_data[self.train_cv_pairing[0][0]]
+                prior_config.config["train"] = copy.deepcopy(train_data) if isinstance(train_data, Dict) else copy.deepcopy(train_data.get_data_dict())
+                #prior_config.config["train"]["datasets"]["align"]["partition_epoch"] = 3
+                prior_config.config["train"]["datasets"]["align"]["seq_ordering"] = "random"
+                prior_config.config["forward_batch_size"] = 10000
+                if "chunking" in prior_config.config.keys():
+                    del prior_config.config["chunking"]
+                from i6_core.tools.git import CloneGitRepositoryJob
+                returnn_root = CloneGitRepositoryJob(
+                    "https://github.com/rwth-i6/returnn",
+                    commit="925e0023c52db071ecddabb8f7c2d5a88be5e0ec",
+                ).out_repository
+                #prior_config.config["max_seqs"] = 5
+                nn_prior_job = ReturnnForwardComputePriorJob(
+                    model_checkpoint=checkpoints[epoch],
+                    returnn_config=prior_config,
+                    returnn_python_exe=self.returnn_python_exe,
+                    returnn_root=returnn_root,
+                    log_verbosity=train_job.returnn_config.post_config["log_verbosity"],
+                )
+                nn_prior_job.rqmt["gpu_mem"] = 22
+                nn_prior_job.add_alias("extract_nn_prior/" + name + "/epoch_" + str(epoch))
+                prior_file = nn_prior_job.out_prior_xml_file
+
                 scorer = OnnxFeatureScorer(
                     mixtures=acoustic_mixture_path,
                     model=onnx_model,
@@ -125,6 +156,7 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     io_map=io_map,
                     inter_op_threads=kwargs.get("cpu", 1),
                     intra_op_threads=kwargs.get("cpu", 1),
+                    prior_file=prior_file
                 )
 
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
@@ -145,6 +177,6 @@ class PyTorchOnnxHybridSystem(HybridSystem):
                     rtf=rtf,
                     mem=mem,
                     lmgc_alias=f"lmgc/{name}/{recognition_corpus_key}-{recog_name}",
-                    lmgc_scorer=scorer,
+                    lmgc_scorer=lmgc_scorer,
                     **kwargs,
                 )
