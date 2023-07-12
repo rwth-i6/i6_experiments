@@ -23,7 +23,6 @@ from .config.lm_config import (
     CombineLmRasrConfig,
 )
 from .util.decode import (
-    DevRecognitionParameters,
     RecognitionParameters,
     SearchJobArgs,
     Lattice2CtmArgs,
@@ -48,7 +47,7 @@ class HybridDecoder(BaseDecoder):
     def __init__(
         self,
         rasr_binary_path: tk.Path,
-        rasr_arch: str = "linux-x86_64-standard",
+        rasr_arch: "str" = "linux-x86_64-standard",
         compress: bool = False,
         append: bool = False,
         unbuffered: bool = False,
@@ -156,9 +155,8 @@ class HybridDecoder(BaseDecoder):
         tf_fwd_input_name: str = "tf-fwd-input",
     ):
         """
-        run the recognition, consisting of search, lattice to ctm, and scoring
+        run the recognitino, consisting of search, lattice to ctm, and scoring
 
-        :param name: decoding name
         :param returnn_config: RETURNN config for recognition
         :param checkpoints: epoch to model checkpoint mapping
         :param recognition_parameters: keys are the corpus keys so that recog params can be set for specific eval sets.
@@ -223,247 +221,3 @@ class HybridDecoder(BaseDecoder):
                             scorer_hyp_param_name=scorer_hyp_param_name,
                             optimize_pron_lm_scales=optimize_pron_lm_scales,
                         )
-
-
-def tune_scales(
-    decoder: HybridDecoder,
-    name: str,
-    returnn_config: Union[returnn.ReturnnConfig, tk.Path],
-    checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-    lm_configs: Dict[str, LmConfig],
-    prior_paths: Dict[str, PriorPath],
-    search_job_args: Union[SearchJobArgs, Dict],
-    lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
-    scorer_args: Union[ScliteScorerArgs, Dict],
-    optimize_parameters: Union[OptimizeJobArgs, Dict],
-    epochs: Optional[List[int]] = None,
-    scorer_hyp_param_name: str = "hyp",
-    optimize_pron_lm_scales: bool = False,
-    forward_output_layer: str = "output",
-    tf_fwd_input_name: str = "tf-fwd-input",
-):
-    """
-    this function tunes the prior scale, TDP scale and silence/non-word exit penalties
-
-    :return:
-    """
-    recog_params = {
-        "tune1": [
-            DevRecognitionParameters(
-                am_scales=[1.0],
-                lm_scales=[12.0],
-                prior_scales=[0.3, 0.5, 0.7],
-                pronunciation_scales=[1.0],
-                tdp_scales=[0.1, 0.5, 1.0],
-                speech_tdps=[],
-                silence_tdps=[],
-                nonspeech_tdps=[],
-                altas=[12.0],
-            ),
-        ],
-    }
-
-    decoder.recognition(
-        name=name,
-        returnn_config=returnn_config,
-        checkpoints=checkpoints,
-        recognition_parameters=recog_params,
-        lm_configs=lm_configs,
-        prior_paths=prior_paths,
-        search_job_args=search_job_args,
-        lat_2_ctm_args=lat_2_ctm_args,
-        scorer_args=scorer_args,
-        optimize_parameters=optimize_parameters,
-        epochs=epochs,
-        scorer_hyp_param_name=scorer_hyp_param_name,
-        optimize_pron_lm_scales=optimize_pron_lm_scales,
-        forward_output_layer=forward_output_layer,
-        tf_fwd_input_name=tf_fwd_input_name,
-    )
-
-
-def tune_lm_scale(
-    decoder: HybridDecoder,
-    name: str,
-    returnn_config: Union[returnn.ReturnnConfig, tk.Path],
-    checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-    lm_configs: Dict[str, LmConfig],
-    prior_paths: Dict[str, PriorPath],
-    search_job_args: Union[SearchJobArgs, Dict],
-    lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
-    scorer_args: Union[ScliteScorerArgs, Dict],
-    optimize_parameters: Union[OptimizeJobArgs, Dict],
-    epochs: Optional[List[int]] = None,
-    scorer_hyp_param_name: str = "hyp",
-    optimize_pron_lm_scales: bool = False,
-    forward_output_layer: str = "output",
-    tf_fwd_input_name: str = "tf-fwd-input",
-):
-    """
-    tunes the LM scale
-
-    :return:
-    """
-    recog_params = {
-        "tune2": [
-            DevRecognitionParameters(
-                am_scales=[1.0],
-                lm_scales=[12.0],
-                prior_scales=[0.3, 0.5, 0.7],
-                pronunciation_scales=[1.0],
-                tdp_scales=[0.1, 0.5, 1.0],
-                speech_tdps=[],
-                silence_tdps=[],
-                nonspeech_tdps=[],
-                altas=[0.0],
-            ),
-        ],
-    }
-
-    decoder.recognition(
-        name=name,
-        returnn_config=returnn_config,
-        checkpoints=checkpoints,
-        recognition_parameters=recog_params,
-        lm_configs=lm_configs,
-        prior_paths=prior_paths,
-        search_job_args=search_job_args,
-        lat_2_ctm_args=lat_2_ctm_args,
-        scorer_args=scorer_args,
-        optimize_parameters=optimize_parameters,
-        epochs=epochs,
-        scorer_hyp_param_name=scorer_hyp_param_name,
-        optimize_pron_lm_scales=optimize_pron_lm_scales,
-        forward_output_layer=forward_output_layer,
-        tf_fwd_input_name=tf_fwd_input_name,
-    )
-
-
-def tune_search_space(
-    decoder: HybridDecoder,
-    name: str,
-    returnn_config: Union[returnn.ReturnnConfig, tk.Path],
-    checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-    lm_configs: Dict[str, LmConfig],
-    prior_paths: Dict[str, PriorPath],
-    search_job_args: Union[SearchJobArgs, Dict],
-    lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
-    scorer_args: Union[ScliteScorerArgs, Dict],
-    optimize_parameters: Union[OptimizeJobArgs, Dict],
-    epochs: Optional[List[int]] = None,
-    scorer_hyp_param_name: str = "hyp",
-    optimize_pron_lm_scales: bool = False,
-    forward_output_layer: str = "output",
-    tf_fwd_input_name: str = "tf-fwd-input",
-):
-    """
-    tunes beam search size and altas
-
-    :return:
-    """
-    recog_params = DevRecognitionParameters()
-
-    decoder.recognition()
-
-
-def tune_beam_pruning_limit(
-    decoder: HybridDecoder,
-    name: str,
-    returnn_config: Union[returnn.ReturnnConfig, tk.Path],
-    checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-    lm_configs: Dict[str, LmConfig],
-    prior_paths: Dict[str, PriorPath],
-    search_job_args: Union[SearchJobArgs, Dict],
-    lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
-    scorer_args: Union[ScliteScorerArgs, Dict],
-    optimize_parameters: Union[OptimizeJobArgs, Dict],
-    epochs: Optional[List[int]] = None,
-    scorer_hyp_param_name: str = "hyp",
-    optimize_pron_lm_scales: bool = False,
-    forward_output_layer: str = "output",
-    tf_fwd_input_name: str = "tf-fwd-input",
-):
-    """
-    tunes the beam pruning limit
-
-    :return:
-    """
-    recog_params = DevRecognitionParameters()
-
-    decoder.recognition()
-
-
-def tune_decoding(
-    name: str,
-    *,
-    rasr_binary_path: tk.Path,
-    acoustic_model_config: AmRasrConfig,
-    lexicon_config: LexiconRasrConfig,
-    returnn_config: Union[returnn.ReturnnConfig, tk.Path],
-    checkpoints: Dict[int, Union[returnn.Checkpoint, tk.Path]],
-    lm_configs: Dict[str, LmConfig],
-    prior_paths: Dict[str, PriorPath],
-    search_job_args: Union[SearchJobArgs, Dict],
-    lat_2_ctm_args: Union[Lattice2CtmArgs, Dict],
-    scorer_args: Union[ScliteScorerArgs, Dict],
-    optimize_parameters: Union[OptimizeJobArgs, Dict],
-    rasr_arch: str = "linux-x86_64-standard",
-    compress: bool = False,
-    append: bool = False,
-    unbuffered: bool = False,
-    compress_after_run: bool = True,
-    search_job_class: Type[tk.Job] = recog.AdvancedTreeSearchJob,
-    scorer_job_class: Type[tk.Job] = recog.ScliteJob,
-    alias_output_prefix: str = "",
-    returnn_root: Optional[tk.Path] = None,
-    returnn_python_home: Optional[tk.Path] = None,
-    returnn_python_exe: Optional[tk.Path] = None,
-    blas_lib: Optional[tk.Path] = None,
-    search_numpy_blas: bool = True,
-    required_native_ops: Optional[List[str]] = None,
-    extra_configs: Optional[Dict[str, rasr.RasrConfig]] = None,
-    crp_name: str = "base",
-    epochs: Optional[List[int]] = None,
-    scorer_hyp_param_name: str = "hyp",
-    optimize_pron_lm_scales: bool = False,
-    forward_output_layer: str = "output",
-    tf_fwd_input_name: str = "tf-fwd-input",
-):
-    """
-    1. TDPs, scales: prior, and TDP [beam-pruning = 14.0, altas = 12.0]
-      a. TDP: {0.1, 0.5, 1.0}
-      b. Prior: {0.3, 0.5, 0.7}
-      c. Silence and non-word phon: {0.0, 4.0, 10.0}
-    2. LM scale optimization
-      a. no altas
-      b. beam-pruning: 14.0, 15.0
-    3.
-      a. beam-pruning: 14.0, 15.0
-      b. altas: 2.0, 4.0, 6.0, 8.0
-    4. beam pruning-limit: 15k, 10k, 7.5k, 6k, 5k, 4k
-
-    :return:
-    """
-    decoder = HybridDecoder(
-        rasr_binary_path=rasr_binary_path,
-        rasr_arch=rasr_arch,
-        compress=compress,
-        append=append,
-        unbuffered=unbuffered,
-        compress_after_run=compress_after_run,
-        search_job_class=search_job_class,
-        scorer_job_class=scorer_job_class,
-        alias_output_prefix=alias_output_prefix,
-        returnn_root=returnn_root,
-        returnn_python_home=returnn_python_home,
-        returnn_python_exe=returnn_python_exe,
-        blas_lib=blas_lib,
-        search_numpy_blas=search_numpy_blas,
-        required_native_ops=required_native_ops,
-    )
-    decoder.init_decoder(
-        acoustic_model_config=acoustic_model_config,
-        lexicon_config=lexicon_config,
-        extra_configs=extra_configs,
-        crp_name=crp_name,
-    )
