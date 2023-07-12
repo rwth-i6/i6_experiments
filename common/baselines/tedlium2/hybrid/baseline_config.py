@@ -5,7 +5,7 @@ from i6_core.features import FilterbankJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
-from i6_experiments.common.baselines.tedlium2.default_tools import RETURNN_RC_ROOT, SCTK_BINARY_PATH2
+from i6_experiments.common.baselines.tedlium2.default_tools import RETURNN_RC_ROOT, RASR_BINARY_PATH, SCTK_BINARY_PATH
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_log_mel_feature_extraction_args
@@ -26,7 +26,6 @@ def run_tedlium2_hybrid_baseline():
 
     gmm_system = run_gmm_system()
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
-    rasr_init_args.scorer_args["sctk_binary_path"] = SCTK_BINARY_PATH2  # Hack to have a U16 compiled SCTK
     rasr_init_args.feature_extraction_args = get_log_mel_feature_extraction_args()
     (
         nn_train_data_inputs,
@@ -60,7 +59,7 @@ def run_tedlium2_hybrid_baseline():
         returnn_python_exe=returnn_exe,
         blas_lib=blas_lib,
         rasr_arch="linux-x86_64-standard",
-        rasr_binary_path=rasr_binary,
+        rasr_binary_path=RASR_BINARY_PATH,
     )
     tedlium_nn_system.init_system(
         rasr_init_args=rasr_init_args,
