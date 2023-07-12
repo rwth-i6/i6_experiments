@@ -253,7 +253,6 @@ def get_corpus_data_inputs(
 
     nn_dev_data_inputs = {
         "dev": gmm_system.outputs["dev"]["final"].as_returnn_rasr_data_input(),
-        "dev_kaldi_small": gmm_system.outputs["dev_kaldi_small_4_gram"]["final"].as_returnn_rasr_data_input(),
     }
     nn_test_data_inputs = {
         # "test": gmm_system.outputs["test"][

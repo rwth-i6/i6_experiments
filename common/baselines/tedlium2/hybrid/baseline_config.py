@@ -5,11 +5,11 @@ from i6_core.features import FilterbankJob
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
-from i6_experiments.common.baselines.tedlium2.default_tools import RETURNN_RC_ROOT, RASR_BINARY_PATH, SCTK_BINARY_PATH
+from i6_experiments.common.baselines.tedlium2.default_tools import RETURNN_RC_ROOT, RASR_BINARY_PATH
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_log_mel_feature_extraction_args
-from i6_experiments.common.baselines.tedlium2.hybrid.nn_config.nn_args import get_nn_args as get_nn_args2
+from .nn_config.nn_args import get_nn_args
 
 
 def run_gmm_system():
@@ -46,11 +46,10 @@ def run_tedlium2_hybrid_baseline():
         hash_overwrite="TF23_MKL_BLAS",
     )
     blas_lib.hash_overwrite = "TEDLIUM2_DEFAULT_RASR_BINARY_PATH"
-    rasr_binary = tk.Path("/work/tools/asr/rasr/20211217_tf23_cuda101_mkl/arch/linux-x86_64-standard")
     steps = RasrSteps()
     steps.add_step("extract", rasr_init_args.feature_extraction_args)
     gmm_system.run(steps)
-    nn_args = get_nn_args2(num_epochs=160)
+    nn_args = get_nn_args(num_epochs=160)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 
