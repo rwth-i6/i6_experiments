@@ -1,18 +1,17 @@
 import copy
 
-from .experiment import get_wei_config
+from .experiment import get_baseline_config
 from .nn_setup import get_spec_augment_mask_python
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups.rasr.util import HybridArgs, ReturnnTrainingJobArgs
 from copy import deepcopy
 
 
-def get_nn_args(num_epochs=125, no_min_seq_len=False):
+def get_nn_args(num_epochs=125):
 
-    # gets the hardcoded config from existing setup for baseline and comparison
-    base_config = get_wei_config()
+    base_config = get_baseline_config()
     returnn_config = ReturnnConfig(config=base_config)
-    # two variants of spec augment
+
     spec_augment_args = {
         "max_time_num": 3,
         "max_time": 10,
@@ -21,12 +20,12 @@ def get_nn_args(num_epochs=125, no_min_seq_len=False):
         "conservatvie_step": 2000,
     }
     specaug = get_spec_augment_mask_python(**spec_augment_args)
-    specaug_config = get_wei_config(specaug=True)
+    specaug_config = get_baseline_config(specaug=True)
     spec_cfg = ReturnnConfig(config=copy.deepcopy(specaug_config), python_epilog=specaug)
 
     configs = {
-        "wei_base_config": returnn_config,
-        "wei_specaug_config": spec_cfg,
+        "base_config": returnn_config,
+        "specaug_config": spec_cfg,
     }
 
     # change softmax to log softmax for hybrid

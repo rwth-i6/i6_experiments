@@ -2,7 +2,7 @@ from .helper import get_network
 from .helper import make_nn_config
 
 
-def get_wei_config(specaug=False):
+def get_baseline_config(specaug=False):
     network = get_network(spec_augment=specaug)
     nn_config = make_nn_config(network)
     nn_config["extern_data"] = {
