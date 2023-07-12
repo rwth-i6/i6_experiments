@@ -511,6 +511,9 @@ class CTCDecoderArgs(DecoderArgs):
     prior_scale: float = 1.0
     logits: bool = False
     remove_eos: bool = False
+    eos_postfix: bool = False
+    add_eos_to_blank: bool = False
+    ctc_beam_search_tf: bool = False
 
 
 def create_config(

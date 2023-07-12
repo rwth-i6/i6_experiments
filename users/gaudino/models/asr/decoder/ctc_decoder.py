@@ -184,7 +184,7 @@ attention_decoder_dict = {
 ctc_beam_search_tf_string = """
 def ctc_beam_search_decoder_tf(source, **kwargs):
     # import beam_search_decoder from tensorflow
-    from tensorflow.python.ops.ctc_ops import ctc_beam_search_decoder
+    from tensorflow.nn import ctc_beam_search_decoder
     import tensorflow as tf
 
     ctc_logits = source(0, as_data=True)
@@ -193,7 +193,7 @@ def ctc_beam_search_decoder_tf(source, **kwargs):
     decoded, log_probs = ctc_beam_search_decoder(
         ctc_logits.get_placeholder_as_time_major(),
         ctc_logits.get_sequence_lengths(),
-        merge_repeated=True,
+        # merge_repeated=True,
         beam_width={beam_size},
     )
 
@@ -254,6 +254,8 @@ class CTCDecoder:
         # use_zoneout_output: bool = False,
         logits=False,
         remove_eos=False,
+        eos_postfix=False,
+        add_eos_to_blank=False,
         ctc_beam_search_tf=False,
     ):
         """
@@ -355,6 +357,8 @@ class CTCDecoder:
 
         self.logits = logits
         self.remove_eos = remove_eos
+        self.eos_postfix = eos_postfix
+        self.add_eos_to_blank = add_eos_to_blank
 
         self.ctc_beam_search_tf = ctc_beam_search_tf
 
@@ -691,7 +695,7 @@ class CTCDecoder:
                     "class": "choice",
                     "target": "bpe_labels_w_blank",
                     "beam_size": self.beam_size,
-                    "from": "p_comb_sigma_prime" if not self.remove_eos else "p_comb_sigma_prime_w_eos",
+                    "from": "p_comb_sigma_prime" if not self.eos_postfix else "p_comb_sigma_prime_w_eos",
                     "input_type": "logits" if self.logits else "log_prob",
                     "initial_output": 0,
                     "length_normalization": self.length_normalization,
@@ -699,7 +703,7 @@ class CTCDecoder:
             }
         )
 
-        if self.remove_eos:
+        if self.eos_postfix:
             subnet_unit.update(
                 {
                     "combined_ts_log_scores": {
@@ -877,11 +881,17 @@ class CTCDecoder:
                     },
                     # "debug_print_layer_output": True,
                 },
-                "ctc_decoder_output": {
+                "ctc_decoder_merge_dims": {
                     "class": "merge_dims",
                     "from": "ctc_decoder",
                     "axes": ["T", "F"],
-                    # "target": "bpe_labels",
+                },
+                "ctc_decoder_output": {
+                    "class": "reinterpret_data",
+                    "from": "ctc_decoder_merge_dims",
+                    "set_sparse": True,
+                    "set_sparse_dim": 10025,
+                    "target": "bpe_labels",
                     "is_output_layer": True,
                 },
             }
@@ -1008,31 +1018,50 @@ class CTCDecoder:
 
     def remove_eos_from_ctc_logits(self):
         """Remove eos from ctc logits and set ctc_source to the new logits."""
-        self.network.add_slice_layer(
-            "ctc_no_eos_no_blank_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10025
-        )
         self.network.add_slice_layer("ctc_eos_slice", self.ctc_source, axis="f", slice_start=0, slice_end=1)
-        self.network.add_slice_layer("ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025, slice_end=10026)
         self.network.add_eval_layer("zeros", "ctc_eos_slice", eval="source(0)*0.0")
-        self.network.update(
-            {
-                "ctc_blank_plus_eos": {
-                    "class": "combine",
-                    "kind": "add",
-                    "from": ["ctc_blank_slice", "ctc_eos_slice"],
-                },
-                "ctc_no_eos": {
-                    "class": "concat",
-                    "from": [
-                        ("zeros", "f"),
-                        ("ctc_no_eos_no_blank_slice", "f"),
-                        ("ctc_blank_plus_eos", "f"),
-                    ],
-                },
-            }
-        )
+
+        if self.add_eos_to_blank:
+            self.network.add_slice_layer(
+                "ctc_no_eos_no_blank_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10025
+            )
+            self.network.add_slice_layer("ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025,
+                                         slice_end=10026)
+            self.network.update(
+                {
+                    "ctc_blank_plus_eos": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": ["ctc_blank_slice", "ctc_eos_slice"],
+                    },
+                    "ctc_no_eos": {
+                        "class": "concat",
+                        "from": [
+                            ("zeros", "f"),
+                            ("ctc_no_eos_no_blank_slice", "f"),
+                            ("ctc_blank_plus_eos", "f"),
+                        ],
+                    },
+                }
+            )
+        else:
+            self.network.add_slice_layer(
+                "ctc_no_eos_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10026
+            )
+            self.network.update(
+                {
+                    "ctc_no_eos": {
+                        "class": "concat",
+                        "from": [
+                            ("zeros", "f"),
+                            ("ctc_no_eos_slice", "f"),
+                        ],
+                    },
+                }
+            )
+
         self.ctc_source = "ctc_no_eos"
-        if self.add_att_dec or self.add_ext_lm:
+        if self.eos_postfix and (self.add_att_dec or self.add_ext_lm):
             self.network.update(
                 {
                     "ctc_no_eos_postfix_in_time": {
@@ -1060,6 +1089,7 @@ class CTCDecoder:
         elif self.ctc_beam_search_tf:
             self.dec_output = self.add_ctc_beam_search_decoder_tf()
             self.decision_layer_name = "ctc_decoder_output"
+            return self.dec_output
         else:
             self.dec_output = self.add_greedy_decoder(self.subnet_unit)
 

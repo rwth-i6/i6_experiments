@@ -18,7 +18,7 @@ RETURNN_CPU_EXE = tk.Path(
 )
 
 RETURNN_ROOT = CloneGitRepositoryJob(
-    "https://github.com/rwth-i6/returnn", commit="45fad83c785a45fa4abfeebfed2e731dd96f960c"
+    "https://github.com/rwth-i6/returnn", commit="0789762aba88adadc388b0295848f772006f8a82"
 ).out_repository
 RETURNN_ROOT.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_ROOT"
 
