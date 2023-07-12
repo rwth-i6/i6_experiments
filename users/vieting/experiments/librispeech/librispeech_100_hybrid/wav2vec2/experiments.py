@@ -32,7 +32,7 @@ def run_hybrid_baseline_pytorch():
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)
     rasr_init_args.feature_extraction_args = get_feature_extraction_args()
 
-    nn_args = get_pytorch_nn_args(num_epochs=10, debug=True, use_rasr_returnn_training=False)
+    nn_args = get_pytorch_nn_args(evaluation_epochs=[40, 80, 160, 200], debug=True, use_rasr_returnn_training=False)
     nn_steps = RasrSteps()
     nn_steps.add_step("nn", nn_args)
 

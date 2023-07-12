@@ -13,10 +13,10 @@ from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchMo
 from ..default_tools import PACKAGE, FAIRSEQ
 
 
-def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, debug=False, **net_kwargs):
-    evaluation_epochs  = list(range(num_epochs, num_epochs + 1, 10))
+def get_nn_args(num_outputs: int = 12001, num_epochs: int = 250, use_rasr_returnn_training=True, debug=False, evaluation_epochs=None, **net_kwargs):
+    evaluation_epochs  = evaluation_epochs or list(range(num_epochs, num_epochs + 1, 10))
 
-    batch_size = {"classes": 4 * 2000, "data": 4 * 320000}
+    batch_size = {"classes": 3 * 2000, "data": 3 * 320000}
     chunking = ({"classes": 100, "data": 100 * 160}, {"classes": 50, "data": 50 * 160})
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=50, num_outputs=num_outputs, batch_size=batch_size, chunking=chunking,
