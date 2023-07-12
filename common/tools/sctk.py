@@ -10,6 +10,7 @@ def compile_sctk(
     branch: Optional[str] = None,
     commit: Optional[str] = None,
     sctk_git_repository: str = "https://github.com/usnistgov/SCTK.git",
+    alias: Optional[str] = None,
 ) -> tk.Path:
     """
     :param branch: specify a specific branch
@@ -17,12 +18,22 @@ def compile_sctk(
     :param sctk_git_repository: where to clone SCTK from, usually does not need to be altered
     :return: SCTK binary folder
     """
-    sctk_repo = CloneGitRepositoryJob(url=sctk_git_repository, branch=branch, commit=commit).out_repository
+    sctk_repo = CloneGitRepositoryJob(
+        url=sctk_git_repository,
+        branch=branch,
+        commit=commit,
+        checkout_folder_name=alias if alias is not None else "repository",
+    ).out_repository
     sctk_make = MakeJob(
         folder=sctk_repo,
         make_sequence=["config", "all", "check", "install", "doc"],
         link_outputs={"bin": "bin/"},
     )
+
+    # This is probably the dirtiest hack i ever did:
+    if alias is not None:
+        sctk_make.add_alias(alias)
+
     # This is needed for the compilation to work in the i6 environment, otherwise still untested
     sctk_make._sis_environment.set("CPPFLAGS", "-std=c++11")
     return sctk_make.out_links["bin"]

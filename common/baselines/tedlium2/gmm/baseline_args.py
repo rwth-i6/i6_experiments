@@ -3,7 +3,7 @@ from i6_core import cart
 
 from i6_experiments.common.setups.rasr import util
 from i6_experiments.common.datasets.tedlium2.cart import CartQuestions
-from i6_experiments.common.baselines.librispeech.default_tools import SCTK_BINARY_PATH
+from i6_experiments.common.baselines.tedlium2.default_tools import SCTK_BINARY_PATH
 
 
 def get_init_args():
@@ -320,10 +320,10 @@ def get_sat_args():
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.tri",
-        "iters": [8, 10],
+        "iters": [8, 9, 10],
         "feature_flow": "uncached_mfcc+context+lda",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [25],
+        "pronunciation_scales": [1.0, 0.0],
+        "lm_scales": [25, 8.0, 20],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,
@@ -385,10 +385,10 @@ def get_vtln_sat_args():
         "feature_cache": "mfcc",
         "cache_regex": "^mfcc.*$",
         "cmllr_mixtures": "estimate_mixtures_sdm.vtln",
-        "iters": [8, 10],
+        "iters": [8, 9, 10],
         "feature_flow": "uncached_mfcc+context+lda+vtln",
-        "pronunciation_scales": [1.0],
-        "lm_scales": [25],
+        "pronunciation_scales": [1.0, 0.0],
+        "lm_scales": [25, 8.0, 20],
         "lm_lookahead": True,
         "lookahead_options": None,
         "create_lattice": True,

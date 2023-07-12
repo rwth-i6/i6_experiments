@@ -294,12 +294,6 @@ class GmmSystem(RasrSystem):
                 self.jobs[corpus_key]["train_{}".format(name)].get_alignment_score_report(),
             )
 
-        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
-        tk.register_output(
-            "{}_{}_state_tying".format(corpus_key, name),
-            state_tying_job.out_state_tying,
-        )
-
     # -------------------- CaRT and LDA --------------------
 
     def cart_and_lda(
@@ -1061,6 +1055,13 @@ class GmmSystem(RasrSystem):
             gmm_output.alignments = self.alignments[corpus_key][f"train_{steps.get_prev_gmm_step(step_idx)}"][-1]
             gmm_output.acoustic_mixtures = self.mixtures[corpus_key][f"train_{steps.get_prev_gmm_step(step_idx)}"][-1]
 
+        state_tying_job = allophones.DumpStateTyingJob(self.crp[corpus_key])
+        self.jobs[corpus_key]["state_tying"] = state_tying_job
+        tk.register_output(
+            "final_{}_state_tying".format(corpus_key),
+            state_tying_job.out_state_tying,
+        )
+
         return gmm_output
 
     # -------------------- run functions  --------------------
@@ -1237,6 +1238,23 @@ class GmmSystem(RasrSystem):
                     **step_args.sdm_args,
                 )
 
+    def run_forced_align_step(self, step_args):
+        train_corpus_keys = step_args.pop("train_corpus_keys", self.train_corpora)
+        target_corpus_keys = step_args.pop("target_corpus_keys")
+        bliss_lexicon = step_args.pop("bliss_lexicon", None)
+        for corpus in train_corpus_keys:
+            for trg_key in target_corpus_keys:
+                forced_align_trg_key = trg_key + "_forced-align"
+                self.add_overlay(trg_key, forced_align_trg_key)
+                if bliss_lexicon:
+                    self._init_lexicon(forced_align_trg_key, **bliss_lexicon)
+
+                self.forced_align(
+                    target_corpus_key=forced_align_trg_key,
+                    feature_scorer_corpus_key=corpus,
+                    **step_args,
+                )
+
     def run_recognition_step(
         self,
         step_args,
@@ -1390,12 +1408,7 @@ class GmmSystem(RasrSystem):
 
             # ---------- Forced Alignment ----------
             if step_name.startswith("forced_align"):
-                corpus_keys = step_args.pop("corpus_keys", self.train_corpora)
-                for corpus in corpus_keys:
-                    self.forced_align(
-                        feature_scorer_corpus_key=corpus,
-                        **step_args,
-                    )
+                self.run_forced_align_step(step_args)
 
             # ---------- Only Recognition ----------
             if step_name.startswith("recog"):

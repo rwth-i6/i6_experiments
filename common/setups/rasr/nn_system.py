@@ -1,36 +1,22 @@
-__all__ = ["NnSystem"]
+__all__ = ["NnSystem", "returnn_training"]
 
 import copy
-import itertools
-import sys
 from dataclasses import asdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 # -------------------- Sisyphus --------------------
 
 import sisyphus.toolkit as tk
 import sisyphus.global_settings as gs
 
-from sisyphus.delayed_ops import DelayedFormat
-
 # -------------------- Recipes --------------------
 
-import i6_core.features as features
-import i6_core.rasr as rasr
 import i6_core.returnn as returnn
-
-from i6_core.util import MultiPath, MultiOutputPath
+from i6_core.tools import CloneGitRepositoryJob
 
 from .rasr_system import RasrSystem
 
-from .util import (
-    RasrInitArgs,
-    ReturnnRasrDataInput,
-    OggZipHdfDataInput,
-    HybridArgs,
-    NnRecogArgs,
-    RasrSteps,
-)
+from .util import ReturnnTrainingJobArgs, AllowedReturnnTrainingDataInput
 
 # -------------------- Init --------------------
 
@@ -79,7 +65,7 @@ class NnSystem(RasrSystem):
             returnn_python_exe=self.returnn_python_exe,
             blas_lib=self.blas_lib,
         )
-        native_op_job.add_alias("native_ops/compile_native_%s" % op_name)
+        native_op_job.add_alias("wei_native_ops/compile_native_%s" % op_name)
         self.native_ops[op_name] = native_op_job.out_op
 
     def get_native_ops(self, op_names: Optional[List[str]]) -> Optional[List[tk.Path]]:
@@ -95,3 +81,35 @@ class NnSystem(RasrSystem):
             if op_name not in self.native_ops.keys():
                 self.compile_native_op(op_name)
         return [self.native_ops[op_name] for op_name in op_names]
+
+
+def returnn_training(
+    name: str,
+    returnn_config: returnn.ReturnnConfig,
+    training_args: Union[Dict, ReturnnTrainingJobArgs],
+    train_data: AllowedReturnnTrainingDataInput,
+    *,
+    cv_data: Optional[AllowedReturnnTrainingDataInput] = None,
+    additional_data: Optional[Dict[str, AllowedReturnnTrainingDataInput]] = None,
+    register_output: bool = True,
+) -> returnn.ReturnnTrainingJob:
+    assert isinstance(returnn_config, returnn.ReturnnConfig)
+
+    config = copy.deepcopy(returnn_config)
+
+    config.config["train"] = train_data if isinstance(train_data, Dict) else train_data.get_data_dict()
+    if cv_data is not None:
+        config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get_data_dict()
+    if additional_data is not None:
+        config.config["eval_datasets"] = {}
+        for name, data in additional_data.items():
+            config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get_data_dict()
+    returnn_training_job = returnn.ReturnnTrainingJob(
+        returnn_config=config,
+        **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,
+    )
+    if register_output:
+        returnn_training_job.add_alias(f"nn_train/{name}")
+        tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)
+
+    return returnn_training_job
