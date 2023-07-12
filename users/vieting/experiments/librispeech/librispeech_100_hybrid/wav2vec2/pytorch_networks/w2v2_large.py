@@ -17,23 +17,24 @@ class Model(torch.nn.Module):
         # for exactly twice the length: padding = (kernel_size - 2) / 2
         self.upsampling = torch.nn.ConvTranspose1d(inner_dim, inner_dim, kernel_size=6, stride=2, padding=2)
         self.out_proj = torch.nn.Linear(inner_dim, out_dim)
+        self._onnx_export = False
 
     @torch.jit.ignore
-    def forward_wav2vec_model_train(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_wav2vec_model(self, x: torch.Tensor) -> torch.Tensor:
         x = self.wav2vec_model(x, features_only=True, mask=False)["x"]  # (B, T, F)
         return x
 
-    def forward_wav2vec_model_eval(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_wav2vec_model_onnx_export(self, x: torch.Tensor) -> torch.Tensor:
         x, _ = self.wav2vec_model(x)  # (B, T, F)  # for torchaudio
         return x
 
     def forward(self, audio_features: torch.Tensor):
         x = torch.squeeze(audio_features, dim=-1)  # squeeze feature dim, result is (B, T)
         x = nn.functional.pad(x, (80, 80))  # pad to match alignment length
-        if self.training:
-            x = self.forward_wav2vec_model_train(x)
+        if self._onnx_export:
+            x = self.forward_wav2vec_model_onnx_export(x)
         else:
-            x = self.forward_wav2vec_model_eval(x)
+            x = self.forward_wav2vec_model(x)
         x = torch.swapaxes(x, 1, 2)  # (B, F, T)
         x = self.upsampling(x)  # (B, F, T')
         x = torch.swapaxes(x, 1, 2)  # (B, T', F)
@@ -45,6 +46,7 @@ class Model(torch.nn.Module):
 
     def prepare_for_export(self):
         self.eval()
+        self._onnx_export = True
         self.wav2vec_model = torchaudio.models.wav2vec2.utils.import_fairseq_model(self.wav2vec_model)
 
 
