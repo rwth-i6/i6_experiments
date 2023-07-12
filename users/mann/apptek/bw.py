@@ -91,7 +91,8 @@ class BwConfigBuilder:
         layer_dict["n_out"] = self.num_classes
     
     def find_output_layers(self) -> List[str]:
-        output_layers = []
+        assert "output" in self.net, "No output layer found"
+        output_layers = ["output"]
         for name, layer in self.net.items():
             if layer.get("loss", None) == "ce":
                 output_layers.append(name)
@@ -224,7 +225,7 @@ def add_bw_loss(
     A state-tying has to be passed to the function as a dict of format:
         {
             "type": [...],
-            "path": [...],
+            "file": [...],
         }
     If the neural network has multiple output layers, e.g. for applying
     a loss to multiple layers inside the network, one can choose to

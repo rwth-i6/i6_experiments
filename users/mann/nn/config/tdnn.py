@@ -219,12 +219,17 @@ class ConfigBuilder:
     def apply_topology(self, config, **topology):
         self.set_topology(config, topology)
     
-    def make_net(self, **topology):
-        old_net['input_conv'] = conv_layer(
+    def make_net(self, focal_loss_factor=2.0, loss='ce', **topology):
+        loss_opts = {"focal_loss_factor": focal_loss_factor}
+        res = {}
+        res['input_conv'] = conv_layer(
             1700, 1, 'relu', 5, input='data', forward_weights_init=None
         )
-        network, output = ConfigBuilder.build_net(self.layer_func, **topology, input_layer="input_conv")
-        return network
+        topology = {**self.default_topology, **topology}
+        encoder, output = ConfigBuilder.build_net(self.layer_func, **topology, input_layer="input_conv")
+        res.update(encoder)
+        res['output'] = { 'class' : 'softmax', 'from' : [output], "loss": loss, "loss_opts": loss_opts }
+        return res
     
     def set_topology(self, config, topology):
         topology = {**self.default_topology, **topology}
@@ -321,8 +326,10 @@ layer_funcs = {
 def make_network(
     ffnn_size=2048,
     num_layers=6,
-    filter_size=5 * [2] + [1],
-    dilations=5 * [1] + [1],
+    filter_size=5*[2]+[1],
+    dilations=5*[1]+[1],
+    bottleneck=200,
+    focal_loss_factor=2.0
 ):
     layers = [ffnn_size] * num_layers
     default_layer_sequence = ("conv", "gating", "linear", "bottleneck")
@@ -333,7 +340,6 @@ def make_network(
     fbuilder = ConfigBuilder(layer_factory)
     fbuilder.default_topology["bottleneck"] = 200
     return fbuilder.make_net(
-        base_config,
         layers=layers,
         dilations=dilations,
         filters=filter_size, 

@@ -1,6 +1,6 @@
 from i6_experiments.users.mann.nn.config import viterbi_ffnn
 from i6_experiments.users.mann.nn.config import viterbi_lstm
-from i6_experiments.users.mann.nn.config import make_baseline as make_tdnn_baseline
+from i6_experiments.users.mann.nn.config.tdnn import make_baseline as make_tdnn_baseline
 from i6_experiments.users.mann.nn.config.constants import BASE_BW_LRS
 
 class ConfigBuilder:
@@ -16,10 +16,10 @@ class ConfigBuilder:
 		self.transforms = []
 		self.updates = {}
 		self.deletions = []
-	
-	def register(self, system, name):
-        self.system = system
-		self.system.builders[name] = self.copy()
+    
+    # def register(self, system, name):
+    #     self.system = system
+    #     self.system.builders[name] = self.copy()
 
 	def set_ffnn(self):
 		self.encoder = viterbi_ffnn
