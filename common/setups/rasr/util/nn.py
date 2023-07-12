@@ -20,8 +20,6 @@ import i6_core.returnn as returnn
 
 from i6_core.util import MultiPath
 
-from .rasr import RasrDataInput
-
 RasrCacheTypes = Union[tk.Path, str, MultiPath, rasr.FlagDependentFlowAttribute]
 
 

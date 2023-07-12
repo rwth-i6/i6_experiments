@@ -14,7 +14,7 @@ __all__ = [
 
 import copy
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, List, Optional, Tuple, Type, TypedDict, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from sisyphus import tk
 from sisyphus.delayed_ops import DelayedFormat, DelayedBase
