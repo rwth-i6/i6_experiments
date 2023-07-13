@@ -444,7 +444,7 @@ def run_single(
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
-        li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.diphone)
 
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(

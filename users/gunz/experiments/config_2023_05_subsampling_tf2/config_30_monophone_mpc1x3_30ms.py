@@ -30,7 +30,7 @@ from ...setups.common.nn.specaugment import (
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
@@ -473,7 +473,8 @@ def run_single(
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
-        rasr.flow.FlowNetwork.default_flags = {"cache_mode": "bundle"}
+        s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
+        li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
         s.set_mono_priors_returnn_rasr(
@@ -532,7 +533,7 @@ def run_single(
                 cart_tree_or_tying_config=tying_cfg,
                 encoder_output_layer="center__output",
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
-                n_cart_out=s.label_info.get_n_state_classes(),
+                n_cart_out=li.get_n_of_dense_classes(),
                 crp_update=set_concurrency,
                 calculate_statistics=False,
                 lm_gc_simple_hash=True,
