@@ -473,6 +473,7 @@ def run_single(
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
+        rasr.flow.FlowNetwork.default_flags = {"cache_mode": "bundle"}
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
         s.set_mono_priors_returnn_rasr(
@@ -540,6 +541,7 @@ def run_single(
                 cpu_rqmt=2,
                 rtf=1,
             )
+        rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
