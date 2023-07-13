@@ -316,7 +316,7 @@ class FactoredHybridSystem(NnSystem):
             returnn_config=returnn_config,
             returnn_root=self.returnn_root,
             returnn_python_exe=self.returnn_python_exe,
-            mem_rqmt=12,
+            mem_rqmt=6,
             time_rqmt=time_rqmt,
         )
 
