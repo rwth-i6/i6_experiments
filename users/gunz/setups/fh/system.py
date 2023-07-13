@@ -1431,6 +1431,7 @@ class FactoredHybridSystem(NnSystem):
         alias_output_prefix: str = "",
         create_lattice: bool = True,
         search_rqmt_update: Optional[dict] = None,
+        crp_update: Optional[typing.Callable] = None,
     ):
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
@@ -1444,6 +1445,9 @@ class FactoredHybridSystem(NnSystem):
         else:
             crp.acoustic_model_config.state_tying.file = cart_tree_or_tying_config
             crp.acoustic_model_config.state_tying.type = "cart"
+
+        if crp_update is not None:
+            crp_update(crp)
 
         adv_tree_search_job: recognition.AdvancedTreeSearchJob
 
