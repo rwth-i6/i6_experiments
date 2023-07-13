@@ -28,8 +28,9 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer, diphone_joint_output
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
@@ -74,6 +75,7 @@ class Experiment:
     dc_detection: bool
     run_performance_study: bool
     tune_decoding: bool
+    run_tdp_study: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
@@ -120,6 +122,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             run_performance_study=True,
             tune_decoding=True,
+            run_tdp_study=True,
         ),
         Experiment(
             alignment=scratch_align_blstm_v3,
@@ -130,6 +133,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             run_performance_study=False,
             tune_decoding=True,
+            run_tdp_study=False,
         ),
     ]
     for exp in configs:
@@ -145,6 +149,7 @@ def run(returnn_root: tk.Path):
             tune_decoding=exp.tune_decoding,
             filter_segments=exp.filter_segments,
             lr=exp.lr,
+            run_tdp_study=exp.run_tdp_study,
         )
 
 
@@ -160,6 +165,7 @@ def run_single(
     returnn_root: tk.Path,
     run_performance_study: bool,
     tune_decoding: bool,
+    run_tdp_study: bool,
     filter_segments: typing.Optional[typing.List[str]],
     conf_model_dim: int = 512,
     num_epochs: int = 600,
@@ -436,6 +442,75 @@ def run_single(
                 create_lattice=create_lattice,
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+    if run_tdp_study:
+        li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+
+        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config, label_info=li, out_joint_score_layer="output", log_softmax=False
+        )
+        s.set_mono_priors_returnn_rasr(
+            "fh",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            epoch=max(keep_epochs),
+            returnn_config=prior_returnn_config,
+            output_layer_name="output",
+            smoothen=True,
+        )
+
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config, label_info=li, out_joint_score_layer="output", log_softmax=True
+        )
+        s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        search_cfg = SearchParameters.default_diphone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.5)
+        tdps = itertools.product(
+            [1],  # [0, 1, 3],
+            [0],  # [0],
+            [0],  # [1, 2, 3],
+            [0],  # [0, 1, 3],
+            [1],  # [1],
+            [1],  # [1, 2, 3],
+            np.linspace(0.2, 0.8, 4),
+        )
+        for cfg in tdps:
+            sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
+            sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
+            sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
+            params = dataclasses.replace(
+                search_cfg,
+                altas=2,
+                lm_scale=1.95,
+                tdp_speech=sp_tdp,
+                tdp_silence=sil_tdp,
+                tdp_non_word=sil_tdp,
+                tdp_scale=tdp_scale,
+            )
+
+            def set_concurrency(crp):
+                crp.concurrent = 1
+
+            s.recognize_cart(
+                key="fh",
+                crp_corpus="dev-other",
+                epoch=max(keep_epochs),
+                params=params,
+                cart_tree_or_tying_config=tying_cfg,
+                encoder_output_layer="center__output",
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                n_cart_out=li.get_n_of_dense_classes(),
+                crp_update=set_concurrency,
+                calculate_statistics=False,
+                lm_gc_simple_hash=True,
+                opt_lm_am_scale=False,
+                mem_rqmt=2,
+                cpu_rqmt=2,
+                rtf=1,
+            )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
