@@ -42,9 +42,6 @@ from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_30MS_CONF_V1,
-    ALIGN_30MS_CONF_V2,
-    ALIGN_30MS_CONF_V3,
     ALIGN_30MS_BLSTM_V2,
     ALIGN_30MS_BLSTM_V3,
     CONF_CHUNKING_30MS,
@@ -88,32 +85,10 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_v2 = tk.Path(ALIGN_30MS_CONF_V2, cached=True)
-    scratch_align_v3 = tk.Path(ALIGN_30MS_CONF_V3, cached=True)
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
     scratch_align_blstm_v3 = tk.Path(ALIGN_30MS_BLSTM_V3, cached=True)
 
     configs = [
-        # Experiment(
-        #     alignment=scratch_align_v2,
-        #     alignment_name="30ms-C-v2",
-        #     dc_detection=False,
-        #     decode_all_corpora=False,
-        #     lr="v13",
-        #     multitask=True,
-        #     run_performance_study=False,
-        #     tune_decoding=True,
-        # ),
-        # Experiment(
-        #     alignment=scratch_align_v3,
-        #     alignment_name="30ms-C-v3",
-        #     dc_detection=False,
-        #     decode_all_corpora=False,
-        #     lr="v13",
-        #     multitask=True,
-        #     run_performance_study=False,
-        #     tune_decoding=True,
-        # ),
         Experiment(
             alignment=scratch_align_blstm_v2,
             alignment_name="30ms-B-v2",
