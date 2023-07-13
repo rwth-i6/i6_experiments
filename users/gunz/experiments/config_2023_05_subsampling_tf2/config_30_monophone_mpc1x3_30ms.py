@@ -500,12 +500,12 @@ def run_single(
 
         search_cfg = SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.6)
         tdps = itertools.product(
-            [1],  # [0, 1, 3],
-            [0],  # [0],
-            [0],  # [1, 2, 3],
-            [0],  # [0, 1, 3],
-            [1],  # [1],
-            [1],  # [1, 2, 3],
+            [0, 1, 3],
+            [0],
+            [1, 2, 3],
+            [0, 1, 3],
+            [1],
+            [1, 2, 3],
             np.linspace(0.2, 0.8, 4),
         )
         for cfg in tdps:
