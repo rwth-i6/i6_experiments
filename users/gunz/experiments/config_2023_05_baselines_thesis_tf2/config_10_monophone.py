@@ -402,7 +402,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=False,
                 calculate_stats=True,
-                pre_path="decoding-perf-eval",
+                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 create_lattice=create_lattice,

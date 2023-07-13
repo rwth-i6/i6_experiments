@@ -105,7 +105,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             own_priors=True,
-            run_performance_study=False,
+            run_performance_study=True,
             tune_decoding=True,
         ),
         # Experiment(
@@ -374,7 +374,7 @@ def run_single(
                 rtf_cpu=35,
             )
 
-        if run_performance_study:
+        if False and run_performance_study:
             for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
                 recognizer.recognize_count_lm(
                     calculate_stats=True,
@@ -407,7 +407,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=False,
                 calculate_stats=True,
-                pre_path="decoding-perf-eval",
+                pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
                 cpu_rqmt=2,
                 mem_rqmt=4,
                 create_lattice=create_lattice,
