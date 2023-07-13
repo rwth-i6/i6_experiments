@@ -485,7 +485,7 @@ def run_single(
         )
 
         nn_precomputed_returnn_config = copy.deepcopy(base_config)
-        nn_precomputed_returnn_config.config["network"]["output"] = {
+        nn_precomputed_returnn_config.config["network"]["center-output"] = {
             **nn_precomputed_returnn_config.config["network"]["center-output"],
             "class": "linear",
             "activation": "log_softmax",
@@ -528,13 +528,14 @@ def run_single(
                 epoch=max(keep_epochs),
                 params=params,
                 cart_tree_or_tying_config=tying_cfg,
+                encoder_output_layer="center__output",
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 n_cart_out=s.label_info.get_n_state_classes(),
+                crp_update=set_concurrency,
                 calculate_statistics=False,
                 opt_lm_am_scale=False,
                 mem_rqmt=2,
                 cpu_rqmt=2,
-                crp_update=set_concurrency,
             )
 
     if decode_all_corpora:
