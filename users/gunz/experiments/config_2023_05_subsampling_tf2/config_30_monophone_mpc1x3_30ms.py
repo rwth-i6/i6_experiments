@@ -122,16 +122,16 @@ def run(returnn_root: tk.Path):
             run_performance_study=True,
             tune_decoding=True,
         ),
-        Experiment(
-            alignment=scratch_align_blstm_v3,
-            alignment_name="30ms-B-v3",
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            multitask=True,
-            run_performance_study=False,
-            tune_decoding=True,
-        ),
+        # Experiment(
+        #     alignment=scratch_align_blstm_v3,
+        #     alignment_name="30ms-B-v3",
+        #     dc_detection=False,
+        #     decode_all_corpora=False,
+        #     lr="v13",
+        #     multitask=True,
+        #     run_performance_study=False,
+        #     tune_decoding=True,
+        # ),
     ]
     for exp in configs:
         run_single(
