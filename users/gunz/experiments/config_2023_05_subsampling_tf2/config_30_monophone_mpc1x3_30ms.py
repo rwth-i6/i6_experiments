@@ -497,12 +497,12 @@ def run_single(
         tying_cfg.type = "monophone-dense"
 
         tdps = itertools.product(
-            [0, 1, 3],
-            [0],
-            [1, 2, 3],
-            [0, 1, 3],
-            [1],
-            [1, 2, 3],
+            [1],  # [0, 1, 3],
+            [0],  # [0],
+            [0],  # [1, 2, 3],
+            [0],  # [0, 1, 3],
+            [1],  # [1],
+            [1],  # [1, 2, 3],
             np.linspace(0.2, 0.8, 4),
         )
         for cfg in tdps:
