@@ -443,7 +443,7 @@ def run_single(
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
-        s.feature_flows["gt"].flags["cache_mode"] = "bundle"
+        s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
         li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
 
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
