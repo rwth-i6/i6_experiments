@@ -496,6 +496,7 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "monophone-dense"
 
+        base_config = SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.6)
         tdps = itertools.product(
             [1],  # [0, 1, 3],
             [0],  # [0],
@@ -507,16 +508,16 @@ def run_single(
         )
         for cfg in tdps:
             sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
-
             sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
             sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
-
-            params = (
-                SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"])
-                .with_tdp_speech(sp_tdp)
-                .with_tdp_silence(sil_tdp)
-                .with_tdp_non_word(sil_tdp)
-                .with_tdp_scale(tdp_scale)
+            params = dataclasses.replace(
+                base_config,
+                altas=2,
+                lm_scale=1.33,
+                tdp_speech=sp_tdp,
+                tdp_silence=sil_tdp,
+                tdp_non_word=sil_tdp,
+                tdp_scale=tdp_scale,
             )
 
             def set_concurrency(crp):
