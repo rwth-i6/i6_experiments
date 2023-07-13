@@ -457,6 +457,7 @@ def run_single(
                 pre_path="decoding-perf-eval" + ("-l" if create_lattice else ""),
                 cpu_rqmt=2,
                 mem_rqmt=4,
+                create_lattice=create_lattice,
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
