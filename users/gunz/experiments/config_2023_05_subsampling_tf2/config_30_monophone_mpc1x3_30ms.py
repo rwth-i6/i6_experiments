@@ -371,6 +371,17 @@ def run_single(
             )
 
         if ep in [500]:
+            tdp_sil = (0, 0, "infinity", 10)
+            tdp_sp = (0, 0, "infinity", 0)
+
+            zero_cfg = (
+                recog_args.with_tdp_scale(0.2)
+                    .with_tdp_silence(tdp_sil)
+                    .with_tdp_non_word(tdp_sil)
+                    .with_tdp_speech(tdp_sp)
+            )
+
+            cfgs = [zero_cfg]
             for sc, sil_fwd, sp_exit in itertools.product([0.1, 0.2], [0, 3, 10], [0, 3, 10]):
                 tdp_sil = (10, sil_fwd, "infinity", 10)
                 tdp_sp = (10, 0, "infinity", sp_exit)
@@ -381,6 +392,9 @@ def run_single(
                     .with_tdp_non_word(tdp_sil)
                     .with_tdp_speech(tdp_sp)
                 )
+                cfgs.append(cfg)
+
+            for cfg in cfgs:
                 recognizer.recognize_count_lm(
                     label_info=s.label_info,
                     search_parameters=cfg,
