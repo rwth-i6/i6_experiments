@@ -533,6 +533,7 @@ def run_single(
                 n_cart_out=s.label_info.get_n_state_classes(),
                 crp_update=set_concurrency,
                 calculate_statistics=False,
+                lm_gc_simple_hash=True,
                 opt_lm_am_scale=False,
                 mem_rqmt=2,
                 cpu_rqmt=2,
