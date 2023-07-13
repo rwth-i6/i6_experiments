@@ -373,15 +373,20 @@ def run_single(
         if ep in [500]:
             tdp_sil = (0, 0, "infinity", 10)
             tdp_sp = (0, 0, "infinity", 0)
-
             zero_cfg = (
                 recog_args.with_tdp_scale(0.2)
-                    .with_tdp_silence(tdp_sil)
-                    .with_tdp_non_word(tdp_sil)
-                    .with_tdp_speech(tdp_sp)
+                .with_tdp_silence(tdp_sil)
+                .with_tdp_non_word(tdp_sil)
+                .with_tdp_speech(tdp_sp)
+            )
+            interesting = (
+                recog_args.with_tdp_scale(0.4)
+                .with_tdp_silence((10, 3, "infinity", 10))
+                .with_tdp_non_word((10, 3, "infinity", 10))
+                .with_tdp_speech((10, 0, "infinity", 3))
             )
 
-            cfgs = [zero_cfg]
+            cfgs = [zero_cfg, interesting]
             for sc, sil_fwd, sp_exit in itertools.product([0.1, 0.2], [0, 3, 10], [0, 3, 10]):
                 tdp_sil = (10, sil_fwd, "infinity", 10)
                 tdp_sp = (10, 0, "infinity", sp_exit)
