@@ -445,6 +445,7 @@ def run_single(
     if run_tdp_study:
         li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
 
+        prior_returnn_config = remove_label_pops_and_losses_from_returnn_config(prior_returnn_config)
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=returnn_config, label_info=li, out_joint_score_layer="output", log_softmax=False
         )
