@@ -446,12 +446,12 @@ def run_single(
 
         search_cfg = SearchParameters.default_diphone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.5)
         tdps = itertools.product(
-            [1],  # [0, 1, 3],
-            [0],  # [0],
-            [0],  # [1, 2, 3],
-            [0],  # [0, 1, 3],
-            [1],  # [1],
-            [1],  # [1, 2, 3],
+            [0, 1, 3],
+            [0],
+            [1, 2, 3],
+            [0, 1, 3],
+            [1],
+            [1, 2, 3],
             np.linspace(0.2, 0.8, 4),
         )
         for cfg in tdps:
@@ -477,7 +477,6 @@ def run_single(
                 epoch=max(keep_epochs),
                 params=params,
                 cart_tree_or_tying_config=tying_cfg,
-                encoder_output_layer="center__output",
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
                 n_cart_out=li.get_n_of_dense_classes(),
                 crp_update=set_concurrency,
