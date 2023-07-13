@@ -496,7 +496,7 @@ def run_single(
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "monophone-dense"
 
-        base_config = SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.6)
+        search_cfg = SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.6)
         tdps = itertools.product(
             [1],  # [0, 1, 3],
             [0],  # [0],
@@ -511,7 +511,7 @@ def run_single(
             sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
             sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
             params = dataclasses.replace(
-                base_config,
+                search_cfg,
                 altas=2,
                 lm_scale=1.33,
                 tdp_speech=sp_tdp,
