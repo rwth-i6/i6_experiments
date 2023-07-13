@@ -445,9 +445,9 @@ def run_single(
     if run_tdp_study:
         li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
 
-        prior_returnn_config = remove_label_pops_and_losses_from_returnn_config(prior_returnn_config)
+        base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=returnn_config, label_info=li, out_joint_score_layer="output", log_softmax=False
+            returnn_config=base_config, label_info=li, out_joint_score_layer="output", log_softmax=False
         )
         s.set_mono_priors_returnn_rasr(
             "fh",
@@ -460,7 +460,7 @@ def run_single(
         )
 
         nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=returnn_config, label_info=li, out_joint_score_layer="output", log_softmax=True
+            returnn_config=base_config, label_info=li, out_joint_score_layer="output", log_softmax=True
         )
         s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
 
