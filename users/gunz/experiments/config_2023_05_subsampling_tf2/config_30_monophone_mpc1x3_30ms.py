@@ -28,6 +28,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
@@ -75,6 +76,7 @@ class Experiment:
     dc_detection: bool
     run_performance_study: bool
     tune_decoding: bool
+    run_tdp_study: bool
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
@@ -121,6 +123,7 @@ def run(returnn_root: tk.Path):
             multitask=True,
             run_performance_study=True,
             tune_decoding=True,
+            run_tdp_study=True,
         ),
         # Experiment(
         #     alignment=scratch_align_blstm_v3,
@@ -146,6 +149,7 @@ def run(returnn_root: tk.Path):
             run_performance_study=exp.run_performance_study,
             tune_decoding=exp.tune_decoding,
             filter_segments=exp.filter_segments,
+            run_tdp_study=exp.run_tdp_study,
         )
 
 
@@ -162,6 +166,7 @@ def run_single(
     run_performance_study: bool,
     tune_decoding: bool,
     filter_segments: typing.Optional[typing.List[str]],
+    run_tdp_study: bool,
     conf_model_dim: int = 512,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
@@ -465,6 +470,71 @@ def run_single(
                 create_lattice=create_lattice,
             )
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+    if run_tdp_study:
+        base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=max(keep_epochs),
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=base_config,
+        )
+
+        nn_precomputed_returnn_config = copy.deepcopy(base_config)
+        nn_precomputed_returnn_config.config["network"]["output"] = {
+            **nn_precomputed_returnn_config.config["network"]["center-output"],
+            "class": "linear",
+            "activation": "log_softmax",
+            "register_as_extern_data": "output",
+        }
+        s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "monophone-dense"
+
+        tdps = itertools.product(
+            [0, 1, 3],
+            [0],
+            [1, 2, 3],
+            [0, 1, 3],
+            [1],
+            [1, 2, 3],
+            np.linspace(0.2, 0.8, 4),
+        )
+        for cfg in tdps:
+            sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
+
+            sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
+            sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
+
+            params = (
+                SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"])
+                .with_tdp_speech(sp_tdp)
+                .with_tdp_silence(sil_tdp)
+                .with_tdp_non_word(sil_tdp)
+                .with_tdp_scale(tdp_scale)
+            )
+
+            def set_concurrency(crp):
+                crp.concurrent = 1
+
+            s.recognize_cart(
+                key="fh",
+                crp_corpus="dev-other",
+                epoch=max(keep_epochs),
+                params=params,
+                cart_tree_or_tying_config=tying_cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                n_cart_out=s.label_info.get_n_state_classes(),
+                calculate_statistics=False,
+                opt_lm_am_scale=False,
+                mem_rqmt=2,
+                cpu_rqmt=2,
+                crp_update=set_concurrency,
+            )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
