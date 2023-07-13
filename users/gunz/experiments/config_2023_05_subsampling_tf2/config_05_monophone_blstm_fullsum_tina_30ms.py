@@ -18,8 +18,8 @@ from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorConfig, PriorInfo
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
-from ...setups.fh.priors import get_mono_transcription_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
@@ -175,7 +175,14 @@ def run_single(
     s.experiments["fh"]["graph"]["inference"] = tk.Path(
         "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/graph.meta"
     )
-    s.experiments["fh"]["priors"] = get_mono_transcription_priors(1, True)
+    s.experiments["fh"]["priors"] = PriorInfo(
+        PriorConfig(
+            file=tk.Path(
+                "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/tina-blstm-7.5ms-ss-4/prior.xml",
+            ),
+            scale=0.0,
+        )
+    )
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
