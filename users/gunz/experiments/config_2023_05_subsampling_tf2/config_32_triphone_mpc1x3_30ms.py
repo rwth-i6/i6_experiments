@@ -405,7 +405,7 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 500
+        ep = 550
         s.set_triphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,
