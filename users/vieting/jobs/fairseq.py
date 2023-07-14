@@ -92,9 +92,9 @@ class CreateFairseqLabeledDataJob(Job):
         valid_wrd = open(self.out_valid_wrd_path, "w") 
         train_wrd = open(self.out_train_wrd_path, "w")
 
+        # write common directory (root) to tsv files
         if self.valid_percent > 0:
             print(common_dir, file=valid_tsv)
-
         print(common_dir, file=train_tsv)
 
         # iterate over all corpora
@@ -102,6 +102,7 @@ class CreateFairseqLabeledDataJob(Job):
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
             for segment in corpus_object.segments():
+                # extract audio path and transcription from segment
                 audio_path = segment.recording.audio
                 audio_trans = segment.orth
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
@@ -119,10 +120,10 @@ class CreateFairseqLabeledDataJob(Job):
                     ltr_out = valid_ltr
                     wrd_out = valid_wrd
                 
-                # write to tsv files
+                # write audio path to tsv files
                 print(f"{rel_audio_path}\t{frames}", file=tsv_out)
 
-                # write to transcription files
+                # write transcription to transcription files
                 print(
                     " ".join(list(audio_trans.replace(" ", "|"))) + " |",
                     file=ltr_out,
@@ -184,6 +185,7 @@ Z 213
         """
         # TODO test this
         common_dir = None
+        # iterate over all corpora
         for corpus_path in self.corpus_paths:
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
