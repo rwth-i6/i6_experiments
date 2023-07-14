@@ -183,7 +183,6 @@ Z 213
         """
         Returns the common directory of all audios given in the corpora.
         """
-        # TODO test this
         common_dir = None
         # iterate over all corpora
         for corpus_path in self.corpus_paths:
