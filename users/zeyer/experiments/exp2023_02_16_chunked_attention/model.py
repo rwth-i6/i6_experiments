@@ -151,7 +151,6 @@ class RNNDecoder:
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
         prev_target_embed_direct: bool = False,
-        end_slice_size: Optional[int] = None,
     ):
         """
         :param base_model: base/encoder model instance
