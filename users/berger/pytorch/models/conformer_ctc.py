@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 from i6_experiments.users.berger.systems.dataclasses import ConfigVariant
 
 import torch
@@ -8,39 +8,33 @@ from i6_experiments.common.setups.serialization import Import
 from i6_experiments.users.berger.pytorch.serializers.basic import (
     get_basic_pt_network_serializer,
 )
-from i6_experiments.users.berger.pytorch.custom_parts import conformer
-from i6_models.config import ModelConfiguration, SubassemblyWithOptions
+from i6_models.parts.frontend.vgg_act import VGG4LayerActFrontendV1, VGG4LayerActFrontendV1Config
+from i6_models.parts.conformer.convolution import ConformerConvolutionV1Config
+from i6_models.parts.conformer.mhsa import ConformerMHSAV1Config
+from i6_models.parts.conformer.feedforward import ConformerPositionwiseFeedForwardV1Config
+from i6_models.assemblies.conformer import (
+    ConformerEncoderV1,
+    ConformerEncoderV1Config,
+    ConformerBlockV1Config,
+)
+from i6_models.config import ModelConfiguration, ModuleFactoryV1
+from .util import lengths_to_padding_mask
 
-from ..custom_parts import specaugment, vgg_frontend
+from ..custom_parts import specaugment
 
 
 @dataclass
 class ConformerCTCConfig(ModelConfiguration):
     specaugment_cfg: specaugment.SpecaugmentConfigV1
-    conformer_cfg: conformer.ConformerEncoderConvFirstV1Config
+    conformer_cfg: ConformerEncoderV1Config
     target_size: int
-
-
-def _lengths_to_padding_mask(lengths: torch.Tensor) -> torch.Tensor:
-    """
-    Convert lengths to a pytorch MHSA compatible key mask
-
-    :param lengths: [B]
-    :return: B x T, where 0 means within sequence and 1 means outside sequence
-    """
-    batch_size = lengths.shape[0]
-    max_length = int(torch.max(lengths).item())
-    padding_mask = torch.arange(max_length, device=lengths.device, dtype=lengths.dtype).expand(
-        batch_size, max_length
-    ) > lengths.unsqueeze(1)
-    return padding_mask
 
 
 class ConformerCTCModel(torch.nn.Module):
     def __init__(self, step: int, cfg: ConformerCTCConfig, **kwargs):
         super().__init__()
         self.specaugment = specaugment.SpecaugmentModuleV1(step=step, cfg=cfg.specaugment_cfg)
-        self.conformer = conformer.ConformerEncoderConvFirstV1(cfg.conformer_cfg)
+        self.conformer = ConformerEncoderV1(cfg.conformer_cfg)
         self.final_linear = torch.nn.Linear(cfg.conformer_cfg.block_cfg.ff_cfg.input_dim, cfg.target_size)
 
     def forward(
@@ -49,16 +43,12 @@ class ConformerCTCModel(torch.nn.Module):
         audio_features_len: Optional[torch.Tensor] = None,
     ):
         x = self.specaugment(audio_features)  # [B, T, F]
-        if self.training:
-            assert audio_features_len is not None
-            encoder_padding_mask = _lengths_to_padding_mask(audio_features_len)
-        else:
-            encoder_padding_mask = None
-        x = self.conformer(x, encoder_padding_mask)  # [B, T, F]
+        sequence_mask = lengths_to_padding_mask(audio_features_len)
+        x, sequence_mask = self.conformer(x, sequence_mask)  # [B, T, F]
         logits = self.final_linear(x)  # [B, T, F]
         log_probs = torch.log_softmax(logits, dim=2)
 
-        return log_probs
+        return log_probs, sequence_mask
 
 
 def get_train_serializer(
@@ -122,37 +112,41 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         increase_steps=[2000],
     )
 
-    frontend_cfg = vgg_frontend.VGGFrontendConfigV1(
-        num_inputs=num_inputs,
+    frontend_cfg = VGG4LayerActFrontendV1Config(
+        in_features=num_inputs,
         conv1_channels=32,
-        conv2_channels=64,
+        conv2_channels=32,
         conv3_channels=64,
+        conv4_channels=64,
         conv_kernel_size=3,
-        conv1_stride=1,
-        conv2_stride=2,
-        conv3_stride=2,
-        pool_size=2,
-        linear_size=512,
-        dropout=0.1,
+        conv_padding=None,
+        pool1_kernel_size=(2, 2),
+        pool1_stride=None,
+        pool1_padding=None,
+        pool2_kernel_size=(2, 1),
+        pool2_stride=None,
+        pool2_padding=None,
+        activation=torch.nn.SiLU(),
+        out_features=512,
     )
 
-    frontend = SubassemblyWithOptions(vgg_frontend.VGGFrontendV1, frontend_cfg)
+    frontend = ModuleFactoryV1(VGG4LayerActFrontendV1, frontend_cfg)
 
-    ff_cfg = conformer.ConformerPositionwiseFeedForwardV1Config(
+    ff_cfg = ConformerPositionwiseFeedForwardV1Config(
         input_dim=512,
         hidden_dim=2048,
         dropout=0.1,
         activation=torch.nn.SiLU(),
     )
 
-    mhsa_cfg = conformer.ConformerMHSAV1Config(
+    mhsa_cfg = ConformerMHSAV1Config(
         input_dim=512,
         num_att_heads=8,
         att_weights_dropout=0.1,
         dropout=0.1,
     )
 
-    conv_cfg = conformer.ConformerConvolutionV1Config(
+    conv_cfg = ConformerConvolutionV1Config(
         channels=512,
         kernel_size=31,
         dropout=0.1,
@@ -160,13 +154,13 @@ def get_default_config_v1(num_inputs: int, num_outputs: int) -> ConformerCTCConf
         norm=torch.nn.BatchNorm1d(num_features=512, affine=False),
     )
 
-    block_cfg = conformer.ConformerBlockConvFirstV1Config(
+    block_cfg = ConformerBlockV1Config(
         ff_cfg=ff_cfg,
         mhsa_cfg=mhsa_cfg,
         conv_cfg=conv_cfg,
     )
 
-    conformer_cfg = conformer.ConformerEncoderConvFirstV1Config(
+    conformer_cfg = ConformerEncoderV1Config(
         num_layers=12,
         frontend=frontend,
         block_cfg=block_cfg,

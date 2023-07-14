@@ -27,7 +27,7 @@ ctc_recog_am_args.update(
 )
 
 
-def get_ctc_train_args(**kwargs) -> Dict:
+def get_ctc_train_step_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
@@ -36,7 +36,7 @@ def get_ctc_train_args(**kwargs) -> Dict:
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_ctc_recog_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "lm_scales": [0.9],
@@ -73,7 +73,7 @@ def get_ctc_recog_args(num_classes: int, reduction_factor: int = 4, **kwargs) ->
     return recursive_update(default_args, kwargs)
 
 
-def get_ctc_align_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
+def get_ctc_align_step_args(num_classes: int, reduction_factor: int = 4, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "prior_scales": [0.3],

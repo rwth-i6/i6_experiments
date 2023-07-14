@@ -10,16 +10,13 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
     targets = extern_data["targets"].raw_tensor.long()
     targets_len = extern_data["targets"].dims[1].dyn_size_ext.raw_tensor
 
-    log_probs = model(
+    log_probs, sequence_mask = model(
         audio_features=audio_features,
         audio_features_len=audio_features_len.to("cuda"),
     )
 
     log_probs = torch.transpose(log_probs, 0, 1)  # [T, B, F]
-
-    downsample_factor = round(audio_features.shape[1] / log_probs.shape[0])
-    sequence_lengths = torch.ceil(audio_features_len / downsample_factor)
-    sequence_lengths = sequence_lengths.type(torch.int32)
+    sequence_lengths = torch.sum(sequence_mask.type(torch.int32), dim=1)
 
     loss = torch.nn.functional.ctc_loss(
         log_probs=log_probs,
@@ -31,6 +28,6 @@ def train_step(*, model: torch.nn.Module, extern_data: TensorDict, **kwargs):
         zero_infinity=True,
     )
 
-    loss /= sum(sequence_lengths)
+    loss /= torch.sum(sequence_lengths)
 
     rf.get_run_ctx().mark_as_loss(name="CTC", loss=loss)

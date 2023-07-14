@@ -110,6 +110,13 @@ class ReturnnConfigs(Generic[types.ConfigType]):
             self.align_config = copy.deepcopy(next(iter(self.recog_configs.values())))
 
 
+@dataclass
+class CustomStepKwargs:
+    train_step_kwargs: dict = field(default_factory=dict)
+    align_step_kwargs: dict = field(default_factory=dict)
+    recog_step_kwargs: dict = field(default_factory=dict)
+
+
 class SummaryKey(Enum):
     TRAIN_NAME = "Train name"
     RECOG_NAME = "Recog name"

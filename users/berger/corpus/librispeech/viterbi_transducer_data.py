@@ -6,7 +6,9 @@ from i6_core.lexicon.modification import AddEowPhonemesToLexiconJob
 from recipe.i6_core.returnn.hdf import BlissToPcmHDFJob
 from recipe.i6_core.text.processing import ConcatenateJob
 from recipe.i6_experiments.users.berger.args.returnn.dataset import MetaDatasetBuilder
-from recipe.i6_experiments.users.berger.recipe.corpus.filter import FilterMismatchedSequencesJob
+from recipe.i6_experiments.users.berger.recipe.corpus.filter import (
+    FilterMismatchedSequencesJob,
+)
 from recipe.i6_experiments.users.berger.systems.dataclasses import AlignmentData
 from . import data
 from ..general import BasicSetupData
@@ -21,7 +23,7 @@ def get_librispeech_data(
     dev_keys: List[str] = ["dev-clean", "dev-other"],
     test_keys: List[str] = ["test-clean", "test-other"],
     add_unknown: bool = False,
-    augmented_lexicon: bool = False,
+    augmented_lexicon: bool = True,
     length_mismatch_check_function: Optional[Callable[[int, int], bool]] = None,
 ) -> BasicSetupData:
     # ********** Data inputs **********
@@ -82,8 +84,11 @@ def get_librispeech_data(
     train_dataset_builder.add_hdf_dataset(
         name="classes",
         hdf_files=train_alignment_hdf,
-        seq_ordering="random",
-        dataset_config={"partition_epoch": 20, "seq_list_filter_file": segment_whitelist},
+        seq_ordering="laplace:25",
+        dataset_config={
+            "partition_epoch": 20,
+            "seq_list_filter_file": segment_whitelist,
+        },
         key_mapping={"data": "classes"},
         control=True,
     )
@@ -102,30 +107,17 @@ def get_librispeech_data(
                 all_unknown=False,
             ).out_corpus
 
-    cv_corpus = corpus.MergeCorporaJob(
-        [cv_data_inputs[key].corpus_object.corpus_file for key in dev_keys],
-        name="dev_combine",
-        merge_strategy=corpus.MergeStrategy.CONCATENATE,
-    ).out_merged_corpus
-
-    cv_ogg_zips = []
-    for key in dev_keys:
-        cv_ogg_zips.append(
-            returnn.BlissToOggZipJob(
-                cv_data_inputs[key].corpus_object.corpus_file,
-                no_conversion=True,
-                returnn_python_exe=returnn_python_exe,
-                returnn_root=returnn_root,
-            ).out_ogg_zip
-        )
-
     cv_sample_hdfs = [
-        BlissToPcmHDFJob(data_input.corpus_object.corpus_file, returnn_root=returnn_root).out_hdf
+        BlissToPcmHDFJob(
+            data_input.corpus_object.corpus_file, returnn_root=returnn_root
+        ).out_hdf
         for key, data_input in cv_data_inputs.items()
         if key in dev_keys
     ]
     cv_alignment_hdfs = [
-        alignments[f"{dev_key}_align"].get_hdf(returnn_python_exe=returnn_python_exe, returnn_root=returnn_root)
+        alignments[f"{dev_key}_align"].get_hdf(
+            returnn_python_exe=returnn_python_exe, returnn_root=returnn_root
+        )
         for dev_key in dev_keys
     ]
 
@@ -137,7 +129,9 @@ def get_librispeech_data(
                 check_mismatch_func=length_mismatch_check_function,
                 returnn_root=returnn_root,
             ).out_segment_whitelist
-            for cv_sample_hdf, cv_alignment_hdf in zip(cv_sample_hdfs, cv_alignment_hdfs)
+            for cv_sample_hdf, cv_alignment_hdf in zip(
+                cv_sample_hdfs, cv_alignment_hdfs
+            )
         ]
         segment_whitelist = ConcatenateJob(segment_whitelists).out
     else:
@@ -153,8 +147,11 @@ def get_librispeech_data(
     cv_dataset_builder.add_hdf_dataset(
         name="classes",
         hdf_files=cv_alignment_hdfs,
-        seq_ordering="random",
-        dataset_config={"partition_epoch": 1, "seq_list_filter_file": segment_whitelist},
+        seq_ordering="sorted",
+        dataset_config={
+            "partition_epoch": 1,
+            "seq_list_filter_file": segment_whitelist,
+        },
         key_mapping={"data": "classes"},
         control=True,
     )
@@ -171,11 +168,13 @@ def get_librispeech_data(
 
         if not add_unknown:
             assert data_input.corpus_object.corpus_file is not None
-            data_input.corpus_object.corpus_file = corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
-                data_input.corpus_object.corpus_file,
-                train_lexicon,
-                all_unknown=False,
-            ).out_corpus
+            data_input.corpus_object.corpus_file = (
+                corpus.FilterCorpusRemoveUnknownWordSegmentsJob(
+                    data_input.corpus_object.corpus_file,
+                    train_lexicon,
+                    all_unknown=False,
+                ).out_corpus
+            )
 
     # ********** Recog lexicon **********
 

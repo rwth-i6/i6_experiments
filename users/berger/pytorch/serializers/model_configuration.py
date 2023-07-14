@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from i6_experiments.common.setups.serialization import Import, SerializerObject
-from i6_models.config import ModelConfiguration, SubassemblyWithOptions
+from i6_models.config import ModelConfiguration, ModuleFactoryV1
 from sisyphus.delayed_ops import DelayedBase
 from sisyphus.hash import sis_hash_helper
 from sisyphus.tools import try_get
@@ -24,7 +24,7 @@ class FunctionCall(SerializerObject):
 
     func_name: str
     args: List[Union[str, DelayedBase]] = field(default_factory=list)
-    kwargs: OrderedDict[str, Union[str, DelayedBase]] = field(default_factory=OrderedDict)
+    kwargs: "OrderedDict[str, Union[str, DelayedBase]]" = field(default_factory=OrderedDict)
     variable_name: Optional[str] = None
 
     def get(self) -> str:
@@ -90,18 +90,18 @@ def get_config_constructor(
             subcall, subimports = get_config_constructor(attr)
             imports += subimports
             attrs[key.name] = subcall
-        elif isinstance(attr, SubassemblyWithOptions):
+        elif isinstance(attr, ModuleFactoryV1):
             # Example:
             # ConformerEncoderConfig(
-            #     frontend=SubassemblyWithOptions(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
-            # -> Import classes SubassemblyWithOptions, VGGFrontend and VGGFrontendConfig
+            #     frontend=ModuleFactoryV1(module_class=VGGFrontend, cfg=VGGFrontendConfig(...)))
+            # -> Import classes ModuleFactoryV1, VGGFrontend and VGGFrontendConfig
             # -> Sub-Constructor-Call for VGGFrontendConfig
             subcall, subimports = get_config_constructor(attr.cfg)
             imports += subimports
             imports.append(Import(f"{attr.module_class.__module__}.{attr.module_class.__name__}"))
-            imports.append(Import(f"{SubassemblyWithOptions.__module__}.SubassemblyWithOptions"))
+            imports.append(Import(f"{ModuleFactoryV1.__module__}.ModuleFactoryV1"))
             attrs[key.name] = FunctionCall(
-                func_name="SubassemblyWithOptions",
+                func_name="ModuleFactoryV1",
                 kwargs=OrderedDict([("module_class", attr.module_class.__name__), ("cfg", subcall)]),
             )
         elif isinstance(attr, torch.nn.Module):

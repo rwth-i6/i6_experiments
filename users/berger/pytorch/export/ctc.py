@@ -11,7 +11,7 @@ def export(*, model: torch.nn.Module, model_filename: str):
         f=model_filename,
         verbose=True,
         input_names=["data", "data_len"],
-        output_names=["classes"],
+        output_names=["classes", "sequence_mask"],
         opset_version=17,
         dynamic_axes={
             # dict value: manually named axes

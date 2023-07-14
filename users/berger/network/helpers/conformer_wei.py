@@ -377,9 +377,7 @@ def add_initial_conv(
         "axis": "F",
     }
 
-    for idx, (n_out, filter, stride) in enumerate(
-        zip(conv_outputs, conv_filters, conv_strides), start=1
-    ):
+    for idx, (n_out, filter, stride) in enumerate(zip(conv_outputs, conv_filters, conv_strides), start=1):
         network[f"{name}_conv_{idx}"] = {
             "class": "conv",
             "from": from_name,
@@ -389,6 +387,7 @@ def add_initial_conv(
             "with_bias": True,
             "padding": "same",
             "forward_weights_init": get_variance_scaling_init(),
+            "L2": 0.01,
         }
         from_name = f"{name}_conv_{idx}"
 
@@ -421,6 +420,7 @@ def add_initial_conv(
         "n_out": linear_size,
         "with_bias": False,
         "forward_weights_init": get_variance_scaling_init(),
+        "L2": 5e-06,
     }
 
     network[f"{name}_dropout"] = {
@@ -435,9 +435,7 @@ def add_initial_conv(
     }
 
     if reuse_from_name:
-        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + [
-            "_linear"
-        ]:
+        for suffix in [f"_conv_{idx}" for idx in range(1, len(conv_outputs) + 1)] + ["_linear"]:
             network[name + suffix]["reuse_params"] = reuse_from_name + suffix
 
     return f"{name}_ln"
