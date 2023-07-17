@@ -37,16 +37,11 @@ def _get_tf_checkpoint_path() -> tk.Path:
 
 def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = _get_tf_checkpoint_path()
-
-    from returnn.datasets.util.vocabulary import Vocabulary
-
-    in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
-    target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
-    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
+    print(old_tf_ckpt_path)
 
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=MakeModel(in_dim, target_dim, num_enc_layers=12),
+        make_model_func=MakeModel(80, 10_025, eos_label=0, num_enc_layers=12),
         map_func=map_param_func_v2,
         epoch=1,
         step=0,
@@ -630,6 +625,7 @@ def test_import_search():
 
     print("*** Convert old model to new model")
     pt_checkpoint_path = _get_pt_checkpoint_path()
+    print(pt_checkpoint_path)
 
     print("*** Create new model")
     new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
@@ -649,18 +645,30 @@ def test_import_search():
     checkpoint_state = torch.load(pt_checkpoint_path.get_path())
     pt_module.load_state_dict(checkpoint_state["model"])
 
+    cuda = torch.device('cuda')
+    pt_module.to(cuda)
+    extern_data["audio_features"].raw_tensor.to(cuda)
+
     print("*** Search ...")
-    with torch.no_grad():
-        seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-            model=new_model,
-            data=extern_data["audio_features"],
-            data_spatial_dim=time_dim,
-            targets_dim=target_dim,
-        )
+    from torch.profiler import profile, ProfilerActivity
+
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+        with torch.no_grad():
+            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+                model=new_model,
+                data=extern_data["audio_features"],
+                data_spatial_dim=time_dim,
+                targets_dim=target_dim,
+            )
     print(seq_targets, seq_targets.raw_tensor)
+    prof.export_chrome_trace("trace.json")
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
 py = test_import_search
+
+
+if __name__ == "__main__":
+    test_import_search()

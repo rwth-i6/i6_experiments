@@ -55,9 +55,9 @@ def sis_run_with_prefix(prefix_name: str):
             )
         ),
         make_model_func=MakeModel(
-            extern_data_dict=task.train_dataset.get_extern_data(),
-            default_input_key=task.train_dataset.get_default_input(),
-            default_target_key=task.train_dataset.get_default_target(),
+            in_dim=in_dim.dimension,
+            target_dim=target_dim.dimension,
+            eos_label=_get_eos_idx(target_dim),
         ),
         map_func=map_param_func_v2,
     ).out_checkpoint
@@ -70,13 +70,23 @@ def sis_run_with_prefix(prefix_name: str):
 class MakeModel:
     """for import"""
 
-    def __init__(self, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12):
+    def __init__(self, in_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
         self.in_dim = in_dim
         self.target_dim = target_dim
+        self.eos_label = eos_label
         self.num_enc_layers = num_enc_layers
 
     def __call__(self) -> Model:
-        return self.make_model(self.in_dim, self.target_dim, num_enc_layers=self.num_enc_layers)
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
+        target_dim.vocab = Vocabulary.create_vocab_from_labels(
+            [str(i) for i in range(target_dim.dimension)],
+            eos_label=self.eos_label
+        )
+
+        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
     def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12) -> Model:
