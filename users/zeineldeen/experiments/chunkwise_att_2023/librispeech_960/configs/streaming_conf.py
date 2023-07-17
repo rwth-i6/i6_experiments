@@ -486,6 +486,7 @@ def run_exp(
             epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
+            seq_postfix=kwargs.get("seq_postfix", 0),
         )
 
     train_job = run_train(
@@ -987,7 +988,7 @@ def run_chunkwise_train(
     suffix: str = "",
     enable_check_align: bool = True,
     on_the_fly_align: bool = False,
-    use_ctc: bool = False,
+    with_ctc: bool = False,
     ctc_self_align_delay: int = None,
     ctc_self_align_delay_scale: float = 0.5,
     batch_size: int = 15_000,
@@ -999,6 +1000,8 @@ def run_chunkwise_train(
     end_slice_size: Optional[int] = None,
     pos_enc: Optional[str] = "rel",
     conf_mem_opts: Optional[dict] = None,
+    full_sum_approx: bool = False,
+    retrain_ckpt: Optional[Union[tk.Path, str]] = None,
     **kwargs,
 ):
     if isinstance(start_lrs, float):
@@ -1017,9 +1020,9 @@ def run_chunkwise_train(
 
                         train_args["max_seq_length"] = None  # no filtering!
 
-                        train_args["encoder_args"].with_ctc = use_ctc
+                        train_args["encoder_args"].with_ctc = with_ctc
                         if ctc_self_align_delay:
-                            assert use_ctc, "need CTC for self-align"
+                            assert with_ctc, "need CTC for self-align"
                             train_args["encoder_args"].ctc_self_align_delay = ctc_self_align_delay
                             train_args["encoder_args"].ctc_self_align_scale = ctc_self_align_delay_scale
 
@@ -1092,7 +1095,22 @@ def run_chunkwise_train(
                             mem_size = conf_mem_opts.get("mem_size", 1)
                             if mem_size > 1:
                                 exp_name += f"_memSize{mem_size}"
+                            if conf_mem_opts.get("mask_paddings", False):
+                                exp_name += f"_memMaskPad"
                             train_args["recursion_limit"] = 4000
+
+                        if with_ctc:
+                            exp_name += "_withCtc"
+
+                        if full_sum_approx:
+                            # NOTE: no need to mask EOC for the decoder since the targets do not contain EOC (just bpe labels)
+                            train_args["decoder_args"].prev_target_embed_direct = True
+                            train_args["decoder_args"].full_sum_simple_approx = True
+                            exp_name += "_fullSumApprox"
+
+                        if retrain_ckpt:
+                            assert suffix, "set suffix for retrain to avoid overwriting"
+                            train_args["retrain_checkpoint"] = retrain_ckpt
 
                         if suffix:
                             exp_name += suffix
@@ -1126,25 +1144,33 @@ def run_chunkwise_train(
                                 **kwargs,
                             )
                         else:
-                            # train with ctc chunk-sync alignment
-                            ctc_chunksync_align = get_ctc_rna_based_chunk_alignments(
-                                fixed_ctc_rna_align_without_eos=True,
-                                chunk_sizes=chunk_sizes,
-                                chunk_step_factors=chunk_step_factors,
-                            )
-                            assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
+                            if full_sum_approx:
+                                # just use original targets without EOC
+                                train_fixed_alignment = None
+                                cv_fixed_alignment = None
+                            else:
+                                # train with ctc chunk-sync alignment
+                                ctc_chunksync_align = get_ctc_rna_based_chunk_alignments(
+                                    fixed_ctc_rna_align_without_eos=True,
+                                    chunk_sizes=chunk_sizes,
+                                    chunk_step_factors=chunk_step_factors,
+                                )
+                                assert ctc_chunksync_align, "Need CTC chunk-sync alignments"
+                                train_fixed_alignment = ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"]
+                                cv_fixed_alignment = ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"]
                             run_exp(
                                 prefix_name=prefix_name,
                                 exp_name=exp_name,
                                 train_args=train_args,
                                 num_epochs=total_epochs,
-                                train_fixed_alignment=ctc_chunksync_align["train"][f"{chunk_size}_{chunk_step}"],
-                                cv_fixed_alignment=ctc_chunksync_align["dev"][f"{chunk_size}_{chunk_step}"],
+                                train_fixed_alignment=train_fixed_alignment,
+                                cv_fixed_alignment=cv_fixed_alignment,
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 selected_datasets=["dev-other"],
                                 key="dev_score",
                                 use_sclite=True,
+                                seq_postfix=None if full_sum_approx else 0,
                                 **kwargs,
                             )
 
@@ -1239,92 +1265,92 @@ def baseline():
     # 100, 2e-4, 1/3  2.6/6.3/2.8/6.4
     # 100, 3e-4, 1/3  2.6/6.2/2.8/6.4
     # 100, 1e-4, 0.4  2.7/6.3/2.9/6.5
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[100],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[200],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=96,
-    )
-
-    # 100-50  2.33/5.88/2.5/5.89
-
-    # TODO: chunked encoder + chunkwise attention (decoder operators on chunks)
-    for chunk_size, chunk_step in [(10, 1), (20, 1), (20, 0.5), (10, 0.5)]:
-        # running locally: (20, 0.5)
-        run_chunkwise_train(
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            enc_stream_type="chunked",
-            chunk_sizes=[chunk_size],
-            chunk_step_factors=[chunk_step],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[300],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=96,
-        )
-
-    # running locally: (100, 50)
-    for st, bs, accum in [(0.25, 10_000, 3), (0.5, 15_000, 2)]:
-        run_chunkwise_train(
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            enc_stream_type="chunked",
-            chunk_sizes=[100],
-            chunk_step_factors=[st],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[200],
-            batch_size=bs,
-            accum_grad=accum,
-            time_rqmt=96,
-        )
-
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[10, 15],
-        chunk_step_factors=[0.25, 0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[300],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=96,
-    )
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[100],
+    #     chunk_step_factors=[1],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[200],
+    #     batch_size=30_000,
+    #     accum_grad=1,
+    #     time_rqmt=96,
+    # )
+    #
+    # # 100-50  2.33/5.88/2.5/5.89
+    #
+    # # TODO: chunked encoder + chunkwise attention (decoder operators on chunks)
+    # for chunk_size, chunk_step in [(10, 1), (20, 1), (20, 0.5), (10, 0.5)]:
+    #     # running locally: (20, 0.5)
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type="chunked",
+    #         chunk_sizes=[chunk_size],
+    #         chunk_step_factors=[chunk_step],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[300],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=96,
+    #     )
+    #
+    # # running locally: (100, 50)
+    # for st, bs, accum in [(0.25, 10_000, 3), (0.5, 15_000, 2)]:
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type="chunked",
+    #         chunk_sizes=[100],
+    #         chunk_step_factors=[st],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[200],
+    #         batch_size=bs,
+    #         accum_grad=accum,
+    #         time_rqmt=96,
+    #     )
+    #
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[10, 15],
+    #     chunk_step_factors=[0.25, 0.5],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[300],
+    #     batch_size=10_000,
+    #     accum_grad=3,
+    #     time_rqmt=96,
+    # )
 
     # TODO: end slice chunk size + left padding: chunk_size - end_slice_size
     # chunk size 100 and 50% overlap
-    for end_slice_size in [90, 80, 70, 60, 50]:
-        run_chunkwise_train(
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            enc_stream_type="chunked",
-            chunk_sizes=[100],
-            chunk_step_factors=[0.5],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[200],
-            batch_size=15_000 if end_slice_size <= 10 else 10_000,
-            accum_grad=2 if end_slice_size <= 10 else 3,
-            time_rqmt=96,
-            window_left_padding=(100 - end_slice_size) * 6,  # on input level!
-            end_slice_size=end_slice_size,
-        )
+    # for end_slice_size in [90, 80, 70, 60, 50]:
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type="chunked",
+    #         chunk_sizes=[100],
+    #         chunk_step_factors=[0.5],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[200],
+    #         batch_size=15_000 if end_slice_size <= 10 else 10_000,
+    #         accum_grad=2 if end_slice_size <= 10 else 3,
+    #         time_rqmt=96,
+    #         window_left_padding=(100 - end_slice_size) * 6,  # on input level!
+    #         end_slice_size=end_slice_size,
+    #     )
 
     # TODO: use previous chunks as memory
     # running locally
@@ -1347,29 +1373,12 @@ def baseline():
     )
 
     # TODO: 100, 50, 20 with memory and no overlap
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[100, 50, 20],
-        chunk_step_factors=[1.0],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[200],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=96,
-        conf_mem_opts={"self_att_version": 0},
-    )
-
-    # TODO: padding only to the left
     # run_chunkwise_train(
     #     run_all_for_best_last_avg=True,
     #     enable_check_align=False,
     #     enc_stream_type="chunked",
-    #     chunk_sizes=[100],
-    #     chunk_step_factors=[0.5],
+    #     chunk_sizes=[100, 50, 20],
+    #     chunk_step_factors=[1.0],
     #     start_lrs=[2e-4],
     #     decay_pt_factors=[1 / 3],
     #     gpu_mem=24,
@@ -1377,23 +1386,23 @@ def baseline():
     #     batch_size=15_000,
     #     accum_grad=2,
     #     time_rqmt=96,
-    #     window_left_padding=300,
+    #     conf_mem_opts={"self_att_version": 0},
     # )
 
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[25],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[400],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=96,
-    )
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[25],
+    #     chunk_step_factors=[0.5],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[400],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=96,
+    # )
 
     # TODO: more efficient implementation
     run_chunkwise_train(
@@ -1427,37 +1436,37 @@ def baseline():
         time_rqmt=96,
     )
 
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[20, 15],
-        chunk_step_factors=[1.0],
-        start_lrs=[2e-4, 3e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[300, 400],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=96,
-        conf_mem_opts={"self_att_version": 0},
-    )
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[20, 15],
+    #     chunk_step_factors=[1.0],
+    #     start_lrs=[2e-4, 3e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[300, 400],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=96,
+    #     conf_mem_opts={"self_att_version": 0},
+    # )
 
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[20, 25],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4, 3e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[300, 400],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=96,
-        conf_mem_opts={"self_att_version": 0},
-    )
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[20, 25],
+    #     chunk_step_factors=[0.5],
+    #     start_lrs=[2e-4, 3e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[300, 400],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=96,
+    #     conf_mem_opts={"self_att_version": 0},
+    # )
 
     for mem_size in [2]:
         run_chunkwise_train(
@@ -1465,14 +1474,14 @@ def baseline():
             enable_check_align=False,
             enc_stream_type="chunked",
             chunk_sizes=[25],
-            chunk_step_factors=[0.5],
+            chunk_step_factors=[0.5, 1.0],
             start_lrs=[2e-4],
             decay_pt_factors=[1 / 3],
             gpu_mem=24,
-            total_epochs=[300, 400],
+            total_epochs=[400],
             batch_size=15_000,
             accum_grad=2,
-            time_rqmt=96,
+            time_rqmt=120,
             conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
         )
 
@@ -1483,77 +1492,152 @@ def baseline():
     #    |..........***|
     # Note: getting OOM with bs 10k and chunk_size >= 100
     # compare with using overlap as context
-    for chunk_size in [50]:
+    for extended_chunk_size in [50]:
         for end_slice_size in [25]:
-            chunk_size_with_slice = chunk_size + end_slice_size
-            run_chunkwise_train(
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                enc_stream_type="chunked",
-                chunk_sizes=[chunk_size_with_slice],
-                chunk_step_factors=[end_slice_size / chunk_size_with_slice],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=24,
-                total_epochs=[300],
-                batch_size=10_000,
-                accum_grad=3,
-                time_rqmt=96,
-                window_left_padding=(chunk_size_with_slice - end_slice_size) * 6,  # on input level!
-                end_slice_size=end_slice_size,
-            )
+            for overlap_ratio in [1.0]:
+                extended_chunk_size_with_slice = extended_chunk_size + end_slice_size
+                overlap_pad = int(
+                    (end_slice_size * 6 // 2 - 1)
+                    * (end_slice_size * 6 - int(overlap_ratio * end_slice_size) * 6)
+                    // (end_slice_size * 6 - 1)
+                )
+                run_chunkwise_train(
+                    run_all_for_best_last_avg=True,
+                    enable_check_align=False,
+                    enc_stream_type="chunked",
+                    chunk_sizes=[extended_chunk_size_with_slice],
+                    chunk_step_factors=[end_slice_size / extended_chunk_size_with_slice * overlap_ratio],
+                    start_lrs=[2e-4],
+                    decay_pt_factors=[1 / 3],
+                    gpu_mem=24,
+                    total_epochs=[300],
+                    batch_size=10_000,
+                    accum_grad=3,
+                    time_rqmt=168,
+                    window_left_padding=extended_chunk_size * 6 + overlap_pad,  # on input level!
+                    end_slice_size=end_slice_size,
+                )
 
-    for chunk_size in [50]:
-        for end_slice_size in [25]:
-            chunk_size_with_slice = chunk_size + end_slice_size
-            run_chunkwise_train(
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                enc_stream_type="chunked",
-                chunk_sizes=[chunk_size_with_slice],
-                chunk_step_factors=[end_slice_size / chunk_size_with_slice],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=24,
-                total_epochs=[400],
-                batch_size=10_000,
-                accum_grad=3,
-                time_rqmt=96,
-                window_left_padding=(chunk_size_with_slice - end_slice_size) * 6,  # on input level!
-                end_slice_size=end_slice_size,
-                conf_mem_opts={"self_att_version": 1, "mem_size": 1},
-            )
+    # for enc_type in ["causal-mhsa"]:
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type=enc_type,
+    #         chunk_sizes=[25],
+    #         chunk_step_factors=[0.5],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=11,
+    #         total_epochs=[300],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=96,
+    #     )
+    #
+    # for enc_type in ["causal", "causal-mhsa"]:
+    #     for lr in [2e-4]:
+    #         run_chunkwise_train(
+    #             run_all_for_best_last_avg=True,
+    #             enable_check_align=False,
+    #             enc_stream_type=enc_type,
+    #             chunk_sizes=[None],
+    #             chunk_step_factors=[None],
+    #             start_lrs=[lr],
+    #             decay_pt_factors=[1 / 3],
+    #             gpu_mem=11,
+    #             total_epochs=[300],
+    #             batch_size=15_000,
+    #             accum_grad=2,
+    #             time_rqmt=168,
+    #         )
 
-    # causal exps
-    for enc_type in ["causal-mhsa"]:
+    # for mem_size in [3, 4]:
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type="chunked",
+    #         chunk_sizes=[25],
+    #         chunk_step_factors=[1.0],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[400],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=168,
+    #         conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
+    #     )
+
+    # TODO: full-sum approx from scratch
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[25],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[300],
+        batch_size=10_000,
+        accum_grad=3,
+        time_rqmt=168,
+        full_sum_approx=True,
+    )
+
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[25],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[300],
+        batch_size=10_000,
+        accum_grad=3,
+        time_rqmt=168,
+        conf_mem_opts={"self_att_version": 1, "mem_size": 2},
+        full_sum_approx=True,
+    )
+
+    # TODO: full-sum approx from viterbi training
+    for lr in [1e-4, 2e-4]:
         run_chunkwise_train(
             run_all_for_best_last_avg=True,
             enable_check_align=False,
-            enc_stream_type=enc_type,
+            enc_stream_type="chunked",
             chunk_sizes=[25],
             chunk_step_factors=[0.5],
-            start_lrs=[2e-4],
+            start_lrs=[lr],  # TODO: maybe lower?
             decay_pt_factors=[1 / 3],
-            gpu_mem=11,
+            gpu_mem=24,
             total_epochs=[300],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=96,
+            batch_size=10_000,
+            accum_grad=3,
+            time_rqmt=168,
+            conf_mem_opts={"self_att_version": 1, "mem_size": 2},
+            full_sum_approx=True,
+            retrain_ckpt=train_job_avg_ckpt[
+                "chunked_att_chunk-25_step-12_linDecay400_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1_memSize2"
+            ],
+            suffix="_retrainAvg",
         )
 
-    for enc_type in ["causal", "causal-mhsa", "causal-reset-conv"]:
-        for lr in [2e-4]:
-            run_chunkwise_train(
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                enc_stream_type=enc_type,
-                chunk_sizes=[None],
-                chunk_step_factors=[None],
-                start_lrs=[lr],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=11,
-                total_epochs=[300],
-                batch_size=15_000,
-                accum_grad=2,
-                time_rqmt=168,
-            )
+    # TODO: mask paddings for MHSA
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[25],
+        chunk_step_factors=[0.5],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[400],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=120,
+        conf_mem_opts={"self_att_version": 1, "mem_size": 2, "mask_paddings": True},
+    )

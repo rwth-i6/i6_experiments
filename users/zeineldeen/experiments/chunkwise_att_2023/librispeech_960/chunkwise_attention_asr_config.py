@@ -737,6 +737,7 @@ def create_config(
                 chunk_size=chunk_size,
                 chunk_size_dim=chunk_size_dim,
                 mem_size=conf_mem_opts.get("mem_size", 1),
+                mask_paddings=conf_mem_opts.get("mask_paddings", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)
@@ -830,6 +831,20 @@ def create_config(
 
         else:
             raise ValueError(f"invalid chunk_level: {chunk_level!r}")
+
+        # if encoder_args["with_ctc"]:
+        #     if chunk_size != chunk_step:
+        #         conformer_encoder.network["ctc_encoder"] = {"class": "time_unchunking", "from": "encoder"}
+        #     else:
+        #         # no overlap so just concat the chunks
+        #         conformer_encoder.network["ctc_encoder"] = {
+        #             "class": "merge_dims",
+        #             "from": "encoder",  # [B,C,W,D]
+        #             "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
+        #             "keep_order": True,
+        #         }  # [B,C*W,D]
+        #
+        #     conformer_encoder.network["ctc"]["from"] = "ctc_encoder"
 
     else:
         conformer_encoder = encoder_type(**encoder_args)
@@ -1058,7 +1073,9 @@ def create_config(
     if conf_mem_opts and conf_mem_opts["self_att_version"] == 1:
         assert retrain_checkpoint_opts is not None, "preload_from_files should be used."
 
-    post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.95}}
+    # seems to only work only when TF_FORCE_GPU_ALLOW_GROWTH is set to True in settings.py
+    # otherwise I get CUDNN not loaded error. Also some error related to conv ops.
+    # post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
 
     returnn_config = ReturnnConfig(
         exp_config,
