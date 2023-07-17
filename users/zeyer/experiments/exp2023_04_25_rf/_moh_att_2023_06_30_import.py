@@ -55,7 +55,7 @@ def _get_pt_checkpoint_path() -> tk.Path:
     print("converter:", converter)
     print("checkpoint:", old_tf_ckpt, tools.sis_hash(old_tf_ckpt))
     print("make_model_func:", make_model_func, tools.sis_hash(make_model_func))
-    print("map_func:", map_param_func_v2, tools.sis_hash(map_param_func_v2))
+    print("map_func:", map_param_func_v2, map_param_func_v2.__module__, tools.sis_hash(map_param_func_v2))
     return converter.out_checkpoint
 
 
