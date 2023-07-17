@@ -498,7 +498,7 @@ def run_single(
                 opt_lm_am_scale=False,
                 mem_rqmt=2,
                 cpu_rqmt=2,
-                rtf=1,
+                rtf=4,
             )
 
     if decode_all_corpora:

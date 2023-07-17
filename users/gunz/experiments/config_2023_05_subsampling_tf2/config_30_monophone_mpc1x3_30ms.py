@@ -528,7 +528,7 @@ def run_single(
                 opt_lm_am_scale=False,
                 mem_rqmt=2,
                 cpu_rqmt=2,
-                rtf=1,
+                rtf=2,
             )
         rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
