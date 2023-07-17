@@ -325,6 +325,7 @@ class ConformerEncoder:
                 base=self.memory_variant_opts.split_batch_time_base,
             )  # [B, C, W, D], C = chunked_time_dim
             mem_chunks = []
+            mem_paddings = []
             for mem_idx in range(self.memory_variant_opts.mem_size):
                 ln_chunk_shifted = self.network.add_generic_layer(
                     f"{prefix_name}_ln_chunk_shifted" + (f"_{mem_idx}" if mem_idx > 0 else ""),
@@ -350,14 +351,49 @@ class ConformerEncoder:
                     set_axes={"T": "spatial"},
                 )  # [B*C, W, D] but not time_dim_axis is set to W
                 mem_chunks.append((ln_chunk_shifted, "T"))
-            mem_chunks.reverse()  # reverse to concat left-most first
+
+                # mask paddings
+                if layer_index == 1 and self.memory_variant_opts.mask_paddings:
+                    # mask padded frames when computing att vector. this mask is shared for all layers.
+                    energy_mask_ = self.network.add_generic_layer(
+                        f"energy_mask_",  # shared for all layers
+                        cls="constant",
+                        value=True,
+                        shape=(self.memory_variant_opts.chunked_time_dim, self.memory_variant_opts.chunk_size_dim),
+                        shape_deps=[ln_split_chunk],  # [B,C,W,D], only used to define dim tag C
+                        dtype="bool",
+                        source=None,
+                    )  # [C,W]
+                    energy_mask = self.network.add_generic_layer(
+                        f"energy_mask_shift_{mem_idx + 1}",
+                        cls="shift_axis",
+                        source=energy_mask_,
+                        axis=self.memory_variant_opts.chunked_time_dim,
+                        amount=mem_idx + 1,
+                        pad=True,  # pad by False
+                        adjust_size_info=False,  # no change in dim tag, C stays the same
+                    )
+                    mem_paddings.append((energy_mask, self.memory_variant_opts.chunk_size_dim))
+
+            # reverse to concat left-most first
+            mem_chunks.reverse()
             # Concatenate the shifted and the original tensor.
             ln_ = self.network.add_generic_layer(
                 f"{prefix_name}_ln_concat",
                 cls="concat",
                 source=[*mem_chunks, (ln, "T")],
                 out_dim=self.concat_window_dim,
-            )  # [B*C, W*2, D]
+            )  # [B*C, W*N, D]
+
+            concat_mask_paddings = None
+            if mem_paddings:
+                mem_paddings.reverse()
+                concat_mask_paddings = self.network.add_generic_layer(
+                    f"concat_mask_paddings",
+                    cls="concat",
+                    source=[*mem_paddings, ("energy_mask_", self.memory_variant_opts.chunk_size_dim)],
+                    out_dim=self.concat_window_dim,
+                )  # [C, W*N]
 
             if self.memory_variant_opts.self_att_version == 0:
                 # this implementation is not efficient.
@@ -367,7 +403,7 @@ class ConformerEncoder:
                     n_out=self.enc_key_per_head_dim,
                     forward_weights_init=self.ff_init,
                     clipping=self.rel_pos_clipping,
-                )  # [B*C, W*2, D/H]
+                )  # [B*C, W*N, D/H]
                 # same param name as before
                 mhsa_ = self.network.add_self_att_layer(
                     name=prefix_name,
@@ -382,7 +418,7 @@ class ConformerEncoder:
                     attention_left_only=self.use_causal_layers,
                     param_variational_noise=self.weight_noise if "mhsa" in self.weight_noise_layers else None,
                     param_dropout=self.mhsa_weight_drop,
-                )  # [B*C, W*2, D]
+                )  # [B*C, W*N, D]
                 mhsa_splits = self.network.add_generic_layer(
                     f"{prefix_name}_splits",
                     cls="split",
@@ -400,7 +436,7 @@ class ConformerEncoder:
                 # We cannot use SelfAttentionLayer on the concatenated tensor,
                 # because it would waste compute time for the frames of the last chunk.
                 # So reimplement the SelfAttentionLayer here explicitly.
-                # key, value: via concatenated, [B*C, W*2, D]
+                # key, value: via concatenated, [B*C, W*N, D]
                 K = self.network.add_generic_layer(
                     f"{prefix_name}_ln_K",
                     cls="linear",
@@ -409,14 +445,14 @@ class ConformerEncoder:
                     forward_weights_init=self.mhsa_init,
                     with_bias=False,
                     L2=self.self_att_l2,
-                )  # [B*C, W*2, D]
+                )  # [B*C, W*N, D]
                 K_H = self.network.add_generic_layer(
                     f"{prefix_name}_ln_K_H",
                     cls="split_dims",
                     source=K,
                     axis="f",
                     dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W*2, H, D/H]
+                )  # [B*C, W*N, H, D/H]
                 V = self.network.add_generic_layer(
                     f"{prefix_name}_ln_V",
                     cls="linear",
@@ -425,14 +461,14 @@ class ConformerEncoder:
                     forward_weights_init=self.mhsa_init,
                     with_bias=False,
                     L2=self.self_att_l2,
-                )  # [B*C, W*2, D]
+                )  # [B*C, W*N, D]
                 V_H = self.network.add_generic_layer(
                     f"{prefix_name}_ln_V_H",
                     cls="split_dims",
                     source=V,
                     axis="f",
                     dims=(self.enc_att_num_heads_dim, self.enc_per_head_dim),
-                )  # [B*C, W*2, H, D/H]
+                )  # [B*C, W*N, H, D/H]
                 Q = self.network.add_generic_layer(
                     f"{prefix_name}_ln_Q",
                     cls="linear",
@@ -475,7 +511,7 @@ class ConformerEncoder:
                     reduce=self.enc_per_head_dim,  # D/H
                     var1="auto",
                     var2="auto",
-                )  # [B*C, H, W*2, W]
+                )  # [B*C, H, W*N, W]
 
                 ln_rel_pos_enc = self.network.add_generic_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
@@ -487,7 +523,7 @@ class ConformerEncoder:
                     query_spatial_dim=self.memory_variant_opts.chunk_size_dim,
                     key_value_spatial_dim=self.concat_window_dim,
                     query_offset=self.memory_variant_opts.chunk_size,
-                )  # [W, W*2, D/H]
+                )  # [W, W*N, D/H]
 
                 energy_rel_pos = self.network.add_generic_layer(
                     f"{prefix_name}_ln_energy_rel_pos",
@@ -496,7 +532,7 @@ class ConformerEncoder:
                     reduce=self.enc_per_head_dim,  # D/H
                     var1="auto",
                     var2="auto",
-                )  # [B*C, H, W, W*2]
+                )  # [B*C, H, W, W*N]
 
                 energy = self.network.add_generic_layer(
                     f"{prefix_name}_ln_energy_",
@@ -504,25 +540,60 @@ class ConformerEncoder:
                     source=[energy, energy_rel_pos],
                     kind="add",
                     allow_broadcast_all_sources=False,
-                )  # [B*C, H, W*2, W]
+                )  # [B*C, H, W*N, W]
+
+                if mem_paddings:
+                    assert concat_mask_paddings
+                    from i6_core.returnn.config import CodeWrapper
+
+                    inf_const = self.network.add_generic_layer(
+                        "inf_const",
+                        cls="constant",
+                        value=CodeWrapper("-float('inf')"),
+                        source=None,
+                        dtype="float32",
+                    )
+                    # for broadcasting, we need to split B and C first
+                    energy_split = self.network.add_generic_layer(
+                        f"{prefix_name}_ln_energy_split",
+                        cls="split_batch_time",
+                        source=energy,
+                        base=self.memory_variant_opts.split_batch_time_base,
+                    )  # [B, C, H, W*N, W]
+
+                    energy = self.network.add_generic_layer(
+                        f"{prefix_name}_ln_energy_masked_",
+                        cls="switch",
+                        condition=concat_mask_paddings,  # [C,W*N]
+                        true_from=energy_split,
+                        false_from=inf_const,
+                        source=None,
+                    )  # [B, C, H, W*N, W]
+
+                    energy = self.network.add_generic_layer(
+                        f"{prefix_name}_ln_energy_masked_merged",
+                        cls="merge_dims",
+                        source=energy,
+                        axes=("B", self.memory_variant_opts.chunked_time_dim),
+                    )  # [B*C, H, W*N, W]
 
                 weights = self.network.add_generic_layer(
                     f"{prefix_name}_ln_weights",
                     cls="softmax_over_spatial",
                     source=energy,
-                )  # [B*C, H, W, W*2]
+                )  # [B*C, H, W, W*N]
                 weights_drop = self.network.add_generic_layer(
                     f"{prefix_name}_ln_weights_drop",
                     cls="dropout",
                     source=weights,
                     dropout=self.att_dropout,
                     dropout_noise_shape={"*": None},
-                )  # [B*C, H, W, W*2]
+                )  # [B*C, H, W, W*N]
                 att0 = self.network.add_generic_layer(
                     f"{prefix_name}_ln_att0",
                     cls="dot",
                     source=[weights_drop, V_H],
-                    reduce=self.concat_window_dim,  # 2*W
+                    reduce=self.concat_window_dim,  # W*N
                     var1="auto",
                     var2="auto",
                 )  # [B*C, H, W, D/H]
@@ -929,3 +1000,4 @@ class ConformerMemoryVariantOpts:
     chunk_size: int
     self_att_version: int  # TODO: just for testing
     mem_size: int
+    mask_paddings: bool
