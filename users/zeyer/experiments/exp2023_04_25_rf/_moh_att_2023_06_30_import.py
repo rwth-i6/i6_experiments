@@ -681,4 +681,5 @@ py = test_import_search
 
 
 if __name__ == "__main__":
+    map_param_func_v2.__module__ = __package__
     test_import_search()
