@@ -100,7 +100,7 @@ def get_ogg_zip_dict(
     returnn_python_exe: Optional[tk.Path] = None,
     returnn_root: Optional[tk.Path] = None,
     bliss_to_ogg_job_rqmt: Optional[Dict[str, Any]] = None,
-):
+) -> Dict[str, tk.Path]:
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
 
@@ -111,7 +111,6 @@ def get_ogg_zip_dict(
     :param tk.Path returnn_root: python to returnn root
     :param dict bliss_to_ogg_job_rqmt: rqmt for bliss to ogg job
     :return: dictionary with ogg zip paths for each corpus (train, dev, test)
-    :rtype: dict[str, tk.Path]
     """
     from i6_core.returnn.oggzip import BlissToOggZipJob
 
