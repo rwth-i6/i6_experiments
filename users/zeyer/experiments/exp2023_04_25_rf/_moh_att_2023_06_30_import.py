@@ -36,16 +36,26 @@ def _get_tf_checkpoint_path() -> tk.Path:
 
 
 def _get_pt_checkpoint_path() -> tk.Path:
+    from sisyphus import tools
+
     old_tf_ckpt_path = _get_tf_checkpoint_path()
     print(old_tf_ckpt_path)
+    old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
+    print(old_tf_ckpt)
+
+    make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
 
     converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=MakeModel(80, 10_025, eos_label=0, num_enc_layers=12),
+        checkpoint=old_tf_ckpt,
+        make_model_func=make_model_func,
         map_func=map_param_func_v2,
         epoch=1,
         step=0,
     )
+    print("converter:", converter)
+    print("checkpoint:", old_tf_ckpt, tools.sis_hash(old_tf_ckpt))
+    print("make_model_func:", make_model_func, tools.sis_hash(make_model_func))
+    print("map_func:", map_param_func_v2, tools.sis_hash(map_param_func_v2))
     return converter.out_checkpoint
 
 
