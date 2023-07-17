@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from sisyphus import tk
 
@@ -99,7 +99,7 @@ def get_ogg_zip_dict(
     output_prefix: str = "datasets",
     returnn_python_exe: Optional[tk.Path] = None,
     returnn_root: Optional[tk.Path] = None,
-    bliss_to_ogg_job_rqmt: Optional[Dict] = None,
+    bliss_to_ogg_job_rqmt: Optional[Dict[str, Any]] = None,
 ):
     """
     Get a dictionary containing the paths to the ogg_zip for each corpus part.
