@@ -686,6 +686,6 @@ if __name__ == "__main__":
     mod_name = __package__
     if mod_name.startswith("recipe."):
         mod_name = mod_name[len("recipe."):]
-    mod_name += os.path.basename(__file__)[:-len(".py")]
+    mod_name += "." + os.path.basename(__file__)[:-len(".py")]
     map_param_func_v2.__module__ = mod_name
     test_import_search()
