@@ -561,27 +561,40 @@ class RNNDecoder:
                     loss_opts={"label_smoothing": self.label_smoothing},
                 )
             )
-        self.output_prob = subnet_unit.add_softmax_layer(
-            "output_prob",
-            "readout",
-            l2=self.l2,
-            target=f"layer:base:data:{target}"
-            if (search_type == "end-of-chunk" or self.full_sum_simple_approx)
-            else target,
-            dropout=self.softmax_dropout,
-            **out_prob_opts,
-        )
+
+        if self.full_sum_simple_approx:
+            # we only need the logits for full_sum training
+            self.output_logits = subnet_unit.add_linear_layer(
+                "output_logits",
+                "readout",
+                l2=self.l2,
+                target=f"layer:base:data:{target}",
+                dropout=self.softmax_dropout,
+                name_scope="output_prob",  # for ckpt loading
+            )
+            # used for recognition
+            self.output_prob = subnet_unit.add_activation_layer(
+                "output_prob",
+                "output_logits",
+                activation="softmax",
+            )
+        else:
+            self.output_prob = subnet_unit.add_softmax_layer(
+                "output_prob",
+                "readout",
+                l2=self.l2,
+                target=f"layer:base:data:{target}"
+                if (search_type == "end-of-chunk" or self.full_sum_simple_approx)
+                else target,
+                dropout=self.softmax_dropout,
+                **out_prob_opts,
+            )
 
         if self.full_sum_simple_approx:
             assert self.enc_chunks_dim
-            subnet_unit["output_log_prob"] = {
-                "class": "activation",
-                "from": "output_prob",
-                "activation": "safe_log",
-            }
             subnet_unit["full_sum_simple_approx_loss"] = {
                 "class": "eval",
-                "from": ["output_log_prob", f"base:data:{target}"],
+                "from": ["output_logits", f"base:data:{target}"],
                 # Pickling/serialization of the func ref should work when this is a global function of this module.
                 # But depending on your setup, there might anyway not be any serialization.
                 "eval": _rnnt_full_sum_log_prob_eval_layer_func,
