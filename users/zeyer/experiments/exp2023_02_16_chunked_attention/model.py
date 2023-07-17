@@ -887,35 +887,35 @@ def _rnnt_full_sum_log_prob_eval_layer_func(
     from returnn.extern.HawkAaronWarpTransducer import rnnt_loss
 
     assert isinstance(self, LayerBase)
-    log_probs = source(0, auto_convert=False, as_data=True)
+    logits = source(0, auto_convert=False, as_data=True)
     labels = source(1, auto_convert=False, as_data=True)
-    assert isinstance(log_probs, Data) and isinstance(labels, Data)
+    assert isinstance(logits, Data) and isinstance(labels, Data)
     assert labels.batch_ndim == 2 and labels.have_batch_axis() and labels.have_time_axis()
     labels_spatial_dim = labels.get_time_dim_tag()
     prev_labels_spatial_dim = 1 + labels_spatial_dim
     batch_dims = list(self.output.dim_tags)
-    feat_dim = log_probs.feature_dim_or_sparse_dim
+    feat_dim = logits.feature_dim_or_sparse_dim
     if blank_index < 0:
         blank_index += feat_dim.dimension
     assert 0 <= blank_index < feat_dim.dimension
     assert labels.sparse_dim.dimension <= feat_dim.dimension
     # Move axes into the right order (no-op if they already are).
-    log_probs = log_probs.copy_compatible_to(
-        Data("log_probs", dim_tags=batch_dims + [input_spatial_dim, prev_labels_spatial_dim, feat_dim]),
+    logits = logits.copy_compatible_to(
+        Data("logits", dim_tags=batch_dims + [input_spatial_dim, prev_labels_spatial_dim, feat_dim]),
         check_dtype=False,
     )
     labels = labels.copy_compatible_to(
         Data("labels", dim_tags=batch_dims + [labels_spatial_dim], sparse_dim=labels.sparse_dim), check_dtype=False
     )
     input_lengths = input_spatial_dim.get_dyn_size_ext_for_batch_ctx(
-        log_probs.batch, log_probs.control_flow_ctx
+        logits.batch, logits.control_flow_ctx
     ).copy_compatible_to(Data("input_lengths", dim_tags=batch_dims), check_dtype=False)
     label_lengths = labels_spatial_dim.get_dyn_size_ext_for_batch_ctx(
-        log_probs.batch, log_probs.control_flow_ctx
+        logits.batch, logits.control_flow_ctx
     ).copy_compatible_to(Data("label_lengths", dim_tags=batch_dims), check_dtype=False)
 
     return rnnt_loss(
-        acts=log_probs.placeholder,
+        acts=logits.placeholder,
         labels=labels.placeholder,
         input_lengths=input_lengths.placeholder,
         label_lengths=label_lengths.placeholder,
