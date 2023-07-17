@@ -459,12 +459,12 @@ def run_single(
 
         search_cfg = SearchParameters.default_diphone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.5)
         tdps = itertools.product(
-            [0, 1, 3],
+            [0, 3, 10],
             [0],
-            [1, 2, 3],
-            [0, 1, 3],
-            [1],
-            [1, 2, 3],
+            [0, 3, 10],
+            [0, 3, 10],
+            [3],
+            [1, 3, 10],
             np.linspace(0.2, 0.8, 4),
         )
         for cfg in tdps:
