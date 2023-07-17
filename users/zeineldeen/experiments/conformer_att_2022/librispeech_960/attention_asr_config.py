@@ -798,22 +798,7 @@ def create_config(
             raise ValueError("Invalid speed_pert_version")
 
     if feature_extraction_net and global_stats:
-        exp_config["network"]["log10_"] = copy.deepcopy(exp_config["network"]["log10"])
-        exp_config["network"]["global_mean"] = {
-            "class": "eval",
-            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[0]}', dtype='float32') + (source(0) - source(0))",
-            "from": "log10_",
-        }
-        exp_config["network"]["global_stddev"] = {
-            "class": "eval",
-            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[1]}', dtype='float32') + (source(0) - source(0))",
-            "from": "log10_",
-        }
-        exp_config["network"]["log10"] = {
-            "class": "eval",
-            "from": ["log10_", "global_mean", "global_stddev"],
-            "eval": "(source(0) - source(1)) / source(2)",
-        }
+        add_global_stats_norm(global_stats, exp_config["network"])
 
     from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
 
@@ -848,22 +833,7 @@ def create_config(
                 if feature_extraction_net:
                     net.update(feature_extraction_net)
                     if global_stats:
-                        net["global_mean"] = {
-                            "class": "eval",
-                            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[0]}', dtype='float32') + (source(0) - source(0))",
-                            "from": "log10_",
-                        }
-                        net["global_stddev"] = {
-                            "class": "eval",
-                            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[1]}', dtype='float32') + (source(0) - source(0))",
-                            "from": "log10_",
-                        }
-                        net["log10_"] = copy.deepcopy(net["log10"])
-                        net["log10"] = {
-                            "class": "eval",
-                            "from": ["log10_", "global_mean", "global_stddev"],
-                            "eval": "(source(0) - source(1)) / source(2)",
-                        }
+                        add_global_stats_norm(global_stats, net)
                 if mixup_aug_opts:
                     net["mixup"] = make_mixup_layer_dict(
                         src="log_mel_features",
@@ -976,3 +946,51 @@ def create_config(
     )
 
     return returnn_config
+
+
+def add_global_stats_norm(global_stats, net):
+    if isinstance(global_stats, dict):
+        from sisyphus.delayed_ops import DelayedFormat
+
+        global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+        global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+
+        net["log10_"] = copy.deepcopy(net["log10"])
+        net["global_mean"] = {
+            "class": "constant",
+            "value": CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+            ),
+            "dtype": "float32",
+        }
+        net["global_stddev"] = {
+            "class": "constant",
+            "value": CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+            ),
+            "dtype": "float32",
+        }
+        net["log10"] = {
+            "class": "eval",
+            "from": ["log10_", "global_mean", "global_stddev"],
+            "eval": "(source(0) - source(1)) / source(2)",
+        }
+    else:
+        # NOTE: old way. should not be used anymore but only kept to not break hashes
+        print("WARNING: Using legacy way to add global stats normalization into the config.")
+        net["log10_"] = copy.deepcopy(net["log10"])
+        net["global_mean"] = {
+            "class": "eval",
+            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[0]}', dtype='float32') + (source(0) - source(0))",
+            "from": "log10_",
+        }
+        net["global_stddev"] = {
+            "class": "eval",
+            "eval": f"exec('import numpy') or numpy.loadtxt('{global_stats[1]}', dtype='float32') + (source(0) - source(0))",
+            "from": "log10_",
+        }
+        net["log10"] = {
+            "class": "eval",
+            "from": ["log10_", "global_mean", "global_stddev"],
+            "eval": "(source(0) - source(1)) / source(2)",
+        }
