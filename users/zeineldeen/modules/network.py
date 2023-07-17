@@ -74,7 +74,7 @@ class ReturnnNetwork:
         self,
         name,
         source,
-        n_out,
+        n_out=None,
         activation=None,
         with_bias=True,
         dropout=0.0,
@@ -83,7 +83,11 @@ class ReturnnNetwork:
         param_dropout=None,
         **kwargs,
     ):
-        d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source, "n_out": n_out}
+        d = {"class": "linear", "activation": activation, "with_bias": with_bias, "from": source}
+        if n_out:
+            d["n_out"] = n_out
+        else:
+            assert "target" in kwargs, "target must be specified to define output dimension"
         if dropout:
             d["dropout"] = dropout
         if l2:
