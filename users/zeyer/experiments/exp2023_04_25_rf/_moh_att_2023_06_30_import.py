@@ -663,8 +663,9 @@ def test_import_search():
 
     print("*** Search ...")
     from torch.profiler import profile, ProfilerActivity
+    import contextlib
 
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    with contextlib.nullcontext():  # profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         with torch.no_grad():
             seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
                 model=new_model,
