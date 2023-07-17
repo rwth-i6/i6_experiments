@@ -93,3 +93,40 @@ def get_stm_dict(output_prefix: str = "datasets") -> Dict[str, tk.Path]:
     :return:
     """
     return download_data_dict(output_prefix=output_prefix).stm
+
+
+def get_ogg_zip_dict(
+    output_prefix: str = "datasets",
+    returnn_python_exe: Optional[tk.Path] = None,
+    returnn_root: Optional[tk.Path] = None,
+    bliss_to_ogg_job_rqmt: Optional[Dict] = None,
+):
+    """
+    Get a dictionary containing the paths to the ogg_zip for each corpus part.
+
+    No outputs will be registered.
+
+    :param str output_prefix: dir name prefix for aliases and outputs
+    :param tk.Path returnn_python_exe: path to returnn python executable
+    :param tk.Path returnn_root: python to returnn root
+    :param dict bliss_to_ogg_job_rqmt: rqmt for bliss to ogg job
+    :return: dictionary with ogg zip paths for each corpus (train, dev, test)
+    :rtype: dict[str, tk.Path]
+    """
+    from i6_core.returnn.oggzip import BlissToOggZipJob
+
+    ogg_zip_dict = {}
+    bliss_corpus_dict = get_bliss_corpus_dict(audio_format="wav", output_prefix=output_prefix)
+    for name, bliss_corpus in bliss_corpus_dict.items():
+        ogg_zip_job = BlissToOggZipJob(
+            bliss_corpus,
+            no_conversion=False,
+            returnn_python_exe=returnn_python_exe,
+            returnn_root=returnn_root,
+        )
+        if bliss_to_ogg_job_rqmt:
+            ogg_zip_job.rqmt = bliss_to_ogg_job_rqmt
+        ogg_zip_job.add_alias(os.path.join(output_prefix, "Ted-Lium-2", "%s_ogg_zip_job" % name))
+        ogg_zip_dict[name] = ogg_zip_job.out_ogg_zip
+
+    return ogg_zip_dict
