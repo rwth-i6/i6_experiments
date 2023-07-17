@@ -418,6 +418,9 @@ def conformer_baseline():
     ):
         if train_args.get("retrain_checkpoint", None):
             assert kwargs.get("epoch_wise_filter", None) is None, "epoch_wise_filter should be disabled for retraining."
+            if "allow_lr_scheduling" not in train_args:
+                train_args["allow_lr_scheduling"] = False  # force it
+
         train_data = build_training_datasets(
             bpe_size=bpe_size,
             use_raw_features=True,
@@ -481,7 +484,7 @@ def conformer_baseline():
         mini_lstm_args["batch_size"] = 20000 * 160
         mini_lstm_args["with_pretrain"] = False
         mini_lstm_args["lr"] = lr
-        mini_lstm_args["allow_lr_scheduling_for_retrain"] = False
+        mini_lstm_args["allow_lr_scheduling"] = False
         mini_lstm_args["encoder_args"].with_ctc = False
         mini_lstm_args["keep_all_epochs"] = True  # keep everything
         mini_lstm_args["extra_str"] = params_freeze_str
@@ -751,27 +754,27 @@ def conformer_baseline():
     )
 
     # TODO: fixed zoneout
-    args = copy.deepcopy(oclr_args)
-    args["oclr_opts"]["cycle_ep"] = 285
-    args["oclr_opts"]["total_ep"] = 635
-    args["decoder_args"].use_zoneout_output = True
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_fixedZoneout",
-        train_args=args,
-        num_epochs=635,
-    )
-    retrain_args = copy.deepcopy(oclr_args)
-    retrain_args["oclr_opts"]["cycle_ep"] = 285
-    retrain_args["oclr_opts"]["total_ep"] = 635
-    retrain_args["oclr_opts"]["peak_lr"] = 8e-4
-    retrain_args["decoder_args"].use_zoneout_output = True
-    retrain_args["allow_lr_scheduling_for_retrain"] = True
-    run_exp(
-        "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0008_fixedZoneout_retrain1",
-        train_args=retrain_args,
-        num_epochs=635,
-        gpu_mem=24,
-    )
+    # args = copy.deepcopy(oclr_args)
+    # args["oclr_opts"]["cycle_ep"] = 285
+    # args["oclr_opts"]["total_ep"] = 635
+    # args["decoder_args"].use_zoneout_output = True
+    # run_exp(
+    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_fixedZoneout",
+    #     train_args=args,
+    #     num_epochs=635,
+    # )
+    # retrain_args = copy.deepcopy(oclr_args)
+    # retrain_args["oclr_opts"]["cycle_ep"] = 285
+    # retrain_args["oclr_opts"]["total_ep"] = 635
+    # retrain_args["oclr_opts"]["peak_lr"] = 8e-4
+    # retrain_args["decoder_args"].use_zoneout_output = True
+    # retrain_args["allow_lr_scheduling_for_retrain"] = True
+    # run_exp(
+    #     "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0008_fixedZoneout_retrain1",
+    #     train_args=retrain_args,
+    #     num_epochs=635,
+    #     gpu_mem=24,
+    # )
 
     args = copy.deepcopy(oclr_args)
     args["oclr_opts"]["cycle_ep"] = 915
@@ -785,17 +788,17 @@ def conformer_baseline():
     )
 
     # TODO: better pretrain
-    for ep in [635, 2035]:
-        args = copy.deepcopy(oclr_args)
-        cycle_ep = int(0.45 * ep)
-        args["oclr_opts"]["cycle_ep"] = cycle_ep
-        args["oclr_opts"]["total_ep"] = ep
-        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-        run_exp(
-            f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed",
-            train_args=args,
-            num_epochs=ep,
-        )
+    # for ep in [635, 2035]:
+    #     args = copy.deepcopy(oclr_args)
+    #     cycle_ep = int(0.45 * ep)
+    #     args["oclr_opts"]["cycle_ep"] = cycle_ep
+    #     args["oclr_opts"]["total_ep"] = ep
+    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #     run_exp(
+    #         f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc{cycle_ep}_ep{ep}_peak0.0009_woDepthwiseRed",
+    #         train_args=args,
+    #         num_epochs=ep,
+    #     )
 
     for ep in [635]:
         args = copy.deepcopy(oclr_args)
@@ -811,33 +814,49 @@ def conformer_baseline():
         )
 
     # TODO: causal conformer
-    for with_ctc in [True, False]:
-        args = copy.deepcopy(oclr_args)
-        args["oclr_opts"]["cycle_ep"] = 285
-        args["oclr_opts"]["total_ep"] = 635
-        args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-        args["encoder_args"].use_causal_layers = True
-        args["encoder_args"].with_ctc = with_ctc
-        name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_woDepthwiseRed_causal"
-        if with_ctc is False:
-            name += "_noCTC"
-        run_exp(name, train_args=args, num_epochs=635)
+    # for with_ctc in [True, False]:
+    #     args = copy.deepcopy(oclr_args)
+    #     args["oclr_opts"]["cycle_ep"] = 285
+    #     args["oclr_opts"]["total_ep"] = 635
+    #     args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #     args["encoder_args"].use_causal_layers = True
+    #     args["encoder_args"].with_ctc = with_ctc
+    #     name = "base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_woDepthwiseRed_causal"
+    #     if with_ctc is False:
+    #         name += "_noCTC"
+    #     run_exp(name, train_args=args, num_epochs=635)
 
     # TODO: causal conformer with grad clipping
-    for grad_clip in [50, 100, 200]:
-        args = copy.deepcopy(oclr_args)
-        args["oclr_opts"]["cycle_ep"] = 285
-        args["oclr_opts"]["total_ep"] = 635
-        args["encoder_args"].use_causal_layers = True
+    # for grad_clip in [10, 25, 50, 100, 200]:
+    #     args = copy.deepcopy(oclr_args)
+    #     args["oclr_opts"]["cycle_ep"] = 285
+    #     args["oclr_opts"]["total_ep"] = 635
+    #     args["encoder_args"].use_causal_layers = True
+    #
+    #     args["batch_size"] = args["batch_size"] * 2
+    #     args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * 2
+    #     args["accum_grad"] = 1
+    #
+    #     args["gradient_clip"] = grad_clip
+    #
+    #     name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs2"
+    #     run_exp(name, train_args=args, num_epochs=635, gpu_mem=24)
 
-        args["batch_size"] = args["batch_size"] * 2
-        args["pretrain_opts"]["initial_batch_size"] = args["pretrain_opts"]["initial_batch_size"] * 2
-        args["accum_grad"] = 1
-
-        args["gradient_clip"] = grad_clip
-
-        name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs2"
-        run_exp(name, train_args=args, num_epochs=635, gpu_mem=24)
+    # TODO: causal conformer with grad clipping
+    # for depthwise_red in [False]:
+    #     for grad_clip in [5, 10, 25, 50, 100, 150, 200]:
+    #         args = copy.deepcopy(oclr_args)
+    #         args["oclr_opts"]["cycle_ep"] = 285
+    #         args["oclr_opts"]["total_ep"] = 635
+    #         args["encoder_args"].use_causal_layers = True
+    #         args["gradient_clip"] = grad_clip
+    #         name = f"base_conf_12l_lstm_1l_conv6_OCLR_sqrdReLU_cyc285_ep635_peak0.0009_causal_gradClip{grad_clip}_bs1"
+    #
+    #         if not depthwise_red:
+    #             args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #             name += "_wo_depthwiseRed"
+    #
+    #         run_exp(name, train_args=args, num_epochs=635, gpu_mem=11)
 
     args = copy.deepcopy(oclr_args)
     args["accum_grad"] = 1
@@ -957,6 +976,8 @@ def conformer_baseline():
         test_dataset_tuples=get_libriCSS_test_sets(bpe_size=BPE_10K),
         use_sclite=True,
     )
+
+    # ------------------------------------- #
 
     # with LM
     mini_lstm_j = train_mini_lstm(
