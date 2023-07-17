@@ -659,7 +659,7 @@ def test_import_search():
 
     cuda = torch.device('cuda')
     pt_module.to(cuda)
-    extern_data["audio_features"].raw_tensor.to(cuda)
+    extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
 
     print("*** Search ...")
     from torch.profiler import profile, ProfilerActivity
