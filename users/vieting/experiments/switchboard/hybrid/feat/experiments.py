@@ -201,17 +201,17 @@ def run_baseline_scf():
             #),
             "scf_no_specaug": dict(
                 returnn_args=dict(
-                    batch_size=7000,
+                    batch_size=3500,
                     enable_specaug=False,
-                    extra_args=dict(accum_grad_multiple_step=2),
+                    extra_args=dict(accum_grad_multiple_step=4),
                 ),
                 feature_args=scf_args_8khz,
             ),
             "scf_specaug_time_only": dict(
                 returnn_args=dict(
-                    batch_size=7000,
+                    batch_size=3500,
                     specaug_time_only=True,
-                    extra_args=dict(accum_grad_multiple_step=2),
+                    extra_args=dict(accum_grad_multiple_step=4),
                 ),
                 feature_args=scf_args_8khz,
             ),
@@ -273,7 +273,7 @@ def run_baseline_scf():
     hybrid_nn_system.run(nn_steps)
     #for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
         # noinspection PyUnresolvedReferences
-        #train_job.rqmt.update({"gpu_mem": 11, "mem": 10, "cpu": 8})
+        #train_job.rqmt.update({"gpu_mem": 24, "mem": 10, "cpu": 8})
     returnn_python_exe = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/returnn_tf2.3.4_mkl_launcher.sh",
         hash_overwrite="GENERIC_RETURNN_LAUNCHER",
