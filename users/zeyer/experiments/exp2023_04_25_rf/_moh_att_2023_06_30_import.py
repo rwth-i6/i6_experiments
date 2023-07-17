@@ -35,6 +35,26 @@ def _get_tf_checkpoint_path() -> tk.Path:
     return generic_job_output(_returnn_tf_ckpt_filename)
 
 
+def _get_pt_checkpoint_path() -> tk.Path:
+    old_tf_ckpt_path = _get_tf_checkpoint_path()
+
+    from returnn.datasets.util.vocabulary import Vocabulary
+
+    in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
+    target_dim = Dim(name="target", dimension=10_025, kind=Dim.Types.Feature)
+    target_dim.vocab = Vocabulary.create_vocab_from_labels([str(i) for i in range(target_dim.dimension)], eos_label=0)
+
+    converter = ConvertTfCheckpointToRfPtJob(
+        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
+        make_model_func=MakeModel(in_dim, target_dim, num_enc_layers=12),
+        map_func=map_param_func_v2,
+        epoch=1,
+        step=0,
+    )
+    return converter.out_checkpoint
+
+
+
 def _add_params():
     # frontend
     for layer_idx in [0, 1, 2]:
@@ -498,10 +518,6 @@ def test_import_forward():
 
 
 def test_import_search():
-    from i6_experiments.common.setups.returnn_common import serialization
-
-    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
-
     from returnn.datasets.util.vocabulary import Vocabulary
 
     in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
@@ -522,8 +538,6 @@ def test_import_search():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
-    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
-
     num_layers = 12
 
     from returnn.config import Config
@@ -531,7 +545,6 @@ def test_import_search():
     config = Config(
         dict(
             log_verbositiy=5,
-            network=net_dict,
             extern_data={
                 "audio_features": {"dim_tags": data.dims, "feature_dim_axis": -1},
                 "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
@@ -577,17 +590,7 @@ def test_import_search():
         "seq_order_control_dataset": "zip_dataset",
     }
 
-    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
-    from returnn.tf.network import TFNetwork
-    import tensorflow as tf
-    import tempfile
-    import atexit
-    import shutil
-
-    ckpt_dir = tempfile.mkdtemp("returnn-import-test")
-    atexit.register(lambda: shutil.rmtree(ckpt_dir))
-
-    print("*** Construct TF graph for old model")
+    print("*** Construct input minibatch")
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
 
@@ -623,62 +626,15 @@ def test_import_search():
     extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
     extern_data.reset_content()
 
-    tf1 = tf.compat.v1
-    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
-        net = TFNetwork(config=config, search_flag=True)
-        net.construct_from_dict(config.typed_dict["network"])
-        if _load_existing_ckpt_in_test:
-            ckpt_path = _get_tf_checkpoint_path()
-            print(f"*** Load model params from {ckpt_path.get_path()}")
-            net.load_params_from_file(ckpt_path.get_path(), session=session)
-            old_tf_ckpt_path = ckpt_path
-        else:
-            print("*** Random init old model")
-            net.initialize_params(session)
-            print("*** Save old model to disk")
-            net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
-            old_tf_ckpt_path = tk.Path(ckpt_dir + "/old_model/model.index")
-
-        print("*** Search ...")
-
-        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
-        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
-        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
-        fetches = net.get_fetches_dict()
-        old_model_outputs_data = {}
-        for old_layer_name in ["output"]:
-            layer = net.get_layer(old_layer_name)
-            out = layer.output.copy_as_batch_major()
-            old_model_outputs_data[old_layer_name] = out
-            fetches["layer:" + old_layer_name] = out.placeholder
-            for i, tag in enumerate(out.dim_tags):
-                if tag.is_batch_dim():
-                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
-                elif tag.dyn_size_ext:
-                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
-                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
-        old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
-        print(old_model_outputs_fetch)
-
-    def _make_new_model():
-        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
-
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
-    converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
-        make_model_func=_make_new_model,
-        map_func=map_param_func_v2,
-        epoch=1,
-        step=0,
-    )
-    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
-    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
-    converter.run()
+    pt_checkpoint_path = _get_pt_checkpoint_path()
 
     print("*** Create new model")
-    new_model = _make_new_model()
+    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
     rf.init_train_step_run_ctx(train_flag=False)
     extern_data.reset_content()
@@ -690,7 +646,7 @@ def test_import_search():
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
+    checkpoint_state = torch.load(pt_checkpoint_path.get_path())
     pt_module.load_state_dict(checkpoint_state["model"])
 
     print("*** Search ...")

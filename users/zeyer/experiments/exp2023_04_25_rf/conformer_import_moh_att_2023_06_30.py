@@ -37,6 +37,14 @@ def sis_run_with_prefix(prefix_name: str):
 
     task = get_switchboard_task_bpe1k()
 
+    extern_data_dict = task.train_dataset.get_extern_data()
+    default_input_key = task.train_dataset.get_default_input()
+    default_target_key = task.train_dataset.get_default_target()
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    in_dim = data.feature_dim_or_sparse_dim
+    target_dim = targets.feature_dim_or_sparse_dim
+
     epoch = 300
     new_chkpt = ConvertTfCheckpointToRfPtJob(
         checkpoint=Checkpoint(
@@ -62,17 +70,13 @@ def sis_run_with_prefix(prefix_name: str):
 class MakeModel:
     """for import"""
 
-    def __init__(self, *, extern_data_dict, default_input_key, default_target_key):
-        self.extern_data_dict = extern_data_dict
-        self.default_input_key = default_input_key
-        self.default_target_key = default_target_key
+    def __init__(self, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12):
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.num_enc_layers = num_enc_layers
 
     def __call__(self) -> Model:
-        data = Tensor(name=self.default_input_key, **self.extern_data_dict[self.default_input_key])
-        targets = Tensor(name=self.default_target_key, **self.extern_data_dict[self.default_target_key])
-        in_dim = data.feature_dim_or_sparse_dim
-        target_dim = targets.feature_dim_or_sparse_dim
-        return self.make_model(in_dim, target_dim)
+        return self.make_model(self.in_dim, self.target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
     def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12) -> Model:
