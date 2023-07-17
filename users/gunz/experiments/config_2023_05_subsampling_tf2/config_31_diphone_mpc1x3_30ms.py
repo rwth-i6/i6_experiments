@@ -465,7 +465,7 @@ def run_single(
             [0, 3, 10],
             [3],
             [1, 3, 10],
-            np.linspace(0.2, 0.8, 4),
+            (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.8, 4)))),
         )
         for cfg in tdps:
             sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
