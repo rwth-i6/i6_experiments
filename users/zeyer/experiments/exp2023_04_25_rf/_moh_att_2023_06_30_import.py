@@ -681,5 +681,9 @@ py = test_import_search
 
 
 if __name__ == "__main__":
-    map_param_func_v2.__module__ = __package__
+    mod_name = __package__
+    if mod_name.startswith("recipe."):
+        mod_name = mod_name[len("recipe."):]
+    mod_name += __file__[-len(".py"):]
+    map_param_func_v2.__module__ = mod_name
     test_import_search()
