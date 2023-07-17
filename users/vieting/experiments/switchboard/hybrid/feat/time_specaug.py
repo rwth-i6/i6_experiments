@@ -34,7 +34,7 @@ def specaug_layer_only_time(in_layer):
         "from": in_layer,
         "eval":"self.network.get_config().typed_value('specaugment_time_only_eval_func')("
             "source(0, as_data=True),"
-            "network=self.network),"
+            "network=self.network)"
     }
 
 def get_funcs_only_time():

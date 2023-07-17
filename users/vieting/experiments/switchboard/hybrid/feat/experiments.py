@@ -273,7 +273,7 @@ def run_baseline_scf():
     hybrid_nn_system.run(nn_steps)
     #for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
         # noinspection PyUnresolvedReferences
-        #train_job.rqmt.update({"gpu_mem": 11, "mem": 10, "cpu": 8, "sbatch_args": ["--gres=gpu:rtx_3090"]})
+        #train_job.rqmt.update({"gpu_mem": 11, "mem": 10, "cpu": 8})
     returnn_python_exe = tk.Path(
         "/u/vieting/setups/swb/20230406_feat/dependencies/returnn_tf2.3.4_mkl_launcher.sh",
         hash_overwrite="GENERIC_RETURNN_LAUNCHER",
