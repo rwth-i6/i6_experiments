@@ -667,24 +667,16 @@ def test_import_search():
     extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
 
     print("*** Search ...")
-    from torch.profiler import profile, ProfilerActivity
 
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=True) as prof:
-        with torch.no_grad():
-            with rf.set_default_device_ctx("cuda"):
-                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-                    model=new_model,
-                    data=extern_data["audio_features"],
-                    data_spatial_dim=time_dim,
-                    targets_dim=target_dim,
-                    max_seq_len=20,
-                )
+    with torch.no_grad():
+        with rf.set_default_device_ctx("cuda"):
+            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+                model=new_model,
+                data=extern_data["audio_features"],
+                data_spatial_dim=time_dim,
+                targets_dim=target_dim,
+            )
     print(seq_targets, seq_targets.raw_tensor)
-
-    output = prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10)
-    print(output)
-    prof.export_chrome_trace("trace.json")
-    prof.export_stacks("stacks.txt", "self_cpu_time_total")
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
