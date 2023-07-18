@@ -61,7 +61,6 @@ def _get_pt_checkpoint_path() -> tk.Path:
     return converter.out_checkpoint
 
 
-
 def _add_params():
     # frontend
     for layer_idx in [0, 1, 2]:
@@ -657,22 +656,22 @@ def test_import_search():
     checkpoint_state = torch.load(pt_checkpoint_path.get_path())
     pt_module.load_state_dict(checkpoint_state["model"])
 
-    cuda = torch.device('cuda')
+    cuda = torch.device("cuda")
     pt_module.to(cuda)
     extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
 
     print("*** Search ...")
     from torch.profiler import profile, ProfilerActivity
-    import contextlib
 
-    with contextlib.nullcontext():  # profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         with torch.no_grad():
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-                model=new_model,
-                data=extern_data["audio_features"],
-                data_spatial_dim=time_dim,
-                targets_dim=target_dim,
-            )
+            with rf.set_default_device_ctx("cuda"):
+                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+                    model=new_model,
+                    data=extern_data["audio_features"],
+                    data_spatial_dim=time_dim,
+                    targets_dim=target_dim,
+                )
     print(seq_targets, seq_targets.raw_tensor)
     prof.export_chrome_trace("trace.json")
 
@@ -686,7 +685,7 @@ py = test_import_search
 if __name__ == "__main__":
     mod_name = __package__
     if mod_name.startswith("recipe."):
-        mod_name = mod_name[len("recipe."):]
-    mod_name += "." + os.path.basename(__file__)[:-len(".py")]
+        mod_name = mod_name[len("recipe.") :]
+    mod_name += "." + os.path.basename(__file__)[: -len(".py")]
     map_param_func_v2.__module__ = mod_name
     test_import_search()
