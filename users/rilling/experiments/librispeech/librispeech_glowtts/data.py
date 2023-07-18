@@ -222,7 +222,7 @@ def get_bliss_and_zip(ls_corpus_key, silence_preprocessed=True):
     return bliss_dataset, zip_dataset
 
 
-def make_meta_dataset(audio_dataset, speaker_dataset):
+def make_meta_dataset(audio_dataset, speaker_dataset, duration_dataset=None):
     """
     Shared function to create a metadatset with joined audio and speaker information
 
@@ -231,19 +231,84 @@ def make_meta_dataset(audio_dataset, speaker_dataset):
     :return:
     :rtype: MetaDataset
     """
+    data_map = {
+        "audio_features": ("audio", "data"),
+        "phonemes": ("audio", "classes"),
+        "speaker_labels": ("speaker", "data"),
+    }
+    
+    ds = {
+        "audio": audio_dataset.as_returnn_opts(), 
+        "speaker": speaker_dataset.as_returnn_opts()
+    }
+
+    if duration_dataset:
+        data_map["durations"] = ("durations", "data")
+        ds["durations"] = duration_dataset.as_returnn_opts()
+
     meta_dataset = datasets.MetaDataset(
-        data_map={
-            "audio_features": ("audio", "data"),
-            "phonemes": ("audio", "classes"),
-            "speaker_labels": ("speaker", "data"),
-        },
-        datasets={"audio": audio_dataset.as_returnn_opts(), "speaker": speaker_dataset.as_returnn_opts()},
+        data_map=data_map,
+        datasets=ds,
         seq_order_control_dataset="audio",
     )
     return meta_dataset
 
+def get_tts_log_mel_datastream_alt(center=True) -> AudioFeatureDatastream:
+    feature_options_center = ReturnnAudioFeatureOptions(
+        window_len=0.050,
+        step_len=0.0125,
+        num_feature_filters=80,
+        features=FeatureType.DB_MEL_FILTERBANK,
+        peak_normalization=False,
+        preemphasis=0.97,
+        sample_rate=16000,
+        feature_options=DBMelFilterbankOptions(
+            fmin=60,
+            fmax=7600,
+            min_amp=1e-10,
+            center=True,
+        ),
+    )
+    audio_datastream = AudioFeatureDatastream(available_for_inference=False, options=feature_options_center)
 
-def get_tts_log_mel_datastream() -> AudioFeatureDatastream:
+    ls100_ogg_zip = get_ls100_silence_preprocess_ogg_zip()
+    train_segments, _ = get_librispeech_tts_segments()
+
+    audio_datastream.add_global_statistics_to_audio_feature_datastream(
+        [ls100_ogg_zip],
+        segment_file=train_segments,
+        use_scalar_only=True,
+        returnn_python_exe=RETURNN_PYTORCH_EXE,
+        returnn_root=MINI_RETURNN_ROOT,
+        alias_path=DATA_PREFIX + "ls100/",
+    )
+    if center == False:
+        # take the normalization from center=True so that everything is compatible
+        params = asdict(feature_options_center)
+        params.pop("feature_options")
+        feature_options_no_center = ReturnnAudioFeatureOptions(
+            **params,
+            feature_options=DBMelFilterbankOptions(
+                fmin=60,
+                fmax=7600,
+                min_amp=1e-10,
+                center=False,
+            ),
+        )
+        audio_datastream_no_center = AudioFeatureDatastream(
+            available_for_inference=False, options=feature_options_no_center
+        )
+        audio_datastream_no_center.additional_options["norm_mean"] = audio_datastream.additional_options["norm_mean"]
+        audio_datastream_no_center.additional_options["norm_std_dev"] = audio_datastream.additional_options[
+            "norm_std_dev"
+        ]
+
+        return audio_datastream_no_center
+
+    return audio_datastream
+
+
+def get_tts_log_mel_datastream(center=True) -> AudioFeatureDatastream:
     """
     Returns the AudioFeatureDatastream using the default feature parameters
     (non-adjustable for now) based on statistics calculated over the provided dataset
@@ -268,7 +333,7 @@ def get_tts_log_mel_datastream() -> AudioFeatureDatastream:
             fmin=60,
             fmax=7600,
             min_amp=1e-10,
-            center=True,
+            center=center,
         ),
     )
     audio_datastream = AudioFeatureDatastream(available_for_inference=False, options=feature_options_center)

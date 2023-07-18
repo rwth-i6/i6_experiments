@@ -5,10 +5,12 @@ from sisyphus import tk
 from dataclasses import asdict
 
 from .data import build_training_dataset
-from .config import get_training_config, get_forward_config
+from .config import get_training_config, get_extract_durations_forward__config, get_forward_config
 from .pipeline import glowTTS_training, glowTTS_forward
 
 from ..default_tools import RETURNN_COMMON, RETURNN_PYTORCH_EXE, MINI_RETURNN_ROOT
+
+from i6_experiments.users.rossenbach.experiments.alignment_analysis_tts.gl_vocoder.default_vocoder import get_default_vocoder
 
 
 def get_pytorch_glowTTS():
@@ -42,12 +44,11 @@ def get_pytorch_glowTTS():
     }
 
     prefix = "experiments/librispeech/tts_architecture/glow_tts/pytorch/"
-    training_datasets = build_training_dataset(silence_preprocessed=True)
 
-    def run_exp(name, params, net_module, config, num_epochs=100, use_custom_engine=False, debug=False):
+    def run_exp(name, params, net_module, config, dataset, num_epochs=100, use_custom_engine=False, debug=False):
         tts_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
-            training_datasets=training_datasets,
+            training_datasets=dataset,
             network_module=net_module,
             net_args=params,
             config=config,
@@ -57,8 +58,7 @@ def get_pytorch_glowTTS():
         )  # implicit reconstruction loss
         forward_config = get_forward_config(
             returnn_common_root=RETURNN_COMMON,
-            forward_dataset=training_datasets.joint,
-            datastreams=training_datasets.datastreams,
+            forward_dataset=dataset,
             network_module=net_module,
             net_args=params,
             pytorch_mode=True
@@ -78,9 +78,19 @@ def get_pytorch_glowTTS():
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name
         )
+
+        # name = "vocoderTest"
+        # vocoder = get_default_vocoder(name)
+        # forward_vocoded, vocoder_forward_job = vocoder.vocode(
+        #     tts_hdf, iterations=30, cleanup=True, name=name
+        # )
+
+        # tk.register_output(name + "/forward_dev_corpus.xml.gz", forward_vocoded)
+
         return tts_hdf
 
     net_module = "glowTTS"
+    training_datasets = build_training_dataset(silence_preprocessed=True, center=True)
     params = {
         "n_vocab": training_datasets.datastreams["phonemes"].vocab_size,
         "hidden_channels": 192,
@@ -97,6 +107,12 @@ def get_pytorch_glowTTS():
         "window_size": 4
     }
 
-    tts_hdf = run_exp(net_module, params, net_module, config, debug=True)
+    tts_hdf = run_exp(net_module, params, net_module, config, dataset=training_datasets, debug=True)
+
+    net_module = "glowTTS_v2"
+
+    training_datasets = build_training_dataset(silence_preprocessed=True, durations_file="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_experiments/users/rossenbach/tts/duration_extraction/ViterbiAlignmentToDurationsJob.AyAO6JWXTnVc/output/durations.hdf", center=False)
+
+    run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
 
     return tts_hdf

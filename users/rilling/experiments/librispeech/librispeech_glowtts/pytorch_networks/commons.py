@@ -18,14 +18,10 @@ def intersperse(lst, item):
 
 def mle_loss(z, m, logs, logdet, mask):
     normalizer = torch.sum(torch.ones_like(z) * mask)
-    # print(f"std logs: {logs}; mean: {m}")
     l = torch.sum(logs) + 0.5 * torch.sum(
         torch.exp(-2 * logs) * ((z - m) ** 2)
     )  # neg normal likelihood w/o the constant term
-    print(f"Neg log normal likelihood: {l / normalizer}")
     l = l - torch.sum(logdet)  # log jacobian determinant
-    print(f"Neg log determinant: {-torch.sum(logdet) / normalizer}")
-    print(f"Total neg log likelihood: {l / normalizer}")
     l = l / normalizer  # averaging across batch, channel and time axes
     l = l + 0.5 * math.log(2 * math.pi)  # add the remaining constant term
     return l

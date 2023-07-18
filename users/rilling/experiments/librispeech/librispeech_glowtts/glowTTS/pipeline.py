@@ -20,7 +20,6 @@ def glowTTS_training(config, returnn_exe, returnn_root, prefix, num_epochs=65):
 
     return train_job
 
-#TODO: GlowTTS forward
 def glowTTS_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     last_forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
@@ -28,9 +27,10 @@ def glowTTS_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
         hdf_outputs=[],
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
+        mem_rqmt=8
     )
     last_forward_job.add_alias(prefix + "/forward")
     tts_hdf = last_forward_job.out_hdf_files["output.hdf"]
-    tk.register_output(prefix + "/training.alignment", tts_hdf)
+    tk.register_output(prefix + "/training.spectograms", tts_hdf)
 
     return tts_hdf

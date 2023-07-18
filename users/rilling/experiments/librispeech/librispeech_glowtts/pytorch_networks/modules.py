@@ -6,6 +6,8 @@ from torch.nn import functional as F
 
 from .commons import fused_add_tanh_sigmoid_multiply
 
+from IPython import embed
+
 class Conv1DBlock(torch.nn.Module):
     """
     A 1D-Convolution with ReLU, batch-norm and non-broadcasted p_dropout
