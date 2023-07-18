@@ -663,7 +663,7 @@ def test_import_search():
     print("*** Search ...")
     from torch.profiler import profile, ProfilerActivity
 
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=True) as prof:
         with torch.no_grad():
             with rf.set_default_device_ctx("cuda"):
                 seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
