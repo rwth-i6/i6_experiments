@@ -608,7 +608,7 @@ def test_import_search():
     dataset.load_seqs(0, batch_num_seqs)
     batch = Batch()
     for seq_idx in range(batch_num_seqs):
-        batch.add_frames(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
+        batch.add_sequence_as_slice(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
     batches = BatchSetGenerator(dataset, generator=iter([batch]))
     data_provider = FeedDictDataProvider(
         extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
