@@ -391,6 +391,7 @@ def model_recog(
     data: Tensor,
     data_spatial_dim: Dim,
     targets_dim: Dim,  # noqa
+    max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -409,7 +410,8 @@ def model_recog(
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
     length_normalization_exponent = 1.0
-    max_seq_len = enc_spatial_dim.get_size_tensor()
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
     print("** max seq len:", max_seq_len.raw_tensor)
 
     # Eager-mode implementation of beam search.

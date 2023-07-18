@@ -677,6 +677,7 @@ def test_import_search():
                     data=extern_data["audio_features"],
                     data_spatial_dim=time_dim,
                     targets_dim=target_dim,
+                    max_seq_len=20,
                 )
     print(seq_targets, seq_targets.raw_tensor)
     prof.export_chrome_trace("trace.json")
