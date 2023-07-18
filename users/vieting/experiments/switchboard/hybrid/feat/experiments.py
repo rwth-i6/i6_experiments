@@ -234,14 +234,14 @@ def run_baseline_scf():
                 returnn_args=dict(batch_size=14000, staged_opts={180: "freeze_features"}),
                 feature_args=scf_args_8khz,
             ),
-            "scf_rm-aux-180": dict(
-                returnn_args=dict(batch_size=14000, staged_opts={180: "remove_aux"}),
-                feature_args=scf_args_8khz,
-            ),
-            "scf_max": dict(
-                returnn_args=dict(batch_size=7000, extra_args={"accum_grad_multiple_step": 2}),
-                feature_args=scf_args_8khz,
-            )
+            # "scf_rm-aux-180": dict(
+            #     returnn_args=dict(batch_size=14000, staged_opts={180: "remove_aux"}),
+            #     feature_args=scf_args_8khz,
+            # ),
+            # "scf_max": dict(
+            #     returnn_args=dict(batch_size=7000, extra_args={"accum_grad_multiple_step": 2}),
+            #     feature_args=scf_args_8khz,
+            # )
             "scf_tf150x256x5": dict(
                 returnn_args=dict(batch_size=14000),
                 feature_args={"class": "ScfNetwork", "size_tf": 256, "stride_tf": 10 // 2},
