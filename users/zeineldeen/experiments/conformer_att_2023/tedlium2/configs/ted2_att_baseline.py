@@ -852,37 +852,6 @@ def conformer_baseline():
                         partition_epoch=4,
                     )
 
-    # TODO: 15 layers + half dim
-    for pretrain_reps in [4]:
-        for bpe_size in [BPE_1K]:
-            for ep in [50 * 4]:
-                for lr in [8e-4]:
-                    args = copy.deepcopy(oclr_args)
-                    args["pretrain_reps"] = pretrain_reps
-                    args.pop("oclr_opts")
-                    cyc_ep = int(0.45 * ep)
-                    args["learning_rates_list"] = (
-                        list(numpy.linspace(lr / 10, lr, cyc_ep))
-                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                    )
-                    args["encoder_args"].num_blocks = 15
-                    args["encoder_args"].enc_key_dim = 256
-                    args["encoder_args"].att_num_heads = 4
-                    args["encoder_args"].ff_dim = 1024
-                    args["encoder_args"].conv_kernel_size = 31
-                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                    exp_name = f"base_conf{15}_halfdim_bpe{bpe_size}_peakLR{lr}_ep200_globalNorm_pre{pretrain_reps}_epochOCLR_woDepthConvPre"
-                    run_exp(
-                        exp_name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
-                    )
-
     # TODO: without depthwise pretraining
     for bpe_size in [BPE_1K]:
         for ep in [50 * 4]:
@@ -944,6 +913,8 @@ def conformer_baseline():
                             bpe_size=bpe_size,
                             partition_epoch=4,
                         )
+
+    # TODO: conv first
 
     # TODO: mixup?
 
