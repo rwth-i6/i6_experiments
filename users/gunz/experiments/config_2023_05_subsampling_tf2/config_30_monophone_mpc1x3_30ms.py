@@ -496,7 +496,7 @@ def run_single(
             [1, 3, 10],
             (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.8, 4)))),
         )
-        for cfg in itertools.islice(tdps, 30):
+        for cfg in itertools.islice(tdps, 60):
             sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
             sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
             sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
@@ -528,7 +528,7 @@ def run_single(
                 opt_lm_am_scale=False,
                 mem_rqmt=2,
                 cpu_rqmt=2,
-                rtf=2,
+                rtf=4,
             )
         rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
