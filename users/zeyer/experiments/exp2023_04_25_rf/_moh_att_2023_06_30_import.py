@@ -524,6 +524,12 @@ def test_import_forward():
 
 
 def test_import_search():
+    from returnn.util import debug
+
+    debug.install_lib_sig_segfault()
+    debug.install_native_signal_handler()
+    debug.init_faulthandler()
+
     from returnn.datasets.util.vocabulary import Vocabulary
 
     in_dim = Dim(name="in", dimension=80, kind=Dim.Types.Feature)
