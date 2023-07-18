@@ -55,6 +55,7 @@ def build_training_datasets(
     link_speed_perturbation=False,
     use_raw_features=False,
     preemphasis=None,  # TODO: by default is None, but we want to experiment
+    devtrain_subset=None,
 ):
     """
 
@@ -107,7 +108,7 @@ def build_training_datasets(
     )
 
     cv_zip_dataset = OggZipDataset(
-        files=dev_ogg,  # TODO: use all?
+        files=dev_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
@@ -121,7 +122,7 @@ def build_training_datasets(
         audio_options=audio_datastream.as_returnn_audio_opts(),
         target_options=train_bpe_datastream.as_returnn_targets_opts(),
         seq_ordering="sorted_reverse",
-        random_subset=3000,  # TODO: use same number as used in dev
+        random_subset=devtrain_subset if devtrain_subset is not None else 3000,
     )
     devtrain_dataset = MetaDataset(
         data_map=data_map, datasets={"zip_dataset": devtrain_zip_dataset}, seq_order_control_dataset="zip_dataset"
