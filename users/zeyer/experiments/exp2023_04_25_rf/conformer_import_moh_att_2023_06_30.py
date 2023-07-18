@@ -454,7 +454,7 @@ def model_recog(
         i += 1
 
         ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, i >= max_seq_len)
+        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
