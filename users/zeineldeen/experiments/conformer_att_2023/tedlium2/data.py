@@ -48,8 +48,8 @@ class TrainingDatasets:
 
 
 def build_training_datasets(
-    bpe_size=10000,
-    partition_epoch=20,
+    bpe_size=1000,
+    partition_epoch=4,
     epoch_wise_filter=None,
     seq_ordering="laplace:.1000",
     link_speed_perturbation=False,
