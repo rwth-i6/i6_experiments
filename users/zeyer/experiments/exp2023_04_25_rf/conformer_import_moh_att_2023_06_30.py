@@ -412,7 +412,9 @@ def model_recog(
     length_normalization_exponent = 1.0
     if max_seq_len is None:
         max_seq_len = enc_spatial_dim.get_size_tensor()
-    print("** max seq len:", max_seq_len.raw_tensor if isinstance(max_seq_len, Tensor) else max_seq_len)
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+    print("** max seq len:", max_seq_len.raw_tensor)
 
     # Eager-mode implementation of beam search.
     # Initial state.
