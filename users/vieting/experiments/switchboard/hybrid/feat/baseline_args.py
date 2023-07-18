@@ -26,7 +26,7 @@ from .specaug_sorted import (
     specaug_layer_sorted,
     get_funcs_sorted,
 )
-from .time_specaug import ( 
+from .specaug_time import ( 
     specaug_layer_only_time,
     get_funcs_only_time,
 )
@@ -224,10 +224,16 @@ def get_returnn_config(
             prolog = get_funcs_sorted()
         else:
             if specaug_after_first_layer:
-                network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
-                network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
-                network["source"] = {"class": "copy", "from": "features"}
-                prolog = get_funcs_jingjing()
+                if specaug_time_only:
+                    network["features"]["subnetwork"]["specaug"] = specaug_layer_only_time(in_layer=["conv_h_act"])
+                    network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+                    network["source"] = {"class": "copy", "from": "features"}
+                    prolog = get_funcs_only_time()
+                else:
+                    network["features"]["subnetwork"]["specaug"] = specaug_layer_jingjing(in_layer=["conv_h_act"])
+                    network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
+                    network["source"] = {"class": "copy", "from": "features"}
+                    prolog = get_funcs_jingjing()
             else:
                 if specaug_time_only:
                     network["source"] = specaug_layer_only_time(in_layer=["features"])
@@ -238,6 +244,8 @@ def get_returnn_config(
 
         network = fix_network_for_sparse_output(network)
     else:
+        assert not specaug_mask_sorting and not specaug_after_first_layer and not specaug_time_only, \
+            "specaug options are specified, but enable_specaug=False"
         network["source"] = {"class": "copy", "from": "features"}
         network = fix_network_for_sparse_output(network)
 
