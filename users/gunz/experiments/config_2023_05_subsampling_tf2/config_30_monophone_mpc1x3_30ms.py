@@ -494,9 +494,9 @@ def run_single(
             [0, 3, 10],
             [3],
             [1, 3, 10],
-            (0.2,),  # (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.8, 4)))),
+            (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.8, 4)))),
         )
-        for cfg in tdps:
+        for cfg in itertools.islice(tdps, 10):
             sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
             sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
             sil_tdp = (sil_loop, sil_fwd, "infinity", sil_exit)
