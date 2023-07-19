@@ -6,68 +6,10 @@ from sisyphus import tk
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 from i6_core.returnn.compile import OnnxExportJob
-from i6_core.returnn.flow import add_tf_flow_to_base_flow
+from i6_core.returnn.flow import make_precomputed_hybrid_onnx_feature_flow, add_fwd_flow_to_base_flow
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
 Path = tk.setup_path(__package__)
-
-
-def make_precomputed_hybrid_onnx_feature_flow(
-    onnx_model: tk.Path,
-    io_map: Dict[str, str],
-    onnx_fwd_input_name: str = "onnx-fwd-input",
-    cpu: int = 1,
-) -> rasr.FlowNetwork:
-    """
-    Create the feature flow for a simple ONNX network that predicts frame-wise outputs, to be used
-    in combination with the `nn-precomputed-hybrid` feature-scorer setting in RASR.
-    Very similar to `make_precomputed_hybrid_tf_feature_flow()`.
-
-    The resulting flow is a trivial:
-
-        <link from="<onnx_fwd_input_name>" to="onnx-fwd:input"/>
-        <node name="onnx-fwd" id="$(id)" filter="onnx-forward"/>
-        <link from="onnx-fwd:log-posteriors" to="network:features"/>
-
-    With the config settings:
-
-        [flf-lattice-tool.network.recognizer.feature-extraction.onnx-fwd.io-map]
-        features      = data
-        features-size = data_len
-        output        = classes
-
-        [flf-lattice-tool.network.recognizer.feature-extraction.onnx-fwd.session]
-        file                 = <onnx_file>
-        inter-op-num-threads = 2
-        intra-op-num-threads = 2
-
-
-    :param onnx_model: usually the output of a OnnxExportJob
-    :param io_map:
-    :param onnx_fwd_input_name: naming for the onnx network input, usually no need to be changed
-    :param cpu: number of CPUs to use
-    :return: onnx-forward node flow with output link and related config
-    """
-
-    # onnx flow (model scoring done in onnx flow node)
-    onnx_flow = rasr.FlowNetwork()
-    onnx_flow.add_input(onnx_fwd_input_name)
-    onnx_flow.add_output("features")
-    onnx_flow.add_param("id")
-
-    onnx_fwd = onnx_flow.add_node("onnx-forward", "onnx-fwd", {"id": "$(id)"})
-    onnx_flow.link(f"network:{onnx_fwd_input_name}", onnx_fwd + ":input")
-    onnx_flow.link(onnx_fwd + ":log-posteriors", "network:features")
-
-    onnx_flow.config = rasr.RasrConfig()
-    for k, v in io_map.items():
-        onnx_flow.config[onnx_fwd].io_map[k] = v
-
-    onnx_flow.config[onnx_fwd].session.file = onnx_model
-    onnx_flow.config[onnx_fwd].session.inter_op_num_threads = cpu
-    onnx_flow.config[onnx_fwd].session.intra_op_num_threads = cpu
-
-    return onnx_flow
 
 
 class OnnxPrecomputedHybridSystem(HybridSystem):
@@ -135,7 +77,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     io_map=io_map,
                     cpu=kwargs.get("cpu", 1),
                 )
-                flow = add_tf_flow_to_base_flow(feature_flow, onnx_flow, tf_fwd_input_name="onnx-fwd-input")
+                flow = add_fwd_flow_to_base_flow(feature_flow, onnx_flow, fwd_input_name="onnx-fwd-input")
 
                 if nn_prior:
                     raise NotImplementedError
