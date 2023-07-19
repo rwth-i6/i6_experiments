@@ -711,15 +711,6 @@ def create_config(
     # add full network
     exp_config["network"] = conformer_encoder.network.get_net()  # type: dict
 
-    # if decoder_args["ce_loss_scale"] == 0.0:
-    #     assert encoder_args["with_ctc"], "CTC loss is not enabled."
-    #     exp_config["network"]["output"] = {"class": "copy", "from": "ctc"}
-    #
-    #     exp_config["extern_data"]["bpe_labels_w_blank"] = copy.deepcopy(exp_config["extern_data"]["bpe_labels"])
-    #     exp_config["extern_data"]["bpe_labels_w_blank"]["dim"] += 1
-    #     exp_config["network"]["decision"]["target"] = "bpe_labels_w_blank"
-    #     exp_config["network"]["decision"]["loss_opts"] = {"ctc_decode": True}
-    # else:
     exp_config["network"].update(transformer_decoder.network.get_net())
 
     if feature_extraction_net:
