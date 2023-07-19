@@ -45,7 +45,7 @@ class SearchTakeBestRescore(Job):
 
         f = h5py.File(self.hdf_scores_filename, "r")
         scores = f["inputs"]  # [B,Beam]
-        tags = f["seqTags"]  # [B]
+        tags = f["seqTags"].asstr()  # [B]
         res = {tag: scores[i] for i, tag in enumerate(tags)}  # [str -> List[float]]
         return res
 
