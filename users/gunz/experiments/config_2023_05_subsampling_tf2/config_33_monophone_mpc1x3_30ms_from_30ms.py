@@ -204,10 +204,7 @@ def run_single(
         num_classes=s.label_info.get_n_of_dense_classes(),
         time_tag_name=time_tag_name,
         upsample_by_transposed_conv=False,
-        conf_args={
-            "feature_stacking": False,
-            "reduction_factor": (1, ss_factor),
-        },
+        conf_args={"feature_stacking": False},
     )
     network = network_builder.network
     network = augment_net_with_label_pops(
