@@ -127,14 +127,13 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch}")
                 onnx_model = onnx_job.out_onnx_model
 
-                io_map = {
-                    "features": "data",
-                    "output": "classes"
-                }
+                io_map = {"features": "data", "output": "classes"}
                 if needs_features_size:
                     io_map["features-size"] = "data_len"
                 onnx_flow = make_precomputed_hybrid_onnx_feature_flow(
-                    onnx_model=onnx_model, io_map=io_map, cpu=kwargs.get("cpu", 1),
+                    onnx_model=onnx_model,
+                    io_map=io_map,
+                    cpu=kwargs.get("cpu", 1),
                 )
                 flow = add_tf_flow_to_base_flow(feature_flow, onnx_flow, tf_fwd_input_name="onnx-fwd-input")
 
