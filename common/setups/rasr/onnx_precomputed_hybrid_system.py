@@ -5,7 +5,7 @@ from sisyphus import tk
 
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
-from i6_core.returnn.compile import OnnxExportJob
+from i6_core.returnn.compile import TorchOnnxExportJob
 from i6_core.returnn.flow import make_precomputed_hybrid_onnx_feature_flow, add_fwd_flow_to_base_flow
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -60,7 +60,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
 
-                onnx_job = OnnxExportJob(
+                onnx_job = TorchOnnxExportJob(
                     returnn_config=returnn_config,
                     checkpoint=checkpoints[epoch],
                     returnn_root=self.returnn_root,
