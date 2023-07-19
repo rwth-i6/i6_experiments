@@ -838,7 +838,7 @@ def conformer_baseline():
 
                     args["specaug_version"] = 3  # less masking on features
 
-                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{bpe_size}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_specaug3"
+                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{bpe_size}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{1e-3}_specaug3"
 
                     run_default_exp(
                         name,
@@ -857,6 +857,7 @@ def conformer_baseline():
                             + list(numpy.linspace(lr, lr / 10, cyc_ep))
                             + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
                         )
+                        name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{bpe_size}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_specaug3"
                         name += "_epochOCLR"
                         run_default_exp(
                             name,
