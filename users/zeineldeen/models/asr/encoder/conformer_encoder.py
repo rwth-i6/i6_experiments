@@ -767,9 +767,9 @@ class ConformerEncoder:
         ff_module1 = self._create_ff_module(prefix_name, 1, source, i)
 
         if self.convolution_first:
-            # TODO: experimenting only. change names later.
             conv_module_ = self._create_convolution_module(prefix_name, ff_module1, i)
-            conv_module = self._create_mhsa_module(prefix_name, conv_module_, i)
+            mhsa_module = self._create_mhsa_module(prefix_name, conv_module_, i)
+            ff_module2_input = mhsa_module
         else:
             if self.no_mhsa_module:
                 mhsa = ff_module1  # use FF1 module output as input to conv module
@@ -783,8 +783,9 @@ class ConformerEncoder:
                 mhsa = self._create_mhsa_module(prefix_name, mhsa_input, i)
 
             conv_module = self._create_convolution_module(prefix_name, mhsa, i, half_step=self.sandwich_conv)
+            ff_module2_input = conv_module
 
-        ff_module2 = self._create_ff_module(prefix_name, 2, conv_module, i)
+        ff_module2 = self._create_ff_module(prefix_name, 2, ff_module2_input, i)
         res = ff_module2
         if self.block_final_norm:
             res = self.network.add_layer_norm_layer("{}_ln".format(prefix_name), res)
