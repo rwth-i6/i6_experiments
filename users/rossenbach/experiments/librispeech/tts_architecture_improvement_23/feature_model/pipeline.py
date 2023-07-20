@@ -25,7 +25,7 @@ def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
     last_forward_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
         returnn_config=config,
-        hdf_outputs=[],
+        hdf_outputs=["corpus.xml.gz"],
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
         device="cpu",
@@ -33,7 +33,6 @@ def tts_forward(checkpoint, config, returnn_exe, returnn_root, prefix):
         mem_rqmt=8,
     )
     last_forward_job.add_alias(prefix + "/forward")
-    alignment_hdf = last_forward_job.out_hdf_files["output.hdf"]
-    tk.register_output(prefix + "/training.alignment", alignment_hdf)
-
-    return alignment_hdf
+    corpus = last_forward_job.out_hdf_files["corpus.xml.gz"]
+    tk.register_output(prefix + "/fake_corpus.xml.gz", corpus)
+    return corpus

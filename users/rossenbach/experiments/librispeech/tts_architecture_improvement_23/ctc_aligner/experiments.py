@@ -234,7 +234,7 @@ def get_pytorch_raw_ctc_alignment():
     prefix = "experiments/librispeech/tts_architecture/ctc_aligner/pytorch/"
     training_datasets = build_training_dataset(silence_preprocessed=True, raw_audio=True)
 
-    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False):
+    def run_exp(name, params, net_module, config, use_custom_engine=False, debug=False, v2=False, num_epochs=100):
         aligner_config = get_training_config(
             returnn_common_root=RETURNN_COMMON,
             training_datasets=training_datasets,
@@ -259,32 +259,33 @@ def get_pytorch_raw_ctc_alignment():
             returnn_exe=RETURNN_PYTORCH_EXE,
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name,
+            num_epochs=num_epochs,
         )
         duration_hdf = ctc_forward(
-            checkpoint=train_job.out_checkpoints[100],
+            checkpoint=train_job.out_checkpoints[num_epochs],
             config=forward_config,
             returnn_exe=RETURNN_PYTORCH_EXE,
             returnn_root=MINI_RETURNN_ROOT,
             prefix=prefix + name
         )
-        if v2:
-            from ..data import get_text_lexicon
-            search_config = get_pt_raw_search_config(
-                returnn_common_root=RETURNN_COMMON,
-                forward_dataset=training_datasets.cv,
-                datastreams=training_datasets.datastreams,
-                network_module=net_module,
-                net_args=params,
-                debug=debug,
-                search_args={"text_lexicon": get_text_lexicon()},
-            )
-            ctc_search(
-                checkpoint=train_job.out_checkpoints[100],
-                config=search_config,
-                returnn_exe=RETURNN_PYTORCH_EXE,
-                returnn_root=MINI_RETURNN_ROOT,
-                prefix=prefix + name + "_search"
-            )
+        # if v2:
+        #     from ..data import get_text_lexicon
+        #     search_config = get_pt_raw_search_config(
+        #         returnn_common_root=RETURNN_COMMON,
+        #         forward_dataset=training_datasets.cv,
+        #         datastreams=training_datasets.datastreams,
+        #         network_module=net_module,
+        #         net_args=params,
+        #         debug=debug,
+        #         search_args={"text_lexicon": get_text_lexicon()},
+        #     )
+        #     ctc_search(
+        #         checkpoint=train_job.out_checkpoints[100],
+        #         config=search_config,
+        #         returnn_exe=RETURNN_PYTORCH_EXE,
+        #         returnn_root=MINI_RETURNN_ROOT,
+        #         prefix=prefix + name + "_search"
+        #     )
         return duration_hdf
 
     net_module = "ctc_aligner_v1_fe"
@@ -326,5 +327,248 @@ def get_pytorch_raw_ctc_alignment():
     _ = run_exp(net_module + "_drop035_bs56k", params, net_module, config, debug=True)
     duration_hdf = run_exp(net_module + "_drop035_bs56k_seriv2", params, net_module, config, debug=True, v2=True)
     add_duration(net_module + "_drop_035_bs56k_seriv2", duration_hdf)
+    
 
-    return duration_hdf
+    ###################################
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-7}
+    net_module = "ctc_aligner_v3_fe"
+    duration_hdf = run_exp(net_module + "_drop035_bs56k_seriv2_adamw1e-7", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_035_bs56k_seriv2_adam1e-7", duration_hdf)
+
+
+
+    ##################################
+
+    net_module = "ctc_aligner_tts_fe"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=512,
+        speaker_embedding_size=256,
+        dropout=0.35,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=1024,
+            token_embedding_size=256,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adamw", "epsilon": 1e-8, "weight_decay": 1e-7}
+    duration_hdf = run_exp(net_module + "_drop035_bs56k_seriv2_adamw1e-7", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_035_bs56k_seriv2_adam1e-7", duration_hdf)
+
+    ##################################
+    
+    net_module = "ctc_aligner_tts_fe_v2"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v2 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=384,
+        speaker_embedding_size=0,
+        dropout=0.5,
+        final_dropout=0.0,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=384,
+            speaker_embedding_size=32,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config["gradient_clip"] = 2.0
+    duration_hdf = run_exp(net_module + "_drop05", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_05", duration_hdf)
+
+    ##################################
+    
+    net_module = "ctc_aligner_tts_fe_v3"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v3 import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=384,
+        speaker_embedding_size=0,
+        dropout=0.5,
+        final_dropout=0.0,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=384,
+            speaker_embedding_size=32,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config["gradient_clip"] = 2.0
+    duration_hdf = run_exp(net_module + "_drop05", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_05", duration_hdf)
+
+    #---------------------------------
+
+    model_config_spkemb = copy.deepcopy(model_config)
+    model_config_spkemb.speaker_embedding_size = 64
+    model_config_spkemb.tts_predictor_config.speaker_embedding_size = 64
+
+    params = {
+        "config": asdict(model_config_spkemb)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config["gradient_clip"] = 2.0
+    duration_hdf = run_exp(net_module + "_drop05_spkemb64", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_05_spkemb64", duration_hdf)
+
+    #---------------------------------
+
+    model_config = Config(
+        conv_hidden_size=256,
+        lstm_size=384,
+        speaker_embedding_size=64,
+        dropout=0.5,
+        final_dropout=0.0,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=1024,
+            speaker_embedding_size=64,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config["gradient_clip"] = 2.0
+    duration_hdf = run_exp(net_module + "_drop05_spkemb64_dec1k", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_drop_05_spkemb64_dec1k", duration_hdf)
+    
+    #---------------------------------
+
+    model_config = Config(
+        conv_hidden_size=384,
+        lstm_size=384,
+        speaker_embedding_size=64,
+        dropout=0.5,
+        final_dropout=0.0,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=64,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    duration_hdf = run_exp(net_module + "_conv384_drop05_spkemb64_dec512", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_conv384_drop05_spkemb64_dec512", duration_hdf)
+
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config.pop("gradient_clip")
+    duration_hdf = run_exp(net_module + "_conv384_drop05_spkemb64_dec512_ep200", params, net_module, local_config, debug=True, v2=True, num_epochs=200)
+    add_duration(net_module + "_conv384_drop05_spkemb64_dec512_ep200", duration_hdf)
+    
+    #---------------------------------
+
+    model_config = Config(
+        conv_hidden_size=384,
+        lstm_size=384,
+        speaker_embedding_size=64,
+        dropout=0.5,
+        final_dropout=0.2,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=64,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    local_config.pop("gradient_clip")
+    duration_hdf = run_exp(net_module + "_conv384_drop05+02_spkemb64_dec512_ep200", params, net_module, local_config, debug=True, v2=True, num_epochs=200)
+    add_duration(net_module + "_conv384_drop05+02_spkemb64_dec512_ep200", duration_hdf)
+
+    net_module = "ctc_aligner_tts_fe_v3_nolstm"
+
+    from ..pytorch_networks.ctc_aligner_tts_fe_v3_nolstm import TTSPredictorConfig, Config
+
+    model_config = Config(
+        conv_hidden_size=384,
+        speaker_embedding_size=64,
+        dropout=0.5,
+        final_dropout=0.0,
+        tts_loss_from_epoch=3,
+        target_size=training_datasets.datastreams["phonemes"].vocab_size,
+        feature_extraction_config=fe_config,
+        tts_predictor_config=TTSPredictorConfig(
+            hidden_dim=512,
+            speaker_embedding_size=64,
+            dropout=0.0,
+        )
+    )
+
+    params = {
+        "config": asdict(model_config)
+    }
+    local_config = copy.deepcopy(config)
+    local_config["optimizer"] = {"class": "adam", "epsilon": 1e-8}
+    duration_hdf = run_exp(net_module + "_conv384_drop05_spkemb64_dec512", params, net_module, local_config, debug=True, v2=True)
+    add_duration(net_module + "_conv_384_drop_05_spkemb64_dec512", duration_hdf)
+
+    # ---------------------------------
+
+    ##################################

@@ -1,18 +1,17 @@
 """
 Like v1, but with LayerNorm in the duration prediction, similar to Timurs/Benedikts implementation
 
-Adds
+Allows to use older duration HDFs that still have the 1-sized dim as feature axis
+and performs flattening, otherwise exact like the normal v2
 """
+import os
 
-from dataclasses import dataclass
 import torch
-import numpy
 from torch import nn
-import multiprocessing
 from librosa import filters
-import sys
-import time
 from typing import Any, Dict, Optional, Tuple, Union
+import soundfile
+import shutil
 
 from returnn.torch.context import get_run_ctx
 
@@ -338,7 +337,8 @@ class NarTacoDecoder(torch.nn.Module):
         blstm_in = torch.concat([upsampling_output, speaker_embeddings_broadcasted], dim=2)
         # [B, T, encoder_out + speaker_embedding_size]
 
-        blstm_packed_in = nn.utils.rnn.pack_padded_sequence(blstm_in, length.to("cpu"), batch_first=True)
+        blstm_packed_in = nn.utils.rnn.pack_padded_sequence(
+            blstm_in, length.to("cpu"), batch_first=True, enforce_sorted=self.training)
         blstm_packed_out, _ = self.blstm(blstm_packed_in)
         blstm_out, _ = nn.utils.rnn.pad_packed_sequence(
             blstm_packed_out, padding_value=0.0, batch_first=True
@@ -439,6 +439,8 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     phonemes_len = data["phonemes:size1"][indices]  # [B]
     speaker_labels = data["speaker_labels"][indices, :]  # [B, 1] (sparse)
     durations = data["durations"][indices, :]  # [B, N]
+    # perform extra squeeze
+    durations = torch.squeeze(durations)
     durations_len = data["durations:size1"][indices]  # [B]
 
     tags = [data["seq_tag"][i] for i in list(indices.cpu().numpy())]
@@ -480,3 +482,55 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
 
     run_ctx.mark_as_loss(name="duration_l1", loss=duration_loss, inv_norm_factor=num_phones)
 
+
+def forward_init_hook(run_ctx, **kwargs):
+    import json
+    from utils import AttrDict
+    from inference import load_checkpoint
+    from generator import UnivNet as Generator
+    import numpy as np
+
+    with open("config_univ.json") as f:
+        data = f.read()
+
+    json_config = json.loads(data)
+    h = AttrDict(json_config)
+
+    generator = Generator(h).to(run_ctx.device)
+
+    state_dict_g = load_checkpoint("g_02310000", run_ctx.device)
+    generator.load_state_dict(state_dict_g['generator'])
+
+    run_ctx.generator = generator
+
+
+
+def forward_finish_hook(run_ctx, **kwargs):
+    pass
+
+
+MAX_WAV_VALUE = 32768.0
+
+def forward_step(*, model: Model, data, run_ctx, **kwargs):
+    phonemes = data["phonemes"] # [B, N] (sparse)
+    phonemes_len = data["phonemes:size1"]  # [B]
+    speaker_labels = data["speaker_labels"]  # [B, 1] (sparse)
+
+    tags = data["seq_tag"]
+
+    log_mels, masked_durations = model(
+        phonemes=phonemes,
+        phonemes_len=phonemes_len,
+        speaker_labels=speaker_labels,
+        target_durations=None,
+    )
+    
+    mel = torch.transpose(log_mels, 1, 2)
+    noise = torch.randn([1, 64, mel.shape[-1]])
+    audios = run_ctx.generator.forward(noise, mel)
+    audios = audios * MAX_WAV_VALUE
+    audios = audios.cpu().numpy().astype('int16')
+
+    os.makedirs("/var/tmp/out", exist_ok=True)
+    for audio, tag in zip (audios, tags):
+        soundfile.write(f"/var/tmp/out" + tag.replace("/", "_") + ".wav", audio[0], 16000)
