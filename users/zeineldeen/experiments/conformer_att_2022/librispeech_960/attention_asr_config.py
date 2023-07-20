@@ -827,10 +827,12 @@ def create_config(
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
                 if mixup_aug_opts:
-                    net["mixup"] = make_mixup_layer_dict(
-                        src="log_mel_features",
-                        dim=feature_extraction_net["mel_filterbank"]["n_out"],
-                        opts=mixup_aug_opts,
+                    net.update(
+                        make_mixup_layer_dict(
+                            src="log_mel_features",
+                            dim=feature_extraction_net["mel_filterbank"]["n_out"],
+                            opts=mixup_aug_opts,
+                        )
                     )
                 staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
