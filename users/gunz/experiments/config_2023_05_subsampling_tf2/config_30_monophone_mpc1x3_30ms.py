@@ -461,8 +461,6 @@ def run_single(
             jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
-        s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
-        li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.monophone)
         base_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
 
         s.set_mono_priors_returnn_rasr(
@@ -474,19 +472,18 @@ def run_single(
             returnn_config=base_config,
         )
 
-        nn_precomputed_returnn_config = copy.deepcopy(base_config)
-        nn_precomputed_returnn_config.config["network"]["center-output"] = {
-            **nn_precomputed_returnn_config.config["network"]["center-output"],
-            "class": "linear",
-            "activation": "log_softmax",
-            "register_as_extern_data": "output",
-        }
-        s.set_graph_for_experiment("fh", override_cfg=nn_precomputed_returnn_config)
+        recognizer, recog_args = s.get_recognizer_and_args(
+            key="fh",
+            context_type=PhoneticContext.monophone,
+            crp_corpus="dev-other",
+            epoch=max(keep_epochs),
+            gpu=False,
+            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
+        )
 
-        tying_cfg = rasr.RasrConfig()
-        tying_cfg.type = "monophone-dense"
-
-        search_cfg = SearchParameters.default_monophone(priors=s.experiments["fh"]["priors"]).with_prior_scale(0.6)
+        search_cfg = recog_args.with_prior_scale(0.6)
         tdps = itertools.product(
             [0, 3, 10],
             [0],
@@ -510,27 +507,16 @@ def run_single(
                 tdp_scale=tdp_scale,
             )
 
-            def set_concurrency(crp):
-                crp.concurrent = 1
-
-            s.recognize_cart(
-                key="fh",
-                crp_corpus="dev-other",
-                epoch=max(keep_epochs),
-                params=params,
-                cart_tree_or_tying_config=tying_cfg,
-                encoder_output_layer="center__output",
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                n_cart_out=li.get_n_of_dense_classes(),
-                crp_update=set_concurrency,
-                calculate_statistics=False,
-                lm_gc_simple_hash=True,
-                opt_lm_am_scale=False,
-                mem_rqmt=2,
+            jobs = recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=params,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=False,
+                calculate_stats=True,
                 cpu_rqmt=2,
-                rtf=2,
+                mem_rqmt=4,
+                rtf_cpu=4,
             )
-        rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
