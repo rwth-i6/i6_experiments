@@ -3,16 +3,17 @@ Helper code for serializing any data, e.g. for ReturnnConfig.
 """
 
 from __future__ import annotations
-from typing import Any, Union, Optional, List
-from types import FunctionType
+
 import sys
 import textwrap
-
-from sisyphus import tk
-from sisyphus.hash import sis_hash_helper, short_hash
-from sisyphus.delayed_ops import DelayedBase
+from types import FunctionType
+from typing import Any, List, Optional, Tuple, Union
 
 from i6_core.util import uopen
+from sisyphus import tk
+from sisyphus.delayed_ops import DelayedBase
+from sisyphus.hash import short_hash, sis_hash_helper
+from sisyphus.tools import try_get
 
 
 class SerializerObject(DelayedBase):
@@ -71,17 +72,21 @@ class Import(SerializerObject):
 
     def __init__(
         self,
-        code_object_path: Union[str, FunctionType, Any],
-        import_as: Optional[str] = None,
         *,
+        code_object_path: Union[str, FunctionType, Any],
+        unhashed_package_root: Optional[str] = None,
+        import_as: Optional[str] = None,
         use_for_hash: bool = True,
         ignore_import_as_for_hash: bool = False,
     ):
         """
         :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
             This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
+        :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
+            Recommended is to use the root folder of an experiment module.
         :param import_as: if given, the code object will be imported as this name
-        :param use_for_hash:
+        :param use_for_hash: if false, this module is not hashed when passed to a Collection/Serializer
+        :Param ignore_import_as_for_hash: do not hash `import_as` if set
         """
         super().__init__()
         if not isinstance(code_object_path, str):
@@ -95,7 +100,10 @@ class Import(SerializerObject):
 
         self.object_name = self.code_object.split(".")[-1]
         self.module = ".".join(self.code_object.split(".")[:-1])
-        self.package = ".".join(self.code_object.split(".")[:-2])
+
+        if unhashed_package_root is not None and self.code_object.startswith(unhashed_package_root):
+            self.code_object = self.code_object[len(unhashed_package_root) :]
+
         self.import_as = import_as
         self.use_for_hash = use_for_hash
         self.ignore_import_as_for_hash = ignore_import_as_for_hash
@@ -261,6 +269,62 @@ class ExplicitHash(SerializerObject):
 
     def _sis_hash(self):
         return sis_hash_helper(self.hash)
+
+
+class Call(SerializerObject):
+    """
+    SerializerObject that serializes the call of a callable with given arguments.
+    The return values of the call are optionally assigned to variables of a given name.
+    Example:
+    Call(callable_name="range", args=[1, 10], kwargs=[("step", 2)], return_assign_variables="number_range")
+    ->
+    number_range = range(1, 10, step=2)
+    """
+
+    def __init__(
+        self,
+        callable_name: str,
+        args: Optional[List[Union[str, DelayedBase]]] = None,
+        kwargs: Optional[List[Tuple[str, Union[str, DelayedBase]]]] = None,
+        return_assign_variables: Optional[Union[str, List[str]]] = None,
+    ) -> None:
+        """
+        :param callable_name: Name of the callable for which the call is serialized.
+        :param args: Optional list of positional arguments provided to the call.
+        :param kwargs: Optional list of keyword arguments provided to the call in the form of key-value tuples.
+        :param return_assign_variables: Optional name or list of variable names that the return value(s) of the call are assigned to.
+        """
+        self.callable_name = callable_name
+        self.args = args or []
+        self.kwargs = kwargs or []
+        self.return_assign_variables = return_assign_variables
+
+        if isinstance(self.return_assign_variables, str):
+            self.return_assign_variables = [self.return_assign_variables]
+
+    def get(self) -> str:
+        # Variable assignment
+        return_assign_str = ""
+        if self.return_assign_variables is not None:
+            return_assign_str = ", ".join(self.return_assign_variables) + " = "
+
+        # args and kwargs
+        args_kwargs_str_list = []
+        for arg in self.args:
+            args_kwargs_str_list.append(str(try_get(arg)))
+        for key, val in self.kwargs:
+            args_kwargs_str_list.append(f"{key}={try_get(val)}")
+
+        return f"{return_assign_str}{self.callable_name}({', '.join(args_kwargs_str_list)})"
+
+    def _sis_hash(self):
+        h = {
+            "callable_name": self.callable_name,
+            "args": self.args,
+            "kwargs": self.kwargs,
+            "return_assign_variables": self.return_assign_variables,
+        }
+        return sis_hash_helper(h)
 
 
 PythonEnlargeStackWorkaroundNonhashedCode = NonhashedCode(
