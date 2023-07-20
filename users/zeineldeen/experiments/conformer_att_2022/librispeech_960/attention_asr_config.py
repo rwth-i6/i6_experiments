@@ -834,9 +834,18 @@ def create_config(
                             opts=mixup_aug_opts,
                         )
                     )
-                staged_network_dict[(idx * pretrain_reps) + 1] = net
+                    net_as_str = "from returnn.config import get_global_config\n"
+                    net_as_str += "network = %s" % str(net)
+                    staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
+                else:
+                    staged_network_dict[(idx * pretrain_reps) + 1] = net
                 idx += 1
-            staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
+            if mixup_aug_opts:
+                net_as_str = "from returnn.config import get_global_config\n"
+                net_as_str += "network = %s" % str(exp_config["network"])
+                staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
+            else:
+                staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
             exp_config.pop("network")
         else:
             if pretrain_opts is None:
