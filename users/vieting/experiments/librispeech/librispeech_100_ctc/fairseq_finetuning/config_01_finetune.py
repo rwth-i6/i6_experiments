@@ -11,6 +11,9 @@ from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConf
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq import SetupFairseqJob
 
+python_path = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+
+
 def get_task(valid_percent=0.001, audio_format="ogg", output_prefix="datasets", corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]):
     assert audio_format in ["ogg", "wav"], f"audio format not implemented: '{audio_format}'"
     corpus_dirs = {}
@@ -65,8 +68,8 @@ def get_fairseq_root():
     fairseq_root = CloneGitRepositoryJob(
         "https://github.com/facebookresearch/fairseq",
         checkout_folder_name="fairseq",
-        commit="176cd934982212a4f75e0669ee81b834ee71dbb0").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+        commit="91c364b7ceef8032099363cb10ba19a85b050c1c").out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root, python_path).out_fairseq_root
     return fairseq_root
 
 
@@ -93,7 +96,8 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
             #"max_sample_size": 20 * sample_rate,  # max 20s, length of one crop in batch
             #"min_sample_size": 2 * sample_rate,  # 2s of minimal length
             #"sample_rate": sample_rate,
-            "normalize": False,  # TODO: False in fairseq
+            "normalize": False,
+            "labels": "ltr"
         },
         "dataset": {
             "num_workers": 6,
@@ -115,8 +119,8 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
         },
         "optimization": {
             "sentence_avg": True,
-            "max_update": 320000,
-            "lr": [0.0001],
+            "max_update": 80000,
+            "lr": [0.00003],
             "update_freq": [8 // num_gpus],
             # TODO check if this is needed
             #"max_epoch": 1000,
@@ -134,7 +138,7 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
             "final_lr_scale": 0.05,
         },
         "model": {
-            "_name": "wav2vec2_ctc",
+            "_name": "wav2vec_ctc",
             "w2v_path": w2v_path,
             "apply_mask": True,
             "mask_prob": 0.65,
@@ -154,9 +158,11 @@ def main():
     # run pre-training
     exp_name = "base"
     num_gpus = 2
+    gpu_mem_rqmt = 24
     corpus_names = ["train-clean-100"]
-    python_path = "work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python"
-    setattr(gs, "FAIRSEQ_PYTHON_EXE", python_path)
+    #python_path = "work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python"
+    #setattr(gs, "FAIRSEQ_PYTHON_EXE", python_path)
+
     fairseq_args = get_fairseq_args(corpus_names=corpus_names, num_gpus=num_gpus, w2v_path="/work/asr3/vieting/hiwis/pletschko/fairseq/models/wav2vec_small.pt")
     fairseq_config = FairseqHydraConfig(fairseq_args)
     fairseq_root = get_fairseq_root()
@@ -164,12 +170,13 @@ def main():
         fairseq_config,
         max_epoch=300,
         save_interval=25,
-        time_rqmt=120,
+        time_rqmt=1,
         mem_rqmt=8,
         cpu_rqmt=2,
         gpu_rqmt=num_gpus,
+        gpu_mem_rqmt=gpu_mem_rqmt,
         fairseq_root=fairseq_root,
-        #fairseq_python_exe=python_path,
+        fairseq_python_exe=python_path,
         use_cache_manager=False,
     )
     #job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
