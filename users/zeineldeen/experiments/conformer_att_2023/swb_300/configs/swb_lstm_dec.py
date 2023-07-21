@@ -799,70 +799,84 @@ def conformer_baseline():
 
     # ----------------------------------------------- #
 
-    base_v2_args = copy.deepcopy(oclr_args)
-    base_v2_args["max_seq_length"] = None
-    base_v2_args["oclr_opts"]["n_step"] = 2085
-    base_v2_args["encoder_args"].att_dropout = 0.2
-    base_v2_args["encoder_args"].dropout = 0.2
-    base_v2_args["decoder_args"].use_zoneout_output = True
-    base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev}
-    base_v2_args["encoder_args"].input_layer = "conv-6"
-    base_v2_args["oclr_opts"]["peak_lr"] = 1e-3
-    base_v2_args["pretrain_reps"] = 3
-    base_v2_args["with_pretrain"] = True
-    base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    def get_base_v2_args():
+        base_v2_args = copy.deepcopy(oclr_args)
+        base_v2_args["max_seq_length"] = None
+        base_v2_args["oclr_opts"]["n_step"] = 2085
+        base_v2_args["encoder_args"].att_dropout = 0.2
+        base_v2_args["encoder_args"].dropout = 0.2
+        base_v2_args["decoder_args"].use_zoneout_output = True
+        base_v2_args["global_stats"] = {"mean": mean, "stddev": stddev}
+        base_v2_args["encoder_args"].input_layer = "conv-6"
+        base_v2_args["oclr_opts"]["peak_lr"] = 1e-3
+        base_v2_args["pretrain_reps"] = 3
+        base_v2_args["specaug_version"] = 3
+        base_v2_args["with_pretrain"] = True
+        base_v2_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        return base_v2_args
 
     for ep in [50 * 6]:
-        for bpe_size in [BPE_500]:
-            for num_blocks, reduce_factor in [(12, 0.5)]:
-                for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
-                    (0.05, 0.15, 0.2, 0.05, 0.1),
-                    (0.0, 0.15, 0.2, 0.05, 0.1),
-                    # (0.05, 0.2, 0.2, 0.2, 0.2),
-                ]:
-                    args = copy.deepcopy(base_v2_args)
-                    args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
-                    args["encoder_args"].att_dropout = self_att_drop
-                    args["encoder_args"].dropout = drop
-                    args["encoder_args"].ff_weight_dropout = weight_drop
-                    args["encoder_args"].mhsa_weight_dropout = weight_drop
-                    args["encoder_args"].conv_weight_dropout = weight_drop
+        for num_blocks, reduce_factor in [(12, 0.5), (8, 1.0), (12, 0.75)]:
+            for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
+                (0.0, 0.15, 0.2, 0.05, 0.1),
+            ]:
+                args = copy.deepcopy(get_base_v2_args())
+                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                args["encoder_args"].att_dropout = self_att_drop
+                args["encoder_args"].dropout = drop
+                args["encoder_args"].ff_weight_dropout = weight_drop
+                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                args["encoder_args"].conv_weight_dropout = weight_drop
 
-                    args["decoder_args"].att_dropout = dec_att_drop
-                    args["decoder_args"].embed_dropout = embed_drop
+                args["decoder_args"].att_dropout = dec_att_drop
+                args["decoder_args"].embed_dropout = embed_drop
 
-                    args["oclr_opts"]["cycle_ep"] = int(0.45 * ep)
-                    args["oclr_opts"]["total_ep"] = ep
-                    args["oclr_opts"]["n_step"] = 2085
-                    args["oclr_opts"]["peak_lr"] = 1e-3
-
-                    args["specaug_version"] = 3  # less masking on features
-
-                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{bpe_size}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{1e-3}_specaug3"
-
+                # epoch-based OCLR
+                args.pop("oclr_opts")
+                for lr in [1e-3]:
+                    cyc_ep = int(0.45 * ep)
+                    args["learning_rates_list"] = (
+                        list(numpy.linspace(lr / 10, lr, cyc_ep))
+                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                    )
+                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_specaug3"
+                    name += "_epochOCLR"
                     run_default_exp(
                         name,
                         train_args=args,
                         num_epochs=ep,
                         gpu_mem=11,
-                        bpe_size=bpe_size,
+                        bpe_size=BPE_500,
                     )
 
-                    # epoch-based OCLR
-                    args.pop("oclr_opts")
-                    for lr in [8e-4, 1e-3]:
-                        cyc_ep = int(0.45 * ep)
-                        args["learning_rates_list"] = (
-                            list(numpy.linspace(lr / 10, lr, cyc_ep))
-                            + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                        )
-                        name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{bpe_size}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_specaug3"
-                        name += "_epochOCLR"
-                        run_default_exp(
-                            name,
-                            train_args=args,
-                            num_epochs=ep,
-                            gpu_mem=11,
-                            bpe_size=bpe_size,
-                        )
+                # wup LR
+                for lr in [8e-4, 1e-3]:
+                    wup_eps = 2 * 6
+                    const = int((ep - wup_eps) * 0.7)
+                    decay = ep - wup_eps - const
+                    args["learning_rates_list"] = list(
+                        list(numpy.linspace(lr / 10, lr, wup_eps))
+                        + [lr] * const
+                        + list(numpy.linspace(lr, 1e-6, decay))
+                    )
+                    assert len(args["learning_rates_list"]) == ep, len(args["learning_rates_list"])
+                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_wuplr{lr}_specaug3"
+                    run_default_exp(
+                        name,
+                        train_args=args,
+                        num_epochs=ep,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                    )
+
+    # TODO: IBM decoder
+
+    # TODO: location-aware attention for weight feedback
+
+    # TODO: staged hyperparams
+    # - weight noise: disable for first 45% of epochs for example and enable it later
+    # - apply curriculum learning for utterances?
+    # - grad clip: /4, /2, /1
+    # - schedule sampling?
+    # - label smoothing?
