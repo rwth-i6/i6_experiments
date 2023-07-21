@@ -210,7 +210,7 @@ def run_single(
     network = augment_net_with_label_pops(
         network,
         label_info=s.label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
+        classes_subsampling_info=None,
     )
     network = augment_net_with_monophone_outputs(
         network,
@@ -248,7 +248,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": subsample_chunking(CONF_CHUNKING_30MS, ss_factor),
+        "chunking": "134:67",  # 402:201/3
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
