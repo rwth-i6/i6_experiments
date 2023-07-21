@@ -830,6 +830,31 @@ def conformer_baseline():
                     devtrain_subset=3000,
                 )
 
+    # TODO: lower LR
+    for bpe_size in [BPE_1K]:
+        for ep in [50 * 4]:
+            for lr in [7e-4]:
+                args = copy.deepcopy(oclr_args)
+                args.pop("oclr_opts")
+                cyc_ep = int(0.45 * ep)
+                args["learning_rates_list"] = (
+                    list(numpy.linspace(lr / 10, lr, cyc_ep))
+                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                )
+                args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+                args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre"
+                run_exp(
+                    exp_name,
+                    args,
+                    num_epochs=ep,
+                    epoch_wise_filter=None,
+                    bpe_size=bpe_size,
+                    partition_epoch=4,
+                    devtrain_subset=3000,
+                )
+
     # TODO: weight dropout
     for bpe_size in [BPE_1K]:
         for ep in [100 * 4]:
@@ -952,31 +977,6 @@ def conformer_baseline():
                         partition_epoch=4,
                     )
 
-    # TODO: AdamW
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args.pop("oclr_opts")
-                cyc_ep = int(0.45 * ep)
-                args["learning_rates_list"] = (
-                    list(numpy.linspace(lr / 10, lr, cyc_ep))
-                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                )
-                args["adamw"] = True
-                args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre_AdamW"
-                run_exp(
-                    exp_name,
-                    args,
-                    num_epochs=ep,
-                    epoch_wise_filter=None,
-                    bpe_size=bpe_size,
-                    partition_epoch=4,
-                )
-
     # --------------------- V1 ---------------------
     def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
         #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
@@ -1067,7 +1067,33 @@ def conformer_baseline():
                 )
 
     # TODO: weight dropout
+    for ep in [50 * 4]:
+        for weight_drop in [0.05, 0.1]:
+            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
+            args = copy.deepcopy(base_v1_args)
+            args["encoder_args"].conv_weight_dropout = weight_drop
+            args["encoder_args"].ff_weight_dropout = weight_drop
+            args["encoder_args"].mhsa_weight_dropout = weight_drop
+            run_exp(
+                exp_name + f"_wd{weight_drop}",
+                args,
+                num_epochs=ep,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+            )
 
-    # TODO: AdamW
-
-    # TODO: mixup?
+    # TODO: location-aware attention
+    for ep in [50 * 4]:
+        base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
+        args = copy.deepcopy(base_v1_args)
+        args["decoder_args"].loc_conv_att_filter_size = 5
+        args["decoder_args"].loc_conv_att_num_channels = args["encoder_args"].enc_key_dim
+        run_exp(
+            exp_name + f"_convLocAtt{5}",
+            args,
+            num_epochs=ep,
+            epoch_wise_filter=None,
+            bpe_size=BPE_1K,
+            partition_epoch=4,
+        )
