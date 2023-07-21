@@ -1007,7 +1007,15 @@ def conformer_baseline():
 
     # baseline v1
     base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    run_exp(exp_name, args, num_epochs=50 * 4, epoch_wise_filter=None, bpe_size=BPE_1K, partition_epoch=4)
+    run_exp(
+        exp_name,
+        base_v1_args,
+        num_epochs=50 * 4,
+        epoch_wise_filter=None,
+        bpe_size=BPE_1K,
+        partition_epoch=4,
+        devtrain_subset=3000,
+    )
 
     # TODO: default init
     for ep in [50 * 4]:
@@ -1057,3 +1065,9 @@ def conformer_baseline():
                     bpe_size=BPE_1K,
                     partition_epoch=4,
                 )
+
+    # TODO: weight dropout
+
+    # TODO: AdamW
+
+    # TODO: mixup?
