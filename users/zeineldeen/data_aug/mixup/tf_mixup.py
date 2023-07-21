@@ -16,6 +16,7 @@ def make_mixup_layer_dict(
     dim: int,
     opts: dict,
     use_exp_feats: bool = False,
+    is_recog: bool = False,
 ) -> Dict[str, Any]:
     """
     :param src: source layer name
@@ -51,9 +52,13 @@ def make_mixup_layer_dict(
             "output": {
                 "class": "eval",
                 "from": [f"base:{src}", "buffer", "buffer_pos", "buffer_filled"],
-                "eval": CodeWrapper("get_global_config().typed_value('_mixup_eval_layer_func')"),
+                "eval": CodeWrapper("get_global_config().typed_value('_mixup_eval_layer_func')")
+                if not is_recog
+                else CodeWrapper("_mixup_eval_layer_func"),
                 "eval_locals": {"dim": dim, "opts": opts},
-                "out_type": CodeWrapper("get_global_config().typed_value('_mixup_eval_layer_out_type_func')"),
+                "out_type": CodeWrapper("get_global_config().typed_value('_mixup_eval_layer_out_type_func')")
+                if not is_recog
+                else CodeWrapper("_mixup_eval_layer_out_type_func"),
             },
         },
     }

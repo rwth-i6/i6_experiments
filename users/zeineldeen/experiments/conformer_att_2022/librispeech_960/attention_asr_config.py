@@ -802,6 +802,7 @@ def create_config(
                 dim=feature_extraction_net["mel_filterbank"]["n_out"],
                 opts=mixup_aug_opts,
                 use_exp_feats=use_exp_feats,
+                is_recog=is_recog,
             )
         )
         if use_exp_feats:
