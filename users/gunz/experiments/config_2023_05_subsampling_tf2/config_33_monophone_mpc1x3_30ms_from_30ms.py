@@ -240,7 +240,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": 4000,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
