@@ -13,6 +13,7 @@ from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
+    reset_params_init,
     apply_fairseq_init_to_transformer_decoder,
 )
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.data import (
@@ -60,6 +61,11 @@ BPE_1K = 1000
 #   Min/max: 26 / 2049
 
 # --------------------------- LM --------------------------- #
+
+# LM data (runnnig words)
+# trans 2250417 ~ 2.25M
+# external: 12688261 ~ 12.7M
+# Total: 14.9M
 
 lstm_10k_lm_opts = {
     "lm_subnet": generic_lm.libri_lstm_bpe10k_net,
@@ -416,7 +422,7 @@ def conformer_baseline():
         num_epochs=300,
         search_args=None,
         recog_epochs=None,
-        bpe_size=10000,
+        bpe_size=1000,
         partition_epoch=4,
         **kwargs,
     ):
@@ -429,6 +435,7 @@ def conformer_baseline():
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             partition_epoch=partition_epoch,
+            devtrain_subset=kwargs.get("devtrain_subset", 507),  # same as num of dev segments
         )
         train_job = run_train(
             exp_name,
@@ -802,6 +809,8 @@ def conformer_baseline():
 
     _, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
 
+    # step-based: 8.5/8.2
+    # epoch-based: 8.6/8.2
     for bpe_size in [BPE_1K]:
         for ep in [50 * 4]:
             for lr in [8e-4]:
@@ -811,42 +820,49 @@ def conformer_baseline():
                 args["oclr_opts"]["n_step"] = 1480
                 args["oclr_opts"]["peak_lr"] = lr
                 exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
-                run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
-
-    # best: 8.53/8.25
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                args = copy.deepcopy(oclr_args)
-                args.pop("oclr_opts")
-                cyc_ep = int(0.45 * ep)
-                args["learning_rates_list"] = (
-                    list(numpy.linspace(lr / 10, lr, cyc_ep))
-                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                run_exp(
+                    exp_name,
+                    args,
+                    num_epochs=ep,
+                    epoch_wise_filter=None,
+                    bpe_size=bpe_size,
+                    partition_epoch=4,
+                    devtrain_subset=3000,
                 )
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}"
-                exp_name += "_epochOCLR"
-                run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
 
-                # retrain
-                for retrain_lr in [8e-4, 5e-4]:
-                    retrain_args = copy.deepcopy(args)
-                    retrain_args["retrain_checkpoint"] = train_job_best_epoch[exp_name]
-                    retrain_args["learning_rates_list"] = [retrain_lr] * 8 + list(
-                        numpy.linspace(retrain_lr, 1e-6, ep - 8)
+    # TODO: weight dropout
+    for bpe_size in [BPE_1K]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for weight_drop in [0.1]:
+                    args = copy.deepcopy(oclr_args)
+                    args.pop("oclr_opts")
+                    cyc_ep = int(0.45 * ep)
+                    args["learning_rates_list"] = (
+                        list(numpy.linspace(lr / 10, lr, cyc_ep))
+                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
                     )
+                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+                    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+
+                    args["encoder_args"].mhsa_weight_dropout = weight_drop
+                    args["encoder_args"].ff_weight_dropout = weight_drop
+                    args["encoder_args"].conv_weight_dropout = weight_drop
+
+                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre_weightDrop{weight_drop}"
                     run_exp(
-                        exp_name + f"_const8_lr{retrain_lr}_retrain1",
-                        retrain_args,
+                        exp_name,
+                        args,
                         num_epochs=ep,
                         epoch_wise_filter=None,
                         bpe_size=bpe_size,
                         partition_epoch=4,
+                        devtrain_subset=3000,
                     )
 
-    # TODO: normalize features
-    for pretrain_reps in [3, 4, 5]:
+    # TODO: conv first
+    for pretrain_reps in [3]:
         for bpe_size in [BPE_1K]:
             for ep in [50 * 4]:
                 for lr in [8e-4]:
@@ -859,8 +875,9 @@ def conformer_baseline():
                         + list(numpy.linspace(lr, lr / 10, cyc_ep))
                         + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
                     )
+                    args["encoder_args"].convolution_first = True
                     args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR"
+                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_convFirst"
                     run_exp(
                         exp_name,
                         args,
@@ -870,7 +887,72 @@ def conformer_baseline():
                         partition_epoch=4,
                     )
 
-    # TODO: without depthwise pretraining
+    # TODO: large pos rel clipping
+    for pretrain_reps in [3]:
+        for bpe_size in [BPE_1K]:
+            for ep in [50 * 4]:
+                for lr in [8e-4]:
+                    args = copy.deepcopy(oclr_args)
+                    args["pretrain_reps"] = pretrain_reps
+                    args.pop("oclr_opts")
+                    cyc_ep = int(0.45 * ep)
+                    args["learning_rates_list"] = (
+                        list(numpy.linspace(lr / 10, lr, cyc_ep))
+                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                    )
+                    args["encoder_args"].rel_pos_clipping = 32
+                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+                    exp_name = (
+                        f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_relPosClip32"
+                    )
+                    run_exp(
+                        exp_name,
+                        args,
+                        num_epochs=ep,
+                        epoch_wise_filter=None,
+                        bpe_size=bpe_size,
+                        partition_epoch=4,
+                    )
+
+    # TODO: mixup?
+    for pretrain_reps in [3]:
+        for bpe_size in [BPE_1K]:
+            for ep in [50 * 4]:
+                for lr in [8e-4]:
+                    args = copy.deepcopy(oclr_args)
+                    args["pretrain_reps"] = pretrain_reps
+                    args.pop("oclr_opts")
+                    cyc_ep = int(0.45 * ep)
+                    args["learning_rates_list"] = (
+                        list(numpy.linspace(lr / 10, lr, cyc_ep))
+                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                    )
+                    args["decoder_args"].use_zoneout_output = True
+                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+                    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+                    args["mixup_aug_opts"] = {
+                        "use_exp_feats": True,
+                        "buffer_size": 1_000_000,
+                        "apply_prob": 0.3,
+                        "max_num_mix": 2,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
+                    args["batch_size"] = 10_000
+                    args["accum_grad"] = 1
+                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_fixZoneout_woDepthwiseRed_mixUp"
+                    run_exp(
+                        exp_name,
+                        args,
+                        num_epochs=ep,
+                        epoch_wise_filter=None,
+                        bpe_size=bpe_size,
+                        partition_epoch=4,
+                    )
+
+    # TODO: AdamW
     for bpe_size in [BPE_1K]:
         for ep in [50 * 4]:
             for lr in [8e-4]:
@@ -882,9 +964,10 @@ def conformer_baseline():
                     + list(numpy.linspace(lr, lr / 10, cyc_ep))
                     + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
                 )
+                args["adamw"] = True
                 args["global_stats"] = {"mean": global_mean, "stddev": global_std}
                 args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre"
+                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre_AdamW"
                 run_exp(
                     exp_name,
                     args,
@@ -894,82 +977,83 @@ def conformer_baseline():
                     partition_epoch=4,
                 )
 
-    # TODO: more dropout + fixed zoneout
-    for wo_depthconv_pre in [True, False]:
-        for bpe_size in [BPE_1K]:
-            for drop in [0.1, 0.2]:
-                for ep in [50 * 4]:
-                    for lr in [8e-4]:
-                        args = copy.deepcopy(oclr_args)
-                        args.pop("oclr_opts")
-                        cyc_ep = int(0.45 * ep)
-                        args["learning_rates_list"] = (
-                            list(numpy.linspace(lr / 10, lr, cyc_ep))
-                            + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                        )
-                        args["decoder_args"].use_zoneout_output = True
-                        args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                        args["pretrain_reps"] = 3
+    # --------------------- V1 ---------------------
+    def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
+        #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
+        # Average ckpt: 8.19/7.64 (50 epochs)
+        # - Epoch-based OCLR with peak LR 8e-4
+        # - EncDrop 0.1, fixed zoneout
+        # - Pretrain 3, no depthwise conv pretrain
+        # - Feature global normalization
 
-                        # encoder dropouts
-                        args["encoder_args"].dropout = drop
-                        args["encoder_args"].dropout_in = drop
-                        args["encoder_args"].att_dropout = drop
+        base_v1_args = copy.deepcopy(oclr_args)
+        base_v1_args.pop("oclr_opts")
+        cyc_ep = int(0.45 * ep)
+        # Epoch-based OCLR
+        base_v1_args["learning_rates_list"] = (
+            list(numpy.linspace(lr / 10, lr, cyc_ep))
+            + list(numpy.linspace(lr, lr / 10, cyc_ep))
+            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+        )
+        base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+        base_v1_args["pretrain_reps"] = pretrain_reps
+        base_v1_args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+        base_v1_args["encoder_args"].dropout = enc_drop
+        base_v1_args["encoder_args"].dropout_in = enc_drop
+        base_v1_args["encoder_args"].att_dropout = enc_drop
+        base_v1_args["decoder_args"].use_zoneout_output = True
+        exp_name = f"base_bpe1000_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre{pretrain_reps}_fixZoneout_encDrop{enc_drop}_woDepthConvPre"
+        return base_v1_args, exp_name
 
-                        exp_name = (
-                            f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_pre3_fixZoneout_encDrop{drop}"
-                        )
-                        if wo_depthconv_pre:
-                            exp_name += "_woDepthConvPre"
-                            args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                        run_exp(
-                            exp_name,
-                            args,
-                            num_epochs=ep,
-                            epoch_wise_filter=None,
-                            bpe_size=bpe_size,
-                            partition_epoch=4,
-                        )
+    # baseline v1
+    base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+    run_exp(exp_name, args, num_epochs=50 * 4, epoch_wise_filter=None, bpe_size=BPE_1K, partition_epoch=4)
 
-    # TODO: reduce dims
-
-    # TODO: weight dropout
-
-    # # TODO: conv first
-    # for bpe_size in [BPE_1K]:
-    #     for ep in [50 * 4]:
-    #         for lr in [8e-4]:
-    #             args = copy.deepcopy(oclr_args)
-    #             args.pop("oclr_opts")
-    #             cyc_ep = int(0.45 * ep)
-    #             args["learning_rates_list"] = (
-    #                 list(numpy.linspace(lr / 10, lr, cyc_ep))
-    #                 + list(numpy.linspace(lr, lr / 10, cyc_ep))
-    #                 + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    #             )
-    #             args["encoder_args"].convolution_first = True
-    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_convFirst"
-    #             exp_name += "_epochOCLR"
-    #             run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
-    #
-    # # TODO: large pos rel clipping
-    # for bpe_size in [BPE_1K]:
-    #     for ep in [50 * 4]:
-    #         for lr in [8e-4]:
-    #             args = copy.deepcopy(oclr_args)
-    #             args.pop("oclr_opts")
-    #             cyc_ep = int(0.45 * ep)
-    #             args["learning_rates_list"] = (
-    #                 list(numpy.linspace(lr / 10, lr, cyc_ep))
-    #                 + list(numpy.linspace(lr, lr / 10, cyc_ep))
-    #                 + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    #             )
-    #             args["encoder_args"].rel_pos_clipping = 32
-    #             exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_relPosClip32"
-    #             exp_name += "_epochOCLR"
-    #             run_exp(exp_name, args, num_epochs=ep, epoch_wise_filter=None, bpe_size=bpe_size, partition_epoch=4)
-
-    # TODO: mixup?
+    # TODO: default init
+    for ep in [50 * 4]:
+        for lr in [8e-4]:
+            base_v1_args, exp_name = get_base_v1_args(lr, ep)
+            args = copy.deepcopy(base_v1_args)
+            reset_params_init(args["encoder_args"])
+            run_exp(
+                exp_name + "_defaultInit",
+                args,
+                num_epochs=ep,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+            )
 
     # TODO: longer training
+    for ep in [100 * 4]:
+        for lr in [8e-4, 9e-4]:
+            for enc_drop in [0.1, 0.15]:
+                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                args = copy.deepcopy(base_v1_args)
+                run_exp(
+                    exp_name,
+                    args,
+                    num_epochs=ep,
+                    epoch_wise_filter=None,
+                    bpe_size=BPE_1K,
+                    partition_epoch=4,
+                )
+
+    # TODO: reduce dims
+    for pretrain_reps in [3, 4, 5]:
+        for ep in [50 * 4]:
+            for lr in [8e-4]:
+                base_v1_args, exp_name = get_base_v1_args(lr, ep, pretrain_reps=pretrain_reps)
+                args = copy.deepcopy(base_v1_args)
+                # reduce by half
+                args["encoder_args"].enc_key_dim = 256
+                args["encoder_args"].ff_dim = 1024
+                args["encoder_args"].att_num_heads = 4
+                run_exp(
+                    exp_name + "_halfdim",
+                    args,
+                    num_epochs=ep,
+                    epoch_wise_filter=None,
+                    bpe_size=BPE_1K,
+                    partition_epoch=4,
+                )
