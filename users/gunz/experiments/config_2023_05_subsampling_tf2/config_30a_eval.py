@@ -6,7 +6,7 @@ import os
 import re
 import sys
 
-def process(file):
+def process(file: str):
     with open(file, "rt") as dtl:
         dtl_contents = " ".join(itertools.islice(dtl, 50))
 
@@ -32,7 +32,7 @@ def process(file):
             f"{tdpScale};{spLoop};{spFwd};{spExit};{silLoop};{silFwd};{silExit};{wer};{total_errs};{total_subst};{total_del};{total_insrt}".replace(".", ",")
         )
 
-if __name__ =="__main__":
+def main():
     _, out_dir = sys.argv
 
     dtl_files = glob.glob(os.path.join(out_dir, "*.wer", "sclite.dtl"))
@@ -43,3 +43,6 @@ if __name__ =="__main__":
         except Exception as e:
             print(f"failed on {file}")
             raise e
+
+if __name__ =="__main__":
+    main()
