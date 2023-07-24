@@ -523,7 +523,7 @@ def run_single(
         best = run_jobs[best_sp, best_sil]
         tune_tdp_job = mm.ViterbiTdpTuningJob(
             crp=best.search_crp,
-            feature_flow=s.feature_flows["train-other"],
+            feature_flow=s.feature_flows["dev-other"],
             feature_scorer=best.search_feature_scorer,
             allophone_files=lexicon.StoreAllophonesJob(best.search_crp).out_allophone_file,
             am_args={"tdp_transition": best_sp, "tdp_silence": best_sil},
