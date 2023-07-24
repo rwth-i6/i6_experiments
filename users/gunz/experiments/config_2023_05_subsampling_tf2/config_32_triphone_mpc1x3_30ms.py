@@ -366,8 +366,8 @@ def run_single(
         ]
 
         for cfg in [
-            recog_args.with_prior_scale(0.4, 0.4, 0.2)
-            * (
+            recog_args.with_prior_scale(0.4, 0.4, 0.2),
+            *(
                 recog_args.with_prior_scale(0.4, 0.4, 0.2)
                 .with_tdp_scale(0.4)
                 .with_tdp_speech(tdp_sp)
