@@ -29,7 +29,7 @@ def process(file):
         ).groups()
 
         print(
-            f"{tdpScale};{spLoop};{spFwd};{spExit};{silLoop};{silFwd};{silExit};{wer};{total_errs};{total_subst};{total_del};{total_insrt}"
+            f"{tdpScale};{spLoop};{spFwd};{spExit};{silLoop};{silFwd};{silExit};{wer};{total_errs};{total_subst};{total_del};{total_insrt}".replace(".", ",")
         )
 
 if __name__ =="__main__":
