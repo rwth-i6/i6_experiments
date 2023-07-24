@@ -530,24 +530,6 @@ def run_single(
         )
         tk.register_output(f"tdp-tuning/{name}/opt", tune_tdp_job.am_args_opt)
 
-        params = dataclasses.replace(
-            params,
-            tdp_speech=tune_tdp_job.am_args_opt["tdp_transition"],
-            tdp_silence=tune_tdp_job.am_args_opt["tdp_silence"],
-            tdp_non_word=tune_tdp_job.am_args_opt["tdp_silence"],
-        )
-        recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=params,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=False,
-            calculate_stats=True,
-            name_override="tuned-tdps",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-            rtf_cpu=4,
-        )
-
     if decode_all_corpora:
         assert False, "this is broken r/n"
 
