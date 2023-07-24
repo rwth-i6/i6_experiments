@@ -110,7 +110,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             multitask=True,
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
             run_tdp_study=False,
         ),
         Experiment(
@@ -121,7 +121,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             multitask=True,
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
             run_tdp_study=False,
         ),
     ]
