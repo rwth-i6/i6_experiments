@@ -516,11 +516,11 @@ def run_single(
                 mem_rqmt=4,
                 rtf_cpu=4,
             )
-            run_jobs[sp_tdp, sil_tdp] = jobs
+            run_jobs[tdp_scale, sp_tdp, sil_tdp] = (jobs, params)
 
         best_sp = (3, 0, "infinity", 0)
         best_sil = (3, 10, "infinity", 10)
-        best = run_jobs[best_sp, best_sil]
+        best, params = run_jobs[0.4, best_sp, best_sil]
         tune_tdp_job = mm.ViterbiTdpTuningJob(
             crp=best.search_crp,
             feature_flow=s.feature_flows["dev-other"],
@@ -529,6 +529,24 @@ def run_single(
             am_args={"tdp_transition": best_sp, "tdp_silence": best_sil},
         )
         tk.register_output(f"tdp-tuning/{name}/opt", tune_tdp_job.am_args_opt)
+
+        params = dataclasses.replace(
+            params,
+            tdp_speech=tune_tdp_job.am_args_opt["tdp_transition"],
+            tdp_silence=tune_tdp_job.am_args_opt["tdp_silence"],
+            tdp_non_word=tune_tdp_job.am_args_opt["tdp_silence"],
+        )
+        recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=params,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=False,
+            calculate_stats=True,
+            name_override="tuned-tdps",
+            cpu_rqmt=2,
+            mem_rqmt=4,
+            rtf_cpu=4,
+        )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
