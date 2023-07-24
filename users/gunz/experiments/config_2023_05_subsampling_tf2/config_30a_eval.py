@@ -6,6 +6,7 @@ import os
 import re
 import sys
 
+
 def process(file: str):
     with open(file, "rt") as dtl:
         dtl_contents = " ".join(itertools.islice(dtl, 50))
@@ -29,8 +30,11 @@ def process(file: str):
         ).groups()
 
         print(
-            f"{tdpScale};{spLoop};{spFwd};{spExit};{silLoop};{silFwd};{silExit};{wer};{total_errs};{total_subst};{total_del};{total_insrt}".replace(".", ",")
+            f"{tdpScale};{spLoop};{spFwd};{spExit};{silLoop};{silFwd};{silExit};{wer};{total_errs};{total_subst};{total_del};{total_insrt}".replace(
+                ".", ","
+            )
         )
+
 
 def main():
     _, out_dir = sys.argv
@@ -44,5 +48,6 @@ def main():
             print(f"failed on {file}")
             raise e
 
-if __name__ =="__main__":
+
+if __name__ == "__main__":
     main()
