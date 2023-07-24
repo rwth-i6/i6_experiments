@@ -917,7 +917,11 @@ class FHDecoder:
         rtf_gpu: typing.Optional[float] = None,
         create_lattice: bool = True,
     ) -> RecognitionJobs:
-        if isinstance(search_parameters, SearchParameters):
+        if (
+            isinstance(search_parameters, SearchParameters)
+            and isinstance(search_parameters.tdp_speech, tuple)
+            and isinstance(search_parameters.tdp_silence, tuple)
+        ):
             assert len(search_parameters.tdp_speech) == 4
             assert len(search_parameters.tdp_silence) == 4
             assert not search_parameters.silence_penalties or len(search_parameters.silence_penalties) == 2
