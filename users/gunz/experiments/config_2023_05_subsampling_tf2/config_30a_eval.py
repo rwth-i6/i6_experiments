@@ -24,7 +24,7 @@ def process(file):
         ).groups()
 
         tdpScale, spLoop, spFwd, spExit, silLoop, silFwd, silExit = re.search(
-            "Beam\d+-Lm\d+\.\d+-Pron\d+\.\d+-prC\d+\.\d+-tdpScale-(\d+\.\d+)-spTdp-(\d+),(\d+),inf,(\d+)-silTdp-(\d+),(\d+),inf,(\d+)-tdpNWex",
+            "Beam\d+-Lm\d+\.\d+-Pron\d+\.\d+-prC\d+\.\d+-tdpScale-(\d+\.\d+)-spTdp-(\d+|\d+\.\d+),(\d+|\d+\.\d+),inf,(\d+|\d+\.\d+)-silTdp-(\d+|\d+\.\d+),(\d+|\d+\.\d+),inf,(\d+|\d+\.\d+)-tdpNWex",
             os.path.dirname(file),
         ).groups()
 
