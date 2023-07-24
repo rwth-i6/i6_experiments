@@ -110,7 +110,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
             run_tdp_study=False,
         ),
         Experiment(
@@ -121,7 +121,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
             run_tdp_study=False,
         ),
     ]
