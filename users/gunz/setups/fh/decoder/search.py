@@ -982,9 +982,9 @@ class FHDecoder:
                     name += f"-silFwdP-{sil_fwd_penalty}"
 
             if (
-                search_parameters.tdp_speech[2] == "infinity"
+                name_override is None
+                and search_parameters.tdp_speech[2] == "infinity"
                 and search_parameters.tdp_silence[2] == "infinity"
-                and name_override is None
             ):
                 name += "-noSkip"
         else:
