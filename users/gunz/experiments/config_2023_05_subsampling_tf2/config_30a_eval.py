@@ -27,7 +27,7 @@ for file in dtl_files:
             "Percent Insertions\s+=\s+(\d+\.\d+)%\s+\(\s*(\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
 
-        tdpScale, spLoop, spFwd, spExit, silLoop, silFwd, silExit = re.match(
+        tdpScale, spLoop, spFwd, spExit, silLoop, silFwd, silExit = re.search(
             "Beam\d+-Lm\d+\.\d+-Pron\d+\.\d+-prC\d+\.\d+-tdpScale-(\d+\.\d+)-spTdp-(\d+),(\d+),inf,(\d+)-silTdp-(\d+),(\d+),inf,(\d+)-tdpNWex",
             os.path.dirname(file),
         ).groups()
