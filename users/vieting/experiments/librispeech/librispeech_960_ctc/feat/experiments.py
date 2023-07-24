@@ -20,10 +20,13 @@ from .default_tools import RASR_BINARY_PATH_APPTAINER, RETURNN_ROOT, RETURNN_EXE
 def run_log_mel_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_ctc/feat/"
 
-    # TODO: create in graph: allophone file, lexicon, dev/cv corpus (currently using segment list from Wei)
+    # TODO: create in graph: allophone file, lexicon
     (
         returnn_datasets, rasr_loss_corpus_path, rasr_loss_lexicon_path, dev_corpora
     ) = get_librispeech_data(augmented_lexicon=True, cv_segments_wei=True)
+    (
+        returnn_datasets_new, rasr_loss_corpus_path_new, rasr_loss_lexicon_path_new, _
+    ) = get_librispeech_data(augmented_lexicon=True, ogg_no_conversion=False)
     allophone_file = tk.Path(
         "/work/asr4/vieting/setups/librispeech/work/allophones/StoreAllophones.NRKTz6cpvJMU/output/allophones",
         hash_overwrite="wei_librispeech_allophone_file",
@@ -54,6 +57,12 @@ def run_log_mel_baseline():
         },
         "specaug_old": {"max_feature": 8},  # use old SpecAugment implementation
     }
+    returnn_args_new = copy.deepcopy(returnn_args)
+    returnn_args_new.update({
+        "rasr_loss_corpus_path": rasr_loss_corpus_path_new,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path_new,
+        "datasets": returnn_datasets_new,
+    })
     feature_args = {
         "class": "LogMelNetwork",
         "wave_norm": True,
@@ -81,6 +90,13 @@ def run_log_mel_baseline():
                 num_outputs=79,
                 report_args={},
             ),
+            # "newsegments_lgm80": dict(
+            #     returnn_args=returnn_args_new,
+            #     feature_args=feature_args,
+            #     lr_args=lr_args,
+            #     num_outputs=79,
+            #     report_args={},
+            # ),
         },
         num_epochs=500,
         evaluation_epochs=[490, 500],

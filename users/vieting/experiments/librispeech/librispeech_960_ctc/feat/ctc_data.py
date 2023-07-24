@@ -17,6 +17,7 @@ def get_librispeech_data(
     add_unknown: bool = False,
     augmented_lexicon: bool = False,
     cv_segments_wei: bool = False,
+    ogg_no_conversion: bool = True,
 ):
     # TODO: lexicon is augmented only with train OOVs, but to work on the loss corpus it also needs the dev OOVs
 
@@ -104,7 +105,7 @@ def get_librispeech_data(
 
     cv_ogg_zip = returnn.BlissToOggZipJob(
         cv_corpus,
-        no_conversion=True,
+        no_conversion=ogg_no_conversion,
         returnn_python_exe=returnn_python_exe,
         returnn_root=returnn_root,
     ).out_ogg_zip
