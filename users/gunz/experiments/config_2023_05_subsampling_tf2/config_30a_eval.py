@@ -15,16 +15,16 @@ for file in dtl_files:
         dtl_contents = " ".join(itertools.islice(dtl, 50))
 
         wer, total_errs = re.search(
-            r"Percent Total Error\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
+            r"Percent Total Error\s+=\s+(\d+\.\d+)%\s+\(\s*(\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
         _, total_subst = re.search(
-            "Percent Substitution\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
+            "Percent Substitution\s+=\s+(\d+\.\d+)%\s+\(\s*(\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
         _, total_del = re.search(
-            "Percent Deletions\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
+            "Percent Deletions\s+=\s+(\d+\.\d+)%\s+\(\s*(\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
         _, total_insrt = re.search(
-            "Percent Insertions\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
+            "Percent Insertions\s+=\s+(\d+\.\d+)%\s+\(\s*(\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
 
         tdpScale, spLoop, spFwd, spExit, silLoop, silFwd, silExit = re.match(
