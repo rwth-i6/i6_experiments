@@ -11,6 +11,8 @@ _, out_dir = sys.argv
 dtl_files = glob.glob(os.path.join(out_dir, "*.wer", "sclite.dtl"))
 
 for file in dtl_files:
+    print(f"processing {file}")
+
     with open(file, "rt") as dtl:
         dtl_contents = " ".join(itertools.islice(dtl, 50))
 
