@@ -17,7 +17,7 @@ from .ctc_data import get_librispeech_data
 from .default_tools import RASR_BINARY_PATH_APPTAINER, RETURNN_ROOT, RETURNN_EXE_APPTAINER
 
 
-def run_log_mel_baseline():
+def run_baseline():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_ctc/feat/"
 
     # TODO: create in graph: allophone file, lexicon
@@ -64,8 +64,19 @@ def run_log_mel_baseline():
         "datasets": returnn_datasets_new,
     })
     feature_args = {
-        "class": "LogMelNetwork",
-        "wave_norm": True,
+        "log_mel": {
+            "class": "LogMelNetwork",
+            "wave_norm": True,
+        },
+        "gammatone": {
+            "class": "GammatoneNetwork",
+            "wave_norm": True,
+            "preemphasis": 1.0,
+        },
+        "scf": {
+            "class": "ScfNetwork",
+            "wave_norm": True,
+        },
     }
     lr_args = {
         "peak_lr": 3e-4, "start_lr": 1e-3 * (0.01 * 224 + 0.3) / 225, "end_lr": 1e-5,
@@ -85,18 +96,32 @@ def run_log_mel_baseline():
         nn_base_args={
             "lgm80": dict(
                 returnn_args=returnn_args,
-                feature_args=feature_args,
+                feature_args=feature_args["log_mel"],
                 lr_args=lr_args,
                 num_outputs=79,
                 report_args={},
             ),
             # "newsegments_lgm80": dict(
             #     returnn_args=returnn_args_new,
-            #     feature_args=feature_args,
+            #     feature_args=feature_args["log_mel"],
             #     lr_args=lr_args,
             #     num_outputs=79,
             #     report_args={},
             # ),
+            "gt50": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args["gammatone"],
+                lr_args=lr_args,
+                num_outputs=79,
+                report_args={},
+            ),
+            "scf": dict(
+                returnn_args=returnn_args,
+                feature_args=feature_args["scf"],
+                lr_args=lr_args,
+                num_outputs=79,
+                report_args={},
+            ),
         },
         num_epochs=500,
         evaluation_epochs=[490, 500],
@@ -182,4 +207,4 @@ def py():
     """
     called if the file is passed to sis manager, used to run all experiments (replacement for main)
     """
-    run_log_mel_baseline()
+    run_baseline()
