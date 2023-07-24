@@ -14,8 +14,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.rasr as rasr
-import i6_core.returnn as returnn
+from i6_core import lexicon, mm, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -28,9 +27,8 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext, RasrStateTying
+from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
@@ -493,6 +491,7 @@ def run_single(
             [1, 3, 10],
             (0.1, *((round(v, 1) for v in np.linspace(0.2, 0.6, 3)))),
         )
+        run_jobs = {}
         for cfg in tdps:
             sp_loop, sp_fwd, sp_exit, sil_loop, sil_fwd, sil_exit, tdp_scale = cfg
             sp_tdp = (sp_loop, sp_fwd, "infinity", sp_exit)
@@ -517,6 +516,19 @@ def run_single(
                 mem_rqmt=4,
                 rtf_cpu=4,
             )
+            run_jobs[sp_tdp, sil_tdp] = jobs
+
+        best_sp = (3, 0, "infinity", 0)
+        best_sil = (3, 10, "infinity", 10)
+        best = run_jobs[best_sp, best_sil]
+        tune_tdp_job = mm.ViterbiTdpTuningJob(
+            crp=best.search_crp,
+            feature_flow=s.feature_flows["train-other"],
+            feature_scorer=best.search_feature_scorer,
+            allophone_files=lexicon.StoreAllophonesJob(best.search_crp).out_allophone_file,
+            am_args={"tdp_transition": best_sp, "tdp_silence": best_sil},
+        )
+        tk.register_output(f"tdp-tuning/{name}/opt", tune_tdp_job.am_args_opt)
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
