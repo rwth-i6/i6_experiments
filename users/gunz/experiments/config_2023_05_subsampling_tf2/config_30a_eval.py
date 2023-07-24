@@ -18,7 +18,7 @@ for file in dtl_files:
             r"Percent Total Error\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
         _, total_subst = re.search(
-            "Percent Substitutions\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
+            "Percent Substitution\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
         ).groups()
         _, total_del = re.search(
             "Percent Deletions\s+=\s+(\d+\.\d+)%\s+\((\d+)\)", dtl_contents, re.IGNORECASE
