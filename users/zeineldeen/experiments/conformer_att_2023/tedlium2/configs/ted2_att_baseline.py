@@ -945,22 +945,6 @@ def conformer_baseline():
         partition_epoch=4,
         devtrain_subset=3000,
     )
-    for coverage_scale in [0.01, 0.03, 0.05]:
-        for converage_thre in [0.01, 0.03, 0.05]:
-            search_args = copy.deepcopy(base_v1_args)
-            search_args["decoder_args"].coverage_threshold = converage_thre
-            search_args["decoder_args"].coverage_scale = coverage_scale
-            run_exp(
-                exp_name,
-                base_v1_args,
-                num_epochs=50 * 4,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                search_args=search_args,
-                partition_epoch=4,
-                devtrain_subset=3000,
-                run_only_avg=True,
-            )
 
     # TODO: default init
     for ep in [50 * 4]:
