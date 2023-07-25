@@ -376,35 +376,43 @@ def conformer_baseline():
 
         test_dataset_tuples = get_test_dataset_tuples(bpe_size=bpe_size)
 
-        for ep in default_recog_epochs:
+        run_only_avg = kwargs.get("run_only_avg", False)
+
+        if not run_only_avg:
+            for ep in default_recog_epochs:
+                search(
+                    exp_prefix + f"/recogs/ep-{ep}",
+                    returnn_search_config,
+                    train_job.out_checkpoints[ep],
+                    test_dataset_tuples,
+                    RETURNN_CPU_EXE,
+                    RETURNN_ROOT,
+                )
+
             search(
-                exp_prefix + f"/recogs/ep-{ep}",
+                exp_prefix + "/default_last",
                 returnn_search_config,
-                train_job.out_checkpoints[ep],
+                train_job.out_checkpoints[num_epochs],
                 test_dataset_tuples,
                 RETURNN_CPU_EXE,
                 RETURNN_ROOT,
             )
 
-        search(
-            exp_prefix + "/default_last",
-            returnn_search_config,
-            train_job.out_checkpoints[num_epochs],
-            test_dataset_tuples,
-            RETURNN_CPU_EXE,
-            RETURNN_ROOT,
-        )
+            search(
+                exp_prefix + "/default_best",
+                returnn_search_config,
+                best_checkpoint,
+                test_dataset_tuples,
+                RETURNN_CPU_EXE,
+                RETURNN_ROOT,
+                use_sclite=True,
+            )
 
-        search(
-            exp_prefix + "/default_best",
-            returnn_search_config,
-            best_checkpoint,
-            test_dataset_tuples,
-            RETURNN_CPU_EXE,
-            RETURNN_ROOT,
-            use_sclite=True,
-        )
-
+        beam_size = search_args.get("beam_size", 12)
+        if beam_size != 12:
+            exp_prefix += f"_beam-{beam_size}"
+        if search_args["decoder_args"].coverage_scale:
+            exp_prefix += f"_coverage-thre{search_args['decoder_args'].coverage_threshold}-scale{search_args['decoder_args'].coverage_scale}"
         search(
             exp_prefix + f"/average_{num_avg}",
             returnn_search_config,
@@ -830,31 +838,6 @@ def conformer_baseline():
                     devtrain_subset=3000,
                 )
 
-    # TODO: lower LR
-    for bpe_size in [BPE_1K]:
-        for ep in [50 * 4]:
-            for lr in [7e-4]:
-                args = copy.deepcopy(oclr_args)
-                args.pop("oclr_opts")
-                cyc_ep = int(0.45 * ep)
-                args["learning_rates_list"] = (
-                    list(numpy.linspace(lr / 10, lr, cyc_ep))
-                    + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                    + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                )
-                args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_epochOCLR_woDepthConvPre"
-                run_exp(
-                    exp_name,
-                    args,
-                    num_epochs=ep,
-                    epoch_wise_filter=None,
-                    bpe_size=bpe_size,
-                    partition_epoch=4,
-                    devtrain_subset=3000,
-                )
-
     # TODO: weight dropout
     for bpe_size in [BPE_1K]:
         for ep in [100 * 4]:
@@ -884,60 +867,6 @@ def conformer_baseline():
                         bpe_size=bpe_size,
                         partition_epoch=4,
                         devtrain_subset=3000,
-                    )
-
-    # TODO: conv first
-    for pretrain_reps in [3]:
-        for bpe_size in [BPE_1K]:
-            for ep in [50 * 4]:
-                for lr in [8e-4]:
-                    args = copy.deepcopy(oclr_args)
-                    args["pretrain_reps"] = pretrain_reps
-                    args.pop("oclr_opts")
-                    cyc_ep = int(0.45 * ep)
-                    args["learning_rates_list"] = (
-                        list(numpy.linspace(lr / 10, lr, cyc_ep))
-                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                    )
-                    args["encoder_args"].convolution_first = True
-                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_convFirst"
-                    run_exp(
-                        exp_name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
-                    )
-
-    # TODO: large pos rel clipping
-    for pretrain_reps in [3]:
-        for bpe_size in [BPE_1K]:
-            for ep in [50 * 4]:
-                for lr in [8e-4]:
-                    args = copy.deepcopy(oclr_args)
-                    args["pretrain_reps"] = pretrain_reps
-                    args.pop("oclr_opts")
-                    cyc_ep = int(0.45 * ep)
-                    args["learning_rates_list"] = (
-                        list(numpy.linspace(lr / 10, lr, cyc_ep))
-                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                    )
-                    args["encoder_args"].rel_pos_clipping = 32
-                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    exp_name = (
-                        f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_relPosClip32"
-                    )
-                    run_exp(
-                        exp_name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
                     )
 
     # TODO: mixup?
@@ -1016,6 +945,22 @@ def conformer_baseline():
         partition_epoch=4,
         devtrain_subset=3000,
     )
+    for coverage_scale in [0.01, 0.03, 0.05]:
+        for converage_thre in [0.01, 0.03, 0.05]:
+            search_args = copy.deepcopy(base_v1_args)
+            search_args["decoder_args"].coverage_threshold = converage_thre
+            search_args["decoder_args"].coverage_scale = coverage_scale
+            run_exp(
+                exp_name,
+                base_v1_args,
+                num_epochs=50 * 4,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                search_args=search_args,
+                partition_epoch=4,
+                devtrain_subset=3000,
+                run_only_avg=True,
+            )
 
     # TODO: default init
     for ep in [50 * 4]:
