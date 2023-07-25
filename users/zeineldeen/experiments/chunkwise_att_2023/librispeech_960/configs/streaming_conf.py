@@ -889,6 +889,7 @@ def get_ctc_chunksyn_align_config(
             "batch_size": 5000,
         }
     )
+    config.post_config["use_tensorflow"] = True
     if ignore_eoc_in_input:
         config.config["network"]["chunked_align"]["eval_locals"].setdefault("ignore_indices", []).append(eoc_idx)
     return serialization.get_serializable_config(config, hash_full_python_code=hash_full_python_code)
@@ -1569,61 +1570,61 @@ def baseline():
     #     )
 
     # TODO: full-sum approx from scratch
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[25],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[300],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=168,
-        full_sum_approx=True,
-    )
-
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[25],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[300],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=168,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 2},
-        full_sum_approx=True,
-    )
-
-    # TODO: full-sum approx from viterbi training
-    for lr in [1e-4, 2e-4]:
-        run_chunkwise_train(
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            enc_stream_type="chunked",
-            chunk_sizes=[25],
-            chunk_step_factors=[0.5],
-            start_lrs=[lr],  # TODO: maybe lower?
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[300],
-            batch_size=10_000,
-            accum_grad=3,
-            time_rqmt=168,
-            conf_mem_opts={"self_att_version": 1, "mem_size": 2},
-            full_sum_approx=True,
-            retrain_ckpt=train_job_avg_ckpt[
-                "chunked_att_chunk-25_step-12_linDecay400_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1_memSize2"
-            ],
-            suffix="_retrainAvg",
-        )
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[25],
+    #     chunk_step_factors=[0.5],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[300],
+    #     batch_size=10_000,
+    #     accum_grad=3,
+    #     time_rqmt=168,
+    #     full_sum_approx=True,
+    # )
+    #
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[25],
+    #     chunk_step_factors=[0.5],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[300],
+    #     batch_size=10_000,
+    #     accum_grad=3,
+    #     time_rqmt=168,
+    #     conf_mem_opts={"self_att_version": 1, "mem_size": 2},
+    #     full_sum_approx=True,
+    # )
+    #
+    # # TODO: full-sum approx from viterbi training
+    # for lr in [1e-4, 2e-4]:
+    #     run_chunkwise_train(
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         enc_stream_type="chunked",
+    #         chunk_sizes=[25],
+    #         chunk_step_factors=[0.5],
+    #         start_lrs=[lr],  # TODO: maybe lower?
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[300],
+    #         batch_size=10_000,
+    #         accum_grad=3,
+    #         time_rqmt=168,
+    #         conf_mem_opts={"self_att_version": 1, "mem_size": 2},
+    #         full_sum_approx=True,
+    #         retrain_ckpt=train_job_avg_ckpt[
+    #             "chunked_att_chunk-25_step-12_linDecay400_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1_memSize2"
+    #         ],
+    #         suffix="_retrainAvg",
+    #     )
 
     # TODO: mask paddings for MHSA
     run_chunkwise_train(
@@ -1641,3 +1642,54 @@ def baseline():
         time_rqmt=120,
         conf_mem_opts={"self_att_version": 1, "mem_size": 2, "mask_paddings": True},
     )
+
+    for mem_size in [1, 2]:
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[25],
+            chunk_step_factors=[1.0],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.6],
+            gpu_mem=24,
+            total_epochs=[40 * 20],
+            batch_size=30_000,
+            accum_grad=1,
+            time_rqmt=168,
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
+        )
+
+    for mem_size in [2]:
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[33],
+            chunk_step_factors=[1.0],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.6],
+            gpu_mem=24,
+            total_epochs=[30 * 20],
+            batch_size=30_000,
+            accum_grad=1,
+            time_rqmt=168,
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
+        )
+
+    for mem_size in [2]:
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[33],
+            chunk_step_factors=[0.5, 0.7],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[20 * 20],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=168,
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
+        )
