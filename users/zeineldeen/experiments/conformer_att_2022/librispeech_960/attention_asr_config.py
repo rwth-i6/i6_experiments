@@ -264,30 +264,28 @@ def pretrain_layers_and_dims(
         dim_frac_enc = 1
         dim_frac_dec = 1
 
+    # TODO WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
+    regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
     for k in encoder_args_copy.keys():
-        if "dropout" in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
-        if "l2" in k and encoder_args_copy[k] is not None:
-            if idx <= 1:
-                encoder_args_copy[k] = 0.0
-            else:
-                encoder_args_copy[k] *= dim_frac_enc
+        for regs_word in regs_words:
+            if regs_word in k and encoder_args_copy[k] is not None:
+                if not isinstance(encoder_args_copy[k], float):
+                    continue
+                if idx <= 1:
+                    encoder_args_copy[k] = 0.0
+                else:
+                    encoder_args_copy[k] *= dim_frac_enc
 
     for k in decoder_args_copy.keys():
-        if "dropout" in k and decoder_args_copy[k] is not None:
-            if idx <= 1:
-                decoder_args_copy[k] = 0.0
-            else:
-                decoder_args_copy[k] *= dim_frac_dec
-        if "l2" in k and decoder_args_copy[k] is not None:
-            if idx <= 1:
-                decoder_args_copy[k] = 0.0
-            else:
-                decoder_args_copy[k] *= dim_frac_dec
+        for regs_word in regs_words:
+            if regs_word in k and decoder_args_copy[k] is not None:
+                if not isinstance(decoder_args_copy[k], float):
+                    continue
+                if idx <= 1:
+                    decoder_args_copy[k] = 0.0
+                else:
+                    decoder_args_copy[k] *= dim_frac_dec
 
     encoder_model = encoder_type(**encoder_args_copy)
     encoder_model.create_network()
@@ -465,7 +463,6 @@ class RNNDecoderArgs(DecoderArgs):
     enc_key_dim: int = 1024  # also attention dim  # also attention dim
 
     # location feedback
-    loc_conv_att_num_channels: Optional[int] = None
     loc_conv_att_filter_size: Optional[int] = None
 
     # param init
@@ -485,7 +482,6 @@ class RNNDecoderArgs(DecoderArgs):
     reduceout: bool = True
 
     # lstm lm
-    lstm_lm_proj_dim: int = 1024
     lstm_lm_dim: int = 1024
     add_lstm_lm: bool = False
 
@@ -912,13 +908,15 @@ def create_config(
             _get_raw_func,
         ]
 
-    # modify hyperparameters based on epoch
-    if staged_hyperparams:
+    # modify hyperparameters based on epoch (only used in training)
+    if staged_network_dict and staged_hyperparams:
         for ep, v in staged_hyperparams.items():
-            base_net = copy.deepcopy(exp_config["network"])
+            staged_net_dict_max_ep = max(staged_network_dict.keys())
+            assert ep > staged_net_dict_max_ep
+            base_net = copy.deepcopy(staged_network_dict[staged_net_dict_max_ep])
+            assert isinstance(v, dict)
             base_net["#config"] = v
-            assert ep not in staged_hyperparams
-            assert ep > max(staged_hyperparams.keys())
+            assert ep not in staged_network_dict
             staged_network_dict[ep] = base_net
 
     if seq_train_opts:
