@@ -1033,6 +1033,7 @@ def conformer_baseline():
             )
 
     # TODO: longer training
+    # this suffers from huge overfitting
     for ep in [100 * 4]:
         for lr in [8e-4, 9e-4]:
             for enc_drop in [0.1, 0.15]:
@@ -1040,25 +1041,6 @@ def conformer_baseline():
                 args = copy.deepcopy(base_v1_args)
                 run_exp(
                     exp_name,
-                    args,
-                    num_epochs=ep,
-                    epoch_wise_filter=None,
-                    bpe_size=BPE_1K,
-                    partition_epoch=4,
-                )
-
-    # TODO: reduce dims
-    for pretrain_reps in [3, 4, 5]:
-        for ep in [50 * 4]:
-            for lr in [8e-4]:
-                base_v1_args, exp_name = get_base_v1_args(lr, ep, pretrain_reps=pretrain_reps)
-                args = copy.deepcopy(base_v1_args)
-                # reduce by half
-                args["encoder_args"].enc_key_dim = 256
-                args["encoder_args"].ff_dim = 1024
-                args["encoder_args"].att_num_heads = 4
-                run_exp(
-                    exp_name + "_halfdim",
                     args,
                     num_epochs=ep,
                     epoch_wise_filter=None,
@@ -1141,3 +1123,39 @@ def conformer_baseline():
                 bpe_size=BPE_1K,
                 partition_epoch=4,
             )
+
+    # TODO: tune num blocks and dims
+    for ep in [50 * 4]:
+        for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75), (12, 0.5)]:
+            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
+            args = copy.deepcopy(base_v1_args)
+
+            args["encoder_args"].num_blocks = num_blocks
+            args["encoder_args"].enc_key_dim = int(args["encoder_args"].enc_key_dim * reduce_factor)
+            args["encoder_args"].ff_dim = int(args["encoder_args"].ff_dim * reduce_factor)
+            args["encoder_args"].att_num_heads = int(args["encoder_args"].att_num_heads * reduce_factor)
+            assert args["encoder_args"].enc_key_dim % args["encoder_args"].att_num_heads == 0
+
+            # adjust pretrain dim reduction
+            args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
+
+            run_exp(
+                exp_name + f"_numBlocks{num_blocks}_reduceFactor{reduce_factor}",
+                args,
+                num_epochs=ep,
+                epoch_wise_filter=None,
+                bpe_size=BPE_1K,
+                partition_epoch=4,
+            )
+
+            # only for comparison
+            if reduce_factor == 0.75:
+                args["pretrain_opts"]["initial_dim_factor"] = 0.5
+                run_exp(
+                    exp_name + f"_numBlocks{num_blocks}_reduceFactor{reduce_factor}_preRed0.5",
+                    args,
+                    num_epochs=ep,
+                    epoch_wise_filter=None,
+                    bpe_size=BPE_1K,
+                    partition_epoch=4,
+                )
