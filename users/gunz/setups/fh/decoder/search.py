@@ -1111,7 +1111,7 @@ class FHDecoder:
             use_gpu=use_gpu,
             rtf=rtf_gpu if rtf_gpu is not None and use_gpu else rtf_cpu if rtf_cpu is not None else rqms["rtf"],
             mem=rqms["mem"] if mem_rqmt is None else mem_rqmt,
-            cpu=4 if cpu_rqmt is None else cpu_rqmt,
+            cpu=2 if cpu_rqmt is None else cpu_rqmt,
             model_combination_config=model_combination_config,
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
