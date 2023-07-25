@@ -235,7 +235,7 @@ class CTCDecoder:
         lm_scale=0.3,
         add_att_dec=False,
         att_scale=0.3,
-        use_ts_discount=False,
+        ts_reward=0.0,
         ctc_scale=1.0,
         blank_prob_scale=0.0,  # in log space
         repeat_prob_scale=0.0,  # in log space
@@ -332,7 +332,7 @@ class CTCDecoder:
 
         self.add_att_dec = add_att_dec
         self.att_scale = att_scale
-        self.use_ts_discount = use_ts_discount
+        self.ts_reward = ts_reward
 
         self.ctc_scale = ctc_scale
         self.blank_prob_scale = blank_prob_scale
@@ -532,40 +532,16 @@ class CTCDecoder:
             )
             combine_list.append("scaled_lm_log_scores")
 
-        if self.use_ts_discount:
-            # not working yet
-            subnet_unit.update(
-                {
-                    "const1": {"class": "constant", "value": 1, "dtype": "int32"},
-                    "prev_n_att_contrib_plus_1": {
-                        "class": "add",
-                        "from": ["prev:n_att_contrib", "const1"],
-                    },
-                    "n_att_contrib": {
-                        "class": "switch",
-                        "condition": "curr_mask",
-                        "true_from": "prev_n_att_contrib_plus_1",
-                        "false_from": "prev:n_att_contrib",
-                        "initial_output": 0,
-                    },
-                    "n_att_contrib_plus_1": {
-                        "class": "add",
-                        "from": ["n_att_contrib", "const1"],
-                    },
-                    # TODO: how to access all hypothesis in beam?
-                    "max_n_att_contrib": {
-                        "class": "reduce",
-                        "mode": "max",
-                        "from": "n_att_contrib",
-                    },
-                    "log_ts_discount": {
-                        "class": "eval",
-                        "from": ["n_att_contrib", "max_n_att_contrib"],
-                        "eval": "source(0)/source(1)",
-                        "initial_output": 0,
-                    },
+        if self.ts_reward > 0:
+            subnet_unit.update({
+                "ts_reward": {
+                    "class": "eval",
+                    "from": "scaled_ctc_log_scores",
+                    "eval": f"source(0) * 0 + {self.ts_reward}",
                 }
-            )
+            })
+            combine_list.append("ts_reward")
+
 
         subnet_unit.update(
             {

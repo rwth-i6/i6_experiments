@@ -504,7 +504,7 @@ class CTCDecoderArgs(DecoderArgs):
     ctc_scale: float = 1.0
     add_att_dec: bool = False
     att_scale: float = 0.3
-    use_ts_discount: bool = False # wip
+    ts_reward: float = 0.0
     blank_prob_scale: float = 0.0
     repeat_prob_scale: float = 0.0
     ctc_prior_correction: bool = False

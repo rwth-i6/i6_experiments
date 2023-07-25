@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 from typing import Dict
 
-import os
 import sys
 import numpy
 
@@ -35,21 +33,6 @@ def _get_tf_checkpoint_path() -> tk.Path:
     :return: Sisyphus tk.Path to the checkpoint file
     """
     return generic_job_output(_returnn_tf_ckpt_filename)
-
-
-def _get_pt_checkpoint_path() -> tk.Path:
-    old_tf_ckpt_path = _get_tf_checkpoint_path()
-    old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
-    make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
-    converter = ConvertTfCheckpointToRfPtJob(
-        checkpoint=old_tf_ckpt,
-        make_model_func=make_model_func,
-        map_func=map_param_func_v2,
-        epoch=1,
-        step=0,
-    )
-    # converter.run()
-    return converter.out_checkpoint
 
 
 def _add_params():
@@ -515,11 +498,9 @@ def test_import_forward():
 
 
 def test_import_search():
-    from returnn.util import debug
+    from i6_experiments.common.setups.returnn_common import serialization
 
-    debug.install_lib_sig_segfault()
-    debug.install_native_signal_handler()
-    debug.init_faulthandler()
+    exec(serialization.PythonEnlargeStackWorkaroundNonhashedCode.code)
 
     from returnn.datasets.util.vocabulary import Vocabulary
 
@@ -541,6 +522,8 @@ def test_import_search():
     )
     target = Tensor("target", dim_tags=[batch_dim, target_spatial_dim], sparse_dim=target_dim)
 
+    from ._moh_att_2023_04_24_BxqgICRSGkgb_net_dict import net_dict
+
     num_layers = 12
 
     from returnn.config import Config
@@ -548,6 +531,7 @@ def test_import_search():
     config = Config(
         dict(
             log_verbositiy=5,
+            network=net_dict,
             extern_data={
                 "audio_features": {"dim_tags": data.dims, "feature_dim_axis": -1},
                 "bpe_labels": {"dim_tags": target.dims, "sparse_dim": target.sparse_dim},
@@ -593,172 +577,132 @@ def test_import_search():
         "seq_order_control_dataset": "zip_dataset",
     }
 
-    print("*** Construct input minibatch")
+    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
+    from returnn.tf.network import TFNetwork
+    import tensorflow as tf
+    import tempfile
+    import atexit
+    import shutil
+
+    ckpt_dir = tempfile.mkdtemp("returnn-import-test")
+    atexit.register(lambda: shutil.rmtree(ckpt_dir))
+
+    print("*** Construct TF graph for old model")
     extern_data = TensorDict()
     extern_data.update(config.typed_dict["extern_data"], auto_convert=True)
 
     from returnn.datasets.basic import init_dataset, Batch
     from returnn.tf.data_pipeline import FeedDictDataProvider, BatchSetGenerator
 
-    load_whole_data = True
-    load_w_tf = True
-    # breakpoint()
-    if load_whole_data and load_w_tf:
-        # load whole dataset
-        dataset = init_dataset(search_data_opts)
-        dataset.init_seq_order()
-        batches = dataset.generate_batches(
-            recurrent_net=True,
-            batch_size=10,
-            max_seq_length=sys.maxsize,
-            used_data_keys=None,
-        )
-        data_provider = FeedDictDataProvider(
-            extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
-        )
-        batch_data = data_provider.get_next_batch()
-        for key, data in extern_data.data.items():
-            data.placeholder = batch_data[key]
-            key_seq_lens = f"{key}_seq_lens"
-            if key_seq_lens in batch_data:
-                seq_lens = data.dims[1]
-                if not seq_lens.dyn_size_ext:
-                    seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
-                seq_lens.dyn_size_ext.placeholder = batch_data[key_seq_lens]
-        if not batch_dim.dyn_size_ext:
-            batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
-        batch_dim.dyn_size_ext.placeholder = numpy.array(batch_data["batch_dim"], dtype="int32")
-        extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
-        extern_data.reset_content()
-    elif not load_whole_data and load_w_tf:
-        # load single seqs
-        dataset = init_dataset(search_data_opts)
-        dataset.init_seq_order(
-            epoch=1,
-            seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
-        )
-        batch_num_seqs = 10
-        dataset.load_seqs(0, batch_num_seqs)
-        batch = Batch()
-        for seq_idx in range(batch_num_seqs):
-            batch.add_sequence_as_slice(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
-        batches = BatchSetGenerator(dataset, generator=iter([batch]))
-        data_provider = FeedDictDataProvider(
-            extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
-        )
-        while data_provider.have_reached_end() is False:
-            batch_data = data_provider.get_next_batch()
-            for key, data in extern_data.data.items():
-                data.placeholder = batch_data[key]
-                key_seq_lens = f"{key}_seq_lens"
-                if key_seq_lens in batch_data:
-                    seq_lens = data.dims[1]
-                    if not seq_lens.dyn_size_ext:
-                        seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
-                    seq_lens.dyn_size_ext.placeholder = batch_data[key_seq_lens]
-            if not batch_dim.dyn_size_ext:
-                batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
-            batch_dim.dyn_size_ext.placeholder = numpy.array(batch_data["batch_dim"], dtype="int32")
-            extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
-            extern_data.reset_content()
-            rf.init_train_step_run_ctx(train_flag=False)
-            extern_data.reset_content()
-            extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
-            tensor_dict_numpy_to_torch_(extern_data)
+    dataset = init_dataset(search_data_opts)
+    dataset.init_seq_order(
+        epoch=1,
+        seq_list=[f"dev-other/116-288045-{i:04d}/116-288045-{i:04d}" for i in range(33)],
+    )
+    batch_num_seqs = 10
+    dataset.load_seqs(0, batch_num_seqs)
+    batch = Batch()
+    for seq_idx in range(batch_num_seqs):
+        batch.add_frames(seq_idx=seq_idx, seq_start_frame=0, length=dataset.get_seq_length(seq_idx))
+    batches = BatchSetGenerator(dataset, generator=iter([batch]))
+    data_provider = FeedDictDataProvider(
+        extern_data=extern_data, data_keys=list(extern_data.data.keys()), dataset=dataset, batches=batches
+    )
+    batch_data = data_provider.get_next_batch()
+    for key, data in extern_data.data.items():
+        data.placeholder = batch_data[key]
+        key_seq_lens = f"{key}_seq_lens"
+        if key_seq_lens in batch_data:
+            seq_lens = data.dims[1]
+            if not seq_lens.dyn_size_ext:
+                seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
+            seq_lens.dyn_size_ext.placeholder = batch_data[key_seq_lens]
+    if not batch_dim.dyn_size_ext:
+        batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
+    batch_dim.dyn_size_ext.placeholder = numpy.array(batch_data["batch_dim"], dtype="int32")
+    extern_data_numpy_raw_dict = extern_data.as_raw_tensor_dict()
+    extern_data.reset_content()
 
-            rf.select_backend_torch()
+    tf1 = tf.compat.v1
+    with tf1.Graph().as_default() as graph, tf1.Session(graph=graph).as_default() as session:
+        net = TFNetwork(config=config, search_flag=True)
+        net.construct_from_dict(config.typed_dict["network"])
+        if _load_existing_ckpt_in_test:
+            ckpt_path = _get_tf_checkpoint_path()
+            print(f"*** Load model params from {ckpt_path.get_path()}")
+            net.load_params_from_file(ckpt_path.get_path(), session=session)
+            old_tf_ckpt_path = ckpt_path
+        else:
+            print("*** Random init old model")
+            net.initialize_params(session)
+            print("*** Save old model to disk")
+            net.save_params_to_file(ckpt_dir + "/old_model/model", session=session)
+            old_tf_ckpt_path = tk.Path(ckpt_dir + "/old_model/model.index")
 
-            cuda = torch.device("cuda")
-            pt_module.to(cuda)
-            extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
+        print("*** Search ...")
 
-    else:
-        # pytorch dataloader code from test_PTDataset
-        import torch
-        import torch.utils.data.datapipes as dp
-        from torchdata.dataloader2 import DataLoader2
-        from returnn.torch.data import pipeline as data_pipeline
-        from returnn.torch.data import returnn_dataset_wrapper
+        extern_data_tf_raw_dict = net.extern_data.as_raw_tensor_dict()
+        assert set(extern_data_tf_raw_dict.keys()) == set(extern_data_numpy_raw_dict.keys())
+        feed_dict = {extern_data_tf_raw_dict[k]: extern_data_numpy_raw_dict[k] for k in extern_data_numpy_raw_dict}
+        fetches = net.get_fetches_dict()
+        old_model_outputs_data = {}
+        for old_layer_name in ["output"]:
+            layer = net.get_layer(old_layer_name)
+            out = layer.output.copy_as_batch_major()
+            old_model_outputs_data[old_layer_name] = out
+            fetches["layer:" + old_layer_name] = out.placeholder
+            for i, tag in enumerate(out.dim_tags):
+                if tag.is_batch_dim():
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.get_dim_value()
+                elif tag.dyn_size_ext:
+                    old_model_outputs_data[f"{old_layer_name}:size{i}"] = tag.dyn_size_ext
+                    fetches[f"layer:{old_layer_name}:size{i}"] = tag.dyn_size_ext.placeholder
+        old_model_outputs_fetch = session.run(fetches, feed_dict=feed_dict)
+        print(old_model_outputs_fetch)
 
-        dataset = init_dataset(search_data_opts)
-        dataset.init_seq_order()
-
-        mp_manager = torch.multiprocessing.Manager()
-
-        epoch_mp_shared = mp_manager.Value("i", 0)
-        epoch_mp_shared.value = 1
-        reset_callback = returnn_dataset_wrapper.ReturnnDatasetResetMpSharedEpochCallback(
-            dataset=dataset, epoch_mp_shared=epoch_mp_shared
-        )
-
-        wrapped_dataset = returnn_dataset_wrapper.ReturnnDatasetIterDataPipe(dataset, reset_callback=reset_callback)
-
-        batch_size = 10
-        max_seqs = -1
-        batches_dataset = data_pipeline.BatchingIterDataPipe(wrapped_dataset, batch_size=batch_size, max_seqs=max_seqs)
-        batches_dataset = dp.iter.Collator(batches_dataset, collate_fn=data_pipeline.collate_batch)
-
-        loader = DataLoader2(batches_dataset)
+    def _make_new_model():
+        return MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
 
     rf.select_backend_torch()
 
     print("*** Convert old model to new model")
-    pt_checkpoint_path = _get_pt_checkpoint_path()
-    print(pt_checkpoint_path)
+    converter = ConvertTfCheckpointToRfPtJob(
+        checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
+        make_model_func=_make_new_model,
+        map_func=map_param_func_v2,
+        epoch=1,
+        step=0,
+    )
+    converter._out_model_dir = tk.Path(ckpt_dir + "/new_model")
+    converter.out_checkpoint = tk.Path(ckpt_dir + "/new_model/checkpoint.pt")
+    converter.run()
 
     print("*** Create new model")
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+    new_model = _make_new_model()
 
-    from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
+    rf.init_train_step_run_ctx(train_flag=False)
+    extern_data.reset_content()
+    extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
+    tensor_dict_numpy_to_torch_(extern_data)
 
     import torch
     from returnn.torch.frontend.bridge import rf_module_to_pt_module
 
     print("*** Load new model params from disk")
     pt_module = rf_module_to_pt_module(new_model)
-    checkpoint_state = torch.load(pt_checkpoint_path.get_path())
+    checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt")
+    # checkpoint_state = torch.load(ckpt_dir + "/new_model/checkpoint.pt", map_location="cuda:0")
     pt_module.load_state_dict(checkpoint_state["model"])
 
-
-
-    # dl_dict = next(iter(loader))
-    # print(dl_dict)
-    # audio_features = dl_dict['audio_features'].to(cuda)
-
-    rf.init_train_step_run_ctx(train_flag=False)
-    if load_w_tf:
-        extern_data.reset_content()
-        extern_data.assign_from_raw_tensor_dict_(extern_data_numpy_raw_dict)
-        tensor_dict_numpy_to_torch_(extern_data)
-    else:
-        dl_dict = next(iter(loader))
-        print(dl_dict)
-        for key, data in extern_data.data.items():
-            data.placeholder = dl_dict[key]
-            key_seq_lens = f"{key}:seq_len"
-            if key_seq_lens in dl_dict:
-                seq_lens = data.dims[1]
-                if not seq_lens.dyn_size_ext:
-                    seq_lens.dyn_size_ext = Tensor(key_seq_lens, dims=[batch_dim], dtype="int32")
-                seq_lens.dyn_size_ext.placeholder = dl_dict[key_seq_lens].to(torch.int32)
-        if not batch_dim.dyn_size_ext:
-            batch_dim.dyn_size_ext = Tensor("batch_dim", dims=[], dtype="int32")
-        batch_dim.dyn_size_ext.placeholder = numpy.array(batch_size, dtype="int32")
-
-    cuda = torch.device("cuda")
-    pt_module.to(cuda)
-    extern_data["audio_features"].raw_tensor = extern_data["audio_features"].raw_tensor.to(cuda)
-
     print("*** Search ...")
-    i = 1
+    # new_model.to("cuda:0")
     with torch.no_grad():
-        with rf.set_default_device_ctx("cuda"):
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-                model=new_model,
-                data=extern_data["audio_features"],
-                data_spatial_dim=time_dim,
-                targets_dim=target_dim,
-            )
+        seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+            model=new_model,
+            data=extern_data["audio_features"],
+            data_spatial_dim=time_dim,
+            targets_dim=target_dim,
+        )
     print(seq_targets, seq_targets.raw_tensor)
 
 
@@ -766,12 +710,3 @@ def test_import_search():
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
 py = test_import_search
-
-
-if __name__ == "__main__":
-    mod_name = __package__
-    if mod_name.startswith("recipe."):
-        mod_name = mod_name[len("recipe.") :]
-    mod_name += "." + os.path.basename(__file__)[: -len(".py")]
-    map_param_func_v2.__module__ = mod_name
-    test_import_search()

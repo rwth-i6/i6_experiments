@@ -33,9 +33,17 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 
 def sis_run_with_prefix(prefix_name: str):
     """run the exp"""
-    from i6_experiments.users.zeyer.experiments.exp2023_04_25_rf._moh_att_2023_06_30_import import map_param_func_v2
+    from ._moh_att_2023_06_30_import import map_param_func_v2
 
     task = get_switchboard_task_bpe1k()
+
+    extern_data_dict = task.train_dataset.get_extern_data()
+    default_input_key = task.train_dataset.get_default_input()
+    default_target_key = task.train_dataset.get_default_target()
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    in_dim = data.feature_dim_or_sparse_dim
+    target_dim = targets.feature_dim_or_sparse_dim
 
     epoch = 300
     new_chkpt = ConvertTfCheckpointToRfPtJob(
@@ -47,9 +55,9 @@ def sis_run_with_prefix(prefix_name: str):
             )
         ),
         make_model_func=MakeModel(
-            extern_data_dict=task.train_dataset.get_extern_data(),
-            default_input_key=task.train_dataset.get_default_input(),
-            default_target_key=task.train_dataset.get_default_target(),
+            in_dim=in_dim.dimension,
+            target_dim=target_dim.dimension,
+            eos_label=_get_eos_idx(target_dim),
         ),
         map_func=map_param_func_v2,
     ).out_checkpoint
@@ -62,17 +70,23 @@ def sis_run_with_prefix(prefix_name: str):
 class MakeModel:
     """for import"""
 
-    def __init__(self, *, extern_data_dict, default_input_key, default_target_key):
-        self.extern_data_dict = extern_data_dict
-        self.default_input_key = default_input_key
-        self.default_target_key = default_target_key
+    def __init__(self, in_dim: int, target_dim: int, *, eos_label: int = 0, num_enc_layers: int = 12):
+        self.in_dim = in_dim
+        self.target_dim = target_dim
+        self.eos_label = eos_label
+        self.num_enc_layers = num_enc_layers
 
     def __call__(self) -> Model:
-        data = Tensor(name=self.default_input_key, **self.extern_data_dict[self.default_input_key])
-        targets = Tensor(name=self.default_target_key, **self.extern_data_dict[self.default_target_key])
-        in_dim = data.feature_dim_or_sparse_dim
-        target_dim = targets.feature_dim_or_sparse_dim
-        return self.make_model(in_dim, target_dim)
+        from returnn.datasets.util.vocabulary import Vocabulary
+
+        in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
+        target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
+        target_dim.vocab = Vocabulary.create_vocab_from_labels(
+            [str(i) for i in range(target_dim.dimension)],
+            eos_label=self.eos_label
+        )
+
+        return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
 
     @classmethod
     def make_model(cls, in_dim: Dim, target_dim: Dim, *, num_enc_layers: int = 12) -> Model:
@@ -377,6 +391,7 @@ def model_recog(
     data: Tensor,
     data_spatial_dim: Dim,
     targets_dim: Dim,  # noqa
+    max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -395,7 +410,10 @@ def model_recog(
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
     beam_size = 12
     length_normalization_exponent = 1.0
-    max_seq_len = enc_spatial_dim.get_size_tensor()
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
     print("** max seq len:", max_seq_len.raw_tensor)
 
     # Eager-mode implementation of beam search.
@@ -412,7 +430,7 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
-        print("** step", i)
+        # print("** step", i)
         input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,
@@ -440,7 +458,7 @@ def model_recog(
         i += 1
 
         ended = rf.logical_or(ended, target == model.eos_idx)
-        ended = rf.logical_or(ended, i >= max_seq_len)
+        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
         if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
             break
         out_seq_len = out_seq_len + rf.where(ended, 0, 1)
