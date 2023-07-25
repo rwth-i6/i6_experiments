@@ -33,12 +33,10 @@ class RNNDecoder:
         add_lstm_lm=False,
         lstm_lm_dim=1024,
         loc_conv_att_filter_size=None,
-        loc_conv_att_num_channels=None,
         reduceout=True,
         att_num_heads=1,
         embed_weight_init=None,
         lstm_weights_init=None,
-        lstm_lm_proj_dim=1024,
         length_normalization=True,
         coverage_threshold=None,
         coverage_scale=None,
@@ -67,7 +65,6 @@ class RNNDecoder:
           same as here: https://arxiv.org/abs/2001.07263
         :param float lstm_lm_dim: LM-like lstm dimension
         :param int|None loc_conv_att_filter_size:
-        :param int|None loc_conv_att_num_channels:
         :param bool reduceout: if set to True, maxout layer is used
         :param int att_num_heads: number of attention heads
         :param str|None embed_weight_init: embedding weights initialization
@@ -113,10 +110,8 @@ class RNNDecoder:
 
         self.add_lstm_lm = add_lstm_lm
         self.lstm_lm_dim = lstm_lm_dim
-        self.lstm_lm_proj_dim = lstm_lm_proj_dim
 
         self.loc_conv_att_filter_size = loc_conv_att_filter_size
-        self.loc_conv_att_num_channels = loc_conv_att_num_channels
 
         self.embed_weight_init = embed_weight_init
         self.lstm_weights_init = lstm_weights_init
@@ -137,7 +132,6 @@ class RNNDecoder:
         self.output_prob = None
 
     def add_decoder_subnetwork(self, subnet_unit: ReturnnNetwork):
-
         subnet_unit.add_compare_layer("end", source="output", value=0)  # sentence end token
 
         # target embedding
@@ -162,7 +156,7 @@ class RNNDecoder:
             att_dropout=self.att_dropout,
             l2=self.l2,
             loc_filter_size=self.loc_conv_att_filter_size,
-            loc_num_channels=self.loc_conv_att_num_channels,
+            loc_num_channels=self.enc_key_dim,
         )
         subnet_unit.update(att.create())
 
@@ -178,27 +172,20 @@ class RNNDecoder:
                 rec_weight_dropout=self.rec_weight_dropout,
                 weights_init=self.lstm_weights_init,
             )
-            lstm_lm_component_proj = subnet_unit.add_linear_layer(
-                "lm_like_s_proj",
-                lstm_lm_component,
-                n_out=self.lstm_lm_proj_dim,
-                l2=self.l2,
-                with_bias=False,
-                dropout=self.dropout,
-            )
-
-        lstm_inputs = []
-        if lstm_lm_component_proj:
-            lstm_inputs += [lstm_lm_component_proj]
-        else:
-            lstm_inputs += ["prev:target_embed"]
-        lstm_inputs += ["prev:att"]
+            if self.lstm_lm_dim != self.enc_value_dim:
+                lstm_lm_component_proj = subnet_unit.add_linear_layer(
+                    "lm_like_s_proj", lstm_lm_component, n_out=self.enc_value_dim, l2=self.l2, dropout=self.dropout
+                )
+            else:
+                lstm_lm_component_proj = lstm_lm_component
 
         if self.add_lstm_lm:
-            # element-wise addition is applied instead of concat
+            # front-lstm + prev:context
             lstm_inputs = subnet_unit.add_combine_layer(
-                "add_embed_ctx", lstm_inputs, kind="add", n_out=self.lstm_lm_proj_dim
+                "add_embed_ctx", [lstm_lm_component_proj, "prev:att"], kind="add", n_out=self.enc_value_dim
             )
+        else:
+            lstm_inputs = ["prev:target_embed", "prev:att"]
 
         # LSTM decoder (or decoder state)
         if self.dec_zoneout:
@@ -225,18 +212,17 @@ class RNNDecoder:
                 weights_init=self.lstm_weights_init,
             )
 
-        s_name = "s"
         if self.add_lstm_lm:
-            s_name = subnet_unit.add_linear_layer(
-                "s_proj", "s", n_out=self.lstm_lm_proj_dim, with_bias=False, dropout=self.dropout, l2=self.l2
+            # s_transformed (query) has 1024 dim
+            s_proj = subnet_unit.add_linear_layer(
+                "s_proj", "s_transformed", n_out=self.enc_value_dim, l2=self.l2, dropout=self.dropout
             )
-
-        if self.add_lstm_lm:
+            # back-lstm (query) + context
             readout_in_src = subnet_unit.add_combine_layer(
-                "add_s_att", [s_name, "att"], kind="add", n_out=self.lstm_lm_proj_dim
+                "add_s_att", [s_proj, "att"], kind="add", n_out=self.enc_value_dim
             )
         else:
-            readout_in_src = [s_name, "prev:target_embed", "att"]
+            readout_in_src = ["s", "prev:target_embed", "att"]
 
         subnet_unit.add_linear_layer("readout_in", readout_in_src, n_out=self.dec_output_num_units, l2=self.l2)
 
