@@ -381,6 +381,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
+                rtf_cpu=20,
             )
 
         if tune_decoding and ep >= keep_epochs[-2]:
