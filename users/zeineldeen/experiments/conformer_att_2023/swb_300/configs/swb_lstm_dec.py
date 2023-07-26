@@ -1117,47 +1117,6 @@ def conformer_baseline():
                         bpe_size=BPE_500,
                     )
 
-    # TODO: without maxout?
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
-                (0.0, 0.15, 0.2, 0.05, 0.1),
-            ]:
-                args = copy.deepcopy(get_base_v2_args())
-                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
-                args["encoder_args"].att_dropout = self_att_drop
-                args["encoder_args"].dropout = drop
-                args["encoder_args"].ff_weight_dropout = weight_drop
-                args["encoder_args"].mhsa_weight_dropout = weight_drop
-                args["encoder_args"].conv_weight_dropout = weight_drop
-
-                args["decoder_args"].att_dropout = dec_att_drop
-                args["decoder_args"].embed_dropout = embed_drop
-
-                args["decoder_args"].reduceout = False
-
-                args.pop("oclr_opts")
-
-                # wup LR
-                for lr in [8e-4]:
-                    wup_eps = 2 * 6
-                    const = int((ep - wup_eps) * 0.7)
-                    decay = ep - wup_eps - const
-                    args["learning_rates_list"] = list(
-                        list(numpy.linspace(lr / 10, lr, wup_eps))
-                        + [lr] * const
-                        + list(numpy.linspace(lr, 1e-6, decay))
-                    )
-                    assert len(args["learning_rates_list"]) == ep, len(args["learning_rates_list"])
-                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_wuplr{lr}_specaug3_woMaxOut"
-                    run_default_exp(
-                        name,
-                        train_args=args,
-                        num_epochs=ep,
-                        gpu_mem=11,
-                        bpe_size=BPE_500,
-                    )
-
     # TODO: consistent pretrain
     for ep in [50 * 6]:
         for num_blocks, reduce_factor in [(12, 0.5), (12, 0.75)]:
