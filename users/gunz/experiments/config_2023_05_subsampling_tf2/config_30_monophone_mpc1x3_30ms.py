@@ -400,13 +400,15 @@ def run_single(
                     calculate_stats=True,
                 )
 
-        if tune_decoding and ep >= keep_epochs[-2]:
+        if tune_decoding and ep == keep_epochs[-1]:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
-                prior_scales=np.linspace(0.0, 0.6, 7),
-                tdp_scales=np.linspace(0.1, 0.5, 3),
+                tdp_speech=[(3, 0, "infinity", 0)],
+                tdp_sil=[(3, 10, "infinity", 10)],
+                prior_scales=np.linspace(0.0, 0.8, 9),
+                tdp_scales=[0.4],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
