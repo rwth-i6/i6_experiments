@@ -353,6 +353,9 @@ def run_single(
             recog_args.with_tdp_scale(0.1),
             recog_args.with_tdp_scale(0.2),
             recog_args.with_tdp_scale(0.4),
+            recog_args.with_tdp_scale(0.4)
+            .with_tdp_speech((3, 0, "infinity", 0))
+            .with_tdp_silence((3, 10, "infinity", 10)),
         ]:
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
