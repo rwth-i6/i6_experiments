@@ -99,7 +99,7 @@ def run(returnn_root: tk.Path):
             lr="v13",
             own_priors=True,
             run_performance_study=False,
-            tune_decoding=False,
+            tune_decoding=True,
         ),
         # Experiment(
         #     alignment=scratch_align_blstm_v3,
