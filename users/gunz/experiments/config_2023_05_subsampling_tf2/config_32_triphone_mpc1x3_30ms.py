@@ -101,7 +101,7 @@ def run(returnn_root: tk.Path):
             run_performance_study=False,
             tune_decoding=False,
         ),
-        Experiment(
+        """Experiment(
             alignment=scratch_align_blstm_v3,
             alignment_name="30ms-B-v3",
             dc_detection=False,
@@ -120,7 +120,7 @@ def run(returnn_root: tk.Path):
             own_priors=True,
             run_performance_study=False,
             tune_decoding=False,
-        ),
+        ),"""
     ]
     for exp in configs:
         run_single(
@@ -360,7 +360,7 @@ def run_single(
 
         # Top 3 from monophone TDP study
         good_values = [
-            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            ((3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,8%
             ((3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
             ((3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
         ]

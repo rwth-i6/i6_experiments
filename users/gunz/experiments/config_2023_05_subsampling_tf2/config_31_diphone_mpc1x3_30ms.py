@@ -102,7 +102,7 @@ def run(returnn_root: tk.Path):
             tune_decoding=True,
             run_tdp_study=False,
         ),
-        Experiment(
+        """Experiment(
             alignment=scratch_align_blstm_v3,
             alignment_name="30ms-B-v3",
             batch_size=12500,
@@ -123,7 +123,7 @@ def run(returnn_root: tk.Path):
             run_performance_study=False,
             tune_decoding=False,
             run_tdp_study=False,
-        ),
+        ),"""
     ]
     for exp in configs:
         run_single(
