@@ -378,7 +378,7 @@ def run_single(
                 label_info=s.label_info,
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
-                rerun_after_opt_lm=False,
+                rerun_after_opt_lm=True,
                 calculate_stats=True,
             )
 
