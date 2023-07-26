@@ -373,6 +373,7 @@ def run_single(
                 .with_tdp_speech(tdp_sp)
                 .with_tdp_silence(tdp_sil)
                 for tdp_sp, tdp_sil in good_values
+                if ep == 600
             ),
         ]:
             recognizer.recognize_count_lm(
