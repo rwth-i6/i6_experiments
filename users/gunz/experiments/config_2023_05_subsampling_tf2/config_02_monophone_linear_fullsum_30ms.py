@@ -15,7 +15,7 @@ from sisyphus import gs, tk
 
 # -------------------- Recipes --------------------
 
-from i6_core import rasr, returnn
+from i6_core import corpus, lexicon, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
@@ -59,6 +59,7 @@ class Experiment:
     feature_time_shift: float
     lr: str
     model_dim: int
+    output_time_step: float
     subsampling_approach: str
 
 
@@ -75,46 +76,21 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             bw_label_scale=0.3,
             context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=30 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4",
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
             feature_time_shift=10 / 1000,
-            lr="v13",
+            lr="v8",
             model_dim=model_dim,
-            subsampling_approach="fs:3",
-        ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            context_window_size=15,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            model_dim=model_dim,
-            subsampling_approach="fs:4",
-        ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            context_window_size=15,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            model_dim=model_dim,
-            subsampling_approach="mp:2@0+mp:2@3",
-        ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            context_window_size=15,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            model_dim=model_dim,
-            subsampling_approach="mp:4@0",
-        ),
-        Experiment(
-            alignment_name="scratch",
-            bw_label_scale=0.3,
-            context_window_size=15,
-            feature_time_shift=7.5 / 1000,
-            lr="v13",
-            model_dim=model_dim,
-            subsampling_approach="fs:2+mp:2@3",
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4",
         ),
     ]
     experiments = {
@@ -126,6 +102,7 @@ def run(returnn_root: tk.Path):
             lr=exp.lr,
             model_dim=exp.model_dim,
             returnn_root=returnn_root,
+            output_time_step=exp.output_time_step,
             subsampling_approach=exp.subsampling_approach,
         )
         for exp in configs
@@ -143,12 +120,13 @@ def run_single(
     lr: str,
     returnn_root: tk.Path,
     subsampling_approach: str,
+    output_time_step: float,
     model_dim: int,
     num_epochs: int = 600,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -221,19 +199,10 @@ def run_single(
             "class": "merge_dims",
             "from": "window",
         },
-        "linear-0": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "window-merged",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
-        },
         "linear-1": {
             "class": "linear",
             "activation": "relu",
-            "from": "linear-0",
+            "from": "window-merged",
             "dropout": 0.1,
             "forward_weights_init": augment.DEFAULT_INIT,
             "L2": 0.0001,
@@ -275,9 +244,18 @@ def run_single(
             "L2": 0.0001,
             "n_out": model_dim,
         },
+        "linear-6": {
+            "class": "linear",
+            "activation": "relu",
+            "from": "linear-5",
+            "dropout": 0.1,
+            "forward_weights_init": augment.DEFAULT_INIT,
+            "L2": 0.0001,
+            "n_out": model_dim,
+        },
         "encoder-output": {
             "class": "copy",
-            "from": "linear-5",
+            "from": "linear-6",
             "register_as_extern_data": "encoder-output",
         },
         "center-output": {
@@ -380,22 +358,22 @@ def run_single(
         on_2080=False,
         include_alignment=False,
     )
-    s.set_mono_priors_returnn_rasr(
-        key="fh",
-        epoch=keep_epochs[-2],
-        train_corpus_key=s.crp_names["train"],
-        dev_corpus_key=s.crp_names["cvtrain"],
-        smoothen=True,
-        returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-    )
 
     s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone)
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
     s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
@@ -425,5 +403,55 @@ def run_single(
                 calculate_stats=True,
                 rtf_cpu=4,
             )
+
+    tdp_scale = 1.0
+    s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
+    s.create_stm_from_corpus("train-other-960.train")
+    s._set_scorer_for_corpus("train-other-960.train")
+    s._init_lm("train-other-960.train", **next(iter(dev_data_inputs.values())).lm)
+    s._update_crp_am_setting("train-other-960.train", tdp_type="default", add_base_allophones=False)
+    recognizer, recog_args = s.get_recognizer_and_args(
+        key="fh",
+        context_type=PhoneticContext.monophone,
+        crp_corpus="train-other-960.train",
+        epoch=600,
+        gpu=False,
+        tensor_map=MLP_FH_DECODING_TENSOR_CONFIG,
+        set_batch_major_for_feature_scorer=False,
+        lm_gc_simple_hash=True,
+    )
+    sil_tdp = (*recog_args.tdp_silence[:3], 3.0)
+    align_cfg = (
+        recog_args.with_prior_scale(0.6).with_tdp_scale(tdp_scale).with_tdp_silence(sil_tdp).with_tdp_non_word(sil_tdp)
+    )
+    align_search_jobs = recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=align_cfg,
+        num_encoder_output=model_dim,
+        rerun_after_opt_lm=False,
+        opt_lm_am=False,
+        add_sis_alias_and_output=False,
+        calculate_stats=True,
+        rtf_cpu=4,
+    )
+    crp = copy.deepcopy(align_search_jobs.search_crp)
+    crp.acoustic_model_config.tdp.applicator_type = "corrected"
+    crp.acoustic_model_config.allophones.add_all = False
+    crp.acoustic_model_config.allophones.add_from_lexicon = True
+    crp.concurrent = 300
+    crp.segment_path = corpus.SegmentCorpusJob(s.corpora[s.train_key].corpus_file, crp.concurrent).out_segment_path
+
+    a_job = recognizer.align(
+        f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
+        crp=crp,
+        feature_scorer=align_search_jobs.search_feature_scorer,
+        default_tdp=True,
+        set_do_not_normalize_lemma_sequence_scores=False,
+    )
+
+    allophones = lexicon.StoreAllophonesJob(crp)
+    tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+
+    s.experiments["fh"]["alignment_job"] = a_job
 
     return s
