@@ -760,7 +760,11 @@ class FHDecoder:
             best_overall_wer.out_min,
         )
 
-        best_priors, best_tdp_scale, best_tdp_sil, best_tdp_sp = best_overall_n.out_argmin
+        # cannot destructure, need to use indices
+        best_priors = best_overall_n.out_argmin[0]
+        best_tdp_scale = best_overall_n.out_argmin[1]
+        best_tdp_sil = best_overall_n.out_argmin[2]
+        best_tdp_sp = best_overall_n.out_argmin[3]
 
         def push_delayed_tuple(
             argmin: DelayedBase,
