@@ -367,6 +367,10 @@ def run_single(
 
         for cfg in [
             recog_args.with_prior_scale(0.4, 0.4, 0.2),
+            recog_args.with_tdp_scale(0.4)
+            .with_prior_scale(0.3, 0.2, 0.2)
+            .with_tdp_speech((3, 0, "infinity", 0))
+            .with_tdp_silence((10, 10, "infinity", 10)),
             *(
                 recog_args.with_prior_scale(0.4, 0.4, 0.2)
                 .with_tdp_scale(0.4)

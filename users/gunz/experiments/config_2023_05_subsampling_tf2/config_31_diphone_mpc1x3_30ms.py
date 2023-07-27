@@ -366,6 +366,10 @@ def run_single(
         for cfg in [
             recog_args.with_prior_scale(0.4, 0.4),
             recog_args.with_prior_scale(0.4, 0.2),
+            recog_args.with_prior_scale(0.4, 0.6)
+            .with_tdp_scale(0.4)
+            .with_tdp_speech((3, 0, "infinity", 0))
+            .with_tdp_silence((3, 10, "infinity", 10)),
             *(
                 recog_args.with_prior_scale(0.4, 0.4)
                 .with_tdp_scale(0.4)
@@ -394,7 +398,7 @@ def run_single(
                 prior_scales=list(
                     itertools.product(
                         np.linspace(0.1, 0.7, 7),
-                        np.linspace(0.0, 0.6, 7),
+                        np.linspace(0.0, 0.8, 9),
                     )
                 ),
                 tdp_scales=[0.4],
