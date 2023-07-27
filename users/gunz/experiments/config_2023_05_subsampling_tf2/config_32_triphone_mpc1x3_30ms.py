@@ -44,8 +44,6 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     ALIGN_30MS_BLSTM_V2,
-    ALIGN_30MS_BLSTM_V3,
-    ALIGN_30MS_BLSTM_V4,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -80,47 +78,27 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path):
+def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
-    scratch_align_blstm_v3 = tk.Path(ALIGN_30MS_BLSTM_V3, cached=True)
-    scratch_align_blstm_v4 = tk.Path(ALIGN_30MS_BLSTM_V4, cached=True)
 
+    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2"), *(additional_alignments or []))
     configs = [
         Experiment(
-            alignment=scratch_align_blstm_v2,
-            alignment_name="30ms-B-v2",
+            alignment=a,
+            alignment_name=a_name,
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
             own_priors=True,
             run_performance_study=False,
             tune_decoding=True,
-        ),
-        # Experiment(
-        #     alignment=scratch_align_blstm_v3,
-        #     alignment_name="30ms-B-v3",
-        #     dc_detection=False,
-        #     decode_all_corpora=False,
-        #     lr="v13",
-        #     own_priors=True,
-        #     run_performance_study=False,
-        #     tune_decoding=False,
-        # ),
-        # Experiment(
-        #     alignment=scratch_align_blstm_v4,
-        #     alignment_name="30ms-B-v4",
-        #     dc_detection=False,
-        #     decode_all_corpora=False,
-        #     lr="v13",
-        #     own_priors=True,
-        #     run_performance_study=False,
-        #     tune_decoding=False,
-        # ),
+        )
+        for a, a_name in alignments_to_run
     ]
     for exp in configs:
         run_single(
