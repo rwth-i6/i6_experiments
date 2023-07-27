@@ -142,6 +142,7 @@ def pretrain_layers_and_dims(
     repeat_first=True,
     ignored_keys_for_reduce_dim=None,
     extra_net_dict_override=None,
+    initial_disabled_regularization_patterns=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -266,7 +267,10 @@ def pretrain_layers_and_dims(
 
     # TODO WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
-    regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
+    if initial_disabled_regularization_patterns is None:
+        regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
+    else:
+        regs_words = initial_disabled_regularization_patterns
     for k in encoder_args_copy.keys():
         for regs_word in regs_words:
             if regs_word in k and encoder_args_copy[k] is not None:
