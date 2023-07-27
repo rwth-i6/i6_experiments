@@ -79,6 +79,7 @@ class Graphs(typing.TypedDict):
 
 
 class Experiment(typing.TypedDict, total=False):
+    alignment_job: typing.Optional[mm.AlignmentJob]
     name: str
     graph: Graphs
     priors: typing.Optional[PriorInfo]
