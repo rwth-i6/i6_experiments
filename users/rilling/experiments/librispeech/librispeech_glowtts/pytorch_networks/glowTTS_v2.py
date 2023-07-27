@@ -373,9 +373,10 @@ class Model(nn.Module):
 
             z = (z_m + torch.exp(z_logs) * torch.randn_like(z_m) * noise_scale) * z_mask
             y, logdet = self.decoder(z, z_mask, g=g, reverse = True)
-            return (y, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_)
+            return (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_)
         else:
             z, logdet = self.decoder(y, z_mask, g=g, reverse=False)
+
             with torch.no_grad():
                 if durations is None:
                     # Calculate maximum path using monotonic alignment search (see GlowTTS paper)
@@ -454,16 +455,6 @@ def train_step(*, model: Model, data, run_ctx, **kwargs):
     durations = data["durations"][indices, :]  # [B, N, 1]
     durations_len = data["durations:size1"][indices]  # [B]
 
-
-    # if torch.any(torch.sum(durations > 0, 1).squeeze() - phonemes_len):
-    dur_phon_mismatch = torch.abs(durations_len - phonemes_len)
-    if torch.any(dur_phon_mismatch):
-        # embed()
-        with open("dur_phon_mismatch.txt", "w+") as f:
-            for d, t in zip(dur_phon_mismatch, tags):
-                if d > 0:
-                    print(f"Found unmatching phoneme and duration length: {t}")
-
     # embed()
     (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (logw, logw_) = model(x=phonemes, x_lengths=phonemes_len, y=audio_features, y_lengths=audio_features_len, g=speaker_labels, gen=False, durations=durations)
     # embed()
@@ -506,7 +497,7 @@ def forward_step_durations(*, model: Model, data, run_ctx, **kwargs):
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
     
     # embed()
-    (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels, gen=False)
+    (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, audio_features, audio_features_len, speaker_labels, gen=False)
     embed()
     numpy_logprobs = logw_.detach().cpu().numpy()
 
@@ -536,37 +527,21 @@ def forward_step(*, model: Model, data, run_ctx, **kwargs):
     tags = list(np.array(tags)[indices.detach().cpu().numpy()])
     
     print(f"Using noise scale: {0.33} and length scale: {5}")
-    (y, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=0.66, length_scale=1) #TODO: Use noise scale and length scale
+    (y, z_m, z_logs, logdet, z_mask, y_lengths), (x_m, x_logs, x_mask), (attn, logw, logw_) = model(phonemes, phonemes_len, g=speaker_labels, gen=True, noise_scale=0.66, length_scale=1) #TODO: Use noise scale and length scale
     # numpy_logprobs = logw_.detach().cpu().numpy()
 
     # durations_with_pad = np.round(np.exp(numpy_logprobs) * x_mask.detach().cpu().numpy())
     # durations = durations_with_pad.squeeze(1)
     print(f"y shape: {y.shape}")
 
-    numpy_logprobs = logw.detach().cpu().numpy()
+    print(f"y_lengths: {y_lengths}")
 
-    durations_with_pad = np.round(np.exp(numpy_logprobs) * x_mask.detach().cpu().numpy())
-    durations = durations_with_pad.squeeze(1).sum(1).astype(int)
-    # embed()
-    # durations = np.full_like(durations, y.detach().cpu().numpy()[0])
-
-    print(f"durations: {durations}")
-
-    spectograms = y.transpose(2, 1).detach().cpu().numpy()
+    spectrograms = y.transpose(2, 1).detach().cpu().numpy() # [B, T, F]
    
-    alternative_durations = np.sum(np.sum(spectograms, 2) != 0, 1)
-    features_len = audio_features_len.detach().cpu().tolist()
     # embed()
-    print(f"spectograms[0].ndim: {spectograms[0].ndim}")
-    print(f"spectrograms shape: {spectograms.shape}")
-    print(f"durations.shape: {durations.shape}")
-    print(f"max(durations): {max(durations)}")
+    print(f"spectrograms[0].ndim: {spectrograms[0].ndim}")
+    print(f"spectrograms shape: {spectrograms.shape}")
     # embed()
-
-    lengths = np.full_like(alternative_durations, max(alternative_durations))
-    run_ctx.hdf_writer.insert_batch(np.asarray(spectograms)[:,:int(max(alternative_durations)),:], lengths, tags)
     
-    # for tag, spec, feat_len, phon_len in zip(tags, spectograms, audio_features_len, phonemes_len):
-    #     # total_sum = np.sum(duration)
-    #     # assert total_sum == feat_len
-    #     run_ctx.hdf_writer.insert_batch(np.asarray([spec]), [len(spec)], [tag])
+    run_ctx.hdf_writer.insert_batch(spectrograms, y_lengths.detach().cpu().numpy(), tags)
+    

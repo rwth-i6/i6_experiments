@@ -28,9 +28,9 @@ def get_pytorch_glowTTS():
         "learning_rate_control_min_num_epochs_per_new_lr": 5,
         "learning_rate_control_relative_error_relative_lr": True,
         "learning_rates": [0.001],
-        "gradient_clip": 1.0,
+        "gradient_clip_norm": 2.0,
         "use_learning_rate_control_always": True,
-        "learning_rate_control_error_measure": "dev_ctc",
+        "learning_rate_control_error_measure": "dev_loss_mle",
         ############
         "newbob_learning_rate_decay": 0.9,
         "newbob_multi_num_epochs": 5,
@@ -61,6 +61,7 @@ def get_pytorch_glowTTS():
             forward_dataset=dataset,
             network_module=net_module,
             net_args=params,
+            debug=debug,
             pytorch_mode=True
         )
         train_job = glowTTS_training(
@@ -107,12 +108,12 @@ def get_pytorch_glowTTS():
         "window_size": 4
     }
 
-    tts_hdf = run_exp(net_module, params, net_module, config, dataset=training_datasets, debug=True)
-
+    # tts_hdf = run_exp(net_module, params, net_module, config, dataset=training_datasets, debug=True)
+   
     net_module = "glowTTS_v2"
 
     training_datasets = build_training_dataset(silence_preprocessed=True, durations_file="/work/asr4/rossenbach/sisyphus_work_folders/tts_asr_2021_work/i6_experiments/users/rossenbach/tts/duration_extraction/ViterbiAlignmentToDurationsJob.AyAO6JWXTnVc/output/durations.hdf", center=False)
 
-    run_exp(name=net_module, params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
-
+    tts_hdf = run_exp(name=net_module + "injected_durations_AMP", params=params, net_module=net_module, config=config, dataset=training_datasets, debug=True)
+    
     return tts_hdf

@@ -50,7 +50,7 @@ def build_training_dataset(
     train_segments, cv_segments = get_librispeech_tts_segments(ls_corpus_key=ls_corpus_key)
 
     vocab_datastream = get_vocab_datastream(with_blank=True, corpus_key=ls_corpus_key)
-    log_mel_datastream = get_tts_log_mel_datastream_alt(center=center)
+    log_mel_datastream = get_tts_log_mel_datastream(center=center)
 
     # we currently assume that train and cv share the same corpus file
     speaker_label_job = SpeakerLabelHDFFromBlissJob(
