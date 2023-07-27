@@ -75,7 +75,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path):
+def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -84,7 +84,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path):
     configs = [
         Experiment(
             alignment=alignment,
-            alignment_name="40ms-B-v1",
+            alignment_name=a_name,
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
