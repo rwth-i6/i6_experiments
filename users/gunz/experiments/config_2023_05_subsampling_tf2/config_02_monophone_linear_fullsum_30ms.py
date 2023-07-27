@@ -281,12 +281,12 @@ def run_single(
             l_name = f"mp-{layer}"
             network[l_name] = {
                 "class": "pool",
-                "from": network[f"linear-{layer}"]["from"],
+                "from": f"linear-{layer}",
                 "mode": "max",
                 "padding": "same",
                 "pool_size": (int(factor),),
             }
-            network[f"linear-{layer}"]["from"] = l_name
+            network[f"linear-{int(layer) + 1}"]["from"] = l_name
         else:
             assert False, f"unknown subsampling instruction {part}"
 
