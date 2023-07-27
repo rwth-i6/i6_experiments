@@ -745,11 +745,11 @@ class FHDecoder:
             tk.register_output(f"{pre_name}.err", recog_jobs.sclite.out_num_errors)
             tk.register_output(f"{pre_name}.wer", recog_jobs.sclite.out_wer)
 
-        best_overall = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
+        best_overall_wer = ComputeArgminJob({k: v.sclite.out_wer for k, v in jobs.items()})
         best_overall_n = ComputeArgminJob(jobs_num_e)
         tk.register_output(
             f"scales-best/{self.name}/args",
-            best_overall.out_argmin,
+            best_overall_n.out_argmin,
         )
         tk.register_output(
             f"scales-best/{self.name}/num_err",
@@ -757,40 +757,36 @@ class FHDecoder:
         )
         tk.register_output(
             f"scales-best/{self.name}/wer",
-            best_overall.out_min,
+            best_overall_wer.out_min,
         )
 
-        best_tdp_scale = ComputeArgminJob({tdp: num_e for (_, tdp, _, _), num_e in jobs_num_e.items()})
+        best_priors, best_tdp_scale, best_tdp_sil, best_tdp_sp = best_overall_n.out_argmin
 
-        def map_tdp_output(
-            job: ComputeArgminJob,
+        def push_delayed_tuple(
+            argmin: DelayedBase,
         ) -> typing.Tuple[DelayedBase, DelayedBase, DelayedBase, DelayedBase]:
-            best_tdps = Delayed(job.out_argmin)
-            return tuple(best_tdps[i] for i in range(4))
+            return tuple(argmin[i] for i in range(4))
 
-        best_tdp_sil = map_tdp_output(
-            ComputeArgminJob({tdp_sl: num_e for (_, _, tdp_sl, _), num_e in jobs_num_e.items()})
-        )
-        best_tdp_sp = map_tdp_output(
-            ComputeArgminJob({tdp_sp: num_e for (_, _, _, tdp_sp), num_e in jobs_num_e.items()})
-        )
         base_cfg = dataclasses.replace(
-            search_parameters, tdp_scale=best_tdp_scale.out_argmin, tdp_silence=best_tdp_sil, tdp_speech=best_tdp_sp
+            search_parameters,
+            tdp_scale=best_tdp_scale,
+            tdp_silence=push_delayed_tuple(best_tdp_sil),
+            tdp_speech=push_delayed_tuple(best_tdp_sp),
         )
 
-        best_center_prior = ComputeArgminJob({c: num_e for ((c, _, _), _, _, _), num_e in jobs_num_e.items()})
+        best_center_prior = best_priors[0]
         if self.context_type.is_monophone():
-            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin)
+            return base_cfg.with_prior_scale(center=best_center_prior)
 
-        best_left_prior = ComputeArgminJob({l: num_e for ((_, l, _), _, _, _), num_e in jobs_num_e.items()})
+        best_left_prior = best_priors[1]
         if self.context_type.is_diphone():
-            return base_cfg.with_prior_scale(center=best_center_prior.out_argmin, left=best_left_prior.out_argmin)
+            return base_cfg.with_prior_scale(center=best_center_prior, left=best_left_prior)
 
-        best_right_prior = ComputeArgminJob({r: num_e for ((_, _, r), _, _, _), num_e in jobs_num_e.items()})
+        best_right_prior = best_priors[2]
         return base_cfg.with_prior_scale(
-            center=best_center_prior.out_argmin,
-            left=best_left_prior.out_argmin,
-            right=best_right_prior.out_argmin,
+            center=best_center_prior,
+            left=best_left_prior,
+            right=best_right_prior,
         )
 
     def recognize_ls_lstm_lm(
