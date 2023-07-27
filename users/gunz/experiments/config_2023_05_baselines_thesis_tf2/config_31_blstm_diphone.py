@@ -92,6 +92,13 @@ def run(returnn_root: tk.Path):
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=False,
+            lr="v6",
+            tune_decoding=False,
+        ),
+        Experiment(
+            alignment=scratch_align,
+            alignment_name="scratch",
+            dc_detection=False,
             lr="v13",
             tune_decoding=False,
         ),
