@@ -86,5 +86,5 @@ BLSTM_FH_TINA_DECODING_TENSOR_CONFIG = dataclasses.replace(
 )
 MLP_FH_DECODING_TENSOR_CONFIG = dataclasses.replace(
     CONF_FH_DECODING_TENSOR_CONFIG,
-    in_encoder_output="linear__5/activation/Relu",
+    in_encoder_output="linear__6/activation/Relu",
 )
