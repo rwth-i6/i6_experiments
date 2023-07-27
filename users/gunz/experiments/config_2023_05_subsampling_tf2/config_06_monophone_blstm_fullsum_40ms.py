@@ -96,7 +96,7 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             bw_label_scale=0.3,
             dc_detection=False,
-            feature_time_shift=10 / 1000,
+            feature_time_shift=0.01,
             lr="v6",
             multitask=False,
             subsampling_approach="mp:2@3+mp:2@4",
@@ -105,7 +105,7 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             bw_label_scale=0.3,
             dc_detection=False,
-            feature_time_shift=10 / 1000,
+            feature_time_shift=0.01,
             lr="v13",
             multitask=False,
             subsampling_approach="mp:2@3+mp:2@4",
@@ -165,9 +165,9 @@ def run_single(
     ) = lbs_data_setups.get_data_inputs()
 
     rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=dc_detection)
-    rasr_init_args.feature_extraction_args["gt"]["parallel"] = 50
-    rasr_init_args.feature_extraction_args["gt"]["rtf"] = 0.5
-    rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
+    # rasr_init_args.feature_extraction_args["gt"]["parallel"] = 50
+    # rasr_init_args.feature_extraction_args["gt"]["rtf"] = 0.5
+    # rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
 
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
     # *********** System Instantiation *****************
