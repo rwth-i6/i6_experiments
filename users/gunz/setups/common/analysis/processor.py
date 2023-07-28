@@ -21,12 +21,12 @@ class AlignmentProcessor:
         monophone: bool = True,
     ):
         alignment_bundle_path = (
-            subprocess.check_output(["cf", alignment_bundle_path], stderr=subprocess.DEVNULL)
+            subprocess.check_output(["cf", alignment_bundle_path])
             .decode(sys.stdout.encoding)
             .strip()
         )
         allophones_path = (
-            subprocess.check_output(["cf", allophones_path], stderr=subprocess.DEVNULL)
+            subprocess.check_output(["cf", allophones_path])
             .decode(sys.stdout.encoding)
             .strip()
         )
@@ -144,7 +144,7 @@ class AlignmentProcessor:
 class CorpusProcessor:
     def __init__(self, corpus_file_path: str):
         corpus_file_path = (
-            subprocess.check_output(["cf", corpus_file_path], stderr=subprocess.DEVNULL)
+            subprocess.check_output(["cf", corpus_file_path])
             .decode(sys.stdout.encoding)
             .strip()
         )
