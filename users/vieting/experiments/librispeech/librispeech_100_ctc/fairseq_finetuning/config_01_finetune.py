@@ -2,6 +2,7 @@
 Config for finetune experiments on LibriSpeech using wav2vec 2.0.
 """
 import os.path
+from typing import List
 
 from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
