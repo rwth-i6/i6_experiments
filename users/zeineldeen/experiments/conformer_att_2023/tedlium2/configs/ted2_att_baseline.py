@@ -1004,24 +1004,56 @@ def conformer_baseline():
                 )
 
     # TODO: longer training with more regularization
-    for ep in [100 * 4]:
-        for lr in [8e-4]:
-            for weight_drop in [0.1, 0.15, 0.2]:
-                for enc_drop in [0.1, 0.15, 0.2]:
-                    base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
-                    args = copy.deepcopy(base_v1_args)
+    # TODO: embed dropout?
+    for num_blocks in [8, 12]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for weight_drop in [0.1, 0.15, 0.2]:
+                    for enc_drop in [0.1, 0.15, 0.2]:
+                        base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                        args = copy.deepcopy(base_v1_args)
 
-                    args["encoder_args"].mhsa_weight_dropout = weight_drop
-                    args["encoder_args"].ff_weight_dropout = weight_drop
-                    args["encoder_args"].conv_weight_dropout = weight_drop
+                        args["encoder_args"].num_blocks = num_blocks
+                        args["encoder_args"].mhsa_weight_dropout = weight_drop
+                        args["encoder_args"].ff_weight_dropout = weight_drop
+                        args["encoder_args"].conv_weight_dropout = weight_drop
 
-                    name = exp_name + f"_weightDrop{weight_drop}"
+                        name = exp_name + f"_weightDrop{weight_drop}_numBlocks{num_blocks}"
+                        run_exp(
+                            name,
+                            args,
+                            num_epochs=ep,
+                            epoch_wise_filter=None,
+                            bpe_size=BPE_1K,
+                            partition_epoch=4,
+                        )
 
-                    run_exp(
-                        name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=BPE_1K,
-                        partition_epoch=4,
-                    )
+    for num_blocks in [12]:
+        for ep in [100 * 4]:
+            for lr in [8e-4]:
+                for target_embed_dim in [256, 640]:  # 640 is used by default
+                    for att_drop in [0.0, 0.1]:
+                        for weight_drop in [0.1]:
+                            for enc_drop in [0.15]:
+                                base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                                args = copy.deepcopy(base_v1_args)
+                                args["encoder_args"].num_blocks = num_blocks
+                                args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                args["encoder_args"].ff_weight_dropout = weight_drop
+                                args["encoder_args"].conv_weight_dropout = weight_drop
+
+                                args["decoder_args"].embed_dim = target_embed_dim
+                                args["decoder_args"].att_dropout = att_drop
+
+                                name = (
+                                    exp_name
+                                    + f"_weightDrop{weight_drop}_decAttDrop{att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                )
+                                run_exp(
+                                    name,
+                                    args,
+                                    num_epochs=ep,
+                                    epoch_wise_filter=None,
+                                    bpe_size=BPE_1K,
+                                    partition_epoch=4,
+                                )
