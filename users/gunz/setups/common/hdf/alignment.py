@@ -1,7 +1,5 @@
 __all__ = ["RasrAlignmentToHDF", "RasrForcedTriphoneAlignmentToHDF"]
 
-import dataclasses
-from dataclasses import dataclass
 import h5py
 import logging
 import numpy as np
@@ -14,6 +12,7 @@ from sisyphus import tk, Job, Task
 
 from i6_core.lib.rasr_cache import FileArchiveBundle
 
+from ..alignment_analysis.allophone_state import AllophoneState
 from ...common.cache_manager import cache_file
 
 
@@ -106,43 +105,6 @@ class RasrAlignmentToHDF(Job):
     ) -> typing.List[int]:
         targets = [state_tying[allophone] for allophone in alignment_states]
         return targets
-
-
-@dataclass(eq=True, frozen=True)
-class AllophoneState:
-    """
-    A single, parsed allophone state.
-    """
-
-    ctx_l: str
-    ctx_r: str
-    ph: str
-    rest: str
-
-    def __str__(self):
-        return f"{self.ph}{{{self.ctx_l}+{self.ctx_r}}}{self.rest}"
-
-    def in_context(
-        self, left: typing.Optional["AllophoneState"], right: typing.Optional["AllophoneState"]
-    ) -> "AllophoneState":
-        if self.ph == "[SILENCE]":
-            # Silence does not have context.
-
-            return self
-
-        new_left = left.ph if left is not None and left.ph != "[SILENCE]" else "#"
-        new_right = right.ph if right is not None and right.ph != "[SILENCE]" else "#"
-        return dataclasses.replace(self, ctx_l=new_left, ctx_r=new_right)
-
-    @classmethod
-    def from_alignment_state(cls, state: str) -> "AllophoneState":
-        import re
-
-        match = re.match(r"^(.*)\{(.*)\+(.*)}(.*)$", state)
-        if match is None:
-            raise AttributeError(f"{state} is not an allophone state")
-
-        return cls(ph=match.group(1), ctx_l=match.group(2), ctx_r=match.group(3), rest=match.group(4))
 
 
 class RasrForcedTriphoneAlignmentToHDF(RasrAlignmentToHDF):
