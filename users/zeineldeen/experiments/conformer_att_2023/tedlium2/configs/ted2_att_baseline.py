@@ -839,6 +839,7 @@ def conformer_baseline():
                 )
 
     # TODO: weight dropout
+    # 7.8/7.0
     for bpe_size in [BPE_1K]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
@@ -935,6 +936,7 @@ def conformer_baseline():
         return base_v1_args, exp_name
 
     # baseline v1
+    # WERs: 8.2/7.6
     base_v1_args, exp_name = get_base_v1_args(8e-4, 50 * 4)
     run_exp(
         exp_name,
@@ -946,22 +948,9 @@ def conformer_baseline():
         devtrain_subset=3000,
     )
 
-    # TODO: default init
-    for ep in [50 * 4]:
-        for lr in [8e-4]:
-            base_v1_args, exp_name = get_base_v1_args(lr, ep)
-            args = copy.deepcopy(base_v1_args)
-            reset_params_init(args["encoder_args"])
-            run_exp(
-                exp_name + "_defaultInit",
-                args,
-                num_epochs=ep,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                partition_epoch=4,
-            )
-
     # TODO: longer training
+    #
+
     # this suffers from huge overfitting
     for ep in [100 * 4]:
         for lr in [8e-4, 9e-4]:
@@ -977,85 +966,9 @@ def conformer_baseline():
                     partition_epoch=4,
                 )
 
-    # TODO: weight dropout
-    for ep in [50 * 4]:
-        for weight_drop in [0.05, 0.1]:
-            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
-            args = copy.deepcopy(base_v1_args)
-            args["encoder_args"].mhsa_weight_dropout = weight_drop
-            run_exp(
-                exp_name + f"_mhsa-wd{weight_drop}",
-                args,
-                num_epochs=ep,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                partition_epoch=4,
-            )
-
-    # TODO: higher label smoothing
-    for ep in [50 * 4]:
-        base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
-        args = copy.deepcopy(base_v1_args)
-        args["decoder_args"].label_smoothing = 0.15
-        run_exp(
-            exp_name + f"_lbs{0.15}",
-            args,
-            num_epochs=ep,
-            epoch_wise_filter=None,
-            bpe_size=BPE_1K,
-            partition_epoch=4,
-        )
-
-    # TODO: weight noise
-    for ep in [50 * 4]:
-        for weight_noise in [1e-3]:
-            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
-            args = copy.deepcopy(base_v1_args)
-            args["encoder_args"].weight_noise_layers = ["mhsa"]
-            run_exp(
-                exp_name + f"_mhsa-wn{weight_noise}",
-                args,
-                num_epochs=ep,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                partition_epoch=4,
-            )
-
-    # TODO: gradient noise
-    for ep in [50 * 4]:
-        for grad_noise in [1e-3, 1e-4]:
-            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
-            args = copy.deepcopy(base_v1_args)
-            args["gradient_noise"] = grad_noise
-            run_exp(
-                exp_name + f"_gradNoise{grad_noise}",
-                args,
-                num_epochs=ep,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                partition_epoch=4,
-            )
-
-    # TODO: enable grad noise after 50% of epochs
-    for ep in [50 * 4]:
-        for grad_noise in [1e-3]:
-            base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
-            args = copy.deepcopy(base_v1_args)
-            args["staged_hyperparams"] = {
-                100: {"gradient_noise": grad_noise},
-            }
-            run_exp(
-                exp_name + f"_ep100-gradNoise{grad_noise}",
-                args,
-                num_epochs=ep,
-                epoch_wise_filter=None,
-                bpe_size=BPE_1K,
-                partition_epoch=4,
-            )
-
     # TODO: tune num blocks and dims
     for ep in [50 * 4]:
-        for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75), (12, 0.5)]:
+        for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75)]:
             base_v1_args, exp_name = get_base_v1_args(8e-4, ep)
             args = copy.deepcopy(base_v1_args)
 
@@ -1088,3 +1001,26 @@ def conformer_baseline():
                     bpe_size=BPE_1K,
                     partition_epoch=4,
                 )
+
+    # longer training with more regularization
+    for ep in [100 * 4]:
+        for lr in [8e-4]:
+            for weight_drop in [0.1, 0.15, 0.2]:
+                for enc_drop in [0.1, 0.15, 0.2]:
+                    base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
+                    args = copy.deepcopy(base_v1_args)
+
+                    args["encoder_args"].mhsa_weight_dropout = weight_drop
+                    args["encoder_args"].ff_weight_dropout = weight_drop
+                    args["encoder_args"].conv_weight_dropout = weight_drop
+
+                    name = exp_name + f"_weightDrop{weight_drop}"
+
+                    run_exp(
+                        name,
+                        args,
+                        num_epochs=ep,
+                        epoch_wise_filter=None,
+                        bpe_size=BPE_1K,
+                        partition_epoch=4,
+                    )
