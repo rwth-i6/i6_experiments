@@ -15,47 +15,18 @@ from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960
 
 
 def get_task(
-        valid_percent=0.01, 
-        audio_format="ogg", 
-        output_prefix="datasets", 
-        corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]
+    valid_percent: float = 0.01, 
+    audio_format: str = "ogg", 
+    output_prefix: str = "datasets", 
+    corpus_names: List[str] = ["train-clean-100", "train-clean-360", "train-other-500"]
 ):
-
-    output_prefix = os.path.join(output_prefix, "LibriSpeech")
-
-    download_metadata_job = librispeech.DownloadLibriSpeechMetadataJob()
-    download_metadata_job.add_alias(os.path.join(output_prefix, "download", "metadata_job"))
-    
-    for corpus_name in corpus_names:
-        download_corpus_job = librispeech.DownloadLibriSpeechCorpusJob(corpus_key=corpus_name)
-        download_corpus_job.add_alias(os.path.join(output_prefix, "download", corpus_name))
-        create_bliss_corpus_job = librispeech.LibriSpeechCreateBlissCorpusJob(
-            corpus_folder=download_corpus_job.out_corpus_folder,
-            speaker_metadata=download_metadata_job.out_speakers,
-        )
-        create_bliss_corpus_job.add_alias(os.path.join(output_prefix, "create_bliss", corpus_name))
-        audio_format_options = {
-            "wav": {
-                "output_format": "wav",
-                "codec": "pcm_s16le",
-            },
-            "ogg": {"output_format": "ogg", "codec": "libvorbis"},
-        }
-        bliss_change_encoding_job = BlissChangeEncodingJob(
-            corpus_file=create_bliss_corpus_job.out_corpus,
-            sample_rate=16000,
-            **audio_format_options[audio_format],
-        )
-        bliss_change_encoding_job.add_alias(
-            os.path.join(
-                output_prefix,
-                "%s_conversion" % audio_format,
-                corpus_name,
-            )
-        )
-
-        corpus_dirs[corpus_name] = bliss_change_encoding_job.out_corpus
-    
+    """
+    :param valid_percent: percentage of the training data to be used as validation set. 
+        If <= 0, the validation set is taken from the dev corpus.
+    :param audio_format: audio format of the output files
+    :param output_prefix: prefix of the output files
+    :param corpus_names: list of names of the corpora to be used for training
+    """
 
     task_creation_job = CreateFairseqLabeledDataJob(
         corpus_paths=list(corpus_dirs.values()),
