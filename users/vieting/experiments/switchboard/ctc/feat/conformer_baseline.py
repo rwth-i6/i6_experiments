@@ -21,7 +21,7 @@ from i6_experiments.users.vieting.experiments.switchboard.ctc.feat.transducer_sy
 
 from .baseline_args import get_nn_args as get_nn_args_baseline
 from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here for stability
-from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE
+from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
 def get_datasets():
@@ -297,12 +297,13 @@ def run_test_mel():
     score_info = ScorerInfo()
     score_info.ref_file = dev_corpora["hub5e00"].stm
     score_info.job_type = Hub5ScoreJob
-    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm}
+    score_info.score_kwargs = {"glm": dev_corpora["hub5e00"].glm, "sctk_binary_path": SCTK_BINARY_PATH}
 
     ctc_nn_system = TransducerSystem(
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
         rasr_binary_path=RASR_BINARY_PATH,
+        require_native_lstm=False,
     )
     ctc_nn_system.init_system(
         returnn_configs=returnn_configs,
@@ -484,7 +485,7 @@ def run_test_mel():
         )
 
     recog_args_e450 = copy.deepcopy(recog_args)
-    recog_args_e450["epochs"] = [300, 400, 450]
+    recog_args_e450["epochs"] = [300, 400, 450, "best"]
     ctc_nn_system_e450 = copy.deepcopy(ctc_nn_system)
     ctc_nn_system_e450.returnn_configs = returnn_configs
     ctc_nn_system_e450.run_train_step(nn_args.training_args)
