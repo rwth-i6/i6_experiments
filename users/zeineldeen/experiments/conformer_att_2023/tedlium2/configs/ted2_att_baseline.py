@@ -871,41 +871,42 @@ def conformer_baseline():
                     )
 
     # TODO: mixup?
-    for pretrain_reps in [3]:
-        for bpe_size in [BPE_1K]:
-            for ep in [50 * 4]:
-                for lr in [8e-4]:
-                    args = copy.deepcopy(oclr_args)
-                    args["pretrain_reps"] = pretrain_reps
-                    args.pop("oclr_opts")
-                    cyc_ep = int(0.45 * ep)
-                    args["learning_rates_list"] = (
-                        list(numpy.linspace(lr / 10, lr, cyc_ep))
-                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-                    )
-                    args["decoder_args"].use_zoneout_output = True
-                    args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-                    args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
-                    args["mixup_aug_opts"] = {
-                        "use_exp_feats": True,
-                        "buffer_size": 1_000_000,
-                        "apply_prob": 0.3,
-                        "max_num_mix": 2,
-                        "lambda_min": 0.15,
-                        "lambda_max": 0.3,
-                    }
-                    args["batch_size"] = 10_000 * 160
-                    args["accum_grad"] = 1
-                    exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_fixZoneout_woDepthwiseRed_mixUp"
-                    run_exp(
-                        exp_name,
-                        args,
-                        num_epochs=ep,
-                        epoch_wise_filter=None,
-                        bpe_size=bpe_size,
-                        partition_epoch=4,
-                    )
+    # 8.3/7.9
+    # for pretrain_reps in [3]:
+    #     for bpe_size in [BPE_1K]:
+    #         for ep in [50 * 4]:
+    #             for lr in [8e-4]:
+    #                 args = copy.deepcopy(oclr_args)
+    #                 args["pretrain_reps"] = pretrain_reps
+    #                 args.pop("oclr_opts")
+    #                 cyc_ep = int(0.45 * ep)
+    #                 args["learning_rates_list"] = (
+    #                     list(numpy.linspace(lr / 10, lr, cyc_ep))
+    #                     + list(numpy.linspace(lr, lr / 10, cyc_ep))
+    #                     + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+    #                 )
+    #                 args["decoder_args"].use_zoneout_output = True
+    #                 args["global_stats"] = {"mean": global_mean, "stddev": global_std}
+    #                 args["pretrain_opts"]["ignored_keys_for_reduce_dim"] = ["conv_kernel_size"]
+    #                 args["mixup_aug_opts"] = {
+    #                     "use_exp_feats": True,
+    #                     "buffer_size": 1_000_000,
+    #                     "apply_prob": 0.3,
+    #                     "max_num_mix": 2,
+    #                     "lambda_min": 0.15,
+    #                     "lambda_max": 0.3,
+    #                 }
+    #                 args["batch_size"] = 10_000 * 160
+    #                 args["accum_grad"] = 1
+    #                 exp_name = f"base_bpe{bpe_size}_peakLR{lr}_ep{ep}_globalNorm_pre{pretrain_reps}_epochOCLR_fixZoneout_woDepthwiseRed_mixUp"
+    #                 run_exp(
+    #                     exp_name,
+    #                     args,
+    #                     num_epochs=ep,
+    #                     epoch_wise_filter=None,
+    #                     bpe_size=bpe_size,
+    #                     partition_epoch=4,
+    #                 )
 
     # --------------------- V1 ---------------------
     def get_base_v1_args(lr, ep, enc_drop=0.1, pretrain_reps=3):
@@ -1002,7 +1003,7 @@ def conformer_baseline():
                     partition_epoch=4,
                 )
 
-    # longer training with more regularization
+    # TODO: longer training with more regularization
     for ep in [100 * 4]:
         for lr in [8e-4]:
             for weight_drop in [0.1, 0.15, 0.2]:
