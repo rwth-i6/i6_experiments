@@ -138,7 +138,7 @@ def run_single(
 
     rasr_init_args = lbs_data_setups.get_init_args(gt_normalization=True, dc_detection=False)
     rasr_init_args.feature_extraction_args["gt"]["parallel"] = 50
-    rasr_init_args.feature_extraction_args["gt"]["rtf"] = 0.5
+    rasr_init_args.feature_extraction_args["gt"]["rtf"] = 3
     rasr_init_args.feature_extraction_args["gt"]["gt_options"]["tempint_shift"] = feature_time_shift
 
     data_preparation_args = gmm_setups.get_final_output(name="data_preparation")
