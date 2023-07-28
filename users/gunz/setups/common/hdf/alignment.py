@@ -12,7 +12,7 @@ from sisyphus import tk, Job, Task
 
 from i6_core.lib.rasr_cache import FileArchiveBundle
 
-from ..alignment_analysis.allophone_state import AllophoneState
+from ..analysis.allophone_state import AllophoneState
 from ...common.cache_manager import cache_file
 
 

@@ -15,9 +15,9 @@ from sisyphus import gs, tk
 # -------------------- Recipes --------------------
 
 from i6_core import corpus, lexicon, rasr, returnn
-
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.analysis import PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -344,7 +344,7 @@ def run_single(
             )
 
     if subsampling_factor == 3:
-        for tdp_scale in [0.1, 1.0]:
+        for tdp_scale in [1.0]:
             s.set_binaries_for_crp("train-other-960.train", RASR_BINARY_PATH_TF)
             s.create_stm_from_corpus("train-other-960.train")
             s._set_scorer_for_corpus("train-other-960.train")
@@ -386,7 +386,7 @@ def run_single(
                 s.corpora[s.train_key].corpus_file, crp.concurrent
             ).out_segment_path
 
-            recognizer.align(
+            a_job = recognizer.align(
                 f"{name}-pC{align_cfg.prior_info.center_state_prior.scale}-tdp{align_cfg.tdp_scale}",
                 crp=crp,
                 feature_scorer=align_search_jobs.search_feature_scorer,
@@ -396,6 +396,15 @@ def run_single(
 
             allophones = lexicon.StoreAllophonesJob(crp)
             tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+
+            plots = PlotViterbiAlignmentsJob(
+                alignment_bundle_path=a_job.out_alignment_bundle,
+                allophones_path=allophones.out_allophone_file,
+                segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+                show_labels=False,
+                monophone=True,
+            )
+            tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
 
         for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
             s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)

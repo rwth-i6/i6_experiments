@@ -4,7 +4,7 @@ import numpy as np
 import random
 import subprocess
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 from i6_core.lib.rasr_cache import FileArchiveBundle
@@ -17,7 +17,6 @@ class AlignmentProcessor:
         self,
         alignment_bundle_path: str,
         allophones_path: str,
-        corpus_file_path: str,
         sil_allophone: str = "[SILENCE]",
         monophone: bool = True,
     ):
@@ -31,23 +30,12 @@ class AlignmentProcessor:
             .decode(sys.stdout.encoding)
             .strip()
         )
-        corpus_file_path = (
-            subprocess.check_output(["cf", corpus_file_path], stderr=subprocess.DEVNULL)
-            .decode(sys.stdout.encoding)
-            .strip()
-        )
 
         logging.info(f"bundle={alignment_bundle_path}")
         logging.info(f"allos={allophones_path}")
 
         self.alignment_bundle = FileArchiveBundle(alignment_bundle_path)
         self.alignment_bundle.setAllophones(allophones_path)
-        if corpus_file_path.endswith("gz"):
-            with gzip.open(corpus_file_path, "rt") as corpus_file:
-                self.corpus = ET.parse(corpus_file)
-        else:
-            with open(corpus_file_path, "rt") as corpus_file:
-                self.corpus = ET.parse(corpus_file)
         self.monophone = monophone
         self.segments = [s for s in self.alignment_bundle.file_list() if not s.endswith(".attribs")]
         self.sil_allophone = sil_allophone
@@ -60,18 +48,6 @@ class AlignmentProcessor:
     def get_raw_alignment_ids(self, seg_name: str) -> List[int]:
         alignment = self.alignment_bundle.read(seg_name, "align")
         return [t[1] for t in alignment]
-
-    def get_audio(self, seg_name: str) -> str:
-        corpus_name, recording, segment = seg_name.split("/")
-
-        el = self.corpus.find(f".//recording[@name='{recording}']")
-        return el.attrib["audio"].strip()
-
-    def get_transcription(self, seg_name: str) -> str:
-        corpus_name, recording, segment = seg_name.split("/")
-
-        el = self.corpus.find(f".//recording[@name='{recording}']/segment[@name='{segment}']/orth")
-        return el.text.strip()
 
     def percent_silence(self, sample: int = 5000):
         segments = random.sample(self.segments, sample) if sample > 0 else self.segments
@@ -163,3 +139,37 @@ class AlignmentProcessor:
         if self.monophone:
             alignment_states = [AllophoneState.from_alignment_state(st).to_mono() for st in alignment_states]
         return alignment_states
+
+
+class CorpusProcessor:
+    def __init__(self, corpus_file_path: str):
+        corpus_file_path = (
+            subprocess.check_output(["cf", corpus_file_path], stderr=subprocess.DEVNULL)
+            .decode(sys.stdout.encoding)
+            .strip()
+        )
+
+        if corpus_file_path.endswith("gz"):
+            with gzip.open(corpus_file_path, "rt") as corpus_file:
+                self.corpus = ET.parse(corpus_file)
+        else:
+            with open(corpus_file_path, "rt") as corpus_file:
+                self.corpus = ET.parse(corpus_file)
+
+    def get_audio(self, seg_name: str) -> Optional[str]:
+        try:
+            corpus_name, recording, segment = seg_name.split("/")
+
+            el = self.corpus.find(f".//recording[@name='{recording}']")
+            return el.attrib["audio"].strip()
+        except:
+            return None
+
+    def get_transcription(self, seg_name: str) -> Optional[str]:
+        try:
+            corpus_name, recording, segment = seg_name.split("/")
+
+            el = self.corpus.find(f".//recording[@name='{recording}']/segment[@name='{segment}']/orth")
+            return el.text.strip()
+        except:
+            return None

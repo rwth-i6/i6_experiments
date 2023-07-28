@@ -16,9 +16,9 @@ from sisyphus import gs, tk
 # -------------------- Recipes --------------------
 
 from i6_core import corpus, lexicon, rasr, returnn
-
 import i6_experiments.common.setups.rasr.util as rasr_util
 
+from ...setups.common.analysis import PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -451,6 +451,15 @@ def run_single(
 
     allophones = lexicon.StoreAllophonesJob(crp)
     tk.register_output(f"allophones/{name}/allophones", allophones.out_allophone_file)
+
+    plots = PlotViterbiAlignmentsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        segments=["train-other-960/2920-156224-0013/2920-156224-0013"],
+        show_labels=False,
+        monophone=True,
+    )
+    tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
 
     s.experiments["fh"]["alignment_job"] = a_job
 
