@@ -11,10 +11,10 @@ from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConf
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq import SetupFairseqJob
 
-python_path = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+#python_path = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
 
 
-def get_task(valid_percent=0.001, audio_format="ogg", output_prefix="datasets", corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]):
+def get_task(valid_percent=0.01, audio_format="ogg", output_prefix="datasets", corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]):
     assert audio_format in ["ogg", "wav"], f"audio format not implemented: '{audio_format}'"
     corpus_dirs = {}
 
@@ -69,7 +69,8 @@ def get_fairseq_root():
         "https://github.com/facebookresearch/fairseq",
         checkout_folder_name="fairseq",
         commit="91c364b7ceef8032099363cb10ba19a85b050c1c").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root, python_path).out_fairseq_root
+    #fairseq_root = SetupFairseqJob(fairseq_root, python_path).out_fairseq_root
+    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
     return fairseq_root
 
 
@@ -155,13 +156,11 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
 
 def main():
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
-    # run pre-training
+    # run finetuning
     exp_name = "base"
     num_gpus = 2
     gpu_mem_rqmt = 24
     corpus_names = ["train-clean-100"]
-    #python_path = "work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python"
-    #setattr(gs, "FAIRSEQ_PYTHON_EXE", python_path)
 
     fairseq_args = get_fairseq_args(corpus_names=corpus_names, num_gpus=num_gpus, w2v_path="/work/asr3/vieting/hiwis/pletschko/fairseq/models/wav2vec_small.pt")
     fairseq_config = FairseqHydraConfig(fairseq_args)
@@ -176,9 +175,9 @@ def main():
         gpu_rqmt=num_gpus,
         gpu_mem_rqmt=gpu_mem_rqmt,
         fairseq_root=fairseq_root,
-        fairseq_python_exe=python_path,
         use_cache_manager=False,
     )
+    
     #job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
     tk.register_output(f"{prefix_name}/{exp_name}/finetune/scores.png", job.out_plot_se)
 
