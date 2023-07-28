@@ -265,7 +265,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = 1
         dim_frac_dec = 1
 
-    # TODO WARNING: this does not include weight dropout and weight noise!
+    # TODO: use explicit param names otherwise multiple matches can lead to multiple reductions!
+    # TODO: WARNING: this does not include weight dropout and weight noise!
     # do not enable regulizations in the first pretraining step to make it more stable
     if initial_disabled_regularization_patterns is None:
         regs_words = ["dropout", "noise", "l2"]  # dropout, weight dropout, l2, weight noise
