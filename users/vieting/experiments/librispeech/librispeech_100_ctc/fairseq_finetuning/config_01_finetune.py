@@ -14,9 +14,12 @@ from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960
 #python_path = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
 
 
-def get_task(valid_percent=0.01, audio_format="ogg", output_prefix="datasets", corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]):
-    assert audio_format in ["ogg", "wav"], f"audio format not implemented: '{audio_format}'"
-    corpus_dirs = {}
+def get_task(
+        valid_percent=0.01, 
+        audio_format="ogg", 
+        output_prefix="datasets", 
+        corpus_names=["train-clean-100", "train-clean-360", "train-other-500"]
+):
 
     output_prefix = os.path.join(output_prefix, "LibriSpeech")
 
