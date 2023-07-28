@@ -8,6 +8,7 @@ from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
 from recipe.i6_core.audio.encoding import BlissChangeEncodingJob
 from recipe.i6_core.tools.git import CloneGitRepositoryJob
+from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq import SetupFairseqJob
@@ -28,16 +29,26 @@ def get_task(
     :param output_prefix: prefix of the output files
     :param corpus_names: list of names of the corpora to be used for training
     """
+    assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
+    assert set(corpus_names).issubset(
+        {"train-clean-100", "train-clean-360", "train-clean-460", "train-other-500", "train-other-960", "dev-clean", "dev-other", "test-clean", "test-other"}
+    ), f"unknown corpus names: {corpus_names}"
+
+    if valid_percent <= 0:
+        assert "dev-clean" in corpus_names or "dev-other" in corpus_names, "validation set is required if valid_percent <= 0"
+
+    corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
+    # filter out corpora that are not in corpus_names
+    corpus_dict = {corpus: path for corpus, path in corpus_dict.items() if corpus in corpus_names}
 
     task_creation_job = CreateFairseqLabeledDataJob(
-        corpus_paths=list(corpus_dirs.values()),
+        corpus_paths=list(corpus_dict.values()),
         file_extension=audio_format,
         valid_percent=valid_percent,
     )
     task_creation_job.rqmt["time"] = 4
     task = task_creation_job.out_task_path
     return task
-
 
 def get_fairseq_root():
     fairseq_root = CloneGitRepositoryJob(
