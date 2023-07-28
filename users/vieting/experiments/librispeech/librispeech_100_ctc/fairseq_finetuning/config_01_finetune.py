@@ -82,7 +82,6 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
     task = get_task(corpus_names=corpus_names)
 
     # Set training and model parameters
-    sample_rate = 16000
     fairseq_args = {
         "common": {
             "fp16": True,
@@ -96,10 +95,6 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
         "task": {
             "_name": "audio_finetuning",
             "data": task,
-            # TODO: check if this is needed
-            #"max_sample_size": 20 * sample_rate,  # max 20s, length of one crop in batch
-            #"min_sample_size": 2 * sample_rate,  # 2s of minimal length
-            #"sample_rate": sample_rate,
             "normalize": False,
             "labels": "ltr"
         },
@@ -116,25 +111,17 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
         "criterion": {
             "_name": "ctc",
             "zero_infinity": True,
-            # TODO: check if this is needed
-            #"infonce": True,
-            #"log_keys": ["prob_perplexity", "code_perplexity", "temp"],
-            #"loss_weights": [0.1, 10]
         },
         "optimization": {
             "sentence_avg": True,
             "max_update": 80000,
             "lr": [0.00003],
             "update_freq": [8 // num_gpus],
-            # TODO check if this is needed
-            #"max_epoch": 1000,
         },
         "optimizer": {
             "_name": "adam",
             "adam_betas": "(0.9,0.98)",
             "adam_eps": "1e-08",
-            # TODO check if this is needed
-            #"weight_decay": 0.01,
         },
         "lr_scheduler": {
             "_name": "tri_stage",
