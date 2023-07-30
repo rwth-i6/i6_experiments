@@ -143,7 +143,7 @@ class TransformCheckpointJob(tk.Job):
             s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
             tf.import_graph_def(output_mg.graph_def, name="")
 
-        s.run(tf.compat.v1.global_variables_initializer())
+        # s.run(tf.compat.v1.global_variables_initializer())
 
         for v in var_data:
             if v in tf_output_vars:
