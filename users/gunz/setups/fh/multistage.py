@@ -193,9 +193,10 @@ class InitNewLayersTransformation(Transformation):
     Initializes the weights of layers that do not exist in the original config.
     """
 
-    def __init__(self, init: Init) -> None:
+    def __init__(self, init: Init, force_init: typing.Optional[typing.List[str]]) -> None:
         super().__init__()
 
+        self.force_init = force_init or []
         self.init = init
 
     def transform(
@@ -212,7 +213,11 @@ class InitNewLayersTransformation(Transformation):
         with g_out.as_default():
             tf.import_graph_def(output_mg.graph_def, name="")
 
-        to_init = [layer for layer in output_vars.keys() if layer not in input_vars]
+        to_init = [
+            layer
+            for layer in output_vars.keys()
+            if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
+        ]
         for var_name in to_init:
             shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
             logging.info(f"initializing {var_name}:{shape} with {self.init}")
@@ -300,11 +305,12 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
+    force_init: typing.Optional[List[str]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
     tf_library: typing.Optional[typing.Union[str, tk.Path]] = None,
-):
+) -> returnn.ReturnnConfig:
     """
     Transforms the weights of one checkpoint to be compatible with the other.
 
@@ -340,7 +346,7 @@ def transform_checkpoint(
         input_checkpoint=input_model_path,
         output_mg_path=output_graph,
         transformations=[
-            InitNewLayersTransformation(init_new),
+            InitNewLayersTransformation(init_new, force_init),
             ResizeLayersTransformation(),
         ],
         tf_op_libraries=tf_library,
