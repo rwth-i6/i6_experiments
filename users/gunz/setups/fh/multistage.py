@@ -326,18 +326,10 @@ def transform_checkpoint(
     ), "do not initialize models w/ different number of center states"
 
     input_graph = compile_tf_graph_from_returnn_config(
-        input_returnn_config.config,
-        python_epilog=input_returnn_config.python_epilog,
-        python_prolog=input_returnn_config.python_prolog,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
+        input_returnn_config.config, returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
     )
     output_graph = compile_tf_graph_from_returnn_config(
-        output_returnn_config.config,
-        python_epilog=output_returnn_config.python_epilog,
-        python_prolog=output_returnn_config.python_prolog,
-        returnn_root=returnn_root,
-        returnn_python_exe=returnn_python_exe,
+        output_returnn_config.config, returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
     )
 
     logging.debug(f"IN: {input_returnn_config.config['extern_data']}")

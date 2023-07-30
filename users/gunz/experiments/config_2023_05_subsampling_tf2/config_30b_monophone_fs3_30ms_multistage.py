@@ -292,6 +292,8 @@ def run_single(
             "center__output",
             "right__output",
         ],
+        returnn_root=returnn_root,
+        returnn_python_exe=RETURNN_PYTHON_EXE,
     )
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
