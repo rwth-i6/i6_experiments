@@ -18,9 +18,9 @@ def compile_tf_graph_from_returnn_config(
     alias: typing.Optional[str] = None,
 ):
     if isinstance(returnn_config, returnn.ReturnnConfig):
-        tf_returnn_config = copy.copy(returnn_config)
+        tf_returnn_config = copy.deepcopy(returnn_config)
     else:
-        tf_returnn_config = returnn.ReturnnConfig(copy.copy(returnn_config))
+        tf_returnn_config = returnn.ReturnnConfig(copy.deepcopy(returnn_config))
 
     dataset_cfg = {
         "class": "ExternSprintDataset",
