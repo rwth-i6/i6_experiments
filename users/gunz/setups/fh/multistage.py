@@ -321,7 +321,9 @@ def transform_checkpoint(
     """
 
     n_state_diff = output_label_info.get_n_state_classes() - input_label_info.get_n_state_classes()
-    assert n_state_diff == 0, "do not initialize models w/ different number of center states"
+    assert (
+        "center__output" in force_init or n_state_diff == 0
+    ), "do not initialize models w/ different number of center states"
 
     input_graph = compile_tf_graph_from_returnn_config(
         input_returnn_config.config,

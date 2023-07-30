@@ -359,7 +359,6 @@ def run_single(
                 calculate_stats=True,
             )
 
-
         if tune_decoding and ep == keep_epochs[-1]:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
