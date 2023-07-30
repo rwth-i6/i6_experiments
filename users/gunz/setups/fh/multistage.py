@@ -305,7 +305,7 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
-    force_init: typing.Optional[List[str]] = None,
+    force_init: typing.Optional[typing.List[str]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
