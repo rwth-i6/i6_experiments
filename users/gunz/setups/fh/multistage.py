@@ -100,8 +100,8 @@ class TransformCheckpointJob(tk.Job):
 
             return mg
 
-        def load_checkpoint(session, mg, checkpoint_path):
-            session.run(tf.compat.v1.global_variables_initializer())
+        def load_checkpoint(session: tf.compat.v1.Session, mg, checkpoint_path):
+            # session.run(tf.compat.v1.global_variables_initializer())
             session.run(
                 mg.saver_def.restore_op_name,
                 feed_dict={mg.saver_def.filename_tensor_name: checkpoint_path},
