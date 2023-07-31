@@ -141,6 +141,8 @@ class TransformCheckpointJob(tk.Job):
         for k, v in var_data.items():
             logging.info("Output: %s shape: %s", k, str(v.shape))
 
+        tf.compat.v1.reset_default_graph()
+
         with tf.device("/CPU:0"):
             s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
             tf.import_graph_def(output_mg.graph_def, name="")
@@ -211,9 +213,9 @@ class InitNewLayersTransformation(Transformation):
     ) -> typing.Dict[str, np.ndarray]:
         import tensorflow as tf
 
-        g_out = tf.Graph()
-        with g_out.as_default():
-            tf.import_graph_def(output_mg.graph_def, name="")
+        tf.compat.v1.reset_default_graph()
+        tf.import_graph_def(output_mg.graph_def, name="")
+        g_out = tf.compat.v1.get_default_graph()
 
         to_init = [
             layer
@@ -242,23 +244,15 @@ class ResizeLayersTransformation(Transformation):
     amount from the graph.
     """
 
-    def needs_extension(
-        self,
-        var_name: str,
-        input_g: "tf.Graph",
-        output_g: "tf.Graph",
-    ) -> bool:
-        try:
-            input_var = input_g.get_tensor_by_name(var_name)
-            output_var = output_g.get_tensor_by_name(var_name)
-        except:
-            return False
+    def collect_shapes(self, keys: typing.Iterable[str], mg: "tf.compat.v1.MetaGraphDef"):
+        import tensorflow as tf
 
-        assert len(output_var.shape) == len(input_var.shape)
+        tf.compat.v1.reset_default_graph()
+        tf.import_graph_def(mg.graph_def, name="")
+        g = tf.compat.v1.get_default_graph()
 
-        shape_diff = [a - b for a, b in zip(input_var.shape.as_list(), output_var.shape.as_list())]
-
-        return any(d != 0 for d in shape_diff)
+        shapes = {k: g.get_tensor_by_name(k).shape.as_list() for k in keys}
+        return shapes
 
     def transform(
         self,
@@ -268,19 +262,16 @@ class ResizeLayersTransformation(Transformation):
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        import tensorflow as tf
+        shapes_in = self.collect_shapes(output_vars.keys(), input_mg)
+        shapes_out = self.collect_shapes(output_vars.keys(), output_mg)
 
-        g_in = tf.Graph()
-        with g_in.as_default():
-            tf.import_graph_def(input_mg.graph_def, name="")
-        g_out = tf.Graph()
-        with g_out.as_default():
-            tf.import_graph_def(output_mg.graph_def, name="")
+        needs_extension = [
+            k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
+        ]
 
-        to_extend = [layer for layer in output_vars.keys() if self.needs_extension(layer, g_in, g_out)]
-        for layer in to_extend:
-            in_sh = tuple(g_in.get_tensor_by_name(layer).shape.as_list())
-            out_sh = tuple(g_out.get_tensor_by_name(layer).shape.as_list())
+        for layer in needs_extension:
+            in_sh = tuple(shapes_in[layer])
+            out_sh = tuple(shapes_out[layer])
 
             logging.info(f"padding {layer} {in_sh} -> {out_sh}")
 
