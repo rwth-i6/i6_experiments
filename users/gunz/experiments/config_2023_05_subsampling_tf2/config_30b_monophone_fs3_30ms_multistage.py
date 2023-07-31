@@ -296,7 +296,7 @@ def run_single(
         "right__output": tuple(),
     }
     force_init_rel_pos = {
-        f"enc_{i:.3d}_rel_pos/encoding_matrix/Initializer/random_uniform:0": rel_pos_weights[i]
+        f"enc_{i:03d}_rel_pos/encoding_matrix/Initializer/random_uniform:0": rel_pos_weights[i]
         for i in range(1, 12 + 1)
     }
     returnn_config = multistage.transform_checkpoint(
