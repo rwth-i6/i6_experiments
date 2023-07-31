@@ -89,6 +89,8 @@ class TransformCheckpointJob(tk.Job):
         import tensorflow as tf
         from tensorflow.core.framework.variable_pb2 import VariableDef
 
+        tf.compat.v1.disable_eager_execution()
+
         if len(self.tf_op_libraries):
             tf.load_op_library(self.tf_op_libraries)
 
@@ -101,7 +103,7 @@ class TransformCheckpointJob(tk.Job):
             return mg
 
         def load_checkpoint(session: tf.compat.v1.Session, mg, checkpoint_path):
-            # session.run(tf.compat.v1.global_variables_initializer())
+            session.run(tf.compat.v1.global_variables_initializer())
             session.run(
                 mg.saver_def.restore_op_name,
                 feed_dict={mg.saver_def.filename_tensor_name: checkpoint_path},
@@ -143,7 +145,7 @@ class TransformCheckpointJob(tk.Job):
             s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
             tf.import_graph_def(output_mg.graph_def, name="")
 
-        # s.run(tf.compat.v1.global_variables_initializer())
+        s.run(tf.compat.v1.global_variables_initializer())
 
         for v in var_data:
             if v in tf_output_vars:
@@ -193,10 +195,10 @@ class InitNewLayersTransformation(Transformation):
     Initializes the weights of layers that do not exist in the original config.
     """
 
-    def __init__(self, init: Init, force_init: typing.Optional[typing.List[str]]) -> None:
+    def __init__(self, init: Init, force_init: typing.List[str]) -> None:
         super().__init__()
 
-        self.force_init = force_init or []
+        self.force_init = force_init
         self.init = init
 
     def transform(
@@ -326,10 +328,10 @@ def transform_checkpoint(
     ), "do not initialize models w/ different number of center states"
 
     input_graph = compile_tf_graph_from_returnn_config(
-        input_returnn_config, returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
+        input_returnn_config, output_format="meta", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
     )
     output_graph = compile_tf_graph_from_returnn_config(
-        output_returnn_config, returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
+        output_returnn_config, output_format="meta", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
     )
 
     logging.debug(f"IN: {input_returnn_config.config['extern_data']}")
