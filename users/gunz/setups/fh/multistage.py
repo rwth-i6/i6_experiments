@@ -224,8 +224,10 @@ class InitNewLayersTransformation(Transformation):
         ]
         for var_name in to_init:
             shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
-            logging.info(f"initializing {var_name}:{shape} with {self.init}")
+            if len(shape) == 0 and var_name in var_data:
+                shape = var_data[var_name].shape
 
+            logging.info(f"initializing {var_name}:{shape} with {self.init}")
             var_data[var_name] = self.init.get_value(shape)
 
         return var_data
