@@ -206,7 +206,7 @@ def run_single(
         upsample_by_transposed_conv=False,
     )
     network = network_builder.network
-    non_trainable_layers = list(network.keys())
+    non_trainable_layers = set(network.keys())
     network = augment_net_with_label_pops(
         network,
         label_info=s.label_info,
@@ -226,6 +226,7 @@ def run_single(
     for layer in list(network.keys()):
         if layer.startswith("aux"):
             network.pop(layer)
+            non_trainable_layers.remove(layer)
     base_config = {
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule="v13"),
