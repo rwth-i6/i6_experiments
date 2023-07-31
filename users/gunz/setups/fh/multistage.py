@@ -210,7 +210,7 @@ class InitNewLayersTransformation(Transformation):
     Initializes the weights of layers that do not exist in the original config.
     """
 
-    def __init__(self, init: Init, force_init: typing.List[str]) -> None:
+    def __init__(self, init: Init, force_init: typing.Dict[str, tuple]) -> None:
         super().__init__()
 
         self.force_init = force_init
@@ -238,6 +238,11 @@ class InitNewLayersTransformation(Transformation):
             ]
             for var_name in to_init:
                 shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+                if len(shape) == 0:
+                    shape = self.force_init[var_name]
+                if len(shape) == 0 and var_name in var_data:
+                    shape = var_data[var_name].shape
+
                 logging.info(f"initializing {var_name}:{shape} with {self.init}")
                 var_data[var_name] = self.init.get_value(shape)
 
@@ -312,7 +317,7 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
-    force_init: typing.Optional[typing.List[str]] = None,
+    force_init: typing.Optional[typing.Dict[str, tuple]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
