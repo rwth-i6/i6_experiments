@@ -23,7 +23,6 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         name: str,
         returnn_config: returnn.ReturnnConfig,
         checkpoints: Dict[int, Union[returnn.Checkpoint, returnn.PtCheckpoint]],
-        train_job: Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
@@ -36,10 +35,9 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         rtf: int,
         mem: int,
         epochs: Optional[List[int]] = None,
-        quantize_dynamic: bool = False,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
-        nn_prior: bool = True,
+        nn_prior: bool = False,
         **kwargs,
     ):
         """
