@@ -213,24 +213,26 @@ class InitNewLayersTransformation(Transformation):
     ) -> typing.Dict[str, np.ndarray]:
         import tensorflow as tf
 
-        tf.compat.v1.reset_default_graph()
-        tf.import_graph_def(output_mg.graph_def, name="")
-        g_out = tf.compat.v1.get_default_graph()
+        with tf.compat.v1.Session() as s:
+            tf.compat.v1.reset_default_graph()
+            tf.import_graph_def(output_mg.graph_def, name="")
+            s.run(tf.compat.v1.global_variables_initializer())
+            g_out = tf.compat.v1.get_default_graph()
 
-        to_init = [
-            layer
-            for layer in output_vars.keys()
-            if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
-        ]
-        for var_name in to_init:
-            shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
-            if len(shape) == 0 and var_name in var_data:
-                shape = var_data[var_name].shape
+            to_init = [
+                layer
+                for layer in output_vars.keys()
+                if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
+            ]
+            for var_name in to_init:
+                shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+                if len(shape) == 0 and var_name in var_data:
+                    shape = var_data[var_name].shape
 
-            logging.info(f"initializing {var_name}:{shape} with {self.init}")
-            var_data[var_name] = self.init.get_value(shape)
+                logging.info(f"initializing {var_name}:{shape} with {self.init}")
+                var_data[var_name] = self.init.get_value(shape)
 
-        return var_data
+            return var_data
 
     @classmethod
     def hash(cls, kwargs):
@@ -249,12 +251,14 @@ class ResizeLayersTransformation(Transformation):
     def collect_shapes(self, keys: typing.Iterable[str], mg: "tf.compat.v1.MetaGraphDef"):
         import tensorflow as tf
 
-        tf.compat.v1.reset_default_graph()
-        tf.import_graph_def(mg.graph_def, name="")
-        g = tf.compat.v1.get_default_graph()
+        with tf.compat.v1.Session() as s:
+            tf.compat.v1.reset_default_graph()
+            tf.import_graph_def(mg.graph_def, name="")
+            s.run(tf.compat.v1.global_variables_initializer())
+            g = tf.compat.v1.get_default_graph()
 
-        shapes = {k: g.get_tensor_by_name(k).shape.as_list() for k in keys}
-        return shapes
+            shapes = {k: g.get_tensor_by_name(k).shape.as_list() for k in keys}
+            return shapes
 
     def transform(
         self,
