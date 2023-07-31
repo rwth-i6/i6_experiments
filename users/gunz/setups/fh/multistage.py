@@ -334,7 +334,7 @@ def transform_checkpoint(
 
     n_state_diff = output_label_info.get_n_state_classes() - input_label_info.get_n_state_classes()
     assert (
-        "center__output" in force_init or n_state_diff == 0
+        any(k.startswith("center__output") for k in force_init) or n_state_diff == 0
     ), "do not initialize models w/ different number of center states"
 
     # Need both meta graph def and "plain" graph def format.
