@@ -85,8 +85,8 @@ class Import(SerializerObject):
         :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
             Recommended is to use the root folder of an experiment module.
         :param import_as: if given, the code object will be imported as this name
-        :param use_for_hash: if false, this module is not hashed when passed to a Collection/Serializer
-        :Param ignore_import_as_for_hash: do not hash `import_as` if set
+        :param use_for_hash: if false, this import is not hashed when passed to a Collection/Serializer
+        :param ignore_import_as_for_hash: do not hash `import_as` if set
         """
         super().__init__()
         if not isinstance(code_object_path, str):
