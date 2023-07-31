@@ -239,8 +239,8 @@ class InitNewLayersTransformation(Transformation):
             for var_name in to_init:
                 if var_name in self.force_init:
                     data = self.force_init[var_name]
-                    if isinstance(data, np.ndarray):
-                        var_data[var_name] = data
+                    if isinstance(data, np.ndarray) or isinstance(data, list):
+                        var_data[var_name] = data if isinstance(data, np.ndarray) else np.array(data)
                         logging.info(f"initializing {var_name}:{shape} with data from dict {data.shape}")
                         continue
                     else:
@@ -326,7 +326,7 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
-    force_init: typing.Optional[typing.Dict[str, typing.Union[tuple, np.ndarray]]] = None,
+    force_init: typing.Optional[typing.Dict[str, typing.Union[tuple, np.ndarray, list]]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
