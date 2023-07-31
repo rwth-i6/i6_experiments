@@ -18,7 +18,7 @@ from i6_core import lexicon, mm, rasr, returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import newbob, returnn_time_tag
+from ...setups.common.nn import oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -229,7 +229,7 @@ def run_single(
             network.pop(layer)
     base_config = {
         **s.initial_nn_args,
-        **newbob.get_newbob_cfg(),
+        **oclr.get_oclr_config(num_epochs=num_epochs, schedule="v13"),
         **CONF_SA_CONFIG,
         "batch_size": 12500,
         "use_tensorflow": True,
