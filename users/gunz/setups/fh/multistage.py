@@ -238,7 +238,7 @@ class InitNewLayersTransformation(Transformation):
             ]
             for var_name in to_init:
                 shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
-                if len(shape) == 0:
+                if len(shape) == 0 and var_name in self.force_init:
                     shape = self.force_init[var_name]
                 if len(shape) == 0 and var_name in var_data:
                     shape = var_data[var_name].shape
