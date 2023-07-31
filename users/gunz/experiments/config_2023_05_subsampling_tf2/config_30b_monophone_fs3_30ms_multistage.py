@@ -239,7 +239,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": CONF_CHUNKING_10MS,
+        "chunking": subsample_chunking(CONF_CHUNKING_10MS, ss_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
