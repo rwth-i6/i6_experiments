@@ -214,7 +214,6 @@ class InitNewLayersTransformation(Transformation):
         import tensorflow as tf
 
         with tf.compat.v1.Session() as s:
-            tf.compat.v1.reset_default_graph()
             tf.import_graph_def(output_mg.graph_def, name="")
             s.run(tf.compat.v1.global_variables_initializer())
             g_out = tf.compat.v1.get_default_graph()
@@ -252,7 +251,6 @@ class ResizeLayersTransformation(Transformation):
         import tensorflow as tf
 
         with tf.compat.v1.Session() as s:
-            tf.compat.v1.reset_default_graph()
             tf.import_graph_def(mg.graph_def, name="")
             s.run(tf.compat.v1.global_variables_initializer())
             g = tf.compat.v1.get_default_graph()
