@@ -240,8 +240,9 @@ class InitNewLayersTransformation(Transformation):
                 if var_name in self.force_init:
                     data = self.force_init[var_name]
                     if isinstance(data, np.ndarray) or isinstance(data, list):
-                        var_data[var_name] = data if isinstance(data, np.ndarray) else np.array(data)
-                        logging.info(f"initializing {var_name}:{shape} with data from dict {data.shape}")
+                        array = data if isinstance(data, np.ndarray) else np.array(data)
+                        var_data[var_name] = array
+                        logging.info(f"initializing {var_name} with data from dict {array.shape}")
                         continue
                     else:
                         shape = self.force_init[var_name]
