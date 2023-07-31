@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import pickle
 import typing
 from dataclasses import dataclass
 import itertools
@@ -40,7 +41,7 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     ALIGN_30MS_BLSTM_V2,
-    CONF_CHUNKING_10MS,
+    CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
@@ -185,7 +186,7 @@ def run_single(
     s.set_rasr_returnn_input_datas(
         is_cv_separate_from_train=False,
         input_key="data_preparation",
-        chunk_size=CONF_CHUNKING_10MS,
+        chunk_size=CONF_CHUNKING_30MS,
     )
     s._update_am_setting_for_all_crps(
         train_tdp_type="default",
@@ -198,7 +199,7 @@ def run_single(
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
         conf_model_dim,
-        chunking=CONF_CHUNKING_10MS,
+        chunking=CONF_CHUNKING_30MS,
         focal_loss_factor=CONF_FOCAL_LOSS,
         label_smoothing=CONF_LABEL_SMOOTHING,
         num_classes=s.label_info.get_n_of_dense_classes(),
@@ -239,7 +240,7 @@ def run_single(
         "cache_size": "0",
         "window": 1,
         "update_on_device": True,
-        "chunking": subsample_chunking(CONF_CHUNKING_10MS, ss_factor),
+        "chunking": subsample_chunking(CONF_CHUNKING_30MS, ss_factor),
         "optimizer": {"class": "nadam"},
         "optimizer_epsilon": 1e-8,
         "gradient_noise": 0.0,
@@ -275,6 +276,29 @@ def run_single(
             ],
         },
     )
+
+    with open(
+        "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/train/conf-ss:3/weights.pk",
+        "rb",
+    ) as f:
+        rel_pos_weights: typing.List[np.ndarray] = pickle.load(f)
+
+    force_init_base = {
+        "linear1__leftContext": tuple(),
+        "linear2__leftContext": tuple(),
+        "linear1__diphone": tuple(),
+        "linear2__diphone": tuple(),
+        "linear1__triphone": tuple(),
+        "linear2__triphone": tuple(),
+        "left__output": tuple(),
+        "center__output/W:0": (544, s.label_info.get_n_state_classes()),
+        "center__output/b:0": (s.label_info.get_n_state_classes(),),
+        "right__output": tuple(),
+    }
+    force_init_rel_pos = {
+        f"enc_{i:.3d}_rel_pos/encoding_matrix/Initializer/random_uniform:0": rel_pos_weights[i]
+        for i in range(1, 12 + 1)
+    }
     returnn_config = multistage.transform_checkpoint(
         name=name,
         input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
@@ -282,18 +306,7 @@ def run_single(
         input_model_path=init_from_system.experiments["fh"]["train_job"].out_checkpoints[600],
         output_returnn_config=returnn_config,
         output_label_info=s.label_info,
-        force_init={
-            "linear1__leftContext": tuple(),
-            "linear2__leftContext": tuple(),
-            "linear1__diphone": tuple(),
-            "linear2__diphone": tuple(),
-            "linear1__triphone": tuple(),
-            "linear2__triphone": tuple(),
-            "left__output": tuple(),
-            "center__output/W:0": (544, s.label_info.get_n_state_classes()),
-            "center__output/b:0": (s.label_info.get_n_state_classes(),),
-            "right__output": tuple(),
-        },
+        force_init={**force_init_base, **force_init_rel_pos},
         returnn_root=returnn_root,
         returnn_python_exe=RETURNN_PYTHON_EXE,
     )

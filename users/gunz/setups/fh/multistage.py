@@ -237,10 +237,19 @@ class InitNewLayersTransformation(Transformation):
                 if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
             ]
             for var_name in to_init:
-                shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
-                if len(shape) == 0 and var_name in self.force_init:
-                    shape = self.force_init[var_name]
-                if len(shape) == 0 and var_name in var_data:
+                if var_name in self.force_init:
+                    data = self.force_init[var_name]
+                    if isinstance(data, np.ndarray):
+                        var_data[var_name] = data
+                        logging.info(f"initializing {var_name}:{shape} with data from dict {data.shape}")
+                        continue
+                    else:
+                        shape = self.force_init[var_name]
+                else:
+                    shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+
+                if (shape is None or len(shape) == 0) and var_name in var_data:
+                    # try taking shape from input
                     shape = var_data[var_name].shape
 
                 logging.info(f"initializing {var_name}:{shape} with {self.init}")
@@ -317,7 +326,7 @@ def transform_checkpoint(
     output_returnn_config: returnn.ReturnnConfig,
     output_label_info: LabelInfo,
     *,
-    force_init: typing.Optional[typing.Dict[str, tuple]] = None,
+    force_init: typing.Optional[typing.Dict[str, typing.Union[tuple, np.ndarray]]] = None,
     init_new: Init = Init.zero,
     returnn_root: typing.Union[None, str, tk.Path] = None,
     returnn_python_exe: typing.Union[None, str, tk.Path] = None,
