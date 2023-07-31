@@ -130,9 +130,9 @@ class TransformCheckpointJob(tk.Job):
             return res
 
         input_mg = load_graph(self.input_mg_path)
-        input_gd = load_graph_def(self.input_mg_path)
+        input_gd = load_graph_def(self.input_gd_path)
         output_mg = load_graph(self.output_mg_path)
-        output_gd = load_graph_def(self.output_mg_path)
+        output_gd = load_graph_def(self.output_gd_path)
 
         tf_input_vars = parse_variables(input_mg)
         tf_output_vars = parse_variables(output_mg)
@@ -332,6 +332,9 @@ def transform_checkpoint(
         "center__output" in force_init or n_state_diff == 0
     ), "do not initialize models w/ different number of center states"
 
+    # Need both meta graph def and "plain" graph def format.
+    #
+    # The meta graph def contains the saver, while the plain one contains the shapes.
     input_graph_meta = compile_tf_graph_from_returnn_config(
         input_returnn_config, output_format="meta", returnn_root=returnn_root, returnn_python_exe=returnn_python_exe
     )
