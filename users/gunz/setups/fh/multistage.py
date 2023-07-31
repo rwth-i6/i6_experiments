@@ -76,8 +76,8 @@ class TransformCheckpointJob(tk.Job):
 
         self.input_mg_path = input_mg_path
         self.input_gd_path = input_gd_path
-        self.output_gd_path = output_gd_path
         self.output_mg_path = output_mg_path
+        self.output_gd_path = output_gd_path
         self.input_checkpoint = input_checkpoint
         self.transformations = transformations
         self.tf_op_libraries = [] if tf_op_libraries is None else tf_op_libraries
@@ -353,7 +353,7 @@ def transform_checkpoint(
         input_gd_path=input_graph_pb,
         input_checkpoint=input_model_path,
         output_mg_path=output_graph_meta,
-        output_gd_path=output_graph_meta,
+        output_gd_path=output_graph_pb,
         transformations=[
             InitNewLayersTransformation(init_new, force_init),
             ResizeLayersTransformation(),
