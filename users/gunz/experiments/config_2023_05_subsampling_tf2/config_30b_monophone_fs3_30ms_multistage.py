@@ -206,8 +206,7 @@ def run_single(
         upsample_by_transposed_conv=False,
     )
     network = network_builder.network
-    for layer in network.values():
-        layer["trainable"] = False
+    non_trainable_layers = list(network.keys())
     network = augment_net_with_label_pops(
         network,
         label_info=s.label_info,
@@ -275,7 +274,6 @@ def run_single(
             ],
         },
     )
-
     returnn_config = multistage.transform_checkpoint(
         name=name,
         input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
@@ -298,6 +296,9 @@ def run_single(
         returnn_root=returnn_root,
         returnn_python_exe=RETURNN_PYTHON_EXE,
     )
+
+    for layer in non_trainable_layers:
+        returnn_config.config["network"][layer]["trainable"] = False
 
     s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
