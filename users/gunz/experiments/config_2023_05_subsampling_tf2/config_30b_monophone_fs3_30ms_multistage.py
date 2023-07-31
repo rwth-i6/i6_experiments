@@ -224,7 +224,9 @@ def run_single(
         label_smoothing=CONF_LABEL_SMOOTHING,
         use_multi_task=multitask,
     )
-
+    for layer in list(network.keys()):
+        if layer.startswith("aux"):
+            network.pop(layer)
     base_config = {
         **s.initial_nn_args,
         **newbob.get_newbob_cfg(),
