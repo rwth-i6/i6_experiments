@@ -350,7 +350,7 @@ def transform_checkpoint(
 
     j = TransformCheckpointJob(
         input_mg_path=input_graph_meta,
-        imput_gd_path=input_graph_pb,
+        input_gd_path=input_graph_pb,
         input_checkpoint=input_model_path,
         output_mg_path=output_graph_meta,
         output_gd_path=output_graph_meta,
