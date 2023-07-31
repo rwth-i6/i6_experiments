@@ -34,10 +34,10 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         parallelize_conversion: bool,
         rtf: int,
         mem: int,
+        nn_prior: bool,
         epochs: Optional[List[int]] = None,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
-        nn_prior: bool = False,
         **kwargs,
     ):
         """
