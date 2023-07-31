@@ -83,7 +83,7 @@ class TransformCheckpointJob(tk.Job):
         self.rqmt = {"cpu": 1, "mem": 8.0, "time": 1.0}
 
     def tasks(self):
-        yield Task("run", mini_task=True)
+        yield Task("run", rqmt=self.rqmt)
 
     def run(self):
         import tensorflow as tf
