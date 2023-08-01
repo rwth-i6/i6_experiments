@@ -363,7 +363,7 @@ def run_single(
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
     s.set_graph_for_experiment("fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config))
 
-    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
 
         s.set_mono_priors_returnn_rasr(
