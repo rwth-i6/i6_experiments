@@ -72,8 +72,8 @@ class Import(SerializerObject):
 
     def __init__(
         self,
-        *,
         code_object_path: Union[str, FunctionType, Any],
+        *,
         unhashed_package_root: Optional[str] = None,
         import_as: Optional[str] = None,
         use_for_hash: bool = True,
@@ -132,11 +132,10 @@ class PartialImport(Import):
     TEMPLATE = textwrap.dedent(
         """\
             import functools
-            kwargs = ${KWARGS}
-    
-            from ${IMPORT_PATH} import ${IMPORT_NAME} as _${IMPORT_NAME}
-            ${OBJECT_NAME} = functools.partial(_${IMPORT_NAME}, **kwargs)
-    
+            ${OBJECT_NAME} = functools.partial(
+                __import__(${IMPORT_PATH}, globals(), locals(), ["${IMPORT_NAME}"], 0),
+                **${KWARGS}
+            )
         """
     )
 
