@@ -155,14 +155,6 @@ def true_tdnn_layer(width, context, input, **kwargs):
 def true_tdnn_layer_comp(width, dilation, filter_size, input, **kwargs):
     return true_tdnn_layer(width, dilation, input, **kwargs)
 
-# gated_res_bottleneck_layer = {
-#     "conv"      : conv_layer(bottleneck, dilation, activation=None, input="data", **kwargs),
-#     "gating"    : { "class": "gating", "activation": "tanh", "from": ["conv"] },
-#     "linear"    : { "class": "linear", "activation": None, "from": ["gating"], "n_out": width},
-#     "projection": { "class": "linear", "activation": None, "from": ["data"], "n_out": width},
-#     "output"    : { "class": "combine", "kind": "add", "from": ["projection", "linear"]}
-# }
-
 def gated_conv_layer_bottleneck(width, dilation, input_layer, bottleneck, **kwargs):
     res = {
         "conv"      : conv_layer(bottleneck, dilation, activation=None, input="data", **kwargs),
