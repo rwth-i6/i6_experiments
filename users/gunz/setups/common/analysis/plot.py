@@ -45,7 +45,6 @@ class PlotPhonemeDurationsJob(Job):
         merged_counts: Dict[str, List[float]] = {
             k: [count * self.time_step_s for counts in loaded_counts for count in counts[k]]
             for k in sorted(all_phonemes)
-            if k != self.sil_allophone
         }
 
         ph_counts = {k: v for k, v in merged_counts.items() if k != self.sil_allophone}
