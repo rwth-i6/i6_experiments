@@ -10,12 +10,16 @@ from .processor import AlignmentProcessor
 
 
 class PlotPhonemeDurationsJob(Job):
-    def __init__(self, alignment_bundle_path: Path, allophones_path: Path, time_step_s: float):
+    def __init__(
+        self, alignment_bundle_path: Path, allophones_path: Path, time_step_s: float, sil_allophone: str = "[SILENCE]"
+    ):
         self.alignment_bundle_path = alignment_bundle_path
         self.allophones_path = allophones_path
+        self.sil_allophone = sil_allophone
         self.time_step_s = time_step_s
 
         self.out_plot = self.output_path("plot.png")
+        self.out_sil_plot = self.output_path("plot_sil.png")
 
     def tasks(self) -> Iterator[Task]:
         with open(self.alignment_bundle_path, "rt") as bundle_file:
@@ -41,12 +45,18 @@ class PlotPhonemeDurationsJob(Job):
         merged_counts: Dict[str, List[float]] = {
             k: [count * self.time_step_s for counts in loaded_counts for count in counts[k]]
             for k in sorted(all_phonemes)
+            if k != self.sil_allophone
         }
 
-        fig, ax = plt.subplots()
-        ax.boxplot(merged_counts.values(), 0, "")
-        ax.set_xticklabels(merged_counts.keys())
-        fig.savefig(self.out_plot)
+        ph_counts = {k: v for k, v in merged_counts.items() if k != self.sil_allophone}
+        sil_counts = {k: v for k, v in merged_counts.items() if k == self.sil_allophone}
+
+        for counts, dest in [(ph_counts, self.out_plot), (sil_counts, self.out_sil_plot)]:
+            plt.clf()
+            fig, ax = plt.subplots()
+            ax.boxplot(counts.values(), 0, "")
+            ax.set_xticklabels(counts.keys())
+            fig.savefig(dest)
 
 
 class PlotViterbiAlignmentsJob(Job):
