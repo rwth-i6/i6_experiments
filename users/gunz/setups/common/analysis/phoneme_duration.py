@@ -1,6 +1,7 @@
+import itertools
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from i6_core.lib.rasr_cache import FileArchive
 
@@ -19,24 +20,14 @@ def compute_phoneme_durations(cache_file: str, allophones: str) -> Dict[str, Lis
     alignments = (archive.read(file, "align") for file in files)
     allophone_sequences = ((archive.allophones[t[1]] for t in align) for align in alignments)
     state_sequences = ((AllophoneState.from_alignment_state(st) for st in allos) for allos in allophone_sequences)
+    grouped_sequences = (itertools.groupby(st_seq, lambda st: st.ph) for st_seq in state_sequences)
 
-    def append_st(ph: str, i: int):
-        if ph not in result:
-            result[ph] = []
-        result[ph].append(i)
-
-    for state_sequence in state_sequences:
-        cur_mono: Optional[str] = None
-        i = 0
-
-        for state in state_sequence:
-            if cur_mono is None or cur_mono == state.ph:
-                cur_mono = state.ph
-                i += 1
+    for groups in grouped_sequences:
+        for key, grouped in groups:
+            length = sum((1 for _ in grouped))
+            if key not in result:
+                result[key] = [length]
             else:
-                append_st(state.ph, i)
-                i = 1
-
-        append_st(cur_mono, i)
+                result[key].append(length)
 
     return result
