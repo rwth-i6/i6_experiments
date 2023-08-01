@@ -1,7 +1,7 @@
 import glob
 import pickle
 import os.path as path
-from typing import Any, Dict, Iterator, List, Set, Union
+from typing import Any, Dict, Iterator, List, Set, Tuple, Union
 
 from sisyphus import tk, Job, Path, Task
 
@@ -11,10 +11,16 @@ from .processor import AlignmentProcessor
 
 class PlotPhonemeDurationsJob(Job):
     def __init__(
-        self, alignment_bundle_path: Path, allophones_path: Path, time_step_s: float, sil_allophone: str = "[SILENCE]"
+        self,
+        alignment_bundle_path: Path,
+        allophones_path: Path,
+        time_step_s: float,
+        sil_allophone: str = "[SILENCE]",
+        figsize: Tuple[int, int] = (20, 10),
     ):
         self.alignment_bundle_path = alignment_bundle_path
         self.allophones_path = allophones_path
+        self.figsize = figsize
         self.sil_allophone = sil_allophone
         self.time_step_s = time_step_s
 
@@ -52,7 +58,7 @@ class PlotPhonemeDurationsJob(Job):
 
         for counts, dest in [(ph_counts, self.out_plot), (sil_counts, self.out_sil_plot)]:
             plt.clf()
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=self.figsize)
             ax.boxplot(counts.values(), 0, "")
             ax.set_xticklabels(counts.keys())
             fig.savefig(dest)
