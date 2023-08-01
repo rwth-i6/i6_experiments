@@ -1,5 +1,6 @@
 import glob
 import pickle
+import os
 import os.path as path
 from typing import Any, Dict, Iterator, List, Set, Tuple, Union
 
@@ -32,6 +33,7 @@ class PlotPhonemeDurationsJob(Job):
             archives = [a.strip() for a in bundle_file.readlines()]
         yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
         yield Task("plot", rqmt={"cpu": 1, "mem": 8})
+        yield Task("cleanup", rqmt={"cpu": 1, "mem": 0.5, "time": 0.5})
 
     def compute_statistics(self, cache_file: str):
         durations = compute_phoneme_durations(cache_file=cache_file, allophones=self.allophones_path.get_path())
@@ -64,6 +66,11 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
             fig.savefig(dest)
+
+    def cleanup(self):
+        files = glob.glob("stats.*.pk")
+        for file in files:
+            os.remove(file)
 
 
 class PlotViterbiAlignmentsJob(Job):
