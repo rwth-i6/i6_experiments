@@ -684,7 +684,7 @@ def create_config(
         encoder_args["batch_norm_opts"] = {"momentum": 0.0, "use_sample": 1.0}
 
     if mixup_aug_opts:
-        encoder_args.update({"input": "mixup"})  # name of mixup layer which will be input to specaug
+        encoder_args.update({"input": "mixup_features"})  # name of mixup layer which will be input to specaug
 
     conformer_encoder = encoder_type(**encoder_args)
     conformer_encoder.create_network()
@@ -793,22 +793,8 @@ def create_config(
     if feature_extraction_net and global_stats:
         add_global_stats_norm(global_stats, exp_config["network"])
 
-    from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
-
     if mixup_aug_opts:
-        use_exp_feats = mixup_aug_opts.pop("use_exp_feats", False)
-        exp_config["network"].update(
-            make_mixup_layer_dict(
-                src="log_mel_features",
-                dim=feature_extraction_net["mel_filterbank"]["n_out"],
-                opts=mixup_aug_opts,
-                use_exp_feats=use_exp_feats,
-                is_recog=is_recog,
-            )
-        )
-        if use_exp_feats:
-            exp_config["network"]["source_log"] = {"class": "activation", "from": "mixup", "activation": "safe_log"}
-            exp_config["network"]["source"]["from"] = "source_log"
+        add_mixup_layers(exp_config["network"], feature_extraction_net, mixup_aug_opts, is_recog)
 
     staged_network_dict = None
 
@@ -829,13 +815,7 @@ def create_config(
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
                 if mixup_aug_opts:
-                    net.update(
-                        make_mixup_layer_dict(
-                            src="log_mel_features",
-                            dim=feature_extraction_net["mel_filterbank"]["n_out"],
-                            opts=mixup_aug_opts,
-                        )
-                    )
+                    add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
                     net_as_str = "from returnn.config import get_global_config\n"
                     net_as_str += "network = %s" % str(net)
                     staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
@@ -844,7 +824,7 @@ def create_config(
                 idx += 1
             if mixup_aug_opts:
                 net_as_str = "from returnn.config import get_global_config\n"
-                net_as_str += "network = %s" % str(exp_config["network"])
+                net_as_str += "network = %s" % str(exp_config["network"])  # mixup already added
                 staged_network_dict[(idx * pretrain_reps) + 1] = net_as_str
             else:
                 staged_network_dict[(idx * pretrain_reps) + 1] = exp_config["network"]
@@ -1001,3 +981,32 @@ def add_global_stats_norm(global_stats, net):
             "from": ["log10_", "global_mean", "global_stddev"],
             "eval": "(source(0) - source(1)) / source(2)",
         }
+
+
+def add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog):
+    from i6_experiments.users.zeineldeen.data_aug.mixup.tf_mixup import make_mixup_layer_dict
+
+    assert feature_extraction_net
+    assert "log_mel_features" in feature_extraction_net, "currently mixup is only supported for log-mel features"
+    use_log10_features = mixup_aug_opts.get("use_log10_features", False)
+    net.update(
+        make_mixup_layer_dict(
+            src="log_mel_features" if use_log10_features else "mel_filterbank",
+            dim=feature_extraction_net["mel_filterbank"]["n_out"],
+            opts=mixup_aug_opts,
+            use_log10_features=use_log10_features,
+            is_recog=is_recog,
+        )
+    )
+    if not use_log10_features:
+        # mixup features are not in log10 space so we need to convert
+        net["log"] = {
+            "from": "mixup",
+            "class": "activation",
+            "activation": "safe_log",
+            "opts": {"eps": 1e-10},
+        }
+        # this layer is fed as input to SpecAugment layer
+        net["mixup_features"] = {"from": "log", "class": "eval", "eval": "source(0) / 2.3026"}
+    else:
+        net["mixup_features"] = {"class": "copy", "from": "mixup"}
