@@ -61,6 +61,8 @@ class PlotPhonemeDurationsJob(Job):
             fig, ax = plt.subplots(figsize=self.figsize)
             ax.boxplot(counts.values(), 0, "")
             ax.set_xticklabels(counts.keys())
+            ax.set_xlabel("Phoneme")
+            ax.set_ylabel("Duration [s]")
             fig.savefig(dest)
 
 
