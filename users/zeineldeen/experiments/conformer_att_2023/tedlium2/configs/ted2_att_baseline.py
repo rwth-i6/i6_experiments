@@ -1025,7 +1025,7 @@ def conformer_baseline():
         args, exp_name = get_base_v1_args(8e-4, 50 * 4)
         args["mixup_aug_opts"] = {
             "use_log10_features": use_log10_feats,
-            "buffer_size": 7200000,  # 2 hours
+            "buffer_size": 500_000,  # 1.4
             "apply_prob": 0.3,
             "max_num_mix": 2,
             "lambda_min": 0.15,
