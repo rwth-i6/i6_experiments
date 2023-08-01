@@ -20,7 +20,7 @@ def compute_phoneme_durations(cache_file: str, allophones: str) -> Dict[str, Lis
     allophone_sequences = ((archive.allophones[t[1]] for t in align) for align in alignments)
     state_sequences = ((AllophoneState.from_alignment_state(st) for st in allos) for allos in allophone_sequences)
 
-    def append_st(ph, i):
+    def append_st(ph: str, i: int):
         if ph not in result:
             result[ph] = []
         result[ph].append(i)

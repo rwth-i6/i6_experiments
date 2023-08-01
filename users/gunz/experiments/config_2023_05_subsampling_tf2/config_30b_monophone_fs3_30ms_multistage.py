@@ -295,10 +295,7 @@ def run_single(
         "center__output/b:0": (s.label_info.get_n_state_classes(),),
         "right__output": tuple(),
     }
-    force_init_rel_pos = {
-        f"enc_{i+1:03d}_rel_pos/encoding_matrix:0": rel_pos_weights[i].tolist()
-        for i in range(12)
-    }
+    force_init_rel_pos = {f"enc_{i+1:03d}_rel_pos/encoding_matrix:0": rel_pos_weights[i].tolist() for i in range(12)}
     returnn_config = multistage.transform_checkpoint(
         name=name,
         input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
