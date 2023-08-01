@@ -308,7 +308,7 @@ def run_single(
         nn_train_args=train_args,
     )
 
-    for ep, crp_k in itertools.product([550, 600], ["dev-other"]):
+    for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.set_diphone_priors_returnn_rasr(
