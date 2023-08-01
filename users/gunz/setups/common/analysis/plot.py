@@ -21,7 +21,7 @@ class PlotPhonemeDurationsJob(Job):
         with open(self.alignment_bundle_path, "rt") as bundle_file:
             archives = [a.strip() for a in bundle_file.readlines()]
         yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
-        yield Task("plot")
+        yield Task("plot", rqmt={"cpu": 1, "mem": 8})
 
     def compute_statistics(self, cache_file: str):
         durations = compute_phoneme_durations(cache_file=cache_file, allophones=self.allophones_path.get_path())
