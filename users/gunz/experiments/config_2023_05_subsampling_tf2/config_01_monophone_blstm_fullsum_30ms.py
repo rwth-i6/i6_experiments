@@ -576,6 +576,7 @@ def run_single(
             time_step_s=feature_time_shift * 4,
         )
         tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
+        tk.register_output(f"alignments/{name}/silence-duration.png", phoneme_durs.out_sil_plot)
 
     for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
         s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)

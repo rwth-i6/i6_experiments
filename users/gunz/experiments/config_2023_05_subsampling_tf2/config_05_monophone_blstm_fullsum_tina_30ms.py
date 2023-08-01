@@ -248,5 +248,6 @@ def run_single(
         time_step_s=40 / 1000,
     )
     tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
+    tk.register_output(f"alignments/{name}/silence-duration.png", phoneme_durs.out_sil_plot)
 
     return s
