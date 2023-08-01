@@ -799,8 +799,9 @@ def conformer_baseline():
 
     # ----------------------------------------------- #
 
-    def get_base_v2_args():
+    def get_base_v2_args(num_blocks, reduce_factor):
         base_v2_args = copy.deepcopy(oclr_args)
+        base_v2_args = update_encoder_num_blocks_and_dims(base_v2_args, num_blocks, reduce_factor)
         base_v2_args["max_seq_length"] = None
         base_v2_args["oclr_opts"]["n_step"] = 2085
         base_v2_args["encoder_args"].att_dropout = 0.2
@@ -820,8 +821,7 @@ def conformer_baseline():
             for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                 (0.0, 0.15, 0.2, 0.05, 0.1),
             ]:
-                args = copy.deepcopy(get_base_v2_args())
-                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                 args["encoder_args"].att_dropout = self_att_drop
                 args["encoder_args"].dropout = drop
                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -877,8 +877,7 @@ def conformer_baseline():
                 (0.05, 0.15, 0.2, 0.05, 0.1),
                 (0.0, 0.2, 0.2, 0.1, 0.2),
             ]:
-                args = copy.deepcopy(get_base_v2_args())
-                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                 args["encoder_args"].att_dropout = self_att_drop
                 args["encoder_args"].dropout = drop
                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -917,8 +916,7 @@ def conformer_baseline():
                 for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                     (0.0, 0.15, 0.2, 0.05, 0.1),
                 ]:
-                    args = copy.deepcopy(get_base_v2_args())
-                    args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                    args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                     args["encoder_args"].att_dropout = self_att_drop
                     args["encoder_args"].dropout = drop
                     args["encoder_args"].ff_weight_dropout = weight_drop
@@ -958,8 +956,7 @@ def conformer_baseline():
             for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                 (0.0, 0.15, 0.2, 0.05, 0.1),
             ]:
-                args = copy.deepcopy(get_base_v2_args())
-                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                 args["encoder_args"].att_dropout = self_att_drop
                 args["encoder_args"].dropout = drop
                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -999,8 +996,7 @@ def conformer_baseline():
             for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                 (0.0, 0.15, 0.2, 0.05, 0.1),
             ]:
-                args = copy.deepcopy(get_base_v2_args())
-                args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                 args["encoder_args"].att_dropout = self_att_drop
                 args["encoder_args"].dropout = drop
                 args["encoder_args"].ff_weight_dropout = weight_drop
@@ -1035,6 +1031,24 @@ def conformer_baseline():
                         bpe_size=BPE_500,
                     )
 
+                for lr in [1e-3]:
+                    cyc_ep = int(0.45 * ep)
+                    args["learning_rates_list"] = (
+                        list(numpy.linspace(lr / 10, lr, cyc_ep))
+                        + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                    )
+                    assert len(args["learning_rates_list"]) == ep, len(args["learning_rates_list"])
+                    name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_epochOCLR_specaug3"
+                    name += "_fixPre"
+                    run_default_exp(
+                        name,
+                        train_args=args,
+                        num_epochs=ep,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                    )
+
     # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_specaug3_epochOCLR
     # 12.7       11.2     13.4
 
@@ -1047,8 +1061,7 @@ def conformer_baseline():
                     (0.1, 0.2, 0.2, 0.1, 0.1),
                     (0.1, 0.15, 0.1, 0.05, 0.1),
                 ]:
-                    args = copy.deepcopy(get_base_v2_args())
-                    args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                    args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                     args["encoder_args"].att_dropout = self_att_drop
 
                     args["encoder_args"].dropout = drop
@@ -1092,8 +1105,7 @@ def conformer_baseline():
                 for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                     (0.0, 0.15, 0.2, 0.05, 0.1),
                 ]:
-                    args = copy.deepcopy(get_base_v2_args())
-                    args = update_encoder_num_blocks_and_dims(args, num_blocks, reduce_factor)
+                    args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
                     args["encoder_args"].att_dropout = self_att_drop
                     args["encoder_args"].dropout = drop
                     args["encoder_args"].ff_weight_dropout = weight_drop
@@ -1128,6 +1140,108 @@ def conformer_baseline():
                         name += "_mixup"
                         if use_log10_feat:
                             name += "_log10"
+                        run_default_exp(
+                            name,
+                            train_args=args,
+                            num_epochs=ep,
+                            gpu_mem=11,
+                            bpe_size=BPE_500,
+                        )
+
+    for ep in [50 * 6]:
+        for num_blocks, reduce_factor in [(8, 1.0)]:
+            for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
+                (0.0, 0.15, 0.2, 0.05, 0.1),
+            ]:
+                for mixup_mixes, mixup_apply_prob in [(4, 0.4), (3, 0.4)]:
+                    args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
+                    args["encoder_args"].att_dropout = self_att_drop
+                    args["encoder_args"].dropout = drop
+                    args["encoder_args"].ff_weight_dropout = weight_drop
+                    args["encoder_args"].mhsa_weight_dropout = weight_drop
+                    args["encoder_args"].conv_weight_dropout = weight_drop
+
+                    args["decoder_args"].att_dropout = dec_att_drop
+                    args["decoder_args"].embed_dropout = embed_drop
+
+                    args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
+
+                    args["mixup_aug_opts"] = {
+                        "use_log10_features": True,  # seems to be better
+                        "buffer_size": 1_000_000,  # 2.7 hours
+                        "apply_prob": mixup_apply_prob,
+                        "max_num_mix": mixup_mixes,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
+
+                    args.pop("oclr_opts")
+
+                    for lr in [1e-3]:
+                        cyc_ep = int(0.45 * ep)
+                        args["learning_rates_list"] = (
+                            list(numpy.linspace(lr / 10, lr, cyc_ep))
+                            + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                        )
+                        assert len(args["learning_rates_list"]) == ep, len(args["learning_rates_list"])
+                        name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_epochOCLR_specaug3"
+                        name += f"_mixup-{mixup_mixes}-{mixup_apply_prob}"
+                        if use_log10_feat:
+                            name += "_log10"
+                        run_default_exp(
+                            name,
+                            train_args=args,
+                            num_epochs=ep,
+                            gpu_mem=11,
+                            bpe_size=BPE_500,
+                        )
+
+    # TODO: turn-off mixup during pretrain
+    for use_log10_feat in [True, False]:
+        for ep in [50 * 6]:
+            for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75)]:
+                for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
+                    (0.0, 0.15, 0.2, 0.05, 0.1),
+                ]:
+                    args = copy.deepcopy(get_base_v2_args(num_blocks, reduce_factor))
+                    args["encoder_args"].att_dropout = self_att_drop
+                    args["encoder_args"].dropout = drop
+                    args["encoder_args"].ff_weight_dropout = weight_drop
+                    args["encoder_args"].mhsa_weight_dropout = weight_drop
+                    args["encoder_args"].conv_weight_dropout = weight_drop
+
+                    args["decoder_args"].att_dropout = dec_att_drop
+                    args["decoder_args"].embed_dropout = embed_drop
+
+                    args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
+
+                    args["mixup_aug_opts"] = {
+                        "use_log10_features": use_log10_feat,
+                        "buffer_size": 1_000_000,
+                        "apply_prob": 0.3,
+                        "max_num_mix": 3,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
+
+                    args["enable_mixup_in_pretrain"] = False
+
+                    args.pop("oclr_opts")
+
+                    for lr in [1e-3]:
+                        cyc_ep = int(0.45 * ep)
+                        args["learning_rates_list"] = (
+                            list(numpy.linspace(lr / 10, lr, cyc_ep))
+                            + list(numpy.linspace(lr, lr / 10, cyc_ep))
+                            + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
+                        )
+                        assert len(args["learning_rates_list"]) == ep, len(args["learning_rates_list"])
+                        name = f"conf_{num_blocks}l_dimF{reduce_factor}_bpe{BPE_500}_drop{drop}_selfAttDrop{self_att_drop}_decDrop{dec_att_drop}_embedDrop{embed_drop}_wd{weight_drop}_ep{ep}_lr{lr}_epochOCLR_specaug3"
+                        name += "_mixup"
+                        if use_log10_feat:
+                            name += "-log10"
+                        name += "-nopre"
                         run_default_exp(
                             name,
                             train_args=args,

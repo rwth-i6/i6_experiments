@@ -558,6 +558,7 @@ def create_config(
     keep_best_n=None,
     param_dropout=0.0,
     mixup_aug_opts=None,
+    enable_mixup_in_pretrain=True,
     seq_train_opts=None,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
@@ -683,6 +684,7 @@ def create_config(
         # freeze BN during training (e.g when retraining.)
         encoder_args["batch_norm_opts"] = {"momentum": 0.0, "use_sample": 1.0}
 
+    encoder_args_input_ = encoder_args["input"]
     if mixup_aug_opts:
         encoder_args.update({"input": "mixup_features"})  # name of mixup layer which will be input to specaug
 
@@ -804,6 +806,8 @@ def create_config(
             staged_network_dict = {}
             idx = 0
             while True:
+                if mixup_aug_opts and not enable_mixup_in_pretrain:
+                    encoder_args["input"] = encoder_args_input_
                 net = pretrain_layers_and_dims(
                     idx, exp_config["network"], encoder_type, decoder_type, encoder_args, decoder_args, **pretrain_opts
                 )
@@ -814,7 +818,7 @@ def create_config(
                     net.update(feature_extraction_net)
                     if global_stats:
                         add_global_stats_norm(global_stats, net)
-                if mixup_aug_opts:
+                if mixup_aug_opts and enable_mixup_in_pretrain:
                     add_mixup_layers(net, feature_extraction_net, mixup_aug_opts, is_recog)
                     net_as_str = "from returnn.config import get_global_config\n"
                     net_as_str += "network = %s" % str(net)
