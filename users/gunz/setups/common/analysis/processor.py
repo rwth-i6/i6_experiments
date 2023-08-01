@@ -21,15 +21,9 @@ class AlignmentProcessor:
         monophone: bool = True,
     ):
         alignment_bundle_path = (
-            subprocess.check_output(["cf", alignment_bundle_path])
-            .decode(sys.stdout.encoding)
-            .strip()
+            subprocess.check_output(["cf", alignment_bundle_path]).decode(sys.stdout.encoding).strip()
         )
-        allophones_path = (
-            subprocess.check_output(["cf", allophones_path])
-            .decode(sys.stdout.encoding)
-            .strip()
-        )
+        allophones_path = subprocess.check_output(["cf", allophones_path]).decode(sys.stdout.encoding).strip()
 
         logging.info(f"bundle={alignment_bundle_path}")
         logging.info(f"allos={allophones_path}")
@@ -143,11 +137,7 @@ class AlignmentProcessor:
 
 class CorpusProcessor:
     def __init__(self, corpus_file_path: str):
-        corpus_file_path = (
-            subprocess.check_output(["cf", corpus_file_path])
-            .decode(sys.stdout.encoding)
-            .strip()
-        )
+        corpus_file_path = subprocess.check_output(["cf", corpus_file_path]).decode(sys.stdout.encoding).strip()
 
         if corpus_file_path.endswith("gz"):
             with gzip.open(corpus_file_path, "rt") as corpus_file:

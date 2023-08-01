@@ -18,7 +18,7 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import PlotViterbiAlignmentsJob
+from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -460,6 +460,13 @@ def run_single(
         monophone=True,
     )
     tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+
+    phoneme_durs = PlotPhonemeDurationsJob(
+        alignment_bundle_path=a_job.out_alignment_bundle,
+        allophones_path=allophones.out_allophone_file,
+        time_step_s=feature_time_shift * 4,
+    )
+    tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
 
     s.experiments["fh"]["alignment_job"] = a_job
 

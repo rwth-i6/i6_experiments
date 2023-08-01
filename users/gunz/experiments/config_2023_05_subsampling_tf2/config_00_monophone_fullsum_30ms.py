@@ -17,7 +17,7 @@ from sisyphus import gs, tk
 from i6_core import corpus, lexicon, rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.analysis import PlotViterbiAlignmentsJob
+from ...setups.common.analysis import PlotPhonemeDurationsJob, PlotViterbiAlignmentsJob
 from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -405,6 +405,13 @@ def run_single(
                 monophone=True,
             )
             tk.register_output(f"alignments/{name}/alignment-plots", plots.out_plot_folder)
+
+            phoneme_durs = PlotPhonemeDurationsJob(
+                alignment_bundle_path=a_job.out_alignment_bundle,
+                allophones_path=allophones.out_allophone_file,
+                time_step_s=30 / 1000,
+            )
+            tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
 
         for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
             s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
