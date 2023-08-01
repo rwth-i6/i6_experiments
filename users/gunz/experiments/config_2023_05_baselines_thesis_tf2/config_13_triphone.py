@@ -347,7 +347,7 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=35,
+                rtf_cpu=50,
             )
 
         if tune_decoding:
@@ -371,7 +371,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=35,
+                rtf_cpu=50,
             )
 
         if False and run_performance_study:
