@@ -15,12 +15,12 @@ class PlotPhonemeDurationsJob(Job):
         self.allophones_path = allophones_path
         self.time_step_s = time_step_s
 
-        self.out_plot = self.output_path("plot.png", directory=True)
+        self.out_plot = self.output_path("plot.png")
 
     def tasks(self) -> Iterator[Task]:
         with open(self.alignment_bundle_path, "rt") as bundle_file:
             archives = [a.strip() for a in bundle_file.readlines()]
-        yield Task("compute_statistics", args=archives)
+        yield Task("compute_statistics", args=archives, rqmt={"cpu": 1, "mem": 1, "time": 10 / 60})
         yield Task("plot")
 
     def compute_statistics(self, cache_file: str):
