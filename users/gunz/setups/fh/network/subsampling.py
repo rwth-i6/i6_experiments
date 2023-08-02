@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Union
 
 from i6_core import returnn
-from i6_experiments.users.gunz.setups.fh.factored import LabelInfo
+from ....setups.fh.factored import LabelInfo
 
 
 class PoolingMode(Enum):
