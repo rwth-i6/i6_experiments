@@ -64,6 +64,7 @@ def reduce_output_step_rate(
                 "mode": pool_mode,
                 "padding": "same",
                 "pool_size": (input_label_info.n_states_per_phone,),
+                "register_as_extern_data": output_center_softmax_layer_name,
             },
             output_left_softmax_layer_name: {
                 "class": "pool",
@@ -71,6 +72,7 @@ def reduce_output_step_rate(
                 "mode": pool_mode,
                 "padding": "same",
                 "pool_size": (input_label_info.n_states_per_phone,),
+                "register_as_extern_data": output_left_softmax_layer_name,
             },
             output_right_softmax_layer_name: {
                 "class": "pool",
@@ -78,6 +80,7 @@ def reduce_output_step_rate(
                 "mode": pool_mode,
                 "padding": "same",
                 "pool_size": (input_label_info.n_states_per_phone,),
+                "register_as_extern_data": output_right_softmax_layer_name,
             },
         }
     elif temporal_reduction_mode.throwaway:
@@ -100,6 +103,7 @@ def reduce_output_step_rate(
                     "class": "merge_dims",
                     "from": f"{out_layer}_gather",
                     "axes": "spatial",
+                    "register_as_extern_data": out_layer,
                 },
             }
 
