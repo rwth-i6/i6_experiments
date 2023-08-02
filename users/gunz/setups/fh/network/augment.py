@@ -583,3 +583,45 @@ def augment_net_with_triphone_outputs(
     network[f"{prefix}center-output"]["loss_opts"].pop("label_smoothing", None)
 
     return network
+
+
+def remove_label_pops_and_losses(
+    network: typing.Union["returnn.ReturnnConfig", Network], except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> Network:
+    network = copy.copy(network)
+
+    layers_to_pop = {
+        "centerPhoneme",
+        "stateId",
+        "centerState",
+        "pastLabel",
+        "popFutureLabel",
+        "futureLabel",
+        "classes_",
+    } - set(except_layers or [])
+    for k in layers_to_pop:
+        network.pop(k, None)
+
+    for layer in network.values():
+        layer.pop("target", None)
+        layer.pop("loss", None)
+        layer.pop("loss_scale", None)
+        layer.pop("loss_opts", None)
+
+    return network
+
+
+def remove_label_pops_and_losses_from_returnn_config(
+    cfg: returnn.ReturnnConfig, except_layers: typing.Optional[typing.Iterable[str]] = None
+) -> returnn.ReturnnConfig:
+    cfg = copy.deepcopy(cfg)
+    cfg.config["network"] = remove_label_pops_and_losses(cfg.config["network"], except_layers)
+
+    for k in ["centerState", "classes", "futureLabel", "pastLabel"]:
+        cfg.config["extern_data"].pop(k, None)
+
+    chk_cfg = cfg.config.get("chunking", None)
+    if isinstance(chk_cfg, tuple):
+        cfg.config["chunking"] = f"{chk_cfg[0]['data']}:{chk_cfg[1]['data']}"
+
+    return cfg

@@ -11,7 +11,6 @@ from sisyphus import tk
 
 # -------------------- Recipes --------------------
 import i6_core.features as features
-from i6_core.returnn import CompileNativeOpJob
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
 import i6_experiments.common.setups.rasr.util as rasr_util
@@ -123,7 +122,7 @@ def get_init_args(
                 "without_samples": False,
                 "samples_options": samples_options,
                 "normalization_options": {},
-            }
+            },
         },
         "energy": {
             "energy_options": {
@@ -151,6 +150,7 @@ def get_data_inputs(
     add_unknown_phoneme_and_mapping=True,
     use_eval_data_subset: bool = False,
     lm_cfg: dict = None,
+    add_lm_to_train=False,
 ):
     corpus_object_dict = lbs_dataset.get_corpus_object_dict(
         audio_format="wav",
@@ -184,6 +184,7 @@ def get_data_inputs(
         corpus_object=corpus_object_dict[train_corpus],
         concurrent=300,
         lexicon=train_lexicon,
+        lm=lm if add_lm_to_train else None,
     )
 
     dev_corpus_keys = ["dev-other"] if use_eval_data_subset else ["dev-clean", "dev-other"]

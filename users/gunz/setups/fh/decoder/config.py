@@ -147,6 +147,12 @@ class SearchParameters:
     state_dependent_tdps: typing.Optional[typing.Union[str, tk.Path]] = None
     transition_scales: typing.Optional[typing.Tuple[Float, Float]] = None  # loop, fwd
 
+    def with_altas(self, altas: Float) -> "SearchParameters":
+        return dataclasses.replace(self, altas=altas)
+
+    def with_beam_size(self, beam: Float) -> "SearchParameters":
+        return dataclasses.replace(self, beam=beam)
+
     def with_lm_scale(self, scale: Float) -> "SearchParameters":
         return dataclasses.replace(self, lm_scale=scale)
 

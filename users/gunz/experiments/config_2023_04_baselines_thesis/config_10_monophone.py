@@ -66,6 +66,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
+    decode_all_corpora: bool
     lr: str
     multitask: bool
     dc_detection: bool
@@ -89,15 +90,17 @@ def run(returnn_root: tk.Path):
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
             dc_detection=False,
+            decode_all_corpora=False,
             lr="v6",
             multitask=True,
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
         Experiment(
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
             dc_detection=False,
+            decode_all_corpora=False,
             lr="v6",
             multitask=False,
             run_performance_study=False,
@@ -107,19 +110,21 @@ def run(returnn_root: tk.Path):
             alignment=tri_gmm_align,
             alignment_name="GMMtri",
             dc_detection=False,
+            decode_all_corpora=False,
             lr="v7",
             multitask=True,
-            run_performance_study=True,
-            tune_decoding=True,
+            run_performance_study=False,
+            tune_decoding=False,
         ),
         Experiment(
             alignment=scratch_align,
             alignment_name="scratch",
             dc_detection=True,
+            decode_all_corpora=True,
             lr="v7",
             multitask=True,
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
     ]
     for exp in configs:
@@ -127,6 +132,7 @@ def run(returnn_root: tk.Path):
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
             dc_detection=exp.dc_detection,
+            decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
             lr=exp.lr,
             multitask=exp.multitask,
@@ -141,6 +147,7 @@ def run_single(
     alignment: tk.Path,
     alignment_name: str,
     dc_detection: bool,
+    decode_all_corpora: bool,
     focal_loss: float,
     lr: str,
     multitask: bool,
@@ -310,6 +317,8 @@ def run_single(
         dev_corpus_key=s.crp_names["cvtrain"],
     )
 
+    best_config = None
+
     for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
 
@@ -370,6 +379,68 @@ def run_single(
                     pre_path="decoding-perf",
                     search_parameters=dataclasses.replace(recog_args, altas=altas if altas > 0 else None, beam=beam),
                     rtf_gpu=0.75,
+                )
+
+    if decode_all_corpora:
+        for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-clean", "dev-other", "test-clean", "test-other"]):
+            s.set_binaries_for_crp(crp_k, RS_RASR_BINARY_PATH)
+
+            recognizer, recog_args = s.get_recognizer_and_args(
+                key="fh",
+                context_type=PhoneticContext.monophone,
+                crp_corpus=crp_k,
+                epoch=ep,
+                gpu=False,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                recompile_graph_for_feature_scorer=True,
+            )
+
+            cfgs = [
+                cfg
+                for cfg in [
+                    recog_args,
+                    recog_args.with_prior_scale(0.19).with_tdp_scale(0.44),
+                    recog_args.with_prior_scale(0.3).with_tdp_scale(0.4),
+                    # best_config,
+                ]
+                if cfg is not None
+            ]
+
+            for cfg in cfgs:
+                recognizer.recognize_count_lm(
+                    label_info=s.label_info,
+                    search_parameters=cfg,
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=False,
+                    calculate_stats=True,
+                )
+
+            generic_lstm_base_op = returnn.CompileNativeOpJob(
+                "LstmGenericBase",
+                returnn_root=returnn_root,
+                returnn_python_exe=RETURNN_PYTHON_EXE,
+            )
+            generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
+            recognizer, recog_args = s.get_recognizer_and_args(
+                key="fh",
+                context_type=PhoneticContext.monophone,
+                crp_corpus=crp_k,
+                epoch=ep,
+                gpu=True,
+                tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+                recompile_graph_for_feature_scorer=True,
+                tf_library=[generic_lstm_base_op.out_op, generic_lstm_base_op.out_grad_op],
+            )
+
+            for cfg in cfgs:
+                recognizer.recognize_ls_trafo_lm(
+                    label_info=s.label_info,
+                    search_parameters=cfg.with_lm_scale(cfg.lm_scale + 2.0),
+                    num_encoder_output=conf_model_dim,
+                    rerun_after_opt_lm=False,
+                    calculate_stats=True,
+                    rtf_gpu=18,
+                    gpu=True,
                 )
 
     return s

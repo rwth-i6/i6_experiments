@@ -63,7 +63,7 @@ class ExtractSearchStatisticsJob(Job):
         eval_statistics = {}
 
         for path in self.search_logs:
-            with gzip.open(tk.uncached_path(path), "rt") as f:
+            with gzip.open(path, "rt") as f:
                 root = ET.fromstring(f.read())
             host = root.findall("./system-information/name")[0].text
             elapsed = float(root.findall("./timer/elapsed")[0].text)
