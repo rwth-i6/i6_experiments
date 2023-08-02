@@ -1,13 +1,16 @@
 import copy
-from enum import auto, Enum
+from enum import Enum
 
 from i6_core import returnn
 from i6_experiments.users.gunz.setups.fh.factored import LabelInfo
 
 
 class TemporalReductionMode(Enum):
-    pooling = auto()
-    throwaway = auto()
+    pooling = "pooling"
+    throwaway = "throwaway"
+
+    def __str__(self):
+        return self.value
 
 
 def reduce_output_step_rate(

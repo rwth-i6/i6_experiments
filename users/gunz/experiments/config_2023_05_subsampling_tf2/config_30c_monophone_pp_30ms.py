@@ -163,6 +163,10 @@ def run_single(
             s.label_info,
             temporal_reduction_mode=mode,
         )
+        returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        aux_layers = [l for l in returnn_config.config["network"].keys() if l.startswith("aux")]
+        for l in aux_layers:
+            returnn_config.config["network"].pop(l)
 
         s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
@@ -176,7 +180,7 @@ def run_single(
                 dev_corpus_key=s.crp_names["cvtrain"],
                 smoothen=True,
                 output_layer_name="center-output-ss",
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+                returnn_config=returnn_config,
             )
 
             recognizer, recog_args = s.get_recognizer_and_args(
