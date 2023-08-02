@@ -20,7 +20,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import subsampling
-from ...setups.fh.network.subsampling import PoolingReduction, ThrowawayReduction, TemporalReduction
+from ...setups.fh.network.subsampling import PoolingReduction, SelectOneReduction, TemporalReduction
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network.augment import (
     remove_label_pops_and_losses_from_returnn_config,
@@ -72,9 +72,9 @@ def run(returnn_root: tk.Path, init_from_system: fh_system.FactoredHybridSystem)
         )
         for m in [
             PoolingReduction.avg(),
-            ThrowawayReduction(take_i=0),
-            ThrowawayReduction(take_i=1),
-            ThrowawayReduction(take_i=2),
+            SelectOneReduction(take_i=0),
+            SelectOneReduction(take_i=1),
+            SelectOneReduction(take_i=2),
         ]
     ]
     for exp in configs:

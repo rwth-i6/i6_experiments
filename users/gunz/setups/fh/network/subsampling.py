@@ -1,3 +1,5 @@
+__all__ = ["PoolingMode", "PoolingReduction", "TemporalReduction", "SelectOneReduction", "reduce_output_step_rate"]
+
 import copy
 from dataclasses import dataclass
 from enum import Enum
@@ -20,7 +22,7 @@ class PoolingReduction:
     mode: PoolingMode
 
     def __str__(self):
-        return f"pool({self.mode})"
+        return f"pool{self.mode}"
 
     @classmethod
     def avg(cls):
@@ -32,14 +34,14 @@ class PoolingReduction:
 
 
 @dataclass(frozen=True, eq=True)
-class ThrowawayReduction:
+class SelectOneReduction:
     take_i: int
 
     def __str__(self):
-        return f"throwaway({self.take_i})"
+        return f"sel{self.take_i}"
 
 
-TemporalReduction = Union[PoolingReduction, ThrowawayReduction]
+TemporalReduction = Union[PoolingReduction, SelectOneReduction]
 
 
 def reduce_output_step_rate(
@@ -62,9 +64,9 @@ def reduce_output_step_rate(
     assert input_label_info.n_states_per_phone
     assert output_label_info.n_states_per_phone == 1
     assert output_label_info.phoneme_state_classes == input_label_info.phoneme_state_classes
-    assert isinstance(temporal_reduction, (PoolingReduction, ThrowawayReduction))
+    assert isinstance(temporal_reduction, (PoolingReduction, SelectOneReduction))
     assert (
-        not isinstance(temporal_reduction, ThrowawayReduction)
+        not isinstance(temporal_reduction, SelectOneReduction)
         or input_label_info.n_states_per_phone > temporal_reduction.take_i >= 0
     )
 
@@ -116,7 +118,7 @@ def reduce_output_step_rate(
                 "register_as_extern_data": output_right_softmax_layer_name,
             },
         }
-    elif isinstance(temporal_reduction, ThrowawayReduction):
+    elif isinstance(temporal_reduction, SelectOneReduction):
 
         def add_throwaway(network: dict, in_layer: str, out_layer: str, take_n: int):
             return {
