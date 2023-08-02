@@ -97,6 +97,7 @@ def reduce_output_step_rate(
                 f"{out_layer}_gather": {
                     "axis": f"dim:{input_label_info.n_states_per_phone}",
                     "class": "gather",
+                    "from": f"{out_layer}_split",
                     "position": take_n,
                 },
                 out_layer: {
