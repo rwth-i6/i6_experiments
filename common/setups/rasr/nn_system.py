@@ -102,12 +102,14 @@ def returnn_training(
         config.config["dev"] = cv_data if isinstance(cv_data, Dict) else cv_data.get_data_dict()
     if additional_data is not None:
         config.config["eval_datasets"] = {}
-        for name, data in additional_data.items():
-            config.config["eval_datasets"][name] = data if isinstance(data, Dict) else data.get_data_dict()
+        for data_name, data in additional_data.items():
+            config.config["eval_datasets"][data_name] = data if isinstance(data, Dict) else data.get_data_dict()
     returnn_training_job = returnn.ReturnnTrainingJob(
         returnn_config=config,
         **asdict(training_args) if isinstance(training_args, ReturnnTrainingJobArgs) else training_args,
     )
+    if "larger" in name:
+        returnn_training_job.rqmt["gpu_mem"] = 24
     if register_output:
         returnn_training_job.add_alias(f"nn_train/{name}")
         tk.register_output(f"nn_train/{name}_learning_rates.png", returnn_training_job.out_plot_lr)

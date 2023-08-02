@@ -11,14 +11,17 @@ from i6_experiments.common.setups.serialization import Import, ExplicitHash, Ext
 from i6_experiments.common.setups.returnn_pytorch.serialization import PyTorchModel, Collection
 
 
-#from i6_experiments.common.baselines.tedlium2.default_tools import PACKAGE
+# from i6_experiments.common.baselines.tedlium2.default_tools import PACKAGE
 
 
 def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **net_kwargs):
     evaluation_epochs = list(range(num_epochs, num_epochs + 1, 10))
 
-    batch_size = {"classes": 4 * 2000, "data": 4 * 320000} # TODO change to 14000 probably more
-    chunking = ({"classes": 400, "data": 100 * 160}, {"classes": 50, "data": 50 * 160}) # TODO change to 400:200/500:250
+    batch_size = {"classes": 4 * 2000, "data": 4 * 320000}  # TODO change to 14000 probably more
+    chunking = (
+        {"classes": 400, "data": 100 * 160},
+        {"classes": 50, "data": 50 * 160},
+    )  # TODO change to 400:200/500:250
     returnn_configs = get_pytorch_returnn_configs(
         num_inputs=80,
         num_outputs=num_outputs,
@@ -72,6 +75,156 @@ def get_nn_args(num_outputs: int = 9001, num_epochs: int = 250, debug=False, **n
             "cpu": 2,
             "parallelize_conversion": True,
             "needs_features_size": True,
+        },
+        "dev-15": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.5, 0.7, 0.8, 0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0, 7.5, 5.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 100000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            "training_whitelist": ["torch_jj_config2"],
+        },
+        "dev-15-50": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.5, 0.7, 0.8, 0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0, 7.5, 5.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 50000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            "training_whitelist": ["torch_jj_config2"],
+        },
+        "dev-15-25": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.5, 0.7, 0.8, 0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0, 7.5, 5.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 25000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            "training_whitelist": ["torch_jj_config2"],
+        },
+        "dev-15-10": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.5, 0.7, 0.8, 0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0, 7.5, 5.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 10000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            "training_whitelist": ["torch_jj_config2"],
+        },
+        "dev-15-5": {
+            "epochs": evaluation_epochs,
+            "feature_flow_key": "fb",
+            "prior_scales": [0.5, 0.7, 0.8, 0.9],
+            "pronunciation_scales": [0.0],
+            "lm_scales": [10.0, 7.5, 5.0],
+            "lm_lookahead": True,
+            "lookahead_options": None,
+            "create_lattice": True,
+            "eval_single_best": True,
+            "eval_best_in_lattice": True,
+            "search_parameters": {
+                "beam-pruning": 15.0,
+                "beam-pruning-limit": 5000,
+                "word-end-pruning": 0.5,
+                "word-end-pruning-limit": 15000,
+            },
+            "lattice_to_ctm_kwargs": {
+                "fill_empty_segments": True,
+                "best_path_algo": "bellman-ford",
+            },
+            "optimize_am_lm_scale": True,
+            "rtf": 50,
+            "mem": 7,
+            "lmgc_mem": 16,
+            "cpu": 2,
+            "parallelize_conversion": True,
+            "needs_features_size": True,
+            "training_whitelist": ["torch_jj_config2"],
         },
     }
     """
@@ -194,11 +347,15 @@ def get_pytorch_returnn_configs(
     peak_lr = 7e-4
     if num_epochs is None:
         num_epochs = 250
-    learning_rates = list(np.linspace(peak_lr / 10, peak_lr, (num_epochs - 30) // 2)) + list(
-        np.linspace(peak_lr, peak_lr / 10, (num_epochs - 30) // 2)) + list(
-        np.linspace(peak_lr / 10, 1e-8, 30))
+    learning_rates = (
+        list(np.linspace(peak_lr / 10, peak_lr, (num_epochs - 30) // 2))
+        + list(np.linspace(peak_lr, peak_lr / 10, (num_epochs - 30) // 2))
+        + list(np.linspace(peak_lr / 10, 1e-8, 30))
+    )
     jj_config["learning_rates"] = learning_rates
 
+    jj_larger_chunk = copy.deepcopy(jj_config)
+    jj_larger_chunk["chunking"] = "500:250"
 
     chunk_500_250_config = copy.deepcopy(medium_lchunk_config)
     chunk_500_250_config["chunking"] = "500:250"
@@ -265,9 +422,10 @@ def get_pytorch_returnn_configs(
 
             prior_computation = Import(package + ".pytorch_networks.prior.basic.forward_step")
             serializer_objects.append(prior_computation)
-            prior_computation = Import(package + ".pytorch_networks.prior.prior_callback.ComputePriorCallback", import_as="forward_callback")
+            prior_computation = Import(
+                package + ".pytorch_networks.prior.prior_callback.ComputePriorCallback", import_as="forward_callback"
+            )
             serializer_objects.append(prior_computation)
-
 
         i6_models_repo = CloneGitRepositoryJob(
             url="https://github.com/rwth-i6/i6_models",
@@ -302,51 +460,169 @@ def get_pytorch_returnn_configs(
     smaller_config["accum_grad_multiple_step"] = 2
 
     return {
-        "torch_conformer_baseline": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer_baseline"}),
-        #"torch_conformer_no_cast": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer2"}),
-        #"torch_conformer_new": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer3"}),
-        "torch_conformer_chunk_400_200": construct_from_net_kwargs(chunk_400_200_config, {"model_type": "conformer_baseline"}),
-        "torch_conformer_chunk_500_250": construct_from_net_kwargs(chunk_500_250_config, {"model_type": "conformer_baseline"}),
-        "torch_conformer_kernel_7": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7}),
-        "torch_conformer_kernel_9": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 9}),
-        "torch_conformer_heads_6": construct_from_net_kwargs(medium_lchunk_config,
-            {"model_type": "conformer_baseline", "att_heads": 6}),
-        "torch_conformer_ff_dim_1536": construct_from_net_kwargs(medium_lchunk_config,
-            {"model_type": "conformer_baseline", "ff_dim": 1536}),
-        "torch_conformer_more_spec": construct_from_net_kwargs(batch_12k_config,
-            {"model_type": "conformer_baseline", "spec_num_time": 15, "spec_max_time": 20, "spec_num_feat": 5, "spec_max_feat": 16}),
-        "torch_conformer_batch_12": construct_from_net_kwargs(batch_12k_config,
-            {"model_type": "conformer_baseline"}),
-        "torch_conformer_batch_10": construct_from_net_kwargs(batch_10k_config,
-            {"model_type": "conformer_baseline"}),
+        "torch_conformer_baseline": construct_from_net_kwargs(
+            medium_lchunk_config, {"model_type": "conformer_baseline"}
+        ),
+        # "torch_conformer_no_cast": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer2"}),
+        # "torch_conformer_new": construct_from_net_kwargs(medium_lchunk_config, {"model_type": "conformer3"}),
+        "torch_conformer_chunk_400_200": construct_from_net_kwargs(
+            chunk_400_200_config, {"model_type": "conformer_baseline"}
+        ),
+        "torch_conformer_chunk_500_250": construct_from_net_kwargs(
+            chunk_500_250_config, {"model_type": "conformer_baseline"}
+        ),
+        "torch_conformer_kernel_7": construct_from_net_kwargs(
+            medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7}
+        ),
+        "torch_conformer_kernel_9": construct_from_net_kwargs(
+            medium_lchunk_config, {"model_type": "conformer_baseline", "conv_kernel_size": 9}
+        ),
+        "torch_conformer_heads_6": construct_from_net_kwargs(
+            medium_lchunk_config, {"model_type": "conformer_baseline", "att_heads": 6}
+        ),
+        "torch_conformer_ff_dim_1536": construct_from_net_kwargs(
+            medium_lchunk_config, {"model_type": "conformer_baseline", "ff_dim": 1536}
+        ),
+        "torch_conformer_more_spec": construct_from_net_kwargs(
+            batch_12k_config,
+            {
+                "model_type": "conformer_baseline",
+                "spec_num_time": 15,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+            },
+        ),
+        "torch_conformer_batch_12": construct_from_net_kwargs(batch_12k_config, {"model_type": "conformer_baseline"}),
+        "torch_conformer_batch_10": construct_from_net_kwargs(batch_10k_config, {"model_type": "conformer_baseline"}),
         "torch_blstm_paper_baseline": construct_from_net_kwargs(wei_lstm_config, {"model_type": "blstm"}),
-        #"torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
-        #"torch_blstm_baseline2": construct_from_net_kwargs(smaller_config, {"model_type": "blstm"}),
+        # "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
+        # "torch_blstm_baseline2": construct_from_net_kwargs(smaller_config, {"model_type": "blstm"}),
         "torch_blstm_baseline": construct_from_net_kwargs(blstm_base_config, {"model_type": "blstm"}),
-        "torch_conformer_better": construct_from_net_kwargs(batch_10k_chunk_400_config, {
-            "model_type": "conformer_baseline",
-            "conv_kernel_size": 7,
-            "att_heads": 6}),
-        "torch_conformer_better_500": construct_from_net_kwargs(batch_10k_chunk_500_config, {
-            "model_type": "conformer_baseline",
-            "conv_kernel_size": 7,
-            "att_heads": 6}),
-        "torch_conformer_better_12k_400": construct_from_net_kwargs(batch_12k_chunk_400_config, {
-            "model_type": "conformer_baseline",
-            "conv_kernel_size": 7,
-            "att_heads": 6}),
-        "torch_jj_config": construct_from_net_kwargs(jj_config, {
-            "model_type": "conformer_baseline",
-            "att_heads": 6,
-            "conv_kernel_size": 9,
-            "pool_1_stride": (3, 1),
-            "ff_dim": 1536,
-            "upsample_kernel": 3,
-            "upsample_stride": 3,
-            "upsample_padding": 0,
-            "spec_num_time": 20,
-            "spec_max_time": 20,
-            "spec_num_feat": 5,
-            "spec_max_feat": 16}
-        )
+        "torch_conformer_better": construct_from_net_kwargs(
+            batch_10k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        ),
+        "torch_conformer_better_500": construct_from_net_kwargs(
+            batch_10k_chunk_500_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        ),
+        "torch_conformer_better_12k_400": construct_from_net_kwargs(
+            batch_12k_chunk_400_config, {"model_type": "conformer_baseline", "conv_kernel_size": 7, "att_heads": 6}
+        ),
+        "torch_jj_config": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 6,
+                "conv_kernel_size": 9,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 1536,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+            },
+        ),
+        "torch_jj_default_spec": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 6,
+                "conv_kernel_size": 9,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 1536,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+            },
+        ),
+        "torch_jj_larger_chunk": construct_from_net_kwargs(
+            jj_larger_chunk,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 6,
+                "conv_kernel_size": 9,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 1536,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+            },
+        ),
+        "torch_jj_config2": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 6,
+                "conv_kernel_size": 7,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 1536,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+            },
+        ),
+        "torch_jj_config3": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 6,
+                "conv_kernel_size": 11,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 1536,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+            },
+        ),
+        "torch_jj_config2_large": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 8,
+                "conv_kernel_size": 9,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 2048,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+                "conformer_size": 512,
+            },
+        ),
+        "torch_jj_config2_larger": construct_from_net_kwargs(
+            jj_config,
+            {
+                "model_type": "conformer_baseline",
+                "att_heads": 12,
+                "conv_kernel_size": 13,
+                "pool_1_stride": (3, 1),
+                "ff_dim": 3072,
+                "upsample_kernel": 3,
+                "upsample_stride": 3,
+                "upsample_padding": 0,
+                "spec_num_time": 20,
+                "spec_max_time": 20,
+                "spec_num_feat": 5,
+                "spec_max_feat": 16,
+                "conformer_size": 768,
+            },
+        ),
     }

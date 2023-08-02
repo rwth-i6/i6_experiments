@@ -43,6 +43,13 @@ from .util import (
 Path = tk.setup_path(__package__)
 
 # -------------------- System --------------------
+from i6_core.report.report import _Report_Type
+
+
+def hybrid_report_format(report: _Report_Type) -> str:
+    out = [(recog, str(report[recog])) for recog in report]
+    out = sorted(out, key=lambda x: float(x[1]))
+    return "\n".join([f"{pair[0]}:  {str(pair[1])}" for pair in out])
 
 
 class HybridSystem(NnSystem):
@@ -397,8 +404,9 @@ class HybridSystem(NnSystem):
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
                 assert epoch in checkpoints.keys()
                 acoustic_mixture_path = CreateDummyMixturesJob(
-                    num_mixtures=returnn_config.config['extern_data']['classes']['dim'],
-                    num_features=returnn_config.config['extern_data']['data']['dim']).out_mixtures
+                    num_mixtures=returnn_config.config["extern_data"]["classes"]["dim"],
+                    num_features=returnn_config.config["extern_data"]["data"]["dim"],
+                ).out_mixtures
                 lmgc_scorer = rasr.GMMFeatureScorer(acoustic_mixture_path)
                 prior_job = ReturnnComputePriorJobV2(
                     model_checkpoint=checkpoints[epoch],
@@ -420,7 +428,6 @@ class HybridSystem(NnSystem):
 
                 if use_epoch_for_compile:
                     tf_graph = self.nn_compile_graph(name, returnn_config, epoch=epoch)
-
 
                 tf_flow = make_precomputed_hybrid_tf_feature_flow(
                     tf_checkpoint=checkpoints[epoch],
@@ -575,6 +582,25 @@ class HybridSystem(NnSystem):
                     step_args=step_args,
                     train_job=returnn_train_job,
                 )
+                from i6_core.report import GenerateReportStringJob, MailJob
+
+                results = {}
+                for c in self.dev_corpora + self.test_corpora:
+                    for job_name in self.jobs[c]:
+                        if "scorer" not in job_name:
+                            continue
+                        if name not in job_name:
+                            continue
+                        if "scorer" in job_name:
+                            scorer = self.jobs[c][job_name]
+                            if scorer.out_wer:
+                                results[job_name] = scorer.out_wer
+
+                report = GenerateReportStringJob(report_values=results, report_template=hybrid_report_format)
+                report.add_alias(name + "/report_job")
+                mail = MailJob(report.out_report, send_contents=True, subject=name)
+                mail.add_alias(name + "/mail_job")
+                tk.register_output(name + "/mail", mail.out_status)
 
     def run_nn_recog_step(self, step_args: NnRecogArgs):
         for eval_c in self.dev_corpora + self.test_corpora:

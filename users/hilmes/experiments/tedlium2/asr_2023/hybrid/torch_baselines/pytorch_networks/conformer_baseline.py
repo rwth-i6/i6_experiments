@@ -427,7 +427,7 @@ def _lengths_to_padding_mask(lengths: torch.Tensor, x: torch.Tensor) -> torch.Te
     # ) < lengths.unsqueeze(1)
     i_ = torch.arange(x.shape[1], device=lengths.device)  # [T]
     return i_[None, :] < lengths[:, None]  # [B, T],
-    #return padding_mask
+    # return padding_mask
 
 
 def _get_int_tuple_int(variable: IntTupleIntType, index: int) -> int:
@@ -448,7 +448,9 @@ def _get_padding(input_size: Union[int, Tuple[int, ...]]) -> Union[int, Tuple[in
         raise TypeError(f"unexpected size type {type(input_size)}")
 
 
-def apply_spec_aug(input: torch.Tensor, num_repeat_time: int, max_dim_time: int, num_repeat_feat: int, max_dim_feat: int):
+def apply_spec_aug(
+    input: torch.Tensor, num_repeat_time: int, max_dim_time: int, num_repeat_feat: int, max_dim_feat: int
+):
     """
     :param Tensor input: the input audio features (B,T,F)
     :param int num_repeat_time: number of repetitions to apply time mask
@@ -472,7 +474,7 @@ class Model(torch.nn.Module):
 
     def __init__(self, epoch, step, **kwargs):
         super().__init__()
-        conformer_size = 384
+        conformer_size = kwargs.pop("conformer_size", 384)
         target_size = 9001
 
         conv_kernel_size = kwargs.pop("conv_kernel_size", 31)
@@ -488,16 +490,19 @@ class Model(torch.nn.Module):
 
         conv_cfg = ConformerConvolutionV1Config(
             channels=conformer_size,
-            kernel_size=conv_kernel_size, # TODO change to 9 or 17
+            kernel_size=conv_kernel_size,  # TODO change to 9 or 17
             dropout=0.2,
             activation=nn.SiLU(),
             norm=LayerNormNC(conformer_size),
         )
         mhsa_cfg = ConformerMHSAV1Config(
-            input_dim=conformer_size, num_att_heads=att_heads, att_weights_dropout=0.2, dropout=0.2 # TODO heads: 6
+            input_dim=conformer_size, num_att_heads=att_heads, att_weights_dropout=0.2, dropout=0.2  # TODO heads: 6
         )
         ff_cfg = ConformerPositionwiseFeedForwardV1Config(
-            input_dim=conformer_size, hidden_dim=ff_dim, activation=nn.SiLU(), dropout=0.2 # TODO hidden Dim to 4x conformer size
+            input_dim=conformer_size,
+            hidden_dim=ff_dim,
+            activation=nn.SiLU(),
+            dropout=0.2,  # TODO hidden Dim to 4x conformer size
         )
         block_cfg = ConformerBlockV1Config(ff_cfg=ff_cfg, mhsa_cfg=mhsa_cfg, conv_cfg=conv_cfg)
         frontend_cfg = VGG4LayerActFrontendV1Config(
@@ -508,7 +513,7 @@ class Model(torch.nn.Module):
             conv4_channels=32,
             conv_kernel_size=3,
             pool1_kernel_size=(1, 2),
-            pool1_stride=pool_1_stride, # TODO: subsampling factor 3
+            pool1_stride=pool_1_stride,  # TODO: subsampling factor 3
             activation=nn.ReLU(),
             conv_padding=None,
             pool1_padding=None,
@@ -526,12 +531,17 @@ class Model(torch.nn.Module):
         upsample_stride = kwargs.pop("upsample_stride", 2)
         upsample_padding = kwargs.pop("upsample_padding", 1)
         self.upsample_conv = torch.nn.ConvTranspose1d(
-            in_channels=conformer_size, out_channels=conformer_size, kernel_size=upsample_kernel, stride=upsample_stride, padding=upsample_padding
+            in_channels=conformer_size,
+            out_channels=conformer_size,
+            kernel_size=upsample_kernel,
+            stride=upsample_stride,
+            padding=upsample_padding,
         )
         # self.initial_linear = nn.Linear(80, conformer_size)
         self.final_linear = nn.Linear(conformer_size, target_size)
         self.export_mode = False
         self.prior_comp = False
+        assert len(kwargs) == 1  # for some reason there is some random arg always here
 
     def forward(
         self,
@@ -540,11 +550,7 @@ class Model(torch.nn.Module):
     ):
         if self.training:
             audio_features_masked_2 = apply_spec_aug(
-                audio_features,
-                self.spec_num_time,
-                self.spec_max_time,
-                self.spec_num_feat,
-                self.spec_max_feat
+                audio_features, self.spec_num_time, self.spec_max_time, self.spec_num_feat, self.spec_max_feat
             )
         else:
             audio_features_masked_2 = audio_features
