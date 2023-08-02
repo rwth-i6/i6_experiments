@@ -166,7 +166,7 @@ def run_single(
 
     tensor_config = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
-        in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
+        in_seq_length="extern_data/placeholders/data/data_dim0_size",
         out_right_context="right__output__ss/output_batch_major",
         out_left_context="left__output__ss/output_batch_major",
         out_center_state="center__output__ss/output_batch_major",
