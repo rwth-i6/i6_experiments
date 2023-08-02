@@ -20,6 +20,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import subsampling
+from ...setups.fh.network.subsampling import TemporalReductionMode
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network.augment import (
     remove_label_pops_and_losses_from_returnn_config,
@@ -49,6 +50,7 @@ class Experiment:
     decode_all_corpora: bool
     init_from_system: fh_system.FactoredHybridSystem
     dc_detection: bool
+    temporal_reduction_mode: TemporalReductionMode
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
@@ -66,7 +68,9 @@ def run(returnn_root: tk.Path, init_from_system: fh_system.FactoredHybridSystem)
             dc_detection=False,
             decode_all_corpora=False,
             init_from_system=init_from_system,
+            temporal_reduction_mode=m,
         )
+        for m in [TemporalReductionMode.pooling, TemporalReductionMode.throwaway]
     ]
     for exp in configs:
         run_single(
@@ -75,6 +79,7 @@ def run(returnn_root: tk.Path, init_from_system: fh_system.FactoredHybridSystem)
             init_from_system=exp.init_from_system,
             returnn_root=returnn_root,
             filter_segments=exp.filter_segments,
+            temporal_reduction_mode=exp.temporal_reduction_mode,
         )
 
 
@@ -85,11 +90,12 @@ def run_single(
     init_from_system: fh_system.FactoredHybridSystem,
     returnn_root: tk.Path,
     filter_segments: typing.Optional[typing.List[str]],
+    temporal_reduction_mode: TemporalReductionMode,
     conf_model_dim: int = 512,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-1-pp"
+    name = f"conf-1-pp:{temporal_reduction_mode}"
     print(f"fh {name}")
 
     ss_factor = 3
@@ -151,75 +157,72 @@ def run_single(
 
     tensor_config = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
+        in_seq_length="extern_data/placeholders/centerState/centerState_dim0_size",
         out_right_context="right__output__ss/output_batch_major",
         out_left_context="left__output__ss/output_batch_major",
         out_center_state="center__output__ss/output_batch_major",
     )
 
-    for mode in [subsampling.TemporalReductionMode.pooling, subsampling.TemporalReductionMode.throwaway]:
-        returnn_config = subsampling.reduce_output_step_rate(
-            init_from_system.experiments["fh"]["returnn_config"],
-            init_from_system.label_info,
-            s.label_info,
-            temporal_reduction_mode=mode,
+    returnn_config = subsampling.reduce_output_step_rate(
+        init_from_system.experiments["fh"]["returnn_config"],
+        init_from_system.label_info,
+        s.label_info,
+        temporal_reduction_mode=temporal_reduction_mode,
+    )
+    returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+    aux_layers = [l for l in returnn_config.config["network"].keys() if l.startswith("aux")]
+    for l in aux_layers:
+        returnn_config.config["network"].pop(l)
+
+    s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
+
+    for ep, crp_k in itertools.product([600], ["dev-other"]):
+        s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            output_layer_name="center-output-ss",
+            returnn_config=returnn_config,
         )
-        returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        aux_layers = [l for l in returnn_config.config["network"].keys() if l.startswith("aux")]
-        for l in aux_layers:
-            returnn_config.config["network"].pop(l)
 
-        s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
+        recognizer, recog_args = s.get_recognizer_and_args(
+            key="fh",
+            context_type=PhoneticContext.monophone,
+            crp_corpus=crp_k,
+            epoch=ep,
+            gpu=False,
+            tensor_map=tensor_config,
+            set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
+        )
+        recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_prior_scale(0.6)
 
-        for ep, crp_k in itertools.product([600], ["dev-other"]):
-            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+        # Top 3 from monophone TDP study
+        good_values = [
+            (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
+            (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
+            (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
+        ]
 
-            s.set_mono_priors_returnn_rasr(
-                key="fh",
-                epoch=ep,
-                train_corpus_key=s.crp_names["train"],
-                dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                output_layer_name="center-output-ss",
-                returnn_config=returnn_config,
+        for cfg in [
+            recog_args.with_tdp_scale(0.1),
+            recog_args.with_tdp_scale(0.2),
+            recog_args.with_tdp_scale(0.4),
+            *(
+                recog_args.with_tdp_scale(sc).with_tdp_speech(tdp_sp).with_tdp_silence(tdp_sil)
+                for sc, tdp_sp, tdp_sil in good_values
+            ),
+        ]:
+            recognizer.recognize_count_lm(
+                label_info=s.label_info,
+                search_parameters=cfg,
+                num_encoder_output=conf_model_dim,
+                rerun_after_opt_lm=True,
+                calculate_stats=True,
             )
-
-            recognizer, recog_args = s.get_recognizer_and_args(
-                key="fh",
-                context_type=PhoneticContext.monophone,
-                crp_corpus=crp_k,
-                epoch=ep,
-                gpu=False,
-                tensor_map=tensor_config,
-                set_batch_major_for_feature_scorer=True,
-                lm_gc_simple_hash=True,
-            )
-            recog_args = recog_args.with_lm_scale(round(recog_args.lm_scale / float(ss_factor), 2)).with_prior_scale(
-                0.6
-            )
-
-            # Top 3 from monophone TDP study
-            good_values = [
-                (0.4, (3, 0, "infinity", 0), (3, 10, "infinity", 10)),  # 8,9%
-                (0.6, (3, 0, "infinity", 3), (3, 10, "infinity", 10)),  # 8,9%
-                (0.2, (3, 0, "infinity", 0), (10, 10, "infinity", 10)),  # 9,0%
-            ]
-
-            for cfg in [
-                recog_args.with_tdp_scale(0.1),
-                recog_args.with_tdp_scale(0.2),
-                recog_args.with_tdp_scale(0.4),
-                *(
-                    recog_args.with_tdp_scale(sc).with_tdp_speech(tdp_sp).with_tdp_silence(tdp_sil)
-                    for sc, tdp_sp, tdp_sil in good_values
-                ),
-            ]:
-                recognizer.recognize_count_lm(
-                    label_info=s.label_info,
-                    search_parameters=cfg,
-                    num_encoder_output=conf_model_dim,
-                    rerun_after_opt_lm=True,
-                    calculate_stats=True,
-                    name_prefix=f"decoding-{str(mode)}",
-                )
 
     return s
