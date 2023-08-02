@@ -21,7 +21,9 @@ def run():
 
     scratch_data = PlotPhonemeDurationsJob(
         alignment_bundle_path=Path(SCRATCH_ALIGNMENT, cached=True),
-        allophones_path=Path("/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"),
+        allophones_path=Path(
+            "/work/asr3/raissi/shared_workspaces/gunz/2023-05--subsampling-tf2/i6_core/lexicon/allophones/StoreAllophonesJob.Qa3bLX1BHz42/output/allophones"
+        ),
         time_step_s=10 / 1000,
     )
     tk.register_output(f"alignments/10ms-scratch-blstm/statistics/plots", scratch_data.out_plot_folder)
