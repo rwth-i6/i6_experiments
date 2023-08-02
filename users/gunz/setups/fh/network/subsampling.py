@@ -112,7 +112,7 @@ def reduce_output_step_rate(
             (input_left_softmax_layer_name, output_left_softmax_layer_name),
             (input_right_softmax_layer_name, output_right_softmax_layer_name),
         ]:
-            add_throwaway(network, input_layer, out_layer, take_temporal_index)
+            network = add_throwaway(network, input_layer, out_layer, take_temporal_index)
     else:
         raise ValueError(f"unknown temporal reduction mode {temporal_reduction_mode}")
 
