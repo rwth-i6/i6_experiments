@@ -22,7 +22,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         self,
         name: str,
         returnn_config: returnn.ReturnnConfig,
-        checkpoints: Dict[int, Union[returnn.Checkpoint, returnn.PtCheckpoint]],
+        checkpoints: Dict[int, returnn.PtCheckpoint],
         prior_scales: List[float],
         pronunciation_scales: List[float],
         lm_scales: List[float],
