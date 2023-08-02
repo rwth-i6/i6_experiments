@@ -91,33 +91,41 @@ def reduce_output_step_rate(
     }
 
     if isinstance(temporal_reduction, PoolingReduction):
-        network = {
-            **network,
-            output_center_softmax_layer_name: {
-                "class": "pool",
-                "from": "center-output-flatten",
-                "mode": str(temporal_reduction.mode),
-                "padding": "same",
-                "pool_size": (input_label_info.n_states_per_phone,),
-                "register_as_extern_data": output_center_softmax_layer_name,
-            },
-            output_left_softmax_layer_name: {
-                "class": "pool",
-                "from": input_left_softmax_layer_name,
-                "mode": str(temporal_reduction.mode),
-                "padding": "same",
-                "pool_size": (input_label_info.n_states_per_phone,),
-                "register_as_extern_data": output_left_softmax_layer_name,
-            },
-            output_right_softmax_layer_name: {
-                "class": "pool",
-                "from": input_right_softmax_layer_name,
-                "mode": str(temporal_reduction.mode),
-                "padding": "same",
-                "pool_size": (input_label_info.n_states_per_phone,),
-                "register_as_extern_data": output_right_softmax_layer_name,
-            },
-        }
+
+        def add_pool(network: dict, in_layer: str, out_layer: str):
+            return {
+                **network,
+                f"{out_layer}_pool": {
+                    "class": "pool",
+                    "from": in_layer,
+                    "mode": str(temporal_reduction.mode),
+                    "padding": "same",
+                    "pool_size": (input_label_info.n_states_per_phone,),
+                },
+                f"{out_layer}_sum": {
+                    "class": "reduce",
+                    "from": f"{out_layer}_pool",
+                    "axes": "F",
+                    "mode": "sum",
+                },
+                f"{out_layer}_renorm": {
+                    "class": "combine",
+                    "from": [f"{out_layer}_pool", f"{out_layer}_sum"],
+                    "kind": "truediv",
+                },
+                out_layer: {
+                    "class": "copy",
+                    "from": f"{out_layer}_renorm",
+                    "register_as_extern_data": out_layer,
+                },
+            }
+
+        for input_layer, output_layer in [
+            ("center-output-flatten", output_center_softmax_layer_name),
+            (input_left_softmax_layer_name, output_left_softmax_layer_name),
+            (input_right_softmax_layer_name, output_right_softmax_layer_name),
+        ]:
+            network = add_pool(input_layer, output_layer)
     elif isinstance(temporal_reduction, SelectOneReduction):
 
         def add_throwaway(network: dict, in_layer: str, out_layer: str, take_n: int):
