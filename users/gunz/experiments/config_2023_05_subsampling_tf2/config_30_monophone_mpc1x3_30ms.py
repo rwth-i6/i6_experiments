@@ -421,7 +421,12 @@ def run_single(
         set_batch_major_for_feature_scorer=True,
         lm_gc_simple_hash=True,
     )
-    recog_args = recog_args.with_lm_scale(1.0).with_tdp_scale(0.1)
+    recog_args = (
+        recog_args.with_lm_scale(1.0)
+        .with_tdp_scale(0.4)
+        .with_tdp_speech((3, 0, "infinity", 0))
+        .with_tdp_silence((3, 10, "infinity", 10))
+    )
     recognizer.recognize_count_lm(
         label_info=s.label_info,
         search_parameters=recog_args,
