@@ -125,7 +125,7 @@ def reduce_output_step_rate(
             (input_left_softmax_layer_name, output_left_softmax_layer_name),
             (input_right_softmax_layer_name, output_right_softmax_layer_name),
         ]:
-            network = add_pool(input_layer, output_layer)
+            network = add_pool(network, input_layer, output_layer)
     elif isinstance(temporal_reduction, SelectOneReduction):
 
         def add_throwaway(network: dict, in_layer: str, out_layer: str, take_n: int):
