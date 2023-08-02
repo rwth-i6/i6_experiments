@@ -5,7 +5,7 @@ from sisyphus import tk
 
 import i6_core.rasr as rasr
 import i6_core.returnn as returnn
-from i6_core.returnn.compile import TorchOnnxExportJob
+from i6_core.returnn import GetBestPtCheckpointJob, TorchOnnxExportJob
 from i6_core.returnn.flow import make_precomputed_hybrid_onnx_feature_flow, add_fwd_flow_to_base_flow
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
@@ -36,6 +36,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         mem: int,
         nn_prior: bool,
         epochs: Optional[List[int]] = None,
+        train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]] = None,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
         **kwargs,
@@ -56,15 +57,25 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
             epochs = epochs if epochs is not None else list(checkpoints.keys())
 
             for pron, lm, prior, epoch in itertools.product(pronunciation_scales, lm_scales, prior_scales, epochs):
-                assert epoch in checkpoints.keys()
+                if epoch == "best":
+                    assert train_job is not None, "train_job needed to get best epoch checkpoint"
+                    best_checkpoint_job = GetBestPtCheckpointJob(
+                        train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_CE", index=0
+                    )
+                    checkpoint = best_checkpoint_job.out_checkpoint
+                    epoch_str = epoch
+                else:
+                    assert epoch in checkpoints.keys()
+                    checkpoint = checkpoints[epoch]
+                    epoch_str = f"{epoch:03d}"
 
                 onnx_job = TorchOnnxExportJob(
                     returnn_config=returnn_config,
-                    checkpoint=checkpoints[epoch],
+                    checkpoint=checkpoint,
                     returnn_root=self.returnn_root,
                     returnn_python_exe=self.returnn_python_exe,
                 )
-                onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch}")
+                onnx_job.add_alias(f"export_onnx/{name}/epoch_{epoch_str}")
                 onnx_model = onnx_job.out_onnx_model
 
                 io_map = {"features": "data", "output": "classes"}
@@ -87,9 +98,9 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                     )
 
                 self.feature_scorers[recognition_corpus_key][f"pre-nn-{name}-{prior:02.2f}"] = scorer
-                self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-onnx-{epoch:03d}"] = flow
+                self.feature_flows[recognition_corpus_key][f"{feature_flow_key}-onnx-{epoch_str}"] = flow
 
-                recog_name = f"e{epoch:03d}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
+                recog_name = f"e{epoch_str}-prior{prior:02.2f}-ps{pron:02.2f}-lm{lm:02.2f}"
                 recog_func(
                     name=f"{name}-{recognition_corpus_key}-{recog_name}",
                     prefix=f"nn_recog/{name}/",
