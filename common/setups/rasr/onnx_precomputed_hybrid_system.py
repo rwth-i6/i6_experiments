@@ -39,6 +39,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]] = None,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
+        best_checkpoint_key: str = "dev_loss_CE",
         **kwargs,
     ):
         """
@@ -60,7 +61,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
                 if epoch == "best":
                     assert train_job is not None, "train_job needed to get best epoch checkpoint"
                     best_checkpoint_job = GetBestPtCheckpointJob(
-                        train_job.out_model_dir, train_job.out_learning_rates, key="dev_loss_CE", index=0
+                        train_job.out_model_dir, train_job.out_learning_rates, key=best_checkpoint_key, index=0
                     )
                     checkpoint = best_checkpoint_job.out_checkpoint
                     epoch_str = epoch
