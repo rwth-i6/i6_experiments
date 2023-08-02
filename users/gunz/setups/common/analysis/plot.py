@@ -59,10 +59,7 @@ class PlotPhonemeDurationsJob(Job):
         self.stat_groups = stat_groups or DEFAULT_GROUPS
         self.time_step_s = time_step_s
 
-        self.out_plot = self.output_path("plot.png")
-        self.out_sil_plot = self.output_path("plot_sil.png")
-
-        self.out_stat_groups = self.output_var("stat_groups")
+        self.out_plot_folder = self.output_path("plots", directory=True)
         self.out_means = self.output_var("means")
         self.out_vars = self.output_var("vars")
 
@@ -95,8 +92,16 @@ class PlotPhonemeDurationsJob(Job):
 
         ph_counts = {k: v for k, v in merged_counts.items() if k != self.sil_allophone}
         sil_counts = {k: v for k, v in merged_counts.items() if k == self.sil_allophone}
+        to_plot = [
+            (ph_counts, self.out_plot_folder.join_right("phonemes.png")),
+            (sil_counts, self.out_plot_folder.join_right("sil.png")),
+        ]
 
-        for counts, dest in [(ph_counts, self.out_plot), (sil_counts, self.out_sil_plot)]:
+        for group, phonemes in self.stat_groups.items():
+            joined_stats = {group: [count for ph in phonemes for count in merged_counts[ph]]}
+            to_plot.append((joined_stats, self.out_plot_folder.join_right(f"{group}.png")))
+
+        for counts, dest in to_plot:
             plt.clf()
             fig, ax = plt.subplots(figsize=self.figsize)
             ax.boxplot(counts.values(), 0, "")
@@ -110,13 +115,6 @@ class PlotPhonemeDurationsJob(Job):
 
         variances = {k: np.var(v) for k, v in merged_counts.items()}
         self.out_vars.set(variances)
-
-        if self.stat_groups is not None:
-            results = {}
-            for group, phonemes in self.stat_groups.items():
-                joined_stats = [count for ph in phonemes for count in merged_counts[ph]]
-                results[group] = (np.mean(joined_stats), np.var(joined_stats))
-            self.out_stat_groups.set(results)
 
     def cleanup(self):
         files = glob.glob("stats.*.pk")
