@@ -103,7 +103,7 @@ def reduce_output_step_rate(
             }
 
         for input_layer, out_layer in [
-            (input_center_softmax_layer_name, output_center_softmax_layer_name),
+            ("center-output-flatten", output_center_softmax_layer_name),
             (input_left_softmax_layer_name, output_left_softmax_layer_name),
             (input_right_softmax_layer_name, output_right_softmax_layer_name),
         ]:
