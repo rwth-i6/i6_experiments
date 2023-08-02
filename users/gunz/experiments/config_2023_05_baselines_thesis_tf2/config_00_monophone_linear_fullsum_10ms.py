@@ -421,8 +421,10 @@ def run_single(
         allophones_path=allophones.out_allophone_file,
         time_step_s=10 / 1000,
     )
-    tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
-    tk.register_output(f"alignments/{name}/silence-duration.png", phoneme_durs.out_sil_plot)
+    tk.register_output(f"alignments/{name}/statistics/durations.png", phoneme_durs.out_plot)
+    tk.register_output(f"alignments/{name}/statistics/silence-duration.png", phoneme_durs.out_sil_plot)
+    tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
+    tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
 
     s.experiments["fh"]["alignment_job"] = a_job
 

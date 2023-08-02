@@ -1,4 +1,5 @@
 import glob
+import numpy as np
 import pickle
 import os
 import os.path as path
@@ -27,6 +28,8 @@ class PlotPhonemeDurationsJob(Job):
 
         self.out_plot = self.output_path("plot.png")
         self.out_sil_plot = self.output_path("plot_sil.png")
+        self.out_means = self.output_var("means")
+        self.out_vars = self.output_var("vars")
 
     def tasks(self) -> Iterator[Task]:
         with open(self.alignment_bundle_path, "rt") as bundle_file:
@@ -66,6 +69,12 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
             fig.savefig(dest)
+
+        means = {k: np.mean(v) for k, v in merged_counts.items()}
+        self.out_means.set(means)
+
+        variances = {k: np.var(v) for k, v in merged_counts.items()}
+        self.out_vars.set(variances)
 
     def cleanup(self):
         files = glob.glob("stats.*.pk")

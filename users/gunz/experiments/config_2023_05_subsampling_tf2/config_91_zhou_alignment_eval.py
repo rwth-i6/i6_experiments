@@ -14,4 +14,6 @@ def run():
         allophones_path=Path(ZHOU_ALLOPHONES),
         time_step_s=40 / 1000,
     )
-    tk.register_output(f"alignments/40ms-zhou-blstm/phoneme_durations.png", plots.out_plot)
+    tk.register_output(f"alignments/40ms-zhou-blstm/statistics/durations.png", plots.out_plot)
+    tk.register_output(f"alignments/40ms-zhou-blstm/statistics/means", plots.out_means)
+    tk.register_output(f"alignments/40ms-zhou-blstm/statistics/variances", plots.out_vars)

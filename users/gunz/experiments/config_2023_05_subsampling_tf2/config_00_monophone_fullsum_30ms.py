@@ -411,8 +411,10 @@ def run_single(
                 allophones_path=allophones.out_allophone_file,
                 time_step_s=30 / 1000,
             )
-            tk.register_output(f"alignments/{name}/phoneme-durations.png", phoneme_durs.out_plot)
-            tk.register_output(f"alignments/{name}/silence-duration.png", phoneme_durs.out_sil_plot)
+            tk.register_output(f"alignments/{name}/statistics/durations.png", phoneme_durs.out_plot)
+            tk.register_output(f"alignments/{name}/statistics/silence-duration.png", phoneme_durs.out_sil_plot)
+            tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
+            tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
 
         for crp_k in ["dev-other", "dev-clean", "test-other", "test-clean"]:
             s.set_binaries_for_crp(crp_k, RASR_BINARY_PATH_TF)
