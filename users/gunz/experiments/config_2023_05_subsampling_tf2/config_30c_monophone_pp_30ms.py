@@ -19,6 +19,7 @@ from i6_core import rasr, returnn
 import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import subsampling
 from ...setups.fh.network.subsampling import PoolingReduction, SelectOneReduction, TemporalReduction
 from ...setups.fh.factored import PhoneticContext
@@ -159,6 +160,9 @@ def run_single(
     s.experiments["fh"]["train_job"] = FakeReturnnJob(
         600, init_from_system.experiments["fh"]["train_job"].out_checkpoints[600]
     )
+    s.experiments["fh"]["priors"] = PriorInfo.from_monophone_job(
+        "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/post-process-10ms"
+    )
 
     tensor_config = dataclasses.replace(
         CONF_FH_DECODING_TENSOR_CONFIG,
@@ -184,15 +188,15 @@ def run_single(
     for ep, crp_k in itertools.product([600], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        s.set_mono_priors_returnn_rasr(
-            key="fh",
-            epoch=ep,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            output_layer_name="center-output-ss",
-            returnn_config=returnn_config,
-        )
+        # s.set_mono_priors_returnn_rasr(
+        #     key="fh",
+        #     epoch=ep,
+        #     train_corpus_key=s.crp_names["train"],
+        #     dev_corpus_key=s.crp_names["cvtrain"],
+        #     smoothen=True,
+        #     output_layer_name="center-output-ss",
+        #     returnn_config=returnn_config,
+        # )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
