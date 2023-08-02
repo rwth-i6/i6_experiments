@@ -94,17 +94,11 @@ def reduce_output_step_rate(
                     "dims": (-1, input_label_info.n_states_per_phone),
                     "from": in_layer,
                 },
-                f"{out_layer}_gather": {
+                out_layer: {
                     "axis": f"dim:{input_label_info.n_states_per_phone}",
                     "class": "gather",
                     "from": f"{out_layer}_split",
                     "position": take_n,
-                },
-                out_layer: {
-                    "class": "merge_dims",
-                    "from": f"{out_layer}_gather",
-                    "axes": "spatial",
-                    "register_as_extern_data": out_layer,
                 },
             }
 
