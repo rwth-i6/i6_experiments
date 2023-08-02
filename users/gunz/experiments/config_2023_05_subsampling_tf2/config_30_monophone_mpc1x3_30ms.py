@@ -28,7 +28,7 @@ from ...setups.common.nn.specaugment import (
 )
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import conformer
-from ...setups.fh.factored import PhoneticContext
+from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
@@ -406,6 +406,34 @@ def run_single(
                 calculate_stats=True,
                 name_override="best/4gram",
             )
+
+    prev_li = s.label_info
+    s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.triphone, n_states_per_phone=2)
+    s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
+
+    recognizer, recog_args = s.get_recognizer_and_args(
+        key="fh",
+        context_type=PhoneticContext.monophone,
+        crp_corpus="dev-other",
+        epoch=max(keep_epochs),
+        gpu=False,
+        tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+        set_batch_major_for_feature_scorer=True,
+        lm_gc_simple_hash=True,
+    )
+    recog_args = recog_args.with_lm_scale(1.0).with_tdp_scale(0.1)
+    recognizer.recognize_count_lm(
+        label_info=s.label_info,
+        search_parameters=recog_args,
+        num_encoder_output=conf_model_dim,
+        rerun_after_opt_lm=True,
+        calculate_stats=True,
+        is_min_duration=True,
+        pre_path="decoding-min-dur",
+    )
+
+    s.label_info = prev_li
+    s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
 
     if run_performance_study:
         ep = 500
