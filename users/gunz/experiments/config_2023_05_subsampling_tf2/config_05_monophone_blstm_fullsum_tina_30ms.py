@@ -249,6 +249,7 @@ def run_single(
     )
     tk.register_output(f"alignments/{name}/statistics/durations.png", phoneme_durs.out_plot)
     tk.register_output(f"alignments/{name}/statistics/silence-duration.png", phoneme_durs.out_sil_plot)
+    tk.register_output(f"alignments/{name}/statistics/grouped", phoneme_durs.out_stat_groups)
     tk.register_output(f"alignments/{name}/statistics/means", phoneme_durs.out_means)
     tk.register_output(f"alignments/{name}/statistics/variances", phoneme_durs.out_vars)
 

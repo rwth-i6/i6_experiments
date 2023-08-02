@@ -3,12 +3,43 @@ import numpy as np
 import pickle
 import os
 import os.path as path
-from typing import Any, Dict, Iterator, List, Set, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 from sisyphus import tk, Job, Path, Task
 
 from .phoneme_duration import compute_phoneme_durations
 from .processor import AlignmentProcessor
+
+
+DEFAULT_GROUPS = {
+    "consonants": [
+        "B",
+        "CH",
+        "D",
+        "DH",
+        "ER",
+        "F",
+        "G",
+        "HH",
+        "JH",
+        "K",
+        "L",
+        "M",
+        "N",
+        "NG",
+        "P",
+        "R",
+        "S",
+        "SH",
+        "T",
+        "TH",
+        "V",
+        "W",
+        "Z",
+        "ZH",
+    ],
+    "vowels": ["AA", "AE", "AH", "AO", "AW", "AY", "EH", "EY", "IH", "IY", "OW", "OY", "UH", "UW", "Y"],
+}
 
 
 class PlotPhonemeDurationsJob(Job):
@@ -17,6 +48,7 @@ class PlotPhonemeDurationsJob(Job):
         alignment_bundle_path: Path,
         allophones_path: Path,
         time_step_s: float,
+        stat_groups: Optional[Dict[str, List[str]]] = None,
         sil_allophone: str = "[SILENCE]",
         figsize: Tuple[int, int] = (20, 10),
     ):
@@ -24,10 +56,13 @@ class PlotPhonemeDurationsJob(Job):
         self.allophones_path = allophones_path
         self.figsize = figsize
         self.sil_allophone = sil_allophone
+        self.stat_groups = stat_groups or DEFAULT_GROUPS
         self.time_step_s = time_step_s
 
         self.out_plot = self.output_path("plot.png")
         self.out_sil_plot = self.output_path("plot_sil.png")
+
+        self.out_stat_groups = self.output_var("stat_groups")
         self.out_means = self.output_var("means")
         self.out_vars = self.output_var("vars")
 
@@ -75,6 +110,13 @@ class PlotPhonemeDurationsJob(Job):
 
         variances = {k: np.var(v) for k, v in merged_counts.items()}
         self.out_vars.set(variances)
+
+        if self.stat_groups is not None:
+            results = {}
+            for group, phonemes in self.stat_groups.items():
+                joined_stats = [count for ph in phonemes for count in merged_counts[ph]]
+                results[group] = (np.mean(joined_stats), np.var(joined_stats))
+            self.out_stat_groups.set(results)
 
     def cleanup(self):
         files = glob.glob("stats.*.pk")

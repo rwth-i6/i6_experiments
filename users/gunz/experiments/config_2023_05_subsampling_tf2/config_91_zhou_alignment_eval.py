@@ -15,5 +15,6 @@ def run():
         time_step_s=40 / 1000,
     )
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/durations.png", plots.out_plot)
+    tk.register_output(f"alignments/40ms-zhou-blstm/statistics/grouped", plots.out_stat_groups)
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/means", plots.out_means)
     tk.register_output(f"alignments/40ms-zhou-blstm/statistics/variances", plots.out_vars)
