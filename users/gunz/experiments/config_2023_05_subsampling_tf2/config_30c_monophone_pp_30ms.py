@@ -20,7 +20,7 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 
 from ...setups.fh import system as fh_system
 from ...setups.fh.network import subsampling
-from ...setups.fh.network.subsampling import TemporalReductionMode
+from ...setups.fh.network.subsampling import PoolingReduction, ThrowawayReduction, TemporalReduction
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network.augment import (
     remove_label_pops_and_losses_from_returnn_config,
@@ -50,7 +50,7 @@ class Experiment:
     decode_all_corpora: bool
     init_from_system: fh_system.FactoredHybridSystem
     dc_detection: bool
-    temporal_reduction_mode: TemporalReductionMode
+    temporal_reduction_mode: TemporalReduction
 
     filter_segments: typing.Optional[typing.List[str]] = None
     focal_loss: float = CONF_FOCAL_LOSS
@@ -70,7 +70,12 @@ def run(returnn_root: tk.Path, init_from_system: fh_system.FactoredHybridSystem)
             init_from_system=init_from_system,
             temporal_reduction_mode=m,
         )
-        for m in [TemporalReductionMode.pooling, TemporalReductionMode.throwaway]
+        for m in [
+            PoolingReduction.avg(),
+            ThrowawayReduction(take_i=0),
+            ThrowawayReduction(take_i=1),
+            ThrowawayReduction(take_i=2),
+        ]
     ]
     for exp in configs:
         run_single(
@@ -90,7 +95,7 @@ def run_single(
     init_from_system: fh_system.FactoredHybridSystem,
     returnn_root: tk.Path,
     filter_segments: typing.Optional[typing.List[str]],
-    temporal_reduction_mode: TemporalReductionMode,
+    temporal_reduction_mode: TemporalReduction,
     conf_model_dim: int = 512,
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
@@ -167,7 +172,7 @@ def run_single(
         init_from_system.experiments["fh"]["returnn_config"],
         init_from_system.label_info,
         s.label_info,
-        temporal_reduction_mode=temporal_reduction_mode,
+        temporal_reduction=temporal_reduction_mode,
     )
     returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
     aux_layers = [l for l in returnn_config.config["network"].keys() if l.startswith("aux")]
