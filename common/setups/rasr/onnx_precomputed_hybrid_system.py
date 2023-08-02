@@ -35,7 +35,7 @@ class OnnxPrecomputedHybridSystem(HybridSystem):
         rtf: int,
         mem: int,
         nn_prior: bool,
-        epochs: Optional[List[int]] = None,
+        epochs: Optional[List[int, str]] = None,
         train_job: Optional[Union[returnn.ReturnnTrainingJob, returnn.ReturnnRasrTrainingJob]] = None,
         needs_features_size: bool = True,
         acoustic_mixture_path: Optional[tk.Path] = None,
