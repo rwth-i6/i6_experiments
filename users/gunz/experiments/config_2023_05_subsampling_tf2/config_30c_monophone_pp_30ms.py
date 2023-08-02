@@ -139,6 +139,8 @@ def run_single(
     )
 
     # ---------------------- returnn config---------------
+    s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
+
     class FakeReturnnJob:
         def __init__(self, epoch: int, ckpt: returnn.Checkpoint):
             self.out_checkpoints = {epoch: ckpt}
@@ -162,7 +164,6 @@ def run_single(
             temporal_reduction_mode=mode,
         )
 
-        s.set_experiment_dict("fh", alignment_name, "mono", postfix_name=name)
         s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
         for ep, crp_k in itertools.product([600], ["dev-other"]):
