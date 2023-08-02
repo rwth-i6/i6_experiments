@@ -142,6 +142,7 @@ def reduce_output_step_rate(
                     "class": "gather",
                     "from": f"{out_layer}_split",
                     "position": take_n,
+                    "register_as_extern_data": out_layer,
                 },
             }
 
