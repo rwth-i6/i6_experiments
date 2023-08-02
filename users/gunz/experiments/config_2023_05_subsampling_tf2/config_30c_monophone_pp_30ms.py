@@ -198,6 +198,7 @@ def run_single(
         #     returnn_config=returnn_config,
         # )
 
+        s.set_graph_for_experiment("fh")
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.monophone,
