@@ -1221,11 +1221,11 @@ class FHDecoder:
     def align(
         self,
         name: str,
-        rtf=10,
         crp: typing.Optional[rasr.CommonRasrParameters] = None,
         feature_scorer: typing.Optional[rasr.FeatureScorer] = None,
         default_tdp=True,
         set_do_not_normalize_lemma_sequence_scores: bool = True,
+        rtf=4,
     ):
         align_crp = copy.deepcopy(crp) if crp is not None else self.search_crp
 
