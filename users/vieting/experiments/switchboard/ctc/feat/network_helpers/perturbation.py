@@ -11,7 +11,8 @@ class PerturbationFactor:
 
 class WaveformPerturbation:
     """
-    This class enables the perturbation of audio waveforms by applying a variety of transformations such as speed and tempo modification,
+    This class enables the perturbation of audio waveforms by applying a variety of transformations such
+    as speed and tempo modification,
     SoX effects, and pre-emphasis filtering.
     The parameters `speed`, `tempo`, `codecs`, and `preemphasis` contain a 'prob' key
     which determines the probability that the corresponding transformation is applied.
