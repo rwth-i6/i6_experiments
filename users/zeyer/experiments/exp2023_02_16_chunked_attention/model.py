@@ -13,6 +13,7 @@ from returnn.tf.layers.basic import LayerBase
 
 from i6_experiments.users.zeineldeen.modules.network import ReturnnNetwork
 from i6_experiments.users.zeineldeen.modules.abs_module import AbsModule
+from i6_experiments.users.zeineldeen.modules.attention import AdditiveLocAwareness
 
 
 class AttentionMechanism(AbsModule):
@@ -28,6 +29,7 @@ class AttentionMechanism(AbsModule):
         l2,
         loc_filter_size,
         loc_num_channels,
+        use_weight_feedback,
     ):
         super().__init__()
         self.enc_key_dim = enc_key_dim
@@ -43,6 +45,8 @@ class AttentionMechanism(AbsModule):
         self.select_base_enc: Optional[Callable[[str], str]] = None
         self.enc_time_dim = None
 
+        self.use_weight_feedback = use_weight_feedback
+
     def create(self):
         out_net = ReturnnNetwork()
 
@@ -50,12 +54,18 @@ class AttentionMechanism(AbsModule):
             "s_transformed", "s", n_out=self.enc_key_dim, with_bias=False, l2=self.l2
         )  # project query
 
+        if self.use_weight_feedback:
+            weight_feedback = AdditiveLocAwareness(enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads)
+            out_net.update(weight_feedback.create())  # add weight feedback to network
+        else:
+            weight_feedback = None
+
         enc_ctx = "base:enc_ctx"
         if self.select_base_enc:
             enc_ctx = self.select_base_enc(enc_ctx)
         out_net.add_combine_layer(
             "energy_in",
-            [enc_ctx, "s_transformed"],
+            [enc_ctx, "s_transformed"] if not weight_feedback else [enc_ctx, weight_feedback.name, "s_transformed"],
             kind="add",
             n_out=self.enc_key_dim,
         )
@@ -428,6 +438,7 @@ class RNNDecoder:
             l2=self.l2,
             loc_filter_size=self.loc_conv_att_filter_size,
             loc_num_channels=self.loc_conv_att_num_channels,
+            use_weight_feedback=not self.enc_chunks_dim,  # TODO: allow when chunked
         )
         if self.enc_chunks_dim:
             att.enc_time_dim = self.enc_time_dim
