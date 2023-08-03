@@ -789,13 +789,25 @@ class RNNDecoder:
                 ),
             )
 
-        self.base_model.network.add_linear_layer(
-            "inv_fertility",
-            "encoder",
-            activation="sigmoid",
-            n_out=self.att_num_heads,
-            with_bias=False,
-        )
+        if not self.enc_chunks_dim:  # use weight feedback
+            # there was a bug where n_out should be dimension and not the tag
+            # this does not override the layer to not break hashes of old exps without weight feedback. super annoying
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads.dimension,
+                with_bias=False,
+            )
+        else:
+            # this layer is not used anw and kept just to not break hashes
+            self.base_model.network.add_linear_layer(
+                "inv_fertility",
+                "encoder",
+                activation="sigmoid",
+                n_out=self.att_num_heads,  # Note: this is a bug
+                with_bias=False,
+            )
 
         self.base_model.network["out_best"] = {
             "class": "decide",
