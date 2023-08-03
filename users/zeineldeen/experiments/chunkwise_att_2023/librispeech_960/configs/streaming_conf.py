@@ -1706,12 +1706,29 @@ def baseline():
         enc_stream_type="chunked",
         chunk_sizes=[5, 10, 25, 33],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
         chunk_step_factors=[1.0],
-        start_lrs=[2e-4],
+        start_lrs=[1e-4, 2e-4],
         decay_pt_factors=[1 / 3],
         gpu_mem=11,
         total_epochs=[200],
         batch_size=15_000,
         accum_grad=2,
+        time_rqmt=72,
+        chunked_decoder=False,
+        with_ctc=True,
+    )
+
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[50, 100],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
+        chunk_step_factors=[1.0],
+        start_lrs=[1e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[200],
+        batch_size=30_000,
+        accum_grad=1,
         time_rqmt=72,
         chunked_decoder=False,
         with_ctc=True,
