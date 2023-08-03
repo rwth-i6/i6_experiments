@@ -566,6 +566,7 @@ def create_config(
     chunk_size=20,
     chunk_step=None,
     chunk_level="encoder",  # or "input"
+    chunked_decoder=True,
     eoc_idx=0,
     search_type=None,
     dump_alignments_dataset=None,  # train, dev, etc
@@ -857,15 +858,31 @@ def create_config(
     decoder_args = asdict(decoder_args)
     decoder_args.update({"target": target, "beam_size": beam_size})
 
-    decoder_args["enc_chunks_dim"] = chunked_time_dim
-    decoder_args["enc_time_dim"] = chunk_size_dim
-    decoder_args["eos_id"] = eoc_idx
-    decoder_args["search_type"] = search_type
-    decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
+    if chunked_decoder:
+        decoder_args["enc_chunks_dim"] = chunked_time_dim
+        decoder_args["enc_time_dim"] = chunk_size_dim
+        decoder_args["eos_id"] = eoc_idx
+        decoder_args["search_type"] = search_type
+        decoder_args["enable_check_align"] = enable_check_align  # just here to keep some old changes
 
-    if decoder_args["full_sum_simple_approx"] and is_recog:
-        decoder_args["full_sum_simple_approx"] = False
-        decoder_args["masked_computation_blank_idx"] = eoc_idx
+        if decoder_args["full_sum_simple_approx"] and is_recog:
+            decoder_args["full_sum_simple_approx"] = False
+            decoder_args["masked_computation_blank_idx"] = eoc_idx
+    elif chunk_size:
+        # chunked encoder and non-chunked decoder so we need to merge encoder chunks
+        # assert "encoder_" not in conformer_encoder.network
+        conformer_encoder.network["encoder_"] = copy.deepcopy(conformer_encoder.network["encoder"])
+        if chunk_size == chunk_step:
+            conformer_encoder.network["encoder"] = {
+                "class": "merge_dims",
+                "from": "encoder_",  # [B,C,W,D]
+                "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
+                "keep_order": True,
+            }  # [B,C*W,D]
+            conformer_encoder.network["ctc"]["from"] = "encoder"
+        else:
+            # TODO: average overlapped chunks
+            raise NotImplementedError("chunk_size != chunk_step not implemented yet")
 
     transformer_decoder = decoder_type(base_model=conformer_encoder, **decoder_args)
     if not dump_ctc_dataset:
