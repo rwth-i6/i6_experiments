@@ -54,7 +54,7 @@ class WaveformPerturbation:
         """
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
-        self._sox_effects = sox_effects if sox_effects else None
+        self._sox_effects = sox_effects or []
         if preemphasis:
             self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
 
