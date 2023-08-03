@@ -1003,6 +1003,7 @@ def run_chunkwise_train(
     conf_mem_opts: Optional[dict] = None,
     full_sum_approx: bool = False,
     retrain_ckpt: Optional[Union[tk.Path, str]] = None,
+    chunked_decoder: bool = True,
     **kwargs,
 ):
     if isinstance(start_lrs, float):
@@ -1112,6 +1113,10 @@ def run_chunkwise_train(
                         if retrain_ckpt:
                             assert suffix, "set suffix for retrain to avoid overwriting"
                             train_args["retrain_checkpoint"] = retrain_ckpt
+
+                        train_args["chunked_decoder"] = chunked_decoder
+                        if not chunked_decoder:
+                            exp_name += "_noChunkedDec"
 
                         if suffix:
                             exp_name += suffix
@@ -1693,3 +1698,21 @@ def baseline():
             time_rqmt=168,
             conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
         )
+
+    # TODO: chunked encoder
+    run_chunkwise_train(
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        enc_stream_type="chunked",
+        chunk_sizes=[5, 10, 25, 33],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
+        chunk_step_factors=[1.0],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=11,
+        total_epochs=[200],
+        batch_size=15_000,
+        accum_grad=2,
+        time_rqmt=72,
+        chunked_decoder=False,
+        with_ctc=True,
+    )
