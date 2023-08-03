@@ -55,7 +55,9 @@ class AttentionMechanism(AbsModule):
         )  # project query
 
         if self.use_weight_feedback:
-            weight_feedback = AdditiveLocAwareness(enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads)
+            weight_feedback = AdditiveLocAwareness(
+                enc_key_dim=self.enc_key_dim, att_num_heads=self.att_num_heads.dimension
+            )
             out_net.update(weight_feedback.create())  # add weight feedback to network
         else:
             weight_feedback = None
