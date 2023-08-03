@@ -108,6 +108,7 @@ class PlotPhonemeDurationsJob(Job):
             ax.set_xticklabels(counts.keys())
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
+            ax.set_ylim(ymin=0)
             fig.savefig(dest)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}
