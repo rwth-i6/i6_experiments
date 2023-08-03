@@ -2,12 +2,18 @@ import copy
 from sisyphus import gs, tk
 
 from i6_core.tools.git import CloneGitRepositoryJob
-from i6_core.features import GammatoneJob
+from i6_core.features import GammatoneJob, gammatone_flow
 
 from i6_experiments.common.setups.rasr.util import RasrSteps
 from i6_experiments.common.setups.rasr.hybrid_system import HybridSystem
 
-from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import RASR_BINARY_PATH, SCTK_BINARY_PATH, RETURNN_EXE_PATH, RETURNN_ROOT_PATH, RETURNN_COMMON_PATH
+from i6_experiments.users.luescher.experiments.baselines.librispeech.default_tools import (
+    RASR_BINARY_PATH,
+    SCTK_BINARY_PATH,
+    RETURNN_EXE_PATH,
+    RETURNN_ROOT_PATH,
+    RETURNN_COMMON_PATH,
+)
 
 from .data import get_corpus_data_inputs
 from .baseline_args import get_feature_extraction_args, get_nn_args
@@ -33,14 +39,14 @@ def run_gmm_system():
 
 
 def run_librispeech_960_hybrid_baseline():
-    gs.ALIAS_AND_OUTPUT_SUBDIR = (
-        "experiments/librispeech/librispeech_960_hybrid/common_baseline"
-    )
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/librispeech/librispeech_960_hybrid/common_baseline"
 
     gmm_system = run_gmm_system()
 
     rasr_init_args = copy.deepcopy(gmm_system.rasr_init_args)  # TODO own function?
     feat_args = get_feature_extraction_args()["gt"]
+    feat_options = copy.deepcopy(feat_args["gt_options"])
+    feat_options.update({"name": "gt"})
 
     (
         nn_train_data_inputs,
@@ -48,7 +54,7 @@ def run_librispeech_960_hybrid_baseline():
         nn_devtrain_data_inputs,
         nn_dev_data_inputs,
         nn_test_data_inputs,
-    ) = get_corpus_data_inputs(gmm_system, feat_args, GammatoneJob)
+    ) = get_corpus_data_inputs(gmm_system, feat_args, GammatoneJob, gammatone_flow, feat_options)
 
     nn_args = None
 
@@ -62,7 +68,7 @@ def run_librispeech_960_hybrid_baseline():
         rasr_binary_path=RASR_BINARY_PATH,
         blas_lib=None,
     )
-    #lbs_nn_system.init_system(
+    # lbs_nn_system.init_system(
     #    rasr_init_args=rasr_init_args,
     #    train_data=nn_train_data_inputs,
     #    cv_data=nn_cv_data_inputs,
@@ -70,7 +76,7 @@ def run_librispeech_960_hybrid_baseline():
     #    dev_data={},  # # nn_dev_data_inputs,
     #    test_data={},  # nn_test_data_inputs,
     #    train_cv_pairing=[tuple(["train-other-960.train", "dev-clean-other.cv"])],
-    #)
-    #lbs_nn_system.run(nn_steps)
+    # )
+    # lbs_nn_system.run(nn_steps)
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = ""

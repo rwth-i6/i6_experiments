@@ -1,3 +1,4 @@
+import copy
 from enum import Enum
 from typing import Any, Callable, Dict, Tuple, Type, Union
 from dataclasses import asdict
@@ -5,6 +6,8 @@ from dataclasses import asdict
 from sisyphus import tk, delayed_ops
 
 import i6_core.corpus as corpus_recipe
+import i6_core.features as features
+import i6_core.rasr as rasr
 import i6_core.returnn as returnn
 import i6_core.text as text
 
@@ -128,6 +131,50 @@ def get_corpora_for_hybrid_training(
     }
 
 
+def dump_features_to_hdf(
+    crp: rasr.CommonRasrParameters,
+    flow_callable: Callable[[Any, ...], rasr.FlowNetwork],
+    feature_extraction_options: Dict,
+) -> tk.Path:
+    feat_ext_opt = copy.deepcopy(feature_extraction_options)
+
+    if "samples_options" not in feat_ext_opt:
+        feat_ext_opt["samples_options"] = {}
+    feat_ext_opt["samples_options"]["audio_format"] = crp.audio_format
+    flow_name = feat_ext_opt.pop("name")
+
+    feature_flow = features.feature_extraction_cache_flow(
+        flow_callable(**feat_ext_opt), {"features": flow_name}, None
+    )
+    flow_path = rasr.WriteFlowNetworkJob(feature_flow).out_flow_file
+
+    config, post_config = rasr.build_config_from_mapping(
+        crp=crp,
+        mapping={"corpus": "extraction.corpus"},
+        parallelize=True,
+    )
+    config.extraction.feature_extraction.file = flow_path
+    config.extraction.feature_extraction["*"].allow_overwrite = True
+    feature_flow.apply_config("extraction.feature-extraction", config, post_config)
+    rasr_config_path = rasr.WriteRasrConfigJob(config, post_config).out_config
+
+    feature_hdf_path = returnn.ReturnnDumpHDFJob(
+        data={
+            "class": "ExternSprintDataset",
+            # "sprintTrainerExecPath": rasr.RasrCommand.select_exe(crp.feature_extraction_exe, "feature-extraction"),
+            "sprintTrainerExecPath": rasr.RasrCommand.select_exe(crp.nn_trainer_exe, "nn-trainer"),
+            "sprintConfigStr": delayed_ops.DelayedFormat(
+                "--config={} --*.LOGFILE=rasr.log --*.TASK=1", rasr_config_path
+            ),
+            "partitionEpoch": 1,
+        },
+        returnn_python_exe=RETURNN_EXE_PATH,
+        returnn_root=RETURNN_ROOT_PATH,
+    ).out_hdf
+
+    return feature_hdf_path
+
+
 def dump_features_for_hybrid_training(
     gmm_system: GmmSystem,
     feature_extraction_args: Dict[str, Any],
@@ -142,7 +189,7 @@ def dump_features_for_hybrid_training(
     return features["nn-train"], features["nn-cv"], features["nn-devtrain"]
 
 
-def dump_features_into_hdf(
+def dump_feature_cache_to_hdf(
     feature_bundle_path: tk.Path, allophone_labeling: AllophoneLabeling, filter_keep_list: tk.Path
 ) -> tk.Path:
     dataset = {
@@ -193,6 +240,8 @@ def get_corpus_data_inputs(
     gmm_system: GmmSystem,
     feature_extraction_args: Dict[str, Any],
     feature_extraction_class: Callable[[Any, ...], FeatureExtractionJob],
+    feature_extraction_flow: Callable[[Any, ...], rasr.FlowNetwork],
+    feature_extraction_options: Dict[str, Any],
 ) -> Tuple[
     Dict[str, HdfDataInput],
     Dict[str, HdfDataInput],
@@ -213,6 +262,8 @@ def get_corpus_data_inputs(
     :param gmm_system:
     :param feature_extraction_args:
     :param feature_extraction_class:
+    :param feature_extraction_flow:
+    :param feature_extraction_options:
     :return:
     """
 
@@ -254,13 +305,33 @@ def get_corpus_data_inputs(
 
     # ******************** dump features ********************
 
-    train_feat_hdf = dump_features_into_hdf(train_features, allophone_labeling, train_segments)
-    cv_feat_hdf = dump_features_into_hdf(cv_features, allophone_labeling, cv_segments)
-    devtrain_feat_hdf = dump_features_into_hdf(devtrain_features, allophone_labeling, devtrain_segments)
+    train_feat_hdf = dump_feature_cache_to_hdf(train_features, allophone_labeling, train_segments)
+    cv_feat_hdf = dump_feature_cache_to_hdf(cv_features, allophone_labeling, cv_segments)
+    devtrain_feat_hdf = dump_feature_cache_to_hdf(devtrain_features, allophone_labeling, devtrain_segments)
 
     tk.register_output("train.feat.hdf", train_feat_hdf)
     tk.register_output("cv.feat.hdf", cv_feat_hdf)
     tk.register_output("devtrain.feat.hdf", devtrain_feat_hdf)
+
+    train_rasr_feat_hdf = dump_features_to_hdf(
+        crp=gmm_system.crp["nn-train"],
+        flow_callable=feature_extraction_flow,
+        feature_extraction_options=feature_extraction_options,
+    )
+    cv_rasr_feat_hdf = dump_features_to_hdf(
+        crp=gmm_system.crp["nn-cv"],
+        flow_callable=feature_extraction_flow,
+        feature_extraction_options=feature_extraction_options,
+    )
+    devtrain_rasr_feat_hdf = dump_features_to_hdf(
+        crp=gmm_system.crp["nn-devtrain"],
+        flow_callable=feature_extraction_flow,
+        feature_extraction_options=feature_extraction_options,
+    )
+
+    tk.register_output("train.rasr_feat.hdf", train_rasr_feat_hdf)
+    tk.register_output("cv.rasr_feat.hdf", cv_rasr_feat_hdf)
+    tk.register_output("devtrain.rasr_feat.hdf", devtrain_rasr_feat_hdf)
 
     # ******************** dump alignments ********************
 
