@@ -884,7 +884,7 @@ def conformer_baseline():
     for num_blocks in [8, 12]:
         for ep in [100 * 4]:
             for lr in [8e-4]:
-                for weight_drop in [0.1, 0.15, 0.2]:
+                for weight_drop in [0.1]:
                     for enc_drop in [0.1, 0.15, 0.2]:
                         base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
                         args = copy.deepcopy(base_v1_args)
@@ -908,7 +908,7 @@ def conformer_baseline():
         for ep in [100 * 4]:
             for lr in [8e-4]:
                 for target_embed_dim in [256, 640]:  # 640 is used by default
-                    for att_drop in [0.0, 0.1]:
+                    for att_drop in [0.0]:
                         for weight_drop in [0.1]:
                             for enc_drop in [0.15]:
                                 base_v1_args, exp_name = get_base_v1_args(lr, ep, enc_drop=enc_drop)
@@ -934,6 +934,23 @@ def conformer_baseline():
                                     partition_epoch=4,
                                 )
                                 # TODO: retrain
+                                # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
+                                # 7.4     6.85  avg
+                                if target_embed_dim == 256 and att_drop == 0.0:
+                                    for lr in [2e-4, 5e-4, 8e-4]:
+                                        retrain_args = copy.deepcopy(args)
+                                        retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+                                        retrain_args["learning_rates_list"] = [lr] * 8 + list(
+                                            numpy.linspace(lr, 1e-6, 200 - 8)
+                                        )
+                                        run_exp(
+                                            name + f"_retrain1_lr{lr}",
+                                            retrain_args,
+                                            num_epochs=200,
+                                            epoch_wise_filter=None,
+                                            bpe_size=BPE_1K,
+                                            partition_epoch=4,
+                                        )
 
     # TODO: mixup
     for use_log10_feats in [True, False]:
@@ -972,19 +989,34 @@ def conformer_baseline():
             partition_epoch=4,
         )
 
-    # TODO: no pretraining and using torch init
-    for torch_lstm_weight_init in [True, False]:
-        args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-        args["with_pretrain"] = False
-        if torch_lstm_weight_init:
-            args[
-                "decoder_args"
-            ].lstm_weights_init = f"variance_scaling_initializer(mode='fan_out', distribution='uniform', scale={1/3})"
-        run_exp(
-            exp_name + "_noPretrain" + ("_torchLSTMInit" if torch_lstm_weight_init else ""),
-            args,
-            num_epochs=50 * 4,
-            epoch_wise_filter=None,
-            bpe_size=BPE_1K,
-            partition_epoch=4,
-        )
+    # TODO: no pretraining
+    for grad_clip_norm in [0.0, 5, 20]:
+        for torch_lstm_weight_init in [False]:
+            for initial_lr, lr in [(1e-5, 8e-4), (1e-5, 3e-4)]:
+                args, exp_name = get_base_v1_args(8e-4, 50 * 4)
+                wup_eps = int(50 * 4 * 0.04)  # 4%
+                const_eps = int(50 * 4 * 0.7)  # 70%
+                decay_eps = 50 * 4 - wup_eps - const_eps
+                args["learning_rates_list"] = (
+                    list(numpy.linspace(initial_lr, lr, wup_eps))
+                    + [lr] * const_eps
+                    + list(numpy.linspace(lr, 1e-6, decay_eps))
+                )
+                assert len(args["learning_rates_list"]) == 50 * 4
+                args["with_pretrain"] = False
+                args["gradient_clip_global_norm"] = grad_clip_norm
+                if torch_lstm_weight_init:
+                    args[
+                        "decoder_args"
+                    ].lstm_weights_init = (
+                        f"variance_scaling_initializer(mode='fan_out', distribution='uniform', scale={1/3})"
+                    )
+                name = f"base_wupLR_{initial_lr}-{lr}_gradNormClip{grad_clip_norm}"
+                run_exp(
+                    name + ("_torchLSTMInit" if torch_lstm_weight_init else "") + "_noPretrain",
+                    args,
+                    num_epochs=50 * 4,
+                    epoch_wise_filter=None,
+                    bpe_size=BPE_1K,
+                    partition_epoch=4,
+                )
