@@ -13,12 +13,7 @@ import returnn.frontend as rf
 from returnn.frontend.tensor_array import TensorArray
 from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSubsample
 
-from i6_core.returnn.training import Checkpoint
-
-from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
-from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef, ModelWithCheckpoint
-from i6_experiments.users.zeyer.recog import recog_model
-from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
 
 # From Mohammad, 2023-06-29
@@ -31,9 +26,19 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 
 
-def sis_run_with_prefix(prefix_name: str):
+def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
+    from .generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
+    from .sis_setup import get_prefix_for_config
+    from i6_core.returnn.training import Checkpoint, PtCheckpoint
+    from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
+    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
+    from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
+
+    if not prefix_name:
+        prefix_name = get_prefix_for_config(__file__)
 
     task = get_switchboard_task_bpe1k()
 
@@ -45,15 +50,8 @@ def sis_run_with_prefix(prefix_name: str):
     in_dim = data.feature_dim_or_sparse_dim
     target_dim = targets.feature_dim_or_sparse_dim
 
-    epoch = 300
-    new_chkpt = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(
-            # TODO wrong path here... not used so far, only testing other code here...
-            index_path=tk.Path(
-                f"/u/zeyer/setups/combined/2021-05-31"
-                f"/alias/exp_fs_base/old_nick_att_conformer_lrs2/train/output/models/epoch.{epoch:03}.index"
-            )
-        ),
+    new_chkpt_path = ConvertTfCheckpointToRfPtJob(
+        checkpoint=Checkpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
         make_model_func=MakeModel(
             in_dim=in_dim.dimension,
             target_dim=target_dim.dimension,
@@ -61,10 +59,14 @@ def sis_run_with_prefix(prefix_name: str):
         ),
         map_func=map_param_func_v2,
     ).out_checkpoint
+    new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
     res = recog_model(task, model_with_checkpoint, model_recog)
-    tk.register_output(prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
+    tk.register_output(prefix_name + f"/recog_results", res.output)
+
+
+py = sis_run_with_prefix  # if run directly via `sis m ...`
 
 
 class MakeModel:
@@ -82,8 +84,7 @@ class MakeModel:
         in_dim = Dim(name="in", dimension=self.in_dim, kind=Dim.Types.Feature)
         target_dim = Dim(name="target", dimension=self.target_dim, kind=Dim.Types.Feature)
         target_dim.vocab = Vocabulary.create_vocab_from_labels(
-            [str(i) for i in range(target_dim.dimension)],
-            eos_label=self.eos_label
+            [str(i) for i in range(target_dim.dimension)], eos_label=self.eos_label
         )
 
         return self.make_model(in_dim, target_dim, num_enc_layers=self.num_enc_layers)
