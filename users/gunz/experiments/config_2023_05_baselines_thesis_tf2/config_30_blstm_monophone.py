@@ -415,6 +415,7 @@ def run_single(
                 num_encoder_output=2 * blstm_size,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
+                rtf_cpu=30,
             )
 
         if tune_decoding:
@@ -432,6 +433,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
+                rtf_cpu=30,
             )
 
     return s
