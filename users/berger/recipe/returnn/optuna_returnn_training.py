@@ -34,7 +34,6 @@ class OptunaReturnnTrainingJob(Job):
         log_verbosity: int = 3,
         device: str = "gpu",
         num_epochs: int = 1,
-        min_epochs: int = 0,
         save_interval: int = 1,
         keep_epochs: Optional[List[int]] = None,
         time_rqmt: int = 4,
@@ -63,7 +62,6 @@ class OptunaReturnnTrainingJob(Job):
         self.multi_node_slots = multi_node_slots
 
         self.num_epochs = num_epochs
-        self.min_epochs = min_epochs
 
         stored_epochs = list(range(save_interval, num_epochs, save_interval)) + [num_epochs]
         if keep_epochs is None:
@@ -265,7 +263,7 @@ class OptunaReturnnTrainingJob(Job):
         )
         os.link(self.out_trial_learning_rates[task_id], self.out_learning_rates)
         for k in self.out_checkpoints:
-            for suffix in ["index", "meta", "data-00000-of-00001"]:
+            for suffix in ["index", "meta", "data-00000-of-00001", "pt"]:
                 orig_file = f"{self.out_trial_checkpoints[task_id][k]}.{suffix}"
                 if not os.path.exists(orig_file):
                     continue
@@ -290,10 +288,6 @@ class OptunaReturnnTrainingJob(Job):
             study_name=self.study_name,
             storage=self.study_storage,
             sampler=optuna.samplers.TPESampler(n_startup_trials=max(5, self.num_parallel), seed=self.sampler_seed),
-            pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=max(5, self.num_parallel),
-                n_warmup_steps=self.min_epochs,
-            ),
             direction="minimize",
             load_if_exists=True,
         )
@@ -318,6 +312,13 @@ class OptunaReturnnTrainingJob(Job):
         study = optuna.load_study(
             study_name=self.study_name,
             storage=storage,
+            pruner=optuna.pruners.PatientPruner(
+                wrapped_pruner=optuna.pruners.MedianPruner(
+                    n_startup_trials=max(5, self.num_parallel),
+                ),
+                patience=10,
+                min_delta=0.1,
+            ),
         )
 
         if self.out_trials[task_id].is_set():

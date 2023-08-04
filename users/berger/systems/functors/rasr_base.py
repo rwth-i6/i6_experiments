@@ -230,7 +230,7 @@ class RasrFunctor(ABC):
 
         onnx_flow.config = rasr.RasrConfig()  # type: ignore
         onnx_flow.config[onnx_fwd].io_map.features = "data"
-        # onnx_flow.config[onnx_fwd].io_map.features_size = "data_len"
+        onnx_flow.config[onnx_fwd].io_map.features_size = "data_len"
         onnx_flow.config[onnx_fwd].io_map.output = "classes"
 
         onnx_flow.config[onnx_fwd].session.file = onnx_model
