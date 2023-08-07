@@ -41,6 +41,8 @@ def _get_pt_checkpoint_path() -> tk.Path:
     old_tf_ckpt_path = _get_tf_checkpoint_path()
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
     make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
+    # TODO: problems with hash:
+    #  make_model_func, map_func: uses full module name (including "zeyer"), should use sth like unhashed_package_root
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=old_tf_ckpt,
         make_model_func=make_model_func,
