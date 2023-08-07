@@ -83,28 +83,22 @@ def get_oclr_config(num_epochs: int, *, schedule: str = "v6") -> typing.Dict[str
             "learning_rate_control": "constant",
         }
 
-    if schedule == "v6":
-        # OneCycle from Wei + linear decrease at the end to 1e-6
-        #
-        # Max LR 0.0003.
+    peak_lrs = {
+        "v6": 0.0003,
+        "v7": 0.00053,
+        "v8": 0.0003,
+        "v9": 0.0004,
+        "v10": 0.0006,
+        "v11": 0.0007,
+        "v12": 0.0008,
+        "v13": 0.001,
+        "v14": 0.0012,
+        "v15": 0.0015,
+        "v16": 0.0018,
+        "v17": 0.002,
+    }
 
-        return oclr_cfg(lrate=0.001)
-    elif schedule in [f"v{v}" for v in range(7, 16)]:
-        # Like v6 but higher max LR (0.00053 vs 0.0003)
-        #
-        # This is proportionally scaled to a batch size of 11k vs 6144, where schedule v6 is better.
-
-        peak_lr = {
-            "v8": 0.0003,
-            "v9": 0.0004,
-            "v7": 0.00053,
-            "v10": 0.0006,
-            "v11": 0.0007,
-            "v12": 0.0008,
-            "v13": 0.001,
-            "v14": 0.0012,
-            "v15": 0.0015,
-        }
-        return oclr_cfg(lrate=peak_lr[schedule] / 0.3)
-    else:
+    if not schedule in peak_lrs:
         raise ValueError(f"unknown LR schedule {schedule}")
+
+    return oclr_cfg(lrate=peak_lrs[schedule] / 0.3)
