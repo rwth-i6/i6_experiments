@@ -134,7 +134,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-fl:{focal_loss}"
+    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
     print(f"fh {name}")
 
     ss_factor = 4
