@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Union, Any, Dict
+from sisyphus import Path
 
 from returnn_common.datasets_old_2022_10.interface import VocabConfig
 
@@ -9,8 +10,8 @@ class Bpe(VocabConfig):
     def __init__(
         self,
         dim: int,
-        codes: str,  # filename
-        vocab: str,  # filename
+        codes: Union[Path, str],  # filename, bpe_file
+        vocab: Union[Path, str],  # filename
         *,
         eos_idx: Optional[int] = None,
         bos_idx: Optional[int] = None,

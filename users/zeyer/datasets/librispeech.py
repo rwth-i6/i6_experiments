@@ -3,14 +3,14 @@ Librispeech dataset
 """
 
 from __future__ import annotations
-from typing import Optional, Union, List, Dict, Any, Tuple
+from typing import Optional
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
-from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
-from i6_core.returnn import ReturnnConfig
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
 from .task import Task
+from .utils.bpe import Bpe
+from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
@@ -34,6 +34,16 @@ spm_train_job = TrainSentencePieceJob(
     },
 )
 spm_2k = spm_train_job.out_model
+
+# common
+bpe10k = Bpe(
+    dim=10_025,
+    eos_idx=0,
+    bos_idx=0,
+    codes=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.codes"),
+    vocab=generic_job_output("i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab"),
+    unknown_label="<unk>",
+)
 
 
 _Parts = ["train-clean-100", "train-clean-360", "train-other-500", "dev-clean", "dev-other", "test-clean", "test-other"]
