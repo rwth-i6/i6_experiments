@@ -28,7 +28,7 @@ _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.Bx
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
-    from .generic_job_output import generic_job_output
+    from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
     from .sis_setup import get_prefix_for_config
     from i6_core.returnn.training import Checkpoint, PtCheckpoint
