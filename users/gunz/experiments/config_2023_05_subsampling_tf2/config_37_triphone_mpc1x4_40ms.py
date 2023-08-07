@@ -66,6 +66,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
+    batch_size: int
     lr: str
     dc_detection: bool
     decode_all_corpora: bool
@@ -87,18 +88,21 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
         Experiment(
             alignment=alignment,
             alignment_name=a_name,
+            batch_size=bs,
             dc_detection=False,
             decode_all_corpora=False,
-            lr="v13",
+            lr=lr,
             own_priors=True,
             run_performance_study=False,
             tune_decoding=False,
         )
+        for bs, lr in [(12500, "v13"), *((20_000, f"v{lr}") for lr in range(13, 17 + 1))]
     ]
     for exp in configs:
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
+            batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
@@ -115,6 +119,7 @@ def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
+    batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
     focal_loss: float,
@@ -237,7 +242,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,

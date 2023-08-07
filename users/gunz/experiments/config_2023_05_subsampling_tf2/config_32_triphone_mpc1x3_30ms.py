@@ -92,15 +92,16 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
         Experiment(
             alignment=a,
             alignment_name=a_name,
-            batch_size=12500,
+            batch_size=bs,
             dc_detection=False,
             decode_all_corpora=False,
-            lr="v13",
+            lr=lr,
             own_priors=True,
             run_performance_study=False,
             tune_decoding=True,
         )
-        for a, a_name in alignments_to_run
+        for i, (a, a_name) in enumerate(alignments_to_run)
+        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0)]
     ]
     for exp in configs:
         run_single(
