@@ -40,6 +40,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     if not prefix_name:
         prefix_name = get_prefix_for_config(__file__)
 
+    # TODO librispeech...
     task = get_switchboard_task_bpe1k()
 
     extern_data_dict = task.train_dataset.get_extern_data()

@@ -175,8 +175,10 @@ def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
         assert isinstance(value, numpy.ndarray)
         if name.endswith(".filter"):
             value = convert_params_np.convert_tf_conv_to_pt_conv_filter(value)
-        assert value.shape == var.batch_shape, f"new param {name} vs old param {var_name}"
-        assert value.dtype.name == var.dtype, f"new param {name} vs old param {var_name}"
+        assert (
+            value.shape == var.batch_shape
+        ), f"new param {name} {var.batch_shape} vs ckpt param {var_name} {value.shape}"
+        assert value.dtype.name == var.dtype, f"new param {name} {var.dtype} vs ckpt param {var_name} {value.dtype}"
         return value
 
     if name == "s.ff_weight":
