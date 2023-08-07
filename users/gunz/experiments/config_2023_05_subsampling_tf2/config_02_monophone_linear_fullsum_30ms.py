@@ -55,6 +55,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
+    bw_transition_scale: float
     context_window_size: int
     feature_time_shift: float
     lr: str
@@ -81,6 +82,7 @@ def run(returnn_root: tk.Path):
             model_dim=model_dim,
             output_time_step=30 / 1000,
             subsampling_approach="mp:2@2+mp:2@4",
+            bw_transition_scale=0.3,
         ),
         Experiment(
             alignment_name="scratch",
@@ -91,6 +93,18 @@ def run(returnn_root: tk.Path):
             model_dim=model_dim,
             output_time_step=40 / 1000,
             subsampling_approach="mp:2@2+mp:2@4",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4",
+            bw_transition_scale=0.0,
         ),
     ]
     experiments = {
@@ -104,6 +118,7 @@ def run(returnn_root: tk.Path):
             returnn_root=returnn_root,
             output_time_step=exp.output_time_step,
             subsampling_approach=exp.subsampling_approach,
+            bw_transition_scale=exp.bw_transition_scale,
         )
         for exp in configs
     }
@@ -115,6 +130,7 @@ def run_single(
     *,
     alignment_name: str,
     bw_label_scale: float,
+    bw_transition_scale: float,
     context_window_size: int,
     feature_time_shift: float,
     lr: str,
@@ -126,7 +142,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bwl:{bw_label_scale}-bwt:{bw_transition_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -338,7 +354,7 @@ def run_single(
     train_cfg = baum_welch.augment_for_fast_bw(
         crp=s.crp[s.crp_names["train"]],
         log_linear_scales=baum_welch.BwScales(
-            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_label_scale
+            label_posterior_scale=bw_label_scale, label_prior_scale=None, transition_scale=bw_transition_scale
         ),
         returnn_config=returnn_config,
     )
