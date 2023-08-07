@@ -7,79 +7,16 @@ from typing import Dict, Any, Optional
 import os
 
 from sisyphus import tk
-from sisyphus.delayed_ops import DelayedFormat
-from i6_core.returnn.config import CodeWrapper
 from returnn_common.datasets.base import Dataset
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.datasets.utils.delayed_code import DelayedCodeFormat
+from i6_experiments.users.zeyer.datasets.utils.bpe import Bpe
 
 _my_dir = os.path.dirname(os.path.abspath(__file__))
 _rasr_configs_dir = _my_dir + "/rasr_configs"
 
-
-class _Bpe(VocabConfig):
-    def __init__(
-        self,
-        dim: int,
-        codes: str,  # filename
-        vocab: str,  # filename
-        *,
-        eos_idx: Optional[int] = None,
-        bos_idx: Optional[int] = None,
-        unknown_label: Optional[str] = None,
-        other_opts: Optional[Dict[str, Any]] = None,
-    ):
-        super(_Bpe, self).__init__()
-        self.dim = dim
-        self.codes = codes
-        self.vocab = vocab
-        self.eos_idx = eos_idx
-        self.bos_idx = bos_idx
-        self.unknown_label = unknown_label
-        self.other_opts = other_opts
-
-    def get_num_classes(self) -> int:
-        """
-        Get num classes
-        """
-        return self.dim
-
-    def get_opts(self) -> Dict[str, Any]:
-        """
-        Get opts
-        """
-        d = {
-            "bpe_file": self.codes,
-            "vocab_file": self.vocab,
-            "unknown_label": self.unknown_label,
-            "bos_label": self.bos_idx,
-            "eos_label": self.eos_idx,
-            # 'seq_postfix': [0]  # no EOS needed for RNN-T
-        }
-        if self.other_opts:
-            d.update(self.other_opts)
-            if self.other_opts.get("class") == "SamplingBytePairEncoding":
-                d.pop("bpe_file")
-        return d
-
-    def get_eos_idx(self) -> Optional[int]:
-        """EOS"""
-        return self.eos_idx
-
-    def get_bos_idx(self) -> Optional[int]:
-        """BOS"""
-        return self.bos_idx
-
-    def copy(self, **kwargs):
-        """Copy"""
-        opts = {
-            k: getattr(self, k) for k in ["dim", "codes", "vocab", "eos_idx", "bos_idx", "unknown_label", "other_opts"]
-        }
-        opts.update(kwargs)
-        return _Bpe(**opts)
-
-
-bpe1k = _Bpe(
+bpe1k = Bpe(
     dim=1030,
     eos_idx=0,
     bos_idx=0,
@@ -206,13 +143,13 @@ class SwitchboardExternSprint(Dataset):
         estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
         args = [
-            _DelayedCodeFormat("lambda: '--config=' + cf({!r})", files["config"]),
-            _DelayedCodeFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"]),
-            _DelayedCodeFormat(
+            DelayedCodeFormat("lambda: '--config=' + cf({!r})", files["config"]),
+            DelayedCodeFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"]),
+            DelayedCodeFormat(
                 "lambda: '--*.corpus.segments.file=' + cf({!r})", (files["segments"] if "segments" in files else "")
             ),
-            _DelayedCodeFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"]),
-            _DelayedCodeFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"]),
+            DelayedCodeFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"]),
+            DelayedCodeFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"]),
             "--*.log-channel.file=/dev/null",
             "--*.window-size=1",
         ]
@@ -344,13 +281,13 @@ class SwitchboardExternSprintOld(DatasetConfig):
         estimated_num_seqs = {"train": 227047, "cv": 3000, "devtrain": 3000}  # wc -l segment-file
 
         args = [
-            _DelayedCodeFormat("lambda: '--config=' + cf({!r})", files["config"]),
-            _DelayedCodeFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"]),
-            _DelayedCodeFormat(
+            DelayedCodeFormat("lambda: '--config=' + cf({!r})", files["config"]),
+            DelayedCodeFormat("lambda: '--*.corpus.file=' + cf({!r})", files["corpus"]),
+            DelayedCodeFormat(
                 "lambda: '--*.corpus.segments.file=' + cf({!r})", (files["segments"] if "segments" in files else "")
             ),
-            _DelayedCodeFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"]),
-            _DelayedCodeFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"]),
+            DelayedCodeFormat("lambda: '--*.feature-cache-path=' + cf({!r})", files["features"]),
+            DelayedCodeFormat("lambda: '--*.feature-extraction.file=' + cf({!r})", files["feature_extraction_config"]),
             "--*.log-channel.file=/dev/null",
             "--*.window-size=1",
         ]
@@ -384,11 +321,3 @@ def get_bliss_xml_corpus(corpus_name: str) -> tk.Path:
         hash_overwrite="switchboard2020/irie-corpora-%s.corpus.gz" % corpus_name,
         cached=True,
     )
-
-
-class _DelayedCodeFormat(DelayedFormat):
-    """Delayed code"""
-
-    def get(self) -> CodeWrapper:
-        """get"""
-        return CodeWrapper(super(_DelayedCodeFormat, self).get())
