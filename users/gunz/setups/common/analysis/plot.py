@@ -104,10 +104,11 @@ class PlotPhonemeDurationsJob(Job):
         for counts, dest in to_plot:
             plt.clf()
             fig, ax = plt.subplots(figsize=self.figsize)
-            ax.boxplot(counts.values(), 0, "")
+            ax.boxplot(counts.values(), 0, "", whis=[5, 95])
             ax.set_xticklabels(counts.keys())
             ax.set_xlabel("Phoneme")
             ax.set_ylabel("Duration [s]")
+            ax.set_ylim(bottom=0)
             fig.savefig(dest)
 
         means = {k: np.mean(v) for k, v in merged_counts.items()}

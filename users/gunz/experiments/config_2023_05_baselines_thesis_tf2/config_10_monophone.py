@@ -3,6 +3,7 @@ __all__ = ["run", "run_single"]
 import copy
 import dataclasses
 from dataclasses import dataclass
+from functools import cache
 import itertools
 
 import numpy as np
@@ -75,6 +76,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
+@cache
 def run(returnn_root: tk.Path):
     # ******************** Settings ********************
 

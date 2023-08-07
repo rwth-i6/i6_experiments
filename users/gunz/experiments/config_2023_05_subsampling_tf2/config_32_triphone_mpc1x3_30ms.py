@@ -67,6 +67,7 @@ train_key = "train-other-960"
 class Experiment:
     alignment: tk.Path
     alignment_name: str
+    batch_size: int
     lr: str
     dc_detection: bool
     decode_all_corpora: bool
@@ -91,6 +92,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
         Experiment(
             alignment=a,
             alignment_name=a_name,
+            batch_size=12500,
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
@@ -104,6 +106,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
         run_single(
             alignment=exp.alignment,
             alignment_name=exp.alignment_name,
+            batch_size=exp.batch_size,
             dc_detection=exp.dc_detection,
             decode_all_corpora=exp.decode_all_corpora,
             focal_loss=exp.focal_loss,
@@ -120,6 +123,7 @@ def run_single(
     *,
     alignment: tk.Path,
     alignment_name: str,
+    batch_size: int,
     dc_detection: bool,
     decode_all_corpora: bool,
     focal_loss: float,
@@ -242,7 +246,7 @@ def run_single(
         **s.initial_nn_args,
         **oclr.get_oclr_config(num_epochs=num_epochs, schedule=lr),
         **CONF_SA_CONFIG,
-        "batch_size": 12500,
+        "batch_size": batch_size,
         "use_tensorflow": True,
         "debug_print_layer_output_template": True,
         "log_batch_size": True,
@@ -304,7 +308,7 @@ def run_single(
     )
 
     best_config = None
-    for ep, crp_k in itertools.product([550, max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         if own_priors:

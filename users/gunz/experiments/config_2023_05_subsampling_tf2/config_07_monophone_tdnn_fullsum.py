@@ -1,4 +1,4 @@
-__all__ = ["run", "run_single"]
+_all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
@@ -55,7 +55,6 @@ train_key = "train-other-960"
 class Experiment:
     alignment_name: str
     bw_label_scale: float
-    context_window_size: int
     feature_time_shift: float
     lr: str
     model_dim: int
@@ -69,13 +68,12 @@ def run(returnn_root: tk.Path):
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    model_dim = 2048
+    model_dim = 300
 
     configs = [
         Experiment(
             alignment_name="scratch",
             bw_label_scale=0.3,
-            context_window_size=15,
             feature_time_shift=7.5 / 1000,
             lr="v8",
             model_dim=model_dim,
@@ -85,7 +83,6 @@ def run(returnn_root: tk.Path):
         Experiment(
             alignment_name="scratch",
             bw_label_scale=0.3,
-            context_window_size=15,
             feature_time_shift=10 / 1000,
             lr="v8",
             model_dim=model_dim,
@@ -97,7 +94,6 @@ def run(returnn_root: tk.Path):
         exp: run_single(
             alignment_name=exp.alignment_name,
             bw_label_scale=exp.bw_label_scale,
-            context_window_size=exp.context_window_size,
             feature_time_shift=exp.feature_time_shift,
             lr=exp.lr,
             model_dim=exp.model_dim,
@@ -115,7 +111,6 @@ def run_single(
     *,
     alignment_name: str,
     bw_label_scale: float,
-    context_window_size: int,
     feature_time_shift: float,
     lr: str,
     returnn_root: tk.Path,
@@ -126,7 +121,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"mlp-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
+    name = f"tdnn-1-lr:{lr}-ss:{subsampling_approach}-dx:{output_time_step/(10/1000)}-d:{model_dim}-bw:{bw_label_scale}"
     print(f"fh {name}")
 
     # ***********Initial arguments and init step ********************
@@ -183,96 +178,106 @@ def run_single(
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 40, "dev": 1}
 
+    make_subnet = lambda dilation, filter_size: {
+        "conv": {
+            "activation": None,
+            "batch_norm": True,
+            "class": "conv",
+            "dilation_rate": dilation,
+            "dropout": 0.1,
+            "filter_size": (filter_size,),
+            "forward_weights_init": "glorot_uniform",
+            "from": "data",
+            "n_out": 1700,
+            "padding": "same",
+            "strides": 1,
+            "with_bias": True,
+        },
+        "gating": {"activation": "tanh", "class": "gating", "from": ["conv"]},
+        "linear": {
+            "activation": None,
+            "class": "linear",
+            "from": ["gating"],
+            "n_out": model_dim,
+        },
+        "output": {
+            "class": "combine",
+            "from": ["projection", "linear"],
+            "kind": "add",
+        },
+        "projection": {
+            "activation": None,
+            "class": "linear",
+            "from": ["data"],
+            "n_out": model_dim,
+        },
+    }
     network = {
         "source": {
             "class": "eval",
             "eval": "self.network.get_config().typed_value('transform')(source(0), network=self.network)",
             "from": "data",
         },
-        "window": {
-            "class": "window",
+        "input_conv": {
+            "activation": "relu",
+            "batch_norm": True,
+            "class": "conv",
+            "dilation_rate": 1,
+            "dropout": 0.1,
+            "filter_size": (5,),
+            "forward_weights_init": "glorot_uniform",
             "from": "source",
-            "window_size": context_window_size,
+            "n_out": 1700,
+            "padding": "same",
+            "strides": 1,
+            "with_bias": True,
         },
-        "window-merged": {
-            "axes": "except_time",
-            "class": "merge_dims",
-            "from": "window",
+        "gated-1": {
+            "class": "subnetwork",
+            "from": ["input_conv"],
+            "subnetwork": make_subnet(1, 2),
         },
-        "linear-1": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "window-merged",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
+        "gated-2": {
+            "class": "subnetwork",
+            "from": ["gated-1"],
+            "subnetwork": make_subnet(2, 2),
         },
-        "linear-2": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "linear-1",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
+        "gated-3": {
+            "class": "subnetwork",
+            "from": ["gated-2"],
+            "subnetwork": make_subnet(4, 2),
         },
-        "linear-3": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "linear-2",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
+        "gated-4": {
+            "class": "subnetwork",
+            "from": ["gated-3"],
+            "subnetwork": make_subnet(8, 2),
         },
-        "linear-4": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "linear-3",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
+        "gated-5": {
+            "class": "subnetwork",
+            "from": ["gated-4"],
+            "subnetwork": make_subnet(16, 2),
         },
-        "linear-5": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "linear-4",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
-        },
-        "linear-6": {
-            "class": "linear",
-            "activation": "relu",
-            "from": "linear-5",
-            "dropout": 0.1,
-            "forward_weights_init": augment.DEFAULT_INIT,
-            "L2": 0.0001,
-            "n_out": model_dim,
+        "gated-6": {
+            "class": "subnetwork",
+            "from": ["gated-5"],
+            "subnetwork": make_subnet(1, 1),
         },
         "encoder-output": {
             "class": "copy",
-            "from": "linear-6",
+            "from": "gated-6",
             "register_as_extern_data": "encoder-output",
         },
         "center-output": {
             "class": "softmax",
             "n_out": s.label_info.get_n_of_dense_classes(),
             "from": "encoder-output",
-            "forward_weights_init": augment.DEFAULT_INIT,
+            "forward_weights_init": "glorot_uniform",
             "register_as_extern_data": "center-output",
         },
     }
 
-    assert subsampling_approach.count("fs:") <= 1, "can only feature stack once"
     for part in subsampling_approach.split("+"):
-        if part.startswith("fs"):
-            _, factor = part.split(":")
-            network["window"]["stride"] = int(factor)
-        elif part.startswith("mp"):
+        if part.startswith("mp"):
             match = re.match(r"^mp:(\d+)@(\d+)$", part)
 
             assert match is not None, f"syntax error: {part}"
@@ -281,12 +286,12 @@ def run_single(
             l_name = f"mp-{layer}"
             network[l_name] = {
                 "class": "pool",
-                "from": f"linear-{layer}",
+                "from": f"gated-{layer}",
                 "mode": "max",
                 "padding": "same",
                 "pool_size": (int(factor),),
             }
-            network[f"linear-{int(layer) + 1}"]["from"] = l_name
+            network[f"gated-{int(layer) + 1}"]["from"] = l_name
         else:
             assert False, f"unknown subsampling instruction {part}"
 
