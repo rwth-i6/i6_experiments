@@ -579,7 +579,7 @@ def run_mel_audio_perturbation():
     )
     run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv")
 
-run_mel_nn_args(nn_args, report_args_collection, report_name):
+def run_mel_nn_args(nn_args, report_args_collection, report_name):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
