@@ -669,7 +669,6 @@ def test_import_search():
                 model=new_model,
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
-                targets_dim=target_dim,
             )
     print(seq_targets, seq_targets.raw_tensor)
 

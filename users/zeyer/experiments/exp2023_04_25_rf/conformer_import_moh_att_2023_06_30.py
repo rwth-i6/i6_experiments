@@ -391,7 +391,6 @@ def model_recog(
     model: Model,
     data: Tensor,
     data_spatial_dim: Dim,
-    targets_dim: Dim,  # noqa
     max_seq_len: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
