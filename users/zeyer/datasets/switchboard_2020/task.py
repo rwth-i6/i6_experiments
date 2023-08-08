@@ -44,7 +44,7 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.0) -> Task:
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     """BPE to words"""
-    words = SearchBPEtoWordsJob(bpe.output).out_word_search_results
+    words = SearchBPEtoWordsJob(bpe.output, output_gzip=True).out_word_search_results
     return RecogOutput(output=words)
 
 

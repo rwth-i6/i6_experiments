@@ -144,14 +144,14 @@ def search_dataset(
     )
     res = search_job.out_search_file
     if recog_def.output_blank_label:
-        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label).out_search_results
+        res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
         # Don't join scores here (SearchBeamJoinScoresJob).
         #   It's not clear whether this is helpful in general.
         #   As our beam sizes are very small, this might boost some hyps too much.
-        res = SearchTakeBestJob(res).out_best_search_results
+        res = SearchTakeBestJob(res, output_gzip=True).out_best_search_results
     return RecogOutput(output=res)
 
 
