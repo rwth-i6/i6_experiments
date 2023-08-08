@@ -108,6 +108,92 @@ trafo_lm_opts_map = {
 # ----------------------------------------------------------- #
 
 
+def compute_features_stats(
+    output_dirname, feat_dim, bpe_size=10000, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
+):
+    train_data = build_training_datasets(
+        bpe_size=bpe_size,
+        use_raw_features=True,
+        epoch_wise_filter=None,
+        link_speed_perturbation=False,
+        seq_ordering="laplace:.1000",
+        partition_epoch=1,
+    )
+    # Dump log-mel features into HDFDataset
+    dump_features_config = {}
+    dump_features_config["extern_data"] = train_data.extern_data
+    dump_features_config["network"] = copy.deepcopy(feature_extraction_net)
+    if model_checkpoint:
+        dump_features_config["network"]["output"] = {
+            "class": "hdf_dump",
+            "from": "log_mel_features",
+            "filename": "log_mel_features.hdf",
+        }
+    else:
+        dump_features_config["network"]["output"] = {
+            "class": "copy",
+            "from": "log_mel_features",
+        }
+    dump_features_config["forward_batch_size"] = 20_000 * 80
+    dump_features_config["use_tensorflow"] = True
+    dump_features_config["eval"] = train_data.train.as_returnn_opts()
+    from i6_core.returnn import ReturnnForwardJob, ReturnnConfig
+
+    hdf_filename = "log_mel_features.hdf" if model_checkpoint else "output.hdf"
+
+    dump_features_job = ReturnnForwardJob(
+        returnn_config=ReturnnConfig(config=dump_features_config),
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
+        model_checkpoint=model_checkpoint,
+        hdf_outputs=[hdf_filename] if model_checkpoint else [],
+        device="cpu",
+        mem_rqmt=15,
+        time_rqmt=72,
+        eval_mode=True if model_checkpoint else False,
+    )
+    dump_features_job.add_alias(f"ted2_stats/{output_dirname}/dump_train_log_mel_features")
+    tk.register_output(
+        f"ted2_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
+    )
+
+    # Extract features stats from HDFDataset
+    extract_stats_returnn_config = ReturnnConfig(
+        {
+            "extern_data": {
+                "data": {"dim": feat_dim},
+            },
+            "train": {
+                "class": "HDFDataset",
+                "files": [dump_features_job.out_hdf_files[hdf_filename]],
+                "use_cache_manager": True,
+            },
+            "batch_size": 20_000 * 80,
+            "use_tensorflow": True,
+        }
+    )
+    from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
+
+    extract_mean_stddev_job = ExtractDatasetMeanStddevJob(
+        returnn_config=extract_stats_returnn_config,
+        returnn_python_exe=RETURNN_CPU_EXE,
+        returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
+    )
+    extract_mean_stddev_job.add_alias(f"ted2_stats/{output_dirname}/extract_mean_stddev")
+
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
+    tk.register_output(f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
+    tk.register_output(f"ted2_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
+
+    return (
+        extract_mean_stddev_job.out_mean,
+        extract_mean_stddev_job.out_std_dev,
+        extract_mean_stddev_job.out_mean_file,
+        extract_mean_stddev_job.out_std_dev_file,
+    )
+
+
 def conformer_baseline():
     abs_name = os.path.abspath(__file__)
     prefix_name = os.path.basename(abs_name)[: -len(".py")]
@@ -469,91 +555,6 @@ def conformer_baseline():
             **kwargs,
         )
         return train_job, train_data
-
-    def compute_features_stats(
-        output_dirname, feat_dim, bpe_size=10000, feature_extraction_net=log10_net_10ms, model_checkpoint=None, **kwargs
-    ):
-        train_data = build_training_datasets(
-            bpe_size=bpe_size,
-            use_raw_features=True,
-            epoch_wise_filter=None,
-            link_speed_perturbation=False,
-            seq_ordering="laplace:.1000",
-            partition_epoch=1,
-        )
-        # Dump log-mel features into HDFDataset
-        dump_features_config = {}
-        dump_features_config["extern_data"] = train_data.extern_data
-        dump_features_config["network"] = copy.deepcopy(feature_extraction_net)
-        if model_checkpoint:
-            dump_features_config["network"]["output"] = {
-                "class": "hdf_dump",
-                "from": "log_mel_features",
-                "filename": "log_mel_features.hdf",
-            }
-        else:
-            dump_features_config["network"]["output"] = {
-                "class": "copy",
-                "from": "log_mel_features",
-            }
-        dump_features_config["forward_batch_size"] = 20_000 * 80
-        dump_features_config["use_tensorflow"] = True
-        dump_features_config["eval"] = train_data.train.as_returnn_opts()
-        from i6_core.returnn import ReturnnForwardJob, ReturnnConfig
-
-        hdf_filename = "log_mel_features.hdf" if model_checkpoint else "output.hdf"
-
-        dump_features_job = ReturnnForwardJob(
-            returnn_config=ReturnnConfig(config=dump_features_config),
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
-            model_checkpoint=model_checkpoint,
-            hdf_outputs=[hdf_filename] if model_checkpoint else [],
-            device="cpu",
-            mem_rqmt=15,
-            time_rqmt=72,
-            eval_mode=True if model_checkpoint else False,
-        )
-        dump_features_job.add_alias(f"ted2_stats/{output_dirname}/dump_train_log_mel_features")
-        tk.register_output(
-            f"ted2_stats/{output_dirname}/log_mel_features.hdf", dump_features_job.out_hdf_files[hdf_filename]
-        )
-
-        # Extract features stats from HDFDataset
-        extract_stats_returnn_config = ReturnnConfig(
-            {
-                "extern_data": {
-                    "data": {"dim": feat_dim},
-                },
-                "train": {
-                    "class": "HDFDataset",
-                    "files": [dump_features_job.out_hdf_files[hdf_filename]],
-                    "use_cache_manager": True,
-                },
-                "batch_size": 20_000 * 80,
-                "use_tensorflow": True,
-            }
-        )
-        from i6_core.returnn.dataset import ExtractDatasetMeanStddevJob
-
-        extract_mean_stddev_job = ExtractDatasetMeanStddevJob(
-            returnn_config=extract_stats_returnn_config,
-            returnn_python_exe=RETURNN_CPU_EXE,
-            returnn_root=kwargs.get("returnn_root", RETURNN_ROOT),
-        )
-        extract_mean_stddev_job.add_alias(f"ted2_stats/{output_dirname}/extract_mean_stddev")
-
-        tk.register_output(f"ted2_stats/{output_dirname}/mean_var", extract_mean_stddev_job.out_mean)
-        tk.register_output(f"ted2_stats/{output_dirname}/std_dev_var", extract_mean_stddev_job.out_std_dev)
-        tk.register_output(f"ted2_stats/{output_dirname}/mean_file", extract_mean_stddev_job.out_mean_file)
-        tk.register_output(f"ted2_stats/{output_dirname}/std_dev_file", extract_mean_stddev_job.out_std_dev_file)
-
-        return (
-            extract_mean_stddev_job.out_mean,
-            extract_mean_stddev_job.out_std_dev,
-            extract_mean_stddev_job.out_mean_file,
-            extract_mean_stddev_job.out_std_dev_file,
-        )
 
     def train_mini_lstm(
         exp_name,
@@ -988,35 +989,3 @@ def conformer_baseline():
             bpe_size=BPE_1K,
             partition_epoch=4,
         )
-
-    # TODO: no pretraining
-    # for grad_clip_norm in [0.0, 5, 20]:
-    #     for torch_lstm_weight_init in [False]:
-    #         for initial_lr, lr in [(1e-5, 8e-4), (1e-5, 3e-4)]:
-    #             args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-    #             wup_eps = int(50 * 4 * 0.04)  # 4%
-    #             const_eps = int(50 * 4 * 0.7)  # 70%
-    #             decay_eps = 50 * 4 - wup_eps - const_eps
-    #             args["learning_rates_list"] = (
-    #                 list(numpy.linspace(initial_lr, lr, wup_eps))
-    #                 + [lr] * const_eps
-    #                 + list(numpy.linspace(lr, 1e-6, decay_eps))
-    #             )
-    #             assert len(args["learning_rates_list"]) == 50 * 4
-    #             args["with_pretrain"] = False
-    #             args["gradient_clip_global_norm"] = grad_clip_norm
-    #             if torch_lstm_weight_init:
-    #                 args[
-    #                     "decoder_args"
-    #                 ].lstm_weights_init = (
-    #                     f"variance_scaling_initializer(mode='fan_out', distribution='uniform', scale={1/3})"
-    #                 )
-    #             name = f"base_wupLR_{initial_lr}-{lr}_gradNormClip{grad_clip_norm}"
-    #             run_exp(
-    #                 name + ("_torchLSTMInit" if torch_lstm_weight_init else "") + "_noPretrain",
-    #                 args,
-    #                 num_epochs=50 * 4,
-    #                 epoch_wise_filter=None,
-    #                 bpe_size=BPE_1K,
-    #                 partition_epoch=4,
-    #             )

@@ -1048,9 +1048,12 @@ def conformer_baseline():
                 )
 
     # TODO: specaug
+    # variant 1 is the best
+    # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_epocOCLR-0.0001-0.001_specaug1
+    # 12.4       11.1     13.4  avg
     for ep in [50 * 6]:
         for num_blocks, reduce_factor in [(8, 1.0)]:
-            for specaug_version in [1, 2, 3]:
+            for specaug_version in [1, 3]:
                 args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
                 args["specaug_version"] = specaug_version
                 run_default_exp(
@@ -1063,6 +1066,8 @@ def conformer_baseline():
 
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre
+    #   12.6       11.1     13.4  avg
+    #   without mixup: 12.6       11.2     13.4
     for ep in [100 * 6, 150 * 6]:
         for specaug_version in [1, 3]:
             for num_blocks, reduce_factor in [(12, 0.75), (8, 1.0)]:
