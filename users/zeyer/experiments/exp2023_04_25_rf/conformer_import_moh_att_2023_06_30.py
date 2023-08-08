@@ -35,13 +35,12 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.zeyer.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
-    from i6_experiments.users.zeyer.datasets.switchboard_2020.task import get_switchboard_task_bpe1k
+    from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
     if not prefix_name:
         prefix_name = get_prefix_for_config(__file__)
 
-    # TODO librispeech...
-    task = get_switchboard_task_bpe1k()
+    task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
     extern_data_dict = task.train_dataset.get_extern_data()
     default_input_key = task.train_dataset.get_default_input()
