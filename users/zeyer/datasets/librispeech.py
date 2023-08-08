@@ -279,20 +279,19 @@ def get_librispeech_task_spm2k() -> Task:
     # TODO ...
 
 
-def get_librispeech_task_bpe10k_raw(**kwargs) -> Task:
+def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Task:
     """
     Librispeech
     """
-    audio_opts = _raw_audio_opts.copy()
-    vocab = bpe10k
+    dataset_common_opts = dict(audio=_raw_audio_opts.copy(), audio_dim=1, vocab=vocab)
     # We expect that all kwargs are only relevant for the training, thus we only pass them here.
-    train_dataset = LibrispeechOggZip(audio=audio_opts, vocab=vocab, **kwargs)
-    dev_dataset = LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="dev-other")
+    train_dataset = LibrispeechOggZip(**dataset_common_opts, **dataset_train_opts)
+    dev_dataset = LibrispeechOggZip(**dataset_common_opts, main_key="dev-other")
     eval_datasets = {
-        "dev-clean": LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="dev-clean"),
+        "dev-clean": LibrispeechOggZip(**dataset_common_opts, main_key="dev-clean"),
         "dev-other": dev_dataset,
-        "test-clean": LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="test-clean"),
-        "test-other": LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="test-other"),
+        "test-clean": LibrispeechOggZip(**dataset_common_opts, main_key="test-clean"),
+        "test-other": LibrispeechOggZip(**dataset_common_opts, main_key="test-other"),
     }
 
     return Task(
@@ -306,6 +305,10 @@ def get_librispeech_task_bpe10k_raw(**kwargs) -> Task:
         score_recog_output_func=score,
         recog_post_proc_funcs=[_bpe_to_words],
     )
+
+
+def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
+    return get_librispeech_task_bpe10k_raw(vocab=bpe10k, **dataset_train_opts)
 
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
