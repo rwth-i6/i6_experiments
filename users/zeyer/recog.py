@@ -9,9 +9,10 @@ from typing import Optional, Union, Any, Dict, Sequence, Collection, Iterator, C
 
 import sisyphus
 from sisyphus import tk
+from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
-from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchBeamJoinScoresJob, SearchTakeBestJob
+from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
@@ -184,13 +185,19 @@ def search_config(
         dev=dataset.get_main_dataset(),
     )
 
+    extern_data_raw = dataset.get_extern_data()
+    # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
+    # It's not hashed because we assume that all aspects of the dataset are already covered
+    # by the datasets itself as part in the config above.
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
         python_epilog=[
             serialization.Collection(
                 [
                     serialization.NonhashedCode(
-                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(dataset.get_extern_data())
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
                     serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
