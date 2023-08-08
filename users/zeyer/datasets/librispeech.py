@@ -246,6 +246,9 @@ def get_librispeech_task_spm2k() -> Task:
 def get_librispeech_task_bpe10k_raw(*, with_eos_postfix: bool = False) -> Task:
     """
     Librispeech
+
+    :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
+        For recognition, our score functoin uses the Bliss corpus directly, so this has no influence.
     """
     audio_opts = _raw_audio_opts.copy()
     vocab = bpe10k
