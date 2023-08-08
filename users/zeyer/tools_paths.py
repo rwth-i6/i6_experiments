@@ -22,6 +22,7 @@ or just overwrite it globally.
 Also see i6_experiments/common/baselines/librispeech/default_tools.py.
 """
 
+import sys
 from sisyphus import tk, gs
 
 
@@ -74,8 +75,11 @@ def get_returnn_python_exe() -> tk.Path:
     """
     RETURNN Python executable
     """
-    assert getattr(gs, "RETURNN_PYTHON_EXE", None), "RETURNN_PYTHON_EXE not set"
-    return tk.Path(getattr(gs, "RETURNN_PYTHON_EXE"), hash_overwrite="DEFAULT_RETURNN_PYTHON_EXE")
+    hash_overwrite = "DEFAULT_RETURNN_PYTHON_EXE"
+    path = getattr(gs, "RETURNN_PYTHON_EXE", None)
+    if path is None:
+        path = sys.executable
+    return tk.Path(path, hash_overwrite=hash_overwrite)
 
 
 def get_returnn_root() -> tk.Path:
