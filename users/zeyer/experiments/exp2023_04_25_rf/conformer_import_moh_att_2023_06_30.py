@@ -25,6 +25,9 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 
+# The model gets raw features (16khz) and does feature extraction internally.
+_log_mel_feature_dim = 80
+
 
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
@@ -43,17 +46,14 @@ def sis_run_with_prefix(prefix_name: str = None):
     task = get_librispeech_task_bpe10k_raw(with_eos_postfix=True)
 
     extern_data_dict = task.train_dataset.get_extern_data()
-    default_input_key = task.train_dataset.get_default_input()
     default_target_key = task.train_dataset.get_default_target()
-    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
     targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
-    in_dim = data.feature_dim_or_sparse_dim
     target_dim = targets.feature_dim_or_sparse_dim
 
     new_chkpt_path = ConvertTfCheckpointToRfPtJob(
         checkpoint=Checkpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
         make_model_func=MakeModel(
-            in_dim=in_dim.dimension,
+            in_dim=_log_mel_feature_dim,
             target_dim=target_dim.dimension,
             eos_label=_get_eos_idx(target_dim),
         ),
