@@ -9,7 +9,7 @@ from ..task import Task
 from ..score_results import RecogOutput, ScoreResult, ScoreResultCollection, MeasureType
 
 
-def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
+def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.0) -> Task:
     """
     Switchboard
     """
@@ -35,10 +35,8 @@ def get_switchboard_task_bpe1k(*, bpe_sample: float = 0.) -> Task:
         train_epoch_split=train_epoch_split,
         dev_dataset=dev_dataset,
         eval_datasets=eval_datasets,
-
         main_measure_type=MeasureType(short_name="WER%"),
         main_measure_name="hub5e_00",
-
         score_recog_output_func=score,
         recog_post_proc_funcs=[_bpe_to_words],
     )
@@ -53,6 +51,7 @@ def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
 def _compare_old_new():
     # Now that we have the new datasets interface, check that we get the same hash.
     from sisyphus.hash import short_hash
+
     task = get_switchboard_task_bpe1k()
     # dataset in training
     config = dict(
