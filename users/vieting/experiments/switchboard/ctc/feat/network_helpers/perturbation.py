@@ -1,13 +1,16 @@
 from typing import List, Dict, Optional, Any
 
+
 class PerturbationFactor:
     """
     Class to wrap perturbation factors, e.g. for speed or tempo perturbation.
     """
+
     def __init__(self, prob, minimum, maximum):
         self.prob = prob
         self.min = minimum
         self.max = maximum
+
 
 class WaveformPerturbation:
     """
@@ -26,14 +29,14 @@ class WaveformPerturbation:
     ):
         """
         Initializes an instance of a class.
-        :param speed: A dictionary that specifies the parameters for speed perturbation. 
-            - 'prob' (float): The probability of applying speed perturbation. 
+        :param speed: A dictionary that specifies the parameters for speed perturbation.
+            - 'prob' (float): The probability of applying speed perturbation.
             - 'minimum' (float): The minimum factor by which the audio speed will be decreased.
             - 'maximum' (float): The maximum factor by which the audio speed will be increased.
             Example: {"prob": 0.6, "minimum": 0.88, "maximum": 1.12}
 
         :param tempo: A dictionary specifying the parameters for tempo perturbation.
-            - 'prob' (float): The probability of applying tempo perturbation. 
+            - 'prob' (float): The probability of applying tempo perturbation.
             - 'minimum' (float): The minimum factor by which the audio tempo will be decreased.
             - 'maximum' (float): The maximum factor by which the audio tempo will be increased.
             Example: {"prob": 0.6, "minimum": 0.83, "maximum": 1.17}
@@ -60,6 +63,7 @@ class WaveformPerturbation:
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
+
         assert isinstance(audio, np.ndarray)
         assert len(audio.shape) == 1
         audio = audio.astype(np.float32)
@@ -69,16 +73,16 @@ class WaveformPerturbation:
     def sox(self, audio, sample_rate, random_state):
         import random
         import sox
+
         speed = False
         tfm = sox.Transformer()
-        if self._speed is not None and random.random() < self._speed.prob:
-            factor = random.random() * (self._speed.max - self._speed.min) + self._speed.min
+        if self._speed is not None and random_state.random() < self._speed.prob:
+            factor = random_state.random() * (self._speed.max - self._speed.min) + self._speed.min
             tfm.speed(factor)
             speed = True
-        if self._tempo is not None and random.random() < self._tempo.prob and not speed:
-            factor = random.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
-            #tfm.tempo(factor) is more efficiant for larger factors(>1.1).
-            tfm.stretch(factor)
+        if self._tempo is not None and random_state.random() < self._tempo.prob and not speed:
+            factor = random_state.random() * (self._tempo.max - self._tempo.min) + self._tempo.min
+            tfm.tempo(factor)
         for effect in self._sox_effects:
             effect_name, *params = effect
             getattr(tfm, effect_name)(*params)
@@ -88,18 +92,19 @@ class WaveformPerturbation:
     @staticmethod
     def preemphasis(audio, sample_rate, random_state, factor):
         import numpy as np
+
         if random_state.random() < factor.prob:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
             return np.append(audio[0], audio[1:] - preemphasis_coefficient * audio[:-1])
         return audio
 
+    @staticmethod
+    def apply_codecs(audio, sample_rate, random_state, codecs):
+        raise NotImplementedError("Codec application is not implemented yet.")
+
+
 def get_code_for_perturbation():
-    classes = [
-        "import numpy as np",
-        "import random",
-        "import sox",
-        "import functools",
-        "from typing import List, Dict, Any, Optional"]
+    classes = ["from typing import List, Dict, Any, Optional"]
     for cls_name, cls in list(globals().items()):
         if isinstance(cls, type):
             classes.append(cls)

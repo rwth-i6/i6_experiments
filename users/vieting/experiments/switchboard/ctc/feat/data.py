@@ -16,7 +16,7 @@ def get_corpus_data_inputs_oggzip(
     context_window=None,
     returnn_root=None,
     returnn_python_exe=None,
-    preprocessing=False
+    pre_process=None
 ):
     """
     :param GmmSystem gmm_system:
@@ -80,17 +80,12 @@ def get_corpus_data_inputs_oggzip(
     meta_args = {"data_map": {"classes": ("hdf", "data"), "data": ("ogg", "data")}}
     if context_window is not None:
         meta_args["context_window"] = context_window
-    if preprocessing:
-        audio = {
-            "features": "raw",
-            "peak_normalization": True,
-            "pre_process": CodeWrapper("audio_perturb_runner.run")
-        }
-    else:
-        audio = {
+    audio = {
             "features": "raw",
             "peak_normalization": True
         }
+    if pre_process is not None:
+        audio["pre_process"] = pre_process
     ogg_zip_base_args = dict(
         oggzip_files=[ogg_zip_job.out_ogg_zip],
         alignments=[],
