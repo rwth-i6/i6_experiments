@@ -308,7 +308,7 @@ def get_librispeech_task_raw(*, vocab: VocabConfig, **dataset_train_opts) -> Tas
 
 
 def get_librispeech_task_bpe10k_raw(**dataset_train_opts) -> Task:
-    return get_librispeech_task_bpe10k_raw(vocab=bpe10k, **dataset_train_opts)
+    return get_librispeech_task_raw(vocab=bpe10k, **dataset_train_opts)
 
 
 def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
