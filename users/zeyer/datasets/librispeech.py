@@ -3,15 +3,20 @@ Librispeech dataset
 """
 
 from __future__ import annotations
-from typing import Optional, Dict, Any
+from typing import Optional, Any, Union, Tuple, Dict
+from copy import deepcopy
 
 from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
+from returnn.util.basic import NotSpecified
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 from i6_experiments.users.zeyer import tools_paths
+from i6_experiments.users.zeyer.speed_pert.librosa_09_10_11_kaiser_fast import (
+    speed_pert_librosa_09_10_11_kaiser_fast as _default_train_audio_preprocess,
+)
 from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
 
@@ -125,6 +130,13 @@ default_dataset_config = {
     },
 }
 
+_default_train_epoch_wise_filter = {
+    (1, 5): {"max_mean_len": 1000},  # better?
+    # older settings:
+    # (1, 5): {"max_mean_len": 200},
+    # (6, 10): {"max_mean_len": 500},
+}
+
 
 class LibrispeechOggZip(DatasetConfig):
     """
@@ -140,7 +152,16 @@ class LibrispeechOggZip(DatasetConfig):
         with_eos_postfix: bool = False,
         main_key: Optional[str] = None,
         train_epoch_split: int = default_train_epoch_split,
+        train_sort_laplace_num_seqs: int = 1000,
+        train_epoch_wise_filter: Optional[Dict[Tuple[int, int], Dict[str, Any]]] = NotSpecified,
+        train_audio_preprocess: Optional[Any] = NotSpecified,
+        train_audio_random_permute: Union[bool, Dict[str, Any]] = False,
+        eval_subset: Optional[int] = 3000,
     ):
+        """
+        :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
+            For recognition, our score function uses the Bliss corpus directly, so this has no influence.
+        """
         super(LibrispeechOggZip, self).__init__()
         self.audio = audio
         self.audio_dim = audio_dim
@@ -148,6 +169,21 @@ class LibrispeechOggZip(DatasetConfig):
         self.with_eos_postfix = with_eos_postfix
         self.main_key = main_key
         self.train_epoch_split = train_epoch_split
+        self.train_sort_laplace_num_seqs = train_sort_laplace_num_seqs
+        if train_epoch_wise_filter is NotSpecified:
+            train_epoch_wise_filter = deepcopy(_default_train_epoch_wise_filter)
+        if train_audio_preprocess is NotSpecified:
+            if train_audio_random_permute:
+                train_audio_preprocess = None
+            else:
+                train_audio_preprocess = _default_train_audio_preprocess
+        self.train_audio_preprocess = train_audio_preprocess
+        # By default, audio random_permute is False
+        # because we use the specific speed perturbation variant above instead.
+        # A common setting otherwise is {"rnd_zoom_order": 0}.
+        self.train_audio_random_permute = train_audio_random_permute
+        self.train_epoch_wise_filter = train_epoch_wise_filter
+        self.eval_subset = eval_subset
 
     def get_extern_data(self) -> Dict[str, Dict[str]]:
         """
@@ -179,8 +215,8 @@ class LibrispeechOggZip(DatasetConfig):
 
     def get_eval_datasets(self) -> Dict[str, Dict[str]]:
         return {
-            "dev": self.get_dataset("dev", subset=3000),
-            "devtrain": self.get_dataset("devtrain", subset=3000),
+            "dev": self.get_dataset("dev", subset=self.eval_subset),
+            "devtrain": self.get_dataset("devtrain", subset=self.eval_subset),
         }
 
     def get_main_name(self) -> str:
@@ -211,15 +247,15 @@ class LibrispeechOggZip(DatasetConfig):
                 d["targets"]["seq_postfix"] = [eos_id]
         if training:
             d["partition_epoch"] = self.train_epoch_split
-            if key == "train":
-                d["epoch_wise_filter"] = {
-                    (1, 5): {"max_mean_len": 1000},  # better?
-                    # (1, 5): {"max_mean_len": 200},
-                    # (6, 10): {"max_mean_len": 500},
-                }
-            # if audio is not None:
-            #   d["audio"]["random_permute"] = True  # play around. note that this can be slow
-            d["seq_ordering"] = "laplace:.1000"
+            if self.train_epoch_wise_filter is not None:
+                d["epoch_wise_filter"] = self.train_epoch_wise_filter
+            if self.train_audio_preprocess is not None:
+                assert self.audio is not None, "train_audio_preprocess needs audio"
+                d["audio"]["preprocess"] = self.train_audio_preprocess
+            if self.train_audio_random_permute:
+                assert self.audio is not None, "train_audio_random_permute needs audio"
+                d["audio"]["random_permute"] = self.train_audio_random_permute
+            d["seq_ordering"] = f"laplace:.{self.train_sort_laplace_num_seqs}"
         else:
             d["fixed_random_seed"] = 1
             d["seq_ordering"] = "sorted_reverse"
@@ -243,16 +279,14 @@ def get_librispeech_task_spm2k() -> Task:
     # TODO ...
 
 
-def get_librispeech_task_bpe10k_raw(*, with_eos_postfix: bool = False) -> Task:
+def get_librispeech_task_bpe10k_raw(**kwargs) -> Task:
     """
     Librispeech
-
-    :param with_eos_postfix: For RETURNN train/dev/eval datasets, mostly relevant for training.
-        For recognition, our score functoin uses the Bliss corpus directly, so this has no influence.
     """
     audio_opts = _raw_audio_opts.copy()
     vocab = bpe10k
-    train_dataset = LibrispeechOggZip(audio=audio_opts, vocab=vocab, with_eos_postfix=with_eos_postfix)
+    # We expect that all kwargs are only relevant for the training, thus we only pass them here.
+    train_dataset = LibrispeechOggZip(audio=audio_opts, vocab=vocab, **kwargs)
     dev_dataset = LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="dev-other")
     eval_datasets = {
         "dev-clean": LibrispeechOggZip(audio=audio_opts, vocab=vocab, main_key="dev-clean"),
