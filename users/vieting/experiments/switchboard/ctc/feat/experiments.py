@@ -523,7 +523,7 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_"
     )
-    run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv")
+    run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
 
 def run_mel_audio_perturbation():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
@@ -577,9 +577,9 @@ def run_mel_audio_perturbation():
         num_epochs=450,
         prefix="conformer_bs10k_"
     )
-    run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv")
+    run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
 
-def run_mel_nn_args(nn_args, report_args_collection, report_name):
+def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
