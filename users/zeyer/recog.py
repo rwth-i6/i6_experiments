@@ -147,7 +147,9 @@ def search_dataset(
     for f in recog_post_proc_funcs:  # for example BPE to words
         res = f(RecogOutput(output=res)).output
     if recog_def.output_with_beam:
-        res = SearchBeamJoinScoresJob(res).out_search_results
+        # Don't join scores here (SearchBeamJoinScoresJob).
+        #   It's not clear whether this is helpful in general.
+        #   As our beam sizes are very small, this might boost some hyps too much.
         res = SearchTakeBestJob(res).out_best_search_results
     return RecogOutput(output=res)
 
