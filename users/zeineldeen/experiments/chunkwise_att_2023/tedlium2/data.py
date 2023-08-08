@@ -15,7 +15,7 @@ from returnn_common.datasets import Dataset, OggZipDataset, MetaDataset, HDFData
 
 
 @lru_cache()
-def get_bpe_datastream(bpe_size, is_recog, seq_postfix):
+def get_bpe_datastream(bpe_size, is_recog, seq_postfix=0):
     """
     Returns the datastream for the bpe labels
 
@@ -171,7 +171,10 @@ def build_chunkwise_training_datasets(
         "bpe_labels": train_bpe_datastream.as_returnn_extern_data_opts(),
     }
 
-    data_map = {"audio_features": ("zip_dataset", "data"), "bpe_labels": ("zip_dataset", "classes")}
+    data_map = {
+        "audio_features": ("zip_dataset", "data"),
+        "bpe_labels": ("chunk_hdf_dataset", "data"),
+    }
 
     training_audio_opts = audio_datastream.as_returnn_audio_opts()
     if link_speed_perturbation:
@@ -186,7 +189,7 @@ def build_chunkwise_training_datasets(
     train_zip_dataset = OggZipDataset(
         files=train_ogg,
         audio_options=training_audio_opts,
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
+        target_options=None,
         partition_epoch=partition_epoch,
         seq_ordering=seq_ordering,
         additional_options=additional_opts,
@@ -208,7 +211,7 @@ def build_chunkwise_training_datasets(
     cv_zip_dataset = OggZipDataset(
         files=dev_ogg,
         audio_options=audio_datastream.as_returnn_audio_opts(),
-        target_options=train_bpe_datastream.as_returnn_targets_opts(),
+        target_options=None,
         seq_ordering="sorted_reverse",
     )
 
