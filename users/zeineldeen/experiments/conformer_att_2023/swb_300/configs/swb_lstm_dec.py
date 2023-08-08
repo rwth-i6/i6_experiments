@@ -1002,62 +1002,11 @@ def conformer_baseline():
                         bpe_size=BPE_500,
                     )
 
-    # TODO: conv first
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            args, name = copy.deepcopy(
-                get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            )
-            args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-            args["encoder_args"].convolution_first = True
-            run_default_exp(
-                name + "-convFirst",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
-    # TODO: CTC dropout
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            for ctc_drop in [0.1, 0.2, 0.3]:
-                args, name = copy.deepcopy(
-                    get_base_v2_args(
-                        ep, num_blocks, reduce_factor, ctc_drop=ctc_drop, lr_type="epoch-oclr", lr_opts={"lr": 1e-3}
-                    )
-                )
-                args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-                run_default_exp(
-                    name + f"_ctcDrop{ctc_drop}",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
-
-    # TODO: torch lstm init
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            args, name = copy.deepcopy(
-                get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-            )
-            args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-            args[
-                "decoder_args"
-            ].lstm_weights_init = f"variance_scaling_initializer(mode='fan_out', distribution='uniform', scale={1 / 3})"
-            run_default_exp(
-                name + f"_torchLSTMInit",
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
     # TODO: mixup
+    # best (3, 0.3)
     for ep in [50 * 6]:
         for num_blocks, reduce_factor in [(12, 0.75)]:
-            for num_mixes, apply_prob in [(4, 0.5), (4, 0.6), (5, 0.4)]:
+            for num_mixes, apply_prob in [(2, 0.3), (2, 0.4), (3, 0.4)]:
                 args, name = copy.deepcopy(
                     get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
                 )
@@ -1112,59 +1061,45 @@ def conformer_baseline():
                     bpe_size=BPE_500,
                 )
 
-    # TODO: step-based OCLR
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75)]:
-            args, name = get_base_v2_args(
-                ep, num_blocks, reduce_factor, lr_type="step-oclr", lr_opts={"lr": 1e-3, "n_step": 1435}
-            )
-            run_default_exp(
-                name,
-                train_args=args,
-                num_epochs=ep,
-                gpu_mem=11,
-                bpe_size=BPE_500,
-            )
-
     # TODO: longer train or retrain
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre
     for ep in [100 * 6, 150 * 6]:
-        for num_blocks, reduce_factor in [(12, 0.75), (8, 1.0)]:
-            for num_mixes, apply_prob in [(3, 0.3)]:
-                args, name = copy.deepcopy(
-                    get_base_v2_args(
-                        ep,
-                        num_blocks,
-                        reduce_factor,
-                        enc_drop=0.2,
-                        self_att_drop=0.2,
-                        embed_drop=0.1,
-                        dec_att_drop=0.2,
-                        weight_drop=0.1,
-                        lr_type="epoch-oclr",
-                        lr_opts={"lr": 1e-3},
+        for specaug_version in [1, 3]:
+            for num_blocks, reduce_factor in [(12, 0.75), (8, 1.0)]:
+                for num_mixes, apply_prob in [(3, 0.3)]:
+                    args, name = copy.deepcopy(
+                        get_base_v2_args(
+                            ep,
+                            num_blocks,
+                            reduce_factor,
+                            enc_drop=0.2,
+                            self_att_drop=0.2,
+                            embed_drop=0.1,
+                            dec_att_drop=0.2,
+                            weight_drop=0.1,
+                            lr_type="epoch-oclr",
+                            lr_opts={"lr": 1e-3},
+                        )
                     )
-                )
-                args["enable_mixup_in_pretrain"] = False
-                args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-                args["decoder_args"].embed_dim = 256
-                args["mixup_aug_opts"] = {
-                    "use_log10_features": True,
-                    "buffer_size": 1_000_000,
-                    "apply_prob": apply_prob,
-                    "max_num_mix": num_mixes,
-                    "lambda_min": 0.15,
-                    "lambda_max": 0.3,
-                }
-                run_default_exp(
-                    name + f"_embedDim{256}_mixup-{num_mixes}-{apply_prob}-nopre",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
-
-    # TODO: no pretrain + grad norm clip
+                    args["enable_mixup_in_pretrain"] = False
+                    args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
+                    args["decoder_args"].embed_dim = 256
+                    args["mixup_aug_opts"] = {
+                        "use_log10_features": True,
+                        "buffer_size": 1_000_000,
+                        "apply_prob": apply_prob,
+                        "max_num_mix": num_mixes,
+                        "lambda_min": 0.15,
+                        "lambda_max": 0.3,
+                    }
+                    args["specaug_version"] = specaug_version
+                    run_default_exp(
+                        name + f"_embedDim{256}_mixup-{num_mixes}-{apply_prob}-nopre_specaug{specaug_version}",
+                        train_args=args,
+                        num_epochs=ep,
+                        gpu_mem=11,
+                        bpe_size=BPE_500,
+                    )
 
     # TODO: staged hyperparams
     # - weight noise: disable for first 45% of epochs for example and enable it later
