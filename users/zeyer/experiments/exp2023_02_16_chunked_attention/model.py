@@ -163,6 +163,7 @@ class RNNDecoder:
         masked_computation_blank_idx: Optional[int] = None,
         full_sum_simple_approx: bool = False,
         prev_target_embed_direct: bool = False,
+        use_zoneout_output: bool = False,
     ):
         """
         :param base_model: base/encoder model instance
@@ -273,6 +274,8 @@ class RNNDecoder:
         if full_sum_simple_approx:
             assert enc_chunks_dim is not None, "full_sum_simple_approx requires enc_chunks_dim"
         self.prev_target_embed_direct = prev_target_embed_direct
+
+        self.use_zoneout_output = use_zoneout_output
 
     def add_decoder_subnetwork(
         self,
@@ -506,6 +509,9 @@ class RNNDecoder:
         # LSTM decoder (or decoder state)
         if self.dec_zoneout and not self.full_sum_simple_approx:
             # It's bad to use rnn_cell here... Just annoying to keep this just to preserve hash...
+            zoneout_unit_opts = {"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05}
+            if self.use_zoneout_output:
+                zoneout_unit_opts["use_zoneout_output"] = True
             subnet_unit.add_rnn_cell_layer(
                 "s",
                 lstm_inputs,
@@ -513,7 +519,7 @@ class RNNDecoder:
                 l2=self.l2,
                 weights_init=self.lstm_weights_init,
                 unit="zoneoutlstm",
-                unit_opts={"zoneout_factor_cell": 0.15, "zoneout_factor_output": 0.05},
+                unit_opts=zoneout_unit_opts,
             )
         else:
             subnet_unit.add_rec_layer(
