@@ -4,13 +4,16 @@ Librispeech dataset
 
 from __future__ import annotations
 from typing import Optional, Dict, Any
+
+from sisyphus import tk
 from i6_core.corpus.convert import CorpusToTxtJob
 from i6_core.text.label.sentencepiece.train import TrainSentencePieceJob, SentencePieceType
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig, VocabConfig
 from i6_experiments.common.datasets import librispeech
+from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
+from i6_experiments.users.zeyer import tools_paths
 from .task import Task, MeasureType, RecogOutput, ScoreResult
 from .utils.bpe import Bpe
-from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 
 librispeech_ogg_zip_dict = librispeech.get_ogg_zip_dict()
@@ -276,5 +279,28 @@ def _bpe_to_words(bpe: RecogOutput) -> RecogOutput:
     return RecogOutput(output=words)
 
 
-def score(dataset: DatasetConfig, out: RecogOutput) -> ScoreResult:
-    pass  # TODO
+def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
+    # We use sclite now.
+    # Could also use ReturnnComputeWERJob.
+
+    from i6_core.returnn.search import SearchWordsToCTMJob
+    from i6_core.corpus.convert import CorpusToStmJob
+    from i6_core.recognition.scoring import ScliteJob
+
+    recognition_bliss_corpus = bliss_corpus_dict[corpus_name]
+
+    search_ctm = SearchWordsToCTMJob(
+        recog_words_file=hyp_words,
+        bliss_corpus=recognition_bliss_corpus,
+    ).out_ctm_file
+
+    stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
+
+    score_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path())
+
+    return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
+
+
+def score(dataset: DatasetConfig, recog_output: RecogOutput) -> ScoreResult:
+    """score"""
+    return _score(hyp_words=recog_output.output, corpus_name=dataset.get_main_name())
