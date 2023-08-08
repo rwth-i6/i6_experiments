@@ -34,7 +34,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
     from .sis_setup import get_prefix_for_config
-    from i6_core.returnn.training import Checkpoint, PtCheckpoint
+    from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
     from i6_experiments.users.zeyer.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
@@ -51,7 +51,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     target_dim = targets.feature_dim_or_sparse_dim
 
     new_chkpt_path = ConvertTfCheckpointToRfPtJob(
-        checkpoint=Checkpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
+        checkpoint=TfCheckpoint(index_path=generic_job_output(_returnn_tf_ckpt_filename)),
         make_model_func=MakeModel(
             in_dim=_log_mel_feature_dim,
             target_dim=target_dim.dimension,
