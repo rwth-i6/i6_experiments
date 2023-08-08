@@ -132,17 +132,21 @@ def search_dataset(
     """
     recog on the specific dataset
     """
-    search_job = ReturnnSearchJobV2(
-        search_data=dataset.get_main_dataset(),
-        model_checkpoint=model.checkpoint,
-        returnn_config=search_config(dataset, model.definition, recog_def, post_config=search_post_config),
-        returnn_python_exe=tools_paths.get_returnn_python_exe(),
-        returnn_root=tools_paths.get_returnn_root(),
-        output_gzip=True,
-        log_verbosity=5,
-        mem_rqmt=search_mem_rqmt,
-    )
-    res = search_job.out_search_file
+    if getattr(model.definition, "backend", None) is None:
+        search_job = ReturnnSearchJobV2(
+            search_data=dataset.get_main_dataset(),
+            model_checkpoint=model.checkpoint,
+            returnn_config=search_config(dataset, model.definition, recog_def, post_config=search_post_config),
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+            output_gzip=True,
+            log_verbosity=5,
+            mem_rqmt=search_mem_rqmt,
+        )
+        res = search_job.out_search_file
+    else:
+        # TODO use forward job instead
+        pass
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
@@ -175,6 +179,8 @@ def search_config(
     """
     config for search
     """
+    if getattr(model_def, "backend", None):
+        return search_config_v2(dataset, model_def, recog_def, post_config=post_config)
 
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
@@ -245,6 +251,81 @@ def search_config(
     return returnn_recog_config
 
 
+def search_config_v2(
+    dataset: DatasetConfig,
+    model_def: ModelDef,
+    recog_def: RecogDef,
+    *,
+    post_config: Optional[Dict[str, Any]] = None,
+) -> ReturnnConfig:
+
+    returnn_recog_config_dict = dict(
+        backend=model_def.backend,
+        behavior_version=model_def.behavior_version,
+        # dataset
+        default_input=dataset.get_default_input(),
+        target=dataset.get_default_target(),
+        dev=dataset.get_main_dataset(),
+    )
+
+    extern_data_raw = dataset.get_extern_data()
+    # The extern_data is anyway not hashed, so we can also instanciate any delayed objects here.
+    # It's not hashed because we assume that all aspects of the dataset are already covered
+    # by the datasets itself as part in the config above.
+    extern_data_raw = instanciate_delayed(extern_data_raw)
+
+    returnn_recog_config = ReturnnConfig(
+        config=returnn_recog_config_dict,
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
+                    ),
+                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
+                    serialization.ExplicitHash(
+                        {
+                            # Increase the version whenever some incompatible change is made in this recog() function,
+                            # which influences the outcome, but would otherwise not influence the hash.
+                            "version": 1,
+                        }
+                    ),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+            )
+        ],
+        post_config=dict(  # not hashed
+            log_batch_size=True,
+            # debug_add_check_numerics_ops = True
+            # debug_add_check_numerics_on_output = True
+            # flat_net_construction=True,
+        ),
+        sort_config=False,
+    )
+
+    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
+        dict(
+            batching="sorted",
+            batch_size=20000,
+            max_seqs=200,
+        )
+    )
+
+    if post_config:
+        returnn_recog_config.post_config.update(post_config)
+
+    for k, v in SharedPostConfig.items():
+        if k in returnn_recog_config.config or k in returnn_recog_config.post_config:
+            continue
+        returnn_recog_config.post_config[k] = v
+
+    return returnn_recog_config
+
+
 def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     """called from the RETURNN config"""
     from returnn_common import nn
@@ -269,6 +350,39 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
     return net_dict
+
+
+def _returnn_v2_get_model(*, epoch: int, step: int, **_kwargs_unused) -> Dict[str, Any]:
+    pass  # TODO
+
+
+def _returnn_v2_get_forward_callback():
+    from returnn.forward_iface import ForwardCallbackIface
+
+    class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
+        def __init__(self):
+            self.out_file = None
+
+        def init(self, model):
+            # TODO filename via config
+            # TODO use gzip
+            self.out_file = open("search_out.py", "w")
+            self.out_file.write("{\n")
+
+        def process_seq(self, seq_tag, outputs):
+            # TODO...
+            # self.out_file.write(repr(seq_tag) + ": [%s],\n" % ...)
+            pass
+
+        def finish(self):
+            self.out_file.write("}\n")
+            self.out_file.close()
+
+    return _ReturnnRecogV2ForwardCallbackIface()
+
+
+def _returnn_v2_forward_step():
+    pass  # TODO...
 
 
 class GetBestRecogTrainExp(sisyphus.Job):

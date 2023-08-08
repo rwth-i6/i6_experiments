@@ -24,6 +24,8 @@ class ModelDef(Protocol[ModelT]):
         raise NotImplementedError
 
     behavior_version: int
+    # Version 2 (i.e. attrib might not be available in all cases):
+    backend: Optional[str] = None
 
 
 class TrainDef(Protocol[ModelT]):
