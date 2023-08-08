@@ -568,6 +568,12 @@ def run_forward(
             feature_extraction_net=feature_extraction_net,
         )
 
+    if isinstance(model_ckpt, tk.Path):
+        path_as_str = model_ckpt.path
+        assert isinstance(path_as_str, str)
+        model_ckpt = Checkpoint(
+            index_path=tk.Path(path_as_str + ".index", hash_overwrite=model_ckpt.hash_overwrite + "_index")
+        )
     if isinstance(model_ckpt, str):
         model_ckpt_index_path = tk.Path(model_ckpt + ".index")
         model_ckpt = Checkpoint(index_path=model_ckpt_index_path)
