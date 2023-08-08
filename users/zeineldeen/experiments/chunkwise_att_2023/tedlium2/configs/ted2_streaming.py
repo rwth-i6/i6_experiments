@@ -824,17 +824,14 @@ lstm_dec_exp_args = copy.deepcopy(
 
 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
 # 7.4/6.9
-global_att_ep400 = tk.Path(
-    "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average",
-    hash_overwrite="global_att_ep400",
-)
+global_att_ep400 = "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average"
 
 # base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
 # 8.2/7.6
-global_att_ep200 = tk.Path(
-    "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.43W6IZbd5Arr/output/model/average",
-    hash_overwrite="global_att_ep200",
-)
+# global_att_ep200 = tk.Path(
+#     "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.43W6IZbd5Arr/output/model/average",
+#     hash_overwrite="global_att_ep200",
+# )
 
 # from Albert:
 # with task=“train” and search_type=“end-of-chunk”, it would align on-the-fly
@@ -847,6 +844,22 @@ default_args["retrain_checkpoint"] = global_att_ep400
 default_args["chunk_size"] = 20
 default_args["chunk_step"] = 20 * 3 // 4
 default_args["search_type"] = "end-of-chunk"  # align on-the-fly
+
+default_args["decoder_args"].embed_dim = 256
+default_args["encoder_args"].mhsa_weight_dropout = 0.1
+default_args["encoder_args"].ff_weight_dropout = 0.1
+default_args["encoder_args"].conv_weight_dropout = 0.1
+default_args["encoder_args"].dropout = 0.15
+default_args["encoder_args"].dropout_in = 0.15
+default_args["encoder_args"].att_dropout = 0.15
+default_args["decoder_args"].use_zoneout_output = True
+
+from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.configs.ted2_att_baseline import (
+    compute_features_stats,
+)
+
+_, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
+default_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
 
 
 def get_ctc_chunksyn_align_config(
@@ -864,7 +877,7 @@ def get_ctc_chunksyn_align_config(
             "extern_data": {
                 "bpe_labels": {
                     "available_for_inference": False,
-                    "dim": 10026,  # from CTC so +1 for blank
+                    "dim": 1058,  # from CTC so +1 for blank
                     "shape": (None,),
                     "sparse": True,
                 },
@@ -896,7 +909,7 @@ def get_ctc_chunksyn_align_config(
                     "filename": f"alignments-{dataset_name}.hdf",
                 },
             },
-            "batch_size": 5000,
+            "batch_size": 5000,  # ctc alignment
         }
     )
     config.post_config["use_tensorflow"] = True
@@ -1071,9 +1084,12 @@ def run_chunkwise_train(
                             chunk_step = max(1, int(chunk_size * chunk_step_factor))
                             train_args["chunk_step"] = chunk_step
 
-                        train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
-                            numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
-                        )
+                        if lrs_list is not None:
+                            pass
+                        else:
+                            train_args["learning_rates_list"] = [start_lr] * decay_pt + list(
+                                numpy.linspace(start_lr, 1e-6, total_epochs - decay_pt)
+                            )
 
                         chunk_level = "input" if enc_stream_type == "chunked" else "encoder"
                         train_args["chunk_level"] = chunk_level
@@ -1271,13 +1287,15 @@ def _run_exp_full_sum_simple_approx(
 
 
 def baseline():
-    # TODO: chunk only on encoder output
+    # TODO: import from global
+    # - chunked encoder
+    # - chunked encoder + chunked decoder
     for enc_stream_type in ["global", "chunked"]:
         run_chunkwise_train(
             enc_stream_type=enc_stream_type,
             run_all_for_best_last_avg=True,
             enable_check_align=False,
-            chunk_sizes=[10, 15, 20, 25, 50, 100],
+            chunk_sizes=[1, 5, 10, 15, 20, 25],
             chunk_step_factors=[1],
             start_lrs=[1e-4, 2e-4],
             decay_pt_factors=[1 / 3],
@@ -1288,4 +1306,19 @@ def baseline():
             time_rqmt=96,
         )
 
-    # TODO: from scratch trainings
+    # TODO: use 24gb due to OOM. but this can be fixed via slicing...
+    for enc_stream_type in ["chunked"]:
+        run_chunkwise_train(
+            enc_stream_type=enc_stream_type,
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[50, 100],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[80],
+            batch_size=30_000,
+            accum_grad=3,
+            time_rqmt=96,
+        )

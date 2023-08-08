@@ -1004,6 +1004,7 @@ def run_chunkwise_train(
     full_sum_approx: bool = False,
     retrain_ckpt: Optional[Union[tk.Path, str]] = None,
     chunked_decoder: bool = True,
+    search_score_key: str = "dev_score",
     **kwargs,
 ):
     if isinstance(start_lrs, float):
@@ -1131,7 +1132,7 @@ def run_chunkwise_train(
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 selected_datasets=["dev-other"],
-                                key="dev_score",
+                                key=search_score_key,
                                 use_sclite=True,
                                 **kwargs,
                             )
@@ -1145,7 +1146,7 @@ def run_chunkwise_train(
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 selected_datasets=["dev-other"],
-                                key="dev_score",
+                                key=search_score_key,
                                 use_sclite=True,
                                 **kwargs,
                             )
@@ -1174,7 +1175,7 @@ def run_chunkwise_train(
                                 epoch_wise_filter=None,
                                 time_rqmt=time_rqmt,
                                 selected_datasets=["dev-other"],
-                                key="dev_score",
+                                key=search_score_key,
                                 use_sclite=True,
                                 seq_postfix=None if full_sum_approx else 0,
                                 **kwargs,
@@ -1715,6 +1716,7 @@ def baseline():
         time_rqmt=72,
         chunked_decoder=False,
         with_ctc=True,
+        search_score_key="dev_score_output/output_prob",
     )
 
     run_chunkwise_train(
@@ -1732,4 +1734,5 @@ def baseline():
         time_rqmt=72,
         chunked_decoder=False,
         with_ctc=True,
+        search_score_key="dev_score_output/output_prob",
     )

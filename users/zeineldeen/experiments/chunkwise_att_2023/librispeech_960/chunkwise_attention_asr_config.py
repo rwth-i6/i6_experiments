@@ -379,6 +379,11 @@ class ConformerEncoderArgs(EncoderArgs):
     att_dropout: float = 0.1
     lstm_dropout: float = 0.1
 
+    # weight dropout
+    ff_weight_dropout: Optional[float] = None
+    mhsa_weight_dropout: Optional[float] = None
+    conv_weight_dropout: Optional[float] = None
+
     # norms
     batch_norm_opts: Optional[Dict[str, Any]] = None
     use_ln: bool = False
@@ -515,6 +520,8 @@ class RNNDecoderArgs(DecoderArgs):
     coverage_scale: float = None
     coverage_threshold: float = None
 
+    use_zoneout_output: bool = False
+
 
 def create_config(
     training_datasets,
@@ -556,6 +563,7 @@ def create_config(
     specaug_str_func_opts=None,
     recursion_limit=3000,
     feature_extraction_net=None,
+    global_stats=None,
     config_override=None,
     feature_extraction_net_global_norm=False,
     freeze_bn=False,
@@ -914,6 +922,8 @@ def create_config(
 
     if feature_extraction_net:
         exp_config["network"].update(feature_extraction_net)
+        if global_stats:
+            add_global_stats_norm(global_stats, exp_config["network"])
 
     # if chunked_time_dim:
     #   exp_config['network']["_check_alignment"] = {
@@ -1110,3 +1120,32 @@ def create_config(
     # pprint(serialized_config.config)
 
     return serialized_config
+
+
+def add_global_stats_norm(global_stats, net):
+    if isinstance(global_stats, dict):
+        from sisyphus.delayed_ops import DelayedFormat
+
+        global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+        global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+
+        net["log10_"] = copy.deepcopy(net["log10"])
+        net["global_mean"] = {
+            "class": "constant",
+            "value": CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+            ),
+            "dtype": "float32",
+        }
+        net["global_stddev"] = {
+            "class": "constant",
+            "value": CodeWrapper(
+                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+            ),
+            "dtype": "float32",
+        }
+        net["log10"] = {
+            "class": "eval",
+            "from": ["log10_", "global_mean", "global_stddev"],
+            "eval": "(source(0) - source(1)) / source(2)",
+        }
