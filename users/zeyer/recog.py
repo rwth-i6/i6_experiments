@@ -24,21 +24,21 @@ from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from
 
 
 def recog_training_exp(
-        prefix_name: str,
-        task: Task,
-        model: ModelWithCheckpoints,
-        recog_def: RecogDef,
-        *,
-        search_post_config: Optional[Dict[str, Any]] = None,
-        search_mem_rqmt: Union[int, float] = 6,
-        exclude_epochs: Collection[int] = (),
+    prefix_name: str,
+    task: Task,
+    model: ModelWithCheckpoints,
+    recog_def: RecogDef,
+    *,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    search_mem_rqmt: Union[int, float] = 6,
+    exclude_epochs: Collection[int] = (),
 ):
     """recog on all relevant epochs"""
     summarize_job = GetBestRecogTrainExp(
         exp=model,
         recog_and_score_func=_RecogAndScoreFunc(
-            prefix_name, task, model, recog_def,
-            search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt),
+            prefix_name, task, model, recog_def, search_post_config=search_post_config, search_mem_rqmt=search_mem_rqmt
+        ),
         main_measure_lower_is_better=task.main_measure_type.lower_is_better,
         exclude_epochs=exclude_epochs,
     )
@@ -48,11 +48,16 @@ def recog_training_exp(
 
 
 class _RecogAndScoreFunc:
-    def __init__(self,
-                 prefix_name: str, task: Task, model: ModelWithCheckpoints, recog_def: RecogDef, *,
-                 search_post_config: Optional[Dict[str, Any]] = None,
-                 search_mem_rqmt: Union[int, float] = 6,
-                 ):
+    def __init__(
+        self,
+        prefix_name: str,
+        task: Task,
+        model: ModelWithCheckpoints,
+        recog_def: RecogDef,
+        *,
+        search_post_config: Optional[Dict[str, Any]] = None,
+        search_mem_rqmt: Union[int, float] = 6,
+    ):
         # Note: When something is added here, remember to handle it in _sis_hash.
         self.prefix_name = prefix_name
         self.task = task
@@ -64,13 +69,18 @@ class _RecogAndScoreFunc:
     def __call__(self, epoch: int) -> ScoreResultCollection:
         model_with_checkpoint = self.model.get_epoch(epoch)
         res = recog_model(
-            self.task, model_with_checkpoint, self.recog_def,
-            search_post_config=self.search_post_config, search_mem_rqmt=self.search_mem_rqmt)
+            self.task,
+            model_with_checkpoint,
+            self.recog_def,
+            search_post_config=self.search_post_config,
+            search_mem_rqmt=self.search_mem_rqmt,
+        )
         tk.register_output(self.prefix_name + f"/recog_results_per_epoch/{epoch:03}", res.output)
         return res
 
     def _sis_hash(self) -> bytes:
         from sisyphus.hash import sis_hash_helper
+
         d = self.__dict__.copy()
         # Remove irrelevant stuff which should not affect the hash.
         del d["prefix_name"]
@@ -86,18 +96,24 @@ class _RecogAndScoreFunc:
 
 
 def recog_model(
-        task: Task, model: ModelWithCheckpoint, recog_def: RecogDef, *,
-        search_post_config: Optional[Dict[str, Any]] = None,
-        search_mem_rqmt: Union[int, float] = 6,
+    task: Task,
+    model: ModelWithCheckpoint,
+    recog_def: RecogDef,
+    *,
+    search_post_config: Optional[Dict[str, Any]] = None,
+    search_mem_rqmt: Union[int, float] = 6,
 ) -> ScoreResultCollection:
     """recog"""
     outputs = {}
     for name, dataset in task.eval_datasets.items():
         recog_out = search_dataset(
-            dataset=dataset, model=model, recog_def=recog_def,
+            dataset=dataset,
+            model=model,
+            recog_def=recog_def,
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
-            recog_post_proc_funcs=task.recog_post_proc_funcs)
+            recog_post_proc_funcs=task.recog_post_proc_funcs,
+        )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
     return task.collect_score_results_func(outputs)
@@ -105,10 +121,12 @@ def recog_model(
 
 def search_dataset(
     *,
-    dataset: DatasetConfig, model: ModelWithCheckpoint, recog_def: RecogDef,
+    dataset: DatasetConfig,
+    model: ModelWithCheckpoint,
+    recog_def: RecogDef,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
-    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = ()
+    recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -145,9 +163,11 @@ SharedPostConfig = {
 
 
 def search_config(
-        dataset: DatasetConfig, model_def: ModelDef, recog_def: RecogDef,
-        *,
-        post_config: Optional[Dict[str, Any]] = None,
+    dataset: DatasetConfig,
+    model_def: ModelDef,
+    recog_def: RecogDef,
+    *,
+    post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     """
     config for search
@@ -156,7 +176,6 @@ def search_config(
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
         behavior_version=model_def.behavior_version,
-
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
@@ -165,24 +184,28 @@ def search_config(
 
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
-        python_epilog=[serialization.Collection(
-            [
-                serialization.NonhashedCode(
-                    nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(
-                        dataset.get_extern_data())),
-                serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
-                serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
-                serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
-                serialization.ExplicitHash({
-                    # Increase the version whenever some incompatible change is made in this recog() function,
-                    # which influences the outcome, but would otherwise not influence the hash.
-                    "version": 1,
-                }),
-                serialization.PythonEnlargeStackWorkaroundNonhashedCode,
-                serialization.PythonCacheManagerFunctionNonhashedCode,
-                serialization.PythonModelineNonhashedCode,
-            ]
-        )],
+        python_epilog=[
+            serialization.Collection(
+                [
+                    serialization.NonhashedCode(
+                        nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(dataset.get_extern_data())
+                    ),
+                    serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_get_network, "get_network", use_for_hash=False),
+                    serialization.ExplicitHash(
+                        {
+                            # Increase the version whenever some incompatible change is made in this recog() function,
+                            # which influences the outcome, but would otherwise not influence the hash.
+                            "version": 1,
+                        }
+                    ),
+                    serialization.PythonEnlargeStackWorkaroundNonhashedCode,
+                    serialization.PythonCacheManagerFunctionNonhashedCode,
+                    serialization.PythonModelineNonhashedCode,
+                ]
+            )
+        ],
         post_config=dict(  # not hashed
             log_batch_size=True,
             tf_log_memory_usage=True,
@@ -194,11 +217,13 @@ def search_config(
         sort_config=False,
     )
 
-    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(dict(
-        batching="sorted",
-        batch_size=20000,
-        max_seqs=200,
-    ))
+    (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
+        dict(
+            batching="sorted",
+            batch_size=20000,
+            max_seqs=200,
+        )
+    )
 
     if post_config:
         returnn_recog_config.post_config.update(post_config)
@@ -216,6 +241,7 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     from returnn_common import nn
     from returnn.config import get_global_config
     from returnn.tf.util.data import Data
+
     nn.reset_default_root_name_ctx()
     config = get_global_config()
     default_input_key = config.typed_value("default_input")
@@ -229,9 +255,7 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     model_def = config.typed_value("_model_def")
     model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim)
     recog_def = config.typed_value("_recog_def")
-    recog_out = recog_def(
-        model=model,
-        data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
     assert isinstance(recog_out, nn.Tensor)
     recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
@@ -252,12 +276,15 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
     __sis_hash_exclude__ = {"exclude_epochs": ()}
 
-    def __init__(self, exp: ModelWithCheckpoints, *,
-                 recog_and_score_func: Callable[[int], ScoreResultCollection],
-                 main_measure_lower_is_better: bool = True,
-                 check_train_scores_n_best: int = 2,
-                 exclude_epochs: Collection[int] = (),
-                 ):
+    def __init__(
+        self,
+        exp: ModelWithCheckpoints,
+        *,
+        recog_and_score_func: Callable[[int], ScoreResultCollection],
+        main_measure_lower_is_better: bool = True,
+        check_train_scores_n_best: int = 2,
+        exclude_epochs: Collection[int] = (),
+    ):
         """
         :param exp: model, all fixed checkpoints + scoring file for potential other relevant checkpoints (see update())
         :param recog_and_score_func: epoch -> scores. called in graph proc
@@ -291,16 +318,18 @@ class GetBestRecogTrainExp(sisyphus.Job):
         """
         if not self._update_checked_relevant_epochs and self.exp.scores_and_learning_rates.available():
             from datetime import datetime
+
             log_filename = tk.Path("update.log", self).get_path()
             os.makedirs(os.path.dirname(log_filename), exist_ok=True)
             with open(log_filename, "a") as log_stream:
-                log_stream.write(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                log_stream.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 log_stream.write(": get_relevant_epochs_from_training_learning_rate_scores\n")
                 for epoch in get_relevant_epochs_from_training_learning_rate_scores(
-                        model_dir=self.exp.model_dir, model_name=self.exp.model_name,
-                        scores_and_learning_rates=self.exp.scores_and_learning_rates,
-                        n_best=self.check_train_scores_n_best,
-                        log_stream=log_stream,
+                    model_dir=self.exp.model_dir,
+                    model_name=self.exp.model_name,
+                    scores_and_learning_rates=self.exp.scores_and_learning_rates,
+                    n_best=self.check_train_scores_n_best,
+                    log_stream=log_stream,
                 ):
                     self._add_recog(epoch)
             self._update_checked_relevant_epochs = True
@@ -318,7 +347,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
 
     def tasks(self) -> Iterator[sisyphus.Task]:
         """tasks"""
-        yield sisyphus.Task('run', mini_task=True)
+        yield sisyphus.Task("run", mini_task=True)
 
     def run(self):
         """run"""
@@ -345,7 +374,7 @@ class GetBestRecogTrainExp(sisyphus.Job):
             for epoch, score in sorted(self._scores_outputs.items()):
                 assert isinstance(score, ScoreResultCollection)
                 if count > 0:
-                    f.write(',\n')
+                    f.write(",\n")
                 res = json.load(open(score.output.get_path()))
                 f.write(f'  "{epoch}": {json.dumps(res)}')
                 count += 1
