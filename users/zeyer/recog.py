@@ -107,10 +107,16 @@ def recog_model(
     *,
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
+    dev_sets: Optional[Collection[str]] = None,
 ) -> ScoreResultCollection:
     """recog"""
+    if dev_sets is not None:
+        assert all(k in task.eval_datasets for k in dev_sets)
     outputs = {}
     for name, dataset in task.eval_datasets.items():
+        if dev_sets is not None:
+            if name not in dev_sets:
+                continue
         recog_out = search_dataset(
             dataset=dataset,
             model=model,
@@ -266,7 +272,6 @@ def search_config_v2(
     *,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
-
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
