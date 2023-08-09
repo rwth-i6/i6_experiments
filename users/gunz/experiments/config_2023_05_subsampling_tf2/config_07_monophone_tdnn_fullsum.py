@@ -37,7 +37,7 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 from .config import (
     CONF_CHUNKING_10MS,
     CONF_SA_CONFIG,
-    MLP_FH_DECODING_TENSOR_CONFIG,
+    TDNN_FH_DECODING_TENSOR_CONFIG,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -385,7 +385,7 @@ def run_single(
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
-            tensor_map=MLP_FH_DECODING_TENSOR_CONFIG,
+            tensor_map=TDNN_FH_DECODING_TENSOR_CONFIG,
             set_batch_major_for_feature_scorer=True,
         )
 
@@ -421,7 +421,7 @@ def run_single(
         crp_corpus="train-other-960.train",
         epoch=600,
         gpu=False,
-        tensor_map=MLP_FH_DECODING_TENSOR_CONFIG,
+        tensor_map=TDNN_FH_DECODING_TENSOR_CONFIG,
         set_batch_major_for_feature_scorer=False,
         lm_gc_simple_hash=True,
     )
