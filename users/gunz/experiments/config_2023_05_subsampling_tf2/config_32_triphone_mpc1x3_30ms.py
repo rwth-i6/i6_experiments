@@ -101,7 +101,7 @@ def run(
             lr=lr,
             own_priors=True,
             run_performance_study=False,
-            tune_decoding=True,
+            tune_decoding=i <= 1,
         )
         for i, (a, a_name, run_additional_lrs) in enumerate(alignments_to_run)
         for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
