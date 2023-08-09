@@ -341,6 +341,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
 
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.backend = "torch"
 
 
 def from_scratch_training(
