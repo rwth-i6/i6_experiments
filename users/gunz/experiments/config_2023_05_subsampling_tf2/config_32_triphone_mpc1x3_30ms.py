@@ -81,7 +81,7 @@ class Experiment:
 
 def run(
     returnn_root: tk.Path,
-    additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None,
+    additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str, bool]]] = None,
 ):
     # ******************** Settings ********************
 
@@ -104,7 +104,7 @@ def run(
             tune_decoding=True,
         )
         for i, (a, a_name, run_additional_lrs) in enumerate(alignments_to_run)
-        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0)]
+        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
     ]
     for exp in configs:
         run_single(
