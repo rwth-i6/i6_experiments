@@ -357,9 +357,9 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     data = nn.get_extern_data(data)
     targets = nn.get_extern_data(targets)
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
     recog_def = config.typed_value("_recog_def")
-    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.feature_dim)
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim, targets_dim=targets.sparse_dim)
     assert isinstance(recog_out, nn.Tensor)
     recog_out.mark_as_default_output()
     net_dict = nn.get_returnn_config().get_net_dict_raw_dict(root_module=model)
@@ -379,7 +379,7 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim)
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
     return model
 
 
