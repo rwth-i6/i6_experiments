@@ -336,7 +336,9 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
-    epoch  # noqa
+    in_dim, epoch  # noqa
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(in_dim, target_dim)
 
 
