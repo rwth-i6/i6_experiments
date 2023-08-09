@@ -78,7 +78,9 @@ class Experiment:
 
 
 @cache
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Tuple[typing.Tuple[tk.Path, str]]] = tuple()):
+def run(
+    returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Tuple[typing.Tuple[tk.Path, str]]] = tuple()
+):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]

@@ -79,7 +79,11 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
+def run(
+    returnn_root: tk.Path,
+    additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None,
+    run_additional_lrs: bool = False,
+):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -101,7 +105,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             tune_decoding=True,
         )
         for i, (a, a_name) in enumerate(alignments_to_run)
-        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0)]
+        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
     ]
     for exp in configs:
         run_single(

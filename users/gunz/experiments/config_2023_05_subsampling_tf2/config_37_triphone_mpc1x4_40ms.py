@@ -78,7 +78,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
+def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_lrs: bool = False):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -96,7 +96,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             run_performance_study=False,
             tune_decoding=False,
         )
-        for bs, lr in [(12500, "v13"), *((20_000, f"v{lr}") for lr in range(13, 17 + 1))]
+        for bs, lr in [(12500, "v13"), *((20_000, f"v{lr}") for lr in range(13, 17 + 1) if run_additional_lrs)]
     ]
     for exp in configs:
         run_single(
