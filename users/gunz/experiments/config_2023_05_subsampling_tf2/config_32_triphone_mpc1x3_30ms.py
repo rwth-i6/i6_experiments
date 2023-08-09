@@ -90,7 +90,7 @@ def run(
 
     scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
 
-    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2"), *(additional_alignments or []))
+    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2", False), *(additional_alignments or []))
     configs = [
         Experiment(
             alignment=a,
