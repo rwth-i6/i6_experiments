@@ -128,6 +128,8 @@ class ReturnnForwardJobV2(Job):
                 subprocess.check_call(call, cwd=tmp_dir, env=env)
             except Exception:
                 print("Run crashed - copy temporary work folder as 'crash_dir'")
+                if os.path.exists("crash_dir"):
+                    shutil.rmtree("crash_dir")
                 shutil.copytree(tmp_dir, "crash_dir")
                 raise
 
