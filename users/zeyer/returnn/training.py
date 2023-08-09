@@ -55,22 +55,16 @@ class ReturnnInitModelJob(Job):
         del kwargs["self"]
 
         self.returnn_python_exe = (
-            returnn_python_exe
-            if returnn_python_exe is not None
-            else getattr(gs, "RETURNN_PYTHON_EXE")
+            returnn_python_exe if returnn_python_exe is not None else getattr(gs, "RETURNN_PYTHON_EXE")
         )
-        self.returnn_root = (
-            returnn_root if returnn_root is not None else getattr(gs, "RETURNN_ROOT")
-        )
+        self.returnn_root = returnn_root if returnn_root is not None else getattr(gs, "RETURNN_ROOT")
         self.returnn_config = self.create_returnn_config(**kwargs)
 
         self.out_returnn_config_file = self.output_path("returnn.config")
         self.out_model_dir = self.output_path("models", directory=True)
         self.out_checkpoint = Checkpoint(index_path=self.output_path("models/init.index"))
 
-        self.returnn_config.post_config["model"] = os.path.join(
-            self.out_model_dir.get_path(), "init"
-        )
+        self.returnn_config.post_config["model"] = os.path.join(self.out_model_dir.get_path(), "init")
 
         self.rqmt = {
             "cpu": cpu_rqmt,
@@ -142,12 +136,12 @@ class ReturnnInitModelJob(Job):
 
 
 def get_relevant_epochs_from_training_learning_rate_scores(
-        *,
-        model_dir: tk.Path,
-        model_name: str = "epoch",
-        scores_and_learning_rates: tk.Path,
-        n_best: int = 2,
-        log_stream: Optional[TextIO] = sys.stderr,
+    *,
+    model_dir: tk.Path,
+    model_name: str = "epoch",
+    scores_and_learning_rates: tk.Path,
+    n_best: int = 2,
+    log_stream: Optional[TextIO] = sys.stderr,
 ) -> Set[int]:
     """
     Collects the most relevant kept epochs from the training job
@@ -203,9 +197,7 @@ def get_relevant_epochs_from_training_learning_rate_scores(
     for score_key in score_keys:
         if not score_key.startswith("dev_"):
             continue
-        dev_scores = sorted([
-            (float(scores[ep][score_key]), int(ep))
-            for ep in all_epochs if score_key in scores[ep]])
+        dev_scores = sorted([(float(scores[ep][score_key]), int(ep)) for ep in all_epochs if score_key in scores[ep]])
         assert dev_scores
         if dev_scores[0][0] == dev_scores[-1][0]:
             # All values are the same (e.g. 0.0), so no information. Just ignore this score_key.
@@ -236,7 +228,8 @@ def _chkpt_exists(*, model_dir: tk.Path, model_name: str = "epoch", epoch: int) 
     """
     possible_fns = [
         "%s/%s.%03d.index" % (model_dir.get_path(), model_name, epoch),
-        "%s/%s.pretrain.%03d.index" % (model_dir.get_path(), model_name, epoch)]
+        "%s/%s.pretrain.%03d.index" % (model_dir.get_path(), model_name, epoch),
+    ]
     for fn in possible_fns:
         if os.path.exists(fn):
             return True
@@ -251,6 +244,7 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
     See RETURNN cleanup_old_models code.
     """
     from itertools import count
+
     default_keep_pattern = set()
     if num_epochs <= 10:
         keep_every = 4
@@ -270,7 +264,7 @@ def default_returnn_keep_epochs(num_epochs: int) -> Set[int]:
             break
         default_keep_pattern.add(n)
     for i in count():
-        n = keep_doubles_of * (2 ** i)
+        n = keep_doubles_of * (2**i)
         if n > num_epochs:
             break
         default_keep_pattern.add(n)
@@ -286,6 +280,7 @@ def load_returnn_config_safe(config_file: tk.Path) -> returnn.config.Config:
     sys.path = sys.path.copy()
     try:
         from returnn.config import Config
+
         config = Config()
         config.load_file(config_file.get_path())
     finally:
