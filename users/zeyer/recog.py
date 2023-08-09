@@ -5,7 +5,7 @@ Generic recog, for the model interfaces defined in model_interfaces.py
 from __future__ import annotations
 
 import os
-from typing import Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
+from typing import TYPE_CHECKING, Optional, Union, Any, Dict, Sequence, Collection, Iterator, Callable
 
 import sisyphus
 from sisyphus import tk
@@ -23,6 +23,9 @@ from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.datasets.score_results import RecogOutput, ScoreResultCollection
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, ModelWithCheckpoint, ModelWithCheckpoints
 from i6_experiments.users.zeyer.returnn.training import get_relevant_epochs_from_training_learning_rate_scores
+
+if TYPE_CHECKING:
+    from returnn.tensor import TensorDict
 
 
 def recog_training_exp(
@@ -270,7 +273,7 @@ def search_config_v2(
         # dataset
         default_input=dataset.get_default_input(),
         target=dataset.get_default_target(),
-        dev=dataset.get_main_dataset(),
+        forward_data=dataset.get_main_dataset(),
     )
 
     extern_data_raw = dataset.get_extern_data()
@@ -288,13 +291,14 @@ def search_config_v2(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, "get_model"),
                     serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 1,
+                            "version": 2,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -357,40 +361,81 @@ def _returnn_get_network(*, epoch: int, **_kwargs_unused) -> Dict[str, Any]:
     return net_dict
 
 
-def _returnn_v2_get_model(*, epoch: int, step: int, **_kwargs_unused) -> Dict[str, Any]:
-    pass  # TODO
+def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+    from returnn.tensor import Tensor
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    extern_data_dict = config.typed_value("extern_data")
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
+
+    model_def = config.typed_value("_model_def")
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.feature_dim)
+    return model
+
+
+def _returnn_v2_forward_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+    import returnn.frontend as rf
+    from returnn.tensor import batch_dim
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    data = extern_data[default_input_key]
+    data_spatial_dim = data.get_time_dim_tag()
+    recog_def = config.typed_value("_recog_def")
+    recog_out = recog_def(model=model, data=data, data_spatial_dim=data_spatial_dim)
+    # recog results including beam {batch, beam, out_spatial},
+    # log probs {batch, beam},
+    # out_spatial_dim,
+    # final beam_dim
+    hyps, scores, out_spatial_dim, beam_dim = recog_out
+    rf.get_run_ctx().mark_as_output(hyps, "hyps", dims=[batch_dim, beam_dim, out_spatial_dim])
+    rf.get_run_ctx().mark_as_output(scores, "scores", dims=[batch_dim, beam_dim])
 
 
 _v2_forward_out_filename = "output.py.gz"
 
 
 def _returnn_v2_get_forward_callback():
+    from returnn.tensor import Tensor, TensorDict
     from returnn.forward_iface import ForwardCallbackIface
 
     class _ReturnnRecogV2ForwardCallbackIface(ForwardCallbackIface):
         def __init__(self):
             self.out_file = None
 
-        def init(self, model):
+        def init(self, *, model):
             import gzip
 
             self.out_file = gzip.open(_v2_forward_out_filename, "wt")
             self.out_file.write("{\n")
 
-        def process_seq(self, seq_tag, outputs):
-            # TODO...
-            # self.out_file.write(repr(seq_tag) + ": [%s],\n" % ...)
-            pass
+        def process_seq(self, *, seq_tag: str, outputs: TensorDict):
+            hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
+            scores: Tensor = outputs["scores"]  # [beam]
+            assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+            hyps_len = hyps.dims[0].dyn_size_ext  # [beam]
+            assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
+            num_beam = hyps.raw_tensor.shape[0]
+            # Consistent to old search task, list[(float,str)].
+            self.out_file.write(f"{seq_tag!r}: [\n")
+            for i in range(num_beam):
+                score = float(scores.raw_tensor[i])
+                hyp_ids = hyps.raw_tensor[i, : hyps_len.raw_tensor[i]]
+                hyp_serialized = hyps.sparse_dim.vocab.get_seq_labels(hyp_ids)
+                self.out_file.write(f"  ({score!r}, {hyp_serialized!r}),\n")
+            self.out_file.write("],\n")
 
         def finish(self):
             self.out_file.write("}\n")
             self.out_file.close()
 
     return _ReturnnRecogV2ForwardCallbackIface()
-
-
-def _returnn_v2_forward_step():
-    pass  # TODO...
 
 
 class GetBestRecogTrainExp(sisyphus.Job):
