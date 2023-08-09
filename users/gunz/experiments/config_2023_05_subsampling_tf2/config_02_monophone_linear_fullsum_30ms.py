@@ -99,6 +99,28 @@ def run(returnn_root: tk.Path):
             alignment_name="scratch",
             bw_label_scale=0.3,
             context_window_size=15,
+            feature_time_shift=7.5 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4+mp:2@6",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
+            feature_time_shift=10 / 1000,
+            lr="v8",
+            model_dim=model_dim,
+            output_time_step=40 / 1000,
+            subsampling_approach="mp:2@2+mp:2@4+mp:2@6",
+            bw_transition_scale=0.3,
+        ),
+        Experiment(
+            alignment_name="scratch",
+            bw_label_scale=0.3,
+            context_window_size=15,
             feature_time_shift=10 / 1000,
             lr="v8",
             model_dim=model_dim,
@@ -302,7 +324,9 @@ def run_single(
                 "padding": "same",
                 "pool_size": (int(factor),),
             }
-            network[f"linear-{int(layer) + 1}"]["from"] = l_name
+            # find sourcing layer
+            from_layer = next((l for l in network if network[l]["from"] == network[l_name]["from"]))
+            network[from_layer]["from"] = l_name
         else:
             assert False, f"unknown subsampling instruction {part}"
 
