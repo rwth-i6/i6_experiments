@@ -78,7 +78,7 @@ class Experiment:
 
 
 @cache
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
+def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Tuple[typing.Tuple[tk.Path, str]]] = tuple()):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -145,7 +145,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
                 run_performance_study=False,
                 tune_decoding=True,
             )
-            for a, a_name in (additional_alignments or [])
+            for (a, a_name) in additional_alignments
         )
         # Experiment(
         #     alignment=scratch_align_daniel,
