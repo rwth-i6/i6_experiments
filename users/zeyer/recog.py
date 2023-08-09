@@ -13,6 +13,7 @@ from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
+from i6_experiments.users.zeyer.returnn.forward import ReturnnForwardJobV2  # TODO move to i6_core.returnn
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
@@ -145,8 +146,15 @@ def search_dataset(
         )
         res = search_job.out_search_file
     else:
-        # TODO use forward job instead
-        pass
+        forward_job = ReturnnForwardJobV2(
+            model_checkpoint=model.checkpoint,
+            returnn_config=search_config_v2(dataset, model.definition, recog_def, post_config=search_post_config),
+            output_files=[_v2_forward_out_filename],
+            returnn_python_exe=tools_paths.get_returnn_python_exe(),
+            returnn_root=tools_paths.get_returnn_root(),
+            mem_rqmt=search_mem_rqmt,
+        )
+        res = forward_job.out_files[_v2_forward_out_filename]
     if recog_def.output_blank_label:
         res = SearchRemoveLabelJob(res, remove_label=recog_def.output_blank_label, output_gzip=True).out_search_results
     for f in recog_post_proc_funcs:  # for example BPE to words
@@ -179,9 +187,6 @@ def search_config(
     """
     config for search
     """
-    if getattr(model_def, "backend", None):
-        return search_config_v2(dataset, model_def, recog_def, post_config=post_config)
-
     returnn_recog_config_dict = dict(
         use_tensorflow=True,
         behavior_version=model_def.behavior_version,
@@ -356,6 +361,9 @@ def _returnn_v2_get_model(*, epoch: int, step: int, **_kwargs_unused) -> Dict[st
     pass  # TODO
 
 
+_v2_forward_out_filename = "output.py.gz"
+
+
 def _returnn_v2_get_forward_callback():
     from returnn.forward_iface import ForwardCallbackIface
 
@@ -364,9 +372,9 @@ def _returnn_v2_get_forward_callback():
             self.out_file = None
 
         def init(self, model):
-            # TODO filename via config
-            # TODO use gzip
-            self.out_file = open("search_out.py", "w")
+            import gzip
+
+            self.out_file = gzip.open(_v2_forward_out_filename, "wt")
             self.out_file.write("{\n")
 
         def process_seq(self, seq_tag, outputs):
