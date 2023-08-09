@@ -36,30 +36,29 @@ def search_single(
 
     search_job = ReturnnForwardJob(
         model_checkpoint=checkpoint,
-        returnn_config=config,
-        hdf_outputs=["recognition.txt"],
+        returnn_config=returnn_config,
+        # hdf_outputs=["recognition.txt"],
         returnn_python_exe=returnn_exe,
         returnn_root=returnn_root,
-        device="cpu",
-        cpu_rqmt=8,
-        mem_rqmt=8,
-        time_rqmt=2,
-    )
-
-    search_job.add_alias(prefix + f"/search_job.{segment_num}")
-    recognition = search_job.out_hdf_files[f"recognition.txt"]
-
-    search_job = ReturnnSearchJobV2(
-        search_data=recognition_dataset.as_returnn_opts(),
-        model_checkpoint=checkpoint,
-        returnn_config=returnn_config,
-        log_verbosity=5,
+        # device="cpu",
+        # cpu_rqmt=8,
         mem_rqmt=mem_rqmt,
         time_rqmt=time_rqmt,
-        returnn_python_exe=returnn_exe,
-        returnn_root=returnn_root,
-        output_gzip=recog_ext_pipeline,
     )
+
+    # recognition = search_job.out_hdf_files[f"recognition.txt"]
+
+    # search_job = ReturnnSearchJobV2(
+    #     search_data=recognition_dataset.as_returnn_opts(),
+    #     model_checkpoint=checkpoint,
+    #     returnn_config=returnn_config,
+    #     log_verbosity=5,
+    #     mem_rqmt=mem_rqmt,
+    #     time_rqmt=time_rqmt,
+    #     returnn_python_exe=returnn_exe,
+    #     returnn_root=returnn_root,
+    #     output_gzip=recog_ext_pipeline,
+    # )
     search_job.add_alias(prefix_name + "/search_job")
     search_bpe = search_job.out_search_file
 

@@ -1,9 +1,14 @@
+# Not finished -> use alberts setup instead
 import os
 from i6_core.returnn.forward import ReturnnForwardJob
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.pipeline import search_single
 from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.convert_checkpoint import convert_checkpoint
 
+from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_960.serializers.serializer import get_serializer
+
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+
+BPE_10K = 10000
 
 def rf_ctc_att_search():
     abs_name = os.path.abspath(__file__)
@@ -29,7 +34,7 @@ def rf_ctc_att_search():
                 # train_data=train_data,
                 search_args=search_args,
                 checkpoint=checkpoint,
-                feature_extraction_net=feature_extraction_net,
+                # feature_extraction_net=feature_extraction_net,
                 recog_dataset=test_dataset_tuples[test_set][0],
                 recog_ref=test_dataset_tuples[test_set][1],
                 recog_bliss=test_dataset_tuples[test_set][2],
@@ -41,7 +46,7 @@ def rf_ctc_att_search():
 
     def run_single_search(
         exp_name,
-        train_data,
+        # train_data,
         search_args,
         checkpoint,
         # feature_extraction_net,
@@ -53,17 +58,31 @@ def rf_ctc_att_search():
         **kwargs,
     ):
         exp_prefix = os.path.join(prefix_name, exp_name)
-        returnn_search_config = create_config(
-            training_datasets=train_data,
-            **search_args,
-            feature_extraction_net=feature_extraction_net,
-            is_recog=True,
+        # returnn_search_config = create_config(
+        #     training_datasets=train_data,
+        #     **search_args,
+        #     # feature_extraction_net=feature_extraction_net,
+        #     is_recog=True,
+        # )
+        # TODO: Get serialized config
+
+        recog_serializer = get_serializer(
+            model_config=model_config,
+            model_import_path="models.torchaudio_conformer_ctc",
+            train=False,
+            import_kwargs={
+                "text_lexicon": get_text_lexicon()
+            },
+            debug=debug,
         )
-        kwargs.pop("att_scale", None)
-        kwargs.pop("ctc_scale", None)
+
+        search_config = get_pt_search_config(
+            forward_dataset=0, # TODO
+            serializer=recog_serializer,
+        )
         search_single(
             exp_prefix,
-            returnn_search_config,
+            search_config,
             checkpoint,
             recognition_dataset=recog_dataset,
             recognition_reference=recog_ref,
@@ -77,25 +96,7 @@ def rf_ctc_att_search():
 
     new_checkpoint = convert_checkpoint(_returnn_tf_ckpt_filename)
 
-    recog_serializer = get_serializer(
-        model_config=model_config,
-        model_import_path="models.torchaudio_conformer_ctc",
-        train=False,
-        import_kwargs={
-            "text_lexicon": get_text_lexicon()
-        },
-        debug=debug,
-    )
-
-    search_config = get_pt_search_config(
-        forward_dataset=segmented_test_set[0],
-        serializer=recog_serializer,
-    )
-
     search_args = {}
-
-    # TODO: comment out feature_extraction_net
-    # TODO: plug bpe_size
 
     run_decoding(
         exp_name="test_ctc_greedy",
@@ -110,14 +111,14 @@ def rf_ctc_att_search():
         use_sclite=True,
     )
 
-    partial_recognition = ctc_search_segmented(
-        checkpoint=train_job.out_checkpoints[num_epochs],
-        config=search_config,
-        returnn_exe=RETURNN_PYTORCH_EXE,
-        returnn_root=MINI_RETURNN_ROOT,
-        prefix=test_set_prefix,
-        segment_num=i,
-    )
+    # partial_recognition = ctc_search_segmented(
+    #     checkpoint=train_job.out_checkpoints[num_epochs],
+    #     config=search_config,
+    #     returnn_exe=RETURNN_PYTORCH_EXE,
+    #     returnn_root=MINI_RETURNN_ROOT,
+    #     prefix=test_set_prefix,
+    #     segment_num=i,
+    # )
 
 
 def get_pt_search_config(
