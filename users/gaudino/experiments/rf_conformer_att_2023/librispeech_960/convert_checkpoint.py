@@ -6,17 +6,17 @@ from i6_experiments.users.gaudino.experiments.rf_conformer_att_2023.librispeech_
 from sisyphus import tk
 
 
-_returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
-def _get_tf_checkpoint_path() -> tk.Path:
+
+def _get_tf_checkpoint_path(path) -> tk.Path:
     """
     :return: Sisyphus tk.Path to the checkpoint file
     """
-    return generic_job_output(_returnn_tf_ckpt_filename)
+    return generic_job_output(path)
 
-def convert_checkpoint():
+def convert_checkpoint(path):
     print("*** Convert old model to new model")
-    old_tf_ckpt_path = _get_tf_checkpoint_path()
-    print(old_tf_ckpt_path)
+    old_tf_ckpt_path = _get_tf_checkpoint_path(path)
+    print("Old ckpt path: ", old_tf_ckpt_path)
     old_tf_ckpt = Checkpoint(index_path=old_tf_ckpt_path)
     make_model_func = MakeModel(80, 10_025, eos_label=0, num_enc_layers=12)
     converter = ConvertTfCheckpointToRfPtJob(
@@ -26,5 +26,4 @@ def convert_checkpoint():
         epoch=1,
         step=0,
     )
-    result = converter.out_checkpoint
-    print(result)
+    return converter.out_checkpoint

@@ -64,7 +64,7 @@ def process_search_out(
     recognition_bliss_corpus = recognition_bliss_corpus[0]
 
     search_bpe = tk.Path(
-        "/u/luca.gaudino/debug/moh_att_import/search_out.py"#, hash_overwrite="DEBUG_SEARCH_OUTPUT"
+        "/u/luca.gaudino/debug/moh_att_import/search_out_sorted.py"#, hash_overwrite="DEBUG_SEARCH_OUTPUT"
     )
 
     remove_label = {"<s>", "<blank>"}  # blanks are removed in the network
