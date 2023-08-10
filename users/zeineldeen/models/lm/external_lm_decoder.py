@@ -352,6 +352,9 @@ class ExternalLMDecoder:
     fusion_str = 'safe_log(source(0)) + {} * safe_log(source(1))'.format(ext_lm_scale)  # shallow fusion
     fusion_source = [self.am_output_prob, lm_output_prob]
 
+    if self.ext_lm_opts.get("am_scale") is not None:
+      fusion_str = "{} * ".format(self.ext_lm_opts["am_scale"]) + fusion_str  # add am_scale for local fusion
+
     if self.prior_lm_opts:
 
       if self.dec_type == 'lstm':
@@ -364,6 +367,9 @@ class ExternalLMDecoder:
       ilm_decoder.create_network()  # add ILM
       fusion_str += ' - {} * safe_log(source(2))'.format(self.prior_lm_opts['scale'])
       fusion_source += [ilm_decoder.output_prob_name]
+
+    if self.ext_lm_opts.get("local_norm", False):
+      fusion_str = fusion_str + '- tf.math.reduce_logsumexp(' + fusion_str + ", axis=-1, keepdims=True)"
 
     lm_net_out.add_eval_layer('combo_output_prob', source=fusion_source, eval=fusion_str)
     if self.length_normalization:
