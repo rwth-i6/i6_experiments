@@ -389,7 +389,7 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 500
+        ep = 600
         s.set_diphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,

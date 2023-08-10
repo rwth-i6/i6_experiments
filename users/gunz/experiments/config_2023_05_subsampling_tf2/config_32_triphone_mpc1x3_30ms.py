@@ -100,7 +100,7 @@ def run(
             decode_all_corpora=False,
             lr=lr,
             own_priors=True,
-            run_performance_study=False,
+            run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
             tune_decoding=i <= 1,
         )
         for i, (a, a_name, run_additional_lrs) in enumerate(alignments_to_run)
@@ -393,7 +393,7 @@ def run_single(
             )
 
     if run_performance_study:
-        ep = 550
+        ep = 600
         s.set_triphone_priors_returnn_rasr(
             key="fh",
             epoch=ep,

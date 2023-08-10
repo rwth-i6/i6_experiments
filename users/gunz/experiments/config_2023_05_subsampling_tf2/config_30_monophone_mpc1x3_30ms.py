@@ -441,7 +441,7 @@ def run_single(
     s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
 
     if run_performance_study:
-        ep = 500
+        ep = 600
         s.set_mono_priors_returnn_rasr(
             key="fh",
             epoch=ep,
