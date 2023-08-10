@@ -95,7 +95,7 @@ def run(
                 decode_all_corpora=False,
                 lr="v13",
                 own_priors=True,
-                run_performance_study=True,
+                run_performance_study=a_name == "30ms-FF-v8",
                 tune_decoding=True,
             )
             for a, a_name, _ in alignments
