@@ -425,6 +425,7 @@ def _returnn_v2_get_forward_callback():
             hyps: Tensor = outputs["hyps"]  # [beam, out_spatial]
             scores: Tensor = outputs["scores"]  # [beam]
             assert hyps.sparse_dim and hyps.sparse_dim.vocab  # should come from the model
+            assert hyps.dims[0].dyn_size_ext, f"hyps {hyps} do not define seq lengths"
             hyps_len = hyps.dims[0].dyn_size_ext  # [beam]
             assert hyps.raw_tensor.shape[:1] == hyps_len.raw_tensor.shape == scores.raw_tensor.shape  # (beam,)
             num_beam = hyps.raw_tensor.shape[0]
