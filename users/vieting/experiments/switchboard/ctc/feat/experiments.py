@@ -579,8 +579,7 @@ def run_mel_audio_perturbation():
                     "specaug_old": {"max_feature": 8},
                     "audio_perturbation": True,
                     "extra_args": {
-                        "audio_perturb_args": {
-                           {  # v1
+                        "audio_perturb_args": { # v1
                                 "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
                                 "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
                                 "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
