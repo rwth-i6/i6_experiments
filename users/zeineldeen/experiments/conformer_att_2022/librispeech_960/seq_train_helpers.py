@@ -4,7 +4,7 @@ import copy
 def get_trans_lstm_lm():
     """
     Returns subnetwork of a LM trained only on transcripts. The LM architecture is close to ASR decoder architecture.
-    PPL = ?
+    PPL = 76 (train) ; 112 (dev clean+other)
     """
     return {
         "class": "subnetwork",
@@ -88,8 +88,7 @@ def add_double_softmax(net, loss_scale, ce_scale, am_scale, lm_scale, ce_label_s
         subnet["output_prob"]["loss_opts"]["label_smoothing"] = ce_label_smoothing
     else:
         subnet["output_prob"].pop("loss_scale", None)
-        subnet["output_prob"]["loss_opts"] = {"scale": ce_scale}
-        subnet["output_prob"]["loss_opts"] = {"label_smoothing": ce_label_smoothing}
+        subnet["output_prob"]["loss_opts"] = {"scale": ce_scale, "label_smoothing": ce_label_smoothing}
 
 
 def add_min_wer(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_label_smoothing=0.0):
@@ -152,8 +151,7 @@ def add_min_wer(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_lab
         subnet["output_prob"]["loss_opts"]["label_smoothing"] = ce_label_smoothing
     else:
         subnet["output_prob"].pop("loss_scale", None)
-        subnet["output_prob"]["loss_opts"] = {"scale": ce_scale}
-        subnet["output_prob"]["loss_opts"] = {"label_smoothing": ce_label_smoothing}
+        subnet["output_prob"]["loss_opts"] = {"scale": ce_scale, "label_smoothing": ce_label_smoothing}
 
     # MinWER loss
     net["min_wer"] = {
