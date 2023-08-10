@@ -20,9 +20,7 @@ def engine():
     return EngineSelector(
         engines={
             "short": LocalEngine(cpus=multiprocessing.cpu_count()),
-            "long": SimpleLinuxUtilityForResourceManagementEngine(
-                default_rqmt={"cpu": 1, "mem": 1, "time": 1}
-            ),
+            "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt={"cpu": 1, "mem": 1, "time": 1}),
         },
         default_engine="long",
     )
@@ -84,9 +82,7 @@ def check_engine_limits(current_rqmt, task):
     i6 support for gpu_mem
     """
     current_rqmt["time"] = min(168, current_rqmt.get("time", 2))
-    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get(
-        "sbatch_args", []
-    ):
+    if current_rqmt.get("gpu", 0) > 0 and "-p" not in current_rqmt.get("sbatch_args", []):
         if current_rqmt.get("gpu_mem", 0) > 11:
             current_rqmt["sbatch_args"] = ["-p", "gpu_24gb"]
         else:
@@ -95,9 +91,7 @@ def check_engine_limits(current_rqmt, task):
     if "-p" not in current_rqmt.get("sbatch_args", []):
         if task._job.__class__.__name__ in CPU_BOTH_JOBLIST:
             current_rqmt["sbatch_args"] = ["-p", "cpu_slow,cpu_fast"]
-        elif (
-            task._job.__class__.__name__ in CPU_SLOW_JOBLIST
-        ) and "-p" not in current_rqmt.get("sbatch_args", []):
+        elif (task._job.__class__.__name__ in CPU_SLOW_JOBLIST) and "-p" not in current_rqmt.get("sbatch_args", []):
             current_rqmt["sbatch_args"] = ["-p", "cpu_slow"]
 
     return current_rqmt
