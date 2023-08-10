@@ -42,7 +42,6 @@ from ...setups.fh.network.augment import (
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_30MS_BLSTM_V2,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -78,15 +77,12 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str]]] = None):
+def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str]]):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
-
-    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2"), *(additional_alignments or []))
     configs = [
         Experiment(
             alignment=a,
@@ -99,7 +95,7 @@ def run(returnn_root: tk.Path, additional_alignments: typing.Optional[typing.Lis
             tune_decoding=True,
             run_tdp_study=False,
         )
-        for a, a_name in alignments_to_run
+        for a, a_name in alignments
     ]
     for exp in configs:
         run_single(

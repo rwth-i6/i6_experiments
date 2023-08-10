@@ -28,7 +28,6 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
@@ -39,11 +38,9 @@ from ...setups.fh.network.augment import (
     augment_net_with_triphone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
-from ...setups.fh.priors import smoothen_priors
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
-    ALIGN_30MS_BLSTM_V2,
     CONF_CHUNKING_30MS,
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
@@ -81,16 +78,13 @@ class Experiment:
 
 def run(
     returnn_root: tk.Path,
-    additional_alignments: typing.Optional[typing.List[typing.Tuple[tk.Path, str, bool]]] = None,
+    alignments: typing.List[typing.Tuple[tk.Path, str, bool]],
 ):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    scratch_align_blstm_v2 = tk.Path(ALIGN_30MS_BLSTM_V2, cached=True)
-
-    alignments_to_run = ((scratch_align_blstm_v2, "30ms-B-v2", False), *(additional_alignments or []))
     configs = [
         Experiment(
             alignment=a,
@@ -101,9 +95,9 @@ def run(
             lr=lr,
             own_priors=True,
             run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
-            tune_decoding=i <= 1,
+            tune_decoding=i == 0,
         )
-        for i, (a, a_name, run_additional_lrs) in enumerate(alignments_to_run)
+        for i, (a, a_name, run_additional_lrs) in enumerate(alignments)
         for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
     ]
     for exp in configs:
