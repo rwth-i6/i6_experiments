@@ -86,15 +86,29 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_l
         Experiment(
             alignment=alignment,
             alignment_name=a_name,
-            batch_size=bs,
+            batch_size=12500,
             dc_detection=False,
             decode_all_corpora=False,
-            lr=lr,
+            lr="v13",
             own_priors=True,
-            run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
-            tune_decoding=False,
-        )
-        for bs, lr in [(12500, "v13"), *((20_000, f"v{lr}") for lr in range(13, 17 + 1) if run_additional_lrs)]
+            run_performance_study=a_name == "30ms-FF-v8",
+            tune_decoding=True,
+        ),
+        *(
+            Experiment(
+                alignment=alignment,
+                alignment_name=a_name,
+                batch_size=20_000,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr=f"v{lr}",
+                own_priors=True,
+                run_performance_study=False,
+                tune_decoding=False,
+            )
+            for lr in range(13, 17 + 1)
+            if run_additional_lrs
+        ),
     ]
     for exp in configs:
         run_single(

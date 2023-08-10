@@ -86,19 +86,36 @@ def run(
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
     configs = [
-        Experiment(
-            alignment=a,
-            alignment_name=a_name,
-            batch_size=bs,
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr=lr,
-            own_priors=True,
-            run_performance_study=a_name == "30ms-FF-v8" and lr == "v13",
-            tune_decoding=i == 0,
-        )
-        for i, (a, a_name, run_additional_lrs) in enumerate(alignments)
-        for bs, lr in [(12500, "v13"), *((15000, f"v{lr}") for lr in range(13, 17 + 1) if i > 0 and run_additional_lrs)]
+        *(
+            Experiment(
+                alignment=a,
+                alignment_name=a_name,
+                batch_size=12500,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr="v13",
+                own_priors=True,
+                run_performance_study=True,
+                tune_decoding=True,
+            )
+            for a, a_name, _ in alignments
+        ),
+        *(
+            Experiment(
+                alignment=a,
+                alignment_name=a_name,
+                batch_size=15_000,
+                dc_detection=False,
+                decode_all_corpora=False,
+                lr=f"v{lr}",
+                own_priors=True,
+                run_performance_study=False,
+                tune_decoding=False,
+            )
+            for a, a_name, run_additional_lrs in alignments
+            if run_additional_lrs
+            for lr in range(13, 17 + 1)
+        ),
     ]
     for exp in configs:
         run_single(
