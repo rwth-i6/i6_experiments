@@ -106,7 +106,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_l
                 run_performance_study=False,
                 tune_decoding=False,
             )
-            for lr in range(13, 17 + 1)
+            for lr in range(13, 14 + 1)
             if run_additional_lrs
         ),
     ]
