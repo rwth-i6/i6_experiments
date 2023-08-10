@@ -75,7 +75,7 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignments_to_run: typing.List[typing.Tuple[tk.Path, str]]):
+def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str]]):
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
@@ -93,7 +93,7 @@ def run(returnn_root: tk.Path, alignments_to_run: typing.List[typing.Tuple[tk.Pa
             tune_decoding=True,
             run_tdp_study=False,
         )
-        for a, a_name in alignments_to_run
+        for a, a_name in alignments
     ]
     for exp in configs:
         run_single(
