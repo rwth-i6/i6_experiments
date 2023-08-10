@@ -434,7 +434,6 @@ def model_recog(
     seq_targets = []
     seq_backrefs = []
     while True:
-        print("** step", i)
         input_embed = model.target_embed(target)
         step_out, decoder_state = model.loop_step(
             **enc_args,
