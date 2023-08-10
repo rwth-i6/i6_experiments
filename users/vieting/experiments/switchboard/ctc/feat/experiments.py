@@ -573,6 +573,33 @@ def run_mel_audio_perturbation():
                     "tempo": "0.6_0.83_1.17",  "specaug": "wei_adapt_80dim", "wave_norm": "True",
                 },
             ),
+            "lgm80_conf-wei-oldspecaug-audio_perturbation_v1": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    "audio_perturbation": True,
+                    "extra_args": {
+                        "audio_perturb_args": {
+                           {  # v1
+                                "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                                "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                                "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
+                            },
+                        },
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    },
+                    **returnn_args
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",  "specaug": "wei_adapt_80dim", "wave_norm": "True","preemphasis": "0.9_0.9_1.0",
+                },
+            ),
         },
         num_epochs=450,
         prefix="conformer_bs10k_"
@@ -658,6 +685,6 @@ def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_mel_audio_perturbation.csv"),
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
         values=report.get_values(),
         template=report.get_template())

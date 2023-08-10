@@ -15,7 +15,7 @@ class PerturbationFactor:
 class WaveformPerturbation:
     """
     This class enables the perturbation of audio waveforms by applying a variety of transformations such
-    as speed and tempo modification, SoX effects, and pre-emphasis filtering.
+    as speed and tempo modification, SoX effects, codec application, and pre-emphasis filtering.
     The parameters `speed`, `tempo`, `codecs`, and `preemphasis` contain a 'prob' key
     which determines the probability that the corresponding transformation is applied.
     """
@@ -93,9 +93,15 @@ class WaveformPerturbation:
     def preemphasis(audio, sample_rate, random_state, factor):
         import numpy as np
 
+        def preemphasis_numpy(waveform, coeff=0.97):
+            waveform = np.copy(waveform)
+            waveform[..., 1:] -= coeff * waveform[..., :-1]
+            return waveform
+
         if random_state.random() < factor.prob:
             preemphasis_coefficient = random_state.random() * (factor.max - factor.min) + factor.min
-            return np.append(audio[0], audio[1:] - preemphasis_coefficient * audio[:-1])
+            audio = preemphasis_numpy(audio, coeff=preemphasis_coefficient)
+
         return audio
 
     @staticmethod
