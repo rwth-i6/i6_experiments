@@ -114,7 +114,7 @@ def run(
             )
             for a, a_name, run_additional_lrs in alignments
             if run_additional_lrs
-            for lr in range(13, 17 + 1)
+            for lr in range(13, 14 + 1)
         ),
     ]
     for exp in configs:
