@@ -298,6 +298,7 @@ def search_config_v2(
                     serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
                     serialization.Import(_returnn_v2_get_model, "get_model"),
                     serialization.Import(recog_def, "_recog_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_forward_step, "forward_step"),
                     serialization.Import(_returnn_v2_get_forward_callback, "forward_callback"),
                     serialization.ExplicitHash(
                         {
