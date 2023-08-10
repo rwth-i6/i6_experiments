@@ -313,7 +313,7 @@ def run_single(
         **s.initial_train_args,
         "num_epochs": num_epochs,
         "partition_epochs": partition_epochs,
-        "returnn_config": returnn_config,
+        "returnn_config": copy.deepcopy(returnn_config),
     }
     s.returnn_rasr_training(
         experiment_key="fh",
