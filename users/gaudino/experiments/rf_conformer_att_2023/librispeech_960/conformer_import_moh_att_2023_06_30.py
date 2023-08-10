@@ -60,7 +60,11 @@ def sis_run_with_prefix(prefix_name: str = None):
         map_func=map_param_func_v2,
     ).out_checkpoint
     new_chkpt = PtCheckpoint(new_chkpt_path)
-    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
+
+    model_with_checkpoint = ModelWithCheckpoint(
+        definition=from_scratch_model_def,
+        checkpoint=new_chkpt,
+    )
 
     res = recog_model(task, model_with_checkpoint, model_recog)
     tk.register_output(prefix_name + f"/recog_results", res.output)
@@ -141,6 +145,9 @@ class Model(rf.Module):
         l2: float = 0.0001,
     ):
         super(Model, self).__init__()
+
+        self.backend = "pytorch"
+
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
             in_dim,
@@ -341,6 +348,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
 
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
+from_scratch_model_def.backend = "torch"
 
 
 def from_scratch_training(

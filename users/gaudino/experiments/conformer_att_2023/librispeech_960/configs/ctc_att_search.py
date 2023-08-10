@@ -1521,7 +1521,7 @@ def run_ctc_att_search():
     for mode in ["att", "lstm_lm"]:
         search_args = copy.deepcopy(oclr_args)
         if mode == "att":
-            for ts_reward in [1.0, 1.5, 2.0]:
+            for ts_reward in [1.0, 1.3, 1.5, 2.0]:
                     att_scale, ctc_scale = (0.3, 1.0)
                     exp_name = f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_12_tsReward{ts_reward}"
                     search_args = copy.deepcopy(oclr_args)
