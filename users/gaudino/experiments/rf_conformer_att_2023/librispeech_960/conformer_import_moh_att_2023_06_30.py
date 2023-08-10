@@ -60,13 +60,10 @@ def sis_run_with_prefix(prefix_name: str = None):
         map_func=map_param_func_v2,
     ).out_checkpoint
     new_chkpt = PtCheckpoint(new_chkpt_path)
+    model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    model_with_checkpoint = ModelWithCheckpoint(
-        definition=from_scratch_model_def,
-        checkpoint=new_chkpt,
-    )
-
-    res = recog_model(task, model_with_checkpoint, model_recog)
+    # only dev-other for testing
+    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=["dev-other"])
     tk.register_output(prefix_name + f"/recog_results", res.output)
 
 
@@ -145,9 +142,6 @@ class Model(rf.Module):
         l2: float = 0.0001,
     ):
         super(Model, self).__init__()
-
-        self.backend = "pytorch"
-
         self.in_dim = in_dim
         self.encoder = ConformerEncoder(
             in_dim,
@@ -342,7 +336,9 @@ def _get_eos_idx(target_dim: Dim) -> int:
 
 def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model:
     """Function is run within RETURNN."""
-    epoch  # noqa
+    in_dim, epoch  # noqa
+    # real input is raw audio, internally it does logmel
+    in_dim = Dim(name="logmel", dimension=_log_mel_feature_dim, kind=Dim.Types.Feature)
     return MakeModel.make_model(in_dim, target_dim)
 
 
