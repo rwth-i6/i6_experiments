@@ -422,6 +422,7 @@ def run_single(
             rerun_after_opt_lm=True,
             calculate_stats=True,
             pre_path="decoding-perf-eval",
+            name_override="best/4gram",
             cpu_rqmt=2,
             mem_rqmt=4,
         )
