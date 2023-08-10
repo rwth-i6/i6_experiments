@@ -316,7 +316,7 @@ def run_single(
     )
 
     best_config = None
-    for ep, crp_k in itertools.product([550, max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.set_triphone_priors_returnn_rasr(
