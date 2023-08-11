@@ -325,7 +325,9 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
 
     from i6_core.returnn.search import SearchWordsToCTMJob
     from i6_core.corpus.convert import CorpusToStmJob
-    from i6_core.recognition.scoring import ScliteJob
+
+    # from i6_core.recognition.scoring import ScliteJob
+    from i6_experiments.users.zeyer.sclite_new import ScliteJob
 
     recognition_bliss_corpus = bliss_corpus_dict[corpus_name]
 
@@ -336,7 +338,9 @@ def _score(*, hyp_words: tk.Path, corpus_name: str) -> ScoreResult:
 
     stm_file = CorpusToStmJob(bliss_corpus=recognition_bliss_corpus).out_stm_path
 
-    score_job = ScliteJob(ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path())
+    score_job = ScliteJob(
+        ref=stm_file, hyp=search_ctm, sctk_binary_path=tools_paths.get_sctk_binary_path(), precision_ndigit=2
+    )
 
     return ScoreResult(dataset_name=corpus_name, main_measure_value=score_job.out_wer, report=score_job.out_report_dir)
 
