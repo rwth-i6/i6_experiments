@@ -201,12 +201,12 @@ class SwitchboardExternSprintOld(DatasetConfig):
         """
         Get extern data
         """
-        from returnn.tf.util.data import FeatureDim, SpatialDim, batch_dim
+        from returnn.tensor import Dim, batch_dim
 
-        time_dim = SpatialDim("time")
-        feature_dim = FeatureDim("audio", 40)  # Gammatone 40-dim
-        out_spatial_dim = SpatialDim("out-spatial")
-        classes_dim = FeatureDim("vocab", dimension=self.vocab.get_num_classes())
+        time_dim = Dim(None, name="time", kind=Dim.Types.Spatial)
+        feature_dim = Dim(40, name="audio", kind=Dim.Types.Feature)  # Gammatone 40-dim
+        out_spatial_dim = Dim(None, name="out-spatial", kind=Dim.Types.Spatial)
+        classes_dim = Dim(self.vocab.get_num_classes(), name="vocab", kind=Dim.Types.Feature)
         d = {
             "data": {"dim_tags": [batch_dim, time_dim, feature_dim]},
         }
