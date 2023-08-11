@@ -8,6 +8,7 @@ from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
 from recipe.i6_core.audio.encoding import BlissChangeEncodingJob
 from recipe.i6_core.tools.git import CloneGitRepositoryJob
+from recipe.i6_core.tools.download import DownloadJob 
 from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
@@ -131,6 +132,18 @@ def get_fairseq_args(w2v_path: Union[str, tk.Path], corpus_names: List[str], num
     }
     return fairseq_args
 
+def get_pretrained_model(model_path: Optional[Union[str, tk.Path]] = None):
+    """
+    :param model_path: path to the pretrained wav2vec model if available
+    :return: path to the pretrained wav2vec model. If model_path is None, the pretrained model is downloaded from fairseq repository.
+    """
+    if model_path is not None:
+        pretrained_model = tk.input_path(model_path)
+    else:
+        url = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_small.pt"
+        pretrained_model = DownloadJob(url=url, target_filename="wav2vec_small.pt").out_file
+    return pretrained_model
+
 
 def main():
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
@@ -140,6 +153,7 @@ def main():
     gpu_mem_rqmt = 24
     corpus_names = ["train-clean-100"]
 
+    w2v_path = get_pretrained_model()
     fairseq_python_exe = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
 
     fairseq_args = get_fairseq_args(corpus_names=corpus_names, num_gpus=num_gpus, w2v_path=w2v_path)
