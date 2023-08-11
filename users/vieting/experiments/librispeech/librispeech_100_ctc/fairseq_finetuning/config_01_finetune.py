@@ -136,7 +136,7 @@ def main():
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
     # run finetuning
     exp_name = "base"
-    num_gpus = 2
+    num_gpus = 1
     gpu_mem_rqmt = 24
     corpus_names = ["train-clean-100"]
 
@@ -149,8 +149,8 @@ def main():
         fairseq_config,
         max_epoch=300,
         save_interval=25,
-        time_rqmt=1,
-        mem_rqmt=8,
+        time_rqmt=100,
+        mem_rqmt=16,
         cpu_rqmt=2,
         gpu_rqmt=num_gpus,
         gpu_mem_rqmt=gpu_mem_rqmt,
