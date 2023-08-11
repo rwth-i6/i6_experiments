@@ -1,3 +1,9 @@
+"""
+PR: https://github.com/rwth-i6/i6_core/pull/442
+
+TODO: Remove once merged into i6_core.
+"""
+
 from typing import Optional, List, Dict, Tuple
 from sisyphus import Job, Task, tk, gs
 import tempfile
