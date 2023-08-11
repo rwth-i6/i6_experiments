@@ -410,7 +410,7 @@ def run_single(
         ep = 600
         s.set_triphone_priors_returnn_rasr(
             key="fh",
-            epoch=ep,
+            epoch=550,
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
