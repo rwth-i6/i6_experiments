@@ -61,7 +61,7 @@ def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
     return fairseq_root
 
 
-def get_fairseq_args(w2v_path: Union[str, tk.Path], corpus_names: List[str], num_gpus: int =1):
+def get_fairseq_args(w2v_path: tk.Path, corpus_names: List[str], num_gpus: int = 1):
     """
     :param w2v_path: path to the (pretrained) wav2vec model
     :param corpus_names: list of names of the corpora to be used for training
