@@ -1274,7 +1274,7 @@ class FactoredHybridSystem(NnSystem):
                 dev_corpus_key=dev_corpus_key,
                 returnn_config=cfg,
                 share=data_share,
-                time_rqmt=30,
+                time_rqmt=8,
                 checkpoint=checkpoint,
             )
             for (ctx, cfg) in (
