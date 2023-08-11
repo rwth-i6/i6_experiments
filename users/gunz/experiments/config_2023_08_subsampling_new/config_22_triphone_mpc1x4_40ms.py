@@ -410,7 +410,7 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
             lm_gc_simple_hash=True,
         )
-        recog_args = dataclasses.replace(best_config, altas=4, beam=14)
+        recog_args = dataclasses.replace(best_config, altas=4, beam=14, lm_scale=best_config.lm_scale + 0.01)
         jobs = recognizer.recognize_count_lm(
             label_info=s.label_info,
             search_parameters=recog_args,
