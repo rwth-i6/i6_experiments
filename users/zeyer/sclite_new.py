@@ -155,6 +155,8 @@ class ScliteJob(Job):
                         assert not output_variables[key][1], f"Expected absolute value for {key}"
                         continue
                     outputs_absolute[key] = int(absolute_s)
+                assert "Percent Total Error" in outputs_absolute, "Expected Percent Total Error"
+                outputs_absolute["Percent Word Accuracy"] = 100 - outputs_absolute["Percent Total Error"]
 
                 outputs_percentage: Dict[str, float] = {}
                 num_ref_words = outputs_absolute["Ref. words"]
