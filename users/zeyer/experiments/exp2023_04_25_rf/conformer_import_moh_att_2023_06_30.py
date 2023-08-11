@@ -62,8 +62,9 @@ def sis_run_with_prefix(prefix_name: str = None):
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    # only dev-other for testing
-    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=["dev-other"])
+    # dev_sets = ["dev-other"]  # only dev-other for testing
+    dev_sets = None  # all
+    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets)
     tk.register_output(prefix_name + f"/recog_results", res.output)
 
 
