@@ -82,7 +82,7 @@ def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
             "labels": "ltr"
         },
         "dataset": {
-            "num_workers": 6,
+            "num_workers": 2 * num_gpus,
             "max_tokens": 3200000,  # length of tokens in one batch
             "skip_invalid_size_inputs_valid_test": True,
             "valid_subset": "valid",
