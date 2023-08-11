@@ -400,15 +400,6 @@ def run_single(
         assert tune_decoding
 
         ep = 600
-        s.set_triphone_priors_returnn_rasr(
-            key="fh",
-            epoch=550,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-            data_share=0.1,
-        )
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
             context_type=PhoneticContext.triphone_forward,
