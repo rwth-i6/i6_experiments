@@ -26,6 +26,7 @@ class ModelDef(Protocol[ModelT]):
     behavior_version: int
     # Version 2 (i.e. attrib might not be available in all cases):
     backend: Optional[str] = None
+    batch_size_factor: int  # according to some arbitrary reference point
 
 
 class TrainDef(Protocol[ModelT]):

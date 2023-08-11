@@ -325,7 +325,7 @@ def search_config_v2(
     (returnn_recog_config.config if recog_def.batch_size_dependent else returnn_recog_config.post_config).update(
         dict(
             batching="sorted",
-            batch_size=20000,
+            batch_size=20000 * model_def.batch_size_factor,
             max_seqs=200,
         )
     )
