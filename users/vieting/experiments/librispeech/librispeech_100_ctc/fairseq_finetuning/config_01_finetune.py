@@ -2,7 +2,7 @@
 Config for finetune experiments on LibriSpeech using wav2vec 2.0.
 """
 import os.path
-from typing import List
+from typing import List, Union, Optional
 
 from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
@@ -12,8 +12,6 @@ from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_c
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq import SetupFairseqJob
-
-#python_path = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
 
 
 def get_task(
@@ -50,17 +48,24 @@ def get_task(
     task = task_creation_job.out_task_path
     return task
 
-def get_fairseq_root():
+def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
+    """
+    :param fairseq_python_exe: path to the python executable of the fairseq environment
+    """
     fairseq_root = CloneGitRepositoryJob(
         "https://github.com/facebookresearch/fairseq",
         checkout_folder_name="fairseq",
         commit="91c364b7ceef8032099363cb10ba19a85b050c1c").out_repository
-    #fairseq_root = SetupFairseqJob(fairseq_root, python_path).out_fairseq_root
-    fairseq_root = SetupFairseqJob(fairseq_root).out_fairseq_root
+    fairseq_root = SetupFairseqJob(fairseq_root, fairseq_python_exe).out_fairseq_root
     return fairseq_root
 
 
-def get_fairseq_args(w2v_path, corpus_names, num_gpus=1):
+def get_fairseq_args(w2v_path: Union[str, tk.Path], corpus_names: List[str], num_gpus: int =1):
+    """
+    :param w2v_path: path to the (pretrained) wav2vec model
+    :param corpus_names: list of names of the corpora to be used for training
+    :param num_gpus: number of gpus to be used for training
+    """
     # create wav2vec manifest for training
     task = get_task(corpus_names=corpus_names)
 
@@ -135,9 +140,11 @@ def main():
     gpu_mem_rqmt = 24
     corpus_names = ["train-clean-100"]
 
-    fairseq_args = get_fairseq_args(corpus_names=corpus_names, num_gpus=num_gpus, w2v_path="/work/asr3/vieting/hiwis/pletschko/fairseq/models/wav2vec_small.pt")
+    fairseq_python_exe = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+
+    fairseq_args = get_fairseq_args(corpus_names=corpus_names, num_gpus=num_gpus, w2v_path=w2v_path)
     fairseq_config = FairseqHydraConfig(fairseq_args)
-    fairseq_root = get_fairseq_root()
+    fairseq_root = get_fairseq_root(fairseq_python_exe=fairseq_python_exe)
     job = FairseqHydraTrainingJob(
         fairseq_config,
         max_epoch=300,
@@ -148,7 +155,8 @@ def main():
         gpu_rqmt=num_gpus,
         gpu_mem_rqmt=gpu_mem_rqmt,
         fairseq_root=fairseq_root,
-        use_cache_manager=False,
+        fairseq_python_exe=fairseq_python_exe,
+        use_cache_manager=True,
     )
     
     job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
