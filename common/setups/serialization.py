@@ -131,9 +131,8 @@ class PartialImport(Import):
 
     TEMPLATE = textwrap.dedent(
         """\
-            import functools
-            ${OBJECT_NAME} = functools.partial(
-                __import__(${IMPORT_PATH}, globals(), locals(), ["${IMPORT_NAME}"], 0),
+            ${OBJECT_NAME} = __import__("functools").partial(
+                __import__("${IMPORT_PATH}", fromlist=["${IMPORT_NAME}"]).${IMPORT_NAME},
                 **${KWARGS}
             )
         """
