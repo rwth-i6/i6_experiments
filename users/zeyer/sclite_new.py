@@ -147,7 +147,7 @@ class ScliteJob(Job):
                     key: Optional[str] = ([key for key in output_variables if line.startswith(key)] or [None])[0]
                     if not key:
                         continue
-                    pattern = rf"^{re.escape(key)}\s*=\s*((\S+)%)?\s*(\((\d*)\))?$"
+                    pattern = rf"^{re.escape(key)}\s*=\s*((\S+)%)?\s*(\(\\s*(\d+)\))?$"
                     m = re.match(pattern, line)
                     assert m, f"Could not parse line: {line}, does not match to pattern {pattern!r}"
                     absolute_s = m.group(4)
