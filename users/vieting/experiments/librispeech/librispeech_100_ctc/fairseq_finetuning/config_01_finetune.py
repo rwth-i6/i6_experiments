@@ -12,7 +12,8 @@ from recipe.i6_core.tools.download import DownloadJob
 from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
 from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob
-from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq import SetupFairseqJob
+from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
+    import SetupFairseqJob
 
 
 def get_task(
@@ -30,11 +31,20 @@ def get_task(
     """
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
     assert set(corpus_names).issubset(
-        {"train-clean-100", "train-clean-360", "train-clean-460", "train-other-500", "train-other-960", "dev-clean", "dev-other", "test-clean", "test-other"}
+        {"train-clean-100", 
+         "train-clean-360", 
+         "train-clean-460", 
+         "train-other-500", 
+         "train-other-960", 
+         "dev-clean", 
+         "dev-other", 
+         "test-clean", 
+         "test-other"}
     ), f"unknown corpus names: {corpus_names}"
 
     if valid_percent <= 0:
-        assert "dev-clean" in corpus_names or "dev-other" in corpus_names, "validation set is required if valid_percent <= 0"
+        assert "dev-clean" in corpus_names or "dev-other" in corpus_names, \
+            "validation set is required if valid_percent <= 0"
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
     # filter out corpora that are not in corpus_names
@@ -135,7 +145,8 @@ def get_fairseq_args(w2v_path: tk.Path, corpus_names: List[str], num_gpus: int =
 def get_pretrained_model(model_path: Optional[Union[str, tk.Path]] = None):
     """
     :param model_path: path to the pretrained wav2vec model if available
-    :return: path to the pretrained wav2vec model. If model_path is None, the pretrained model is downloaded from fairseq repository.
+    :return: path to the pretrained wav2vec model. 
+        If model_path is None, the pretrained model is downloaded from fairseq repository.
     """
     if model_path is not None:
         pretrained_model = tk.input_path(model_path)
