@@ -160,6 +160,6 @@ def main():
     )
     
     job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
-    tk.register_output(f"{prefix_name}/{exp_name}/finetune/scores.png", job.out_plot_se)
+    tk.register_output(os.path.join(prefix_name, exp_name, "finetune", "scores.png"), job.out_plot_se)
 
 main()
