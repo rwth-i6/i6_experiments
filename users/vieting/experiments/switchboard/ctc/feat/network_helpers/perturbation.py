@@ -55,9 +55,11 @@ class WaveformPerturbation:
             - 'maximum' (float): The maximum preemphasis factor.
             Example: {"prob": 0.9, "minimum": 0.9, "maximum": 1.0}
         """
+        import functools
         self._speed = PerturbationFactor(**speed) if speed else None
         self._tempo = PerturbationFactor(**tempo) if tempo else None
         self._sox_effects = sox_effects or []
+        self._perturbations = []
         if preemphasis:
             self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
 
@@ -68,10 +70,11 @@ class WaveformPerturbation:
         assert len(audio.shape) == 1
         audio = audio.astype(np.float32)
         audio = self.sox(audio, sample_rate, random_state)
+        for perturbation in self._perturbations:
+            audio = perturbation(audio, sample_rate, random_state)
         return audio
 
     def sox(self, audio, sample_rate, random_state):
-        import random
         import sox
 
         speed = False
