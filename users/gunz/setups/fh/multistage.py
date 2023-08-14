@@ -323,7 +323,7 @@ class ResizeLayersTransformation(Transformation):
         ]
 
         no_extension_needed = set(output_vars.keys()) - set(needs_extension)
-        for layer in no_extension_needed:
+        for layer in sorted(no_extension_needed):
             logging.info(f"keeping {layer} {shapes_in.get(layer, None)} == {shapes_out.get(layer, None)}")
 
         for layer in needs_extension:
