@@ -445,7 +445,7 @@ class RNNDecoder:
             loc_num_channels=self.loc_conv_att_num_channels,
             use_weight_feedback=not self.enc_chunks_dim,  # TODO: allow when chunked
         )
-        if self.masked_computation_blank_idx:
+        if self.masked_computation_blank_idx is not None:
             subnet_unit["prev_att_masked"] = {
                 "class": "masked_computation",
                 "mask": "prev:masked_comp_mask",
@@ -507,7 +507,7 @@ class RNNDecoder:
         else:
             lstm_inputs += [prev_target_embed]
 
-        if self.masked_computation_blank_idx:
+        if self.masked_computation_blank_idx is not None:
             lstm_inputs += ["prev_att_masked"]
         else:
             lstm_inputs += ["prev:att"]
