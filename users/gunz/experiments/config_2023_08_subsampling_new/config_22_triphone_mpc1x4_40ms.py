@@ -28,6 +28,7 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
+from ...setups.fh.decoder.config import PriorInfo
 from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
@@ -102,7 +103,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, run_additional_l
                 dc_detection=False,
                 decode_all_corpora=False,
                 lr=f"v{lr}",
-                own_priors=True,
+                own_priors=False,
                 run_performance_study=False,
                 tune_decoding=False,
             )
@@ -319,15 +320,22 @@ def run_single(
     for ep, crp_k in itertools.product([300, 550, max(keep_epochs)], ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        s.set_triphone_priors_returnn_rasr(
-            key="fh",
-            epoch=550,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-            data_share=0.1,
-        )
+        if own_priors:
+            s.set_triphone_priors_returnn_rasr(
+                key="fh",
+                epoch=550,
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+                data_share=0.1,
+            )
+        else:
+            s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
+                tk.Path(
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff"
+                )
+            )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
