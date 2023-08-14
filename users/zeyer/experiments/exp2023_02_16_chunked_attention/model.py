@@ -445,6 +445,14 @@ class RNNDecoder:
             loc_num_channels=self.loc_conv_att_num_channels,
             use_weight_feedback=not self.enc_chunks_dim,  # TODO: allow when chunked
         )
+        if self.masked_computation_blank_idx:
+            subnet_unit["prev_att_masked"] = {
+                "class": "masked_computation",
+                "mask": "prev:masked_comp_mask",
+                "unit": {"class": "copy", "from": "data"},
+                "from": "prev:att",
+            }
+
         if self.enc_chunks_dim:
             att.enc_time_dim = self.enc_time_dim
             if self.full_sum_simple_approx:
@@ -498,7 +506,11 @@ class RNNDecoder:
             lstm_inputs += [lstm_lm_component_proj]
         else:
             lstm_inputs += [prev_target_embed]
-        lstm_inputs += ["prev:att"]
+
+        if self.masked_computation_blank_idx:
+            lstm_inputs += ["prev_att_masked"]
+        else:
+            lstm_inputs += ["prev:att"]
 
         if self.add_lstm_lm:
             # element-wise addition is applied instead of concat
