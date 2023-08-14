@@ -238,10 +238,11 @@ class InitNewLayersTransformation(Transformation):
             to_init = [
                 layer
                 for layer in output_vars.keys()
-                if layer not in input_vars or any(layer.startswith(l) for l in self.force_init)
+                if layer not in input_vars
+                or (self.force_init is not None and any(layer.startswith(l) for l in self.force_init))
             ]
             for var_name in to_init:
-                if var_name in self.force_init:
+                if self.force_init is not None and var_name in self.force_init:
                     data = self.force_init[var_name]
                     if isinstance(data, np.ndarray) or isinstance(data, list):
                         array = data if isinstance(data, np.ndarray) else np.array(data)
