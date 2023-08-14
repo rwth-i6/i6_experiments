@@ -34,6 +34,27 @@ Shape = typing.Union[Shape2, Shape3]
 
 
 class Transformation:
+    def collect_shapes(self, vars: typing.Dict[str, "VariableDef"], gd: "tf.compat.v1.GraphDef"):
+        import tensorflow as tf
+
+        data = {}
+
+        with tf.compat.v1.Session() as s:
+            tf.import_graph_def(gd, name="")
+            s.run(tf.compat.v1.global_variables_initializer())
+
+            for v in vars.values():
+                try:
+                    tf_data = s.run({v.variable_name: v.initial_value_name})
+                    data = {**data, **tf_data}
+                except Exception as e:
+                    logging.warning(f"failed collecting shape of {v.variable_name}: {e}")
+
+        reverse_mapping = {v.variable_name: k for k, v in vars.items()}
+        shapes = {reverse_mapping[k]: v.shape for k, v in data.items()}
+
+        return shapes
+
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
@@ -250,6 +271,9 @@ class InitNewLayersTransformation(Transformation):
                 if layer not in input_vars
                 or (self.force_init is not None and any(layer.startswith(l) for l in self.force_init))
             ]
+            vars_to_init = {k: output_vars[k] for k in to_init}
+            shapes = self.collect_shapes(vars_to_init, output_gd)
+
             for var_name in to_init:
                 if self.force_init is not None and var_name in self.force_init:
                     data = self.force_init[var_name]
@@ -261,7 +285,7 @@ class InitNewLayersTransformation(Transformation):
                     else:
                         shape = self.force_init[var_name]
                 else:
-                    shape = tuple(g_out.get_tensor_by_name(var_name).shape.as_list())
+                    shape = shapes[var_name]
 
                 if (shape is None or len(shape) == 0) and var_name in var_data:
                     # try taking shape from input
@@ -286,17 +310,6 @@ class ResizeLayersTransformation(Transformation):
     amount from the graph.
     """
 
-    def collect_shapes(self, keys: typing.Iterable[str], gd: "tf.compat.v1.GraphDef"):
-        import tensorflow as tf
-
-        with tf.compat.v1.Session() as s:
-            tf.import_graph_def(gd, name="")
-            s.run(tf.compat.v1.global_variables_initializer())
-            g = tf.compat.v1.get_default_graph()
-
-            shapes = {k: g.get_tensor_by_name(k).shape.as_list() for k in keys}
-            return shapes
-
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
@@ -307,8 +320,8 @@ class ResizeLayersTransformation(Transformation):
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        shapes_in = self.collect_shapes(output_vars.keys(), input_gd)
-        shapes_out = self.collect_shapes(output_vars.keys(), output_gd)
+        shapes_in = self.collect_shapes(output_vars, input_gd)
+        shapes_out = self.collect_shapes(output_vars, output_gd)
 
         needs_extension = [
             k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
