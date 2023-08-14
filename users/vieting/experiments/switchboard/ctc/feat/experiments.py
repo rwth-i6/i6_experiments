@@ -24,7 +24,7 @@ from .data import get_corpus_data_inputs_oggzip  # TODO: might be copied here fo
 from .default_tools import RASR_BINARY_PATH, RETURNN_ROOT, RETURNN_EXE, SCTK_BINARY_PATH
 
 
-def get_datasets():
+def get_datasets(**kwargs):
     gmm_system = run_gmm_system_from_common()
 
     # TODO: get oggzip independent of GMM system
@@ -42,6 +42,7 @@ def get_datasets():
         partition_epoch={"train": 6, "dev": 1},
         returnn_root=RETURNN_ROOT,
         returnn_python_exe=RETURNN_EXE,
+        **kwargs
     )
 
     returnn_datasets = {
@@ -158,30 +159,6 @@ def run_test_mel():
                     "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
                 },
                 report_args={"architecture": "conf-wei", "lr": "wei_peak_4e-4", "specaug": "wei_adapt_80dim"},
-            ),
-            "lgm80_conf-wei-oldspecaug-audio_perturbation": dict(
-                returnn_args={
-                    "conformer_type": "wei",
-                    "specaug_old": {},
-                    "audio_perturbation": True,
-                    "extra_args": {
-                        "audio_perturb_args": {
-                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
-                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
-                        },
-                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
-                    },
-                    **returnn_args
-                },
-                feature_args=feature_args,
-                lr_args={
-                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
-                    "increase_epochs": 119, "peak_epochs": 2, "decrease_epochs": 119, "final_epochs": 0,
-                },
-                report_args={
-                    "architecture": "conf-wei", "lr": "wei_peak_4e-4", "speed": "0.6_0.88_1.12",
-                    "tempo": "0.6_0.83_1.17",
-                },
             ),
             "lgm80_conf-wei-oldspecaug-bs3200step": dict(
                 returnn_args={
@@ -546,7 +523,89 @@ def run_mel_baseline():
         num_epochs=450,
         prefix="conformer_bs10k_"
     )
+    run_mel_nn_args(nn_args, report_args_collection, "report_mel_baseline.csv", dev_corpora)
 
+def run_mel_audio_perturbation():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/ctc/feat/"
+
+    (
+        returnn_datasets, rasr_loss_corpus_path, rasr_loss_corpus_segments, rasr_loss_lexicon_path, dev_corpora
+    ) = get_datasets(pre_process=CodeWrapper("audio_perturb_runner.run"))
+    returnn_args = {
+        "batch_size": 10000,
+        "rasr_binary_path": RASR_BINARY_PATH,
+        "rasr_loss_corpus_path": rasr_loss_corpus_path,
+        "rasr_loss_corpus_segments": rasr_loss_corpus_segments,
+        "rasr_loss_lexicon_path": rasr_loss_lexicon_path,
+        "datasets": returnn_datasets,
+    }
+    feature_args = {
+        "class": "LogMelNetwork",
+        "wave_norm": True,
+        "frame_size": 200,
+        "frame_shift": 80,
+        "fft_size": 256
+    }
+
+    nn_args, report_args_collection = get_nn_args_baseline(
+        nn_base_args={
+            "lgm80_conf-wei-oldspecaug-audio_perturbation": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    "audio_perturbation": True,
+                    "extra_args": {
+                        "audio_perturb_args": {
+                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                        },
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    },
+                    **returnn_args
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17",  "specaug": "wei_adapt_80dim", "wave_norm": "True",
+                },
+            ),
+            "lgm80_conf-wei-oldspecaug-audio_perturbation_v1": dict(
+                returnn_args={
+                    "conformer_type": "wei",
+                    "specaug_old": {"max_feature": 8},
+                    "audio_perturbation": True,
+                    "extra_args": {
+                        "audio_perturb_args": { # v1
+                            "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
+                            "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
+                            "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
+                        },
+                        "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
+                    },
+                    **returnn_args
+                },
+                feature_args=feature_args,
+                lr_args={
+                    "peak_lr": 4e-4, "start_lr": 1.325e-05, "end_lr": 1e-5,
+                    "increase_epochs": 180, "decrease_epochs": 180, "final_epochs": 0,
+                },
+                report_args={
+                    "architecture": "conf-wei", "lr": "wei_peak_4e-4_e450_cycle360", "speed": "0.6_0.88_1.12",
+                    "tempo": "0.6_0.83_1.17", "specaug": "wei_adapt_80dim", "wave_norm": "True",
+                    "preemphasis": "0.9_0.9_1.0",
+                },
+            ),
+        },
+        num_epochs=450,
+        prefix="conformer_bs10k_"
+    )
+    run_mel_nn_args(nn_args, report_args_collection, "report_mel_audio_perturbation.csv", dev_corpora)
+
+def run_mel_nn_args(nn_args, report_args_collection, report_name, dev_corpora):
     returnn_configs = {}
     for exp in nn_args.returnn_training_configs:
         prior_config = copy.deepcopy(nn_args.returnn_training_configs[exp])
@@ -625,6 +684,6 @@ def run_mel_baseline():
     report.delete_redundant_columns()
     report.delete_redundant_rows()
     tk.register_report(
-        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, "report_mel_baseline.csv"),
+        os.path.join(gs.ALIAS_AND_OUTPUT_SUBDIR, report_name),
         values=report.get_values(),
         template=report.get_template())
