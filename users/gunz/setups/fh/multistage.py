@@ -320,14 +320,14 @@ class ResizeLayersTransformation(Transformation):
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        shapes_in = self.collect_shapes(output_vars, input_gd)
+        shapes_in = self.collect_shapes(input_vars, input_gd)
         shapes_out = self.collect_shapes(output_vars, output_gd)
 
         needs_extension = [
             k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
         ]
 
-        no_extension_needed = set(output_vars.keys())-set(needs_extension)
+        no_extension_needed = set(output_vars.keys()) - set(needs_extension)
         for layer in no_extension_needed:
             logging.info(f"keeping {layer} {shapes_in[layer]} == {shapes_out[layer]}")
 
