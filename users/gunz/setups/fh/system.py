@@ -1367,7 +1367,9 @@ class FactoredHybridSystem(NnSystem):
             name = f"{self.experiments[key]['name']}/e{epoch}/{crp_corpus}"
 
         graph = self.experiments[key]["graph"].get("inference", None)
-        assert graph is not None, "set graph first"
+        if graph is None:
+            self.set_graph_for_experiment(key=key)
+            graph = self.experiments[key]["graph"]["inference"]
 
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"

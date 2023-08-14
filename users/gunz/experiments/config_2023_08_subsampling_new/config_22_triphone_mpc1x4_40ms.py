@@ -331,9 +331,6 @@ def run_single(
                 data_share=0.1,
             )
         else:
-            s.set_graph_for_experiment(
-                key="fh", override_cfg=remove_label_pops_and_losses_from_returnn_config(returnn_config)
-            )
             s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
                 tk.Path(
                     "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff-e550"
