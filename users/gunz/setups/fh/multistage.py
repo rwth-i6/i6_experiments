@@ -251,43 +251,37 @@ class InitNewLayersTransformation(Transformation):
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        import tensorflow as tf
+        to_init = [
+            layer
+            for layer in output_vars.keys()
+            if layer not in input_vars
+            or layer not in var_data
+            or (self.force_init is not None and any(layer.startswith(l) for l in self.force_init))
+        ]
+        vars_to_init = {k: output_vars[k] for k in to_init}
+        shapes = self.collect_shapes(vars_to_init, output_gd)
 
-        with tf.compat.v1.Session() as s:
-            tf.import_graph_def(output_gd, name="")
-            s.run(tf.compat.v1.global_variables_initializer())
-            g_out = tf.compat.v1.get_default_graph()
-
-            to_init = [
-                layer
-                for layer in output_vars.keys()
-                if layer not in input_vars
-                or (self.force_init is not None and any(layer.startswith(l) for l in self.force_init))
-            ]
-            vars_to_init = {k: output_vars[k] for k in to_init}
-            shapes = self.collect_shapes(vars_to_init, output_gd)
-
-            for var_name in to_init:
-                if self.force_init is not None and var_name in self.force_init:
-                    data = self.force_init[var_name]
-                    if isinstance(data, np.ndarray) or isinstance(data, list):
-                        array = data if isinstance(data, np.ndarray) else np.array(data)
-                        var_data[var_name] = array
-                        logging.info(f"initializing {var_name} with data from dict {array.shape}")
-                        continue
-                    else:
-                        shape = self.force_init[var_name]
+        for var_name in to_init:
+            if self.force_init is not None and var_name in self.force_init:
+                data = self.force_init[var_name]
+                if isinstance(data, np.ndarray) or isinstance(data, list):
+                    array = data if isinstance(data, np.ndarray) else np.array(data)
+                    var_data[var_name] = array
+                    logging.info(f"initializing {var_name} with data from dict {array.shape}")
+                    continue
                 else:
-                    shape = shapes[var_name]
+                    shape = self.force_init[var_name]
+            else:
+                shape = shapes[var_name]
 
-                if (shape is None or len(shape) == 0) and var_name in var_data:
-                    # try taking shape from input
-                    shape = var_data[var_name].shape
+            if (shape is None or len(shape) == 0) and var_name in var_data:
+                # try taking shape from input
+                shape = var_data[var_name].shape
 
-                logging.info(f"initializing {var_name}:{shape} with {self.init}")
-                var_data[var_name] = self.init.get_value(shape)
+            logging.info(f"initializing {var_name}:{shape} with {self.init}")
+            var_data[var_name] = self.init.get_value(shape)
 
-            return var_data
+        return var_data
 
     @classmethod
     def hash(cls, kwargs):
@@ -313,7 +307,7 @@ class ResizeLayersTransformation(Transformation):
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
     ) -> typing.Dict[str, np.ndarray]:
-        shapes_in = self.collect_shapes(input_vars, input_gd)
+        shapes_in = {k: v.shape for k, v in var_data.items()}
         shapes_out = self.collect_shapes(output_vars, output_gd)
 
         needs_extension = [
