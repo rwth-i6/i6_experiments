@@ -1214,7 +1214,6 @@ class FactoredHybridSystem(NnSystem):
         results = [
             ("center-state", p_info.center_state_prior.file),
             ("left-context", p_info.left_context_prior.file),
-            ("right-context", p_info.right_context_prior.file),
         ]
         for context_name, file in results:
             xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
