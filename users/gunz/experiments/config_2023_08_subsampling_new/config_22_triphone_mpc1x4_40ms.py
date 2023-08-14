@@ -336,7 +336,7 @@ def run_single(
             )
             s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
                 tk.Path(
-                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff"
+                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff-e550"
                 )
             )
 
