@@ -369,7 +369,7 @@ class ExternalLMDecoder:
       fusion_source += [ilm_decoder.output_prob_name]
 
     if self.ext_lm_opts.get("local_norm", False):
-      fusion_str = fusion_str + '- tf.math.reduce_logsumexp(' + fusion_str + ", axis=-1, keepdims=True)"
+      fusion_str = f"{fusion_str} - tf.math.reduce_logsumexp({fusion_str}, axis=-1, keepdims=True)"
 
     lm_net_out.add_eval_layer('combo_output_prob', source=fusion_source, eval=fusion_str)
     if self.length_normalization:
