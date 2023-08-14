@@ -137,50 +137,57 @@ class TransformCheckpointJob(tk.Job):
         tf_input_vars = parse_variables(input_mg)
         tf_output_vars = parse_variables(output_mg)
 
-        with tf.device("/CPU:0"):
-            s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
+        with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})) as s:
             tf.import_graph_def(input_mg.graph_def, name="")
-        load_checkpoint(s, input_mg, tk.uncached_path(self.input_checkpoint))
-        var_data = s.run({v.variable_name: v.snapshot_name for v in tf_input_vars.values()})
-        s.close()
+            load_checkpoint(s, input_mg, tk.uncached_path(self.input_checkpoint))
+            var_data = s.run({v.variable_name: v.snapshot_name for v in tf_input_vars.values()})
+
         tf.compat.v1.reset_default_graph()
 
         for k, v in var_data.items():
             logging.info("Input: %s shape: %s", k, str(v.shape))
 
         for t in self.transformations:
-            var_data = t.transform(var_data, input_gd, output_gd, dict(tf_input_vars), dict(tf_output_vars))
+            var_data = t.transform(
+                var_data=var_data,
+                input_mg=input_mg,
+                input_gd=input_gd,
+                output_mg=output_mg,
+                output_gd=output_gd,
+                input_vars=dict(tf_input_vars),
+                output_vars=dict(tf_output_vars),
+            )
 
         for k, v in var_data.items():
             logging.info("Output: %s shape: %s", k, str(v.shape))
 
         tf.compat.v1.reset_default_graph()
 
-        with tf.device("/CPU:0"):
-            s = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0}))
+        with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(device_count={"GPU": 0})) as s:
             tf.import_graph_def(output_mg.graph_def, name="")
 
-        s.run(tf.compat.v1.global_variables_initializer())
+            s.run(tf.compat.v1.global_variables_initializer())
 
-        for v in var_data:
-            if v in tf_output_vars:
-                s.run(
-                    tf_output_vars[v].initializer_name,
-                    feed_dict={tf_output_vars[v].initial_value_name: var_data[v]},
-                )
-            else:
-                logging.warning("Transformed variable %s not in output graph", v)
-        for v in tf_output_vars:
-            if v not in var_data:
-                logging.warning("Variable %s not set", v)
+            for v in var_data:
+                if v in tf_output_vars:
+                    s.run(
+                        tf_output_vars[v].initializer_name,
+                        feed_dict={tf_output_vars[v].initial_value_name: var_data[v]},
+                    )
+                else:
+                    logging.warning("Transformed variable %s not in output graph", v)
 
-        # this is a bit ugly, but the global step does not appear in the variable definitions of the meta_graph
-        s.run("global_step/Assign", feed_dict={"global_step/Initializer/zeros:0": 0})
+            for v in tf_output_vars:
+                if v not in var_data:
+                    logging.warning("Variable %s not set", v)
 
-        s.run(
-            output_mg.saver_def.save_tensor_name,
-            feed_dict={output_mg.saver_def.filename_tensor_name: tk.uncached_path(self._checkpoint_path)},
-        )
+            # this is a bit ugly, but the global step does not appear in the variable definitions of the meta_graph
+            s.run("global_step/Assign", feed_dict={"global_step/Initializer/zeros:0": 0})
+
+            s.run(
+                output_mg.saver_def.save_tensor_name,
+                feed_dict={output_mg.saver_def.filename_tensor_name: tk.uncached_path(self._checkpoint_path)},
+            )
 
     @classmethod
     def hash(cls, kwargs):
@@ -223,7 +230,9 @@ class InitNewLayersTransformation(Transformation):
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
+        input_mg: "tf.compat.v1.MetaGraphDef",
         input_gd: "tf.compat.v1.GraphDef",
+        output_mg: "tf.compat.v1.MetaGraphDef",
         output_gd: "tf.compat.v1.GraphDef",
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
@@ -291,7 +300,9 @@ class ResizeLayersTransformation(Transformation):
     def transform(
         self,
         var_data: typing.Dict[str, np.ndarray],
+        input_mg: "tf.compat.v1.MetaGraphDef",
         input_gd: "tf.compat.v1.GraphDef",
+        output_mg: "tf.compat.v1.MetaGraphDef",
         output_gd: "tf.compat.v1.GraphDef",
         input_vars: typing.Dict[str, "VariableDef"],
         output_vars: typing.Dict[str, "VariableDef"],
