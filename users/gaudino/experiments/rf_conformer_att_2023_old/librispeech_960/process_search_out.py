@@ -48,7 +48,7 @@ def process_search_out(
     )
     abs_name = os.path.abspath(__file__)
     prefix_name = os.path.basename(abs_name)[: -len(".py")]
-    exp_name = "rf_att_test"
+    exp_name = "rf_att_test_non_sorted"
     prefix_name = os.path.join(prefix_name, exp_name)
 
     test_set = "dev-other"
@@ -64,7 +64,7 @@ def process_search_out(
     recognition_bliss_corpus = recognition_bliss_corpus[0]
 
     search_bpe = tk.Path(
-        "/u/luca.gaudino/debug/moh_att_import/search_out_sorted.py"#, hash_overwrite="DEBUG_SEARCH_OUTPUT"
+        "/u/luca.gaudino/debug/moh_att_import/search_out_full.py"#, hash_overwrite="DEBUG_SEARCH_OUTPUT"
     )
 
     remove_label = {"<s>", "<blank>"}  # blanks are removed in the network

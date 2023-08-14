@@ -858,8 +858,8 @@ def run_ctc_att_search():
     )
 
     # att + lm
-    for beam_size in [32]:
-        for lm_scale in [0.34, 0.35, 0.36]:
+    for beam_size in [24]:
+        for lm_scale in [0.33]:
             att_scale = 1.0
             run_lm_fusion(
                 args=oclr_args,
@@ -875,7 +875,7 @@ def run_ctc_att_search():
                 lm_scales=[lm_scale],
                 beam_size=beam_size,
                 bpe_size=BPE_10K,
-                test_set_names=["dev-other"],
+                test_set_names=["dev-clean", "dev-other", "test-clean", "test-other"],
                 use_sclite=True,
             )
 
@@ -1217,15 +1217,15 @@ def run_ctc_att_search():
                     search_args=search_args,
                     feature_extraction_net=log10_net_10ms,
                     bpe_size=BPE_10K,
-                    test_sets=["dev-other"],
+                    test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
                     remove_label={"<s>", "<blank>"},  # blanks are removed in the network
                     use_sclite=True,
                 )
         if mode == "att":
-            for prior_scale in []:
+            for prior_scale in [0.2]:
                 att_scale, ctc_scale = (0.3, 1.0)
                 exp_name = (
-                    f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_12_priorScale_{prior_scale}_renorm"
+                    f"ctc_decoder_attScale{att_scale}_ctcScale{ctc_scale}_beam_12_priorScale_{prior_scale}"
                 )
                 search_args = copy.deepcopy(prior_corr_args)
                 search_args["beam_size"] = 12
@@ -1245,7 +1245,7 @@ def run_ctc_att_search():
                     search_args=search_args,
                     feature_extraction_net=log10_net_10ms,
                     bpe_size=BPE_10K,
-                    test_sets=["dev-other"],
+                    test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
                     remove_label={"<s>", "<blank>"},  # blanks are removed in the network
                     use_sclite=True,
                     time_rqmt=1.0 if beam_size <= 128 else 1.5,
@@ -1446,7 +1446,7 @@ def run_ctc_att_search():
         feature_extraction_net=log10_net_10ms,
         bpe_size=BPE_10K,
         time_rqmt=6.0,
-        test_sets=["dev-other"],
+        test_sets=["dev-clean", "dev-other", "test-clean", "test-other"],
         remove_label={"<s>", "<blank>"},  # blanks are removed in the network
         use_sclite=True,
     )
