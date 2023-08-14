@@ -672,11 +672,60 @@ class ConformerEncoder:
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
 
+        mem_chunks = []
+        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache:
+            # glu_act: [B*C, W, D]
+            # We want now to have [B, C, W, D]
+            glu_act_split_chunk = self.network.add_generic_layer(
+                f"{prefix_name}_glu_act_split_chunk",
+                cls="split_batch_time",
+                source=glu_act,
+                base=self.memory_variant_opts.split_batch_time_base,
+            )  # [B, C, W, D], C = chunked_time_dim
+            for mem_idx in range(self.memory_variant_opts.mem_size):
+                glu_act_chunk_shifted = self.network.add_generic_layer(
+                    f"{prefix_name}_glu_act_chunk_shifted" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                    cls="shift_axis",
+                    source=glu_act_split_chunk,
+                    axis=self.memory_variant_opts.chunked_time_dim,  # C
+                    amount=mem_idx + 1,
+                    pad=True,
+                    adjust_size_info=False,  # no change in dim tag, C stays the same
+                )  # [B, C, W, D]
+                # Merge batch and chunk dim again.
+                glu_act_chunk_shifted = self.network.add_generic_layer(
+                    f"{prefix_name}_glu_act_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                    cls="merge_dims",
+                    source=glu_act_chunk_shifted,
+                    axes=("B", self.memory_variant_opts.chunked_time_dim),
+                )  # [B*C, W, D]
+                # Make sure the time_dim_axis (T) is set to the correct dim (W).
+                glu_act_chunk_shifted = self.network.add_generic_layer(
+                    f"{prefix_name}_glu_act_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                    cls="reinterpret_data",
+                    source=glu_act_chunk_shifted,
+                    set_axes={"T": "spatial"},
+                )  # [B*C, W, D] but not time_dim_axis is set to W
+                mem_chunks.append((glu_act_chunk_shifted, "T"))
+
+        if mem_chunks:
+            # reverse to concat left-most first
+            mem_chunks.reverse()
+            # Concatenate the shifted and the original tensor.
+            glu_act_ = self.network.add_generic_layer(
+                f"{prefix_name}_glu_act_concat",
+                cls="concat",
+                source=[*mem_chunks, (glu_act, "T")],
+                out_dim=self.concat_window_dim,
+            )  # [B*C, W*N, D]
+        else:
+            glu_act_ = glu_act
+
         if self.use_causal_conv:
             # pad to the left to make it causal
             depthwise_conv_input_padded = self.network.add_pad_layer(
                 "{}_depthwise_conv_input_padded".format(prefix_name),
-                glu_act,
+                glu_act_,
                 axes="T",
                 padding=(self.conv_kernel_size - 1, 0),
             )
@@ -702,13 +751,24 @@ class ConformerEncoder:
         else:
             depthwise_conv = self.network.add_conv_layer(
                 prefix_name + "_" + (self.conv_alternative_name or "depthwise_conv2"),
-                glu_act,
+                glu_act_,
                 n_out=self.enc_key_dim,
                 filter_size=(self.conv_kernel_size,),
                 groups=self.enc_key_dim,
                 l2=self.l2,
                 forward_weights_init=self.conv_module_init,
                 param_dropout=self.conv_weight_drop,
+            )
+
+        if mem_chunks:
+            # we apply convolution over the concatenated chunks but we only need the output of the current
+            # chunk, thus, we need to slice from [B*C, W*N, D] to [B*C, W, D]
+            depthwise_conv = self.network.add_generic_layer(
+                f"{prefix_name}_depthwise_conv_slice",
+                cls="slice",
+                source=depthwise_conv,
+                axis="T",
+                slice_start=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
             )
 
         if self.use_ln:
@@ -1002,3 +1062,4 @@ class ConformerMemoryVariantOpts:
     self_att_version: int  # TODO: just for testing
     mem_size: int
     mask_paddings: bool
+    conv_cache: bool  # use conv cache for memory
