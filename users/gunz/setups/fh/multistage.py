@@ -37,18 +37,11 @@ class Transformation:
     def collect_shapes(self, vars: typing.Dict[str, "VariableDef"], gd: "tf.compat.v1.GraphDef"):
         import tensorflow as tf
 
-        data = {}
-
         with tf.compat.v1.Session() as s:
             tf.import_graph_def(gd, name="")
             s.run(tf.compat.v1.global_variables_initializer())
 
-            for v in vars.values():
-                try:
-                    tf_data = s.run({v.variable_name: v.initial_value_name})
-                    data = {**data, **tf_data}
-                except Exception as e:
-                    logging.warning(f"failed collecting shape of {v.variable_name}: {e}")
+            data = s.run({v.variable_name: v.initial_value_name for v in vars.values()})
 
         reverse_mapping = {v.variable_name: k for k, v in vars.items()}
         shapes = {reverse_mapping[k]: v.shape for k, v in data.items()}
@@ -324,12 +317,14 @@ class ResizeLayersTransformation(Transformation):
         shapes_out = self.collect_shapes(output_vars, output_gd)
 
         needs_extension = [
-            k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
+            k
+            for k in output_vars.keys()
+            if k in shapes_in and any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
         ]
 
         no_extension_needed = set(output_vars.keys()) - set(needs_extension)
         for layer in no_extension_needed:
-            logging.info(f"keeping {layer} {shapes_in[layer]} == {shapes_out[layer]}")
+            logging.info(f"keeping {layer} {shapes_in.get(layer, None)} == {shapes_out.get(layer, None)}")
 
         for layer in needs_extension:
             in_sh = tuple(shapes_in[layer])
