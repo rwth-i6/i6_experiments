@@ -747,6 +747,7 @@ def create_config(
                 chunk_size_dim=chunk_size_dim,
                 mem_size=conf_mem_opts.get("mem_size", 1),
                 mask_paddings=conf_mem_opts.get("mask_paddings", False),
+                conv_cache=conf_mem_opts.get("conv_cache", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)
@@ -887,7 +888,8 @@ def create_config(
                 "axes": [chunked_time_dim, chunk_size_dim],  # [C, W]
                 "keep_order": True,
             }  # [B,C*W,D]
-            conformer_encoder.network["ctc"]["from"] = "encoder"
+            if encoder_args["with_ctc"]:
+                conformer_encoder.network["ctc"]["from"] = "encoder"
         else:
             # TODO: average overlapped chunks
             raise NotImplementedError("chunk_size != chunk_step not implemented yet")

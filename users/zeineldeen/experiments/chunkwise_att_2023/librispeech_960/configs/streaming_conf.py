@@ -1100,6 +1100,8 @@ def run_chunkwise_train(
                                 exp_name += f"_memSize{mem_size}"
                             if conf_mem_opts.get("mask_paddings", False):
                                 exp_name += f"_memMaskPad"
+                            if conf_mem_opts.get("conv_cache", False):
+                                exp_name += f"_memConvCache"
                             train_args["recursion_limit"] = 4000
 
                         if with_ctc:
@@ -1700,39 +1702,56 @@ def baseline():
             conf_mem_opts={"self_att_version": 1, "mem_size": mem_size},
         )
 
-    # TODO: chunked encoder
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[5, 10, 25, 33],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
-        chunk_step_factors=[1.0],
-        start_lrs=[1e-4, 2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=11,
-        total_epochs=[200],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=72,
-        chunked_decoder=False,
-        with_ctc=True,
-        search_score_key="dev_score_output/output_prob",
-    )
+    # # TODO: chunked encoder
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[5, 10, 25, 33],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
+    #     chunk_step_factors=[1.0],
+    #     start_lrs=[1e-4, 2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=11,
+    #     total_epochs=[200],
+    #     batch_size=15_000,
+    #     accum_grad=2,
+    #     time_rqmt=72,
+    #     chunked_decoder=False,
+    #     with_ctc=True,
+    #     search_score_key="dev_score_output/output_prob",
+    # )
+    #
+    # run_chunkwise_train(
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     enc_stream_type="chunked",
+    #     chunk_sizes=[50, 100],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
+    #     chunk_step_factors=[1.0],
+    #     start_lrs=[1e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[200],
+    #     batch_size=30_000,
+    #     accum_grad=1,
+    #     time_rqmt=72,
+    #     chunked_decoder=False,
+    #     with_ctc=True,
+    #     search_score_key="dev_score_output/output_prob",
+    # )
 
-    run_chunkwise_train(
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        enc_stream_type="chunked",
-        chunk_sizes=[50, 100],  # TODO: use min(W,T) as window size for large chunks to avoid OOM
-        chunk_step_factors=[1.0],
-        start_lrs=[1e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[200],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=72,
-        chunked_decoder=False,
-        with_ctc=True,
-        search_score_key="dev_score_output/output_prob",
-    )
+    for mem_size in [2]:
+        run_chunkwise_train(
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            enc_stream_type="chunked",
+            chunk_sizes=[10, 20, 25],
+            chunk_step_factors=[0.5],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[400],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=168,
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size, "conv_cache": True},
+        )
