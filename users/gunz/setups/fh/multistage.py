@@ -195,12 +195,16 @@ class TransformCheckpointJob(tk.Job):
 class Init(Enum):
     zero = "zero"
     random_normal = "random_normal"
+    glorot_uniform = "glorot_uniform"
 
     def get_value(self, shape: Shape) -> np.ndarray:
         if self == Init.zero:
             return np.zeros(shape)
         elif self == Init.random_normal:
             return np.random.normal(0, 0.01, np.prod(shape)).reshape(shape)
+        elif self == Init.glorot_uniform:
+            lim = 1 / np.sqrt(shape[-1])
+            return np.random.uniform(lim, lim, np.prod(shape)).reshape(shape)
         else:
             raise NotImplementedError(f"unimplemented init algorithm")
 

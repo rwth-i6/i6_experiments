@@ -292,6 +292,7 @@ def run_single(
     )
     returnn_config = multistage.transform_checkpoint(
         name=name,
+        init_new=multistage.Init.glorot_uniform,
         input_returnn_config=init_from_system.experiments["fh"]["returnn_config"],
         input_label_info=init_from_system.label_info,
         input_model_path=init_from_system.experiments["fh"]["train_job"].out_checkpoints[600],
