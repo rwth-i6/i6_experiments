@@ -51,6 +51,7 @@ def _get_pt_checkpoint_path() -> tk.Path:
         epoch=1,
         step=0,
     )
+    # converter.run()
     return converter.out_checkpoint
 
 
@@ -69,6 +70,8 @@ def _add_params():
             "encoder.input_projection.weight": "source_linear/W",
             "enc_ctx.weight": "enc_ctx/W",
             "enc_ctx.bias": "enc_ctx/b",
+            "ctc.weight": "ctc/W",
+            "ctc.bias": "ctc/b",
             "inv_fertility.weight": "inv_fertility/W",
             "target_embed.weight": "output/rec/target_embed0/W",
             "weight_feedback.weight": "output/rec/weight_feedback/W",

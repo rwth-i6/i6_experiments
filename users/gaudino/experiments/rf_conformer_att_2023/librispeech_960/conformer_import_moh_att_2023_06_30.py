@@ -62,8 +62,9 @@ def sis_run_with_prefix(prefix_name: str = None):
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    # only dev-other for testing
-    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=["dev-other"])
+    dev_sets = ["dev-other"]  # only dev-other for testing
+    # dev_sets = None  # all
+    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets)
     tk.register_output(prefix_name + f"/recog_results", res.output)
 
 
@@ -177,6 +178,9 @@ class Model(rf.Module):
         self.enc_ctx_dropout = 0.2
         self.enc_win_dim = Dim(name="enc_win_dim", dimension=5)
 
+        self.target_dim_w_b = Dim(name="target_w_b", dimension=self.target_dim.dimension + 1, kind=Dim.Types.Feature)
+        self.ctc = rf.Linear(self.encoder.out_dim, self.target_dim_w_b)
+
         self.inv_fertility = rf.Linear(self.encoder.out_dim, att_num_heads, with_bias=False)
 
         self.target_embed = rf.Embedding(target_dim, Dim(name="target_embed", dimension=640))
@@ -228,7 +232,9 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
+        breakpoint()
+        ctc = rf.softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc), enc_spatial_dim
 
     @staticmethod
     def encoder_unstack(ext: Dict[str, rf.Tensor]) -> Dict[str, rf.Tensor]:
@@ -345,6 +351,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 from_scratch_model_def.backend = "torch"
+from_scratch_model_def.batch_size_factor = 160
 
 
 def from_scratch_training(
@@ -430,12 +437,25 @@ def model_recog(
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
+    breakpoint()
+    from .ctc import CTCPrefixScorer
+    ctc_scorer = CTCPrefixScorer(
+        enc_args['ctc'],
+        max_seq_len,
+        0, # batch_size
+        beam_size,
+        10026, #blank index
+        model.bos_index,
+        # self.ctc_window_size,
+    )
+
     i = 0
     seq_targets = []
     seq_backrefs = []
     while True:
-        print("** step", i)
         input_embed = model.target_embed(target)
+        breakpoint()
+        print(enc_args)
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
