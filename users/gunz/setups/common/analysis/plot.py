@@ -147,6 +147,9 @@ class PlotViterbiAlignmentsJob(Job):
         else:
             self.out_plots = None
 
+    def tasks(self) -> Iterator[Task]:
+        yield Task("run", rqmt={"cpu": 1, "time": 1, "mem": 4})
+
     def run(self):
         processor = AlignmentProcessor(
             alignment_bundle_path=self.alignment_bundle_path.get_path(),

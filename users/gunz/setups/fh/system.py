@@ -1131,14 +1131,15 @@ class FactoredHybridSystem(NnSystem):
                 checkpoint=checkpoint,
             )
         )
-
         job.add_alias(f"priors/{name}/c")
-        tk.register_output(f"priors/{name}/center-state.xml", job.out_prior_xml_file)
 
         p_info = PriorInfo(
             center_state_prior=PriorConfig(file=job.out_prior_xml_file, scale=0.0),
         )
-        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+        self.experiments[key]["priors"] = p_info
+
+        tk.register_output(f"priors/{name}/center-state.xml", p_info.center_state_prior.file)
 
         return job
 
@@ -1203,20 +1204,23 @@ class FactoredHybridSystem(NnSystem):
         center_priors = ReshapeCenterStatePriorsJob(prior_jobs["c"].out_prior_txt_file, label_info=self.label_info)
         center_priors_xml = center_priors.out_prior_xml
 
-        results = [
-            ("center-state", center_priors_xml),
-            ("left-context", prior_jobs["l"].out_prior_xml_file),
-        ]
-        for context_name, file in results:
-            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
-            tk.register_output(xml_name, file)
-
         p_info = PriorInfo(
             center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=None,
         )
-        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+            ("right-context", p_info.right_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
 
     def set_triphone_priors_returnn_rasr(
         self,
@@ -1293,21 +1297,23 @@ class FactoredHybridSystem(NnSystem):
         right_priors = [prior_jobs[f"r{i}"].out_prior_txt_file for i in range(len(right_configs))]
         right_prior_xml = JoinRightContextPriorsJob(right_priors, label_info=self.label_info).out_prior_xml
 
-        results = [
-            ("center-state", center_priors_xml),
-            ("left-context", prior_jobs["l"].out_prior_xml_file),
-            ("right-context", right_prior_xml),
-        ]
-        for context_name, file in results:
-            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
-            tk.register_output(xml_name, file)
-
         p_info = PriorInfo(
             center_state_prior=PriorConfig(file=center_priors_xml, scale=0.0),
             left_context_prior=PriorConfig(file=prior_jobs["l"].out_prior_xml_file, scale=0.0),
             right_context_prior=PriorConfig(file=right_prior_xml, scale=0.0),
         )
-        self.experiments[key]["priors"] = smoothen_priors(p_info) if smoothen else p_info
+        p_info = smoothen_priors(p_info) if smoothen else p_info
+
+        results = [
+            ("center-state", p_info.center_state_prior.file),
+            ("left-context", p_info.left_context_prior.file),
+            ("right-context", p_info.right_context_prior.file),
+        ]
+        for context_name, file in results:
+            xml_name = f"priors/{name}/{context_name}.xml" if name is not None else f"priors/{context_name}.xml"
+            tk.register_output(xml_name, file)
+
+        self.experiments[key]["priors"] = p_info
 
     # -------------------- Decoding --------------------
     def set_graph_for_experiment(self, key, override_cfg: typing.Optional[returnn.ReturnnConfig] = None):
