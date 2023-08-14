@@ -43,10 +43,10 @@ class Transformation:
 
             data = s.run({v.variable_name: v.initial_value_name for v in vars.values()})
 
+            tf.compat.v1.reset_default_graph()
+
         reverse_mapping = {v.variable_name: k for k, v in vars.items()}
         shapes = {reverse_mapping[k]: v.shape for k, v in data.items()}
-
-        tf.compat.v1.reset_default_graph()
 
         return shapes
 
