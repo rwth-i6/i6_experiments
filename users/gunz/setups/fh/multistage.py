@@ -378,7 +378,7 @@ def transform_checkpoint(
         output_mg_path=output_graph_meta,
         output_gd_path=output_graph_pb,
         transformations=[
-            InitNewLayersTransformation(init_new, force_init),
+            InitNewLayersTransformation(init_new, force_init or {}),
             ResizeLayersTransformation(),
         ],
         tf_op_libraries=tf_library,
