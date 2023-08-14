@@ -327,6 +327,10 @@ class ResizeLayersTransformation(Transformation):
             k for k in output_vars.keys() if any(a - b != 0 for a, b in zip(shapes_in[k], shapes_out[k]))
         ]
 
+        no_extension_needed = set(output_vars.keys())-set(needs_extension)
+        for layer in no_extension_needed:
+            logging.info(f"keeping {layer} {shapes_in[layer]} == {shapes_out[layer]}")
+
         for layer in needs_extension:
             in_sh = tuple(shapes_in[layer])
             out_sh = tuple(shapes_out[layer])
