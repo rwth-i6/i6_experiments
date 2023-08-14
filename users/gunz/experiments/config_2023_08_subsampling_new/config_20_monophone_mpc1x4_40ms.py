@@ -75,40 +75,40 @@ class Experiment:
     focal_loss: float = CONF_FOCAL_LOSS
 
 
-def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
+def run(
+    returnn_root: tk.Path, alignment: tk.Path, a_name: str
+) -> typing.Tuple[Experiment, fh_system.FactoredHybridSystem]:
     # ******************** Settings ********************
 
     gs.ALIAS_AND_OUTPUT_SUBDIR = os.path.splitext(os.path.basename(__file__))[0][7:]
     rasr.flow.FlowNetwork.default_flags = {"cache_mode": "task_dependent"}
 
-    configs = [
-        Experiment(
-            alignment=alignment,
-            alignment_name=a_name,
-            dc_detection=False,
-            decode_all_corpora=False,
-            lr="v13",
-            multitask=True,
-            run_performance_study=True,
-            tune_decoding=True,
-            run_tdp_study=False,
-        ),
-    ]
-    for exp in configs:
-        run_single(
-            alignment=exp.alignment,
-            alignment_name=exp.alignment_name,
-            dc_detection=exp.dc_detection,
-            decode_all_corpora=exp.decode_all_corpora,
-            focal_loss=exp.focal_loss,
-            lr=exp.lr,
-            multitask=exp.multitask,
-            returnn_root=returnn_root,
-            run_performance_study=exp.run_performance_study,
-            tune_decoding=exp.tune_decoding,
-            filter_segments=exp.filter_segments,
-            run_tdp_study=exp.run_tdp_study,
-        )
+    exp = Experiment(
+        alignment=alignment,
+        alignment_name=a_name,
+        dc_detection=False,
+        decode_all_corpora=False,
+        lr="v13",
+        multitask=True,
+        run_performance_study=True,
+        tune_decoding=True,
+        run_tdp_study=False,
+    )
+    sys = run_single(
+        alignment=exp.alignment,
+        alignment_name=exp.alignment_name,
+        dc_detection=exp.dc_detection,
+        decode_all_corpora=exp.decode_all_corpora,
+        focal_loss=exp.focal_loss,
+        lr=exp.lr,
+        multitask=exp.multitask,
+        returnn_root=returnn_root,
+        run_performance_study=exp.run_performance_study,
+        tune_decoding=exp.tune_decoding,
+        filter_segments=exp.filter_segments,
+        run_tdp_study=exp.run_tdp_study,
+    )
+    return exp, sys
 
 
 def run_single(
