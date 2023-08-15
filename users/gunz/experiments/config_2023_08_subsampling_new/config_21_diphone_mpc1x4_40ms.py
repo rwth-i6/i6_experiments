@@ -400,7 +400,11 @@ def run_single(
         s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
         s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-        s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
+        s._update_am_setting_for_all_crps(
+            train_tdp_type="heuristic",
+            eval_tdp_type="heuristic",
+            add_base_allophones=False,
+        )
 
         returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
