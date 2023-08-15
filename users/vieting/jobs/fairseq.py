@@ -63,6 +63,7 @@ class CreateFairseqLabeledDataJob(Job):
         assert 0.0 <= self.valid_percent <= 1.0
         self.seed = seed
         self.path_must_contain = path_must_contain
+        self.create_letter_dict = create_letter_dict
 
         self.out_task_path = self.output_path("task", directory=True)
 
