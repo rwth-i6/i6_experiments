@@ -1895,6 +1895,12 @@ def run_single(
             "n_out": conf_model_dim,
             "size_base": "data:classes",
         },
+        "enc_006": {  # for aux loss
+            "class": "reinterpret_data",
+            "from": "conformer_06_output",
+            "n_out": conf_model_dim,
+            "size_base": "data:classes",
+        },
     }
     network = augment_net_with_label_pops(
         network,
