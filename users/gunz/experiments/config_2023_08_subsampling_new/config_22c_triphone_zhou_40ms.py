@@ -81,7 +81,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             batch_size=15000,
             dc_detection=False,
             decode_all_corpora=False,
-            lr="v13",
+            lr="zhou",
             own_priors=False,
             run_performance_study=False,
             tune_decoding=False,
