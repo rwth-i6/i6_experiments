@@ -2,6 +2,7 @@ __all__ = ["run", "run_single"]
 
 import copy
 import dataclasses
+import math
 import typing
 from dataclasses import dataclass
 import itertools
@@ -414,8 +415,8 @@ def run_single(
         lrates = oclr.get_learning_rates(
             lrate=5e-5,
             increase=0,
-            constLR=np.floor(fine_tune_epochs * 0.45),
-            decay=np.floor(fine_tune_epochs * 0.45),
+            constLR=math.floor(fine_tune_epochs * 0.45),
+            decay=math.floor(fine_tune_epochs * 0.45),
             decMinRatio=0.1,
             decMaxRatio=1,
         )
