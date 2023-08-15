@@ -16,6 +16,7 @@ def augment_to_joint_diphone_softmax(
     center_state_softmax_layer: str = "center-output",
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
+    softmax_on_output_layer: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -123,6 +124,14 @@ def augment_to_joint_diphone_softmax(
         "keep_order": True,
         "from": f"{out_joint_score_layer}_scores",
     }
+
+    if softmax_on_output_layer:
+        network[f"{out_joint_score_layer}_merged"] = network[out_joint_score_layer]
+        network[out_joint_score_layer] = {
+            "class": "activation",
+            "activation": "log_softmax" if log_softmax else "softmax",
+            "from": f"{out_joint_score_layer}_merged",
+        }
 
     network[out_joint_score_layer]["register_as_extern_data"] = out_joint_score_layer
 
