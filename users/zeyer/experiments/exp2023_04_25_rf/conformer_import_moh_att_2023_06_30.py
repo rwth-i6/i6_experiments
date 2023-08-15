@@ -22,7 +22,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 # dev-other  5.39
 # test-clean  2.41
 # test-other  5.51
-# _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
+# _returnn_tf_config_filename = ("/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/"
+#     "work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 
@@ -231,16 +232,6 @@ class Model(rf.Module):
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility), enc_spatial_dim
-
-    @staticmethod
-    def encoder_unstack(ext: Dict[str, rf.Tensor]) -> Dict[str, rf.Tensor]:
-        """
-        prepare the encoder output for the loop (full-sum or time-sync)
-        """
-        # We might improve or generalize the interface later...
-        # https://github.com/rwth-i6/returnn_common/issues/202
-        loop = rf.inner_loop()
-        return {k: loop.unstack(v) for k, v in ext.items()}
 
     def decoder_default_initial_state(self, *, batch_dims: Sequence[Dim], enc_spatial_dim: Dim) -> rf.State:
         """Default initial state"""
