@@ -19,7 +19,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import oclr, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.common.nn.chunking import subsample_chunking
 from ...setups.common.nn.specaugment import (
     mask as sa_mask,
@@ -296,7 +296,7 @@ def run_single(
         "partition_epochs": partition_epochs,
         "returnn_config": copy.deepcopy(returnn_config),
     }
-    s.returnn_rasr_training(
+    viterbi_train_j = s.returnn_rasr_training(
         experiment_key="fh",
         train_corpus_key=s.crp_names["train"],
         dev_corpus_key=s.crp_names["cvtrain"],
@@ -380,6 +380,95 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
+            )
+
+    # ###########
+    # FINE TUNING
+    # ###########
+
+    fine_tune_epochs = 300
+    keep_epochs = [150, 275, 300]
+
+    bw_scales = [
+        baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.0),
+        baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.0)
+    ]
+
+    for bw_scale in bw_scales:
+        name = f"{name}-fs-bwl:{bw_scale.label_posterior_scale}"
+        s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
+
+        returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+            softmax_on_output_layer=True,
+        )
+        returnn_config_ft = baum_welch.augment_for_fast_bw(
+            crp=s.crp[s.crp_names["train"]],
+            from_output_softmax_layer="output",
+            returnn_config=returnn_config_ft,
+            log_linear_scales=bw_scale,
+        )
+        update_config = returnn.ReturnnConfig(
+            config={
+                "preload_from_files": {
+                    "existing-model": {
+                        "init_for_train": True,
+                        "ignore_missing": True,
+                        "filename": viterbi_train_j.out_checkpoints[600],
+                    }
+                },
+            },
+            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+        )
+        returnn_config_ft.update(update_config)
+
+        s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
+
+        train_args = {
+            **s.initial_train_args,
+            "num_epochs": fine_tune_epochs,
+            "partition_epochs": partition_epochs,
+            "returnn_config": copy.deepcopy(returnn_config_ft),
+        }
+        s.returnn_rasr_training(
+            experiment_key="fh-fs",
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            nn_train_args=train_args,
+        )
+
+        nn_precomputed_returnn_config = copy.deepcopy(returnn_config_ft)
+        nn_precomputed_returnn_config.config["network"]["output"]["activation"] = "log_softmax"
+
+        for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
+
+            s.set_mono_priors_returnn_rasr(
+                key="fh-fs",
+                epoch=min(ep, keep_epochs[-2]),
+                train_corpus_key=s.crp_names["train"],
+                dev_corpus_key=s.crp_names["cvtrain"],
+                smoothen=True,
+                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config_ft),
+                output_layer_name="output",
+            )
+
+            diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+            tying_cfg = rasr.RasrConfig()
+            tying_cfg.type = "diphone-dense"
+
+            s.recognize_cart(
+                key="fh-fs",
+                epoch=ep,
+                crp_corpus=crp_k,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=s.get_cart_params(key="fh-fs"),
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
             )
 
     if run_performance_study:
