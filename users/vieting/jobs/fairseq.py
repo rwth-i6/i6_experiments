@@ -15,10 +15,15 @@ class CreateFairseqLabeledDataJob(Job):
     - train.tsv
     - train.ltr
     - train.wrd
+
+    If create_letter_dict is set to True, the following file will be created:
+    - dict.ltr.txt
+
+    If sample_valid_percent is set > 0, a random sample of the files will be saved as validation set and the following files will be created:
     - valid.tsv
     - valid.ltr
     - valid.wrd
-    - dict.ltr.txt
+    
 
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
     https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py as well as
@@ -31,39 +36,45 @@ class CreateFairseqLabeledDataJob(Job):
         self,
         corpus_paths: Union[List[tk.Path], tk.Path],
         file_extension: str = "wav",
-        valid_percent: float = 0.01,
+        sample_valid_percent: float = 0.01,
         seed: int = 42,
-        path_must_contain: Optional[str] = None
+        path_must_contain: Optional[str] = None,
+        dest_name: str = "train",
+        sample_valid_name: str = "valid",
+        create_letter_dict: bool = True,
     ):
         """
-        :param audio_dir_path: list of paths or single path to raw audio files to be included
-        :param file_extension: file extension to look for in audio_dir_path
-        :param valid_percent: percentage of files to be in validation set
+        :param corpus_paths: list of paths or single path to raw audio file directory to be included
+        :param file_extension: file extension to look for in corpus_paths
+        :param sample_valid_percent: percentage of files to be randomly sampled as validation set
         :param seed: random seed for splitting into train and valid set
         :param path_must_contain: if set, path must contain this substring
             for a file to be included in the task
+        :param dest_name: name of the main label files. Default: "train"
+        :param sample_valid_name: name of the sampled validation label files. Default: "valid". Ignored if sample_valid_percent is 0.
+        : 
         """
         if not isinstance(corpus_paths, list):
             corpus_paths = [corpus_paths]
         self.corpus_paths = corpus_paths
         assert all([isinstance(path, tk.Path) for path in self.corpus_paths])
         self.file_extension = file_extension
-        self.valid_percent = valid_percent
+        self.valid_percent = sample_valid_percent
         assert 0.0 <= self.valid_percent <= 1.0
         self.seed = seed
         self.path_must_contain = path_must_contain
 
         self.out_task_path = self.output_path("task", directory=True)
 
-        self.out_train_tsv_path = self.output_path("task/train.tsv")
-        self.out_valid_tsv_path = self.output_path("task/valid.tsv")
+        self.out_dest_tsv_path = self.output_path(f"task/{dest_name}.tsv")
+        self.out_valid_tsv_path = self.output_path(f"task/{sample_valid_name}.tsv")
         
         self.out_dict_ltr_path = self.output_path("task/dict.ltr.txt")
 
-        self.out_train_ltr_path = self.output_path("task/train.ltr")
-        self.out_train_wrd_path = self.output_path("task/train.wrd")
-        self.out_valid_ltr_path = self.output_path("task/valid.ltr")
-        self.out_valid_wrd_path = self.output_path("task/valid.wrd")
+        self.out_dest_ltr_path = self.output_path(f"task/{dest_name}.ltr")
+        self.out_dest_wrd_path = self.output_path(f"task/{dest_name}.wrd")
+        self.out_valid_ltr_path = self.output_path(f"task/{sample_valid_name}.ltr")
+        self.out_valid_wrd_path = self.output_path(f"task/{sample_valid_name}.wrd")
 
         self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
 
@@ -73,7 +84,8 @@ class CreateFairseqLabeledDataJob(Job):
 
     def run(self):
         self.create_tsv_and_labels()
-        self.create_dict_ltr()
+        if self.create_letter_dict:
+            self.create_dict_ltr()
 
     def create_tsv_and_labels(self):
         """
@@ -84,18 +96,18 @@ class CreateFairseqLabeledDataJob(Job):
         common_dir = self.get_common_dir()
 
         valid_tsv = open(self.out_valid_tsv_path, "w")
-        train_tsv = open(self.out_train_tsv_path, "w")
+        dest_tsv = open(self.out_dest_tsv_path, "w")
 
         valid_ltr = open(self.out_valid_ltr_path, "w")
-        train_ltr = open(self.out_train_ltr_path, "w")
+        dest_ltr = open(self.out_dest_ltr_path, "w")
 
         valid_wrd = open(self.out_valid_wrd_path, "w") 
-        train_wrd = open(self.out_train_wrd_path, "w")
+        dest_wrd = open(self.out_dest_wrd_path, "w")
 
         # write common directory (root) to tsv files
         if self.valid_percent > 0:
             print(common_dir, file=valid_tsv)
-        print(common_dir, file=train_tsv)
+        print(common_dir, file=dest_tsv)
 
         # iterate over all corpora
         for corpus_path in self.corpus_paths:
@@ -110,11 +122,11 @@ class CreateFairseqLabeledDataJob(Job):
                 rel_audio_path = os.path.relpath(audio_path, common_dir)
                 frames = soundfile.info(audio_path).frames
 
-                # determine whether to write to train or valid
+                # determine whether to write to dest or valid
                 if rand.random() >= self.valid_percent:
-                    tsv_out = train_tsv
-                    ltr_out = train_ltr
-                    wrd_out = train_wrd
+                    tsv_out = dest_tsv
+                    ltr_out = dest_ltr
+                    wrd_out = dest_wrd
                 else:
                     tsv_out = valid_tsv
                     ltr_out = valid_ltr
@@ -135,9 +147,9 @@ class CreateFairseqLabeledDataJob(Job):
         valid_ltr.close()
         valid_wrd.close()
         
-        train_tsv.close()
-        train_ltr.close()
-        train_wrd.close()
+        dest_tsv.close()
+        dest_ltr.close()
+        dest_wrd.close()
 
 
 
