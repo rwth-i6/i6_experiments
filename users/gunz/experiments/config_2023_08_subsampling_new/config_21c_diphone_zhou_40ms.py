@@ -2147,7 +2147,7 @@ def run_single(
             },
             post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
             python_epilog={
-                "lr": returnn.CodeWrapper("dynamic_learning_rate = None"),
+                "dynamic_lr_reset": "dynamic_learning_rate = None",
             },
         )
         returnn_config_ft.update(update_config)
