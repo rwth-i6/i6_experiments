@@ -119,13 +119,13 @@ class CreateFairseqLabeledDataJob(Job):
         train_common_dir, valid_common_dir = self.get_common_dir()
 
         valid_tsv = open(self.out_valid_tsv_path, "w")
-        train_tsv = open(self.out_train_tsv_path, "w")
+        dest_tsv = open(self.out_dest_tsv_path, "w")
 
         valid_ltr = open(self.out_valid_ltr_path, "w")
-        train_ltr = open(self.out_train_ltr_path, "w")
+        dest_ltr = open(self.out_dest_ltr_path, "w")
 
         valid_wrd = open(self.out_valid_wrd_path, "w") 
-        train_wrd = open(self.out_train_wrd_path, "w")
+        dest_wrd = open(self.out_dest_wrd_path, "w")
 
         # write common directory (root) to tsv files
         if self.valid_percent > 0:
@@ -149,9 +149,9 @@ class CreateFairseqLabeledDataJob(Job):
 
                 # determine whether to write to dest or valid
                 if rand.random() >= self.valid_percent:
-                    tsv_out = train_tsv
-                    ltr_out = train_ltr
-                    wrd_out = train_wrd
+                    tsv_out = dest_tsv
+                    ltr_out = dest_ltr
+                    wrd_out = dest_wrd
                 else:
                     tsv_out = valid_tsv
                     ltr_out = valid_ltr
@@ -197,9 +197,9 @@ class CreateFairseqLabeledDataJob(Job):
         valid_ltr.close()
         valid_wrd.close()
         
-        train_tsv.close()
-        train_ltr.close()
-        train_wrd.close()
+        dest_tsv.close()
+        dest_ltr.close()
+        dest_wrd.close()
 
 
 
