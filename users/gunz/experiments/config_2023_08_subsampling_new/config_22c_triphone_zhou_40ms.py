@@ -22,7 +22,6 @@ import i6_experiments.common.setups.rasr.util as rasr_util
 from ...setups.common.nn import returnn_time_tag
 from ...setups.fh import system as fh_system
 from ...setups.fh.decoder.config import PriorInfo
-from ...setups.fh.network import conformer
 from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
