@@ -26,9 +26,9 @@ from ...setups.fh.factored import PhoneticContext
 from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
+    augment_net_with_diphone_outputs,
     augment_net_with_monophone_outputs,
     augment_net_with_label_pops,
-    augment_net_with_triphone_outputs,
     remove_label_pops_and_losses_from_returnn_config,
 )
 from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
@@ -37,7 +37,6 @@ from .config import (
     CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
-    L2,
     RASR_ARCH,
     RASR_ROOT_NO_TF,
     RASR_ROOT_TF2,
@@ -122,7 +121,7 @@ def run_single(
 ) -> fh_system.FactoredHybridSystem:
     # ******************** HY Init ********************
 
-    name = f"conf-3-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
+    name = f"conf-2-a:{alignment_name}-lr:{lr}-bs:{batch_size}-fl:{focal_loss}"
     print(f"fh {name}")
 
     ss_factor = 4
@@ -175,6 +174,7 @@ def run_single(
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 20, "dev": 1}
 
+    ZHOU_L2 = 5e-6
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network = {
         "input_dropout": {"class": "copy", "dropout": 0.1, "from": "input_linear"},
@@ -1912,17 +1912,19 @@ def run_single(
         encoder_output_len=conf_model_dim,
         final_ctx_type=PhoneticContext.triphone_forward,
         focal_loss_factor=focal_loss,
-        l2=L2,
+        l2=ZHOU_L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
         use_multi_task=True,
     )
-    network = augment_net_with_triphone_outputs(
+    network = augment_net_with_diphone_outputs(
         network,
-        l2=L2,
+        encoder_output_len=conf_model_dim,
+        l2=ZHOU_L2,
+        label_smoothing=CONF_LABEL_SMOOTHING,
         ph_emb_size=s.label_info.ph_emb_size,
         st_emb_size=s.label_info.st_emb_size,
-        variant=PhoneticContext.triphone_forward,
+        use_multi_task=True,
     )
     network = aux_loss.add_intermediate_loss(
         network,
@@ -1930,7 +1932,7 @@ def run_single(
         context=PhoneticContext.monophone,
         encoder_output_len=conf_model_dim,
         focal_loss_factor=focal_loss,
-        l2=L2,
+        l2=ZHOU_L2,
         label_info=s.label_info,
         label_smoothing=CONF_LABEL_SMOOTHING,
         time_tag_name=time_tag_name,
