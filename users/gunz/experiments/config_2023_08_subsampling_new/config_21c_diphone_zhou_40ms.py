@@ -2020,7 +2020,7 @@ def run_single(
 
         s.set_diphone_priors_returnn_rasr(
             key="fh",
-            epoch=365,
+            epoch=min(ep, keep_epochs[-2]),
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
@@ -2154,7 +2154,7 @@ def run_single(
 
         s.set_mono_priors_returnn_rasr(
             key="fh-fs",
-            epoch=keep_epochs[-2],
+            epoch=min(ep, keep_epochs[-2]),
             train_corpus_key=s.crp_names["train"],
             dev_corpus_key=s.crp_names["cvtrain"],
             smoothen=True,
