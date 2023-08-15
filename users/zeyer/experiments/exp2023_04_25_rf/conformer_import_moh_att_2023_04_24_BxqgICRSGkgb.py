@@ -190,7 +190,7 @@ class Model(rf.Module):
             source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512
         )
         source = rf.abs(source) ** 2.0
-        source = rf.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
+        source = rf.audio.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
         source = rf.safe_log(source, eps=1e-10) / 2.3026
         # TODO specaug
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO

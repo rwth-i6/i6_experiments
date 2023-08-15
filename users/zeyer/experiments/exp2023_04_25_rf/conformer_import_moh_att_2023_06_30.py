@@ -217,7 +217,7 @@ class Model(rf.Module):
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
         # log mel filterbank features
-        source, in_spatial_dim = rf.log_mel_filterbank_from_raw(
+        source, in_spatial_dim = rf.audio.log_mel_filterbank_from_raw(
             source,
             in_spatial_dim=in_spatial_dim,
             out_dim=self.in_dim,
