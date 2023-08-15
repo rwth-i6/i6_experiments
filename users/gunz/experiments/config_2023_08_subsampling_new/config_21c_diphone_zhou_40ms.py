@@ -2102,6 +2102,8 @@ def run_single(
     s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
     fine_tune_epochs = 300
+    keep_epochs = [150, 275, 300]
+
     returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
         returnn_config=returnn_config,
         label_info=s.label_info,
@@ -2117,8 +2119,6 @@ def run_single(
     )
     update_config = returnn.ReturnnConfig(
         config={
-            "keep_epochs": [150, 275, 300],
-            "num_epochs": fine_tune_epochs,
             "preload_from_files": {
                 "existing-model": {
                     "init_for_train": True,
@@ -2126,7 +2126,8 @@ def run_single(
                     "filename": viterbi_train_j.out_checkpoints[400],
                 }
             },
-        }
+        },
+        post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
     )
     returnn_config_ft.update(update_config)
 
