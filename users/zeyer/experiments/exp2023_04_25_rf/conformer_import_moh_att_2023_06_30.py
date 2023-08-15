@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
+import math
 
 from sisyphus import tk
 
@@ -214,18 +215,18 @@ class Model(rf.Module):
         collected_outputs: Optional[Dict[str, Tensor]] = None,
     ) -> Tuple[Dict[str, Tensor], Dim]:
         """encode, and extend the encoder output for things we need in the decoder"""
-        if source.feature_dim:
-            assert source.feature_dim.dimension == 1
-            source = rf.squeeze(source, source.feature_dim)
         # log mel filterbank features
-        source, in_spatial_dim, in_dim_ = rf.stft(
-            source, in_spatial_dim=in_spatial_dim, frame_step=160, frame_length=400, fft_length=512
+        source, in_spatial_dim = rf.log_mel_filterbank_from_raw(
+            source,
+            in_spatial_dim=in_spatial_dim,
+            out_dim=self.in_dim,
+            sampling_rate=16_000,
+            log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
-        source = rf.abs(source) ** 2.0
-        source = rf.mel_filterbank(source, in_dim=in_dim_, out_dim=self.in_dim, sampling_rate=16000)
-        source = rf.safe_log(source, eps=1e-10) / 2.3026
+
         # TODO specaug
         # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
+
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))

@@ -677,6 +677,7 @@ def test_import_search():
 # So you can just run:
 # `sis m recipe/i6_experiments/users/zeyer/experiments/....py`
 py = test_import_search
+# py = test_import_forward
 
 
 if __name__ == "__main__":
