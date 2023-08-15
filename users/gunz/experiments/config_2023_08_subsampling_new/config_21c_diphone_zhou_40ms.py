@@ -19,7 +19,7 @@ import i6_core.returnn as returnn
 
 import i6_experiments.common.setups.rasr.util as rasr_util
 
-from ...setups.common.nn import baum_welch, returnn_time_tag
+from ...setups.common.nn import baum_welch, oclr, returnn_time_tag
 from ...setups.fh import system as fh_system
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
 from ...setups.fh.network import aux_loss, diphone_joint_output, extern_data
@@ -2103,7 +2103,7 @@ def run_single(
 
     bw_scales = [
         baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.0),
-        baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.0)
+        baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.0),
     ]
 
     for bw_scale in bw_scales:
@@ -2123,8 +2123,19 @@ def run_single(
             returnn_config=returnn_config_ft,
             log_linear_scales=bw_scale,
         )
+        lrates = oclr.get_learning_rates(
+            lrate=5e-5,
+            increase=0,
+            constLR=np.floor(fine_tune_epochs * 0.45),
+            decay=np.floor(fine_tune_epochs * 0.45),
+            decMinRatio=0.1,
+            decMaxRatio=1,
+        )
         update_config = returnn.ReturnnConfig(
             config={
+                "learning_rates": list(
+                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
+                ),
                 "preload_from_files": {
                     "existing-model": {
                         "init_for_train": True,
@@ -2134,6 +2145,9 @@ def run_single(
                 },
             },
             post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+            python_epilog={
+                "lr": returnn.CodeWrapper("dynamic_learning_rate = None"),
+            },
         )
         returnn_config_ft.update(update_config)
 
