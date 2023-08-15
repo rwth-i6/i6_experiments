@@ -514,6 +514,8 @@ class CTCDecoderArgs(DecoderArgs):
     eos_postfix: bool = False
     add_eos_to_blank: bool = False
     ctc_beam_search_tf: bool = False
+    att_masking_fix: bool = False
+    one_minus_term_mul_scale: float = 1.0
 
 
 def create_config(

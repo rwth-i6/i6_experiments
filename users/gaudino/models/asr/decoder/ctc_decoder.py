@@ -181,6 +181,190 @@ attention_decoder_dict = {
     # },
 }
 
+attention_decoder_dict_with_fix = {
+    # reinterpreted for target_embed
+    "output_reinterpret": {
+        "class": "reinterpret_data",
+        "from": "output",
+        "set_sparse": True,
+        "set_sparse_dim": 10025,  # V
+        "initial_output": 0,
+    },
+    "prev_output_reinterpret": {
+        "class": "copy",
+        "from": "prev:output_reinterpret",
+    },
+    "trigg_att": {
+        "class": "subnetwork",
+        "from": [],
+        "n_out": 10025,
+        "name_scope": "",
+        "subnetwork": {
+            "target_embed0": {
+                "class": "linear",
+                "activation": None,
+                "with_bias": False,
+                "from": "base:output_reinterpret",
+                "n_out": 640,
+                "L2": 0.0001,
+                "initial_output": 0,
+            },
+            "_target_embed": {
+                "class": "dropout",
+                "from": "target_embed0",
+                "dropout": 0.1,
+                "dropout_noise_shape": {"*": None},
+            },
+            "target_embed": {
+                "class": "switch",
+                "condition": "base:curr_mask",
+                "true_from": "_target_embed",
+                "false_from": "prev:target_embed",
+            },
+            "s_transformed": {
+                "class": "linear",
+                "activation": None,
+                "with_bias": False,
+                "from": "s",
+                "n_out": 1024,
+                "L2": 0.0001,
+            },
+            "_accum_att_weights": {
+                "class": "eval",
+                "eval": "source(0) + source(1) * source(2) * 0.5",
+                "from": [
+                    "prev:accum_att_weights",
+                    "att_weights",
+                    "base:base:inv_fertility",
+                ],
+                "out_type": {"dim": 1, "shape": (None, 1)},
+            },
+            "accum_att_weights": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "_accum_att_weights",
+                "false_from": "prev:accum_att_weights",
+                "out_type": {"dim": 1, "shape": (None, 1)},
+            },
+            "weight_feedback": {
+                "class": "linear",
+                "activation": None,
+                "with_bias": False,
+                "from": "prev:accum_att_weights",
+                "n_out": 1024,
+            },
+            "energy_in": {
+                "class": "combine",
+                "kind": "add",
+                "from": [
+                    "base:base:enc_ctx",
+                    "weight_feedback",
+                    "s_transformed",
+                ],
+                "n_out": 1024,
+            },
+            "energy_tanh": {
+                "class": "activation",
+                "activation": "tanh",
+                "from": "energy_in",
+            },
+            "energy": {
+                "class": "linear",
+                "activation": None,
+                "with_bias": False,
+                "from": "energy_tanh",
+                "n_out": 1,
+                "L2": 0.0001,
+            },
+            "att_weights": {"class": "softmax_over_spatial", "from": "energy"},
+            "att0": {
+                "class": "generic_attention",
+                "weights": "att_weights",
+                "base": "base:base:enc_value",
+            },
+            "_att": {
+                "class": "merge_dims",
+                "from": "att0",
+                "axes": "except_batch",
+            },
+            "att": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "_att",
+                "false_from": "prev:att",
+            },
+            "_s": {
+                "class": "rnn_cell",
+                "unit": "zoneoutlstm",
+                "n_out": 1024,
+                "from": ["prev:target_embed", "prev:att"],
+                "L2": 0.0001,
+                "unit_opts": {
+                    "zoneout_factor_cell": 0.15,
+                    "zoneout_factor_output": 0.05,
+                },
+                "name_scope": "s/rec",  # compatibility with old models
+                "state": CodeWrapper("tf_v1.nn.rnn_cell.LSTMStateTuple('prev:s_c', 'prev:s_h')"),
+            },
+            "s": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "_s",
+                "false_from": "prev:s",
+            },
+            "_s_c": {
+                "class": "get_last_hidden_state",
+                "from": "_s",
+                "key": "c",
+                "n_out": 1024,
+            },
+            "s_c": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "_s_c",
+                "false_from": "prev:s_c",
+            },
+            "_s_h": {
+                "class": "get_last_hidden_state",
+                "from": "_s",
+                "key": "h",
+                "n_out": 1024,
+            },
+            "s_h": {
+                "class": "switch",
+                "condition": "base:prev_mask",
+                "true_from": "_s_h",
+                "false_from": "prev:s_h",
+            },
+            "readout_in": {
+                "class": "linear",
+                "activation": None,
+                "with_bias": True,
+                "from": ["s", "prev:target_embed", "att"],
+                "n_out": 1024,
+                "L2": 0.0001,
+            },
+            "readout": {
+                "class": "reduce_out",
+                "from": "readout_in",
+                "num_pieces": 2,
+                "mode": "max",
+            },
+            "output_prob": {
+                "class": "softmax",
+                "from": "readout",
+                "target": "bpe_labels",
+            },
+            "output": {"class": "copy", "from": "output_prob"},
+        },
+    },
+    # "att_log_scores": {
+    #     "class": "activation",
+    #     "activation": "safe_log",
+    #     "from": "trigg_att",
+    # },
+}
+
 ctc_beam_search_tf_string = """
 def ctc_beam_search_decoder_tf(source, **kwargs):
     # import beam_search_decoder from tensorflow
@@ -257,6 +441,8 @@ class CTCDecoder:
         eos_postfix=False,
         add_eos_to_blank=False,
         ctc_beam_search_tf=False,
+        att_masking_fix=False,
+        one_minus_term_mul_scale=1.0,
     ):
         """
         :param base_model: base/encoder model instance
@@ -361,6 +547,9 @@ class CTCDecoder:
         self.add_eos_to_blank = add_eos_to_blank
 
         self.ctc_beam_search_tf = ctc_beam_search_tf
+        self.att_masking_fix = att_masking_fix
+
+        self.one_minus_term_mul_scale = one_minus_term_mul_scale
 
         self.network = ReturnnNetwork()
         self.subnet_unit = ReturnnNetwork()
@@ -494,7 +683,7 @@ class CTCDecoder:
         )
 
     def add_score_combination(self, subnet_unit: ReturnnNetwork, att_layer: str = None, lm_layer: str = None):
-        one_minus_term_scale = 1
+        one_minus_term_scale_old = 1
         combine_list = []
         if self.ctc_scale > 0:
             combine_list.append("scaled_ctc_log_scores")
@@ -533,15 +722,16 @@ class CTCDecoder:
             combine_list.append("scaled_lm_log_scores")
 
         if self.ts_reward > 0:
-            subnet_unit.update({
-                "ts_reward": {
-                    "class": "eval",
-                    "from": "scaled_ctc_log_scores",
-                    "eval": f"source(0) * 0 + {self.ts_reward}",
+            subnet_unit.update(
+                {
+                    "ts_reward": {
+                        "class": "eval",
+                        "from": "scaled_ctc_log_scores",
+                        "eval": f"source(0) * 0 + {self.ts_reward}",
+                    }
                 }
-            })
+            )
             combine_list.append("ts_reward")
-
 
         subnet_unit.update(
             {
@@ -594,7 +784,7 @@ class CTCDecoder:
                 "scaled_blank_prob": {
                     "class": "eval",
                     "from": "blank_prob",
-                    "eval": f"source(0) ** {one_minus_term_scale}",
+                    "eval": f"source(0) ** {one_minus_term_scale_old}",
                 },
                 "scaled_blank_log_prob": {
                     "class": "eval",
@@ -616,7 +806,7 @@ class CTCDecoder:
                 "scaled_prev_ctc_log_scores": {
                     "class": "eval",
                     "from": "prev_ctc_log_scores",
-                    "eval": f"{one_minus_term_scale} * source(0)",
+                    "eval": f"{one_minus_term_scale_old} * source(0)",
                 },
                 "scaled_prev_ctc_scores": {
                     "class": "activation",
@@ -678,6 +868,23 @@ class CTCDecoder:
                 },
             }
         )
+
+        if self.one_minus_term_mul_scale != 1.0:
+            subnet_unit.update(
+                {
+                    "mul_scaled_1_minus_term_log": {
+                        "class": "eval",
+                        "from": "1_minus_term_log",
+                        "eval": f"source(0) * {self.one_minus_term_mul_scale}",
+                    },
+                    # [1 - P_ctc(blank|...) - P_ctc(label:=prev:label|...)] * P_att(label|...)  # prev:label != blank
+                    "p_comb_sigma_prime_label": {
+                        "class": "combine",
+                        "kind": "add",
+                        "from": ["mul_scaled_1_minus_term_log", "combined_att_ctc_scores"],
+                    },
+                }
+            )
 
         if self.eos_postfix:
             subnet_unit.update(
@@ -945,7 +1152,10 @@ class CTCDecoder:
         # add masks
         self.add_masks(subnet_unit)
         # add attention decoder
-        subnet_unit.update(attention_decoder_dict)
+        if self.att_masking_fix:
+            subnet_unit.update(attention_decoder_dict_with_fix)
+        else:
+            subnet_unit.update(attention_decoder_dict)
 
         self.add_score_combination(subnet_unit, att_layer="trigg_att")
 
@@ -1001,8 +1211,9 @@ class CTCDecoder:
             self.network.add_slice_layer(
                 "ctc_no_eos_no_blank_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10025
             )
-            self.network.add_slice_layer("ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025,
-                                         slice_end=10026)
+            self.network.add_slice_layer(
+                "ctc_blank_slice", self.ctc_source, axis="f", slice_start=10025, slice_end=10026
+            )
             self.network.update(
                 {
                     "ctc_blank_plus_eos": {
@@ -1021,9 +1232,7 @@ class CTCDecoder:
                 }
             )
         else:
-            self.network.add_slice_layer(
-                "ctc_no_eos_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10026
-            )
+            self.network.add_slice_layer("ctc_no_eos_slice", self.ctc_source, axis="f", slice_start=1, slice_end=10026)
             self.network.update(
                 {
                     "ctc_no_eos": {
