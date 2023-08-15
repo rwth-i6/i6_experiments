@@ -1889,16 +1889,14 @@ def run_single(
         },
         "conformer_12_output": {"class": "layer_norm", "from": "conformer_12_ffmod_2_half_res_add"},
         "encoder-output": {
-            "class": "reinterpret_data",
+            "class": "copy",
             "from": "conformer_12_output",
             "n_out": conf_model_dim,
-            "size_base": "data:classes",
         },
         "enc_006": {  # for aux loss
-            "class": "reinterpret_data",
+            "class": "copy",
             "from": "conformer_06_output",
             "n_out": conf_model_dim,
-            "size_base": "data:classes",
         },
     }
     network = augment_net_with_label_pops(
