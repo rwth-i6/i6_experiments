@@ -399,8 +399,12 @@ def run_single(
         name = f"{name}-fs-bwl:{bw_scale.label_posterior_scale}"
         s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
+        s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        s._update_crp_am_setting(crp_key="dev-other", tdp_type="default", add_base_allophones=False)
+
+        returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
         returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=returnn_config,
+            returnn_config=returnn_config_ft,
             label_info=s.label_info,
             out_joint_score_layer="output",
             log_softmax=False,
@@ -432,6 +436,7 @@ def run_single(
                         "filename": viterbi_train_j.out_checkpoints[600],
                     }
                 },
+                "extern_data": {"data": {"dim": 50}},
             },
             post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
             python_epilog={
