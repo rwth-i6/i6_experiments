@@ -424,6 +424,8 @@ def run_single(
             set_batch_major_for_feature_scorer=True,
         )
 
+        continue
+
         recog_args = recog_args.with_lm_scale(1.0).with_prior_scale(0.5)
 
         for pC, tdp_simple, tdp_scale in itertools.product([0.5], [False], [0.1, 0.2]):
