@@ -22,8 +22,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 # dev-other  5.39
 # test-clean  2.41
 # test-other  5.51
-# _returnn_tf_config_filename = ("/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/"
-#     "work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
+# _returnn_tf_config_filename = (
+#   "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config")
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
 
