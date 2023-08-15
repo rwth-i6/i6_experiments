@@ -2013,8 +2013,9 @@ def run_single(
         nn_train_args=train_args,
     )
 
-    tensor_config = dataclasses.replace(CONF_FH_DECODING_TENSOR_CONFIG)
     best_config = None
+    tensor_config = dataclasses.replace(CONF_FH_DECODING_TENSOR_CONFIG, in_encoder_output="conformer_12_output/add")
+
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
