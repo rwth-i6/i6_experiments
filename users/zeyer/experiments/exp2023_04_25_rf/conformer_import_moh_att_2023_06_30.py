@@ -383,7 +383,7 @@ def from_scratch_training(
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
 
     log_prob = rf.log_softmax(logits, axis=model.target_dim)
-    # log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1)
+    log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
     loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
     loss.mark_as_loss("ce")
 
