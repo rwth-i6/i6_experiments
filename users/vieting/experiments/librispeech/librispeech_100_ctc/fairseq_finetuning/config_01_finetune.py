@@ -2,7 +2,7 @@
 Config for finetune experiments on LibriSpeech using wav2vec 2.0.
 """
 import os.path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import logging
 
