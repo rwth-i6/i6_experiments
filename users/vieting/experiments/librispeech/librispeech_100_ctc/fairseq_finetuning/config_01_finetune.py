@@ -4,6 +4,8 @@ Config for finetune experiments on LibriSpeech using wav2vec 2.0.
 import os.path
 from typing import List, Optional
 
+import logging
+
 from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
 from recipe.i6_core.audio.encoding import BlissChangeEncodingJob
@@ -43,8 +45,7 @@ def get_task(
     ), f"unknown corpus names: {corpus_names}"
 
     if valid_percent <= 0:
-        assert "dev-clean" in corpus_names or "dev-other" in corpus_names, \
-            "validation set is required if valid_percent <= 0"
+        logging.info("Not sampling validation set from training data. Create a separate dev set instead.")
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
     # filter out corpora that are not in corpus_names
@@ -53,7 +54,10 @@ def get_task(
     task_creation_job = CreateFairseqLabeledDataJob(
         corpus_paths=list(corpus_dict.values()),
         file_extension=audio_format,
-        valid_percent=valid_percent,
+        sample_valid_percent=valid_percent,
+        dest_name="train",
+        sample_valid_name="valid",
+        create_letter_dict=True,
     )
     task_creation_job.rqmt["time"] = 4
     task = task_creation_job.out_task_path
