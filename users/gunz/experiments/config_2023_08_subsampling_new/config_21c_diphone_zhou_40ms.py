@@ -1999,7 +1999,7 @@ def run_single(
         },
     )
 
-    s.set_experiment_dict("fh", alignment_name, "tri", postfix_name=name)
+    s.set_experiment_dict("fh", alignment_name, "di", postfix_name=name)
     s.set_returnn_config_for_experiment("fh", copy.deepcopy(returnn_config))
 
     train_args = {
@@ -2021,26 +2021,18 @@ def run_single(
     for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-        if own_priors:
-            s.set_triphone_priors_returnn_rasr(
-                key="fh",
-                epoch=365,
-                train_corpus_key=s.crp_names["train"],
-                dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-                data_share=0.1,
-            )
-        else:
-            s.experiments["fh"]["priors"] = PriorInfo.from_triphone_job(
-                tk.Path(
-                    "/work/asr3/raissi/shared_workspaces/gunz/kept-experiments/2023-05--subsampling-tf2/priors/conf-tri-40ms-scratch-ff-e550"
-                )
-            )
+        s.set_diphone_priors_returnn_rasr(
+            key="fh",
+            epoch=365,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
 
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.triphone_forward,
+            context_type=PhoneticContext.diphone,
             crp_corpus=crp_k,
             epoch=ep,
             gpu=False,
@@ -2111,7 +2103,7 @@ def run_single(
         ep = 600
         recognizer, recog_args = s.get_recognizer_and_args(
             key="fh",
-            context_type=PhoneticContext.triphone_forward,
+            context_type=PhoneticContext.diphone,
             crp_corpus="dev-other",
             epoch=ep,
             gpu=False,
@@ -2141,7 +2133,7 @@ def run_single(
 
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
-                context_type=PhoneticContext.triphone_forward,
+                context_type=PhoneticContext.diphone,
                 crp_corpus=crp_k,
                 epoch=ep,
                 gpu=False,
@@ -2176,7 +2168,7 @@ def run_single(
             generic_lstm_base_op.rqmt = {"cpu": 1, "mem": 4, "time": 0.5}
             recognizer, recog_args = s.get_recognizer_and_args(
                 key="fh",
-                context_type=PhoneticContext.triphone_forward,
+                context_type=PhoneticContext.diphone,
                 crp_corpus=crp_k,
                 epoch=ep,
                 gpu=True,
