@@ -423,6 +423,12 @@ def run_single(
         )
 
         returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=returnn_config_ft,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
         returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
             returnn_config=returnn_config_ft,
             label_info=s.label_info,
@@ -480,9 +486,6 @@ def run_single(
             dev_corpus_key=s.crp_names["cvtrain"],
             nn_train_args=train_args,
         )
-
-        nn_precomputed_returnn_config = copy.deepcopy(returnn_config_ft)
-        nn_precomputed_returnn_config.config["network"]["output"]["activation"] = "log_softmax"
 
         for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
             s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
