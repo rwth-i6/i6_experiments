@@ -82,7 +82,6 @@ def augment_for_fast_bw(
     bw_calculation_layer_name: str = "fast-score-calc",
     bw_loss_scale: float = 1.0,
     remove_aux_losses: bool = True,
-    output_is_softmax: bool = True,
 ) -> returnn.ReturnnConfig:
     crp = copy.deepcopy(crp)
     returnn_config = copy.deepcopy(returnn_config)
@@ -149,7 +148,7 @@ def augment_for_fast_bw(
         "loss": "via_layer",
         "loss_opts": {
             "align_layer": bw_calc_layer_name,
-            "loss_wrt_to_act_in": "softmax" if output_is_softmax else None,
+            "loss_wrt_to_act_in": "softmax",
         },
         "loss_scale": bw_loss_scale,
     }

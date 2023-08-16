@@ -418,14 +418,14 @@ def run_single(
             returnn_config=returnn_config_ft,
             label_info=s.label_info,
             out_joint_score_layer="output",
-            log_softmax=False,
+            log_softmax=True,
+            prepare_for_fast_bw_training=True,
         )
         returnn_config_ft = baum_welch.augment_for_fast_bw(
             crp=s.crp[s.crp_names["train"]],
             from_output_layer="output",
             returnn_config=returnn_config_ft,
             log_linear_scales=bw_scale,
-            output_is_softmax=False,
         )
         lrates = oclr.get_learning_rates(
             lrate=5e-5,

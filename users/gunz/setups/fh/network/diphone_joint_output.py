@@ -16,7 +16,7 @@ def augment_to_joint_diphone_softmax(
     center_state_softmax_layer: str = "center-output",
     left_context_softmax_layer: str = "left-output",
     encoder_output_layer: str = "encoder-output",
-    softmax_on_output_layer: bool = False,
+    prepare_for_fast_bw_training: bool = False,
 ) -> returnn.ReturnnConfig:
     """
     Assumes a diphone FH model and expands the model to calculate the scores for the joint
@@ -24,6 +24,8 @@ def augment_to_joint_diphone_softmax(
 
     The output layer contains normalized (log) acoustic scores.
     """
+
+    assert not prepare_for_fast_bw_training or log_softmax, "fast_bw preparation implies log-softmax"
 
     returnn_config = copy.deepcopy(returnn_config)
 
@@ -125,11 +127,11 @@ def augment_to_joint_diphone_softmax(
         "from": f"{out_joint_score_layer}_scores",
     }
 
-    if softmax_on_output_layer:
+    if prepare_for_fast_bw_training:
         network[f"{out_joint_score_layer}_merged"] = network[out_joint_score_layer]
         network[out_joint_score_layer] = {
             "class": "activation",
-            "activation": "log_softmax" if log_softmax else "softmax",
+            "activation": "softmax",
             "from": f"{out_joint_score_layer}_merged",
         }
 
