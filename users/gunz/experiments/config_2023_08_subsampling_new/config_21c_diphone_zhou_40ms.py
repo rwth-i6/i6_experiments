@@ -1984,6 +1984,7 @@ def run_single(
         post_config=base_post_config,
         hash_full_python_code=True,
         python_prolog={
+            "recursion": ["import sys", "sys.setrecursionlimit(4000)"],
             "numpy": "import numpy as np",
             "time": time_prolog,
         },
