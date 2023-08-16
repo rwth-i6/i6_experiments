@@ -104,7 +104,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             run_performance_study=True,
-            tune_decoding=False,
+            tune_decoding=True,
         ),
         # Experiment(
         #     alignment=scratch_align_daniel,
@@ -350,8 +350,8 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 5),
+                        np.linspace(0.1, 0.7, 7),
+                        np.linspace(0.0, 0.5, 6),
                     )
                 ),
                 tdp_scales=np.linspace(0.2, 0.6, 5),
