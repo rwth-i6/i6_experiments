@@ -52,11 +52,11 @@ def get_task(
     corpus_dict = {corpus: path for corpus, path in corpus_dict.items() if corpus in corpus_names}
 
     task_creation_job = CreateFairseqLabeledDataJob(
-        corpus_paths=list(corpus_dict.values()),
+        train_corpus_paths=list(corpus_dict.values()),
         file_extension=audio_format,
         sample_valid_percent=valid_percent,
-        dest_name="train",
-        sample_valid_name="valid",
+        train_dest_name="train",
+        valid_dest_name="valid",
         create_letter_dict=True,
     )
     task_creation_job.rqmt["time"] = 4
