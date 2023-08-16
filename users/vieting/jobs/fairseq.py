@@ -3,6 +3,7 @@ import glob
 import os
 import random
 import subprocess
+import logging
 from typing import List, Union, Optional 
 
 from sisyphus import Job, Task, tk
@@ -12,9 +13,9 @@ from i6_core.lib import corpus
 class CreateFairseqLabeledDataJob(Job):
     """
     Creates required task files for wav2vec finetuning with fairseq. This includes the following files:
-    - train.tsv
-    - train.ltr
-    - train.wrd
+    - dest.tsv
+    - dest.ltr
+    - dest.wrd
 
     If create_letter_dict is set to True, the following file will be created:
     - dict.ltr.txt
@@ -38,12 +39,8 @@ class CreateFairseqLabeledDataJob(Job):
         self,
         corpus_paths: Union[List[tk.Path], tk.Path],
         file_extension: str = "wav",
-        sample_valid_percent: float = 0.01,
-        seed: int = 42,
         path_must_contain: Optional[str] = None,
         dest_name: str = "train",
-        sample_valid_name: str = "valid",
-        create_letter_dict: bool = True,
     ):
         """
         :param corpus_paths: list of paths or single path to raw audio file directory to be included
@@ -62,24 +59,15 @@ class CreateFairseqLabeledDataJob(Job):
             corpus_paths = [corpus_paths]
         self.corpus_paths = corpus_paths
         assert all([isinstance(path, tk.Path) for path in self.corpus_paths])
+
         self.file_extension = file_extension
-        self.valid_percent = sample_valid_percent
-        assert 0.0 <= self.valid_percent <= 1.0
-        self.seed = seed
         self.path_must_contain = path_must_contain
-        self.create_letter_dict = create_letter_dict
 
-        self.out_task_path = self.output_path("task", directory=True)
+        self.out_labels_path = self.output_path("labels", directory=True)
 
-        self.out_dest_tsv_path = self.output_path(f"task/{dest_name}.tsv")
-        self.out_valid_tsv_path = self.output_path(f"task/{sample_valid_name}.tsv")
-        
-        self.out_dict_ltr_path = self.output_path("task/dict.ltr.txt")
-
-        self.out_dest_ltr_path = self.output_path(f"task/{dest_name}.ltr")
-        self.out_dest_wrd_path = self.output_path(f"task/{dest_name}.wrd")
-        self.out_valid_ltr_path = self.output_path(f"task/{sample_valid_name}.ltr")
-        self.out_valid_wrd_path = self.output_path(f"task/{sample_valid_name}.wrd")
+        self.out_dest_tsv_path = self.output_path(f"labels/{dest_name}.tsv")        
+        self.out_dest_ltr_path = self.output_path(f"labels/{dest_name}.ltr")
+        self.out_dest_wrd_path = self.output_path(f"labels/{dest_name}.wrd")
 
         self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
 
@@ -89,32 +77,19 @@ class CreateFairseqLabeledDataJob(Job):
 
     def run(self):
         self.create_tsv_and_labels()
-        if self.create_letter_dict:
-            self.create_dict_ltr()
-        if self.valid_percent == 0:
-            self.delete_valid_files()
 
     def create_tsv_and_labels(self):
         """
         Creates both tsv files (train.tsv, valid.tsv) and labels (train.ltr, train.wrd, valid.ltr, valid.wrd) 
         from the given corpora.
-        """
-        rand = random.Random(self.seed)
-        
+        """        
         common_dir = self.get_common_dir()
 
-        valid_tsv = open(self.out_valid_tsv_path, "w")
         dest_tsv = open(self.out_dest_tsv_path, "w")
-
-        valid_ltr = open(self.out_valid_ltr_path, "w")
         dest_ltr = open(self.out_dest_ltr_path, "w")
-
-        valid_wrd = open(self.out_valid_wrd_path, "w") 
         dest_wrd = open(self.out_dest_wrd_path, "w")
 
         # write common directory (root) to tsv files
-        if self.valid_percent > 0:
-            print(common_dir, file=valid_tsv)
         print(common_dir, file=dest_tsv)
 
         # iterate over all corpora
@@ -129,38 +104,21 @@ class CreateFairseqLabeledDataJob(Job):
 
                 rel_audio_path = os.path.relpath(audio_path, common_dir)
                 frames = soundfile.info(audio_path).frames
-
-                # determine whether to write to dest or valid
-                if rand.random() >= self.valid_percent:
-                    tsv_out = dest_tsv
-                    ltr_out = dest_ltr
-                    wrd_out = dest_wrd
-                else:
-                    tsv_out = valid_tsv
-                    ltr_out = valid_ltr
-                    wrd_out = valid_wrd
                 
                 # write audio path to tsv files
-                print(f"{rel_audio_path}\t{frames}", file=tsv_out)
+                print(f"{rel_audio_path}\t{frames}", file=dest_tsv)
 
                 # write transcription to transcription files
                 print(
                     " ".join(list(audio_trans.replace(" ", "|"))) + " |",
-                    file=ltr_out,
+                    file=dest_ltr,
                 )
-                print(audio_trans, file=wrd_out)
-        
-        # close all files
-        valid_tsv.close()
-        valid_ltr.close()
-        valid_wrd.close()
-        
+                print(audio_trans, file=dest_wrd)
+
         dest_tsv.close()
         dest_ltr.close()
         dest_wrd.close()
 
-
-    
     def get_common_dir(self):
         """
         Returns the common directory of all audios given in the corpora.
@@ -178,27 +136,62 @@ class CreateFairseqLabeledDataJob(Job):
                 else:
                     common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
         return common_dir
-    def delete_valid_files():
-        """
-        Delete valid set files if no valid set was created.
-        """
-        os.remove(self.out_valid_tsv_path.get())
-        os.remove(self.out_valid_ltr_path.get())
-        os.remove(self.out_valid_wrd_path.get())
+
 
 class MergeLabeledFairseqDataJob(Job):
+    """
+    Merge multiple labeled fairseq data directories into one. Each directory must contain the following files:
+    - <name>.tsv
+    - <name>.ltr
+    - <name>.wrd
+
+    If create_letter_dict is set to True, the following file will be created:
+    - dict.ltr.txt
+    """
     def __init__(
         self,
         labeled_data_paths: Union[List[tk.Path], tk.Path],
         create_letter_dict: bool = True,
     ):
-        pass
+        if not isinstance(labeled_data_paths, list):
+            labeled_data_paths = [labeled_data_paths]
+        self.labeled_data_paths = labeled_data_paths
+        assert all([isinstance(path, tk.Path) for path in self.labeled_data_paths])
+
+        self.create_letter_dict = create_letter_dict
+
+        self.out_task_path = self.output_path("task", directory=True)
+        self.out_dict_ltr_path = self.output_path("task/dict.ltr.txt")
+
+        self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
 
     def tasks(self):
-        pass
+        yield Task("run", rqmt=self.rqmt, mini_task=True)
 
     def run(self):
-        pass
+        self.merge()
+        if self.create_letter_dict:
+            self.create_dict_ltr()
+
+    def merge(self):
+        for path in self.labeled_data_paths:
+            assert os.path.exists(path.get()), f"Path {path} does not exist."
+
+            # iterature through directory "path" and copy all files to self.out_task_path directory
+            path_dir = os.fsencode(path.get())
+            for file in os.listdir(path_dir):
+                filename = os.fsdecode(file)
+                if filename.endswith(".tsv") or filename.endswith(".ltr") or filename.endswith(".wrd"):
+                    subprocess.run(
+                        [
+                            "cp",
+                            os.path.join(path.get(), filename),
+                            os.path.join(self.out_task_path, filename),
+                        ]
+                    )
+                else:
+                    logging.warning(f"Ignoring File {filename}; is not a valid fairseq file.")
+        
 
     def create_dict_ltr(self):
         """
