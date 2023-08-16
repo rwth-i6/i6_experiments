@@ -1,10 +1,9 @@
 """
 Config for finetune experiments on LibriSpeech using wav2vec 2.0.
 """
+# ------------------- IMPORTS ------------------- #
 import os.path
-from typing import List, Optional, Union, Dict
-
-import logging
+from typing import List, Optional, Union
 
 from sisyphus import tk, gs
 import recipe.i6_core.datasets.librispeech as librispeech
@@ -15,10 +14,12 @@ from recipe.i6_core.corpus.segments import ShuffleAndSplitSegmentsJob, SegmentCo
 from recipe.i6_core.corpus.filter import FilterCorpusBySegmentsJob
 from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
-from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob, MergeLabeledFairseqDataJob
+from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob, MergeLabeledFairseqDataJob, \
+    FairseqDecodingJob
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
     import SetupFairseqJob
 
+# ------------------- FINETUNING ------------------- #
 
 def get_labels(
     dest_name: str,
@@ -268,8 +269,7 @@ def get_pretrained_model(model_path: Optional[Union[str, tk.Path]] = None):
     return pretrained_model
 
 
-def main():
-    # defines
+def finetune():
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
     exp_name = "base"
     num_gpus = 1
@@ -316,5 +316,117 @@ def main():
     
     job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
     tk.register_output(os.path.join(prefix_name, exp_name, "finetune", "scores.png"), job.out_plot_se)
+    tk.register_output(os.path.join(prefix_name, exp_name, "finetune", "checkpoints"), job.out_checkpoint_dir)
 
+    return job.out_checkpoint_dir
+
+# ------------------- DECODING ------------------- #
+
+def get_language_model(lm_url: str):
+    """
+    :param lm_url: url to the language model
+    """
+    lm_path = DownloadJob(url=lm_url).out_file
+    return lm_path
+
+def get_lexicon(lexicon_url: str):
+    """
+    :param lexicon_url: url to the lexicon
+    """
+    lexicon_path = DownloadJob(url=lexicon_url).out_file
+    return lexicon_path
+
+def get_dev_labels(
+        audio_format: str = "ogg",
+        output_prefix: str = "datasets",
+        corpus_name: str = "dev-other"
+    ):
+    """
+    :param audio_format: audio format of the output files
+    :param output_prefix: prefix of the output files
+    :param corpus_names: list of names of the corpora to be used for decoding
+    """
+    # TODO has to be adapted when CreateFairseqLabeledDataJob is updated
+    assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
+    assert corpus_name in (
+        {"train-clean-100", 
+         "dev-clean", 
+         "dev-other", 
+         "test-clean", 
+         "test-other"}
+    ), f"unknown corpus names: {corpus_name}"
+
+    corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
+    # filter out corpora that are not in corpus_names
+    corpus_dict = {corpus_name: corpus_dict[corpus_name]}
+
+    label_data_job = CreateFairseqLabeledDataJob(
+        corpus_paths=list(corpus_dict.values()),
+        file_extension=audio_format,
+        dest_name=corpus_name,
+    )
+    label_data_job.rqmt["time"] = 4
+    
+    return label_data_job.out_task_path
+
+
+def decode(model_path: tk.Path):
+    """
+    :param model_path: path to the model to be used for decoding
+    """
+    FAIRSEQ_PYTHON_EXE = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+    LM_URL = "https://www.openslr.org/resources/11/4-gram.arpa.gz"
+    LEXICON_URL = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/librispeech_lexicon.lst"
+
+    prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
+    exp_name = "base"
+
+    # run decoding
+    fairseq_root = get_fairseq_root()
+
+    dev_clean = get_dev_labels(corpus_names=["dev-clean"])
+    dev_other = get_dev_labels(corpus_names=["dev-other"])
+
+    decoder = "kenlm"
+    lm_path = get_language_model(LM_URL)
+    lexicon_path = get_lexicon(LEXICON_URL)
+
+    dev_clean_decoding = FairseqDecodingJob(
+        fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
+        fairseq_root=fairseq_root,
+        model_path=model_path,
+        data_path=dev_clean,
+        gen_subset="dev-clean",
+        w2l_decoder=decoder,
+        lm_path=lm_path,
+        lm_lexicon=lexicon_path,
+    )
+
+    dev_other_decoding = FairseqDecodingJob(
+        fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
+        fairseq_root=fairseq_root,
+        model_path=model_path,
+        data_path=dev_other,
+        gen_subset="dev-other",
+        w2l_decoder=decoder,
+        lm_path=lm_path,
+        lm_lexicon=lexicon_path,
+    )
+
+    tk.register_output(
+        os.path.join(prefix_name, exp_name, "decode", "dev-clean", "results"), 
+        dev_clean_decoding.out_results
+    )
+    tk.register_output(
+        os.path.join(prefix_name, exp_name, "decode", "dev-other", "results"),
+        dev_other_decoding.out_results
+    )
+
+# ------------------- MAIN ------------------- #
+
+def main():
+    out_checkpoint_dir = finetune()
+    checkpoint_best = tk.Path(os.path.join(out_checkpoint_dir.get(), "checkpoint_best.pt"))
+    decode(checkpoint_best)
+    
 main()
