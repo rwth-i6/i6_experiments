@@ -2151,7 +2151,6 @@ def run_single(
         )
         update_config = returnn.ReturnnConfig(
             config={
-                "batch_size": 8e3,
                 "learning_rates": list(
                     np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                 ),
