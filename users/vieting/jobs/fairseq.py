@@ -53,7 +53,6 @@ class CreateFairseqLabeledDataJob(Job):
         :param sample_valid_name: name of the sampled validation label files. Default: "valid". 
             Ignored if sample_valid_percent is 0.
         :param create_letter_dict: if set to True, a dict.ltr.txt file will be created. Default: True
-        : 
         """
         if not isinstance(corpus_paths, list):
             corpus_paths = [corpus_paths]
