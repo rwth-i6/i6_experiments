@@ -3,6 +3,10 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
+# import mpmath
+from scipy import special as sp
+
+from IPython import embed
 
 # from librosa.filters import mel as librosa_mel_fn
 # from audio_processing import dynamic_range_compression
@@ -24,6 +28,25 @@ def mle_loss(z, m, logs, logdet, mask):
     l = l - torch.sum(logdet)  # log jacobian determinant
     l = l / normalizer  # averaging across batch, channel and time axes
     l = l + 0.5 * math.log(2 * math.pi)  # add the remaining constant term
+    return l
+
+
+def vMF_ml_loss(z, m, logk, logdet, mask, d, log_C_k, kappa):
+    normalizer = torch.sum(torch.ones_like(z) * mask)
+    m_norm = nn.functional.normalize(m, dim=1)
+    z_norm = nn.functional.normalize(z, dim=1)
+    l = torch.matmul(m_norm.transpose(1,2), z_norm)
+    l = kappa * l
+    l = log_C_k + torch.sum(l)
+    l = -1. * l
+    l = l - torch.sum(logdet)
+    l = l / normalizer
+    return l
+
+def length_loss(z, m, mask):
+    normalizer = torch.sum(torch.ones_like(z) * mask)
+    l = ((z - nn.functional.normalize(z, dim=1)) ** 2).sum()
+    l = l / normalizer
     return l
 
 
@@ -116,6 +139,66 @@ def generate_path(duration, mask):
     path = path * mask
     return path
 
+class vMFLogPartition(torch.autograd.Function):
+    
+    '''
+    Evaluates log C_d(kappa) for vMF density
+    Allows autograd wrt kappa
+
+    Copied from https://github.com/minyoungkim21/vmf-lib/blob/main/models.py
+    '''
+    
+    besseli = np.vectorize(sp.iv)
+    log = np.log
+    nhlog2pi = -0.5 * np.log(2*np.pi)
+    
+    @staticmethod
+    def forward(ctx, *args):
+        
+        '''
+        Args:
+            args[0] = d; scalar (> 0)
+            args[1] = kappa; (> 0) torch tensor of any shape
+            
+        Returns:
+            logC = log C_d(kappa); torch tensor of the same shape as kappa
+        '''
+        
+        d = args[0]
+        kappa = args[1]
+        
+        s = 0.5*d - 1
+        
+        # log I_s(kappa)
+        mp_kappa = kappa.detach().cpu().numpy()
+        mp_logI = vMFLogPartition.log( vMFLogPartition.besseli(s, mp_kappa) )
+        logI = torch.from_numpy( np.array(mp_logI.tolist(), dtype=float) ).to(kappa)
+        
+        if (logI!=logI).sum().item() > 0:  # there is nan
+            raise ValueError('NaN is detected from the output of log-besseli()')
+        
+        logC = d * vMFLogPartition.nhlog2pi + s * kappa.log() - logI
+        
+        # save for backard()
+        ctx.s, ctx.mp_kappa, ctx.logI = s, mp_kappa, logI
+        
+        return logC
+        
+    @staticmethod
+    def backward(ctx, *grad_output):
+        
+        s, mp_kappa, logI = ctx.s, ctx.mp_kappa, ctx.logI 
+    
+        # log I_{s+1}(kappa)
+        mp_logI2 = vMFLogPartition.log( vMFLogPartition.besseli(s+1, mp_kappa) )
+        logI2 = torch.from_numpy( np.array(mp_logI2.tolist(), dtype=float) ).to(logI)
+        
+        if (logI2!=logI2).sum().item() > 0:  # there is nan
+            raise ValueError('NaN is detected from the output of log-besseli()')
+        
+        dlogC_dkappa = -(logI2 - logI).exp()
+        
+        return None, grad_output[0] * dlogC_dkappa
 
 class Adam:
     def __init__(self, params, scheduler, dim_model, warmup_steps=4000, lr=1e0, betas=(0.9, 0.98), eps=1e-9):

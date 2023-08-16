@@ -185,7 +185,7 @@ def get_ls_train_clean_100_tts_silencepreprocessed(alias_path=""):
         force_output_format = 'ogg',
         # the pipeline uses n4.1.4, but we assume that it is safe to user other versions of FFMPEG as well
         # hash overwrite is no longer needed, as the ffmpeg binary is not hashed unless specifically requested
-        ffmpeg_binary=tk.Path("/u/rilling/bin/ffmpeg", hash_overwrite="FFMPEG"))
+        ffmpeg_binary=tk.Path("/usr/bin/ffmpeg", hash_overwrite="FFMPEG"))
 
     return copy.deepcopy(processed_corpus)
 

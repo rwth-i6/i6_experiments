@@ -33,6 +33,7 @@ def get_training_config(
     post_config = {
         "cleanup_old_models": True,
         "stop_on_nonfinite_train_score": True,  # this might break now with True
+        "allow_missing_optimizer_checkpoint": True,
     }
 
     base_config = {
