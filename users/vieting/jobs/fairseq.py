@@ -38,7 +38,7 @@ class CreateFairseqLabeledDataJob(Job):
     def __init__(
         self,
         train_corpus_paths: Union[List[tk.Path], tk.Path],
-        valid_corpus_paths: Union[List[tk.Path], tk.Path] = [],
+        valid_corpus_paths: Union[List[tk.Path], tk.Path] = None,
         file_extension: str = "wav",
         sample_valid_percent: float = 0.01,
         seed: int = 42,
