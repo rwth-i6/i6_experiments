@@ -19,17 +19,19 @@ class CreateFairseqLabeledDataJob(Job):
     If create_letter_dict is set to True, the following file will be created:
     - dict.ltr.txt
 
-    If sample_valid_percent is set > 0, a random sample of the files will be saved as validation set and the following files will be created:
+    If sample_valid_percent is set > 0, a random sample of the files will be saved as validation set 
+    and the following files will be created:
     - valid.tsv
     - valid.ltr
     - valid.wrd
     
 
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
-    https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py as well as
-    the issue https://github.com/facebookresearch/fairseq/issues/2493 for .wrd and .ltr creation.
+    https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py 
+    as well as the issue https://github.com/facebookresearch/fairseq/issues/2493 for .wrd and .ltr creation.
 
-    See also https://github.com/rwth-i6/i6_experiments/blob/main/users/dierkes/preprocessing/wav2vec.py for only manifest creation job (e.g. for fairseq pre-training).
+    See also https://github.com/rwth-i6/i6_experiments/blob/main/users/dierkes/preprocessing/wav2vec.py for only 
+    manifest creation job (e.g. for fairseq pre-training).
     """
 
     def __init__(
@@ -51,6 +53,8 @@ class CreateFairseqLabeledDataJob(Job):
         :param path_must_contain: if set, path must contain this substring
             for a file to be included in the task
         :param dest_name: name of the main label files. Default: "train"
+        :param sample_valid_name: name of the sampled validation label files. Default: "valid". 
+            Ignored if sample_valid_percent is 0.
         :param create_letter_dict: if set to True, a dict.ltr.txt file will be created. Default: True
         : 
         """
@@ -90,7 +94,8 @@ class CreateFairseqLabeledDataJob(Job):
 
     def create_tsv_and_labels(self):
         """
-        Creates both tsv files (train.tsv, valid.tsv) and labels (train.ltr, train.wrd, valid.ltr, valid.wrd) from the given corpora.
+        Creates both tsv files (train.tsv, valid.tsv) and labels (train.ltr, train.wrd, valid.ltr, valid.wrd) 
+        from the given corpora.
         """
         rand = random.Random(self.seed)
         
