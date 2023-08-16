@@ -44,9 +44,6 @@ def get_task(
          "test-other"}
     ), f"unknown corpus names: {corpus_names}"
 
-    if valid_percent <= 0:
-        logging.info("Not sampling validation set from training data. Create a separate dev set instead.")
-
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
     # filter out corpora that are not in corpus_names
     corpus_dict = {corpus: path for corpus, path in corpus_dict.items() if corpus in corpus_names}
