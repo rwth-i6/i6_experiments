@@ -375,26 +375,27 @@ def run_single(
             )
 
             if alignment_name == "scratch" and ep == max(keep_epochs):
+                base_cfg = best_config.with_beam_limit(100_000)
                 base_cfgs = [
-                    best_config,
-                    best_config.with_prior_scale(center=0, left=0, right=0),
-                    best_config.with_prior_scale(
-                        center=best_config.prior_info.center_state_prior.scale, left=0, right=0
+                    base_cfg,
+                    base_cfg.with_prior_scale(center=0, left=0, right=0),
+                    base_cfg.with_prior_scale(
+                        center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0
                     ),
-                    best_config.with_prior_scale(
+                    base_cfg.with_prior_scale(
                         center=0,
-                        left=best_config.prior_info.left_context_prior.scale,
-                        right=best_config.prior_info.right_context_prior.scale,
+                        left=base_cfg.prior_info.left_context_prior.scale,
+                        right=base_cfg.prior_info.right_context_prior.scale,
                     ),
-                    best_config.with_prior_scale(
+                    base_cfg.with_prior_scale(
                         left=0,
-                        center=best_config.prior_info.center_state_prior.scale,
-                        right=best_config.prior_info.right_context_prior.scale,
+                        center=base_cfg.prior_info.center_state_prior.scale,
+                        right=base_cfg.prior_info.right_context_prior.scale,
                     ),
-                    best_config.with_prior_scale(
+                    base_cfg.with_prior_scale(
                         right=0,
-                        center=best_config.prior_info.center_state_prior.scale,
-                        left=best_config.prior_info.left_context_prior.scale,
+                        center=base_cfg.prior_info.center_state_prior.scale,
+                        left=base_cfg.prior_info.left_context_prior.scale,
                     ),
                 ]
                 cfgs = [
