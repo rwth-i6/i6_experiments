@@ -410,7 +410,7 @@ def run_single(
 
                 for cfg in cfgs:
                     name = f"pC{cfg.prior_info.center_state_prior.scale}-pL{cfg.prior_info.left_context_prior.scale}-pR{cfg.prior_info.right_context_prior.scale}-tdp{cfg.tdp_scale}-tdpSp{cfg.tdp_speech}-tdpSl{cfg.tdp_silence}"
-                    recognizer.recognize_count_lm(
+                    jobs = recognizer.recognize_count_lm(
                         label_info=s.label_info,
                         search_parameters=cfg,
                         num_encoder_output=conf_model_dim,
@@ -419,6 +419,7 @@ def run_single(
                         name_override=f"icassp/4gram/{name}",
                         rtf_cpu=80,
                     )
+                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
         if False and run_performance_study:
             for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
