@@ -360,7 +360,7 @@ def run_single(
                 rtf_cpu=20,
             )
 
-        if tune_decoding and ep == keep_epochs[-1]:
+        if tune_decoding and ep == max(keep_epochs):
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
@@ -382,6 +382,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
+                rtf_cpu=32,
             )
 
     if run_performance_study:
