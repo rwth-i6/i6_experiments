@@ -43,6 +43,7 @@ BLSTM_CHUNKING = "64:32"
 
 CONF_CHUNKING_10MS = "400:200"  # divides cleanly by
 CONF_CHUNKING_30MS = "402:201"  # divides cleanly 3
+CONF_CHUNKING_60MS = "402:198"  # divides cleanly 6
 
 CONF_FOCAL_LOSS = 2.0
 CONF_LABEL_SMOOTHING = 0.0
