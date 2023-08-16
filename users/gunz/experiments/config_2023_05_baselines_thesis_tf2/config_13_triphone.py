@@ -383,18 +383,18 @@ def run_single(
                     ),
                     best_config.with_prior_scale(
                         center=0,
-                        left=best_config.prior_info.left_state_prior.scale,
-                        right=best_config.prior_info.right_state_prior.scale,
+                        left=best_config.prior_info.left_context_prior.scale,
+                        right=best_config.prior_info.right_context_prior.scale,
                     ),
                     best_config.with_prior_scale(
                         left=0,
                         center=best_config.prior_info.center_state_prior.scale,
-                        right=best_config.prior_info.right_state_prior.scale,
+                        right=best_config.prior_info.right_context_prior.scale,
                     ),
                     best_config.with_prior_scale(
                         right=0,
                         center=best_config.prior_info.center_state_prior.scale,
-                        left=best_config.prior_info.left_state_prior.scale,
+                        left=best_config.prior_info.left_context_prior.scale,
                     ),
                 ]
                 cfgs = [
