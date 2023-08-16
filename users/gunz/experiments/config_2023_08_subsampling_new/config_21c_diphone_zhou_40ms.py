@@ -2354,11 +2354,11 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
         for i in range(num):
             x = _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims)
     else:
-        _, x = tf.while_loop(
+        _, x = tf.compat.v1.while_loop(
             cond=lambda i, _: tf.less(i, tf.reduce_max(num)),
             body=lambda i, x: (
                 i + 1,
-                tf.where(
+                tf.compat.v1.where(
                     tf.less(i, num),
                     _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims),
                     x,
@@ -2385,7 +2385,7 @@ def transform(data, network):
 
     # summary("features", x)
     step = network.global_train_step
-    increase_flag = tf.where(tf.greater_equal(step, conservatvie_step), 0, 1)
+    increase_flag = tf.compat.v1.where(tf.greater_equal(step, conservatvie_step), 0, 1)
 
     def get_masked():
         x_masked = x
