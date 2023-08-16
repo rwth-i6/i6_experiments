@@ -2421,7 +2421,7 @@ def dynamic_learning_rate(*, network, global_train_step, learning_rate, **kwargs
     finalLR = 1e-6
     cycleEpoch = 180
     totalEpoch = 400
-    nStep = 2440  # steps/epoch depending on batch_size
+    nStep = 2420  # steps/epoch depending on batch_size
 
     # -- derived -- #
     steps = cycleEpoch * nStep
