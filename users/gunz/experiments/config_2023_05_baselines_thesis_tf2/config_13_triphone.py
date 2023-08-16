@@ -374,6 +374,38 @@ def run_single(
                 rtf_cpu=80,
             )
 
+            if alignment_name == "scratch" and ep == max(keep_epochs):
+                base_cfgs = [
+                    best_config,
+                    best_config.with_prior_scale(center=0, left=0, right=0),
+                    best_config.with_prior_scale(left=0, right=0),
+                    best_config.with_prior_scale(center=0),
+                    best_config.with_prior_scale(left=0),
+                    best_config.with_prior_scale(right=0),
+                ]
+                cfgs = [
+                    *base_cfgs,
+                    *(cfg.with_tdp_scale(0) for cfg in base_cfgs),
+                    *(
+                        cfg.with_tdp_speech((0, 0, "infinity", 0)).with_tdp_silence(
+                            (0, 0, "infinity", cfg.tdp_silence[-1])
+                        )
+                        for cfg in base_cfgs
+                    ),
+                ]
+
+                for cfg in cfgs:
+                    name = f"pC{cfg.prior_info.center_state_prior.scale}-pL{cfg.prior_info.left_context_prior.scale}-pR{cfg.prior_info.right_context_prior.scale}-tdp{cfg.tdp_scale}-tdpSp{cfg.tdp_speech}-tdpSl{cfg.tdp_silence}"
+                    recognizer.recognize_count_lm(
+                        label_info=s.label_info,
+                        search_parameters=cfg,
+                        num_encoder_output=conf_model_dim,
+                        rerun_after_opt_lm=False,
+                        calculate_stats=True,
+                        name_override=f"icassp/4gram/{name}",
+                        rtf_cpu=80,
+                    )
+
         if False and run_performance_study:
             for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
                 recognizer.recognize_count_lm(
