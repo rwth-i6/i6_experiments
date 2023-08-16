@@ -204,4 +204,37 @@ Z 213
 """
         with open(self.out_dict_ltr_path.get(), 'w') as f:
             f.write(dict_ltr_content)
-    
+
+
+class FairseqDecodingJob(Job):
+    """
+    Runs decoding with fairseq on a given fine-tuned model and a given data set.
+
+
+    """
+    def __init__(
+            fairseq_root: tk.Path,
+            model_path: tk.Path,
+            data_path: tk.Path,
+            nbest: int = 1,
+            subset_name: str = "valid",
+            w2l_decoder: str = "viterbi",
+            lm_path: Optional[tk.Path] = None,
+            lm_lexicon: Optional[tk.Path] = None,
+            lm_weight: float = 2.0,
+            word_score: float = 1.0,
+            sil_weight: float = 0.0,
+            criterion: str = "ctc",
+            labels: str = "ltr",
+            post_process: str = "letter",
+            max_tokens: int = 4000000,
+    ):
+        """
+        :param fairseq_root: path to fairseq root directory
+        :param model_path: path to fine-tuned model
+        :param data_path: path
+        :param nbest: number of nbest hypotheses to output, default 1
+        :param subset_name: name of
+        :param w2l_decoder: decoder to use, default "viterbi". Can be "viterbi" or "kenlm"
+        """
+        pass
