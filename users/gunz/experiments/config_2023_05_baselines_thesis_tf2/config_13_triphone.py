@@ -433,7 +433,7 @@ def run_single(
                         name_override=f"icassp/4gram/{name}",
                         rtf_cpu=80,
                     )
-                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+                    jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30", "--nice", "1000"]})
 
         if False and run_performance_study:
             for altas, beam in itertools.product([2, 4, 6, 8, 12], [10, 12, 14, 16]):
