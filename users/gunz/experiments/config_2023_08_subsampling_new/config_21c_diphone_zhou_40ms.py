@@ -2105,12 +2105,12 @@ def run_single(
     orig_name = name
 
     bw_scales = [
-        baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.0),
-        baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.0),
+        baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
+        for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
     ]
 
     for bw_scale in bw_scales:
-        name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}"
+        name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
         s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
         s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
