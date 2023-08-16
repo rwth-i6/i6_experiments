@@ -2308,7 +2308,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     ndim = x.get_shape().ndims
     n_batch = tf.shape(x)[batch_axis]
     dim = tf.shape(x)[axis]
-    amount = tf.random_uniform(shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32)
+    amount = tf.random.uniform(shape=(n_batch,), minval=1, maxval=max_amount + 1, dtype=tf.int32)
     pos2 = tf.minimum(pos + amount, dim)
     idxs = tf.expand_dims(tf.range(0, dim), 0)  # (1,dim)
     pos_bc = tf.expand_dims(pos, 1)  # (batch,1)
@@ -2338,10 +2338,10 @@ def random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
     if isinstance(min_num, int) and isinstance(max_num, int) and min_num == max_num:
         num = min_num
     else:
-        num = tf.random_uniform(shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32)
+        num = tf.random.uniform(shape=(n_batch,), minval=min_num, maxval=max_num + 1, dtype=tf.int32)
     # https://github.com/tensorflow/tensorflow/issues/9260
     # https://timvieira.github.io/blog/post/2014/08/01/gumbel-max-trick-and-weighted-reservoir-sampling/
-    z = -tf.log(-tf.log(tf.random_uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
+    z = -tf.math.log(-tf.math.log(tf.random.uniform((n_batch, tf.shape(x)[axis]), 0, 1)))
     _, indices = tf.nn.top_k(z, num if isinstance(num, int) else tf.reduce_max(num))
     # indices should be sorted, and of shape (batch,num), entries (int32) in [0,dim)
     # indices = tf.Print(indices, ["indices", indices, tf.shape(indices)])
