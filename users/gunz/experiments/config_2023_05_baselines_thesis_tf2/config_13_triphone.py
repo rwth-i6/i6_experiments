@@ -378,44 +378,59 @@ def run_single(
             if alignment_name == "scratch" and ep == max(keep_epochs):
                 base_cfg = best_config.with_beam_limit(100_000)
                 base_cfgs = [
-                    base_cfg,
-                    base_cfg.with_prior_scale(center=0, left=0, right=0),
-                    base_cfg.with_prior_scale(center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0),
-                    base_cfg.with_prior_scale(
-                        center=0,
-                        left=base_cfg.prior_info.left_context_prior.scale,
-                        right=base_cfg.prior_info.right_context_prior.scale,
+                    ("base", base_cfg),
+                    ("all-zero", base_cfg.with_prior_scale(center=0, left=0, right=0)),
+                    (
+                        "only-center",
+                        base_cfg.with_prior_scale(center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0),
                     ),
-                    base_cfg.with_prior_scale(
-                        left=0,
-                        center=base_cfg.prior_info.center_state_prior.scale,
-                        right=base_cfg.prior_info.right_context_prior.scale,
+                    (
+                        "only-left-right",
+                        base_cfg.with_prior_scale(
+                            center=0,
+                            left=base_cfg.prior_info.left_context_prior.scale,
+                            right=base_cfg.prior_info.right_context_prior.scale,
+                        ),
                     ),
-                    base_cfg.with_prior_scale(
-                        right=0,
-                        center=base_cfg.prior_info.center_state_prior.scale,
-                        left=base_cfg.prior_info.left_context_prior.scale,
+                    (
+                        "only-center-right",
+                        base_cfg.with_prior_scale(
+                            left=0,
+                            center=base_cfg.prior_info.center_state_prior.scale,
+                            right=base_cfg.prior_info.right_context_prior.scale,
+                        ),
+                    ),
+                    (
+                        "only-center-left",
+                        base_cfg.with_prior_scale(
+                            right=0,
+                            center=base_cfg.prior_info.center_state_prior.scale,
+                            left=base_cfg.prior_info.left_context_prior.scale,
+                        ),
                     ),
                 ]
                 cfgs = [
                     *base_cfgs,
-                    *(cfg.with_tdp_scale(0) for cfg in base_cfgs),
+                    *((f"{name}-tdpScale0", cfg.with_tdp_scale(0)) for name, cfg in base_cfgs),
                     *(
-                        cfg.with_tdp_speech((0, 0, "infinity", 0)).with_tdp_silence(
-                            (0, 0, "infinity", cfg.tdp_silence[-1])
+                        (
+                            f"{name}-tdpZero",
+                            cfg.with_tdp_speech((0, 0, "infinity", 0)).with_tdp_silence(
+                                (0, 0, "infinity", cfg.tdp_silence[-1])
+                            ),
                         )
-                        for cfg in base_cfgs
+                        for name, cfg in base_cfgs
                     ),
                 ]
 
-                for i, cfg in enumerate(cfgs):
+                for name, cfg in cfgs:
                     jobs = recognizer.recognize_count_lm(
                         label_info=s.label_info,
                         search_parameters=cfg,
                         num_encoder_output=conf_model_dim,
                         rerun_after_opt_lm=False,
                         calculate_stats=True,
-                        name_override=f"icassp/4gram/{i}",
+                        name_override=f"icassp/4gram/{name}",
                         rtf_cpu=80,
                     )
                     jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
