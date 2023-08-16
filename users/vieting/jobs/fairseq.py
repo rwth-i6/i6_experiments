@@ -4,6 +4,7 @@ import os
 import random
 import subprocess
 from typing import List, Union, Optional 
+import logging
 
 from sisyphus import Job, Task, tk
 
@@ -36,50 +37,63 @@ class CreateFairseqLabeledDataJob(Job):
 
     def __init__(
         self,
-        corpus_paths: Union[List[tk.Path], tk.Path],
+        train_corpus_paths: Union[List[tk.Path], tk.Path],
+        valid_corpus_paths: Union[List[tk.Path], tk.Path] = [],
         file_extension: str = "wav",
         sample_valid_percent: float = 0.01,
         seed: int = 42,
         path_must_contain: Optional[str] = None,
-        dest_name: str = "train",
-        sample_valid_name: str = "valid",
+        train_dest_name: str = "train",
+        valid_dest_name: str = "valid",
         create_letter_dict: bool = True,
     ):
         """
-        :param corpus_paths: list of paths or single path to raw audio file directory to be included
+        :param corpus_paths: list of paths or single path to raw audio file directory to be included in training set
+        :param valid_corpus_paths: list of paths or single path to raw audio file directory to be included in 
+            validation set. Ignored if sample_valid_percent > 0. Default: []
         :param file_extension: file extension to look for in corpus_paths
-        :param sample_valid_percent: percentage of files to be randomly sampled as validation set
+        :param sample_valid_percent: percentage of files to be randomly sampled as validation set. 
+            If > 0, valid_corpus_paths will be ignored. Default: 0.01
         :param seed: random seed for splitting into train and valid set
         :param path_must_contain: if set, path must contain this substring
             for a file to be included in the task
-        :param dest_name: name of the main label files. Default: "train"
-        :param sample_valid_name: name of the sampled validation label files. Default: "valid". 
-            Ignored if sample_valid_percent is 0.
+        :param train_dest_name: name of the train label files. Default: "train"
+        :param valid_dest_name: name of the valid label files. Default: "valid"
         :param create_letter_dict: if set to True, a dict.ltr.txt file will be created. Default: True
         : 
         """
-        if not isinstance(corpus_paths, list):
-            corpus_paths = [corpus_paths]
-        self.corpus_paths = corpus_paths
-        assert all([isinstance(path, tk.Path) for path in self.corpus_paths])
+        if not isinstance(train_corpus_paths, list):
+            train_corpus_paths = [train_corpus_paths]
+        if not isinstance(valid_corpus_paths, list):
+            valid_corpus_paths = [valid_corpus_paths]
+    
+        self.train_corpus_paths = train_corpus_paths
+        self.valid_corpus_paths = valid_corpus_paths
+        assert all([isinstance(path, tk.Path) for path in self.train_corpus_paths])
+        assert all([isinstance(path, tk.Path) for path in self.valid_corpus_paths])
+
         self.file_extension = file_extension
         self.valid_percent = sample_valid_percent
-        assert 0.0 <= self.valid_percent <= 1.0
+        assert 0.0 <= self.valid_percent <= 1.0, "sample_valid_percent must be between 0 and 1."
         self.seed = seed
         self.path_must_contain = path_must_contain
         self.create_letter_dict = create_letter_dict
 
+        if not valid_corpus_paths and self.valid_percent == 0:
+            logging.warning("No validation set given and sample_valid_percent is 0. No validation set will be created.")
+
+
         self.out_task_path = self.output_path("task", directory=True)
 
-        self.out_dest_tsv_path = self.output_path(f"task/{dest_name}.tsv")
-        self.out_valid_tsv_path = self.output_path(f"task/{sample_valid_name}.tsv")
+        self.out_train_tsv_path = self.output_path(f"task/{train_dest_name}.tsv")
+        self.out_valid_tsv_path = self.output_path(f"task/{valid_dest_name}.tsv")
         
         self.out_dict_ltr_path = self.output_path("task/dict.ltr.txt")
 
-        self.out_dest_ltr_path = self.output_path(f"task/{dest_name}.ltr")
-        self.out_dest_wrd_path = self.output_path(f"task/{dest_name}.wrd")
-        self.out_valid_ltr_path = self.output_path(f"task/{sample_valid_name}.ltr")
-        self.out_valid_wrd_path = self.output_path(f"task/{sample_valid_name}.wrd")
+        self.out_train_ltr_path = self.output_path(f"task/{train_dest_name}.ltr")
+        self.out_train_wrd_path = self.output_path(f"task/{train_dest_name}.wrd")
+        self.out_valid_ltr_path = self.output_path(f"task/{valid_dest_name}.ltr")
+        self.out_valid_wrd_path = self.output_path(f"task/{valid_dest_name}.wrd")
 
         self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
 
@@ -91,6 +105,9 @@ class CreateFairseqLabeledDataJob(Job):
         self.create_tsv_and_labels()
         if self.create_letter_dict:
             self.create_dict_ltr()
+        if self.valid_percent == 0 and not self.valid_corpus_paths:
+            self.delete_valid_files()
+        
 
     def create_tsv_and_labels(self):
         """
@@ -99,24 +116,26 @@ class CreateFairseqLabeledDataJob(Job):
         """
         rand = random.Random(self.seed)
         
-        common_dir = self.get_common_dir()
+        train_common_dir, valid_common_dir = self.get_common_dir()
 
         valid_tsv = open(self.out_valid_tsv_path, "w")
-        dest_tsv = open(self.out_dest_tsv_path, "w")
+        train_tsv = open(self.out_train_tsv_path, "w")
 
         valid_ltr = open(self.out_valid_ltr_path, "w")
-        dest_ltr = open(self.out_dest_ltr_path, "w")
+        train_ltr = open(self.out_train_ltr_path, "w")
 
         valid_wrd = open(self.out_valid_wrd_path, "w") 
-        dest_wrd = open(self.out_dest_wrd_path, "w")
+        train_wrd = open(self.out_train_wrd_path, "w")
 
         # write common directory (root) to tsv files
         if self.valid_percent > 0:
-            print(common_dir, file=valid_tsv)
-        print(common_dir, file=dest_tsv)
+            print(train_common_dir, file=valid_tsv)
+        elif self.valid_corpus_paths:
+            print(valid_common_dir, file=valid_tsv)
+        print(train_common_dir, file=train_tsv)
 
-        # iterate over all corpora
-        for corpus_path in self.corpus_paths:
+        # iterate over all training corpora
+        for corpus_path in self.train_corpus_paths:
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
             for segment in corpus_object.segments():
@@ -125,14 +144,14 @@ class CreateFairseqLabeledDataJob(Job):
                 audio_trans = segment.orth
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
 
-                rel_audio_path = os.path.relpath(audio_path, common_dir)
+                rel_audio_path = os.path.relpath(audio_path, train_common_dir)
                 frames = soundfile.info(audio_path).frames
 
                 # determine whether to write to dest or valid
                 if rand.random() >= self.valid_percent:
-                    tsv_out = dest_tsv
-                    ltr_out = dest_ltr
-                    wrd_out = dest_wrd
+                    tsv_out = train_tsv
+                    ltr_out = train_ltr
+                    wrd_out = train_wrd
                 else:
                     tsv_out = valid_tsv
                     ltr_out = valid_ltr
@@ -148,14 +167,39 @@ class CreateFairseqLabeledDataJob(Job):
                 )
                 print(audio_trans, file=wrd_out)
         
+        # iterate over all validation corpora
+        if self.valid_corpus_paths and self.valid_percent <= 0:
+            for corpus_path in self.valid_corpus_paths:
+                corpus_object = corpus.Corpus()
+                corpus_object.load(corpus_path.get())
+                for segment in corpus_object.segments():
+                    # extract audio path and transcription from segment
+                    audio_path = segment.recording.audio
+                    audio_trans = segment.orth
+                    assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
+
+                    rel_audio_path = os.path.relpath(audio_path, valid_common_dir)
+                    frames = soundfile.info(audio_path).frames
+
+                    # write audio path to tsv files
+                    print(f"{rel_audio_path}\t{frames}", file=valid_tsv)
+
+                    # write transcription to transcription files
+                    print(
+                        " ".join(list(audio_trans.replace(" ", "|"))) + " |",
+                        file=valid_ltr,
+                    )
+                    print(audio_trans, file=valid_wrd)
+
+
         # close all files
         valid_tsv.close()
         valid_ltr.close()
         valid_wrd.close()
         
-        dest_tsv.close()
-        dest_ltr.close()
-        dest_wrd.close()
+        train_tsv.close()
+        train_ltr.close()
+        train_wrd.close()
 
 
 
@@ -201,16 +245,37 @@ Z 213
         """
         Returns the common directory of all audios given in the corpora.
         """
-        common_dir = None
-        # iterate over all corpora
-        for corpus_path in self.corpus_paths:
+        train_common_dir = None
+        valid_common_dir = None
+        # iterate over all training corpora
+        for corpus_path in self.train_corpus_paths:
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
             for segment in corpus_object.segments():
                 audio_path = segment.recording.audio
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
-                if common_dir is None:
-                    common_dir = os.path.dirname(audio_path)
+                if train_common_dir is None:
+                    train_common_dir = os.path.dirname(audio_path)
                 else:
-                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
-        return common_dir
+                    train_common_dir = os.path.commonpath([train_common_dir, os.path.dirname(audio_path)])
+
+        for corpus_path in self.valid_corpus_paths:
+            corpus_object = corpus.Corpus()
+            corpus_object.load(corpus_path.get())
+            for segment in corpus_object.segments():
+                audio_path = segment.recording.audio
+                assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
+                if valid_common_dir is None:
+                    valid_common_dir = os.path.dirname(audio_path)
+                else:
+                    valid_common_dir = os.path.commonpath([valid_common_dir, os.path.dirname(audio_path)])
+
+        return train_common_dir, valid_common_dir
+
+    def delete_valid_files():
+        """
+        Delete valid set files if no valid set was created.
+        """
+        os.remove(self.out_valid_tsv_path.get())
+        os.remove(self.out_valid_ltr_path.get())
+        os.remove(self.out_valid_wrd_path.get())
