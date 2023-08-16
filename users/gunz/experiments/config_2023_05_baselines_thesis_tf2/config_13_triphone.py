@@ -347,10 +347,10 @@ def run_single(
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
-                rtf_cpu=50,
+                rtf_cpu=80,
             )
 
-        if tune_decoding:
+        if ep == max(keep_epochs) and tune_decoding:
             best_config = recognizer.recognize_optimize_scales(
                 label_info=s.label_info,
                 search_parameters=recog_args,
@@ -371,7 +371,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=50,
+                rtf_cpu=80,
             )
 
         if False and run_performance_study:
