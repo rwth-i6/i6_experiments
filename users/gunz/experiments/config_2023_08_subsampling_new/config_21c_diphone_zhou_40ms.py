@@ -2102,6 +2102,7 @@ def run_single(
 
     fine_tune_epochs = 300
     keep_epochs = [150, 275, 300]
+    orig_name = name
 
     bw_scales = [
         baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.0),
@@ -2109,7 +2110,7 @@ def run_single(
     ]
 
     for bw_scale in bw_scales:
-        name = f"{name}-fs-bwl:{bw_scale.label_posterior_scale}"
+        name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}"
         s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
         s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
