@@ -10,6 +10,7 @@ import os
 
 # -------------------- Sisyphus --------------------
 from sisyphus import gs, tk
+from sisyphus.delayed_ops import DelayedFallback
 
 # -------------------- Recipes --------------------
 
@@ -379,9 +380,7 @@ def run_single(
                 base_cfgs = [
                     base_cfg,
                     base_cfg.with_prior_scale(center=0, left=0, right=0),
-                    base_cfg.with_prior_scale(
-                        center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0
-                    ),
+                    base_cfg.with_prior_scale(center=base_cfg.prior_info.center_state_prior.scale, left=0, right=0),
                     base_cfg.with_prior_scale(
                         center=0,
                         left=base_cfg.prior_info.left_context_prior.scale,
@@ -410,7 +409,7 @@ def run_single(
                 ]
 
                 for cfg in cfgs:
-                    name = f"pC{cfg.prior_info.center_state_prior.scale}-pL{cfg.prior_info.left_context_prior.scale}-pR{cfg.prior_info.right_context_prior.scale}-tdp{cfg.tdp_scale}-tdpSp{cfg.tdp_speech}-tdpSl{cfg.tdp_silence}"
+                    name = f"pC{DelayedFallback(cfg.prior_info.center_state_prior.scale, 'NA')}-pL{DelayedFallback(cfg.prior_info.left_context_prior.scale, 'NA')}-pR{DelayedFallback(cfg.prior_info.right_context_prior.scale, 'NA')}-tdp{DelayedFallback(cfg.tdp_scale, 'NA')}-tdpSp{DelayedFallback(cfg.tdp_speech, 'NA')}-tdpSl{DelayedFallback(cfg.tdp_silence, 'NA')}"
                     jobs = recognizer.recognize_count_lm(
                         label_info=s.label_info,
                         search_parameters=cfg,

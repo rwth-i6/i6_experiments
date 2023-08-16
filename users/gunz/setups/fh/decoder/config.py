@@ -125,6 +125,7 @@ def default_posterior_scales() -> PosteriorScales:
         "center-state-scale": 1.0,
     }
 
+
 Int = typing.Union[int, tk.Variable, DelayedBase]
 
 
