@@ -400,6 +400,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
+                rtf_cpu=32,
             )
 
     if fine_tune:
