@@ -408,15 +408,14 @@ def run_single(
                     ),
                 ]
 
-                for cfg in cfgs:
-                    name = f"pC{DelayedFallback(cfg.prior_info.center_state_prior.scale, 'NA')}-pL{DelayedFallback(cfg.prior_info.left_context_prior.scale, 'NA')}-pR{DelayedFallback(cfg.prior_info.right_context_prior.scale, 'NA')}-tdp{DelayedFallback(cfg.tdp_scale, 'NA')}-tdpSp{DelayedFallback(cfg.tdp_speech, 'NA')}-tdpSl{DelayedFallback(cfg.tdp_silence, 'NA')}"
+                for i, cfg in enumerate(cfgs):
                     jobs = recognizer.recognize_count_lm(
                         label_info=s.label_info,
                         search_parameters=cfg,
                         num_encoder_output=conf_model_dim,
                         rerun_after_opt_lm=False,
                         calculate_stats=True,
-                        name_override=f"icassp/4gram/{name}",
+                        name_override=f"icassp/4gram/{i}",
                         rtf_cpu=80,
                     )
                     jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
