@@ -104,7 +104,7 @@ def run(returnn_root: tk.Path):
             decode_all_corpora=False,
             lr="v13",
             run_performance_study=True,
-            tune_decoding=True,
+            tune_decoding=False,
         ),
         # Experiment(
         #     alignment=scratch_align_daniel,
