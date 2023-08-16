@@ -2101,117 +2101,118 @@ def run_single(
     # FINE TUNING
     # ###########
 
-    fine_tune_epochs = 300
-    keep_epochs = [150, 275, 300]
-    orig_name = name
+    if alignment_name == "40ms-TD-v8":
+        fine_tune_epochs = 300
+        keep_epochs = [150, 275, 300]
+        orig_name = name
 
-    bw_scales = [
-        baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-        for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
-    ]
+        bw_scales = [
+            baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
+            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
+        ]
 
-    for bw_scale in bw_scales:
-        name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
-        s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
+        for bw_scale in bw_scales:
+            name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
+            s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
-        s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-        s._update_am_setting_for_all_crps(
-            train_tdp_type="heuristic",
-            eval_tdp_type="heuristic",
-            add_base_allophones=False,
-        )
+            s.label_info = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+            s._update_am_setting_for_all_crps(
+                train_tdp_type="heuristic",
+                eval_tdp_type="heuristic",
+                add_base_allophones=False,
+            )
 
-        returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
-        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=returnn_config_ft,
-            label_info=s.label_info,
-            out_joint_score_layer="output",
-            log_softmax=True,
-        )
-        returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
-            returnn_config=returnn_config_ft,
-            label_info=s.label_info,
-            out_joint_score_layer="output",
-            log_softmax=True,
-            prepare_for_fast_bw_training=True,
-        )
-        returnn_config_ft = baum_welch.augment_for_fast_bw(
-            crp=s.crp[s.crp_names["train"]],
-            from_output_layer="output",
-            returnn_config=returnn_config_ft,
-            log_linear_scales=bw_scale,
-        )
-        lrates = oclr.get_learning_rates(
-            lrate=5e-5,
-            increase=0,
-            constLR=math.floor(fine_tune_epochs * 0.45),
-            decay=math.floor(fine_tune_epochs * 0.45),
-            decMinRatio=0.1,
-            decMaxRatio=1,
-        )
-        update_config = returnn.ReturnnConfig(
-            config={
-                "learning_rates": list(
-                    np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
-                ),
-                "preload_from_files": {
-                    "existing-model": {
-                        "init_for_train": True,
-                        "ignore_missing": True,
-                        "filename": viterbi_train_j.out_checkpoints[400],
-                    }
+            returnn_config_ft = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+            nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+            )
+            returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=True,
+                prepare_for_fast_bw_training=True,
+            )
+            returnn_config_ft = baum_welch.augment_for_fast_bw(
+                crp=s.crp[s.crp_names["train"]],
+                from_output_layer="output",
+                returnn_config=returnn_config_ft,
+                log_linear_scales=bw_scale,
+            )
+            lrates = oclr.get_learning_rates(
+                lrate=5e-5,
+                increase=0,
+                constLR=math.floor(fine_tune_epochs * 0.45),
+                decay=math.floor(fine_tune_epochs * 0.45),
+                decMinRatio=0.1,
+                decMaxRatio=1,
+            )
+            update_config = returnn.ReturnnConfig(
+                config={
+                    "learning_rates": list(
+                        np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
+                    ),
+                    "preload_from_files": {
+                        "existing-model": {
+                            "init_for_train": True,
+                            "ignore_missing": True,
+                            "filename": viterbi_train_j.out_checkpoints[400],
+                        }
+                    },
+                    "extern_data": {"data": {"dim": 50}},
                 },
-                "extern_data": {"data": {"dim": 50}},
-            },
-            post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
-            python_epilog={
-                "dynamic_lr_reset": "dynamic_learning_rate = None",
-            },
-        )
-        returnn_config_ft.update(update_config)
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+                python_epilog={
+                    "dynamic_lr_reset": "dynamic_learning_rate = None",
+                },
+            )
+            returnn_config_ft.update(update_config)
 
-        s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
+            s.set_returnn_config_for_experiment("fh-fs", copy.deepcopy(returnn_config_ft))
 
-        train_args = {
-            **s.initial_train_args,
-            "num_epochs": fine_tune_epochs,
-            "partition_epochs": partition_epochs,
-            "returnn_config": copy.deepcopy(returnn_config_ft),
-        }
-        s.returnn_rasr_training(
-            experiment_key="fh-fs",
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            nn_train_args=train_args,
-        )
-
-        for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
-            s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
-
-            s.set_mono_priors_returnn_rasr(
-                key="fh-fs",
-                epoch=min(ep, keep_epochs[-2]),
+            train_args = {
+                **s.initial_train_args,
+                "num_epochs": fine_tune_epochs,
+                "partition_epochs": partition_epochs,
+                "returnn_config": copy.deepcopy(returnn_config_ft),
+            }
+            s.returnn_rasr_training(
+                experiment_key="fh-fs",
                 train_corpus_key=s.crp_names["train"],
                 dev_corpus_key=s.crp_names["cvtrain"],
-                smoothen=True,
-                returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config_ft),
-                output_layer_name="output",
+                nn_train_args=train_args,
             )
 
-            diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
-            tying_cfg = rasr.RasrConfig()
-            tying_cfg.type = "diphone-dense"
+            for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+                s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
-            s.recognize_cart(
-                key="fh-fs",
-                epoch=ep,
-                crp_corpus=crp_k,
-                n_cart_out=diphone_li.get_n_of_dense_classes(),
-                cart_tree_or_tying_config=tying_cfg,
-                params=s.get_cart_params(key="fh-fs"),
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
-                calculate_statistics=True,
-            )
+                s.set_mono_priors_returnn_rasr(
+                    key="fh-fs",
+                    epoch=min(ep, keep_epochs[-2]),
+                    train_corpus_key=s.crp_names["train"],
+                    dev_corpus_key=s.crp_names["cvtrain"],
+                    smoothen=True,
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config_ft),
+                    output_layer_name="output",
+                )
+
+                diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+                tying_cfg = rasr.RasrConfig()
+                tying_cfg.type = "diphone-dense"
+
+                s.recognize_cart(
+                    key="fh-fs",
+                    epoch=ep,
+                    crp_corpus=crp_k,
+                    n_cart_out=diphone_li.get_n_of_dense_classes(),
+                    cart_tree_or_tying_config=tying_cfg,
+                    params=s.get_cart_params(key="fh-fs"),
+                    log_softmax_returnn_config=nn_precomputed_returnn_config,
+                    calculate_statistics=True,
+                )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
