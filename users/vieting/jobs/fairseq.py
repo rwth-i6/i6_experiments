@@ -160,6 +160,45 @@ class CreateFairseqLabeledDataJob(Job):
         dest_wrd.close()
 
 
+    
+    def get_common_dir(self):
+        """
+        Returns the common directory of all audios given in the corpora.
+        """
+        common_dir = None
+        # iterate over all corpora
+        for corpus_path in self.corpus_paths:
+            corpus_object = corpus.Corpus()
+            corpus_object.load(corpus_path.get())
+            for segment in corpus_object.segments():
+                audio_path = segment.recording.audio
+                assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
+                if common_dir is None:
+                    common_dir = os.path.dirname(audio_path)
+                else:
+                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
+        return common_dir
+    def delete_valid_files():
+        """
+        Delete valid set files if no valid set was created.
+        """
+        os.remove(self.out_valid_tsv_path.get())
+        os.remove(self.out_valid_ltr_path.get())
+        os.remove(self.out_valid_wrd_path.get())
+
+class MergeLabeledFairseqDataJob(Job):
+    def __init__(
+        self,
+        labeled_data_paths: Union[List[tk.Path], tk.Path],
+        create_letter_dict: bool = True,
+    ):
+        pass
+
+    def tasks(self):
+        pass
+
+    def run(self):
+        pass
 
     def create_dict_ltr(self):
         """
@@ -197,29 +236,3 @@ Z 213
 """
         with open(self.out_dict_ltr_path.get(), 'w') as f:
             f.write(dict_ltr_content)
-
-    
-    def get_common_dir(self):
-        """
-        Returns the common directory of all audios given in the corpora.
-        """
-        common_dir = None
-        # iterate over all corpora
-        for corpus_path in self.corpus_paths:
-            corpus_object = corpus.Corpus()
-            corpus_object.load(corpus_path.get())
-            for segment in corpus_object.segments():
-                audio_path = segment.recording.audio
-                assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
-                if common_dir is None:
-                    common_dir = os.path.dirname(audio_path)
-                else:
-                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
-        return common_dir
-    def delete_valid_files():
-        """
-        Delete valid set files if no valid set was created.
-        """
-        os.remove(self.out_valid_tsv_path.get())
-        os.remove(self.out_valid_ltr_path.get())
-        os.remove(self.out_valid_wrd_path.get())
