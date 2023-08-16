@@ -1904,6 +1904,7 @@ def run_single(
         label_info=s.label_info,
         classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
     )
+    network["classes_"]["set_dim_tags"]["T"] = returnn.CodeWrapper(f"{time_tag_name}.ceildiv_right(2).ceildiv_right(2)")
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
