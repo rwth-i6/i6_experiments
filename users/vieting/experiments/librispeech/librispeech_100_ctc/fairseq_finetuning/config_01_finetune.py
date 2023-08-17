@@ -44,7 +44,7 @@ def get_task_dev_sampled(
         "dev-other",
         "test-clean",
         "test-other",
-        }, f"unknown corpus name: {corpus_name}"
+    }, f"unknown corpus name: {corpus_name}"
     assert 0 <= valid_percent <= 1, f"invalid percentage: {valid_percent}"
 
     # get corpus
