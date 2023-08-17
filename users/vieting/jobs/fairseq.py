@@ -3,6 +3,7 @@ import glob
 import os
 import random
 import subprocess
+import shutil
 import logging
 from typing import List, Union, Optional 
 
@@ -175,17 +176,11 @@ class MergeLabeledFairseqDataJob(Job):
             assert os.path.exists(path.get()), f"Path {path} does not exist."
 
             # iterature through directory "path" and copy all files to self.out_task_path directory
-            path_dir = os.fsencode(path.get())
-            for file in os.listdir(path_dir):
-                filename = os.fsdecode(file)
-                if filename.endswith(".tsv") or filename.endswith(".ltr") or filename.endswith(".wrd"):
-                    subprocess.run(
-                        [
-                            "cp",
-                            os.path.join(path.get(), filename),
-                            os.path.join(self.out_task_path, filename),
-                        ]
-                    )
+            for file in os.listdir(path.get()):
+                if file.endswith(".tsv") or file.endswith(".ltr") or file.endswith(".wrd"):
+                    src = os.path.join(path.get(), file)
+                    dst = os.path.join(self.out_task_path.get(), file)
+                    shutil.copyfile(src, dst)
                 else:
                     logging.warning(f"Ignoring File {filename}; is not a valid fairseq file.")
         
