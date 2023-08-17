@@ -421,6 +421,7 @@ def decode(model_path: tk.Path):
         dev_other_decoding.out_results
     )
 
+
 # ------------------- MAIN ------------------- #
 
 def main():
