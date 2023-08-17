@@ -164,6 +164,7 @@ class MergeLabeledFairseqDataJob(Job):
                 if file.endswith(".tsv") or file.endswith(".ltr") or file.endswith(".wrd"):
                     src = os.path.join(path.get(), file)
                     dst = os.path.join(self.out_task_path.get(), file)
+                    assert not os.path.exists(dst), f"'{dst}' exists, two inputs have the same names"
                     shutil.copyfile(src, dst)
                 else:
                     logging.warning(f"Ignoring File {filename}; is not a valid fairseq file.")
