@@ -972,11 +972,9 @@ def conformer_baseline():
     # # TODO: longer training
     for target_embed_dim in [256]:
         for ep in [100 * 6]:
-            for num_blocks, reduce_factor in [(8, 1.0), (12, 0.75)]:
+            for num_blocks, reduce_factor in [(12, 0.75)]:
                 for weight_drop, self_att_drop, dec_att_drop, embed_drop, drop in [
                     (0.1, 0.15, 0.2, 0.05, 0.1),
-                    (0.1, 0.2, 0.2, 0.1, 0.1),
-                    (0.1, 0.15, 0.1, 0.05, 0.1),
                 ]:
                     args, name = copy.deepcopy(
                         get_base_v2_args(
@@ -1004,48 +1002,11 @@ def conformer_baseline():
 
     # TODO: mixup
     # best (3, 0.3)
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(12, 0.75)]:
-            for num_mixes, apply_prob in [(2, 0.3), (2, 0.4), (3, 0.4)]:
-                args, name = copy.deepcopy(
-                    get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-                )
-                args["enable_mixup_in_pretrain"] = False
-                args["pretrain_opts"]["initial_dim_factor"] = 0.5 / reduce_factor
-                args["mixup_aug_opts"] = {
-                    "use_log10_features": True,
-                    "buffer_size": 1_000_000,
-                    "apply_prob": apply_prob,
-                    "max_num_mix": num_mixes,
-                    "lambda_min": 0.15,
-                    "lambda_max": 0.3,
-                }
-                run_default_exp(
-                    name + f"_mixup-{num_mixes}-{apply_prob}-nopre",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
 
     # conf_12l_dimF0.75_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-log10-nopre       12.6       11.1     13.4  avg
     # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.15_decDrop0.2_embedDrop0.05_wd0.0_ep300_lr0.001_epochOCLR_specaug3_mixup-4-0.4               12.5       11.3     13.5  avg
 
     # conf_8l_dimF1.0_bpe500_drop0.1_selfAttDrop0.2_decAttDrop0.2_embedDrop0.1_wd0.1_ep600_specaug3_embedDim256_lr0.001_epochOCLR
-
-    # TODO: more speed perturbation
-    for ep in [50 * 6]:
-        for num_blocks, reduce_factor in [(8, 1.0)]:
-            for speed_pert_version in [2, 3, 4]:
-                args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
-                args["speed_pert_version"] = speed_pert_version
-                run_default_exp(
-                    name + f"_speedPert{speed_pert_version}",
-                    train_args=args,
-                    num_epochs=ep,
-                    gpu_mem=11,
-                    bpe_size=BPE_500,
-                )
 
     # TODO: specaug
     # variant 1 is the best
@@ -1053,7 +1014,7 @@ def conformer_baseline():
     # 12.4       11.1     13.4  avg
     for ep in [50 * 6]:
         for num_blocks, reduce_factor in [(8, 1.0)]:
-            for specaug_version in [1, 3]:
+            for specaug_version in [1]:
                 args, name = get_base_v2_args(ep, num_blocks, reduce_factor, lr_type="epoch-oclr", lr_opts={"lr": 1e-3})
                 args["specaug_version"] = specaug_version
                 run_default_exp(

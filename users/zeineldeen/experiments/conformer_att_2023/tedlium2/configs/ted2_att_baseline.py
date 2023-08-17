@@ -938,54 +938,32 @@ def conformer_baseline():
                                 # base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
                                 # 7.4     6.85  avg
                                 if target_embed_dim == 256 and att_drop == 0.0:
-                                    for lr in [2e-4, 5e-4, 8e-4]:
-                                        retrain_args = copy.deepcopy(args)
-                                        retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
-                                        retrain_args["learning_rates_list"] = [lr] * 8 + list(
-                                            numpy.linspace(lr, 1e-6, 200 - 8)
-                                        )
-                                        run_exp(
-                                            name + f"_retrain1_lr{lr}",
-                                            retrain_args,
-                                            num_epochs=200,
-                                            epoch_wise_filter=None,
-                                            bpe_size=BPE_1K,
-                                            partition_epoch=4,
-                                        )
+                                    for dec_att_drop in [0.1]:
+                                        for weight_drop in [0.15]:
+                                            for lr in [8e-4]:
+                                                retrain_args = copy.deepcopy(args)
+                                                retrain_args["retrain_checkpoint"] = train_job_avg_ckpt[name]
+                                                retrain_args["learning_rates_list"] = [lr] * 8 + list(
+                                                    numpy.linspace(lr, 1e-6, 200 - 8)
+                                                )
+                                                retrain_args["decoder_args"].att_dropout = dec_att_drop
+                                                retrain_args["encoder_args"].dropout = 0.2
+                                                retrain_args["encoder_args"].dropout_in = 0.2
+                                                retrain_args["encoder_args"].att_dropout = 0.2
 
-    # TODO: mixup
-    for use_log10_feats in [True, False]:
-        args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-        args["mixup_aug_opts"] = {
-            "use_log10_features": use_log10_feats,
-            "buffer_size": 500_000,  # 1.4
-            "apply_prob": 0.3,
-            "max_num_mix": 2,
-            "lambda_min": 0.15,
-            "lambda_max": 0.3,
-        }
-        args["enable_mixup_in_pretrain"] = False
-        exp_name += "_mixup"
-        if use_log10_feats:
-            exp_name += "_log10"
-        run_exp(
-            exp_name,
-            args,
-            num_epochs=50 * 4,
-            epoch_wise_filter=None,
-            bpe_size=BPE_1K,
-            partition_epoch=4,
-        )
+                                                retrain_args["encoder_args"].mhsa_weight_dropout = weight_drop
+                                                retrain_args["encoder_args"].ff_weight_dropout = weight_drop
+                                                retrain_args["encoder_args"].conv_weight_dropout = weight_drop
 
-    # TODO: CTC dropout
-    for ctc_drop in [0.1, 0.2]:
-        args, exp_name = get_base_v1_args(8e-4, 50 * 4)
-        args["encoder_args"].ctc_dropout = ctc_drop
-        run_exp(
-            exp_name + f"_ctcDrop{ctc_drop}",
-            args,
-            num_epochs=50 * 4,
-            epoch_wise_filter=None,
-            bpe_size=BPE_1K,
-            partition_epoch=4,
-        )
+                                                retrain_name = (
+                                                    exp_name
+                                                    + f"_weightDrop{weight_drop}_decAttDrop{dec_att_drop}_embedDim{target_embed_dim}_numBlocks{num_blocks}"
+                                                )
+                                                run_exp(
+                                                    retrain_name + f"_retrain1_lr{lr}_ep200",
+                                                    retrain_args,
+                                                    num_epochs=200,
+                                                    epoch_wise_filter=None,
+                                                    bpe_size=BPE_1K,
+                                                    partition_epoch=4,
+                                                )
