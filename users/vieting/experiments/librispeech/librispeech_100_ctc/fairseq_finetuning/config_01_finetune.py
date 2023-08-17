@@ -153,7 +153,6 @@ def get_labels(
         corpus_paths=corpus_paths,
         dest_name=dest_name,
     )
-    label_data_job.rqmt["time"] = 4
     
     return label_data_job.out_labels_path
 
