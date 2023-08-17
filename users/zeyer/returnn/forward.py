@@ -90,6 +90,7 @@ class ReturnnForwardJobV2(Job):
         yield Task("run", resume="run", rqmt=self.rqmt)
 
     def create_files(self):
+        """create files"""
         config = self.create_returnn_config(
             model_checkpoint=self.model_checkpoint,
             returnn_config=self.returnn_config,
@@ -112,6 +113,7 @@ class ReturnnForwardJobV2(Job):
             ), f"Provided model checkpoint does not exists: {self.model_checkpoint}"
 
     def run(self):
+        """run"""
         # run everything in a TempDir as writing files can cause heavy load
         with tempfile.TemporaryDirectory(prefix=gs.TMP_PREFIX) as tmp_dir:
             print("using temp-dir: %s" % tmp_dir)
