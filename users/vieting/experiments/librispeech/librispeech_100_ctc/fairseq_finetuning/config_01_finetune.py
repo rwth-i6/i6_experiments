@@ -112,7 +112,7 @@ def get_task_dev_separate(
         "dev-other",
         "test-clean",
         "test-other",
-        }, f"unknown train corpus name: {train_corpus_name}"
+    }, f"unknown train corpus name: {train_corpus_name}"
 
     assert dev_corpus_name in {"dev-clean", "dev-other"}, f"unknown dev corpus name: {dev_corpus_name}"
 
