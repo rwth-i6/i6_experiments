@@ -421,6 +421,62 @@ def run_single(
         )
         jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
+        clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_returnn_config,
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        base_cfg = s.get_cart_params(key="fh")
+        configs = [
+            dataclasses.replace(
+                base_cfg, altas=a, beam=beam, lm_scale=round(base_cfg.lm_scale / ss_factor, 2), tdp_silence=tdpSil
+            ).with_prior_scale(pC)
+            for beam, beam_limit, pC, a, tdpSil in itertools.product(
+                [18, 20],
+                [100_000, 250_000],
+                list(np.linspace(0.3, 0.7, 3)),
+                [0, 2],
+                [(0, 3, "infinity", 20), (3, 10, "infinity", 10)],
+            )
+        ]
+        for cfg in configs:
+            j = s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=1,
+            )
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"
         li = dataclasses.replace(s.label_info, n_states_per_phone=1, state_tying=RasrStateTying.diphone)
