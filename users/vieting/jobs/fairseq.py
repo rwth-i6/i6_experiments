@@ -18,16 +18,6 @@ class CreateFairseqLabeledDataJob(Job):
     - dest.ltr
     - dest.wrd
 
-    If create_letter_dict is set to True, the following file will be created:
-    - dict.ltr.txt
-
-    If sample_valid_percent is set > 0, a random sample of the files will be saved as validation set 
-    and the following files will be created:
-    - valid.tsv
-    - valid.ltr
-    - valid.wrd
-    
-
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
     https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py 
     as well as the issue https://github.com/facebookresearch/fairseq/issues/2493 for .wrd and .ltr creation.
@@ -46,14 +36,9 @@ class CreateFairseqLabeledDataJob(Job):
         """
         :param corpus_paths: list of paths or single path to raw audio file directory to be included
         :param file_extension: file extension to look for in corpus_paths
-        :param sample_valid_percent: percentage of files to be randomly sampled as validation set
-        :param seed: random seed for splitting into train and valid set
         :param path_must_contain: if set, path must contain this substring
             for a file to be included in the task
         :param dest_name: name of the main label files. Default: "train"
-        :param sample_valid_name: name of the sampled validation label files. Default: "valid". 
-            Ignored if sample_valid_percent is 0.
-        :param create_letter_dict: if set to True, a dict.ltr.txt file will be created. Default: True
         """
         if not isinstance(corpus_paths, list):
             corpus_paths = [corpus_paths]
@@ -80,8 +65,7 @@ class CreateFairseqLabeledDataJob(Job):
 
     def create_tsv_and_labels(self):
         """
-        Creates both tsv files (train.tsv, valid.tsv) and labels (train.ltr, train.wrd, valid.ltr, valid.wrd) 
-        from the given corpora.
+        Creates both .tsv file and labels (.ltr and .wrd files) from the given corpora.
         """        
         common_dir = self.get_common_dir()
 
@@ -105,7 +89,7 @@ class CreateFairseqLabeledDataJob(Job):
                 rel_audio_path = os.path.relpath(audio_path, common_dir)
                 frames = soundfile.info(audio_path).frames
                 
-                # write audio path to tsv files
+                # write audio path to tsv file
                 print(f"{rel_audio_path}\t{frames}", file=tsv)
 
                 # write transcription to transcription files
