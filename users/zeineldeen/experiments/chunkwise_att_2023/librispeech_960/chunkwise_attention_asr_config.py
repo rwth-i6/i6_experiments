@@ -178,6 +178,7 @@ def pretrain_layers_and_dims(
     second_bs_idx=None,
     enc_dec_share_grow_frac=True,
     repeat_first=True,
+    ignored_keys_for_reduce_dim=None,
 ):
     """
     Pretraining implementation that works for multiple encoder/decoder combinations
@@ -266,6 +267,8 @@ def pretrain_layers_and_dims(
         dim_frac_enc = InitialDimFactor + (1.0 - InitialDimFactor) * grow_frac_enc
 
         for key in encoder_keys:
+            if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                continue
             encoder_args_copy[key] = (
                 int(encoder_args[key] * dim_frac_enc / float(EncoderAttNumHeads)) * EncoderAttNumHeads
             )
@@ -288,6 +291,8 @@ def pretrain_layers_and_dims(
                 decoder_keys += ["conv_kernel_size"]
 
             for key in decoder_keys:
+                if ignored_keys_for_reduce_dim and key in ignored_keys_for_reduce_dim:
+                    continue
                 decoder_args_copy[key] = (
                     int(decoder_args[key] * dim_frac_dec / float(DecoderAttNumHeads)) * DecoderAttNumHeads
                 )
@@ -527,7 +532,7 @@ def create_config(
     training_datasets,
     encoder_args: EncoderArgs,
     decoder_args: DecoderArgs,
-    with_staged_network=False,
+    with_staged_network=True,
     is_recog=False,
     input_key="audio_features",
     lr=0.0008,
@@ -1124,30 +1129,29 @@ def create_config(
     return serialized_config
 
 
-def add_global_stats_norm(global_stats, net):
-    if isinstance(global_stats, dict):
-        from sisyphus.delayed_ops import DelayedFormat
+def add_global_stats_norm(global_stats: dict, net):
+    from sisyphus.delayed_ops import DelayedFormat
 
-        global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
-        global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
+    global_mean_delayed = DelayedFormat("{}", global_stats["mean"])
+    global_stddev_delayed = DelayedFormat("{}", global_stats["stddev"])
 
-        net["log10_"] = copy.deepcopy(net["log10"])
-        net["global_mean"] = {
-            "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
-            ),
-            "dtype": "float32",
-        }
-        net["global_stddev"] = {
-            "class": "constant",
-            "value": CodeWrapper(
-                f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
-            ),
-            "dtype": "float32",
-        }
-        net["log10"] = {
-            "class": "eval",
-            "from": ["log10_", "global_mean", "global_stddev"],
-            "eval": "(source(0) - source(1)) / source(2)",
-        }
+    net["log10_"] = copy.deepcopy(net["log10"])
+    net["global_mean"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_mean_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["global_stddev"] = {
+        "class": "constant",
+        "value": CodeWrapper(
+            f"eval(\"exec('import numpy') or numpy.loadtxt('{global_stddev_delayed}', dtype='float32')\")"
+        ),
+        "dtype": "float32",
+    }
+    net["log10"] = {
+        "class": "eval",
+        "from": ["log10_", "global_mean", "global_stddev"],
+        "eval": "(source(0) - source(1)) / source(2)",
+    }
