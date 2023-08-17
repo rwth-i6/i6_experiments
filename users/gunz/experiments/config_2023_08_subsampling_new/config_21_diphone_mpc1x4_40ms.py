@@ -463,7 +463,7 @@ def run_single(
                 tdp_silence=tdpSil,
             ).with_prior_scale(pC)
             for beam, pC, a, tdpScale, tdpSp, tdpSil in itertools.product(
-                [20],
+                [14],
                 list(np.linspace(0.1, 0.7, 7)),
                 [12],
                 list(np.linspace(0.2, 0.8, 4)),
