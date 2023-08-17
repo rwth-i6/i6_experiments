@@ -388,6 +388,94 @@ def run_single(
                 rtf_cpu=32,
             )
 
+    if run_performance_study:
+        assert tune_decoding
+
+        ep = 600
+        s.set_diphone_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
+        )
+        recognizer, recog_args = s.get_recognizer_and_args(
+            key="fh",
+            context_type=PhoneticContext.diphone,
+            crp_corpus="dev-other",
+            epoch=ep,
+            gpu=False,
+            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
+            set_batch_major_for_feature_scorer=True,
+            lm_gc_simple_hash=True,
+        )
+        recog_args = dataclasses.replace(best_config, altas=2, beam=20, lm_scale=best_config.lm_scale + 0.01)
+        jobs = recognizer.recognize_count_lm(
+            label_info=s.label_info,
+            search_parameters=recog_args,
+            num_encoder_output=conf_model_dim,
+            rerun_after_opt_lm=True,
+            calculate_stats=True,
+            pre_path="decoding-perf-eval",
+            name_override="best/4gram",
+            cpu_rqmt=2,
+            mem_rqmt=4,
+        )
+        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
+        clean_returnn_config = remove_label_pops_and_losses_from_returnn_config(returnn_config)
+        nn_precomputed_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=True,
+        )
+        prior_returnn_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+            returnn_config=clean_returnn_config,
+            label_info=s.label_info,
+            out_joint_score_layer="output",
+            log_softmax=False,
+        )
+        s.set_mono_priors_returnn_rasr(
+            key="fh",
+            epoch=ep,
+            train_corpus_key=s.crp_names["train"],
+            dev_corpus_key=s.crp_names["cvtrain"],
+            smoothen=True,
+            returnn_config=prior_returnn_config,
+        )
+
+        diphone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.diphone)
+        tying_cfg = rasr.RasrConfig()
+        tying_cfg.type = "diphone-dense"
+
+        base_cfg = s.get_cart_params(key="fh")
+        configs = [
+            dataclasses.replace(
+                base_cfg, altas=a, beam=beam, lm_scale=round(base_cfg.lm_scale / ss_factor, 2), tdp_silence=tdpSil
+            ).with_prior_scale(pC)
+            for beam, beam_limit, pC, a, tdpSil in itertools.product(
+                [18, 20],
+                [100_000, 250_000],
+                list(np.linspace(0.3, 0.7, 3)),
+                [0, 2],
+                [(0, 3, "infinity", 20), (3, 10, "infinity", 10)],
+            )
+        ]
+        for cfg in configs:
+            j = s.recognize_cart(
+                key="fh",
+                epoch=ep,
+                crp_corpus="dev-other",
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                cart_tree_or_tying_config=tying_cfg,
+                params=cfg,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                calculate_statistics=True,
+            )
+            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
+
     # ###########
     # FINE TUNING
     # ###########
@@ -504,42 +592,6 @@ def run_single(
                     log_softmax_returnn_config=nn_precomputed_returnn_config,
                     calculate_statistics=True,
                 )
-
-    if run_performance_study:
-        assert tune_decoding
-
-        ep = 600
-        s.set_diphone_priors_returnn_rasr(
-            key="fh",
-            epoch=ep,
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config),
-        )
-        recognizer, recog_args = s.get_recognizer_and_args(
-            key="fh",
-            context_type=PhoneticContext.diphone,
-            crp_corpus="dev-other",
-            epoch=ep,
-            gpu=False,
-            tensor_map=CONF_FH_DECODING_TENSOR_CONFIG,
-            set_batch_major_for_feature_scorer=True,
-            lm_gc_simple_hash=True,
-        )
-        recog_args = dataclasses.replace(best_config, altas=2, beam=20, lm_scale=best_config.lm_scale + 0.01)
-        jobs = recognizer.recognize_count_lm(
-            label_info=s.label_info,
-            search_parameters=recog_args,
-            num_encoder_output=conf_model_dim,
-            rerun_after_opt_lm=True,
-            calculate_stats=True,
-            pre_path="decoding-perf-eval",
-            name_override="best/4gram",
-            cpu_rqmt=2,
-            mem_rqmt=4,
-        )
-        jobs.search.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     if run_tdp_study:
         s.feature_flows["dev-other"].flags["cache_mode"] = "bundle"

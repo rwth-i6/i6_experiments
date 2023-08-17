@@ -1440,7 +1440,7 @@ class FactoredHybridSystem(NnSystem):
         create_lattice: bool = True,
         search_rqmt_update: Optional[dict] = None,
         crp_update: Optional[typing.Callable] = None,
-    ):
+    ) -> recognition.AdvancedTreeSearchJob:
         p_info: PriorInfo = self.experiments[key].get("priors", None)
         assert p_info is not None, "set priors first"
 
@@ -1611,6 +1611,8 @@ class FactoredHybridSystem(NnSystem):
             tk.register_output(f"{stats_alias}/avg_states", stats_job.avg_states)
             tk.register_output(f"{stats_alias}/avg_trees", stats_job.avg_trees)
             tk.register_output(f"{stats_alias}/rtf", stats_job.decoding_rtf)
+
+        return adv_tree_search_job
 
     # -------------------- run setup  --------------------
 
