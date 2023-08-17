@@ -146,7 +146,7 @@ class MergeLabeledFairseqDataJob(Job):
         self.out_dict_ltr_path = self.output_path("task/dict.ltr.txt")
 
     def tasks(self):
-        yield Task("run", rqmt=self.rqmt, mini_task=True)
+        yield Task("run", mini_task=True)
 
     def run(self):
         self.merge()
