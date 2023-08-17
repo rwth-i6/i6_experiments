@@ -464,9 +464,9 @@ def run_single(
             ).with_prior_scale(pC)
             for beam, pC, a, tdpScale, tdpSp, tdpSil in itertools.product(
                 [14],
-                list(np.linspace(0.1, 0.7, 7)),
+                [round(v, 2) for v in np.linspace(0.1, 0.7, 7)],
                 [12],
-                list(np.linspace(0.2, 0.8, 4)),
+                [round(v, 2) for v in np.linspace(0.2, 0.8, 4)],
                 [(10, 0, "infinity", 0), (10, 0, "infinity", 10)],
                 [(0, 3, "infinity", 20), (3, 10, "infinity", 10), (10, 10, "infinity", 10)],
             )
