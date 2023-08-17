@@ -271,34 +271,34 @@ def get_pretrained_model(model_path: Optional[Union[str, tk.Path]] = None):
 
 def main():
     # defines
-    PREFIX_NAME = "experiments/librispeech/librispeech_100_ctc/fairseq/"
-    EXP_NAME = "base"
-    NUM_GPUS = 1
-    GPU_MEM_RQMT = 24
-    CORPUS_NAME = "train-clean-100"
-    FAIRSEQ_PYTHON_EXE = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
-    USE_SAMPLED_DEV = False
+    prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
+    exp_name = "base"
+    num_gpus = 1
+    gpu_mem_rqmt = 24
+    corpus_name = "train-clean-100"
+    fairseq_python_exe = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+    use_sampled_dev = False
 
     # get pretrained model
     w2v_path = get_pretrained_model()
 
     # create wav2vec labeled data
-    if USE_SAMPLED_DEV:
+    if use_sampled_dev:
         dev_set = "dev"
-        labeled_data = get_task_dev_sampled(corpus_name=CORPUS_NAME, valid_percent=0.01)
+        labeled_data = get_task_dev_sampled(corpus_name=corpus_name, valid_percent=0.01)
     else:
         dev_set = "dev-other"
-        labeled_data = get_task_dev_separate(train_corpus_name=CORPUS_NAME, dev_corpus_name=dev_set)
+        labeled_data = get_task_dev_separate(train_corpus_name=corpus_name, dev_corpus_name=dev_set)
 
     # create fairseq config for finetuning
     fairseq_args = get_fairseq_args(
         labeled_data=labeled_data,
         w2v_path=w2v_path,
         dev_file_name=dev_set,
-        num_gpus=NUM_GPUS,
+        num_gpus=num_gpus,
     )
     fairseq_config = FairseqHydraConfig(fairseq_args)
-    fairseq_root = get_fairseq_root(fairseq_python_exe=FAIRSEQ_PYTHON_EXE)
+    fairseq_root = get_fairseq_root(fairseq_python_exe=fairseq_python_exe)
 
     # run finetuning
     job = FairseqHydraTrainingJob(
@@ -308,14 +308,14 @@ def main():
         time_rqmt=100,
         mem_rqmt=16,
         cpu_rqmt=2,
-        gpu_rqmt=NUM_GPUS,
-        gpu_mem_rqmt=GPU_MEM_RQMT,
+        gpu_rqmt=num_gpus,
+        gpu_mem_rqmt=gpu_mem_rqmt,
         fairseq_root=fairseq_root,
-        fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
+        fairseq_python_exe=fairseq_python_exe,
         use_cache_manager=False,
     )
     
-    job.add_alias(os.path.join(PREFIX_NAME, EXP_NAME, "finetune"))
-    tk.register_output(os.path.join(PREFIX_NAME, EXP_NAME, "finetune", "scores.png"), job.out_plot_se)
+    job.add_alias(os.path.join(prefix_name, exp_name, "finetune"))
+    tk.register_output(os.path.join(prefix_name, exp_name, "finetune", "scores.png"), job.out_plot_se)
 
 main()
