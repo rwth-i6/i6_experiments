@@ -365,7 +365,6 @@ def get_dev_labels(
         file_extension=audio_format,
         dest_name=corpus_name,
     )
-    label_data_job.rqmt["time"] = 4
 
     return label_data_job.out_task_path
 
