@@ -55,7 +55,10 @@ def get_task_dev_sampled(
     segment_corpus_job = SegmentCorpusJob(corpus_path, 1)
 
     split = {"train": 1 - valid_percent, "dev": valid_percent}
-    shuffle_job = ShuffleAndSplitSegmentsJob(segment_corpus_job.out_single_segment_files[1])
+    shuffle_job = ShuffleAndSplitSegmentsJob(
+        segment_file = segment_corpus_job.out_single_segment_files[1],
+        split=split,
+    )   
 
     train_filter_corpus_job = FilterCorpusBySegmentsJob(
         bliss_corpus=corpus_path,
