@@ -20,6 +20,25 @@ from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960
     import SetupFairseqJob
 
 
+def get_labels(
+    dest_name: str,
+    corpus_paths: Union[List[tk.Path], tk.Path],
+):
+    """
+    :param dest_name: name of the output file
+    :param corpus_paths: path to the corpora
+    """
+    if isinstance(corpus_paths, tk.Path):
+        corpus_paths = [corpus_paths]
+
+    label_data_job = CreateFairseqLabeledDataJob(
+        corpus_paths=corpus_paths,
+        dest_name=dest_name,
+    )
+    
+    return label_data_job.out_labels_path
+
+
 def get_task_dev_sampled(
     corpus_name: str,
     valid_percent: float = 0.01, 
@@ -141,23 +160,6 @@ def get_task_dev_separate(
     task = merge_job.out_task_path
     return task
 
-def get_labels(
-    dest_name: str,
-    corpus_paths: Union[List[tk.Path], tk.Path],
-):
-    """
-    :param dest_name: name of the output file
-    :param corpus_paths: path to the corpora
-    """
-    if isinstance(corpus_paths, tk.Path):
-        corpus_paths = [corpus_paths]
-
-    label_data_job = CreateFairseqLabeledDataJob(
-        corpus_paths=corpus_paths,
-        dest_name=dest_name,
-    )
-    
-    return label_data_job.out_labels_path
 
 def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
     """
