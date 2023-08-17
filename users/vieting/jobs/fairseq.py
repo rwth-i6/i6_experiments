@@ -107,18 +107,15 @@ class CreateFairseqLabeledDataJob(Job):
         """
         Returns the common directory of all audios given in the corpora.
         """
-        common_dir = None
+        audio_paths = []
         # iterate over all corpora
         for corpus_path in self.corpus_paths:
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
-            for segment in corpus_object.segments():
-                audio_path = segment.recording.audio
+            for recording in corpus_object.recordings():
+                audio_paths.append(recording.audio)
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
-                if common_dir is None:
-                    common_dir = os.path.dirname(audio_path)
-                else:
-                    common_dir = os.path.commonpath([common_dir, os.path.dirname(audio_path)])
+        common_dir = os.path.commonpath(audio_paths)
         return common_dir
 
 
