@@ -156,7 +156,6 @@ def get_task_dev_separate(
         labeled_data_paths=[train_labels, dev_labels],
         create_letter_dict=True,
     )
-    merge_job.rqmt["time"] = 4
     task = merge_job.out_task_path
     return task
 
