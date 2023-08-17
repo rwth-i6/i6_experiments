@@ -457,7 +457,7 @@ def run_single(
                 base_cfg,
                 altas=a,
                 beam=beam,
-                beam_limit=100000,
+                beam_limit=15_000,
                 lm_scale=round(base_cfg.lm_scale / ss_factor, 2),
                 tdp_scale=tdpScale,
                 tdp_speech=tdpSp,
