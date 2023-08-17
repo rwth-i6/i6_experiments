@@ -68,7 +68,7 @@ def get_task_dev_sampled(
         segment_file=shuffle_job.out_segments["dev"],
         compressed=True,
         delete_empty_recordings=True
-        )    
+    )
 
     # create labeled data for training and dev set
     train_labels = get_labels(
