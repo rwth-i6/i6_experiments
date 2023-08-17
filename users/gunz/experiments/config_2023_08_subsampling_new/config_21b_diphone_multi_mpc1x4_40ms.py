@@ -93,7 +93,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str, init_from_system
             batch_size=12500,
             dc_detection=False,
             decode_all_corpora=False,
-            fine_tune=a_name == "40ms-TD-v8",
+            fine_tune=a_name == "40ms-FF-v8",
             init_from_system=init_from_system,
             lr="v13",
             run_performance_study=a_name == "40ms-FF-v8",
