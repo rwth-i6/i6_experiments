@@ -175,10 +175,10 @@ class ReturnnForwardJobV2(Job):
         else:
             res.config.setdefault("allow_random_model_init", True)
 
-        returnn_config.post_config.setdefault("device", device)
-        returnn_config.post_config.setdefault("log", ["./returnn.log"])
-        returnn_config.post_config.setdefault("tf_log_dir", "returnn-tf-log")
-        returnn_config.post_config.setdefault("log_verbosity", log_verbosity)
+        res.post_config.setdefault("device", device)
+        res.post_config.setdefault("log", ["./returnn.log"])
+        res.post_config.setdefault("tf_log_dir", "returnn-tf-log")
+        res.post_config.setdefault("log_verbosity", log_verbosity)
 
         res.check_consistency()
 
@@ -187,7 +187,7 @@ class ReturnnForwardJobV2(Job):
     @classmethod
     def hash(cls, kwargs):
         d = {
-            "returnn_config": ReturnnForwardJobV2.create_returnn_config(**kwargs),
+            "returnn_config": cls.create_returnn_config(**kwargs),
             "returnn_python_exe": kwargs["returnn_python_exe"],
             "returnn_root": kwargs["returnn_root"],
         }
