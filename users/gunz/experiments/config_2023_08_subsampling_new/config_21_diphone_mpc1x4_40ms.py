@@ -459,21 +459,23 @@ def run_single(
                 beam_limit=100000,
                 lm_scale=round(base_cfg.lm_scale / ss_factor, 2),
                 tdp_scale=tdpScale,
+                tdp_speech=tdpSp,
                 tdp_silence=tdpSil,
             ).with_prior_scale(pC)
-            for beam, pC, a, tdpScale, tdpSil in itertools.product(
-                [18, 20],
-                list(np.linspace(0.3, 0.7, 3)),
-                [0, 2],
-                list(np.linspace(0.2, 0.6, 3)),
-                [(0, 3, "infinity", 20), (3, 10, "infinity", 10)],
+            for beam, pC, a, tdpScale, tdpSp, tdpSil in itertools.product(
+                [20],
+                list(np.linspace(0.1, 0.7, 7)),
+                [12],
+                list(np.linspace(0.2, 0.8, 4)),
+                [(10, 0, "infinity", 0), (10, 0, "infinity", 10)],
+                [(0, 3, "infinity", 20), (3, 10, "infinity", 10), (10, 10, "infinity", 10)],
             )
         ]
         for cfg in configs:
-            j = s.recognize_cart(
+            s.recognize_cart(
                 key="fh",
                 epoch=ep,
-                calculate_statistics=True,
+                calculate_statistics=False,
                 cart_tree_or_tying_config=tying_cfg,
                 cpu_rqmt=2,
                 crp_corpus="dev-other",
@@ -482,9 +484,8 @@ def run_single(
                 mem_rqmt=4,
                 n_cart_out=diphone_li.get_n_of_dense_classes(),
                 params=cfg,
-                rtf=1,
+                rtf=4,
             )
-            j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
     # ###########
     # FINE TUNING
