@@ -19,7 +19,20 @@ from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabele
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
     import SetupFairseqJob
 
-# ------------------- FINETUNING ------------------- #
+
+# ------------------- GENERAL ------------------- #
+
+def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
+    """
+    :param fairseq_python_exe: path to the python executable of the fairseq environment
+    """
+    fairseq_root = CloneGitRepositoryJob(
+        "https://github.com/facebookresearch/fairseq",
+        checkout_folder_name="fairseq",
+        commit="91c364b7ceef8032099363cb10ba19a85b050c1c").out_repository
+    fairseq_root = SetupFairseqJob(fairseq_root, fairseq_python_exe).out_fairseq_root
+    return fairseq_root
+
 
 def get_labels(
     dest_name: str,
@@ -39,6 +52,8 @@ def get_labels(
     
     return label_data_job.out_labels_path
 
+
+# ------------------- FINETUNING ------------------- #
 
 def get_task_dev_sampled(
     corpus_name: str,
@@ -159,18 +174,6 @@ def get_task_dev_separate(
     )
     task = merge_job.out_task_path
     return task
-
-
-def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
-    """
-    :param fairseq_python_exe: path to the python executable of the fairseq environment
-    """
-    fairseq_root = CloneGitRepositoryJob(
-        "https://github.com/facebookresearch/fairseq",
-        checkout_folder_name="fairseq",
-        commit="91c364b7ceef8032099363cb10ba19a85b050c1c").out_repository
-    fairseq_root = SetupFairseqJob(fairseq_root, fairseq_python_exe).out_fairseq_root
-    return fairseq_root
 
 
 def get_fairseq_args(
@@ -346,7 +349,6 @@ def get_dev_labels(
     :param output_prefix: prefix of the output files
     :param corpus_names: list of names of the corpora to be used for decoding
     """
-    # TODO has to be adapted when CreateFairseqLabeledDataJob is updated
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
     assert corpus_name in (
         {"train-clean-100",
@@ -358,15 +360,12 @@ def get_dev_labels(
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
     # filter out corpora that are not in corpus_names
-    corpus_dict = {corpus_name: corpus_dict[corpus_name]}
+    corpus_path = corpus_dict[corpus_name]
 
-    label_data_job = CreateFairseqLabeledDataJob(
-        corpus_paths=list(corpus_dict.values()),
-        file_extension=audio_format,
+    return get_labels(
         dest_name=corpus_name,
+        corpus_paths=corpus_path,
     )
-
-    return label_data_job.out_task_path
 
 
 def decode(model_path: tk.Path):
