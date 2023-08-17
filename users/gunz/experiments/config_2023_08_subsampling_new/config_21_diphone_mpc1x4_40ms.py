@@ -467,12 +467,16 @@ def run_single(
             j = s.recognize_cart(
                 key="fh",
                 epoch=ep,
-                crp_corpus="dev-other",
-                n_cart_out=diphone_li.get_n_of_dense_classes(),
-                cart_tree_or_tying_config=tying_cfg,
-                params=cfg,
-                log_softmax_returnn_config=nn_precomputed_returnn_config,
                 calculate_statistics=True,
+                cart_tree_or_tying_config=tying_cfg,
+                cpu_rqmt=2,
+                crp_corpus="dev-other",
+                lm_gc_simple_hash=True,
+                log_softmax_returnn_config=nn_precomputed_returnn_config,
+                mem_rqmt=4,
+                n_cart_out=diphone_li.get_n_of_dense_classes(),
+                params=cfg,
+                rtf=1,
             )
             j.rqmt.update({"sbatch_args": ["-w", "cn-30"]})
 
