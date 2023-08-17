@@ -112,8 +112,9 @@ class CreateFairseqLabeledDataJob(Job):
         for corpus_path in self.corpus_paths:
             corpus_object = corpus.Corpus()
             corpus_object.load(corpus_path.get())
-            for recording in corpus_object.recordings():
-                audio_paths.append(recording.audio)
+            for recording in corpus_object.all_recordings():
+                audio_path = recording.audio
+                audio_paths.append(audio_path)
                 assert os.path.exists(audio_path), f"Path {audio_path} does not exist."
         common_dir = os.path.commonpath(audio_paths)
         return common_dir
