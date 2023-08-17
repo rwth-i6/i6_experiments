@@ -90,39 +90,39 @@ def get_task_dev_sampled(
     return task
 
 def get_task_dev_separate(
-    train_corpus_names: List[str],
+    train_corpus_name: str,
     dev_corpus_name: str,
     audio_format: str = "ogg",
     output_prefix: str = "datasets",
 ):
     """
-    :param train_corpus_names: list of names of the corpora to be used for training set
+    :param train_corpus_name: name of the corpus to be used for training set
     :param dev_corpus_name: name of the corpus to be used for validation set
     :param audio_format: audio format of the output files
     :param output_prefix: prefix of the output files
     """
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
-    assert set(train_corpus_names).issubset(
-        {"train-clean-100", 
-         "train-clean-360", 
-         "train-clean-460", 
-         "train-other-500", 
-         "train-other-960", 
-         "dev-clean", 
-         "dev-other", 
-         "test-clean", 
-         "test-other"}
-    ), f"unknown corpus names: {train_corpus_names}"
+    assert train_corpus_name in {
+        "train-clean-100", 
+        "train-clean-360", 
+        "train-clean-460", 
+        "train-other-500", 
+        "train-other-960",
+        "dev-clean",
+        "dev-other",
+        "test-clean",
+        "test-other",
+        }, f"unknown train corpus name: {train_corpus_name}"
 
-    assert dev_corpus_name in {"dev-clean", "dev-other"}, f"unknown corpus name: {dev_corpus_name}"
+    assert dev_corpus_name in {"dev-clean", "dev-other"}, f"unknown dev corpus name: {dev_corpus_name}"
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
-    train_corpus_paths = [corpus_dict[name] for name in train_corpus_names]
+    train_corpus_path = corpus_dict[train_corpus_name]
     dev_corpus_path = corpus_dict[dev_corpus_name]
 
     train_labels = get_labels(
         dest_name="train",
-        corpus_paths=train_corpus_paths,
+        corpus_paths=train_corpus_path,
     )
     dev_labels = get_labels(
         dest_name=dev_corpus_name,
@@ -270,7 +270,7 @@ def main():
     EXP_NAME = "base"
     NUM_GPUS = 1
     GPU_MEM_RQMT = 24
-    CORPUS_NAMES = ["train-clean-100"]
+    CORPUS_NAME = "train-clean-100"
     FAIRSEQ_PYTHON_EXE = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
     USE_SAMPLED_DEV = False
 
@@ -280,10 +280,10 @@ def main():
     # create wav2vec labeled data
     if USE_SAMPLED_DEV:
         dev_set = "dev"
-        labeled_data = get_task_dev_sampled(corpus_name=CORPUS_NAMES[0], valid_percent=0.01)
+        labeled_data = get_task_dev_sampled(corpus_name=CORPUS_NAME, valid_percent=0.01)
     else:
         dev_set = "dev-other"
-        labeled_data = get_task_dev_separate(train_corpus_names=CORPUS_NAMES, dev_corpus_name=dev_set)
+        labeled_data = get_task_dev_separate(train_corpus_name=CORPUS_NAME, dev_corpus_name=dev_set)
 
     # create fairseq config for finetuning
     fairseq_args = get_fairseq_args(
