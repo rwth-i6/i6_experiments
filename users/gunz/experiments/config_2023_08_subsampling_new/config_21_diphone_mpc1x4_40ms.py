@@ -453,13 +453,19 @@ def run_single(
         base_cfg = s.get_cart_params(key="fh")
         configs = [
             dataclasses.replace(
-                base_cfg, altas=a, beam=beam, lm_scale=round(base_cfg.lm_scale / ss_factor, 2), tdp_silence=tdpSil
+                base_cfg,
+                altas=a,
+                beam=beam,
+                beam_limit=100000,
+                lm_scale=round(base_cfg.lm_scale / ss_factor, 2),
+                tdp_scale=tdpScale,
+                tdp_silence=tdpSil,
             ).with_prior_scale(pC)
-            for beam, beam_limit, pC, a, tdpSil in itertools.product(
+            for beam, pC, a, tdpScale, tdpSil in itertools.product(
                 [18, 20],
-                [100_000, 250_000],
                 list(np.linspace(0.3, 0.7, 3)),
                 [0, 2],
+                list(np.linspace(0.2, 0.6, 3)),
                 [(0, 3, "infinity", 20), (3, 10, "infinity", 10)],
             )
         ]
