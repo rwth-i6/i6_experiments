@@ -467,6 +467,7 @@ def run_single(
             )
         ]
         for cfg in configs:
+            continue
             j = s.recognize_cart(
                 key="fh",
                 epoch=ep,
