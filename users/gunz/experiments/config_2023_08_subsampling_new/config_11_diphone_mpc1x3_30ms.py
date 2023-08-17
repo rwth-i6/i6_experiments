@@ -91,7 +91,7 @@ def run(returnn_root: tk.Path, alignments: typing.List[typing.Tuple[tk.Path, str
             dc_detection=False,
             decode_all_corpora=False,
             lr="v13",
-            run_performance_study=True,
+            run_performance_study=a_name == "30ms-FF-v8",
             tune_decoding=True,
             run_tdp_study=False,
         )
