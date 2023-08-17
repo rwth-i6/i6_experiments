@@ -64,9 +64,9 @@ class CreateFairseqLabeledDataJob(Job):
 
         self.out_labels_path = self.output_path("labels", directory=True)
 
-        self.out_dest_tsv_path = self.output_path(f"labels/{dest_name}.tsv")        
-        self.out_dest_ltr_path = self.output_path(f"labels/{dest_name}.ltr")
-        self.out_dest_wrd_path = self.output_path(f"labels/{dest_name}.wrd")
+        self.out_tsv_path = self.output_path(f"labels/{dest_name}.tsv")
+        self.out_ltr_path = self.output_path(f"labels/{dest_name}.ltr")
+        self.out_wrd_path = self.output_path(f"labels/{dest_name}.wrd")
 
         self.rqmt = {"time": 6, "mem": 8, "cpu": 1}
 
@@ -84,12 +84,12 @@ class CreateFairseqLabeledDataJob(Job):
         """        
         common_dir = self.get_common_dir()
 
-        dest_tsv = open(self.out_dest_tsv_path, "w")
-        dest_ltr = open(self.out_dest_ltr_path, "w")
-        dest_wrd = open(self.out_dest_wrd_path, "w")
+        tsv = open(self.out_tsv_path, "w")
+        ltr = open(self.out_ltr_path, "w")
+        wrd = open(self.out_wrd_path, "w")
 
         # write common directory (root) to tsv files
-        print(common_dir, file=dest_tsv)
+        print(common_dir, file=tsv)
 
         # iterate over all corpora
         for corpus_path in self.corpus_paths:
@@ -105,18 +105,18 @@ class CreateFairseqLabeledDataJob(Job):
                 frames = soundfile.info(audio_path).frames
                 
                 # write audio path to tsv files
-                print(f"{rel_audio_path}\t{frames}", file=dest_tsv)
+                print(f"{rel_audio_path}\t{frames}", file=tsv)
 
                 # write transcription to transcription files
                 print(
                     " ".join(list(audio_trans.replace(" ", "|"))) + " |",
-                    file=dest_ltr,
+                    file=ltr,
                 )
-                print(audio_trans, file=dest_wrd)
+                print(audio_trans, file=wrd)
 
-        dest_tsv.close()
-        dest_ltr.close()
-        dest_wrd.close()
+        tsv.close()
+        ltr.close()
+        wrd.close()
 
     def get_common_dir(self):
         """
