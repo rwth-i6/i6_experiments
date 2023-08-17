@@ -213,6 +213,8 @@ class FairseqDecodingJob(Job):
     Yields hypotheses and targets files in both word format and specified post-processing format.
     """
     def __init__(
+            self,
+            fairseq_python_exe: tk.Path,
             fairseq_root: tk.Path,
             model_path: tk.Path,
             data_path: tk.Path,
@@ -222,7 +224,7 @@ class FairseqDecodingJob(Job):
             lm_path: Optional[tk.Path] = None,
             lm_lexicon: Optional[tk.Path] = None,
             lm_weight: float = 2.0,
-            word_score: float = 1.0,
+            word_score: float = -1.0,
             sil_weight: float = 0.0,
             criterion: str = "ctc",
             labels: str = "ltr",
@@ -230,6 +232,7 @@ class FairseqDecodingJob(Job):
             max_tokens: int = 4000000,
     ):
         """
+        :param fairseq_python_exe: path to fairseq python executable
         :param fairseq_root: path to fairseq root directory
         :param model_path: path to fine-tuned model
         :param data_path: path to the data to be decoded. Should be a directory containing
@@ -252,6 +255,8 @@ class FairseqDecodingJob(Job):
             (just use "letter" for now)
         :param max_tokens: maximum number of tokens to decode, default 4000000
         """
+
+        # inputs
         self.fairseq_root = fairseq_root
         self.model_path = model_path
         self.data_path = data_path
@@ -284,4 +289,42 @@ class FairseqDecodingJob(Job):
         self.post_process = post_process
 
         self.max_tokens = max_tokens
+
+        # outputs
+        self.out_results = self.output_path("results", directory=True)
+
+        # rqmt
+        self.rqmt = {"time": 6, "mem": 8, "cpu": 1, "gpu": 1, "gpu_mem": 11}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+    
+    def run(self):
+        my_env = os.environ
+        sp.check_call(self._get_run_cmd(), env=my_env)
+    
+    def _get_run_cmd(self):
+        fairseq_infer_path = os.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
+        run_cmd = [
+            self.fairseq_python_exe.get(),
+            fairseq_infer_path,
+            self.data_path.get(),
+            "--task", "audio_finetuning",
+            "--nbest", str(self.nbest),
+            "--path", self.model_path.get(),
+            "--gen-subset", self.gen_subset,
+            "--w2l-decoder", self.w2l_decoder,
+            "--lm-path", self.lm_path.get(),
+            "--lexicon", self.lm_lexicon.get(),
+            "--lm-weight", str(self.lm_weight),
+            "--word-score", str(self.word_score),
+            "--sil-weight", str(self.sil_weight),
+            "--criterion", self.criterion,
+            "--labels", self.labels,
+            "--post-process", self.post_process,
+            "--max-tokens", str(self.max_tokens),
+            "--results-path", self.out_results.get()
+        ]
+
+        return run_cmd
 
