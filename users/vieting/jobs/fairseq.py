@@ -240,9 +240,9 @@ class FairseqDecodingJob(Job):
             - [gen_subset].[labels] (e.g. ltr)
         :param gen_subset: name of the subset to be decoded. The files in data_path should be named correspondingly.
         :param nbest: number of nbest hypotheses to output, default 1
-        :param w2l_decoder: decoder to use, default "viterbi". Can be "viterbi", "kenlm" or "fairseqlm". 
+        :param w2l_decoder: decoder to use, default "viterbi". Can be "viterbi", "kenlm" or "fairseqlm".
         :param lm_path: path to language model, default None. Only required if w2l_decoder is "kenlm" or "fairseqlm".
-        :param lm_lexicon: path to lexicon for language model, default None. 
+        :param lm_lexicon: path to lexicon for language model, default None.
             Only required if w2l_decoder is "kenlm" or "fairseqlm".
         :param lm_weight: weight of language model, default 2.0
         :param word_score: word score, default 1.0
@@ -250,7 +250,7 @@ class FairseqDecodingJob(Job):
         :param criterion: criterion to use, default "ctc". At the moment, only "ctc" is tested.
         :param labels: labels to use, default "ltr". At the moment, only "ltr" is tested. 
             The data_path folder should contain a file with the corresponding file extension.
-        :param post_process: post processing to use, default "letter". 
+        :param post_process: post processing to use, default "letter".
             Can be "letter", "sentencepiece", "wordpiece", "letter", "silence", "subword_nmt", "_EOW" or "none".
             (just use "letter" for now)
         :param max_tokens: maximum number of tokens to decode, default 4000000
@@ -298,11 +298,11 @@ class FairseqDecodingJob(Job):
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
-    
+
     def run(self):
         my_env = os.environ
         sp.check_call(self._get_run_cmd(), env=my_env)
-    
+
     def _get_run_cmd(self):
         fairseq_infer_path = os.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
         run_cmd = [

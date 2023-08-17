@@ -349,10 +349,10 @@ def get_dev_labels(
     # TODO has to be adapted when CreateFairseqLabeledDataJob is updated
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
     assert corpus_name in (
-        {"train-clean-100", 
-         "dev-clean", 
-         "dev-other", 
-         "test-clean", 
+        {"train-clean-100",
+         "dev-clean",
+         "dev-other",
+         "test-clean",
          "test-other"}
     ), f"unknown corpus names: {corpus_name}"
 
@@ -366,7 +366,7 @@ def get_dev_labels(
         dest_name=corpus_name,
     )
     label_data_job.rqmt["time"] = 4
-    
+
     return label_data_job.out_task_path
 
 
@@ -414,7 +414,7 @@ def decode(model_path: tk.Path):
     )
 
     tk.register_output(
-        os.path.join(prefix_name, exp_name, "decode", "dev-clean", "results"), 
+        os.path.join(prefix_name, exp_name, "decode", "dev-clean", "results"),
         dev_clean_decoding.out_results
     )
     tk.register_output(
@@ -428,5 +428,5 @@ def main():
     out_checkpoint_dir = finetune()
     checkpoint_best = tk.Path(os.path.join(out_checkpoint_dir.get(), "checkpoint_best.pt"))
     decode(checkpoint_best)
-    
+
 main()
