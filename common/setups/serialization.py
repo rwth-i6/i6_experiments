@@ -80,10 +80,12 @@ class Import(SerializerObject):
         ignore_import_as_for_hash: bool = False,
     ):
         """
-        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
+        :param code_object_path: e.g.`i6_experiments.users.username.some_experiment.pytorch_networks.SomeNiceASRModel`.
             This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
         :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
-            Recommended is to use the root folder of an experiment module.
+            Recommended is to use the root folder of an experiment module. E.g.:
+            `i6_experiments.users.username.some_experiment`
+            which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
         :param import_as: if given, the code object will be imported as this name
         :param use_for_hash: if False, this import is not hashed when passed to a Collection/Serializer
         :param ignore_import_as_for_hash: do not hash `import_as` if set
@@ -150,10 +152,12 @@ class PartialImport(Import):
         ignore_import_as_for_hash: bool = False,
     ):
         """
-        :param code_object_path: e.g. `i6_experiments.users.username.my_rc_files.SomeNiceASRModel`.
+        :param code_object_path: e.g.`i6_experiments.users.username.some_experiment.pytorch_networks.SomeNiceASRModel`.
             This can be the object itself, e.g. a function or a class. Then it will use __qualname__ and __module__.
         :param unhashed_package_root: The root path to a package, from where relatives paths will be hashed.
-            Recommended is to use the root folder of an experiment module.
+            Recommended is to use the root folder of an experiment module. E.g.:
+            `i6_experiments.users.username.some_experiment`
+            which could be retrieved via `__package__` from a module in the root of the `some_experiment` folder.
         :param hashed_arguments: argument dictionary for addition partial arguments to set to the callable.
             Will be serialized as dict into the config, so make sure to use only serializable/parseable content
         :param unhashed_arguments: same as above, but does not influence the hash
