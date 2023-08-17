@@ -14,9 +14,9 @@ from i6_core.lib import corpus
 class CreateFairseqLabeledDataJob(Job):
     """
     Creates required task files for wav2vec finetuning with fairseq. This includes the following files:
-    - dest.tsv
-    - dest.ltr
-    - dest.wrd
+    - <dest_name>.tsv
+    - <dest_name>.ltr
+    - <dest_name>.wrd
 
     For the script see https://github.com/pytorch/fairseq/blob/main/examples/wav2vec/wav2vec_manifest.py for .tsv creation,
     https://github.com/facebookresearch/fairseq/blob/91c364b7ceef8032099363cb10ba19a85b050c1c/examples/wav2vec/libri_labels.py 
