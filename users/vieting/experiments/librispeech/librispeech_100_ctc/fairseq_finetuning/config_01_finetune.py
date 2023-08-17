@@ -62,7 +62,7 @@ def get_task_dev_sampled(
         segment_file=shuffle_job.out_segments["train"], 
         compressed=True,
         delete_empty_recordings=True
-        )
+    )
     dev_filter_corpus_job = FilterCorpusBySegmentsJob(
         bliss_corpus=corpus_path,
         segment_file=shuffle_job.out_segments["dev"],
