@@ -208,7 +208,7 @@ Z 213
 
 class FairseqDecodingJob(Job):
     """
-    Runs decoding with fairseq on a given fine-tuned model and a given data set.
+    Runs decoding with fairseq for a given fine-tuned model and a given data set.
 
     Yields hypotheses and targets files in both word format and specified post-processing format.
     """

@@ -14,8 +14,11 @@ from recipe.i6_core.corpus.segments import ShuffleAndSplitSegmentsJob, SegmentCo
 from recipe.i6_core.corpus.filter import FilterCorpusBySegmentsJob
 from recipe.i6_experiments.common.datasets.librispeech.corpus import get_bliss_corpus_dict
 from recipe.i6_experiments.users.engler.fairseq.training import FairseqHydraConfig, FairseqHydraTrainingJob
-from recipe.i6_experiments.users.vieting.jobs.fairseq import CreateFairseqLabeledDataJob, MergeLabeledFairseqDataJob, \
-    FairseqDecodingJob
+from recipe.i6_experiments.users.vieting.jobs.fairseq import (
+    CreateFairseqLabeledDataJob,
+    MergeLabeledFairseqDataJob,
+    FairseqDecodingJob,
+)
 from recipe.i6_experiments.users.vieting.experiments.librispeech.librispeech_960_pretraining.wav2vec2.fairseq \
     import SetupFairseqJob
 
@@ -37,7 +40,7 @@ def get_fairseq_root(fairseq_python_exe: Optional[tk.Path] = None):
 def get_labels(
     dest_name: str,
     corpus_paths: Union[List[tk.Path], tk.Path],
-    ):
+):
     """
     :param dest_name: name of the output file
     :param corpus_paths: path to the corpora
@@ -60,7 +63,7 @@ def get_task_dev_sampled(
     valid_percent: float = 0.01, 
     audio_format: str = "ogg", 
     output_prefix: str = "datasets",
-    ):
+):
     """
     :param corpus_name: name of the corpora to be used for training and to sample the dev set from
     :param valid_percent: percentage of the training data to be used as validation set. 
@@ -133,7 +136,7 @@ def get_task_dev_separate(
     dev_corpus_name: str,
     audio_format: str = "ogg",
     output_prefix: str = "datasets",
-    ):
+):
     """
     :param train_corpus_name: name of the corpus to be used for training set
     :param dev_corpus_name: name of the corpus to be used for validation set
@@ -341,10 +344,10 @@ def get_lexicon(lexicon_url: str):
     return lexicon_path
 
 def get_dev_labels(
-        audio_format: str = "ogg",
-        output_prefix: str = "datasets",
-        corpus_name: str = "dev-other"
-    ):
+    audio_format: str = "ogg",
+    output_prefix: str = "datasets",
+    corpus_name: str = "dev-other"
+):
     """
     :param audio_format: audio format of the output files
     :param output_prefix: prefix of the output files
