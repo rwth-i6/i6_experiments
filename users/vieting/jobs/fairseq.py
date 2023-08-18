@@ -294,7 +294,7 @@ class FairseqDecodingJob(Job):
         self.out_results = self.output_path("results", directory=True)
 
         # rqmt
-        self.rqmt = {"time": 6, "mem": 8, "cpu": 1, "gpu": 1, "gpu_mem": 11}
+        self.rqmt = {"time": 6, "mem": 8, "cpu": 1, "gpu": 1}
 
     def tasks(self):
         yield Task("run", rqmt=self.rqmt)
