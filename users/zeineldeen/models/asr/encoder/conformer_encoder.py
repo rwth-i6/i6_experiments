@@ -23,6 +23,7 @@ class ConformerEncoder:
         input="data",
         input_layer="lstm-6",
         input_layer_conv_act="relu",
+        add_abs_pos_enc_to_input=False,
         frontend_conv_l2=0.0,
         num_blocks=16,
         conv_kernel_size=32,
@@ -110,6 +111,7 @@ class ConformerEncoder:
         self.input = input
         self.input_layer = input_layer
         self.input_layer_conv_act = input_layer_conv_act
+        self.add_abs_pos_enc_to_input = add_abs_pos_enc_to_input
         self.frontend_conv_l2 = frontend_conv_l2
 
         self.num_blocks = num_blocks
@@ -872,6 +874,17 @@ class ConformerEncoder:
         subsampled_input = None
         if self.input_layer is None:
             subsampled_input = data
+        elif self.input_layer.startswith("stack"):
+            stack_size = int(self.input_layer.split("-")[1])
+            stack_window = self.network.add_window_layer(
+                "stack_window", data, window_size=stack_size, stride=stack_size
+            )  # [B,C,W,F]
+            subsampled_input = self.network.add_merge_dims_layer(
+                "stack_window_merge_dim",
+                stack_window,
+                axes=["static:0", "f"],
+                keep_order=True,
+            )  # [B,C,W*F]
         elif "lstm" in self.input_layer:
             sample_factor = int(self.input_layer.split("-")[1])
             pool_sizes = None
@@ -959,6 +972,9 @@ class ConformerEncoder:
             forward_weights_init=self.ff_init,
             with_bias=False,
         )
+
+        if self.add_abs_pos_enc_to_input:
+            source_linear = self.network.add_pos_encoding_layer("input_abs_pos_enc", source_linear, add_to_input=True)
 
         if self.dropout_in:
             source_linear = self.network.add_dropout_layer("source_dropout", source_linear, dropout=self.dropout_in)
