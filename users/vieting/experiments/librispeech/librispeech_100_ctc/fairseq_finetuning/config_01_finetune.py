@@ -362,7 +362,10 @@ def decode(model_path: tk.Path):
     """
     :param model_path: path to the model to be used for decoding
     """
-    FAIRSEQ_PYTHON_EXE = tk.Path("/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python")
+    fairseq_python_exe = tk.Path(
+        "/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python",
+        hash_overwrite="ls100_ctc_fairseq_python_exe",
+    )
     LM_URL = "https://www.openslr.org/resources/11/4-gram.arpa.gz"
     LEXICON_URL = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/librispeech_lexicon.lst"
 
