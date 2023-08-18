@@ -13,7 +13,7 @@ from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
-from i6_experiments.users.zeyer.returnn.forward import ReturnnForwardJobV2  # TODO move to i6_core.returnn
+from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
