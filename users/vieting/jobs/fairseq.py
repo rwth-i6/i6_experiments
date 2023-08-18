@@ -301,7 +301,9 @@ class FairseqDecodingJob(Job):
 
     def run(self):
         my_env = os.environ
-        sp.check_call(self._get_run_cmd(), env=my_env)
+        run_cmd = self._get_run_cmd()
+        logging.info(f"Running decoding with following run command: {' '.join(run_cmd)}")
+        sp.check_call(run_cmd, env=my_env)
 
     def _get_run_cmd(self):
         fairseq_infer_path = os.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
