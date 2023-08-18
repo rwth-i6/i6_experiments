@@ -120,7 +120,7 @@ class CTCPrefixScorer:
         # (2, L, batch_size * beam_size, vocab_size)
         self.x = torch.stack([xnb, xb])
 
-        # The first index of each sentence.
+        # The first index of each sentence. [0, 12, ... ]
         self.beam_offset = (
             torch.arange(batch_size, device=self.device) * self.beam_size
         )
@@ -129,7 +129,7 @@ class CTCPrefixScorer:
             torch.arange(batch_size, device=self.device) * self.vocab_size
         )
 
-    def forward_step(self, g, state, candidates=None, attn=None):
+    def forward_step(self, i, last_char, state, candidates=None, attn=None):
         """This method if one step of forwarding operation
         for the prefix ctc scorer.
 
@@ -144,8 +144,8 @@ class CTCPrefixScorer:
             The ctc_beam_size is set as 2 * beam_size. If given, performing partial ctc scoring.
         """
 
-        prefix_length = g.size(1)
-        last_char = [gi[-1] for gi in g] if prefix_length > 0 else [0] * len(g)
+        prefix_length = i #g.size(1)
+        # last_char = [gi[-1] for gi in g] if prefix_length > 0 else [0] * len(g)
         self.num_candidates = (
             self.vocab_size if candidates is None else candidates.size(-1)
         )
@@ -232,6 +232,7 @@ class CTCPrefixScorer:
                     phi[:, i, pos] = r_prev[:, 1, i]
         else:
             for i in range(self.batch_size * self.beam_size):
+                breakpoint()
                 phi[:, i, last_char[i]] = r_prev[:, 1, i]
 
         # Start, end frames for scoring (|g| < |h|).

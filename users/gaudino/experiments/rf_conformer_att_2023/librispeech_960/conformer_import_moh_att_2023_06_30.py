@@ -15,6 +15,7 @@ from returnn.frontend.encoder.conformer import ConformerEncoder, ConformerConvSu
 
 from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, TrainDef
 
+import torch
 
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
@@ -232,7 +233,6 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        breakpoint()
         ctc = rf.softmax(self.ctc(enc), axis=self.target_dim_w_b)
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc), enc_spatial_dim
 
@@ -437,25 +437,34 @@ def model_recog(
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
-    breakpoint()
-    from .ctc import CTCPrefixScorer
-    ctc_scorer = CTCPrefixScorer(
-        enc_args['ctc'],
-        max_seq_len,
-        0, # batch_size
-        beam_size,
-        10026, #blank index
-        model.bos_index,
-        # self.ctc_window_size,
-    )
+    target_ctc = [model.bos_idx for _ in range(data.raw_tensor.shape[0] * beam_size)]
+
+    # ctc prefix scorer speechbrain
+    # from .ctc import CTCPrefixScorer
+    # ctc_scorer = CTCPrefixScorer(
+    #     enc_args['ctc'].raw_tensor,
+    #     max_seq_len.raw_tensor.to('cuda'),
+    #     10, # batch_size -> number of sequences in the batch, 10 for debugging
+    #     beam_size,
+    #     10025, #blank index
+    #     model.bos_idx,
+    #     # self.ctc_window_size,
+    # )
+    # ctc_memory = None
+
+    # ctc prefix scorer espnet
+    from .espnet_ctc.ctc_prefix_score_espnet import CTCPrefixScoreTH
+    # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
+    hlens = max_seq_len.raw_tensor
+    ctc_prefix_scorer = CTCPrefixScoreTH(enc_args["ctc"].raw_tensor, hlens, 10025, 0, 0)
+    ctc_state = None
+    enc_args.pop("ctc")
 
     i = 0
     seq_targets = []
     seq_backrefs = []
     while True:
         input_embed = model.target_embed(target)
-        breakpoint()
-        print(enc_args)
         step_out, decoder_state = model.loop_step(
             **enc_args,
             enc_spatial_dim=enc_spatial_dim,
@@ -464,6 +473,35 @@ def model_recog(
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
         label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+
+        # add ctc speechbrain
+        # ctc_candidates = None
+        # attn = None
+        # ctc_log_probs, ctc_memory = ctc_scorer.forward_step(
+        #     i, target.raw_tensor, ctc_memory, ctc_candidates, attn
+        # )
+        # label_log_prob = label_log_prob + 0.3 * ctc_log_probs # ctc weight: 0.3
+
+        # add ctc espnet
+        # breakpoint()
+        ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
+            output_length=i, last_ids=target_ctc, state=ctc_state
+        )
+        # ctc_state = (
+        #     ctc_state[0],
+        #     0.0,
+        #     ctc_state[2],
+        #     ctc_state[3],
+        # )  # drop last entry of , set s_prev to 0.0
+        # breakpoint()
+        ctc_prefix_scores = rf.Tensor(
+            name="ctc_prefix_scores",
+            dims=batch_dims_ + [model.target_dim],
+            dtype="float32",
+            raw_tensor=ctc_prefix_scores[:, :10025].unsqueeze(0),
+        )
+        label_log_prob = label_log_prob + 0.3 * ctc_prefix_scores
+
         # Filter out finished beams
         label_log_prob = rf.where(
             ended,
@@ -480,6 +518,10 @@ def model_recog(
         ended = rf.gather(ended, indices=backrefs)
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
+
+        breakpoint()
+        ctc_state = ctc_prefix_scorer.index_select_state(ctc_state, target.raw_tensor)
+        target_ctc = torch.flatten(target.raw_tensor)
 
         ended = rf.logical_or(ended, target == model.eos_idx)
         ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
