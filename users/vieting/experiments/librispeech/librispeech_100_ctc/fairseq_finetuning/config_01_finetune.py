@@ -362,6 +362,7 @@ def decode(model_path: tk.Path):
     """
     :param model_path: path to the model to be used for decoding
     """
+    # defines
     fairseq_python_exe = tk.Path(
         "/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python",
         hash_overwrite="ls100_ctc_fairseq_python_exe",
@@ -372,7 +373,7 @@ def decode(model_path: tk.Path):
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
     exp_name = "base"
 
-    # run decoding
+    # prepare labels and language model
     fairseq_root = get_fairseq_root()
 
     dev_clean = get_dev_labels(corpus_names=["dev-clean"])
@@ -382,6 +383,7 @@ def decode(model_path: tk.Path):
     lm_path = DownloadJob(url=lm_url).out_file
     lexicon_path = DownloadJob(url=lexicon_url).out_file
 
+    # run decoding
     dev_clean_decoding = FairseqDecodingJob(
         fairseq_python_exe=fairseq_python_exe,
         fairseq_root=fairseq_root,
