@@ -27,6 +27,11 @@ class PytorchCTCSetupData(BasicSetupData):
 
 
 @dataclass
+class PytorchHybridSetupData(BasicSetupData):
+    pass
+
+
+@dataclass
 class SMSHybridSetupData(BasicSetupData):
     scoring_corpora: Dict[str, tk.Path]
     python_prolog: Dict

@@ -13,7 +13,7 @@ from i6_experiments.users.berger.network.helpers.conformer import (
 )
 from i6_experiments.users.berger.network.helpers.mlp import add_feed_forward_stack
 from i6_experiments.users.berger.network.helpers.output import add_softmax_output
-from returnn.tf.util.data import FeatureDim, batch_dim
+from returnn.tf.util.data import batch_dim
 
 
 def add_output(

@@ -84,10 +84,10 @@ def get_librispeech_data(
     train_dataset_builder.add_hdf_dataset(
         name="classes",
         hdf_files=train_alignment_hdf,
-        seq_ordering="laplace:25",
         dataset_config={
             "partition_epoch": 20,
             "seq_list_filter_file": segment_whitelist,
+            "seq_ordering": "laplace:25",
         },
         key_mapping={"data": "classes"},
         control=True,
@@ -147,10 +147,10 @@ def get_librispeech_data(
     cv_dataset_builder.add_hdf_dataset(
         name="classes",
         hdf_files=cv_alignment_hdfs,
-        seq_ordering="sorted",
         dataset_config={
             "partition_epoch": 1,
             "seq_list_filter_file": segment_whitelist,
+            "seq_ordering": "sorted",
         },
         key_mapping={"data": "classes"},
         control=True,

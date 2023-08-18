@@ -16,6 +16,7 @@ class ComputePriorCallback(ForwardCallbackIface):
 
         if self.avg_probs is None:
             self.avg_probs = next(prob_tensor_iter)
+            print("Create probs collection tensor of shape", self.avg_probs.shape)
 
         for prob_tensor in prob_tensor_iter:
             self.n += 1

@@ -80,13 +80,13 @@ speech_sep_net_dict, speech_sep_checkpoint = ls_corpus.get_separator(
 
 
 def speaker_returnn_config_generator(
-        train: bool,
-        speaker_idx: int,
-        *,
-        train_data_config: dict,
-        cv_data_config: dict,
-        python_prolog: dict,
-        **kwargs,
+    train: bool,
+    speaker_idx: int,
+    *,
+    train_data_config: dict,
+    cv_data_config: dict,
+    python_prolog: dict,
+    **kwargs,
 ) -> ReturnnConfig:
     num_01_layers = kwargs.get("num_01_layers", 4)
     num_mix_layers = kwargs.get("num_mix_layers", 4)
@@ -289,8 +289,8 @@ def speaker_returnn_config_generator(
 
 
 def returnn_config_generator(
-        train: bool,
-        **kwargs,
+    train: bool,
+    **kwargs,
 ) -> DualSpeakerReturnnConfig:
     if train:
         return DualSpeakerReturnnConfig(
@@ -324,24 +324,24 @@ def run_exp() -> SummaryReport:
 
     for exp_name, exp_config in [
         (
-                "modular",
-                {
-                    "num_01_layers": 6,
-                    "num_mix_layers": 0,
-                    "num_01_mix_layers": 0,
-                    "chunking": False,
-                },
+            "modular",
+            {
+                "num_01_layers": 6,
+                "num_mix_layers": 0,
+                "num_01_mix_layers": 0,
+                "chunking": False,
+            },
         ),
         (
-                "full_enc_structure",
-                {
-                    "num_01_layers": 6,
-                    "num_mix_layers": 4,
-                    "num_01_mix_layers": 1,
-                    "num_combine_layers": 1,
-                    "chunking": False,
-                    "batch_size": 1_600_000,
-                },
+            "full_enc_structure",
+            {
+                "num_01_layers": 6,
+                "num_mix_layers": 4,
+                "num_01_mix_layers": 1,
+                "num_combine_layers": 1,
+                "chunking": False,
+                "batch_size": 1_600_000,
+            },
         ),
     ]:
         train_returnn_config = returnn_config_generator(
@@ -356,10 +356,13 @@ def run_exp() -> SummaryReport:
         )
         system.add_experiment_configs(f"blstm_hybrid_{exp_name}", returnn_configs)
 
-    train_args = exp_args.get_hybrid_train_args(
-        num_epochs=300, log_verbosity=5, gpu_mem_rqmt=24, mem_rqmt=16,
+    train_args = exp_args.get_hybrid_train_step_args(
+        num_epochs=300,
+        log_verbosity=5,
+        gpu_mem_rqmt=24,
+        mem_rqmt=16,
     )
-    recog_args = exp_args.get_hybrid_recog_args(
+    recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=sms_data.num_classes, epochs=[40, 80, 160, 240, 300, "best"]
     )
 
@@ -372,14 +375,15 @@ def run_exp() -> SummaryReport:
     for exp_name in ["blstm_hybrid_modular", "blstm_hybrid_full_enc_structure"]:
         train_job = system.get_train_job(exp_name)
         models[exp_name] = GetBestCheckpointJob(
-            model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
+            model_dir=train_job.out_model_dir,
+            learning_rates=train_job.out_learning_rates,
         ).out_checkpoint
 
     return system.summary_report, models
 
 
 def py() -> Tuple[SummaryReport, Dict[str, tk.Path]]:
-    filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_"):]
+    filename_handle = os.path.splitext(os.path.basename(__file__))[0][len("config_") :]
     gs.ALIAS_AND_OUTPUT_SUBDIR = f"{filename_handle}/"
 
     summary_report, models = run_exp()

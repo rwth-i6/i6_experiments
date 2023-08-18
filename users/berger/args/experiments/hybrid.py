@@ -16,7 +16,7 @@ def get_hybrid_am_args(cart_file: tk.Path, **kwargs) -> Dict:
     return am_args
 
 
-def get_hybrid_train_args(**kwargs) -> Dict:
+def get_hybrid_train_step_args(**kwargs) -> Dict:
     default_args = {
         "time_rqmt": 168,
         "mem_rqmt": 16,
@@ -25,7 +25,7 @@ def get_hybrid_train_args(**kwargs) -> Dict:
     return recursive_update(default_args, kwargs)
 
 
-def get_hybrid_recog_args(num_classes: int, **kwargs) -> Dict:
+def get_hybrid_recog_step_args(num_classes: int, **kwargs) -> Dict:
     default_args = {
         "epochs": ["best"],
         "prior_scales": [0.7],
@@ -38,7 +38,7 @@ def get_hybrid_recog_args(num_classes: int, **kwargs) -> Dict:
         "eval_single_best": True,
         "eval_best_in_lattice": True,
         "search_parameters": get_atr_search_parameters(
-            bp=16.0, bpl=200_000, wep=0.5, wepl=25_000
+            bp=12.0, bpl=100_000, wep=0.5, wepl=25_000
         ),
         "lattice_to_ctm_kwargs": {
             "fill_empty_segments": True,

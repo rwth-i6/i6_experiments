@@ -80,10 +80,12 @@ def get_tedlium2_pytorch_data(
     ).out_hdf
     train_dataset_builder.add_hdf_dataset(
         train_targets_hdf,
-        seq_ordering="random",
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={"partition_epoch": 5},
+        dataset_config={
+            "partition_epoch": 5,
+            "seq_ordering": "random",
+        },
         control=True,
     )
 
@@ -131,10 +133,12 @@ def get_tedlium2_pytorch_data(
     ).out_hdf
     cv_dataset_builder.add_hdf_dataset(
         cv_targets_hdf,
-        seq_ordering="sorted",
         name="targets",
         key_mapping={"data": "targets"},
-        dataset_config={"partition_epoch": 1},
+        dataset_config={
+            "partition_epoch": 1,
+            "seq_ordering": "sorted",
+        },
         control=True,
     )
 

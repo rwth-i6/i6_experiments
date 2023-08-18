@@ -18,7 +18,6 @@ import i6_experiments.users.berger.network.helpers.label_context as label_contex
 from recipe.i6_experiments.users.berger.network.helpers.feature_extraction import (
     add_gt_feature_extraction,
 )
-from recipe.i6_experiments.users.berger.util import skip_layer
 
 
 def make_context_1_conformer_transducer(

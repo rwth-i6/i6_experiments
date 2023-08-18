@@ -210,7 +210,7 @@ def run_exp() -> SummaryReport:
     )
     recog_args = exp_args.get_ctc_recog_step_args(
         num_classes=num_outputs,
-        epochs=[num_subepochs, "best"],
+        epochs=[num_subepochs],
         prior_scales=[0.9],
         lm_scales=[1.1],
         #trial_nums=list(range(150)) + ["best"],

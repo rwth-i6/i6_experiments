@@ -138,6 +138,7 @@ def generate_returnn_config(
         initial_lr=8e-05,
         peak_lr=4e-04,
         final_lr=1e-06,
+        n_steps_per_epoch=2460,
         batch_size=2_400_000,
         extra_config={
             "train": train_data_config,
@@ -160,10 +161,6 @@ def generate_returnn_config(
     return returnn_config
 
 
-def mismatch_check(f_len: int, t_len: int) -> bool:
-    return -((f_len - 1039) // -640) != t_len
-
-
 def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Path]:
     assert tools.returnn_root is not None
     assert tools.returnn_python_exe is not None
@@ -174,7 +171,6 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
         alignments=alignments,
         add_unknown=False,
         augmented_lexicon=True,
-        # length_mismatch_check_function=mismatch_check,
     )
 
     # ********** Step args **********
@@ -197,7 +193,8 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
 
     # ********** Returnn Configs **********
 
-    for seq_ordering in ["laplace:25"]: #, "random"]:
+    for seq_ordering in ["laplace:25", "laplace:.1000"]: #, "random"]:
+    # for seq_ordering in ["laplace:.1000"]: #, "random"]:
         train_data_config = copy.deepcopy(data.train_data_config)
         train_data_config["datasets"]["classes"]["seq_ordering"] = seq_ordering
         train_config = generate_returnn_config(
@@ -217,7 +214,7 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
         )
 
         system.add_experiment_configs(
-            f"Conformer_Transducer_Viterbi_{seq_ordering}", returnn_configs
+            f"Conformer_Transducer_Viterbi_{seq_ordering.replace(':', '-')}", returnn_configs
         )
 
     system.init_corpora(
@@ -234,7 +231,8 @@ def run_exp(alignments: Dict[str, AlignmentData]) -> Tuple[SummaryReport, tk.Pat
     system.run_dev_recog_step(**recog_args)
     system.run_test_recog_step(**recog_args)
 
-    train_job = system.get_train_job("Conformer_Transducer_Viterbi_laplace:25")
+    train_job = system.get_train_job("Conformer_Transducer_Viterbi_laplace-25")
+    # train_job = system.get_train_job("Conformer_Transducer_Viterbi_laplace-.1000")
     model = GetBestCheckpointJob(
         model_dir=train_job.out_model_dir, learning_rates=train_job.out_learning_rates
     ).out_checkpoint

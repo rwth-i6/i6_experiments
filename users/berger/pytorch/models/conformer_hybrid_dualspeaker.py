@@ -22,7 +22,6 @@ from i6_models.assemblies.conformer import (
     ConformerBlockV1,
 )
 from i6_models.config import ModelConfiguration, ModuleFactoryV1
-from i6_models.parts.blstm import BlstmEncoderV1Config, BlstmEncoderV1
 from .util import lengths_to_padding_mask
 
 from ..custom_parts import specaugment
@@ -30,20 +29,16 @@ from ..custom_parts import specaugment
 
 @dataclass
 class ConformerHybridDualSpeakerConfig(ModelConfiguration):
-    use_mix_audio: bool
-
     specaugment_cfg: specaugment.SpecaugmentConfigV1
 
-    separation_frontend: ModuleFactoryV1
-    mixture_frontend: Optional[ModuleFactoryV1]
+    primary_frontend: ModuleFactoryV1
+    secondary_frontend: Optional[ModuleFactoryV1]
 
     conformer_block_cfg: ConformerBlockV1Config
 
-    num_separation_layers: int
-    num_mixture_layers: int
+    num_primary_layers: int
+    num_secondary_layers: int
     num_mixture_aware_speaker_layers: int
-
-    combination_encoder_cfg: Optional[BlstmEncoderV1Config]
 
     target_size: int
 
@@ -58,105 +53,77 @@ class ConformerHybridDualSpeakerModel(torch.nn.Module):
             step=step, cfg=cfg.specaugment_cfg
         )
 
-        self.separation_frontend = cfg.separation_frontend()
-        if cfg.mixture_frontend is None:
-            self.mixture_frontend = cfg.separation_frontend()
+        self.primary_frontend = cfg.primary_frontend()
+        if cfg.secondary_frontend is None:
+            self.secondary_frontend = cfg.primary_frontend()
         else:
-            self.mixture_frontend = cfg.mixture_frontend()
+            self.secondary_frontend = cfg.secondary_frontend()
 
-        self.separation_encoder = torch.nn.Sequential(
-            *[
+        self.primary_encoder = torch.nn.ModuleList(
+            [
                 ConformerBlockV1(cfg.conformer_block_cfg)
-                for _ in range(cfg.num_separation_layers)
+                for _ in range(cfg.num_primary_layers)
             ]
         )
 
-        self.mixture_encoder = torch.nn.Sequential(
-            *[
+        self.secondary_encoder = torch.nn.ModuleList(
+            [
                 ConformerBlockV1(cfg.conformer_block_cfg)
-                for _ in range(cfg.num_mixture_layers)
+                for _ in range(cfg.num_secondary_layers)
             ]
         )
 
-        self.sep_mix_linear = torch.nn.Linear(2 * base_dim, base_dim)
+        self.prim_sec_linear = torch.nn.Linear(2 * base_dim, base_dim)
 
-        self.mas_encoder = torch.nn.Sequential(
-            *[
+        self.mas_encoder = torch.nn.ModuleList(
+            [
                 ConformerBlockV1(cfg.conformer_block_cfg)
                 for _ in range(cfg.num_mixture_aware_speaker_layers)
             ]
         )
 
-        if cfg.combination_encoder_cfg is not None:
-            self.combination_encoder = BlstmEncoderV1(cfg.combination_encoder_cfg)
-            final_in_dim = cfg.combination_encoder_cfg.hidden_dim * 2
-        else:
-            self.combination_encoder = None
-            final_in_dim = base_dim
-
-        self.final_linear = torch.nn.Linear(final_in_dim, 2 * cfg.target_size)
+        self.final_linear = torch.nn.Linear(base_dim, cfg.target_size)
 
     def forward(
         self,
-        sep_0_audio_features: torch.Tensor,
-        sep_1_audio_features: torch.Tensor,
-        mix_audio_features: torch.Tensor,
+        primary_audio_features: torch.Tensor,
         audio_features_len: torch.Tensor,
+        secondary_audio_features: Optional[torch.Tensor] = None,
     ):
         sequence_mask = lengths_to_padding_mask(audio_features_len)
 
+        if secondary_audio_features is None:  # primary_audio_featues shape = [B, T, 2*F]
+            primary_audio_features, secondary_audio_features = torch.split(
+                primary_audio_features, primary_audio_features.shape[2] // 2, dim=2
+            )  # [B, T, F], [B, T, F]
+
         x = self.specaugment(
-            torch.concat(
-                (sep_0_audio_features, sep_1_audio_features, mix_audio_features), dim=0
-            )
-        )  # [3*B, T, F]
-        x_01, x_mix = torch.split(
-            x, [2 * (x.shape[0] // 3), x.shape[0] // 3], dim=0
-        )  # [2*B, T, F], [B, T, F]
-
-        sequence_mask_twice = torch.concat(
-            (sequence_mask, sequence_mask), dim=0
+            torch.concat((primary_audio_features, secondary_audio_features), dim=0)
         )  # [2*B, T, F]
+        x_prim, x_sec = torch.split(x, x.shape[0] // 2, dim=0)  # [B, T, F], [B, T, F]
 
-        x_01, sequence_mask_twice = self.separation_frontend(
-            x_01, sequence_mask_twice
-        )  # [2*B, T, F], [2*B, T, F]
-        x_mix, sequence_mask = self.mixture_frontend(
-            x_mix, sequence_mask
+        x_prim, _ = self.primary_frontend(x_prim, sequence_mask)  # [B, T, F], [B, T, F]
+        x_sec, sequence_mask = self.secondary_frontend(
+            x_sec, sequence_mask
         )  # [B, T, F], [B, T, F]
 
-        x_01, sequence_mask_twice = self.separation_encoder(
-            x_01, sequence_mask_twice
-        )  # [2*B, T, F]
-        x_mix, sequence_mask = self.mixture_encoder(x_mix, sequence_mask)  # [B, T, F]
+        for module in self.primary_encoder:
+            x_prim = module(x_prim, sequence_mask)  # [B, T, F]
+        for module in self.secondary_encoder:
+            x_sec = module(x_sec, sequence_mask)  # [B, T, F]
 
-        x_mix_twice = torch.concat((x_mix, x_mix), dim=0)  # [2*B, T, F]
-        x_01_mix = torch.concat((x_01, x_mix_twice), dim=2)  # [2*B, T, 2*F]
-        x_01_mix = self.sep_mix_linear(x_01_mix)  # [2*B, T, F]
+        x_prim_sec = torch.concat((x_prim, x_sec), dim=2)  # [B, T, 2*F]
+        x_prim_sec = self.prim_sec_linear(x_prim_sec)  # [B, T, F]
 
-        x_01_mix = self.mas_encoder(x_01_mix, sequence_mask_twice)  # [2*B, T, F]
+        for module in self.mas_encoder:
+            x_prim_sec = module(x_prim_sec, sequence_mask)  # [B, T, F]
 
-        x_0_mix, x_1_mix = torch.split(
-            x_01_mix, x_01_mix.shape[0] // 2, dim=0
-        )  # [B, T, F], [B, T, F]
-
-        x_0_mix_1_mix = torch.concat((x_0_mix, x_1_mix), dim=2)  # [B, T, 2*F]
-
-        if self.combination_encoder is not None:
-            x_0_mix_1_mix = self.combination_encoder(x_0_mix_1_mix)  # [B, T, F]
-
-        logits = self.final_linear(x_0_mix_1_mix)  # [B, T, 2*F]
-
-        logits_0, logits_1 = torch.split(
-            logits, logits.shape[0] // 2, dim=2
-        )  # [B, T, F], [B, T, F]
-
-        log_probs_0 = torch.log_softmax(logits_0, dim=2)  # [B, T, F]
-        log_probs_1 = torch.log_softmax(logits_1, dim=2)  # [B, T, F]
+        logits = self.final_linear(x_prim_sec)  # [B, T, F]
+        log_probs = torch.log_softmax(logits, dim=2)  # [B, T, F]
 
         if self.training:
-            return log_probs_0, log_probs_1, sequence_mask
-        return log_probs_0, log_probs_1
+            return log_probs, sequence_mask
+        return log_probs
 
 
 def get_train_serializer(
@@ -168,7 +135,7 @@ def get_train_serializer(
         model_config=model_config,
         additional_serializer_objects=[
             Import(
-                f"{pytorch_package}.train_steps.hybrid_dual_speaker_viterbi.train_step"
+                f"{pytorch_package}.train_steps.hybrid_dualspeaker_viterbi.train_step"
             ),
         ],
     )
@@ -182,7 +149,7 @@ def get_prior_serializer(
         module_import_path=f"{__name__}.{ConformerHybridDualSpeakerModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.forward.basic.forward_step"),
+            Import(f"{pytorch_package}.forward.hybrid_dualspeaker.forward_step"),
             Import(
                 f"{pytorch_package}.forward.prior_callback.ComputePriorCallback",
                 import_as="forward_callback",
@@ -199,7 +166,7 @@ def get_recog_serializer(
         module_import_path=f"{__name__}.{ConformerHybridDualSpeakerModel.__name__}",
         model_config=model_config,
         additional_serializer_objects=[
-            Import(f"{pytorch_package}.export.ctc.export"),
+            Import(f"{pytorch_package}.export.hybrid_dualspeaker.export"),
         ],
     )
 
@@ -222,10 +189,10 @@ def get_default_config_v1(
     num_inputs: int, num_outputs: int
 ) -> ConformerHybridDualSpeakerConfig:
     specaugment_cfg = specaugment.SpecaugmentConfigV1(
-        max_time_mask_num=1,
-        max_time_mask_size=15,
-        max_feature_mask_num=num_inputs // 10,
-        max_feature_mask_size=5,
+        max_time_mask_num=20,
+        max_time_mask_size=20,
+        max_feature_mask_num=1,
+        max_feature_mask_size=15,
         increase_steps=[2000],
     )
 
@@ -237,10 +204,10 @@ def get_default_config_v1(
         conv4_channels=64,
         conv_kernel_size=3,
         conv_padding=None,
-        pool1_kernel_size=(2, 2),
+        pool1_kernel_size=(1, 1),
         pool1_stride=None,
         pool1_padding=None,
-        pool2_kernel_size=(2, 1),
+        pool2_kernel_size=(1, 2),
         pool2_stride=None,
         pool2_padding=None,
         activation=torch.nn.SiLU(),
@@ -277,23 +244,13 @@ def get_default_config_v1(
         conv_cfg=conv_cfg,
     )
 
-    combination_cfg = BlstmEncoderV1Config(
-        num_layers=1,
-        input_dim=1024,
-        hidden_dim=512,
-        dropout=0.1,
-        enforce_sorted=True,
-    )
-
     return ConformerHybridDualSpeakerConfig(
-        use_mix_audio=True,
         specaugment_cfg=specaugment_cfg,
-        separation_frontend=frontend,
-        mixture_frontend=None,
+        primary_frontend=frontend,
+        secondary_frontend=None,
         conformer_block_cfg=block_cfg,
-        num_separation_layers=6,
-        num_mixture_layers=6,
-        num_mixture_aware_speaker_layers=6,
-        combination_encoder_cfg=combination_cfg,
+        num_primary_layers=8,
+        num_secondary_layers=4,
+        num_mixture_aware_speaker_layers=4,
         target_size=num_outputs,
     )

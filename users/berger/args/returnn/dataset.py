@@ -36,7 +36,6 @@ class MetaDatasetBuilder:
     def add_hdf_dataset(
         self,
         hdf_files: Union[tk.Path, List[tk.Path]],
-        seq_ordering: Optional[str] = None,
         dataset_config: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> None:
@@ -45,8 +44,6 @@ class MetaDatasetBuilder:
         if dataset_config is None:
             dataset_config = {}
         dataset_config.update({"class": "HDFDataset", "files": hdf_files})
-        if seq_ordering:
-            dataset_config["seq_ordering"] = seq_ordering
         self.add_dataset(dataset_config=dataset_config, **kwargs)
 
     def add_dataset(

@@ -92,7 +92,10 @@ def generate_returnn_config(
             extra_python,
         ) = transducer_model.make_context_1_conformer_transducer_recog(
             num_outputs=num_classes,
-            gt_args={"sample_rate": 16000},
+            gt_args={
+                "sample_rate": 16000,
+                "specaug_after_dct": False,
+            },
             conformer_args={
                 "num_blocks": 12,
                 "size": 512,
@@ -124,8 +127,8 @@ def generate_returnn_config(
         num_inputs=1,
         num_outputs=num_classes,
         extern_data_config=True,
-        extern_data_kwargs={"dtype": "int16"},
-        extern_target_kwargs={"dtype": "int8"},
+        extern_data_kwargs={"dtype": "int16" if train else "float32"},
+        extern_target_kwargs={"dtype": "int8" if train else "int32"},
         grad_noise=0.0,
         grad_clip=20.0,
         schedule=LearningRateSchedules.CONST_DECAY,
@@ -188,7 +191,10 @@ def run_exp(alignments: Dict[str, AlignmentData], viterbi_model_checkpoint: tk.P
         mem_rqmt=24,
     )
 
-    recog_args = exp_args.get_transducer_recog_step_args(num_classes)
+    recog_args = exp_args.get_transducer_recog_step_args(
+        num_classes,
+        epochs=[40, 80, 160, 240, 300, "best"],
+    )
 
     # ********** System **********
 

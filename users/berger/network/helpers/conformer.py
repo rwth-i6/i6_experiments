@@ -378,6 +378,7 @@ def add_initial_conv(
     conv_filters: List[int] = [3, 3, 3, 3],
     conv_strides: List[int] = [1, 1, 1, 3],
     max_pool: List[int] = [2],
+    stack_frames: int = 1,
     reuse_from_name: Optional[str] = None,
     dropout: float = 0.1,
     **kwargs,
@@ -422,15 +423,36 @@ def add_initial_conv(
             }
             from_name = f"{name}_pool_{idx}"
 
+
     network[f"{name}_merge_dims"] = {
         "class": "merge_dims",
         "from": from_name,
         "axes": "static",
     }
+    from_name = f"{name}_merge_dims"
+
+    if stack_frames > 1:
+        network[f"{name}_stack_features"] = {
+            "class": "window",
+            "from": from_name,
+            "stride": stack_frames,
+            "window_left": stack_frames - 1,
+            "window_right": 0,
+            "window_size": stack_frames,
+
+        }
+        from_name = f"{name}_stack_features"
+
+        network[f"{name}_stack_features_merged"] = {
+            "class": "merge_dims",
+            "from": from_name,
+            "axes": (2, 3),
+        }
+        from_name = f"{name}_stack_features_merged"
 
     network[f"{name}_linear"] = {
         "class": "linear",
-        "from": f"{name}_merge_dims",
+        "from": from_name,
         "n_out": linear_size,
         "with_bias": False,
         "forward_weights_init": get_variance_scaling_init(),

@@ -1,32 +1,31 @@
 import copy
 import os
-from i6_core.returnn.config import ReturnnConfig
-from i6_experiments.common.baselines.librispeech.ls960.gmm.baseline_config import (
-    run_librispeech_960_common_baseline,
-)
-from i6_experiments.users.berger.systems.returnn_legacy_system import (
-    ReturnnLegacySystem,
-)
-from i6_experiments.users.berger.systems.functors.rasr_base import (
-    LatticeProcessingType,
-)
 
 from sisyphus import gs, tk
 
 import i6_core.rasr as rasr
+from i6_core.returnn.config import CodeWrapper
+from i6_core.returnn.config import ReturnnConfig
+from i6_experiments.common.baselines.librispeech.ls960.gmm.baseline_config import (
+    run_librispeech_960_common_baseline,
+)
 from i6_experiments.users.berger.args.experiments import hybrid as exp_args
-from i6_experiments.users.berger.args.returnn.config import get_returnn_config, Backend
+from i6_experiments.users.berger.args.returnn.config import Backend, get_returnn_config
 from i6_experiments.users.berger.args.returnn.learning_rates import (
     LearningRateSchedules,
 )
 from i6_experiments.users.berger.corpus.libri_css.hybrid_data import get_hybrid_data
-from i6_experiments.users.berger.pytorch.models import conformer_hybrid_dualspeaker
-from i6_experiments.users.berger.recipe.summary.report import SummaryReport
+from i6_experiments.users.berger.network.models import conformer_hybrid_dualchannel
 from i6_experiments.users.berger.recipe.converse.scoring import MeetEvalJob
+from i6_experiments.users.berger.recipe.summary.report import SummaryReport
 from i6_experiments.users.berger.systems.dataclasses import (
     ConfigVariant,
     FeatureType,
     ReturnnConfigs,
+)
+from i6_experiments.users.berger.systems.functors.rasr_base import LatticeProcessingType
+from i6_experiments.users.berger.systems.returnn_legacy_system import (
+    ReturnnLegacySystem,
 )
 from i6_experiments.users.berger.util import default_tools_v2
 
@@ -39,39 +38,113 @@ num_subepochs = 50
 
 tools = copy.deepcopy(default_tools_v2)
 
-tools.rasr_binary_path = tk.Path("/u/berger/repositories/rasr_versions/onnx/arch/linux-x86_64-standard")
-# tools.returnn_root = tk.Path("/u/berger/repositories/MiniReturnn")
-
-
 # ********** Return Config generators **********
 
 
 def returnn_config_generator(variant: ConfigVariant, train_data_config: dict, dev_data_config: dict) -> ReturnnConfig:
-    model_config = conformer_hybrid_dualspeaker.get_default_config_v1(num_inputs=50, num_outputs=num_outputs)
-
     extra_config: dict = {
         "train": train_data_config,
         "dev": dev_data_config,
     }
-    if variant == ConfigVariant.RECOG:
-        extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
+    # if variant == ConfigVariant.RECOG:
+    #     extra_config["model_outputs"] = {"classes": {"dim": num_outputs}}
     if variant != ConfigVariant.RECOG:
         extra_config["chunking"] = "400:200"
 
-    extra_config["extern_data"] = {
-        "features_primary": {"dim": 50},
-        "features_secondary": {"dim": 50},
-        "classes": {"dim": num_outputs, "sparse": True},
-    }
+    if variant == ConfigVariant.RECOG:
+        extra_config["extern_data"] = {
+            "data": {"dim": 2 * 50},
+            "classes": {"dim": num_outputs, "sparse": True},
+        }
+    else:
+        extra_config["__time_tag__"] = CodeWrapper("Dim(dimension=None, kind=Dim.Types.Spatial, description=\"time\")")
+        extra_config["extern_data"] = {
+            "features_primary": {"dim": 50, "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
+            "features_secondary": {"dim": 50, "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
+            "classes": {"dim": 1, "dtype": "int32", "same_dim_tags_as": {"T": CodeWrapper("__time_tag__")}},
+        }
+
+    if variant == ConfigVariant.TRAIN or variant == ConfigVariant.PRIOR:
+        net_dict, extra_python = conformer_hybrid_dualchannel.make_conformer_hybrid_dualchannel_model(
+            num_inputs=50,
+            num_outputs=num_outputs,
+            specaug_args={
+                "max_time_num": 20,
+                "max_time": 20,
+                "max_feature_num": 1,
+                "max_feature": 15,
+            },
+            vgg_args={
+                "conv_outputs": [32, 32, 64, 64],
+                "conv_strides": [1, 1, 1, 1],
+                "max_pool": [1, 2, 1, 1],
+                "stack_frames": 3,
+                "linear_size": 512,
+                "dropout": 0.0,
+            },
+            conformer_args={
+                "size": 512,
+                "conv_filter_size": 32,
+                "num_att_heads": 8,
+                "clipping": 400,
+            },
+            ff_args_aux={
+                "num_layers": 2,
+                "size": 256,
+                "activation": "relu",
+                "dropout": 0.0,
+            },
+            ff_args_out={
+                "num_layers": 0,
+            },
+            prim_blocks=8,
+            sec_blocks=4,
+            mas_blocks=4,
+            output_args={
+                "focal_loss_factor": 2.0,
+            },
+        )
+    else:
+        net_dict, extra_python = conformer_hybrid_dualchannel.make_conformer_hybrid_dualchannel_recog_model(
+            num_inputs=50,
+            num_outputs=num_outputs,
+            vgg_args={
+                "conv_outputs": [32, 32, 64, 64],
+                "conv_strides": [1, 1, 1, 1],
+                "max_pool": [1, 2, 1, 1],
+                "stack_frames": 3,
+                "linear_size": 512,
+                "dropout": 0.0,
+            },
+            conformer_args={
+                "size": 512,
+                "conv_filter_size": 32,
+                "num_att_heads": 8,
+                "clipping": 400,
+            },
+            ff_args_out={
+                "num_layers": 0,
+            },
+            prim_blocks=8,
+            sec_blocks=4,
+            mas_blocks=4,
+        )
+
 
     return get_returnn_config(
+        network=net_dict,
         num_epochs=num_subepochs,
         num_inputs=50,
         num_outputs=num_outputs,
         target="classes",
-        extra_python=[conformer_hybrid_dualspeaker.get_serializer(model_config, variant=variant)],
+        python_prolog=[
+            "import sys",
+            "sys.setrecursionlimit(10 ** 6)",
+            "from returnn.tf.util.data import Dim",
+        ],
+        extra_python=extra_python,
         extern_data_config=False,
-        backend=Backend.PYTORCH,
+        backend=Backend.TENSORFLOW,
         grad_noise=0.0,
         grad_clip=0.0,
         schedule=LearningRateSchedules.OCLR,
@@ -111,29 +184,30 @@ def run_exp() -> SummaryReport:
         returnn_root=tools.returnn_root,
         returnn_python_exe=tools.returnn_python_exe,
         rasr_binary_path=tools.rasr_binary_path,
-        lm_name="4gram",
+        lm_name="kazuki_transformer",
+        # lm_name="4gram",
     )
 
     # ********** Step args **********
 
     train_args = exp_args.get_hybrid_train_step_args(num_epochs=num_subepochs)
     extra_config = rasr.RasrConfig()
-    extra_config.flf_lattice_tool.network.recognizer.separate_lookahead_lm = True
+    extra_config.flf_lattice_tool.network.recognizer.recognizer.separate_lookahead_lm = True
     recog_args = exp_args.get_hybrid_recog_step_args(
         num_classes=num_outputs,
-        epochs=[15, num_subepochs],
+        epochs=[20, num_subepochs],
         feature_type=FeatureType.CONCAT_GAMMATONE,
         lattice_processing_type=LatticeProcessingType.MultiChannel,
-        mem=24,
+        mem=48,
         rtf=50,
-        # extra_config=extra_config,
+        extra_config=extra_config,
     )
 
     # ********** System **********
 
-    tools.rasr_binary_path = tk.Path(
-        "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
-    )
+    # tools.rasr_binary_path = tk.Path(
+    #     "/u/berger/repositories/rasr_versions/gen_seq2seq_onnx_apptainer/arch/linux-x86_64-standard"
+    # )
     system = ReturnnLegacySystem(tools)
 
     system.init_corpora(
