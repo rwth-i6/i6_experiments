@@ -341,8 +341,7 @@ def get_dev_labels(
     """
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
     assert corpus_name in (
-        {"train-clean-100",
-         "dev-clean",
+        {"dev-clean",
          "dev-other",
          "test-clean",
          "test-other"}
