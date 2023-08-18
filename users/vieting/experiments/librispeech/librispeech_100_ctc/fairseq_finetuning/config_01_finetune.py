@@ -329,20 +329,6 @@ def finetune():
 
 # ------------------- DECODING ------------------- #
 
-def get_language_model(lm_url: str):
-    """
-    :param lm_url: url to the language model
-    """
-    lm_path = DownloadJob(url=lm_url).out_file
-    return lm_path
-
-def get_lexicon(lexicon_url: str):
-    """
-    :param lexicon_url: url to the lexicon
-    """
-    lexicon_path = DownloadJob(url=lexicon_url).out_file
-    return lexicon_path
-
 def get_dev_labels(
     audio_format: str = "ogg",
     output_prefix: str = "datasets",
@@ -390,8 +376,8 @@ def decode(model_path: tk.Path):
     dev_other = get_dev_labels(corpus_names=["dev-other"])
 
     decoder = "kenlm"
-    lm_path = get_language_model(LM_URL)
-    lexicon_path = get_lexicon(LEXICON_URL)
+    lm_path = DownloadJob(url=lm_url).out_file
+    lexicon_path = DownloadJob(url=lexicon_url).out_file
 
     dev_clean_decoding = FairseqDecodingJob(
         fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
