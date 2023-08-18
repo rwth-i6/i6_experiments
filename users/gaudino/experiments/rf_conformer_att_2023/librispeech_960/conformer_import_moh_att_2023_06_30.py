@@ -437,7 +437,8 @@ def model_recog(
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
-    target_ctc = [model.bos_idx for _ in range(data.raw_tensor.shape[0] * beam_size)]
+    batch_size = data.raw_tensor.shape[0]
+    target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
     # ctc prefix scorer speechbrain
     # from .ctc import CTCPrefixScorer
@@ -483,7 +484,7 @@ def model_recog(
         # label_log_prob = label_log_prob + 0.3 * ctc_log_probs # ctc weight: 0.3
 
         # add ctc espnet
-        # breakpoint()
+        breakpoint()
         ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
             output_length=i, last_ids=target_ctc, state=ctc_state
         )
@@ -493,7 +494,11 @@ def model_recog(
         #     ctc_state[2],
         #     ctc_state[3],
         # )  # drop last entry of , set s_prev to 0.0
-        # breakpoint()
+        if i == 0:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[:,0,:].view(batch_size, -1)
+        else:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
+        breakpoint()
         ctc_prefix_scores = rf.Tensor(
             name="ctc_prefix_scores",
             dims=batch_dims_ + [model.target_dim],
