@@ -366,8 +366,8 @@ def decode(model_path: tk.Path):
         "/work/asr3/vieting/hiwis/pletschko/miniconda3/envs/fairseq_python38/bin/python",
         hash_overwrite="ls100_ctc_fairseq_python_exe",
     )
-    LM_URL = "https://www.openslr.org/resources/11/4-gram.arpa.gz"
-    LEXICON_URL = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/librispeech_lexicon.lst"
+    lm_url = "https://www.openslr.org/resources/11/4-gram.arpa.gz"
+    lexicon_url = "https://dl.fbaipublicfiles.com/fairseq/wav2vec/librispeech_lexicon.lst"
 
     prefix_name = "experiments/librispeech/librispeech_100_ctc/fairseq/"
     exp_name = "base"
@@ -383,7 +383,7 @@ def decode(model_path: tk.Path):
     lexicon_path = DownloadJob(url=lexicon_url).out_file
 
     dev_clean_decoding = FairseqDecodingJob(
-        fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
+        fairseq_python_exe=fairseq_python_exe,
         fairseq_root=fairseq_root,
         model_path=model_path,
         data_path=dev_clean,
@@ -394,7 +394,7 @@ def decode(model_path: tk.Path):
     )
 
     dev_other_decoding = FairseqDecodingJob(
-        fairseq_python_exe=FAIRSEQ_PYTHON_EXE,
+        fairseq_python_exe=fairseq_python_exe,
         fairseq_root=fairseq_root,
         model_path=model_path,
         data_path=dev_other,
