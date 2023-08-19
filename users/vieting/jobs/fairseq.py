@@ -292,6 +292,11 @@ class FairseqDecodingJob(Job):
 
         # outputs
         self.out_results = self.output_path("results", directory=True)
+        model_name = os.path.basename(self.model_path.get())
+        self.out_hyp_word = self.output_path(f"results/hypo.word-{model_name}-{self.gen_subset}.txt")
+        self.out_hyp_units = self.output_path(f"results/hypo.units-{model_name}-{self.gen_subset}.txt")
+        self.out_ref_word = self.output_path(f"results/ref.word-{model_name}-{self.gen_subset}.txt")
+        self.out_ref_units = self.output_path(f"results/ref.units-{model_name}-{self.gen_subset}.txt")
 
         # rqmt
         self.rqmt = {"time": 6, "mem": 8, "cpu": 1, "gpu": 1}
