@@ -373,10 +373,10 @@ def decode(model_path: tk.Path):
     exp_name = "base"
 
     # prepare labels and language model
-    fairseq_root = get_fairseq_root()
+    fairseq_root = get_fairseq_root(fairseq_python_exe=fairseq_python_exe)
 
-    dev_clean = get_dev_labels(corpus_names=["dev-clean"])
-    dev_other = get_dev_labels(corpus_names=["dev-other"])
+    dev_clean = get_dev_labels(corpus_name="dev-clean")
+    dev_other = get_dev_labels(corpus_name="dev-other")
 
     decoder = "kenlm"
     lm_path = DownloadJob(url=lm_url).out_file

@@ -257,6 +257,7 @@ class FairseqDecodingJob(Job):
         """
 
         # inputs
+        self.fairseq_python_exe = fairseq_python_exe
         self.fairseq_root = fairseq_root
         self.model_path = model_path
         self.data_path = data_path
@@ -306,12 +307,16 @@ class FairseqDecodingJob(Job):
 
     def run(self):
         my_env = os.environ
+        if "PYTHONPATH" in my_env:
+            my_env["PYTHONPATH"] += f":{self.fairseq_root.get()}"
+        else:
+            my_env["PYTHONPATH"] = f"{self.fairseq_root.get()}"
         run_cmd = self._get_run_cmd()
         logging.info(f"Running decoding with following run command: {' '.join(run_cmd)}")
         sp.check_call(run_cmd, env=my_env)
 
     def _get_run_cmd(self):
-        fairseq_infer_path = os.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
+        fairseq_infer_path = os.path.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
         run_cmd = [
             self.fairseq_python_exe.get(),
             fairseq_infer_path,
@@ -321,7 +326,7 @@ class FairseqDecodingJob(Job):
             "--path", self.model_path.get(),
             "--gen-subset", self.gen_subset,
             "--w2l-decoder", self.w2l_decoder,
-            "--lm-path", self.lm_path.get(),
+            "--lm-model", self.lm_path.get(),
             "--lexicon", self.lm_lexicon.get(),
             "--lm-weight", str(self.lm_weight),
             "--word-score", str(self.word_score),
