@@ -19,7 +19,7 @@ def engine():
 
     return EngineSelector(
         engines={
-            "short": LocalEngine(cpus=min(8, multiprocessing.cpu_count())),
+            "short": LocalEngine(cpus=multiprocessing.cpu_count()),
             "long": SimpleLinuxUtilityForResourceManagementEngine(default_rqmt={"cpu": 1, "mem": 1, "time": 1}),
         },
         default_engine="long",
