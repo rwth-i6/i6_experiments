@@ -243,7 +243,7 @@ class LibrispeechOggZip(DatasetConfig):
             assert "seq_postfix" not in d["targets"], d  # we are handling this here
             if self.with_eos_postfix:
                 eos_id = self.vocab.get_eos_idx()
-                assert eos_id, f"{self}: vocab {self.vocab} does not define EOS"
+                assert eos_id is not None, f"{self}: vocab {self.vocab} does not define EOS"
                 d["targets"]["seq_postfix"] = [eos_id]
         if training:
             d["partition_epoch"] = self.train_epoch_split
