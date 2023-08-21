@@ -4,7 +4,7 @@ helpers for training
 
 from __future__ import annotations
 
-from typing import Optional, Union, Dict, Any, Sequence
+from typing import Optional, Dict, Any, Sequence
 
 from i6_core.util import instanciate_delayed
 from i6_core.returnn.training import ReturnnTrainingJob
@@ -18,7 +18,6 @@ from i6_experiments.users.zeyer.model_interfaces import (
     ModelT,
     ModelDef,
     TrainDef,
-    FramewiseTrainDef,
 )
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
@@ -45,7 +44,7 @@ def train(
     - extra_hash: explicitly goes into the hash
     - others just as one would expect
     """
-    returnn_train_config_dict = dict(
+    returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,
         # dataset
