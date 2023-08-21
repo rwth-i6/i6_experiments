@@ -155,6 +155,10 @@ def run_single(
         dev_data=dev_data_inputs,
         test_data=test_data_inputs,
     )
+    s.filter_segments = [
+        "train-other-960/8011-111754-0020/8011-111754-0020",
+        "train-other-960/4771-6409-0009/4771-6409-0009",
+    ]
     s.label_info = dataclasses.replace(s.label_info, n_states_per_phone=1)
     s.lm_gc_simple_hash = True
     s.train_key = train_key
