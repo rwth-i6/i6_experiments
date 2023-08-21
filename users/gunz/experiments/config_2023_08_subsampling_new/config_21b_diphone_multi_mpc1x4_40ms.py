@@ -404,7 +404,7 @@ def run_single(
                 rtf_cpu=32,
             )
 
-    if fine_tune and False: # TODO: Revert the false
+    if fine_tune and False:  # TODO: Revert the false
         # ###########
         # FINE TUNING
         # ###########
@@ -509,7 +509,9 @@ def run_single(
                     train_corpus_key=s.crp_names["train"],
                     dev_corpus_key=s.crp_names["cvtrain"],
                     smoothen=True,
-                    returnn_config=remove_label_pops_and_losses_from_returnn_config(prior_config, except_layers=["pastLabel"]),
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(
+                        prior_config, except_layers=["pastLabel"]
+                    ),
                     output_layer_name="output",
                 )
 
