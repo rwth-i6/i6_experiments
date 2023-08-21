@@ -403,7 +403,7 @@ def run_single(
                 rtf_cpu=32,
             )
 
-    if fine_tune:
+    if fine_tune and False: # TODO: Revert the false
         # ###########
         # FINE TUNING
         # ###########
