@@ -25,6 +25,7 @@ import torch
 # _returnn_tf_config_filename = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/work/i6_core/returnn/search/ReturnnSearchJobV2.1oORPHJTAcW0/output/returnn.config"
 # E.g. via /u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work
 _returnn_tf_ckpt_filename = "i6_core/returnn/training/AverageTFCheckpointsJob.BxqgICRSGkgb/output/model/average.index"
+_torch_ckpt_filename_w_ctc = "i6_experiments/users/zeyer/returnn/convert_ckpt_rf/ConvertTfCheckpointToRfPtJob.VRGbjneg5cU9/output/model/average.pt"
 
 # The model gets raw features (16khz) and does feature extraction internally.
 _log_mel_feature_dim = 80
@@ -33,11 +34,11 @@ _log_mel_feature_dim = 80
 def sis_run_with_prefix(prefix_name: str = None):
     """run the exp"""
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
-    from ._moh_att_2023_06_30_import import map_param_func_v2
+    from ._moh_att_2023_06_30_import import map_param_func_v3
     from .sis_setup import get_prefix_for_config
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.gaudino.recog import recog_model
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
@@ -58,15 +59,25 @@ def sis_run_with_prefix(prefix_name: str = None):
             target_dim=target_dim.dimension,
             eos_label=_get_eos_idx(target_dim),
         ),
-        map_func=map_param_func_v2,
+        map_func=map_param_func_v3,
     ).out_checkpoint
+
+    # new_chkpt_path = tk.Path(_torch_ckpt_filename_w_ctc, hash_overwrite="torch_ckpt_w_ctc")
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
+    att_scale= 1.0
+    ctc_scale= 0.0
+    search_args = {
+        "att_scale": att_scale,
+        "ctc_scale": ctc_scale,
+    }
+    # TODO: add search args to model_recog
+
     dev_sets = ["dev-other"]  # only dev-other for testing
     # dev_sets = None  # all
-    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets)
-    tk.register_output(prefix_name + f"/recog_results", res.output)
+    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets, search_args=search_args)
+    tk.register_output(prefix_name +f"/espnet_ctc_att{att_scale}_ctc{ctc_scale}" + f"/recog_results", res.output)
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -233,7 +244,7 @@ class Model(rf.Module):
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
-        ctc = rf.softmax(self.ctc(enc), axis=self.target_dim_w_b)
+        ctc = rf.log_softmax(self.ctc(enc), axis=self.target_dim_w_b)
         return dict(enc=enc, enc_ctx=enc_ctx, inv_fertility=inv_fertility, ctc=ctc), enc_spatial_dim
 
     @staticmethod
@@ -351,7 +362,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 from_scratch_model_def.backend = "torch"
-from_scratch_model_def.batch_size_factor = 160
+from_scratch_model_def.batch_size_factor = 40 #160 # change batch size here
 
 
 def from_scratch_training(
@@ -403,6 +414,7 @@ def model_recog(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -437,7 +449,9 @@ def model_recog(
     out_seq_len = rf.constant(0, dims=batch_dims_)
     seq_log_prob = rf.constant(0.0, dims=batch_dims_)
 
-    batch_size = data.raw_tensor.shape[0]
+    assert len(batch_dims) == 1
+    batch_size_dim = batch_dims[0]
+    batch_size = batch_dims[0].get_dim_value()
     target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
 
     # ctc prefix scorer speechbrain
@@ -455,9 +469,11 @@ def model_recog(
 
     # ctc prefix scorer espnet
     from .espnet_ctc.ctc_prefix_score_espnet import CTCPrefixScoreTH
+
     # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
     hlens = max_seq_len.raw_tensor
-    ctc_prefix_scorer = CTCPrefixScoreTH(enc_args["ctc"].raw_tensor, hlens, 10025, 0, 0)
+    ctc_out = enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))  # [B,T,V+1]
+    ctc_prefix_scorer = CTCPrefixScoreTH(ctc_out.raw_tensor, hlens, 10025, 0, 0)
     ctc_state = None
     enc_args.pop("ctc")
 
@@ -484,28 +500,20 @@ def model_recog(
         # label_log_prob = label_log_prob + 0.3 * ctc_log_probs # ctc weight: 0.3
 
         # add ctc espnet
-        breakpoint()
-        ctc_prefix_scores, ctc_state = ctc_prefix_scorer(
-            output_length=i, last_ids=target_ctc, state=ctc_state
-        )
-        # ctc_state = (
-        #     ctc_state[0],
-        #     0.0,
-        #     ctc_state[2],
-        #     ctc_state[3],
-        # )  # drop last entry of , set s_prev to 0.0
+        ctc_prefix_scores, ctc_state = ctc_prefix_scorer(output_length=i, last_ids=target_ctc, state=ctc_state)
+
         if i == 0:
-            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[:,0,:].view(batch_size, -1)
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[:, 0, :].unsqueeze(1)
         else:
             ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
-        breakpoint()
         ctc_prefix_scores = rf.Tensor(
             name="ctc_prefix_scores",
-            dims=batch_dims_ + [model.target_dim],
+            # dims=batch_dims_ + [model.target_dim],
+            dims=[batch_size_dim, beam_dim, model.target_dim],
             dtype="float32",
-            raw_tensor=ctc_prefix_scores[:, :10025].unsqueeze(0),
+            raw_tensor=ctc_prefix_scores[:, :, :10025],
         )
-        label_log_prob = label_log_prob + 0.3 * ctc_prefix_scores
+        label_log_prob = search_args["att_scale"] * label_log_prob + search_args["ctc_scale"] * ctc_prefix_scores
 
         # Filter out finished beams
         label_log_prob = rf.where(
@@ -524,7 +532,7 @@ def model_recog(
         out_seq_len = rf.gather(out_seq_len, indices=backrefs)
         i += 1
 
-        breakpoint()
+        # ctc state selection
         ctc_state = ctc_prefix_scorer.index_select_state(ctc_state, target.raw_tensor)
         target_ctc = torch.flatten(target.raw_tensor)
 

@@ -47,7 +47,7 @@ def _get_pt_checkpoint_path() -> tk.Path:
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=old_tf_ckpt,
         make_model_func=make_model_func,
-        map_func=map_param_func_v2,
+        map_func=map_param_func_v3,
         epoch=1,
         step=0,
     )
@@ -158,7 +158,7 @@ def _add_params():
 _add_params()
 
 
-def map_param_func_v2(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
+def map_param_func_v3(reader, name: str, var: rf.Parameter) -> numpy.ndarray:
     """map params, TF to RF"""
     from tensorflow.python.training.py_checkpoint_reader import CheckpointReader
     from i6_experiments.users.zeyer.returnn.convert.params import numpy as convert_params_np
@@ -364,7 +364,7 @@ def test_import_forward():
     converter = ConvertTfCheckpointToRfPtJob(
         checkpoint=Checkpoint(index_path=old_tf_ckpt_path),
         make_model_func=_make_new_model,
-        map_func=map_param_func_v2,
+        map_func=map_param_func_v3,
         epoch=1,
         step=0,
     )
@@ -673,6 +673,7 @@ def test_import_search():
                 data=extern_data["audio_features"],
                 data_spatial_dim=time_dim,
             )
+    # breakpoint()
     print(seq_targets, seq_targets.raw_tensor)
 
 
