@@ -189,6 +189,7 @@ def run_single(
 
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 40, "dev": 1}
+    bw_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
 
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
@@ -521,6 +522,12 @@ def run_single(
                 out_joint_score_layer="output",
                 log_softmax=True,
             )
+            prior_config = diphone_joint_output.augment_to_joint_diphone_softmax(
+                returnn_config=returnn_config_ft,
+                label_info=s.label_info,
+                out_joint_score_layer="output",
+                log_softmax=False,
+            )
             returnn_config_ft = diphone_joint_output.augment_to_joint_diphone_softmax(
                 returnn_config=returnn_config_ft,
                 label_info=s.label_info,
@@ -529,7 +536,7 @@ def run_single(
                 prepare_for_fast_bw_training=True,
             )
             returnn_config_ft = baum_welch.augment_for_fast_bw(
-                crp=s.crp[s.crp_names["train"]],
+                crp=bw_crp,
                 from_output_layer="output",
                 returnn_config=returnn_config_ft,
                 log_linear_scales=bw_scale,
@@ -588,7 +595,7 @@ def run_single(
                     train_corpus_key=s.crp_names["train"],
                     dev_corpus_key=s.crp_names["cvtrain"],
                     smoothen=True,
-                    returnn_config=remove_label_pops_and_losses_from_returnn_config(returnn_config_ft),
+                    returnn_config=remove_label_pops_and_losses_from_returnn_config(prior_config, except_layers=["pastLabel"]),
                     output_layer_name="output",
                 )
 
