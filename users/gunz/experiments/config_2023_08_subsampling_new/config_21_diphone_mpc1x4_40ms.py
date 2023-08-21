@@ -189,7 +189,6 @@ def run_single(
 
     # ---------------------- returnn config---------------
     partition_epochs = {"train": 40, "dev": 1}
-    bw_crp = copy.deepcopy(s.crp[s.crp_names["train"]])
 
     time_prolog, time_tag_name = returnn_time_tag.get_shared_time_tag()
     network_builder = conformer.get_best_model_config(
@@ -537,7 +536,7 @@ def run_single(
                 prepare_for_fast_bw_training=True,
             )
             returnn_config_ft = baum_welch.augment_for_fast_bw(
-                crp=bw_crp,
+                crp=s.crp[s.crp_names["train"]],
                 from_output_layer="output",
                 returnn_config=returnn_config_ft,
                 log_linear_scales=bw_scale,
