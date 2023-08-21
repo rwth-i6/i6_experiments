@@ -216,7 +216,7 @@ class LibrispeechOggZip(DatasetConfig):
     def get_eval_datasets(self) -> Dict[str, Dict[str]]:
         return {
             "dev": self.get_dataset("dev", subset=self.eval_subset),
-            "devtrain": self.get_dataset("devtrain", subset=self.eval_subset),
+            "devtrain": self.get_dataset("train", subset=self.eval_subset),
         }
 
     def get_main_name(self) -> str:
