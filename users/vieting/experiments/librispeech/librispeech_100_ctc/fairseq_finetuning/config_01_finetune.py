@@ -340,12 +340,12 @@ def get_dev_labels(
     :param corpus_names: list of names of the corpora to be used for decoding
     """
     assert audio_format in ["ogg", "wav", "flac"], f"audio format not implemented: '{audio_format}'"
-    assert corpus_name in (
-        {"dev-clean",
-         "dev-other",
-         "test-clean",
-         "test-other"}
-    ), f"unknown corpus names: {corpus_name}"
+    assert corpus_name in ({
+        "dev-clean",
+        "dev-other",
+        "test-clean",
+        "test-other",
+    }), f"unknown corpus names: {corpus_name}"
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
     # select corpus given by corpus_name
