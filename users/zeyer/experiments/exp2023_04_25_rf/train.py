@@ -11,6 +11,7 @@ from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
+from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 from returnn_common import nn
 
 from i6_experiments.users.zeyer.model_interfaces import (
@@ -83,6 +84,7 @@ def train(
         python_epilog=[
             serialization.Collection(
                 [
+                    serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),

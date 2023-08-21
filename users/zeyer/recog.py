@@ -17,6 +17,7 @@ from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups import serialization
+from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
@@ -216,6 +217,7 @@ def search_config(
         python_epilog=[
             serialization.Collection(
                 [
+                    serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
@@ -299,6 +301,7 @@ def search_config_v2(
         python_epilog=[
             serialization.Collection(
                 [
+                    serialization.NonhashedCode(get_import_py_code()),
                     serialization.NonhashedCode(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),

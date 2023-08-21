@@ -82,10 +82,11 @@ def sis_run_with_prefix(prefix_name: str = None):
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
 
+_batch_size_factor = 160
 
 config = dict(
     batching="laplace:.1000",
-    batch_size=15000,
+    batch_size=15_000 * _batch_size_factor,
     max_seqs=200,
     max_seq_length_default_target=75,
     accum_grad_multiple_step=2,
@@ -380,7 +381,7 @@ def from_scratch_model_def(*, epoch: int, in_dim: Dim, target_dim: Dim) -> Model
 from_scratch_model_def: ModelDef[Model]
 from_scratch_model_def.behavior_version = 14
 from_scratch_model_def.backend = "torch"
-from_scratch_model_def.batch_size_factor = 160
+from_scratch_model_def.batch_size_factor = _batch_size_factor
 
 
 def from_scratch_training(
