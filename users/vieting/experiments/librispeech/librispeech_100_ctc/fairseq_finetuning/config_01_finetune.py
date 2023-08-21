@@ -348,7 +348,7 @@ def get_dev_labels(
     ), f"unknown corpus names: {corpus_name}"
 
     corpus_dict = get_bliss_corpus_dict(audio_format=audio_format, output_prefix=output_prefix)
-    # filter out corpora that are not in corpus_names
+    # select corpus given by corpus_name
     corpus_path = corpus_dict[corpus_name]
 
     return get_labels(
