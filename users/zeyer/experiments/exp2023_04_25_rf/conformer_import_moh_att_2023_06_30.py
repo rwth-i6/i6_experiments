@@ -415,11 +415,21 @@ def from_scratch_training(
     )
 
     logits = model.decode_logits(input_embed=input_embeddings, **loop_out)
+    logits_packed, pack_dim = rf.pack_padded(logits, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False)
+    targets_packed, _ = rf.pack_padded(
+        targets, dims=batch_dims + [targets_spatial_dim], enforce_sorted=False, out_dim=pack_dim
+    )
 
-    log_prob = rf.log_softmax(logits, axis=model.target_dim)
+    log_prob = rf.log_softmax(logits_packed, axis=model.target_dim)
     log_prob = rf.label_smoothed_log_prob_gradient(log_prob, 0.1, axis=model.target_dim)
-    loss = rf.cross_entropy(target=targets, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim)
+    loss = rf.cross_entropy(
+        target=targets_packed, estimated=log_prob, estimated_type="log-probs", axis=model.target_dim
+    )
     loss.mark_as_loss("ce")
+
+    best = rf.reduce_argmax(logits_packed, axis=model.target_dim)
+    frame_error = best != targets_packed
+    frame_error.mark_as_loss(name="fer", as_error=True)
 
 
 from_scratch_training: TrainDef[Model]

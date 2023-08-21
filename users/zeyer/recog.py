@@ -16,7 +16,7 @@ from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, Sea
 from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
-from i6_experiments.common.setups.returnn_common import serialization
+from i6_experiments.common.setups import serialization
 
 from i6_experiments.users.zeyer import tools_paths
 from i6_experiments.users.zeyer.datasets.task import Task
@@ -272,6 +272,13 @@ def search_config_v2(
     *,
     post_config: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
+    """
+    Create config for search.
+
+    v2: Use any backend (usually PyTorch) and the new API (get_model, forward_step).
+
+    TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
+    """
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
         behavior_version=model_def.behavior_version,

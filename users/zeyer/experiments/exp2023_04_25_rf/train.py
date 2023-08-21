@@ -4,12 +4,13 @@ helpers for training
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, Sequence
+from typing import TYPE_CHECKING, Optional, Dict, Any, Sequence
 
 from i6_core.util import instanciate_delayed
 from i6_core.returnn.training import ReturnnTrainingJob
 from i6_core.returnn.config import ReturnnConfig
-from i6_experiments.common.setups.returnn_common import serialization
+from i6_experiments.common.setups import serialization
+from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from returnn_common import nn
 
 from i6_experiments.users.zeyer.model_interfaces import (
@@ -21,6 +22,9 @@ from i6_experiments.users.zeyer.model_interfaces import (
 )
 from i6_experiments.users.zeyer.datasets.task import Task
 from i6_experiments.users.zeyer.recog import SharedPostConfig
+
+if TYPE_CHECKING:
+    from returnn.tensor import TensorDict
 
 
 def train(
@@ -43,6 +47,8 @@ def train(
     - model_def/train_def: just the module name + function name goes into the hash, not the content!
     - extra_hash: explicitly goes into the hash
     - others just as one would expect
+
+    TODO should use sth like unhashed_package_root (https://github.com/rwth-i6/i6_experiments/pull/157)
     """
     returnn_train_config_dict: Dict[str, Any] = dict(
         backend=model_def.backend,
@@ -81,7 +87,9 @@ def train(
                         nn.ReturnnConfigSerializer.get_base_extern_data_py_code_str_direct(extern_data_raw)
                     ),
                     serialization.Import(model_def, "_model_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_get_model, "get_model"),
                     serialization.Import(train_def, "_train_def", ignore_import_as_for_hash=True),
+                    serialization.Import(_returnn_v2_train_step, "train_step"),
                     serialization.ExplicitHash(
                         {
                             # Increase the version whenever some incompatible change is made in this train() function,
@@ -105,7 +113,6 @@ def train(
             # debug_add_check_numerics_ops = True
             # debug_add_check_numerics_on_output = True
             # stop_on_nonfinite_train_score = False,
-            # flat_net_construction=True,
         ),
         sort_config=False,
     )
@@ -117,6 +124,16 @@ def train(
             continue
         returnn_train_config.post_config[k] = v
 
+    # There might be some further functions in the config, e.g. some dataset postprocessing.
+    returnn_train_config = get_serializable_config(
+        returnn_train_config,
+        # The only dim tags we directly have in the config are via extern_data, maybe also model_outputs.
+        # All other dim tags are inside functions such as get_model or train_step,
+        # so we do not need to care about them here, only about the serialization of those functions.
+        # Those dim tags and those functions are already handled above.
+        serialize_dim_tags=False,
+    )
+
     kwargs = kwargs.copy()
     for k, v in dict(log_verbosity=5, num_epochs=150, time_rqmt=80, mem_rqmt=15, cpu_rqmt=4).items():
         kwargs.setdefault(k, v)
@@ -124,3 +141,40 @@ def train(
     returnn_train_job.add_alias(prefix_name + "/train")
 
     return ModelWithCheckpoints.from_training_job(definition=model_def, training_job=returnn_train_job)
+
+
+def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
+    from returnn.tensor import Tensor
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    extern_data_dict = config.typed_value("extern_data")
+    data = Tensor(name=default_input_key, **extern_data_dict[default_input_key])
+    targets = Tensor(name=default_target_key, **extern_data_dict[default_target_key])
+    assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
+
+    model_def = config.typed_value("_model_def")
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    return model
+
+
+def _returnn_v2_train_step(*, model, extern_data: TensorDict, **_kwargs_unused):
+    from returnn.config import get_global_config
+
+    config = get_global_config()
+    default_input_key = config.typed_value("default_input")
+    default_target_key = config.typed_value("target")
+    data = extern_data[default_input_key]
+    data_spatial_dim = data.get_time_dim_tag()
+    targets = extern_data[default_target_key]
+    targets_spatial_dim = targets.get_time_dim_tag()
+    train_def: TrainDef = config.typed_value("_train_def")
+    train_def(
+        model=model,
+        data=data,
+        data_spatial_dim=data_spatial_dim,
+        targets=targets,
+        targets_spatial_dim=targets_spatial_dim,
+    )
