@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Optional, Any, Tuple, Dict, Sequence, List
 import tree
 import math
+import numpy
 
 from sisyphus import tk
 
@@ -36,9 +37,10 @@ def sis_run_with_prefix(prefix_name: str = None):
     from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
     from ._moh_att_2023_06_30_import import map_param_func_v2
     from .sis_setup import get_prefix_for_config
+    from .train import train
     from i6_core.returnn.training import Checkpoint as TfCheckpoint, PtCheckpoint
     from i6_experiments.users.zeyer.model_interfaces import ModelWithCheckpoint
-    from i6_experiments.users.zeyer.recog import recog_model
+    from i6_experiments.users.zeyer.recog import recog_model, recog_training_exp
     from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpointToRfPtJob
     from i6_experiments.users.zeyer.datasets.librispeech import get_librispeech_task_bpe10k_raw
 
@@ -64,13 +66,54 @@ def sis_run_with_prefix(prefix_name: str = None):
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    # dev_sets = ["dev-other"]  # only dev-other for testing
-    dev_sets = None  # all
-    res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets)
+    res = recog_model(task, model_with_checkpoint, model_recog)
     tk.register_output(prefix_name + f"/recog_results", res.output)
+
+    model_with_checkpoint = train(
+        prefix_name + "/from-scratch-train",
+        task=task,
+        config=config,
+        post_config=post_config,
+        model_def=from_scratch_model_def,
+        train_def=from_scratch_training,
+    )
+    recog_training_exp(prefix_name + "/from-scratch-train", task, model_with_checkpoint, recog_def=model_recog)
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
+
+
+config = dict(
+    batching="laplace:.1000",
+    batch_size=15000,
+    max_seqs=200,
+    max_seq_length_default_target=75,
+    accum_grad_multiple_step=2,
+    # gradient_clip=0,
+    # gradient_clip_global_norm = 1.0
+    optimizer={"class": "nadam", "epsilon": 1e-8},
+    # gradient_noise=0.0,
+    learning_rate=0.0005,
+    learning_rates=(
+        # matching pretraining
+        list(numpy.linspace(0.0001, 0.001, num=10)) * 3
+        + list(numpy.linspace(0.0001, 0.0005, num=10))
+        + [0.0005] * 20
+        + list(numpy.linspace(0.0005, 0.001, num=20))
+    ),
+    min_learning_rate=0.001 / 50,
+    learning_rate_control="newbob_multi_epoch",
+    learning_rate_control_relative_error_relative_lr=True,
+    relative_error_div_by_old=True,
+    use_learning_rate_control_always=True,
+    newbob_multi_update_interval=1,
+    learning_rate_control_min_num_epochs_per_new_lr=1,
+    learning_rate_decay=0.9,
+    newbob_relative_error_threshold=-0.01,
+)
+post_config = dict(
+    cleanup_old_models=dict(keep_last_n=5),
+)
 
 
 class MakeModel:
@@ -224,10 +267,9 @@ class Model(rf.Module):
             sampling_rate=16_000,
             log_base=math.exp(2.3026),  # almost 10.0 but not exactly...
         )
-
-        # TODO specaug
-        # source = specaugment_wei(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)  # TODO
-
+        # SpecAugment
+        source = rf.audio.specaugment(source, spatial_dim=in_spatial_dim, feature_dim=self.in_dim)
+        # Encoder including convolutional frontend
         enc, enc_spatial_dim = self.encoder(source, in_spatial_dim=in_spatial_dim, collected_outputs=collected_outputs)
         enc_ctx = self.enc_ctx(enc)
         inv_fertility = rf.sigmoid(self.inv_fertility(enc))
