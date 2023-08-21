@@ -409,7 +409,7 @@ def run_single(
         # ###########
 
         fine_tune_epochs = 450
-        keep_epochs = [225, 400, 450]
+        keep_epochs = [23, 225, 400, 450]
         orig_name = name
 
         bw_scales = [
