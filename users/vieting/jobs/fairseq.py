@@ -2,7 +2,7 @@ import soundfile
 import glob
 import os
 import random
-import subprocess
+import subprocess as sp
 import shutil
 import logging
 from typing import List, Union, Optional 
@@ -204,4 +204,139 @@ Z 213
 """
         with open(self.out_dict_ltr_path.get(), 'w') as f:
             f.write(dict_ltr_content)
-    
+
+
+class FairseqDecodingJob(Job):
+    """
+    Runs decoding with fairseq for a given fine-tuned model and a given data set.
+
+    Yields hypotheses and targets files in both word format and specified post-processing format.
+    """
+    def __init__(
+            self,
+            fairseq_python_exe: tk.Path,
+            fairseq_root: tk.Path,
+            model_path: tk.Path,
+            data_path: tk.Path,
+            gen_subset: str,
+            nbest: int = 1,
+            w2l_decoder: str = "viterbi",
+            lm_path: Optional[tk.Path] = None,
+            lm_lexicon: Optional[tk.Path] = None,
+            lm_weight: float = 2.0,
+            word_score: float = -1.0,
+            sil_weight: float = 0.0,
+            criterion: str = "ctc",
+            labels: str = "ltr",
+            post_process: str = "letter",
+            max_tokens: int = 4000000,
+    ):
+        """
+        :param fairseq_python_exe: path to fairseq python executable
+        :param fairseq_root: path to fairseq root directory
+        :param model_path: path to fine-tuned model
+        :param data_path: path to the data to be decoded. Should be a directory containing
+            - [gen_subset].tsv
+            - [gen_subset].[labels] (e.g. ltr)
+        :param gen_subset: name of the subset to be decoded. The files in data_path should be named correspondingly.
+        :param nbest: number of nbest hypotheses to output, default 1
+        :param w2l_decoder: decoder to use, default "viterbi". Can be "viterbi", "kenlm" or "fairseqlm".
+        :param lm_path: path to language model, default None. Only required if w2l_decoder is "kenlm" or "fairseqlm".
+        :param lm_lexicon: path to lexicon for language model, default None.
+            Only required if w2l_decoder is "kenlm" or "fairseqlm".
+        :param lm_weight: weight of language model, default 2.0
+        :param word_score: word score, default 1.0
+        :param sil_weight: silence weight, default 0.0
+        :param criterion: criterion to use, default "ctc". At the moment, only "ctc" is tested.
+        :param labels: labels to use, default "ltr". At the moment, only "ltr" is tested. 
+            The data_path folder should contain a file with the corresponding file extension.
+        :param post_process: post processing to use, default "letter".
+            Can be "letter", "sentencepiece", "wordpiece", "letter", "silence", "subword_nmt", "_EOW" or "none".
+            (just use "letter" for now)
+        :param max_tokens: maximum number of tokens to decode, default 4000000
+        """
+
+        # inputs
+        self.fairseq_python_exe = fairseq_python_exe
+        self.fairseq_root = fairseq_root
+        self.model_path = model_path
+        self.data_path = data_path
+        self.gen_subset = gen_subset
+        self.nbest = nbest
+
+        assert w2l_decoder in ["viterbi", "kenlm", "fairseqlm"], f"Unknown decoder {w2l_decoder}."
+        self.w2l_decoder = w2l_decoder
+
+        if self.w2l_decoder in ["kenlm", "fairseqlm"]:
+            assert lm_path is not None, "lm_path must be set if w2l_decoder is kenlm or fairseqlm."
+            assert lm_lexicon is not None, "lm_lexicon must be set if w2l_decoder is kenlm or fairseqlm."
+        self.lm_path = lm_path
+        self.lm_lexicon = lm_lexicon
+
+        self.lm_weight = lm_weight
+        self.word_score = word_score
+        self.sil_weight = sil_weight
+
+        if criterion not in ["ctc"]:
+            logging.warning(f"Unknown criterion {criterion}. This might not work.")
+        self.criterion = criterion
+
+        if labels not in ["ltr"]:
+            logging.warning(f"Unknown labels {labels}. This might not work.")
+        self.labels = labels
+
+        if post_process not in ["letter"]:
+            logging.warning(f"Unknown post_process {post_process}. This might not work.")
+        self.post_process = post_process
+
+        self.max_tokens = max_tokens
+
+        # outputs
+        self.out_results = self.output_path("results", directory=True)
+        model_name = os.path.basename(self.model_path.get())
+        self.out_hyp_word = self.output_path(f"results/hypo.word-{model_name}-{self.gen_subset}.txt")
+        self.out_hyp_units = self.output_path(f"results/hypo.units-{model_name}-{self.gen_subset}.txt")
+        self.out_ref_word = self.output_path(f"results/ref.word-{model_name}-{self.gen_subset}.txt")
+        self.out_ref_units = self.output_path(f"results/ref.units-{model_name}-{self.gen_subset}.txt")
+
+        # rqmt
+        self.rqmt = {"time": 6, "mem": 8, "cpu": 1, "gpu": 1}
+
+    def tasks(self):
+        yield Task("run", rqmt=self.rqmt)
+
+    def run(self):
+        my_env = os.environ
+        if "PYTHONPATH" in my_env:
+            my_env["PYTHONPATH"] += f":{self.fairseq_root.get()}"
+        else:
+            my_env["PYTHONPATH"] = f"{self.fairseq_root.get()}"
+        run_cmd = self._get_run_cmd()
+        logging.info(f"Running decoding with following run command: {' '.join(run_cmd)}")
+        sp.check_call(run_cmd, env=my_env)
+
+    def _get_run_cmd(self):
+        fairseq_infer_path = os.path.join(self.fairseq_root.get(), "examples", "speech_recognition", "infer.py")
+        run_cmd = [
+            self.fairseq_python_exe.get(),
+            fairseq_infer_path,
+            self.data_path.get(),
+            "--task", "audio_finetuning",
+            "--nbest", str(self.nbest),
+            "--path", self.model_path.get(),
+            "--gen-subset", self.gen_subset,
+            "--w2l-decoder", self.w2l_decoder,
+            "--lm-model", self.lm_path.get(),
+            "--lexicon", self.lm_lexicon.get(),
+            "--lm-weight", str(self.lm_weight),
+            "--word-score", str(self.word_score),
+            "--sil-weight", str(self.sil_weight),
+            "--criterion", self.criterion,
+            "--labels", self.labels,
+            "--post-process", self.post_process,
+            "--max-tokens", str(self.max_tokens),
+            "--results-path", self.out_results.get()
+        ]
+
+        return run_cmd
+
