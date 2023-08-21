@@ -251,7 +251,7 @@ class LibrispeechOggZip(DatasetConfig):
                 d["epoch_wise_filter"] = self.train_epoch_wise_filter
             if self.train_audio_preprocess is not None:
                 assert self.audio is not None, "train_audio_preprocess needs audio"
-                d["audio"]["preprocess"] = self.train_audio_preprocess
+                d["audio"]["pre_process"] = self.train_audio_preprocess
             if self.train_audio_random_permute:
                 assert self.audio is not None, "train_audio_random_permute needs audio"
                 d["audio"]["random_permute"] = self.train_audio_random_permute
