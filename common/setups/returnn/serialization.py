@@ -60,7 +60,7 @@ def get_serializable_config(
     config.post_config = proxy.collect_objs_and_transform_config(config.post_config)
     config.staged_network_dict = proxy.collect_objs_and_transform_config(config.staged_network_dict)
 
-    if (not dim_tag_proxy.dim_refs_by_name or not dim_tag_proxy) and not proxy.obj_refs_by_name:
+    if (not dim_tag_proxy or not dim_tag_proxy.dim_refs_by_name) and not proxy.obj_refs_by_name:
         # No dim tags or other special objects found, just return as-is.
         return config
 
