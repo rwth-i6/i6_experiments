@@ -29,6 +29,15 @@ class ModelDef(Protocol[ModelT]):
     batch_size_factor: int  # according to some arbitrary reference point
 
 
+def model_def_is_torch(model_def: ModelDef) -> bool:
+    """
+    Is this a torch model?
+    """
+    if getattr(model_def, "backend", None) == "torch":
+        return True
+    return False
+
+
 class TrainDef(Protocol[ModelT]):
     """
     Defines the losses (mark_as_loss).
@@ -167,7 +176,11 @@ class ModelWithCheckpoints:
         is_pretrain = epoch <= self.num_pretrain_epochs
         return ModelWithCheckpoint(
             self.definition,
-            Checkpoint(
+            PtCheckpoint(
+                self.model_dir.join_right(self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.pt" % epoch)
+            )
+            if model_def_is_torch(self.definition)
+            else TfCheckpoint(
                 index_path=self.model_dir.join_right(
                     self.model_name + (".pretrain" if is_pretrain else "") + ".%03d.index" % epoch
                 )
