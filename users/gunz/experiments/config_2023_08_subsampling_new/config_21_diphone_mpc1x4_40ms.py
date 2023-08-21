@@ -502,9 +502,8 @@ def run_single(
             baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
             for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
         ]
-        batch_sizes = [10000, 11000]
 
-        for bs, bw_scale in itertools.product(batch_sizes, bw_scales):
+        for bw_scale in bw_scales:
             name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
             s.set_experiment_dict("fh-fs", alignment_name, "di", postfix_name=name)
 
@@ -551,7 +550,7 @@ def run_single(
             )
             update_config = returnn.ReturnnConfig(
                 config={
-                    "batch_size": bs,
+                    "batch_size": 10000,
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                     ),
