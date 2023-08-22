@@ -624,6 +624,7 @@ def run_single(
                         params=cfg,
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
+                        rtf=12,
                     )
 
     if run_tdp_study:
