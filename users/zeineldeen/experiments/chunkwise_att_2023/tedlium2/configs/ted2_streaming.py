@@ -1541,7 +1541,7 @@ def baseline():
 
     # TODO: extended chunk
     for chunk_size in [10]:
-        for left_context_chunk_size in [10, 20, 30, 40]:
+        for left_context_chunk_size in [5, 10, 20, 30]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
                 run_all_for_best_last_avg=True,
@@ -1561,8 +1561,8 @@ def baseline():
 
     # TODO: extended chunk + right context
     for chunk_size in [10]:
-        for left_context_chunk_size in [10]:
-            for right_context_chunk_size in [10]:
+        for left_context_chunk_size in [5]:
+            for right_context_chunk_size in [5]:
                 run_chunkwise_train(
                     enc_stream_type="chunked",
                     run_all_for_best_last_avg=True,
