@@ -2214,16 +2214,26 @@ def run_single(
                 tying_cfg = rasr.RasrConfig()
                 tying_cfg.type = "diphone-dense"
 
-                s.recognize_cart(
-                    key="fh-fs",
-                    epoch=ep,
-                    crp_corpus=crp_k,
-                    n_cart_out=diphone_li.get_n_of_dense_classes(),
-                    cart_tree_or_tying_config=tying_cfg,
-                    params=s.get_cart_params(key="fh-fs"),
-                    log_softmax_returnn_config=nn_precomputed_returnn_config,
-                    calculate_statistics=True,
-                )
+                decoding_cfgs = [
+                    dataclasses.replace(
+                        s.get_cart_params(key="fh-fs"),
+                        tdp_speech=(10, 0, "infinity", 0),
+                        tdp_silence=(10, 10, "infinity", 10),
+                        tdp_scale=sc,
+                    ).with_prior_scale(pC)
+                    for sc, pC in [(0.4, 0.3), (0.2, 0.4), (0.4, 0.4), (0.2, 0.5)]
+                ]
+                for cfg in decoding_cfgs:
+                    s.recognize_cart(
+                        key="fh-fs",
+                        epoch=ep,
+                        crp_corpus=crp_k,
+                        n_cart_out=diphone_li.get_n_of_dense_classes(),
+                        cart_tree_or_tying_config=tying_cfg,
+                        params=cfg,
+                        log_softmax_returnn_config=nn_precomputed_returnn_config,
+                        calculate_statistics=True,
+                    )
 
     if decode_all_corpora:
         assert False, "this is broken r/n"
