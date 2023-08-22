@@ -2214,9 +2214,11 @@ def run_single(
                 tying_cfg = rasr.RasrConfig()
                 tying_cfg.type = "diphone-dense"
 
+                base_params = s.get_cart_params(key="fh-fs")
                 decoding_cfgs = [
                     dataclasses.replace(
-                        s.get_cart_params(key="fh-fs"),
+                        base_params,
+                        lm_scale=base_params.lm_scale / ss_factor,
                         tdp_speech=(10, 0, "infinity", 0),
                         tdp_silence=(10, 10, "infinity", 10),
                         tdp_scale=sc,
