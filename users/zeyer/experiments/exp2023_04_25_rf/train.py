@@ -12,6 +12,7 @@ from i6_core.returnn.config import ReturnnConfig
 from i6_experiments.common.setups import serialization
 from i6_experiments.common.setups.returnn.serialization import get_serializable_config
 from i6_experiments.users.zeyer.utils.serialization import get_import_py_code
+from i6_experiments.users.zeyer.datasets.utils import multi_proc as mp_ds_utils
 from returnn_common import nn
 
 from i6_experiments.users.zeyer.model_interfaces import (
@@ -57,8 +58,8 @@ def train(
         # dataset
         default_input=task.train_dataset.get_default_input(),
         target=task.train_dataset.get_default_target(),
-        train=task.train_dataset.get_train_dataset(),
-        eval_datasets=task.train_dataset.get_eval_datasets(),
+        train=mp_ds_utils.multi_proc_dataset_opts(task.train_dataset.get_train_dataset()),
+        eval_datasets=mp_ds_utils.multi_proc_eval_datasets_opts(task.train_dataset.get_eval_datasets()),
         learning_rate_control_error_measure=train_def.learning_rate_control_error_measure,
         newbob_multi_num_epochs=task.train_epoch_split,
         **config,
