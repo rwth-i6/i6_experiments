@@ -388,7 +388,7 @@ def from_scratch_training(
     *, model: Model, data: rf.Tensor, data_spatial_dim: Dim, targets: rf.Tensor, targets_spatial_dim: Dim
 ):
     """Function is run within RETURNN."""
-    assert not data.feature_dim  # raw samples
+    assert not data.feature_dim or data.feature_dim.dimension == 1  # raw samples
     enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
 
     batch_dims = data.remaining_dims(data_spatial_dim)
