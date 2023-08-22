@@ -588,6 +588,7 @@ def create_config(
     enable_check_align=True,
     recog_ext_pipeline=False,
     window_left_padding=None,
+    window_right_padding=None,
     end_slice_size=None,
     conf_mem_opts=None,
     gpu_mem=11,
@@ -805,6 +806,8 @@ def create_config(
                 "out_spatial_dim": chunked_time_dim,
                 "window_left": window_left_padding,
             }
+            if window_right_padding:
+                conformer_encoder.network["_input_chunked"]["window_right"] = window_right_padding
             conformer_encoder.network["__input_chunked"] = {
                 "class": "merge_dims",
                 "from": "_input_chunked",
@@ -830,13 +833,27 @@ def create_config(
             src = "__encoder"
             if end_slice_size is not None:
                 new_chunk_size_dim = SpatialDim("sliced-chunk-size", end_slice_size)
+                if window_right_padding is None and window_left_padding is not None:
+                    # |------xxxx|
+                    slice_start = chunk_size - end_slice_size
+                    slice_end = None
+                elif window_left_padding is None and window_right_padding is not None:
+                    # |xxxx-----|
+                    slice_start = 0
+                    slice_end = end_slice_size
+                else:
+                    # |-----xxxx----|
+                    slice_start = chunk_size - end_slice_size - window_right_padding
+                    slice_end = slice_start + end_slice_size
                 conformer_encoder.network["___encoder"] = {
                     "class": "slice",
                     "from": "__encoder",
                     "axis": chunk_size_dim,
-                    "slice_start": chunk_size - end_slice_size,
+                    "slice_start": slice_start,
                     "out_dim": new_chunk_size_dim,
                 }
+                if slice_end:
+                    conformer_encoder.network["___encoder"]["slice_end"] = slice_end
                 chunk_size_dim = new_chunk_size_dim
                 src = "___encoder"
             conformer_encoder.network["encoder"] = {
