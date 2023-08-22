@@ -590,6 +590,7 @@ def create_config(
     window_left_padding=None,
     end_slice_size=None,
     conf_mem_opts=None,
+    gpu_mem=11,
 ):
     exp_config = copy.deepcopy(config)  # type: dict
     exp_post_config = copy.deepcopy(post_config)
@@ -1109,7 +1110,8 @@ def create_config(
 
     # seems to only work only when TF_FORCE_GPU_ALLOW_GROWTH is set to True in settings.py
     # otherwise I get CUDNN not loaded error. Also some error related to conv ops.
-    # post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
+    if gpu_mem == 24:
+        post_config["tf_session_opts"] = {"gpu_options": {"per_process_gpu_memory_fraction": 0.94}}
 
     returnn_config = ReturnnConfig(
         exp_config,
