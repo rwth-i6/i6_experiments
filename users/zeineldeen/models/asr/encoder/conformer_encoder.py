@@ -320,10 +320,23 @@ class ConformerEncoder:
         if self.memory_variant_opts is not None:
             # ln: [B*C, W, D]
             # We want now to have [B, C, W, D]
+
+            if self.memory_variant_opts.memory_input == "ln":
+                mem_input = ln
+            elif self.memory_variant_opts.memory_input == "source":
+                mem_input = source
+            elif self.memory_variant_opts.memory_input == "prev-block":
+                if layer_index == 1:
+                    mem_input = ln
+                else:
+                    mem_input = self._block_prefix_name(layer_index - 1)
+            else:
+                raise ValueError(f"Invalid memory input {self.memory_variant_opts.memory_input}")
+
             ln_split_chunk = self.network.add_generic_layer(
                 f"{prefix_name}_ln_split_chunk",
                 cls="split_batch_time",
-                source=ln,
+                source=mem_input,
                 base=self.memory_variant_opts.split_batch_time_base,
             )  # [B, C, W, D], C = chunked_time_dim
             mem_chunks = []
@@ -398,6 +411,7 @@ class ConformerEncoder:
                 )  # [C, W*N]
 
             if self.memory_variant_opts.self_att_version == 0:
+                assert self.memory_variant_opts.memory_input == "ln"
                 # this implementation is not efficient.
                 ln_rel_pos_enc = self.network.add_relative_pos_encoding_layer(
                     f"{prefix_name}_ln_rel_pos_enc",
@@ -1079,3 +1093,4 @@ class ConformerMemoryVariantOpts:
     mem_size: int
     mask_paddings: bool
     conv_cache: bool  # use conv cache for memory
+    memory_input: str  # input layer for memory

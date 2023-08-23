@@ -755,6 +755,7 @@ def create_config(
                 mem_size=conf_mem_opts.get("mem_size", 1),
                 mask_paddings=conf_mem_opts.get("mask_paddings", False),
                 conv_cache=conf_mem_opts.get("conv_cache", False),
+                memory_input=conf_mem_opts.get("memory_input", "ln"),
             )
 
         conformer_encoder = encoder_type(**encoder_args)
