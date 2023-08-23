@@ -13,7 +13,7 @@ from i6_core.util import instanciate_delayed
 
 from i6_core.returnn import ReturnnConfig
 from i6_core.returnn.search import ReturnnSearchJobV2, SearchRemoveLabelJob, SearchTakeBestJob
-from i6_experiments.users.zeyer.returnn.forward import ReturnnForwardJobV2  # TODO move to i6_core.returnn
+from i6_core.returnn.forward import ReturnnForwardJobV2
 from returnn_common import nn
 from returnn_common.datasets_old_2022_10.interface import DatasetConfig
 from i6_experiments.common.setups.returnn_common import serialization
@@ -108,6 +108,7 @@ def recog_model(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     dev_sets: Optional[Collection[str]] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> ScoreResultCollection:
     """recog"""
     if dev_sets is not None:
@@ -124,6 +125,7 @@ def recog_model(
             search_post_config=search_post_config,
             search_mem_rqmt=search_mem_rqmt,
             recog_post_proc_funcs=task.recog_post_proc_funcs,
+            search_args=search_args,
         )
         score_out = task.score_recog_output_func(dataset, recog_out)
         outputs[name] = score_out
@@ -138,6 +140,7 @@ def search_dataset(
     search_post_config: Optional[Dict[str, Any]] = None,
     search_mem_rqmt: Union[int, float] = 6,
     recog_post_proc_funcs: Sequence[Callable[[RecogOutput], RecogOutput]] = (),
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> RecogOutput:
     """
     recog on the specific dataset
@@ -157,7 +160,9 @@ def search_dataset(
     else:
         forward_job = ReturnnForwardJobV2(
             model_checkpoint=model.checkpoint,
-            returnn_config=search_config_v2(dataset, model.definition, recog_def, post_config=search_post_config),
+            returnn_config=search_config_v2(
+                dataset, model.definition, recog_def, post_config=search_post_config, search_args=search_args
+            ),
             output_files=[_v2_forward_out_filename],
             returnn_python_exe=tools_paths.get_returnn_python_exe(),
             returnn_root=tools_paths.get_returnn_root(),
@@ -271,6 +276,7 @@ def search_config_v2(
     recog_def: RecogDef,
     *,
     post_config: Optional[Dict[str, Any]] = None,
+    search_args: Optional[Dict[str, Any]] = None,
 ) -> ReturnnConfig:
     returnn_recog_config_dict = dict(
         backend=model_def.backend,
@@ -305,6 +311,7 @@ def search_config_v2(
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
                             "version": 3,
+                            **search_args,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,

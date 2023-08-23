@@ -88,7 +88,7 @@ class CTCPrefixScoreTH(object):
                 device=self.device,
             )
             r_prev[:, 1] = torch.cumsum(self.x[0, :, :, self.blank], 0).unsqueeze(2)
-            r_prev = r_prev.view(-1, 2, n_bh)
+            r_prev = r_prev.view(-1, 2, n_bh) # [T (input_length), 2, B*H]
             s_prev = 0.0
             f_min_prev = 0
             f_max_prev = 1
@@ -116,7 +116,7 @@ class CTCPrefixScoreTH(object):
             scoring_ids = None
             scoring_idmap = None
             snum = self.odim
-            x_ = self.x.unsqueeze(3).repeat(1, 1, 1, n_hyps, 1).view(2, -1, n_bh, snum)
+            x_ = self.x.unsqueeze(3).repeat(1, 1, 1, n_hyps, 1).view(2, -1, n_bh, snum) # [2, T, B*H, O] repeat x n_hyps times
 
         # new CTC forward probs are prepared as a (T x 2 x BW x S) tensor
         # that corresponds to r_t^n(h) and r_t^b(h) in a batch.
@@ -125,13 +125,13 @@ class CTCPrefixScoreTH(object):
             self.logzero,
             dtype=self.dtype,
             device=self.device,
-        )
+        ) # [T, 2, B*H, O]
         if output_length == 0:
             r[0, 0] = x_[0, 0]
 
         # breakpoint()
-        r_sum = torch.logsumexp(r_prev, 1)
-        log_phi = r_sum.unsqueeze(2).repeat(1, 1, snum)
+        r_sum = torch.logsumexp(r_prev, 1) # [T, B*H] sum n and nb
+        log_phi = r_sum.unsqueeze(2).repeat(1, 1, snum) # [T, B*H, O]
         if scoring_ids is not None:
             for idx in range(n_bh):
                 pos = scoring_idmap[idx, last_ids[idx]]
@@ -139,7 +139,7 @@ class CTCPrefixScoreTH(object):
                     log_phi[:, idx, pos] = r_prev[:, 1, idx]
         else:
             for idx in range(n_bh):
-                log_phi[:, idx, last_ids[idx]] = r_prev[:, 1, idx] # if last(g) == c then only from r_prev (1 -> non-blank)
+                log_phi[:, idx, last_ids[idx]] = r_prev[:, 1, idx] # if last(g) == c then only from r_prev (1 -> blank) (line 10)
 
         # decide start and end frames based on attention weights
         if att_w is not None and self.margin > 0:
@@ -153,16 +153,16 @@ class CTCPrefixScoreTH(object):
             start = max(output_length, 1)
             end = self.input_length
 
-        # compute forward probabilities log(r_t^n(h)) and log(r_t^b(h))
+        # compute forward probabilities log(r_t^n(h)) and log(r_t^b(h)) (line 11,12)
         for t in range(start, end):
-            rp = r[t - 1]
+            rp = r[t - 1] # [2, B*H, O]
             rr = torch.stack([rp[0], log_phi[t - 1], rp[0], rp[1]]).view(
                 2, 2, n_bh, snum
-            )
-            r[t] = torch.logsumexp(rr, 1) + x_[:, t]
+            ) # [2, 2, B*H, O] first two together -> r_t^n(h) and last two together -> r_t^b(h)
+            r[t] = torch.logsumexp(rr, 1) + x_[:, t] # [2, B*H, O]
 
-        # compute log prefix probabilities log(psi)
-        log_phi_x = torch.cat((log_phi[0].unsqueeze(0), log_phi[:-1]), dim=0) + x_[0]
+        # compute log prefix probabilities log(psi) (line 13)
+        log_phi_x = torch.cat((log_phi[0].unsqueeze(0), log_phi[:-1]), dim=0) + x_[0] # [T, B*H, O] why duplicate first element?
         if scoring_ids is not None:
             log_psi = torch.full(
                 (n_bh, self.odim), self.logzero, dtype=self.dtype, device=self.device
@@ -177,10 +177,11 @@ class CTCPrefixScoreTH(object):
             log_psi = torch.logsumexp(
                 torch.cat((log_phi_x[start:end], r[start - 1, 0].unsqueeze(0)), dim=0),
                 dim=0,
-            )
+            ) # [B*H, O]
 
-        for si in range(n_bh):
-            log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si]
+        # eos is handled differently by espnet
+        # for si in range(n_bh):
+        #     log_psi[si, self.eos] = r_sum[self.end_frames[si // n_hyps], si] # r_sum: [T, B*H], log_psi: [B*H, O] (line 4)
 
         # exclude blank probs
         log_psi[:, self.blank] = self.logzero

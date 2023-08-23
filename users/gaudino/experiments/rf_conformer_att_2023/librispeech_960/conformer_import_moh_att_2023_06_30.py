@@ -17,6 +17,8 @@ from i6_experiments.users.zeyer.model_interfaces import ModelDef, RecogDef, Trai
 
 import torch
 
+
+
 # From Mohammad, 2023-06-29
 # dev-clean  2.27
 # dev-other  5.39
@@ -66,8 +68,8 @@ def sis_run_with_prefix(prefix_name: str = None):
     new_chkpt = PtCheckpoint(new_chkpt_path)
     model_with_checkpoint = ModelWithCheckpoint(definition=from_scratch_model_def, checkpoint=new_chkpt)
 
-    att_scale= 1.0
-    ctc_scale= 0.0
+    att_scale= 0.65
+    ctc_scale= 0.35
     search_args = {
         "att_scale": att_scale,
         "ctc_scale": ctc_scale,
@@ -77,7 +79,7 @@ def sis_run_with_prefix(prefix_name: str = None):
     dev_sets = ["dev-other"]  # only dev-other for testing
     # dev_sets = None  # all
     res = recog_model(task, model_with_checkpoint, model_recog, dev_sets=dev_sets, search_args=search_args)
-    tk.register_output(prefix_name +f"/espnet_ctc_att{att_scale}_ctc{ctc_scale}" + f"/recog_results", res.output)
+    tk.register_output(prefix_name +f"/espnet_ctc_att{att_scale}_ctc{ctc_scale}_eosfix" + f"/recog_results", res.output)
 
 
 py = sis_run_with_prefix  # if run directly via `sis m ...`
@@ -414,7 +416,7 @@ def model_recog(
     data: Tensor,
     data_spatial_dim: Dim,
     max_seq_len: Optional[int] = None,
-    search_args: Optional[Dict[str, Any]] = None,
+    # search_args: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Tensor, Tensor, Dim, Dim]:
     """
     Function is run within RETURNN.
@@ -489,7 +491,7 @@ def model_recog(
             state=decoder_state,
         )
         logits = model.decode_logits(input_embed=input_embed, **step_out)
-        label_log_prob = rf.log_softmax(logits, axis=model.target_dim)
+        label_log_prob = rf.log_softmax(logits, axis=model.target_dim) # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
 
         # add ctc speechbrain
         # ctc_candidates = None
@@ -513,7 +515,171 @@ def model_recog(
             dtype="float32",
             raw_tensor=ctc_prefix_scores[:, :, :10025],
         )
-        label_log_prob = search_args["att_scale"] * label_log_prob + search_args["ctc_scale"] * ctc_prefix_scores
+        label_log_prob = 0.7 * label_log_prob + 0.3 * ctc_prefix_scores
+
+        # Filter out finished beams
+        label_log_prob = rf.where(
+            ended,
+            rf.sparse_to_dense(model.eos_idx, axis=model.target_dim, label_value=0.0, other_value=-1.0e30),
+            label_log_prob,
+        )
+        seq_log_prob = seq_log_prob + label_log_prob  # Batch, InBeam, Vocab
+        seq_log_prob, (backrefs, target), beam_dim = rf.top_k(
+            seq_log_prob, k_dim=Dim(beam_size, name=f"dec-step{i}-beam"), axis=[beam_dim, model.target_dim]
+        )  # seq_log_prob, backrefs, target: Batch, Beam
+        seq_targets.append(target)
+        seq_backrefs.append(backrefs)
+        decoder_state = tree.map_structure(lambda s: rf.gather(s, indices=backrefs), decoder_state)
+        ended = rf.gather(ended, indices=backrefs)
+        out_seq_len = rf.gather(out_seq_len, indices=backrefs)
+        i += 1
+
+        # ctc state selection
+        ctc_state = ctc_prefix_scorer.index_select_state(ctc_state, target.raw_tensor)
+        target_ctc = torch.flatten(target.raw_tensor)
+
+        ended = rf.logical_or(ended, target == model.eos_idx)
+        ended = rf.logical_or(ended, rf.copy_to_device(i >= max_seq_len))
+        if bool(rf.reduce_all(ended, axis=ended.dims).raw_tensor):
+            break
+        out_seq_len = out_seq_len + rf.where(ended, 0, 1)
+
+        if i > 1 and length_normalization_exponent != 0:
+            # Length-normalized scores, so we evaluate score_t/len.
+            # If seq ended, score_i/i == score_{i-1}/(i-1), thus score_i = score_{i-1}*(i/(i-1))
+            # Because we count with EOS symbol, shifted by one.
+            seq_log_prob *= rf.where(
+                ended,
+                (i / (i - 1)) ** length_normalization_exponent,
+                1.0,
+            )
+
+    if i > 0 and length_normalization_exponent != 0:
+        seq_log_prob *= (1 / i) ** length_normalization_exponent
+
+    # Backtrack via backrefs, resolve beams.
+    seq_targets_ = []
+    indices = rf.range_over_dim(beam_dim)  # FinalBeam -> FinalBeam
+    for backrefs, target in zip(seq_backrefs[::-1], seq_targets[::-1]):
+        # indices: FinalBeam -> Beam
+        # backrefs: Beam -> PrevBeam
+        seq_targets_.insert(0, rf.gather(target, indices=indices))
+        indices = rf.gather(backrefs, indices=indices)  # FinalBeam -> PrevBeam
+
+    seq_targets__ = TensorArray(seq_targets_[0])
+    for target in seq_targets_:
+        seq_targets__ = seq_targets__.push_back(target)
+    out_spatial_dim = Dim(out_seq_len, name="out-spatial")
+    seq_targets = seq_targets__.stack(axis=out_spatial_dim)
+
+    return seq_targets, seq_log_prob, out_spatial_dim, beam_dim
+
+def model_recog_ctc(
+    *,
+    model: Model,
+    data: Tensor,
+    data_spatial_dim: Dim,
+    max_seq_len: Optional[int] = None,
+    # search_args: Optional[Dict[str, Any]] = None,
+) -> Tuple[Tensor, Tensor, Dim, Dim]:
+    """
+    Function is run within RETURNN.
+
+    Earlier we used the generic beam_search function,
+    but now we just directly perform the search here,
+    as this is overall simpler and shorter.
+
+    :return:
+        recog results including beam {batch, beam, out_spatial},
+        log probs {batch, beam},
+        out_spatial_dim,
+        final beam_dim
+    """
+    batch_dims = data.remaining_dims((data_spatial_dim, data.feature_dim))
+    enc_args, enc_spatial_dim = model.encode(data, in_spatial_dim=data_spatial_dim)
+    beam_size = 12
+    length_normalization_exponent = 1.0
+    if max_seq_len is None:
+        max_seq_len = enc_spatial_dim.get_size_tensor()
+    else:
+        max_seq_len = rf.convert_to_tensor(max_seq_len, dtype="int32")
+    print("** max seq len:", max_seq_len.raw_tensor)
+
+    # Eager-mode implementation of beam search.
+    # Initial state.
+    beam_dim = Dim(1, name="initial-beam")
+    batch_dims_ = [beam_dim] + batch_dims
+    decoder_state = model.decoder_default_initial_state(batch_dims=batch_dims_, enc_spatial_dim=enc_spatial_dim)
+    target = rf.constant(model.bos_idx, dims=batch_dims_, sparse_dim=model.target_dim)
+    ended = rf.constant(False, dims=batch_dims_)
+    out_seq_len = rf.constant(0, dims=batch_dims_)
+    seq_log_prob = rf.constant(0.0, dims=batch_dims_)
+
+    assert len(batch_dims) == 1
+    batch_size_dim = batch_dims[0]
+    batch_size = batch_dims[0].get_dim_value()
+    target_ctc = [model.bos_idx for _ in range(batch_size * beam_size)]
+
+    # ctc prefix scorer speechbrain
+    # from .ctc import CTCPrefixScorer
+    # ctc_scorer = CTCPrefixScorer(
+    #     enc_args['ctc'].raw_tensor,
+    #     max_seq_len.raw_tensor.to('cuda'),
+    #     10, # batch_size -> number of sequences in the batch, 10 for debugging
+    #     beam_size,
+    #     10025, #blank index
+    #     model.bos_idx,
+    #     # self.ctc_window_size,
+    # )
+    # ctc_memory = None
+
+    # ctc prefix scorer espnet
+    from .espnet_ctc.ctc_prefix_score_espnet import CTCPrefixScoreTH
+
+    # hlens = max_seq_len.raw_tensor.repeat(beam_size).view(beam_size, data.raw_tensor.shape[0]).transpose(0, 1)
+    hlens = max_seq_len.raw_tensor
+    ctc_out = enc_args["ctc"].copy_transpose((batch_size_dim, enc_spatial_dim, model.target_dim_w_b))  # [B,T,V+1]
+    ctc_prefix_scorer = CTCPrefixScoreTH(ctc_out.raw_tensor, hlens, 10025, 0, 0)
+    ctc_state = None
+    enc_args.pop("ctc")
+
+    i = 0
+    seq_targets = []
+    seq_backrefs = []
+    while True:
+        input_embed = model.target_embed(target)
+        step_out, decoder_state = model.loop_step(
+            **enc_args,
+            enc_spatial_dim=enc_spatial_dim,
+            input_embed=input_embed,
+            state=decoder_state,
+        )
+        logits = model.decode_logits(input_embed=input_embed, **step_out)
+        label_log_prob = rf.log_softmax(logits, axis=model.target_dim) # (Dim{'initial-beam'(1)}, Dim{B}, Dim{F'target'(10025)})
+
+        # add ctc speechbrain
+        # ctc_candidates = None
+        # attn = None
+        # ctc_log_probs, ctc_memory = ctc_scorer.forward_step(
+        #     i, target.raw_tensor, ctc_memory, ctc_candidates, attn
+        # )
+        # label_log_prob = label_log_prob + 0.3 * ctc_log_probs # ctc weight: 0.3
+
+        # add ctc espnet
+        ctc_prefix_scores, ctc_state = ctc_prefix_scorer(output_length=i, last_ids=target_ctc, state=ctc_state)
+
+        if i == 0:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)[:, 0, :].unsqueeze(1)
+        else:
+            ctc_prefix_scores = ctc_prefix_scores.view(batch_size, beam_size, -1)
+        ctc_prefix_scores = rf.Tensor(
+            name="ctc_prefix_scores",
+            # dims=batch_dims_ + [model.target_dim],
+            dims=[batch_size_dim, beam_dim, model.target_dim],
+            dtype="float32",
+            raw_tensor=ctc_prefix_scores[:, :, :10025],
+        )
+        label_log_prob = 0.7 * label_log_prob + 0.3 * ctc_prefix_scores
 
         # Filter out finished beams
         label_log_prob = rf.where(
