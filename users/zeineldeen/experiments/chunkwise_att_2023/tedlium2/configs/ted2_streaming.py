@@ -1184,7 +1184,7 @@ def run_chunkwise_train(
                                 exp_name += f"_memSize{mem_size}"
                             if conf_mem_opts.get("mask_paddings", False):
                                 exp_name += f"_memMaskPad"
-                            if conf_mem_opts.get("conv_cache", True):
+                            if conf_mem_opts.get("use_conv_cache", True):
                                 exp_name += f"_memConvCache"
                             if conf_mem_opts.get("use_cached_prev_kv", False):
                                 exp_name += f"_useCachedKV"
@@ -1536,7 +1536,7 @@ def baseline():
             batch_size=10_000 if mem_size != 1 else 15_000,
             accum_grad=3 if mem_size != 1 else 2,
             time_rqmt=120,
-            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size, "conv_cache": False},
+            conf_mem_opts={"self_att_version": 1, "mem_size": mem_size, "use_conv_cache": False},
         )
 
     # TODO: 2 sec chunk
@@ -1553,7 +1553,7 @@ def baseline():
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=120,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False},
+        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False},
     )
 
     # TODO: extended chunk
@@ -1636,7 +1636,7 @@ def baseline():
             accum_grad=3,
             time_rqmt=120,
             end_slice_size=center_context,
-            conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False, "use_cached_prev_kv": True},
+            conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False, "use_cached_prev_kv": True},
             suffix=f"_L{left_context}_C{center_context}_R{right_context_chunk_size}",
         )
 
@@ -1655,7 +1655,7 @@ def baseline():
         accum_grad=3,
         time_rqmt=120,
         end_slice_size=20,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False, "use_cached_prev_kv": True},
+        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False, "use_cached_prev_kv": True},
     )
 
     # TODO: use smaller chunk size only in decoding
