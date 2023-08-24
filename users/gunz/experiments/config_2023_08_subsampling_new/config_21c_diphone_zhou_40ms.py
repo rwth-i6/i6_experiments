@@ -2080,8 +2080,8 @@ def run_single(
                 tdp_sil=[(3, 10, "infinity", 10)],
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.7, 7),
-                        np.linspace(0.0, 0.8, 5),
+                        [round(v, 1) for v in np.linspace(0.2, 0.8, 4)],
+                        [round(v, 1) for v in np.linspace(0.0, 0.6, 4)],
                     )
                 ),
                 tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.6, 3)],
