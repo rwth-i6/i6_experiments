@@ -1182,8 +1182,8 @@ def run_chunkwise_train(
                                 exp_name += f"_memSize{mem_size}"
                             if conf_mem_opts.get("mask_paddings", False):
                                 exp_name += f"_memMaskPad"
-                            if conf_mem_opts.get("use_conv_cache", True):
-                                exp_name += f"_memConvCache"
+                            if conf_mem_opts.get("conv_cache_size", None):
+                                exp_name += f"_convCache{conf_mem_opts['conv_cache_size']}"
                             if conf_mem_opts.get("use_cached_prev_kv", False):
                                 exp_name += f"_useCachedKV"
                             if conf_mem_opts.get("mem_slice_start", None) is not None:
@@ -1495,27 +1495,28 @@ def baseline():
     # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1                         8.13    7.54  avg
 
     for use_cached_prev_kv in [True, False]:
-        for mem_size in [1, 2, 3]:
-            run_chunkwise_train(
-                enc_stream_type="chunked",
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                chunk_sizes=[10, 20],
-                chunk_step_factors=[0.5],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=11,
-                total_epochs=[120],
-                batch_size=10_000 if mem_size != 1 else 15_000,
-                accum_grad=3 if mem_size != 1 else 2,
-                time_rqmt=120,
-                conf_mem_opts={
-                    "self_att_version": 1,
-                    "mem_size": mem_size,
-                    "use_conv_cache": False,
-                    "use_cached_prev_kv": use_cached_prev_kv,
-                },
-            )
+        for conv_cache in [0, 1, 2]:
+            for mem_size in [1, 2, 3]:
+                run_chunkwise_train(
+                    enc_stream_type="chunked",
+                    run_all_for_best_last_avg=True,
+                    enable_check_align=False,
+                    chunk_sizes=[10],
+                    chunk_step_factors=[0.5],
+                    start_lrs=[2e-4],
+                    decay_pt_factors=[1 / 3],
+                    gpu_mem=11,
+                    total_epochs=[120],
+                    batch_size=10_000 if mem_size != 1 else 15_000,
+                    accum_grad=3 if mem_size != 1 else 2,
+                    time_rqmt=120,
+                    conf_mem_opts={
+                        "self_att_version": 1,
+                        "mem_size": mem_size,
+                        "use_cached_prev_kv": use_cached_prev_kv,
+                        "conv_cache_size": conv_cache,
+                    },
+                )
 
     # TODO: 2 sec chunk
     # run_chunkwise_train(
@@ -1582,33 +1583,36 @@ def baseline():
         )
 
     # TODO: with mem
-    for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5)]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[left_context + center_context + right_context],
-            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-            end_slice_start=left_context,
-            end_slice_size=center_context,
-            window_left_padding=left_context * 6,
-            conf_mem_opts={
-                "self_att_version": 1,
-                "mem_size": 1,
-                "use_conv_cache": False,
-                "use_cached_prev_kv": True,
-                "mem_slice_start": left_context,
-                "mem_slice_size": center_context,
-            },
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-        )
+    for conv_cache_size in [0, 1, 2]:
+        for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5)]:
+            if center_context == 20 and conv_cache_size == 2:
+                continue
+            run_chunkwise_train(
+                enc_stream_type="chunked",
+                run_all_for_best_last_avg=True,
+                enable_check_align=False,
+                chunk_sizes=[left_context + center_context + right_context],
+                chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+                start_lrs=[2e-4],
+                decay_pt_factors=[1 / 3],
+                gpu_mem=24,
+                total_epochs=[120],
+                batch_size=15_000,
+                accum_grad=2,
+                time_rqmt=120,
+                end_slice_start=left_context,
+                end_slice_size=center_context,
+                window_left_padding=left_context * 6,
+                conf_mem_opts={
+                    "self_att_version": 1,
+                    "mem_size": 1,
+                    "use_cached_prev_kv": True,
+                    "conv_cache_size": conv_cache_size,
+                    "mem_slice_start": left_context,
+                    "mem_slice_size": center_context,
+                },
+                suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+            )
 
     # TODO: using cached prev kv
     run_chunkwise_train(
@@ -1624,7 +1628,7 @@ def baseline():
         batch_size=15_000,
         accum_grad=2,
         time_rqmt=120,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False, "use_cached_prev_kv": True},
+        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_cached_prev_kv": True},
     )
 
     # TODO: use smaller chunk size only in decoding

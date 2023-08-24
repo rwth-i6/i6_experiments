@@ -293,7 +293,7 @@ class ConformerEncoder:
 
         return ff_module_res
 
-    def _get_mem_chunks(self, prefix_name: str, input_layer: str):
+    def _get_mem_chunks(self, prefix_name: str, input_layer: str, mem_size: int):
         """
         :param name: layer prefix name
         :param input_layer: name of input layer to shift of shape [B*C, W, D]
@@ -306,7 +306,7 @@ class ConformerEncoder:
             base=self.memory_variant_opts.split_batch_time_base,
         )  # [B, C, W, D], C = chunked_time_dim
         mem_chunks = []
-        for mem_idx in range(self.memory_variant_opts.mem_size):
+        for mem_idx in range(mem_size):
             chunk_shifted = self.network.add_generic_layer(
                 f"{prefix_name}_chunk_shifted" + (f"_{mem_idx}" if mem_idx > 0 else ""),
                 cls="shift_axis",
@@ -372,7 +372,7 @@ class ConformerEncoder:
 
         if self.memory_variant_opts.use_cached_prev_kv:
             # concat previous cached keys and values
-            cached_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K)
+            cached_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
             K = self.network.add_generic_layer(
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
@@ -398,7 +398,7 @@ class ConformerEncoder:
         )  # [B*C, W*N, D]
 
         if self.memory_variant_opts.use_cached_prev_kv:
-            cached_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V)
+            cached_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
             V = self.network.add_generic_layer(
                 f"{prefix_name}_ln_V_concat",
                 cls="concat",
@@ -556,7 +556,9 @@ class ConformerEncoder:
 
             if self.memory_variant_opts.use_cached_prev_kv is False:
                 # shifted inputs + current chunk
-                ln_concat_chunks = self._get_mem_chunks(prefix_name=f"{prefix_name}_ln", input_layer=ln)
+                ln_concat_chunks = self._get_mem_chunks(
+                    prefix_name=f"{prefix_name}_ln", input_layer=ln, mem_size=self.memory_variant_opts.mem_size
+                )
                 ln_concat_chunks += [(ln, "T")]
                 ln_ = self.network.add_generic_layer(
                     f"{prefix_name}_ln_concat",
@@ -678,8 +680,12 @@ class ConformerEncoder:
 
         glu_act = self.network.add_gating_layer("{}_glu".format(prefix_name), pointwise_conv1)
 
-        if self.memory_variant_opts is not None and self.memory_variant_opts.use_conv_cache:
-            mem_chunks = self._get_mem_chunks(prefix_name=f"{prefix_name}_glu_act", input_layer=glu_act)
+        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
+            mem_chunks = self._get_mem_chunks(
+                prefix_name=f"{prefix_name}_glu_act",
+                input_layer=glu_act,
+                mem_size=self.memory_variant_opts.conv_cache_size,
+            )
             glu_act_ = self.network.add_generic_layer(
                 f"{prefix_name}_glu_act_concat",
                 cls="concat",
@@ -728,7 +734,7 @@ class ConformerEncoder:
                 param_dropout=self.conv_weight_drop,
             )
 
-        if self.memory_variant_opts is not None and self.memory_variant_opts.use_conv_cache:
+        if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
             # we apply convolution over the concatenated chunks but we only need the output of the current
             # chunk, thus, we need to slice from [B*C, W*N, D] to [B*C, W, D]
             depthwise_conv = self.network.add_generic_layer(
@@ -1045,6 +1051,6 @@ class ConformerMemoryVariantOpts:
     mem_size: int
     mem_slice_start: int
     mem_slice_size: int
-    use_conv_cache: bool  # use conv cache for memory
+    conv_cache_size: int
     use_cached_prev_kv: bool
     use_emformer_mem: bool

@@ -753,7 +753,7 @@ def create_config(
                 chunk_size=chunk_size,
                 chunk_size_dim=chunk_size_dim,
                 mem_size=conf_mem_opts.get("mem_size", 1),
-                use_conv_cache=conf_mem_opts.get("use_conv_cache", False),
+                conv_cache_size=conf_mem_opts.get("conv_cache_size", None),
                 use_cached_prev_kv=conf_mem_opts.get("use_cached_prev_kv", False),
                 mem_slice_size=conf_mem_opts.get("mem_slice_size", None),
                 mem_slice_start=conf_mem_opts.get("mem_slice_start", None),
