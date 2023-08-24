@@ -330,6 +330,18 @@ class ConformerEncoder:
                 source=chunk_shifted,
                 set_axes={"T": "spatial"},
             )  # [B*C, W, D] but not time_dim_axis is set to W
+
+            if self.memory_variant_opts.mem_slice_start:
+                assert self.memory_variant_opts.mem_slice_size
+                chunk_shifted = self.network.add_generic_layer(
+                    f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else "") + "_sliced",
+                    cls="slice",
+                    source=chunk_shifted,
+                    axis="T",
+                    slice_start=self.memory_variant_opts.mem_slice_start,
+                    slice_end=self.memory_variant_opts.mem_slice_start + self.memory_variant_opts.mem_slice_size,
+                )
+
             mem_chunks.append((chunk_shifted, "T"))
 
         # reverse to concat left-most first
@@ -1031,5 +1043,7 @@ class ConformerMemoryVariantOpts:
     chunk_size: int
     self_att_version: int  # TODO: just for testing
     mem_size: int
+    mem_slice_start: int
+    mem_slice_size: int
     use_conv_cache: bool  # use conv cache for memory
     use_cached_prev_kv: bool

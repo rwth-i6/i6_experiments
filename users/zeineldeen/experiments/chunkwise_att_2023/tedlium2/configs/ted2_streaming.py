@@ -1186,6 +1186,11 @@ def run_chunkwise_train(
                                 exp_name += f"_memConvCache"
                             if conf_mem_opts.get("use_cached_prev_kv", False):
                                 exp_name += f"_useCachedKV"
+                            if conf_mem_opts.get("mem_slice_start", None):
+                                assert conf_mem_opts.get("mem_slice_size", None)
+                                exp_name += (
+                                    f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
+                                )
                             train_args["recursion_limit"] = 4000
 
                         if with_ctc:
