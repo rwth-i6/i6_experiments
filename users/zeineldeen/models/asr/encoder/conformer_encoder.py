@@ -331,8 +331,8 @@ class ConformerEncoder:
                 set_axes={"T": "spatial"},
             )  # [B*C, W, D] but not time_dim_axis is set to W
 
-            if self.memory_variant_opts.mem_slice_start:
-                assert self.memory_variant_opts.mem_slice_size
+            if self.memory_variant_opts.mem_slice_start is not None:
+                assert self.memory_variant_opts.mem_slice_size is not None
                 chunk_shifted = self.network.add_generic_layer(
                     f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else "") + "_sliced",
                     cls="slice",
@@ -376,7 +376,7 @@ class ConformerEncoder:
             K = self.network.add_generic_layer(
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
-                source=[(cached_keys, "T"), (K, "T")],
+                source=[*cached_keys, (K, "T")],
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
@@ -402,7 +402,7 @@ class ConformerEncoder:
             V = self.network.add_generic_layer(
                 f"{prefix_name}_ln_V_concat",
                 cls="concat",
-                source=[(cached_values, "T"), (V, "T")],
+                source=[*cached_values, (V, "T")],
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
