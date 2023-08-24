@@ -753,8 +753,8 @@ def create_config(
                 chunk_size=chunk_size,
                 chunk_size_dim=chunk_size_dim,
                 mem_size=conf_mem_opts.get("mem_size", 1),
-                mask_paddings=conf_mem_opts.get("mask_paddings", False),
                 conv_cache=conf_mem_opts.get("conv_cache", False),
+                use_cached_prev_kv=conf_mem_opts.get("use_cached_prev_kv", False),
             )
 
         conformer_encoder = encoder_type(**encoder_args)
