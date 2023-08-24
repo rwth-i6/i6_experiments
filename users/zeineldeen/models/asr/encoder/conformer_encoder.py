@@ -1047,3 +1047,4 @@ class ConformerMemoryVariantOpts:
     mem_slice_size: int
     use_conv_cache: bool  # use conv cache for memory
     use_cached_prev_kv: bool
+    use_emformer_mem: bool

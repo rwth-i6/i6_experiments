@@ -1584,7 +1584,7 @@ def baseline():
             chunk_step_factors=[center_context / (left_context + center_context + right_context)],
             start_lrs=[2e-4],
             decay_pt_factors=[1 / 3],
-            gpu_mem=11,
+            gpu_mem=24,
             total_epochs=[120],
             batch_size=10_000,
             accum_grad=3,
