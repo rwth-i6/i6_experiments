@@ -1483,38 +1483,6 @@ def baseline():
         accum_grad=2,
         time_rqmt=120,
     )
-    # TODO: tune decay and lr
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[20],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4, 5e-4, 8e-4],
-        decay_pt_factors=[0.1, 0.25],
-        gpu_mem=11,
-        total_epochs=[120],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=120,
-    )
-    # TODO: clipping = chunk size
-    for chunk_size in [10, 20]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[chunk_size],
-            chunk_step_factors=[0.5],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=11,
-            total_epochs=[120],
-            batch_size=10_000,
-            accum_grad=3,
-            time_rqmt=120,
-            rel_pos_clipping=chunk_size,
-        )
 
     # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize4                9.81    9.57  avg
     # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize3               10       9.68  avg
@@ -1607,26 +1575,33 @@ def baseline():
         )
 
     # TODO: with mem
-    # for left_context, center_context, right_context in [(20, 20, 5), (20, 10, 5)]:
-    #     run_chunkwise_train(
-    #         enc_stream_type="chunked",
-    #         run_all_for_best_last_avg=True,
-    #         enable_check_align=False,
-    #         chunk_sizes=[left_context + center_context + right_context],
-    #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-    #         start_lrs=[2e-4],
-    #         decay_pt_factors=[1 / 3],
-    #         gpu_mem=24,
-    #         total_epochs=[120],
-    #         batch_size=10_000,
-    #         accum_grad=3,
-    #         time_rqmt=120,
-    #         end_slice_start=left_context,
-    #         end_slice_size=center_context,
-    #         window_left_padding=left_context * 6,
-    #         conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False, "use_cached_prev_kv": True},
-    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-    #     )
+    for left_context, center_context, right_context in [(20, 20, 5), (20, 10, 5)]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=10_000,
+            accum_grad=3,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": 1,
+                "use_conv_cache": False,
+                "use_cached_prev_kv": True,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        )
 
     # TODO: using cached prev kv
     run_chunkwise_train(
