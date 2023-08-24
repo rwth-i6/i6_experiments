@@ -1696,36 +1696,36 @@ def baseline():
 
     # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
 
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[120],
-        batch_size=5_000,
-        accum_grad=6,
-        time_rqmt=120,
-        full_sum_approx=True,
-        decoder_mask_eoc=True,
-    )
-
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[80],
-        batch_size=6000,
-        accum_grad=5,
-        time_rqmt=120,
-        full_sum_approx=True,
-        decoder_mask_eoc=True,
-    )
+    # run_chunkwise_train(
+    #     enc_stream_type="global",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[1],
+    #     chunk_step_factors=[1],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[120],
+    #     batch_size=5_000,
+    #     accum_grad=6,
+    #     time_rqmt=120,
+    #     full_sum_approx=True,
+    #     decoder_mask_eoc=True,
+    # )
+    #
+    # run_chunkwise_train(
+    #     enc_stream_type="global",
+    #     run_all_for_best_last_avg=True,
+    #     enable_check_align=False,
+    #     chunk_sizes=[1],
+    #     chunk_step_factors=[1],
+    #     start_lrs=[2e-4],
+    #     decay_pt_factors=[1 / 3],
+    #     gpu_mem=24,
+    #     total_epochs=[80],
+    #     batch_size=6000,
+    #     accum_grad=5,
+    #     time_rqmt=120,
+    #     full_sum_approx=True,
+    #     decoder_mask_eoc=True,
+    # )
