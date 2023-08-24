@@ -345,6 +345,9 @@ class ConformerEncoder:
         :param concat_prev_chunks_inputs:
         """
 
+        if self.memory_variant_opts.use_cached_prev_kv:
+            assert concat_prev_chunks_inputs is None, "Should use cached keys and values instead."
+
         K = self.network.add_generic_layer(
             f"{prefix_name}_ln_K",
             cls="linear",
