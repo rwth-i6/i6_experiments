@@ -2102,7 +2102,7 @@ def run_single(
 
     if alignment_name == "40ms-FF-v8":
         fine_tune_epochs = 300
-        keep_epochs = [150, 275, 300]
+        keep_epochs = [25, 150, 275, 300]
         orig_name = name
 
         bw_scales = [
