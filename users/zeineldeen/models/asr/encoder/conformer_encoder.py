@@ -232,6 +232,8 @@ class ConformerEncoder:
             self.concat_window_dim = SpatialDim("concat-window")
             self.enc_att_num_heads_dim = SpatialDim("enc-att-num-heads", att_num_heads)
             self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
+            if self.memory_variant_opts.conv_cache_size:
+                self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -690,7 +692,7 @@ class ConformerEncoder:
                 f"{prefix_name}_glu_act_concat",
                 cls="concat",
                 source=[*mem_chunks, (glu_act, "T")],
-                out_dim=self.concat_window_dim,
+                out_dim=self.conv_cache_concat_dim,
             )  # [B*C, W*N, D]
         else:
             glu_act_ = glu_act
@@ -737,12 +739,13 @@ class ConformerEncoder:
         if self.memory_variant_opts is not None and self.memory_variant_opts.conv_cache_size:
             # we apply convolution over the concatenated chunks but we only need the output of the current
             # chunk, thus, we need to slice from [B*C, W*N, D] to [B*C, W, D]
+            assert self.memory_variant_opts.mem_slice_size, "mem_slice_size must be set."
             depthwise_conv = self.network.add_generic_layer(
                 f"{prefix_name}_depthwise_conv_slice",
                 cls="slice",
                 source=depthwise_conv,
                 axis="T",
-                slice_start=self.memory_variant_opts.chunk_size * self.memory_variant_opts.mem_size,
+                slice_start=self.memory_variant_opts.mem_slice_size * self.memory_variant_opts.conv_cache_size,
             )
 
         if self.use_ln:
