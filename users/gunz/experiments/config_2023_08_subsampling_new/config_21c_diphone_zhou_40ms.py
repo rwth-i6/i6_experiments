@@ -2100,7 +2100,7 @@ def run_single(
     # FINE TUNING
     # ###########
 
-    if alignment_name == "40ms-TD-v8":
+    if alignment_name == "40ms-FF-v8":
         fine_tune_epochs = 300
         keep_epochs = [150, 275, 300]
         orig_name = name
