@@ -18,9 +18,9 @@ from sisyphus import tk
 
 # -------------------- Recipes --------------------
 
-import i6_core.features as features
 import i6_core.cart as cart
 import i6_core.corpus as corpus_recipe
+import i6_core.features as features
 import i6_core.rasr as rasr
 
 import i6_experiments.common.datasets.librispeech as lbs_dataset
@@ -659,7 +659,11 @@ def get_vtln_sat_args(
     )
 
 
-def get_align_dev_args(name: str = "dev-clean-other", target_corpus_keys: Optional[List[str]] = None) -> rasr_util.ForcedAlignmentArgs:
+def get_align_dev_args(
+        forced_align_lexicon: tk.Path,
+        name: str = "dev-clean-other",
+        target_corpus_keys: Optional[List[str]] = None,
+) -> rasr_util.ForcedAlignmentArgs:
     if target_corpus_keys is None:
         target_corpus_keys = ["dev-clean", "dev-other"]
 
