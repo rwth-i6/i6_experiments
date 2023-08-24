@@ -1575,7 +1575,7 @@ def baseline():
         )
 
     # TODO: with mem
-    for left_context, center_context, right_context in [(20, 20, 5), (20, 10, 5)]:
+    for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5)]:
         run_chunkwise_train(
             enc_stream_type="chunked",
             run_all_for_best_last_avg=True,
@@ -1584,7 +1584,7 @@ def baseline():
             chunk_step_factors=[center_context / (left_context + center_context + right_context)],
             start_lrs=[2e-4],
             decay_pt_factors=[1 / 3],
-            gpu_mem=24,
+            gpu_mem=11,
             total_epochs=[120],
             batch_size=10_000,
             accum_grad=3,
