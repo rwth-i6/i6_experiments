@@ -588,6 +588,7 @@ def create_config(
     enable_check_align=True,
     recog_ext_pipeline=False,
     window_left_padding=None,
+    end_slice_start=None,
     end_slice_size=None,
     conf_mem_opts=None,
     gpu_mem=11,
@@ -830,11 +831,13 @@ def create_config(
             src = "__encoder"
             if end_slice_size is not None:
                 new_chunk_size_dim = SpatialDim("sliced-chunk-size", end_slice_size)
+                # TODO: this will break hashes for left-context only exps so needs to handle this later
                 conformer_encoder.network["___encoder"] = {
                     "class": "slice",
                     "from": "__encoder",
                     "axis": chunk_size_dim,
-                    "slice_start": chunk_size - end_slice_size,
+                    "slice_start": end_slice_start,
+                    "slice_end": end_slice_start + end_slice_size,
                     "out_dim": new_chunk_size_dim,
                 }
                 chunk_size_dim = new_chunk_size_dim
