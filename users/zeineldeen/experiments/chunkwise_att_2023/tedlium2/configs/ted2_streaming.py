@@ -1556,23 +1556,6 @@ def baseline():
         conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False},
     )
 
-    for mem_input in ["prev-block", "source"]:
-        for chunk_step in [1.0, 0.5]:
-            run_chunkwise_train(
-                enc_stream_type="chunked",
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                chunk_sizes=[10, 20],
-                chunk_step_factors=[chunk_step],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=11,
-                total_epochs=[120],
-                batch_size=15_000 if chunk_step == 1.0 else 10_000,
-                accum_grad=2 if chunk_step == 1.0 else 3,
-                time_rqmt=120,
-                conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False, "memory_input": mem_input},
-            )
     # for mem_input in ["prev-block", "source"]:
     #     for chunk_step in [1.0]:
     #         run_chunkwise_train(
