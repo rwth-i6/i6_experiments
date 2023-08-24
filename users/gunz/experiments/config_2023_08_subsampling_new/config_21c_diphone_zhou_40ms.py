@@ -82,7 +82,7 @@ def run(returnn_root: tk.Path, alignment: tk.Path, a_name: str):
             lr="zhou",
             own_priors=False,
             run_performance_study=False,
-            tune_decoding=False,
+            tune_decoding=a_name == "40ms-FF-v8",
         )
     ]
     for exp in configs:
@@ -2077,15 +2077,14 @@ def run_single(
                 search_parameters=recog_args,
                 num_encoder_output=conf_model_dim,
                 tdp_speech=[(3, 0, "infinity", 0)],
-                tdp_sil=[(10, 10, "infinity", 10)],
+                tdp_sil=[(3, 10, "infinity", 10)],
                 prior_scales=list(
                     itertools.product(
-                        np.linspace(0.1, 0.5, 5),
-                        np.linspace(0.0, 0.4, 3),
-                        np.linspace(0.0, 0.4, 3),
+                        np.linspace(0.1, 0.7, 7),
+                        np.linspace(0.0, 0.8, 5),
                     )
                 ),
-                tdp_scales=[0.4],
+                tdp_scales=[round(v, 1) for v in np.linspace(0.2, 0.6, 3)],
             )
             recognizer.recognize_count_lm(
                 label_info=s.label_info,
@@ -2094,7 +2093,7 @@ def run_single(
                 rerun_after_opt_lm=True,
                 calculate_stats=True,
                 name_override="best/4gram",
-                rtf_cpu=35,
+                rtf_cpu=32,
             )
 
     # ###########
