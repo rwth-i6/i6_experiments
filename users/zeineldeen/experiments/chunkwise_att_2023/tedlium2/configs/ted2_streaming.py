@@ -1522,7 +1522,7 @@ def baseline():
     # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize3                8.1     7.54  avg
     # ?
     # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1                         8.13    7.54  avg
-    for mem_size in [1, 2, 3, 4]:
+    for mem_size in [1, 2]:
         run_chunkwise_train(
             enc_stream_type="chunked",
             run_all_for_best_last_avg=True,
@@ -1639,6 +1639,25 @@ def baseline():
                 window_left_padding=left_context_chunk_size * 6,
                 suffix=f"_L{left_context_chunk_size}_R{right_context_chunk_size}",
             )
+
+    # LC: 1.2 sec, C=1.2 sec, R=0.3 sec
+    run_chunkwise_train(
+        enc_stream_type="chunked",
+        run_all_for_best_last_avg=True,
+        enable_check_align=False,
+        chunk_sizes=[20 + 20 + 5],
+        chunk_step_factors=[20 / (20 + 20 + 5)],
+        start_lrs=[2e-4],
+        decay_pt_factors=[1 / 3],
+        gpu_mem=24,
+        total_epochs=[120],
+        batch_size=10_000,
+        accum_grad=3,
+        time_rqmt=120,
+        end_slice_size=20,
+        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "conv_cache": False, "use_cached_prev_kv": True},
+        suffix=f"_L{20}_C{20}_R{5}",
+    )
 
     # TODO: use smaller chunk size only in decoding
 

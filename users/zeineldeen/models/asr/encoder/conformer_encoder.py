@@ -300,7 +300,7 @@ class ConformerEncoder:
         :return:
         """
         input_layer_splitted = self.network.add_generic_layer(
-            f"{prefix_name}_ln_split_chunk",
+            f"{prefix_name}_split_chunk",
             cls="split_batch_time",
             source=input_layer,
             base=self.memory_variant_opts.split_batch_time_base,
@@ -318,14 +318,14 @@ class ConformerEncoder:
             )  # [B, C, W, D]
             # Merge batch and chunk dim again.
             chunk_shifted = self.network.add_generic_layer(
-                f"{prefix_name}_ln_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                f"{prefix_name}_chunk_shifted_" + (f"_{mem_idx}" if mem_idx > 0 else ""),
                 cls="merge_dims",
                 source=chunk_shifted,
                 axes=("B", self.memory_variant_opts.chunked_time_dim),
             )  # [B*C, W, D]
             # Make sure the time_dim_axis (T) is set to the correct dim (W).
             chunk_shifted = self.network.add_generic_layer(
-                f"{prefix_name}_ln_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
+                f"{prefix_name}_chunk_shifted__" + (f"_{mem_idx}" if mem_idx > 0 else ""),
                 cls="reinterpret_data",
                 source=chunk_shifted,
                 set_axes={"T": "spatial"},
