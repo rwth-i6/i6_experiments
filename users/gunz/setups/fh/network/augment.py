@@ -4,7 +4,7 @@ import typing
 
 from i6_core import returnn
 
-from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext
+from ..factored import LabelInfo, PhonemeStateClasses, PhoneticContext, RasrStateTying
 
 DEFAULT_INIT = "variance_scaling_initializer(mode='fan_in', distribution='uniform', scale=0.78)"
 
@@ -110,6 +110,8 @@ class SubsamplingInfo:
 def augment_net_with_label_pops(
     network: Network, label_info: LabelInfo, classes_subsampling_info: typing.Optional[SubsamplingInfo] = None
 ) -> Network:
+    assert label_info.state_tying in [RasrStateTying.diphone, RasrStateTying.triphone]
+
     labeling_input = "data:classes"
     remaining_label_dim = label_info.get_n_of_dense_classes()
 
@@ -129,21 +131,22 @@ def augment_net_with_label_pops(
         }
         labeling_input = "classes_"
 
-    network["futureLabel"] = {
-        "class": "eval",
-        "from": labeling_input,
-        "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
-        "register_as_extern_data": "futureLabel",
-        "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
-    }
-    remaining_label_dim //= label_info.n_contexts
-    network["popFutureLabel"] = {
-        "class": "eval",
-        "from": labeling_input,
-        "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
-        "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
-    }
-    labeling_input = "popFutureLabel"
+    if label_info.state_tying == RasrStateTying.triphone:
+        network["futureLabel"] = {
+            "class": "eval",
+            "from": labeling_input,
+            "eval": f"tf.math.floormod(source(0), {label_info.n_contexts})",
+            "register_as_extern_data": "futureLabel",
+            "out_type": {"dim": label_info.n_contexts, "dtype": "int32", "sparse": True},
+        }
+        remaining_label_dim //= label_info.n_contexts
+        network["popFutureLabel"] = {
+            "class": "eval",
+            "from": labeling_input,
+            "eval": f"tf.math.floordiv(source(0), {label_info.n_contexts})",
+            "out_type": {"dim": remaining_label_dim, "dtype": "int32", "sparse": True},
+        }
+        labeling_input = "popFutureLabel"
 
     network["pastLabel"] = {
         "class": "eval",

@@ -29,10 +29,8 @@ from ...setups.common.nn.specaugment import (
     transform as sa_transform,
 )
 from ...setups.fh import system as fh_system
-from ...setups.fh.decoder.config import SearchParameters
 from ...setups.fh.network import conformer, diphone_joint_output
 from ...setups.fh.factored import PhoneticContext, RasrStateTying
-from ...setups.fh.network import aux_loss, extern_data
 from ...setups.fh.network.augment import (
     SubsamplingInfo,
     augment_net_with_diphone_outputs,
@@ -44,7 +42,6 @@ from ...setups.ls import gmm_args as gmm_setups, rasr_args as lbs_data_setups
 
 from .config import (
     CONF_CHUNKING_10MS,
-    CONF_FH_DECODING_TENSOR_CONFIG,
     CONF_FOCAL_LOSS,
     CONF_LABEL_SMOOTHING,
     CONF_SA_CONFIG,
@@ -138,11 +135,10 @@ def run_single(
     # ******************** HY Init ********************
 
     bw_scale = baum_welch.BwScales(label_posterior_scale=0.3, label_prior_scale=None, transition_scale=0.3)
+    ss_factor = 4
 
     name = f"conf-2-a:{alignment_name}-lr:{lr}-fl:{focal_loss}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
     print(f"fh {name}")
-
-    ss_factor = 4
 
     # ***********Initial arguments and init step ********************
     (
@@ -208,11 +204,6 @@ def run_single(
         },
     )
     network = network_builder.network
-    network = augment_net_with_label_pops(
-        network,
-        label_info=s.label_info,
-        classes_subsampling_info=SubsamplingInfo(factor=ss_factor, time_tag_name=time_tag_name),
-    )
     network = augment_net_with_monophone_outputs(
         network,
         add_mlps=True,
