@@ -229,7 +229,7 @@ def dump_alignments_into_hdf(
             "data": {
                 "filename": list(alignments.values()),
                 "data_type": "align",
-                "allophone_labeling": allophone_labeling,
+                "allophone_labeling": asdict(allophone_labeling),
             },
         },
         "seq_list_filter_file": filter_keep_list,
