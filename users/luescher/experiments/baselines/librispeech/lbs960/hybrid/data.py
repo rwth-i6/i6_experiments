@@ -221,13 +221,13 @@ def dump_feature_cache_to_hdf(
 
 
 def dump_alignments_into_hdf(
-    alignments: Dict[str, tk.Path], allophone_labeling: AllophoneLabeling, filter_keep_list: tk.Path
+    alignment_bundle_path: tk.Path, allophone_labeling: AllophoneLabeling, filter_keep_list: tk.Path
 ) -> tk.Path:
     dataset = {
         "class": "SprintCacheDataset",
         "data": {
             "data": {
-                "filename": list(alignments.values()),
+                "filename": delayed_ops.DelayedFormat("{}", alignment_bundle_path),
                 "data_type": "align",
                 "allophone_labeling": asdict(allophone_labeling),
             },
@@ -344,16 +344,13 @@ def get_corpus_data_inputs(
     # ******************** dump alignments ********************
 
     train_alignments = devtrain_alignments = (
-        gmm_system.outputs["train-other-960"]["final"]
-        .as_returnn_rasr_data_input()
-        .alignments.alternatives["task_dependent"]
-        .hidden_paths
+        gmm_system.outputs["train-other-960"]["final"].as_returnn_rasr_data_input().alignments.alternatives["bundle"]
     )
 
     forced_align_args = get_align_dev_args(name="nn-cv", target_corpus_keys=["nn-cv"])
     gmm_system.run_forced_align_step(forced_align_args)
 
-    cv_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
+    cv_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["bundle"]
 
     #    dev_clean_alignments = gmm_system.alignments["nn-cv_forced-align"]["nn-cv"].alternatives["task_dependent"].hidden_paths
     #    dev_other_alignments = gmm_system.alignments["dev-other"]["nn-cv"].alternatives["task_dependent"].hidden_paths
