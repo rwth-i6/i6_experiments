@@ -230,6 +230,7 @@ def dump_alignments_into_hdf(
                 "filename": delayed_ops.DelayedFormat("{}", alignment_bundle_path),
                 "data_type": "align",
                 "allophone_labeling": asdict(allophone_labeling),
+                "encoding": "utf-8",
             },
         },
         "seq_list_filter_file": filter_keep_list,
