@@ -26,8 +26,21 @@ SCTK_BINARY_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_SCTK_BINARY_PATH"
 RETURNN_EXE_PATH = tk.Path("/usr/bin/python3")  # use apptainer system python 3
 RETURNN_EXE_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_APPTAINER_PYTHON3_PATH"
 
-RETURNN_ROOT_PATH = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn", commit="d7689b945b2fe781b3c79fbef9d82f018c7b11e8", checkout_folder_name="returnn").out_repository
+# RETURNN_ROOT_PATH = CloneGitRepositoryJob(
+#     "https://github.com/rwth-i6/returnn",
+#     commit="d7689b945b2fe781b3c79fbef9d82f018c7b11e8",
+#     checkout_folder_name="returnn",
+# ).out_repository
+RETURNN_ROOT_PATH = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn",
+    commit="4ab68410b2ad31cdcdfadcb11c0e5e95846025c7",
+    checkout_folder_name="returnn",
+).out_repository
 RETURNN_ROOT_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN"
 
-RETURNN_COMMON_PATH = CloneGitRepositoryJob("https://github.com/rwth-i6/returnn_common", commit="04ed372893e81abb3c8f0d4f08e67fbcd4aed510", checkout_folder_name="returnn_common").out_repository
+RETURNN_COMMON_PATH = CloneGitRepositoryJob(
+    "https://github.com/rwth-i6/returnn_common",
+    commit="04ed372893e81abb3c8f0d4f08e67fbcd4aed510",
+    checkout_folder_name="returnn_common",
+).out_repository
 RETURNN_COMMON_PATH.hash_overwrite = "LIBRISPEECH_DEFAULT_RETURNN_COMMON"
