@@ -112,7 +112,7 @@ def get_corpora_for_hybrid_training(
 
         filter_corpus_args = {
             "compressed": True,
-            "invert_match": False,
+            "invert_match": True,
             "delete_empty_recordings": True,
         }
 
