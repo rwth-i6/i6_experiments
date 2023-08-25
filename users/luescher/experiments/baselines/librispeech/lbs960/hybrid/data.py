@@ -110,9 +110,19 @@ def get_corpora_for_hybrid_training(
             corpus_recipe.MergeStrategy.FLAT,
         ).out_merged_corpus
 
-        cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(merged_dev_corpus_path, cv_segments).out_corpus
+        filter_corpus_args = {
+            "compressed": True,
+            "invert_match": False,
+            "delete_empty_recordings": True,
+        }
 
-        devtrain_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(train_corpus_path, devtrain_segments).out_corpus
+        cv_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(
+            merged_dev_corpus_path, cv_segments, **filter_corpus_args
+        ).out_corpus
+
+        devtrain_corpus_path = corpus_recipe.FilterCorpusBySegmentsJob(
+            train_corpus_path, devtrain_segments, **filter_corpus_args
+        ).out_corpus
 
     elif cv_split == CvSplit.FROM_TRAIN:
         raise NotImplementedError
@@ -143,9 +153,7 @@ def dump_features_to_hdf(
     feat_ext_opt["samples_options"]["audio_format"] = crp.audio_format
     flow_name = feat_ext_opt.pop("name")
 
-    feature_flow = features.feature_extraction_cache_flow(
-        flow_callable(**feat_ext_opt), {"features": flow_name}, None
-    )
+    feature_flow = features.feature_extraction_cache_flow(flow_callable(**feat_ext_opt), {"features": flow_name}, None)
     flow_path = rasr.WriteFlowNetworkJob(feature_flow).out_flow_file
 
     config, post_config = rasr.build_config_from_mapping(
