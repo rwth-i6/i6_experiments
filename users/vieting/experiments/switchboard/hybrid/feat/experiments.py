@@ -180,6 +180,69 @@ def run_baseline_mel():
         # noinspection PyUnresolvedReferences
         train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
+def run_specaug_mel():
+    gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
+
+    log_mel_args_8khz = {
+        "class": "LogMelNetwork", "wavenorm": True, "frame_size": 200, "frame_shift": 80, "fft_size": 256
+    }
+    nn_args = get_nn_args_baseline(
+        nn_base_args={
+            "lm80_fft256": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=True,
+                    specaug_shuffled=True,
+                    ),
+                feature_args=log_mel_args_8khz,
+            ),
+            "lm80_fft256_lr8e-4": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=True,
+                    specaug_shuffled=True,
+                    ),
+                feature_args=log_mel_args_8khz,
+                peak_lr=8e-4,
+            ),
+            "lm80_fft256_lr9e-4": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=True,
+                    specaug_shuffled=True,
+                    ),
+                feature_args=log_mel_args_8khz,
+                peak_lr=9e-4,
+            ),
+            "lm80_fft256_lr15e-4": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=True,
+                    specaug_shuffled=True,
+                    ),
+                feature_args=log_mel_args_8khz,
+                peak_lr=15e-4,
+            ),
+            "lm80_fft512": dict(
+                returnn_args=dict(
+                    batch_size=14000,
+                    enable_specaug=True,
+                    specaug_shuffled=True,
+                    ),
+                feature_args={"class": "LogMelNetwork", "wavenorm": True, "frame_shift": 80},
+            ),
+        },
+        num_epochs=260,
+        prefix="conformer_bs14k_specaug_shuffled_"
+    )
+    nn_steps = RasrSteps()
+    nn_steps.add_step("nn", nn_args)
+
+    hybrid_nn_system = get_hybrid_nn_system(context_window=441)
+    hybrid_nn_system.run(nn_steps)
+    for train_job in hybrid_nn_system.jobs["switchboard.train_switchboard.cv"].values():
+        # noinspection PyUnresolvedReferences
+        train_job.rqmt.update({"gpu_mem": 24, "mem": 10})
 
 def run_baseline_scf():
     gs.ALIAS_AND_OUTPUT_SUBDIR = "experiments/switchboard/hybrid/feat/"
