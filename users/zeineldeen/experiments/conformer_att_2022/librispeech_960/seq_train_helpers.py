@@ -168,3 +168,79 @@ def add_min_wer(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_lab
         },
         "target": "bpe_labels",
     }
+
+
+def add_mmi(net, loss_scale, ce_scale, am_scale, lm_scale, beam_size, ce_label_smoothing=0.0):
+    """
+    Add Maximum Mutual Information training criterion.
+    """
+    assert ce_label_smoothing==0.0, "label smoothing not implemented correctly"
+    subnet = net["output"]["unit"]
+
+    # add LM
+    subnet["lm_output"] = get_trans_lstm_lm()
+    subnet["lm_output_prob"] = {
+        "class": "activation",
+        "activation": "softmax",
+        "from": ["lm_output"],
+        "target": "bpe_labels",
+    }  # [B,V]
+
+    # add extra search subnet to return the N-best list
+    net["extra.search:output"] = copy.deepcopy(net["output"])
+    extra_search_subnet = net["extra.search:output"]["unit"]
+
+    extra_search_subnet["output_prob"].pop("loss", None)
+    extra_search_subnet["output_prob"].pop("loss_opts", None)
+    extra_search_subnet["output_prob"].pop("loss_scale", None)
+
+    extra_search_subnet["asr_output_log_prob"] = {
+        "class": "activation",
+        "activation": "safe_log",
+        "from": "output_prob",
+    }
+    extra_search_subnet["scaled_asr_output_log_prob"] = {
+        "class": "eval",
+        "from": "asr_output_log_prob",
+        "eval": f"source(0) * {am_scale}",
+    }
+    extra_search_subnet["lm_output_log_prob"] = {
+        "class": "activation",
+        "activation": "safe_log",
+        "from": "lm_output_prob",
+    }
+    extra_search_subnet["scaled_lm_output_log_prob"] = {
+        "class": "eval",
+        "from": "lm_output_log_prob",
+        "eval": f"source(0) * {lm_scale}",
+    }
+    extra_search_subnet["combined_log_prob"] = {
+        "class": "combine",
+        "kind": "add",
+        "from": ["scaled_asr_output_log_prob", "scaled_lm_output_log_prob"],
+    }
+    extra_search_subnet["output"]["from"] = "combined_log_prob"  # asr + lm
+    extra_search_subnet["output"]["length_normalization"] = False
+    extra_search_subnet["output"]["cheating"] = "exclusive"
+    extra_search_subnet["output"]["beam_size"] = beam_size
+    extra_search_subnet["output"]["input_type"] = "log_prob"
+
+    # CE loss
+    if "loss_opts" in subnet["output_prob"]:
+        subnet["output_prob"]["loss_opts"]["scale"] = loss_scale + ce_scale
+        subnet["output_prob"]["loss_opts"]["label_smoothing"] = ce_label_smoothing
+    else:
+        subnet["output_prob"].pop("loss_scale", None)
+        subnet["output_prob"]["loss_opts"] = {"scale": loss_scale + ce_scale, "label_smoothing": ce_label_smoothing}
+
+    # MMI loss
+    net["get_scores"] = {"class": "choice_get_beam_scores", "from" : ["extra.search:output"] }
+    net["split_scores"] = {"class": "split_batch_beam", "from": ["get_scores"] }
+    net["denominator_score"] = {
+        "class": "reduce",
+        "mode": "logsumexp",
+        "axes": "F",
+        "from": ["split_scores"] ,
+        "loss": "as_is", 
+        "loss_opts": {"scale": loss_scale}
+    }
