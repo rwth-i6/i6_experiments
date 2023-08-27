@@ -234,6 +234,8 @@ class ConformerEncoder:
             self.enc_per_head_dim = FeatureDim("enc-dim-per-head", self.enc_key_per_head_dim)
             if self.memory_variant_opts.conv_cache_size:
                 self.conv_cache_concat_dim = SpatialDim("conv-cache-concat")
+            if self.memory_variant_opts.emformer_like_mem_size:
+                self.emformer_mem_bank_concat_dim = SpatialDim("emformer-mem-bank-concat")
 
     def _create_ff_module(self, prefix_name, i, source, layer_index):
         """
@@ -372,13 +374,46 @@ class ConformerEncoder:
             L2=self.self_att_l2,
         )  # [B*C, W*N, D] or [B*C, W, D]
 
+        if self.memory_variant_opts.emformer_like_mem_size:
+            mem_bank_chunks = self._get_mem_chunks(
+                f"{prefix_name}_ln_mem_bank",
+                f"{prefix_name}_emformer_mem",
+                self.memory_variant_opts.emformer_like_mem_size,
+            )
+            # concat mem banks and project
+            mem_bank_concat = self.network.add_generic_layer(
+                f"{prefix_name}_ln_mem_bank_concat",
+                cls="concat",
+                source=[*mem_bank_chunks],
+                out_dim=self.emformer_mem_bank_concat_dim,
+            )  # [B*C, emf_mem_size, D]
+        else:
+            mem_bank_concat = None
+
         if self.memory_variant_opts.use_cached_prev_kv:
             # concat previous cached keys and values
             cached_keys = self._get_mem_chunks(f"{prefix_name}_ln_K_", K, self.memory_variant_opts.mem_size)
+
+            if mem_bank_concat:
+                mem_bank = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_mem_bank_K_proj",
+                    cls="linear",
+                    source=mem_bank_concat,
+                    n_out=self.enc_key_dim,
+                    forward_weights_init=self.mhsa_init,
+                    with_bias=False,
+                    L2=self.self_att_l2,
+                )
+            else:
+                mem_bank = None
+
+            # add memory bank to keys if available
             K = self.network.add_generic_layer(
                 f"{prefix_name}_ln_K_concat",
                 cls="concat",
-                source=[*cached_keys, (K, "T")],
+                source=[(mem_bank, self.emformer_mem_bank_concat_dim), *cached_keys, (K, "T")]
+                if mem_bank
+                else [*cached_keys, (K, "T")],
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
@@ -401,10 +436,26 @@ class ConformerEncoder:
 
         if self.memory_variant_opts.use_cached_prev_kv:
             cached_values = self._get_mem_chunks(f"{prefix_name}_ln_V_", V, self.memory_variant_opts.mem_size)
+
+            if mem_bank_concat:
+                mem_bank = self.network.add_generic_layer(
+                    f"{prefix_name}_ln_mem_bank_V_proj",
+                    cls="linear",
+                    source=mem_bank_concat,
+                    n_out=self.enc_value_dim,
+                    forward_weights_init=self.mhsa_init,
+                    with_bias=False,
+                    L2=self.self_att_l2,
+                )
+            else:
+                mem_bank = None
+
             V = self.network.add_generic_layer(
                 f"{prefix_name}_ln_V_concat",
                 cls="concat",
-                source=[*cached_values, (V, "T")],
+                source=[(mem_bank, self.emformer_mem_bank_concat_dim), *cached_values, (V, "T")]
+                if mem_bank
+                else [*cached_values, (V, "T")],
                 out_dim=self.concat_window_dim,
             )  # [B*C, W*N, D]
 
@@ -424,6 +475,39 @@ class ConformerEncoder:
             with_bias=False,
             L2=self.self_att_l2,
         )  # second half of shape [B*C, W, D]
+
+        if self.memory_variant_opts.emformer_like_mem_size:
+            assert (
+                self.memory_variant_opts.mem_slice_start is not None
+                and self.memory_variant_opts.mem_slice_size is not None
+            )
+            # Q = Wq * [C,R] of shape [B*C, W, D]
+
+            # s_mean = mean(Q[:C]) = mean(Wq * C) <=> Wq * mean(C)
+            summary_slice = self.network.add_generic_layer(
+                f"{prefix_name}_ln_summary_slice",
+                cls="slice",
+                source=Q,
+                axis="T",  # W
+                slice_start=self.memory_variant_opts.mem_slice_start,  # skip L context if it exists
+                slice_end=self.memory_variant_opts.mem_slice_size,  # this should be always equal to C
+            )
+            summary_mean = self.network.add_generic_layer(
+                f"{prefix_name}_ln_summary_mean",
+                cls="reduce",
+                source=summary_slice,
+                mode="mean",
+                axis="T",
+                keep_dims=True,
+            )  # [B*C, 1, D]
+
+            Q = self.network.add_generic_layer(
+                f"{prefix_name}_ln_Q_concat_summary_mean",
+                cls="concat",
+                source=[(summary_mean, "T"), (Q, "T")],
+                out_dim=self.concat_window_dim,
+            )  # [B*C, 1+W, D]
+
         Q_H_ = self.network.add_generic_layer(
             f"{prefix_name}_ln_Q_H_",
             cls="split_dims",
@@ -527,6 +611,25 @@ class ConformerEncoder:
             source=mhsa_,
             set_axes={"T": f"dim:{self.memory_variant_opts.chunk_size}"},
         )  # [B*C, W, D]
+
+        if self.memory_variant_opts.emformer_like_mem_size:
+            # used later by shift layer to collect a memory bank
+            self.network.add_generic_layer(
+                f"{prefix_name}_emformer_mem",
+                cls="slice",
+                source=mhsa,
+                axis="T",
+                slice_start=0,
+                slice_end=1,
+            )  # [B*C, 1, D]
+            mhsa = self.network.add_generic_layer(
+                f"{prefix_name}_ln_att_slice",
+                cls="slice",
+                source=mhsa,
+                axis="T",
+                slice_start=1,
+            )  # [B*C, W, D]
+
         return mhsa
 
     def _create_mhsa_module(self, prefix_name, source, layer_index):
@@ -1056,4 +1159,4 @@ class ConformerMemoryVariantOpts:
     mem_slice_size: int
     conv_cache_size: int
     use_cached_prev_kv: bool
-    use_emformer_mem: bool
+    emformer_like_mem_size: int

@@ -21,7 +21,7 @@ from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_
 from i6_experiments.users.zeineldeen.experiments.conformer_att_2022.librispeech_960.additional_config import (
     apply_fairseq_init_to_conformer,
 )
-from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.tedlium2.data import (
+from i6_experiments.users.zeineldeen.experiments.chunkwise_att_2023.librispeech_960.data import (
     build_training_datasets,
     build_test_dataset,
     build_chunkwise_training_datasets,
@@ -117,7 +117,7 @@ prefix_name = os.path.basename(abs_name)[: -len(".py")]
 
 def get_test_dataset_tuples(bpe_size, selected_datasets=None):
     test_dataset_tuples = {}
-    for testset in ["dev", "test"]:
+    for testset in ["dev-clean", "dev-other", "test-clean", "test-other"]:
         if selected_datasets and testset not in selected_datasets:
             continue
         test_dataset_tuples[testset] = build_test_dataset(
@@ -455,11 +455,11 @@ def run_exp(
     exp_name: str,
     train_args,
     feature_extraction_net=log10_net_10ms,
-    num_epochs=200,
+    num_epochs=300,
     search_args=None,
     recog_epochs=None,
-    bpe_size=1000,
-    partition_epoch=4,
+    bpe_size=10000,
+    partition_epoch=20,
     time_rqmt=168,
     train_fixed_alignment=None,
     cv_fixed_alignment=None,
@@ -474,7 +474,7 @@ def run_exp(
             bpe_size=bpe_size,
             use_raw_features=True,
             partition_epoch=partition_epoch,
-            epoch_wise_filter=None,
+            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
         )
@@ -483,7 +483,7 @@ def run_exp(
             bpe_size=bpe_size,
             use_raw_features=True,
             partition_epoch=partition_epoch,
-            epoch_wise_filter=None,
+            epoch_wise_filter=kwargs.get("epoch_wise_filter", [(1, 5, 1000)]),
             link_speed_perturbation=train_args.get("speed_pert", True),
             seq_ordering=kwargs.get("seq_ordering", "laplace:.1000"),
             seq_postfix=kwargs.get("seq_postfix", 0),
@@ -526,7 +526,7 @@ def run_forward(
     model_ckpt,
     hdf_layers=None,
     feature_extraction_net=log10_net_10ms,
-    bpe_size=1000,
+    bpe_size=10000,
     time_rqmt=12,
     mem_rqmt=15,
     override_returnn_config=None,
@@ -568,11 +568,6 @@ def run_forward(
             feature_extraction_net=feature_extraction_net,
         )
 
-    if isinstance(model_ckpt, tk.Path):
-        path_as_str = model_ckpt.path
-        assert isinstance(path_as_str, str)
-        new_hash_overwrite = (model_ckpt.hash_overwrite[0], model_ckpt.hash_overwrite[1] + "_index")
-        model_ckpt = Checkpoint(index_path=tk.Path(path_as_str + ".index", hash_overwrite=new_hash_overwrite))
     if isinstance(model_ckpt, str):
         model_ckpt_index_path = tk.Path(model_ckpt + ".index")
         model_ckpt = Checkpoint(index_path=model_ckpt_index_path)
@@ -649,7 +644,7 @@ def train_mini_lstm(
 
     exp_prefix = os.path.join(prefix_name, exp_name, name)
     mini_lstm_train_data = build_training_datasets(
-        bpe_size=1000,
+        bpe_size=10000,
         use_raw_features=True,
         epoch_wise_filter=None,
         link_speed_perturbation=False,  # depends only on text
@@ -758,7 +753,7 @@ def train_mini_self_att(
 
     exp_prefix = os.path.join(prefix_name, exp_name, name)
     mini_self_att_train_data = build_training_datasets(
-        bpe_size=1000,
+        bpe_size=10000,
         use_raw_features=True,
         epoch_wise_filter=None,
         link_speed_perturbation=False,  # depends only on text
@@ -822,16 +817,14 @@ lstm_dec_exp_args = copy.deepcopy(
 
 # --------------------------- Experiments --------------------------- #
 
-# base_bpe1000_peakLR0.0008_ep400_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.15_woDepthConvPre_weightDrop0.1_decAttDrop0.0_embedDim256_numBlocks12
-# 7.4/6.9
-global_att_ep400 = "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.yB4JK4GDCxWG/output/model/average"
+# Global attention baseline:
+#
+# dev-clean  2.28
+# dev-other  5.63
+# test-clean  2.48
+# test-other  5.71
 
-# base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
-# 8.2/7.6
-# global_att_ep200 = tk.Path(
-#     "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-att/work/i6_core/returnn/training/AverageTFCheckpointsJob.43W6IZbd5Arr/output/model/average",
-#     hash_overwrite="global_att_ep200",
-# )
+global_att_best_ckpt = "/work/asr4/zeineldeen/setups-data/librispeech/2022-11-28--conformer-att/models-backup/best_att_100/avg_ckpt/epoch.2029"
 
 # from Albert:
 # with task=“train” and search_type=“end-of-chunk”, it would align on-the-fly
@@ -840,58 +833,10 @@ global_att_ep400 = "/u/zeineldeen/setups/ubuntu_22_setups/2023-04-17--conformer-
 
 default_args = copy.deepcopy(lstm_dec_exp_args)
 default_args["learning_rates_list"] = list(numpy.linspace(8e-4, 1e-5, 60))
-default_args["retrain_checkpoint"] = global_att_ep400
+default_args["retrain_checkpoint"] = global_att_best_ckpt
 default_args["chunk_size"] = 20
 default_args["chunk_step"] = 20 * 3 // 4
 default_args["search_type"] = "end-of-chunk"  # align on-the-fly
-
-default_args["decoder_args"].embed_dim = 256
-default_args["encoder_args"].mhsa_weight_dropout = 0.1
-default_args["encoder_args"].ff_weight_dropout = 0.1
-default_args["encoder_args"].conv_weight_dropout = 0.1
-default_args["encoder_args"].dropout = 0.15
-default_args["encoder_args"].dropout_in = 0.15
-default_args["encoder_args"].att_dropout = 0.15
-default_args["decoder_args"].use_zoneout_output = True
-
-from i6_experiments.users.zeineldeen.experiments.conformer_att_2023.tedlium2.configs.ted2_att_baseline import (
-    compute_features_stats,
-)
-
-_, _, global_mean, global_std = compute_features_stats(output_dirname="logmel_80", feat_dim=80)
-default_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-
-
-def get_base_v1_args(base_args, lr, ep, enc_drop=0.1, pretrain_reps=3):
-    #  base_bpe1000_peakLR0.0008_ep200_globalNorm_epochOCLR_pre3_fixZoneout_encDrop0.1_woDepthConvPre
-    # Average ckpt: 8.19/7.64 (50 epochs)
-    # - Epoch-based OCLR with peak LR 8e-4
-    # - EncDrop 0.1, fixed zoneout
-    # - Pretrain 3, no depthwise conv pretrain
-    # - Feature global normalization
-
-    base_v1_args = copy.deepcopy(base_args)
-    base_v1_args.pop("oclr_opts", None)
-    cyc_ep = int(0.45 * ep)
-    # Epoch-based OCLR
-    base_v1_args["learning_rates_list"] = (
-        list(numpy.linspace(lr / 10, lr, cyc_ep))
-        + list(numpy.linspace(lr, lr / 10, cyc_ep))
-        + list(numpy.linspace(lr / 10, 1e-6, ep - 2 * cyc_ep))
-    )
-    base_v1_args["global_stats"] = {"mean": global_mean, "stddev": global_std}
-    base_v1_args["with_pretrain"] = True
-    base_v1_args["pretrain_reps"] = pretrain_reps
-    base_v1_args["pretrain_opts"] = {
-        "variant": 3,
-        "initial_batch_size": 22500 * 160,
-        "ignored_keys_for_reduce_dim": ["conv_kernel_size"],
-    }
-    base_v1_args["encoder_args"].dropout = enc_drop
-    base_v1_args["encoder_args"].dropout_in = enc_drop
-    base_v1_args["encoder_args"].att_dropout = enc_drop
-    base_v1_args["decoder_args"].use_zoneout_output = True
-    return base_v1_args
 
 
 def get_ctc_chunksyn_align_config(
@@ -909,7 +854,7 @@ def get_ctc_chunksyn_align_config(
             "extern_data": {
                 "bpe_labels": {
                     "available_for_inference": False,
-                    "dim": 1058,  # from CTC so +1 for blank
+                    "dim": 10026,  # from CTC so +1 for blank
                     "shape": (None,),
                     "sparse": True,
                 },
@@ -941,7 +886,7 @@ def get_ctc_chunksyn_align_config(
                     "filename": f"alignments-{dataset_name}.hdf",
                 },
             },
-            "batch_size": 5000,  # ctc alignment
+            "batch_size": 5000,
         }
     )
     config.post_config["use_tensorflow"] = True
@@ -970,7 +915,7 @@ def get_ctc_rna_based_chunk_alignments(
     }
 
     if model_ckpt is None:
-        model_ckpt = global_att_ep400
+        model_ckpt = global_att_best_ckpt
 
     if fixed_ctc_rna_align_without_eos:
         assert not ignore_eoc_in_input  # should not be needed then
@@ -1199,8 +1144,6 @@ def run_chunkwise_train(
                                 exp_name += (
                                     f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
                                 )
-                            if conf_mem_opts.get("emformer_like_mem_size", None):
-                                exp_name += f"_emfMemSize{conf_mem_opts['emformer_like_mem_size']}"
                             train_args["recursion_limit"] = 4000
 
                         if with_ctc:
@@ -1368,206 +1311,14 @@ def _run_exp_full_sum_simple_approx(
         num_epochs=total_epochs,
         epoch_wise_filter=None,
         time_rqmt=72,
-        selected_datasets=["dev"],
+        selected_datasets=["dev-other"],
         key="dev_score_output/output_prob" if with_ctc else "dev_score",
         use_sclite=True,
     )
 
 
 def baseline():
-    # TODO: import from global
-    # - chunked encoder
-    # - chunked encoder + chunked decoder
-
-    # ----------------- Global Encoder + Chunked Decoder ----------------- #
-
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[5, 10, 15, 20],
-        chunk_step_factors=[1],
-        start_lrs=[1e-4, 2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=11,
-        total_epochs=[80],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-    )
-
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[25],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[80],
-        batch_size=30_000,
-        accum_grad=1,
-        time_rqmt=48,
-    )
-
-    # TODO: LR schedule tuning
-    # global_att_chunk-1_step-1_linDecay80_0.0002_decayPt0.25_bs15000_accum2
-    # 7.54    7.32  avg
-    run_chunkwise_train(
-        enc_stream_type="global",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[1],
-        chunk_step_factors=[1],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 4],
-        gpu_mem=11,
-        total_epochs=[80],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-    )
-
-    # ----------------- Chunked Encoder + Chunked Decoder ----------------- #
-
-    # TODO: No overlap
-    # chunked_att_chunk-20_step-20_linDecay120_0.0001_decayPt0.25_bs15000_accum2  11.19   11.02  avg
-    # chunked_att_chunk-10_step-10_linDecay120_0.0002_decayPt0.25_bs15000_accum2  14.6    14.53  best
-    for enc_stream_type in ["chunked"]:
-        run_chunkwise_train(
-            enc_stream_type=enc_stream_type,
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[10, 15, 20],
-            chunk_step_factors=[1],
-            start_lrs=[1e-4, 2e-4],
-            decay_pt_factors=[1 / 4],
-            gpu_mem=11,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-        )
-
-    # TODO: overlap
-    # chunked_att_chunk-20_step-14_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   8.96    8.5   best
-    # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   8.51    8.03  avg
-    # chunked_att_chunk-20_step-6_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2   8.41    7.73  avg
-    #
-    # chunked_att_chunk-10_step-7_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   12.17   11.18  avg
-    # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3   11.04   10.44  avg
-    # chunked_att_chunk-10_step-3_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2   10.76   10.06  avg
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10, 20],
-        chunk_step_factors=[0.7, 0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=11,
-        total_epochs=[120],
-        batch_size=10_000,
-        accum_grad=3,
-        time_rqmt=120,
-    )
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10, 20],
-        chunk_step_factors=[0.3],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[120],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-    )
-
-    # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize4                9.81    9.57  avg
-    # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize3               10       9.68  avg
-    # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize2               10.19    9.85  best
-    # chunked_att_chunk-10_step-5_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1                        10.44    9.68  avg
-    #
-    # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize4                7.99    7.66  avg
-    # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_memVariant1_memSize3                8.1     7.54  avg
-    # ?
-    # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_memVariant1                         8.13    7.54  avg
-
-    for use_cached_prev_kv in [True, False]:
-        for conv_cache in [0, 2]:
-            for mem_size in [1, 2, 3]:
-                run_chunkwise_train(
-                    enc_stream_type="chunked",
-                    run_all_for_best_last_avg=True,
-                    enable_check_align=False,
-                    chunk_sizes=[10],
-                    chunk_step_factors=[0.5],
-                    start_lrs=[2e-4],
-                    decay_pt_factors=[1 / 3],
-                    gpu_mem=11,
-                    total_epochs=[120],
-                    batch_size=10_000 if mem_size != 1 else 15_000,
-                    accum_grad=3 if mem_size != 1 else 2,
-                    time_rqmt=120,
-                    conf_mem_opts={
-                        "self_att_version": 1,
-                        "mem_size": mem_size,
-                        "use_cached_prev_kv": use_cached_prev_kv,
-                        "conv_cache_size": conv_cache,
-                        "mem_slice_size": 10,
-                        "mem_slice_start": 0,
-                    },
-                )
-
-    # TODO: 2 sec chunk
-    # run_chunkwise_train(
-    #     enc_stream_type="chunked",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[33],
-    #     chunk_step_factors=[0.5],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[120],
-    #     batch_size=15_000,
-    #     accum_grad=2,
-    #     time_rqmt=120,
-    #     conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_conv_cache": False},
-    # )
-
-    # # TODO: extended chunk
-    # chunked_att_chunk-40_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_winLeft180_endSlice10            12.85   12.88       40
-    # chunked_att_chunk-30_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft120_endSlice10            12.93   12.7        80
-    # chunked_att_chunk-20_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft60_endSlice10             13.32   12.79      120
-    # chunked_att_chunk-15_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs10000_accum3_winLeft0_endSlice10_L0_R5        10.22    9.43       40
-    # chunked_att_chunk-15_step-10_linDecay120_0.0002_decayPt0.3333333333333333_bs15000_accum2_winLeft30_endSlice10             13.42   12.89      120
-    # for chunk_size in [10]:
-    #     for left_context_chunk_size in [5, 10, 20, 30]:
-    #         run_chunkwise_train(
-    #             enc_stream_type="chunked",
-    #             run_all_for_best_last_avg=True,
-    #             enable_check_align=False,
-    #             chunk_sizes=[chunk_size + left_context_chunk_size],
-    #             chunk_step_factors=[chunk_size / (chunk_size + left_context_chunk_size)],
-    #             start_lrs=[2e-4],
-    #             decay_pt_factors=[1 / 3],
-    #             gpu_mem=24,
-    #             total_epochs=[120],
-    #             batch_size=10_000 if left_context_chunk_size > 20 else 15_000,
-    #             accum_grad=3 if left_context_chunk_size > 20 else 2,
-    #             time_rqmt=120,
-    #             end_slice_size=chunk_size,
-    #             end_slice_start=left_context_chunk_size,
-    #             window_left_padding=left_context_chunk_size * 6,
-    #         )
-
-    # TODO: extended chunk
-    for left_context, center_context, right_context in [(0, 20, 5), (0, 10, 5), (5, 10, 5)]:
+    for left_context, center_context, right_context, eps in [(0, 20, 5, 300), (0, 20, 5, 600), (0, 10, 15, 300)]:
         run_chunkwise_train(
             enc_stream_type="chunked",
             run_all_for_best_last_avg=True,
@@ -1577,23 +1328,26 @@ def baseline():
             start_lrs=[2e-4],
             decay_pt_factors=[1 / 3],
             gpu_mem=24,
-            total_epochs=[120],
+            total_epochs=[eps],
             batch_size=15_000,
             accum_grad=2,
-            time_rqmt=120,
+            time_rqmt=168,
             end_slice_start=left_context,
             end_slice_size=center_context,
             window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": 1,
+                "use_cached_prev_kv": True,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+            selected_datasets=["dev-other"],
         )
 
-    # TODO: with mem
-    for emformer_mem_size in [0]:
-        for left_context, center_context, right_context, mem_size in [
-            (0, 20, 5, 1),
-            (0, 10, 5, 1),
-            (0, 20, 5, 2),
-        ]:
+    for mem_size in [1, 2]:
+        for left_context, center_context, right_context in [(0, 20, 5)]:
             run_chunkwise_train(
                 enc_stream_type="chunked",
                 run_all_for_best_last_avg=True,
@@ -1603,10 +1357,10 @@ def baseline():
                 start_lrs=[2e-4],
                 decay_pt_factors=[1 / 3],
                 gpu_mem=24,
-                total_epochs=[120],
+                total_epochs=[300],
                 batch_size=15_000,
                 accum_grad=2,
-                time_rqmt=120,
+                time_rqmt=168,
                 end_slice_start=left_context,
                 end_slice_size=center_context,
                 window_left_padding=left_context * 6,
@@ -1614,180 +1368,10 @@ def baseline():
                     "self_att_version": 1,
                     "mem_size": mem_size,
                     "use_cached_prev_kv": True,
-                    "mem_slice_start": left_context + emformer_mem_size,
+                    "conv_cache_size": 1,
+                    "mem_slice_start": left_context,
                     "mem_slice_size": center_context,
-                    "emformer_like_mem_size": emformer_mem_size,
                 },
                 suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+                selected_datasets=["dev-other"],
             )
-
-    for left_context, center_context, right_context, conv_cache_size, mem_size in [
-        (0, 20, 5, 1, 1),
-        (0, 20, 5, 1, 2),
-        (0, 10, 5, 2, 1),
-    ]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[left_context + center_context + right_context],
-            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[120],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-            end_slice_start=left_context,
-            end_slice_size=center_context,
-            window_left_padding=left_context * 6,
-            conf_mem_opts={
-                "self_att_version": 1,
-                "mem_size": mem_size,
-                "use_cached_prev_kv": True,
-                "conv_cache_size": conv_cache_size,
-                "mem_slice_start": left_context,
-                "mem_slice_size": center_context,
-            },
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-        )
-
-    # TODO: using cached prev kv
-    run_chunkwise_train(
-        enc_stream_type="chunked",
-        run_all_for_best_last_avg=True,
-        enable_check_align=False,
-        chunk_sizes=[10],
-        chunk_step_factors=[0.5],
-        start_lrs=[2e-4],
-        decay_pt_factors=[1 / 3],
-        gpu_mem=24,
-        total_epochs=[120],
-        batch_size=15_000,
-        accum_grad=2,
-        time_rqmt=120,
-        conf_mem_opts={"self_att_version": 1, "mem_size": 1, "use_cached_prev_kv": True},
-    )
-
-    for left_context, center_context, right_context, mem_size in [
-        (0, 20, 5, 1),
-        (0, 15, 10, 1),
-        (0, 10, 15, 1),
-        (0, 10, 15, 2),
-    ]:
-        run_chunkwise_train(
-            enc_stream_type="chunked",
-            run_all_for_best_last_avg=True,
-            enable_check_align=False,
-            chunk_sizes=[left_context + center_context + right_context],
-            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-            start_lrs=[2e-4],
-            decay_pt_factors=[1 / 3],
-            gpu_mem=24,
-            total_epochs=[200],
-            batch_size=15_000,
-            accum_grad=2,
-            time_rqmt=120,
-            end_slice_start=left_context,
-            end_slice_size=center_context,
-            window_left_padding=left_context * 6,
-            conf_mem_opts={
-                "self_att_version": 1,
-                "mem_size": mem_size,
-                "use_cached_prev_kv": True,
-                "mem_slice_start": left_context,
-                "mem_slice_size": center_context,
-            },
-            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-        )
-
-    # TODO: use smaller chunk size only in decoding
-
-    # TODO: adaptive chucking
-
-    # TODO: CTC alignments
-    # - concat align + freeze
-    # - average align + freeze
-    # - average align + average train
-    # - concat align + average train
-
-    # ---------------------- Chunked Encoder + Global Decoder ------------------------- #
-
-    # TODO: chunked encoder (imported)
-    # run_chunkwise_train(
-    #     enc_stream_type="chunked",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[50],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4, 4e-4],
-    #     decay_pt_factors=[1 / 3, 0.1],
-    #     gpu_mem=11,
-    #     total_epochs=[120],
-    #     batch_size=10_000,
-    #     accum_grad=3,
-    #     time_rqmt=120,
-    #     chunked_decoder=False,
-    #     with_ctc=True,
-    #     speed_pert=True,
-    # )
-
-    # TODO: from scratch
-    # for chunk_size in [20]:
-    #     for chunk_step in [1]:
-    #         run_chunkwise_train(
-    #             enc_stream_type="chunked",
-    #             run_all_for_best_last_avg=True,
-    #             enable_check_align=False,
-    #             chunk_sizes=[chunk_size],
-    #             chunk_step_factors=[chunk_step],
-    #             start_lrs=[None],
-    #             decay_pt_factors=[None],
-    #             epoch_oclr_lr=8e-4,  # use epoch-based oclr
-    #             gpu_mem=11,
-    #             total_epochs=[120, 200],
-    #             batch_size=15_000,
-    #             accum_grad=2,
-    #             time_rqmt=120,
-    #             chunked_decoder=False,
-    #             with_ctc=True,
-    #             speed_pert=True,
-    #             from_scratch_train=True,
-    #         )
-
-    # ---------------------- Chunk-size 1 AED Transducer ------------------------- #
-
-    # run_chunkwise_train(
-    #     enc_stream_type="global",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[1],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[120],
-    #     batch_size=5_000,
-    #     accum_grad=6,
-    #     time_rqmt=120,
-    #     full_sum_approx=True,
-    #     decoder_mask_eoc=True,
-    # )
-    #
-    # run_chunkwise_train(
-    #     enc_stream_type="global",
-    #     run_all_for_best_last_avg=True,
-    #     enable_check_align=False,
-    #     chunk_sizes=[1],
-    #     chunk_step_factors=[1],
-    #     start_lrs=[2e-4],
-    #     decay_pt_factors=[1 / 3],
-    #     gpu_mem=24,
-    #     total_epochs=[80],
-    #     batch_size=6000,
-    #     accum_grad=5,
-    #     time_rqmt=120,
-    #     full_sum_approx=True,
-    #     decoder_mask_eoc=True,
-    # )
