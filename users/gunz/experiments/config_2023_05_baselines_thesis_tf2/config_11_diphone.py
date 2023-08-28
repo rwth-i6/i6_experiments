@@ -521,7 +521,9 @@ def run_single(
                             "filename": viterbi_train_j.out_checkpoints[600],
                         }
                     },
-                    "extern_data": {"data": {"dim": 50}},
+                    "extern_data": {
+                        "data": {"dim": 50, "same_dim_tags_as": {"T": returnn.CodeWrapper(time_tag_name)}},
+                    },
                 },
                 post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
                 python_epilog={
