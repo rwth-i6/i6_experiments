@@ -403,7 +403,7 @@ def run_single(
                 rtf_cpu=32,
             )
 
-    if fine_tune and False:  # TODO: Revert the false
+    if fine_tune:
         # ###########
         # FINE TUNING
         # ###########
@@ -413,8 +413,7 @@ def run_single(
         orig_name = name
 
         bw_scales = [
-            baum_welch.BwScales(label_posterior_scale=p, label_prior_scale=None, transition_scale=t)
-            for p, t in itertools.product([0.3, 1.0], [0.0, 0.3])
+            baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)
         ]
 
         for bw_scale in bw_scales:
