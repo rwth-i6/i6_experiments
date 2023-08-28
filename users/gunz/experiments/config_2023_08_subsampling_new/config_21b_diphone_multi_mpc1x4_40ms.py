@@ -538,6 +538,7 @@ def run_single(
                         params=cfg,
                         log_softmax_returnn_config=nn_precomputed_returnn_config,
                         calculate_statistics=True,
+                        opt_lm_am_scale=True,
                         rtf=12,
                     )
 
