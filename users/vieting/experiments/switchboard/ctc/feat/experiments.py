@@ -609,9 +609,7 @@ def run_mel_audio_perturbation():
                             "speed": {"prob": 0.6, "minimum": 0.88, "maximum": 1.12},
                             "tempo": {"prob": 0.6, "minimum": 0.83, "maximum": 1.17},
                             "preemphasis": {"prob": 0.9, "minimum": 0.9, "maximum": 1.0},
-                            "codecs": [
-                            {"format": "wav", "encoding": "ULAW", "prob": 0.4},
-                            ],
+                            "codecs": [{"encoding": "ULAW", "prob": 0.4}],
                         },
                         "audio_perturb_runner": CodeWrapper("WaveformPerturbation(**audio_perturb_args)")
                     },
