@@ -412,9 +412,7 @@ def run_single(
         keep_epochs = [23, 225, 400, 450]
         orig_name = name
 
-        bw_scales = [
-            baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)
-        ]
+        bw_scales = [baum_welch.BwScales(label_posterior_scale=1.0, label_prior_scale=None, transition_scale=0.3)]
 
         for bw_scale in bw_scales:
             name = f"{orig_name}-fs-bwl:{bw_scale.label_posterior_scale}-bwt:{bw_scale.transition_scale}"
