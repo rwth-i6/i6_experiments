@@ -25,6 +25,7 @@ class WaveformPerturbation:
         speed: Optional[Dict[str, Any]] = None,
         tempo: Optional[Dict[str, Any]] = None,
         sox_effects: Optional[List[List[str]]] = None,
+        codecs: Optional[List[Dict[str, Any]]] = None,
         preemphasis: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -62,6 +63,8 @@ class WaveformPerturbation:
         self._perturbations = []
         if preemphasis:
             self._perturbations.append(functools.partial(self.preemphasis, factor=PerturbationFactor(**preemphasis)))
+        if codecs:
+            self._perturbations.append(functools.partial(self.apply_codecs, codecs=codecs))
 
     def run(self, audio, sample_rate, random_state):
         import numpy as np
@@ -109,7 +112,17 @@ class WaveformPerturbation:
 
     @staticmethod
     def apply_codecs(audio, sample_rate, random_state, codecs):
-        raise NotImplementedError("Codec application is not implemented yet.")
+        import sox 
+
+        tfm = sox.Transformer()
+        for codec in codecs:
+            prob = codec.pop("prob", 1.0)
+            if random_state.random() < prob:
+                if codec.get("encoding") == "ULAW":
+                    tfm.set_output_format(encoding="u-law")
+                else:
+                    raise NotImplementedError(f"Codec {codec} not implemented.")
+        return audio
 
 
 def get_code_for_perturbation():
