@@ -222,6 +222,7 @@ def get_returnn_config(
         network["source"] = {"class": "copy", "from": "features"}
     elif enable_specaug:
         if specaug_mask_sorting:
+            assert specaug_shuffled, "shuffeling cannot be combined with sorting!"
             assert specaug_after_first_layer, "Sorted specaug is only possible after the first layer!"
             network["features"]["subnetwork"]["specaug"] = specaug_layer_sorted(in_layer=["conv_h_act"], mask_divisor=mask_divisor)
             network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
@@ -229,6 +230,7 @@ def get_returnn_config(
             prolog = get_funcs_sorted()
         else:
             if specaug_after_first_layer:
+                assert specaug_shuffled, "shuffling can only be done on the second layer"
                 if specaug_time_only:
                     network["features"]["subnetwork"]["specaug"] = specaug_layer_only_time(in_layer=["conv_h_act"])
                     network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"

@@ -1,35 +1,5 @@
-def _random_mask_mixed(x, batch_axis, axis, amount):
-    """
-    :param tf.Tensor x: (batch,time,feature)
-    :param int batch_axis:
-    :param int axis:
-    :param int|tf.Tensor amount
-    """
-    from returnn.tf.compat import v1 as tf
 
-    n_batch = tf.shape(x)[batch_axis]
-    ndim = x.get_shape().ndims
-    n_batch = tf.shape(x)[batch_axis]
-    dim = tf.shape(x)[axis]
-    mask_values = tf.random.uniform(shape=[n_batch, dim], maxval=1.0)
-    thresholds = tf.sort(mask_values, axis=-1, direction="DESCENDING")[:, amount - 1]
-    cond = mask_values < tf.expand_dims(thresholds, axis=-1)
-
-    # Transpose if needed
-    if batch_axis > axis:
-        cond = tf.transpose(cond)
-
-    # Add extra dimensions if required
-    for i in range(ndim):
-        if i != batch_axis and i != axis:
-            cond = tf.expand_dims(cond, axis=i)
-    from TFUtil import where_bc
-
-    x = where_bc(cond, 0.0, x)
-    return x
-
-
-def _mask(x, batch_axis, axis, pos, max_amount):
+def _mask(x, batch_axis, axis, pos, max_amount, shuffled=False):
     """
     :param tf.Tensor x: (batch,time,feature)
     :param int batch_axis:
@@ -48,8 +18,12 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     pos_bc = tf.expand_dims(pos, 1)  # (batch,1)
     pos2_bc = tf.expand_dims(pos2, 1)  # (batch,1)
     cond = tf.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
+    if shuffled:
+            cond = tf.transpose(cond)  # (dim,batch)
+            cond = tf.random.shuffle(cond)
+            cond = tf.transpose(cond)  # (batch,dim)
     if batch_axis > axis:
-        cond = tf.transpose(cond)  # (dim,batch)
+        cond = tf.transpose(cond)  # (dim,batch) 
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
 
@@ -57,7 +31,7 @@ def _mask(x, batch_axis, axis, pos, max_amount):
     return x
 
 
-def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
+def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, shuffeling):
     """
     :param tf.Tensor x: (batch,time,feature)
     :param int batch_axis:
@@ -89,7 +63,7 @@ def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims):
                 i + 1,
                 tf.where(
                     tf.less(i, num),
-                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims),
+                    _mask(x, batch_axis=batch_axis, axis=axis, pos=indices[:, i], max_amount=max_dims, shuffled=shuffeling),
                     x,
                 ),
             ),
@@ -116,13 +90,12 @@ def specaugment_eval_func(data, network, time_factor=1):
             min_num=step1 + step2,
             max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
             max_dims=20 // time_factor,
+            shuffeling=False,
         )
-        x_masked = _random_mask_mixed(
-            x_masked,
-            batch_axis=data.batch_dim_axis,
-            axis=data.feature_dim_axis,
-            amount=(1 + step1 + step2 * 2) * (data.dim // 5),
-        )
+        x_masked = _random_mask(
+            x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
+            min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
+            max_dims=data.dim // 5, shuffeling=True)
         return x_masked
 
     x = network.cond_on_train(get_masked, lambda: x)
