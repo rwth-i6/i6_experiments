@@ -501,7 +501,7 @@ def run_single(
                 log_linear_scales=bw_scale,
             )
             lrates = oclr.get_learning_rates(
-                lrate=5e-5,
+                lrate=3e-5,
                 increase=0,
                 constLR=math.floor(fine_tune_epochs * 0.45),
                 decay=math.floor(fine_tune_epochs * 0.45),
@@ -510,7 +510,7 @@ def run_single(
             )
             update_config = returnn.ReturnnConfig(
                 config={
-                    "batch_size": 10000,
+                    "batch_size": 8000,
                     "learning_rates": list(
                         np.concatenate([lrates, np.linspace(min(lrates), 1e-6, fine_tune_epochs - len(lrates))])
                     ),
