@@ -453,7 +453,7 @@ def run_single(
     fine_tune = alignment_name == "scratch"
     if fine_tune:
         fine_tune_epochs = 450
-        keep_epochs = [23, 225, 400, 450]
+        fine_tune_keep_epochs = [23, 225, 400, 450]
         orig_name = name
 
         bw_scales = [
@@ -523,7 +523,7 @@ def run_single(
                     },
                     "extern_data": {"data": {"dim": 50}},
                 },
-                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": keep_epochs}},
+                post_config={"cleanup_old_models": {"keep_best_n": 3, "keep": fine_tune_keep_epochs}},
                 python_epilog={
                     "dynamic_lr_reset": "dynamic_learning_rate = None",
                 },
@@ -545,12 +545,12 @@ def run_single(
                 nn_train_args=train_args,
             )
 
-            for ep, crp_k in itertools.product(keep_epochs, ["dev-other"]):
+            for ep, crp_k in itertools.product(fine_tune_keep_epochs, ["dev-other"]):
                 s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
                 s.set_mono_priors_returnn_rasr(
                     key="fh-fs",
-                    epoch=min(ep, keep_epochs[-2]),
+                    epoch=min(ep, fine_tune_keep_epochs[-2]),
                     train_corpus_key=s.crp_names["train"],
                     dev_corpus_key=s.crp_names["cvtrain"],
                     smoothen=True,
