@@ -257,7 +257,7 @@ def run_single(
         layer.pop("loss_scale", None)
         layer.pop("loss_opts", None)
 
-    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other"]):
+    for ep, crp_k in itertools.product([max(keep_epochs)], ["dev-other", "dev-clean", "test-clean", "test-other"]):
         s.set_binaries_for_crp(crp_k, RASR_TF_BINARY_PATH)
 
         s.recognize_cart(
@@ -268,7 +268,7 @@ def run_single(
             cart_tree_or_tying_config=cart_tree,
             log_softmax_returnn_config=decoding_config,
             params=s.get_cart_params(key="fh"),
-            opt_lm_am_scale=False,
+            opt_lm_am_scale=True,
         )
 
     return s
