@@ -293,6 +293,10 @@ def search_config_v2(
     # by the datasets itself as part in the config above.
     extern_data_raw = instanciate_delayed(extern_data_raw)
 
+    returnn_recog_config_dict.update({
+        "search_args": search_args,
+    })
+
     returnn_recog_config = ReturnnConfig(
         config=returnn_recog_config_dict,
         python_epilog=[
@@ -310,8 +314,7 @@ def search_config_v2(
                         {
                             # Increase the version whenever some incompatible change is made in this recog() function,
                             # which influences the outcome, but would otherwise not influence the hash.
-                            "version": 3,
-                            **search_args,
+                            "version": 1,
                         }
                     ),
                     serialization.PythonEnlargeStackWorkaroundNonhashedCode,
@@ -387,7 +390,8 @@ def _returnn_v2_get_model(*, epoch: int, **_kwargs_unused):
     assert targets.sparse_dim and targets.sparse_dim.vocab, f"no vocab for {targets}"
 
     model_def = config.typed_value("_model_def")
-    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim)
+    search_args = config.typed_value("search_args")
+    model = model_def(epoch=epoch, in_dim=data.feature_dim, target_dim=targets.sparse_dim, search_args=search_args)
     return model
 
 

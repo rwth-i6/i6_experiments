@@ -14,7 +14,7 @@ from i6_experiments.users.zeyer.returnn.convert_ckpt_rf import ConvertTfCheckpoi
 import returnn.frontend as rf
 from returnn.tensor import Tensor, Dim, batch_dim, TensorDict
 
-from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog
+from .conformer_import_moh_att_2023_06_30 import Model, MakeModel, from_scratch_training, model_recog, model_recog_ctc
 from i6_experiments.users.zeyer.utils.generic_job_output import generic_job_output
 
 # From Mohammad, 2023-06-29
@@ -643,7 +643,14 @@ def test_import_search():
     print(pt_checkpoint_path)
 
     print("*** Create new model")
-    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers)
+    search_args = {
+        "att_scale": 0.7,
+        "ctc_scale": 0.3,
+        "beam_size": 12,
+        "use_ctc": True,
+        "mask_eos": True,
+    }
+    new_model = MakeModel.make_model(in_dim, target_dim, num_enc_layers=num_layers, search_args=search_args)
 
     from returnn.torch.data.tensor_utils import tensor_dict_numpy_to_torch_
 
@@ -668,13 +675,43 @@ def test_import_search():
 
     with torch.no_grad():
         with rf.set_default_device_ctx("cuda"):
-            seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
-                model=new_model,
-                data=extern_data["audio_features"],
-                data_spatial_dim=time_dim,
-            )
+            ctc_only = True
+            if ctc_only:
+                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog_ctc(
+                    model=new_model,
+                    data=extern_data["audio_features"],
+                    data_spatial_dim=time_dim,
+                )
+            else:
+                seq_targets, seq_log_prob, out_spatial_dim, beam_dim = model_recog(
+                    model=new_model,
+                    data=extern_data["audio_features"],
+                    data_spatial_dim=time_dim,
+                )
+    print(seq_targets, seq_targets.raw_tensor) # seq_targets [T,Batch,Beam]
+    print("Out spatial dim:", out_spatial_dim)
     # breakpoint()
-    print(seq_targets, seq_targets.raw_tensor)
+    vocab_1 = Vocabulary("/u/zeineldeen/setups/librispeech/2022-11-28--conformer-att/work/i6_core/text/label/subword_nmt/train/ReturnnTrainBpeJob.vTq56NZ8STWt/output/bpe.vocab", eos_label=0)
+    for batch_idx in range(batch_dim.get_dim_value()):
+        # process seq
+        hyps = seq_targets.raw_tensor[:, batch_idx, :]
+        scores = seq_log_prob.raw_tensor[batch_idx, :]
+        hyps_len = seq_targets.dims[0].dyn_size_ext.raw_tensor[:, batch_idx]
+        num_beam = hyps.shape[1]
+        only_max = True
+        if only_max:
+            max_score_idx = torch.argmax(scores)
+            score = float(scores[max_score_idx])
+            hyp_ids = hyps[: hyps_len[max_score_idx], max_score_idx]
+            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
+            print(f"  ({score!r}, {hyp_serialized!r}),\n")
+            continue
+        for i in range(num_beam):
+            score = float(scores[i])
+            hyp_ids = hyps[: hyps_len[i], i]
+            hyp_serialized = vocab_1.get_seq_labels(hyp_ids)
+            print(f"  ({score!r}, {hyp_serialized!r}),\n")
+
 
 
 # `py` is the default sis config function name. so when running this directly, run the import test.
