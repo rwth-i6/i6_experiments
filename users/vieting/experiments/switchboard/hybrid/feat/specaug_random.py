@@ -123,6 +123,6 @@ def specaug_layer_random(in_layer):
 def get_funcs_random():
     funcs = []
     for k, v in list(globals().items()):
-        if k in ["_mask", "_random_mask", "_random_mask_mixed", "specaugment_eval_func"]:
+        if k in ["_mask", "_random_mask", "specaugment_eval_func"]:
             funcs.append(v)
     return funcs
