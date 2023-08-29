@@ -1116,7 +1116,7 @@ class FHDecoder:
             model_combination_post_config=None,
             extra_config=adv_search_extra_config,
             extra_post_config=None,
-            create_dummy_feature_scorer_from_mixtures=self.mixtures if self.lm_gc_simple_hash else None,
+            lmgc_scorer=rasr.DiagonalMaximumScorer(self.mixtures) if self.lm_gc_simple_hash else None,
             create_lattice=create_lattice,
             **ts_args,
         )

@@ -1463,7 +1463,7 @@ class FactoredHybridSystem(NnSystem):
             nonlocal adv_tree_search_job
 
             if (lm_gc_simple_hash is not None and lm_gc_simple_hash) or self.lm_gc_simple_hash:
-                kwargs["create_dummy_feature_scorer_from_mixtures"] = p_mixtures
+                kwargs["lmgc_scorer"] = rasr.DiagonalMaximumScorer(p_mixtures)
             if parallel is not None:
                 kwargs["parallel"] = parallel
 
