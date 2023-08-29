@@ -19,9 +19,9 @@ def _mask(x, batch_axis, axis, pos, max_amount, shuffled=False):
     pos2_bc = tf.expand_dims(pos2, 1)  # (batch,1)
     cond = tf.logical_and(tf.greater_equal(idxs, pos_bc), tf.less(idxs, pos2_bc))  # (batch,dim)
     if shuffled:
-            cond = tf.transpose(cond)  # (dim,batch)
-            cond = tf.random.shuffle(cond)
-            cond = tf.transpose(cond)  # (batch,dim)
+        cond = tf.transpose(cond)  # (dim,batch)
+        cond = tf.random.shuffle(cond)
+        cond = tf.transpose(cond)  # (batch,dim)
     if batch_axis > axis:
         cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
