@@ -23,7 +23,7 @@ def _mask(x, batch_axis, axis, pos, max_amount, shuffled=False):
             cond = tf.random.shuffle(cond)
             cond = tf.transpose(cond)  # (batch,dim)
     if batch_axis > axis:
-        cond = tf.transpose(cond)  # (dim,batch) 
+        cond = tf.transpose(cond)  # (dim,batch)
     cond = tf.reshape(cond, [tf.shape(x)[i] if i in (batch_axis, axis) else 1 for i in range(ndim)])
     from TFUtil import where_bc
 
