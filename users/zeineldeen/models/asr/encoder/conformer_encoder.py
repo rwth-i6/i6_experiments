@@ -504,9 +504,9 @@ class ConformerEncoder:
             Q = self.network.add_generic_layer(
                 f"{prefix_name}_ln_Q_concat_summary_mean",
                 cls="concat",
-                source=[(summary_mean, "T"), (Q, "T")],
+                source=[(Q, "T"), (summary_mean, "T")],
                 out_dim=self.concat_window_dim,
-            )  # [B*C, 1+W, D]
+            )  # [B*C, W+1, D]
 
         Q_H_ = self.network.add_generic_layer(
             f"{prefix_name}_ln_Q_H_",
@@ -619,15 +619,15 @@ class ConformerEncoder:
                 cls="slice",
                 source=mhsa,
                 axis="T",
-                slice_start=0,
-                slice_end=1,
+                slice_start=self.memory_variant_opts.chunk_size,
             )  # [B*C, 1, D]
             mhsa = self.network.add_generic_layer(
                 f"{prefix_name}_ln_att_slice",
                 cls="slice",
                 source=mhsa,
                 axis="T",
-                slice_start=1,
+                slice_start=0,
+                slice_end=self.memory_variant_opts.chunk_size,
             )  # [B*C, W, D]
 
         return mhsa
