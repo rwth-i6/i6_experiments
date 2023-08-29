@@ -31,7 +31,7 @@ def _mask(x, batch_axis, axis, pos, max_amount, shuffled=False):
     return x
 
 
-def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, shuffeling):
+def _random_mask(x, batch_axis, axis, min_num, max_num, max_dims, shuffeling=False):
     """
     :param tf.Tensor x: (batch,time,feature)
     :param int batch_axis:
@@ -89,13 +89,16 @@ def specaugment_eval_func(data, network, time_factor=1):
             axis=data.time_dim_axis,
             min_num=step1 + step2,
             max_num=tf.maximum(tf.shape(x)[data.time_dim_axis] // 100, 2) * (1 + step1 + step2 * 2),
-            max_dims=20 // time_factor,
-            shuffeling=False,
+            max_dims=20 // time_factor
         )
         x_masked = _random_mask(
-            x_masked, batch_axis=data.batch_dim_axis, axis=data.feature_dim_axis,
-            min_num=step1 + step2, max_num=2 + step1 + step2 * 2,
-            max_dims=data.dim // 5, shuffeling=True)
+            x_masked,
+            batch_axis=data.batch_dim_axis,
+            axis=data.feature_dim_axis,
+            min_num=step1 + step2,
+            max_num=2 + step1 + step2 * 2,
+            max_dims=data.dim // 5,
+            shuffeling=True)
         return x_masked
 
     x = network.cond_on_train(get_masked, lambda: x)
