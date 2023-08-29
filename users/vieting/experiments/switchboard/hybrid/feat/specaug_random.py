@@ -98,7 +98,8 @@ def specaugment_eval_func(data, network, time_factor=1):
             min_num=step1 + step2,
             max_num=2 + step1 + step2 * 2,
             max_dims=data.dim // 5,
-            shuffling=True)
+            shuffling=True,
+        )
         return x_masked
 
     x = network.cond_on_train(get_masked, lambda: x)
