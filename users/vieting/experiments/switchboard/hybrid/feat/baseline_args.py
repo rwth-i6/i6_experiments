@@ -230,7 +230,7 @@ def get_returnn_config(
             prolog = get_funcs_sorted()
         else:
             if specaug_after_first_layer:
-                assert specaug_shuffled, "shuffling can only be done on the second layer"
+                assert not specaug_shuffled, "shuffling can only be done on the second layer"
                 if specaug_time_only:
                     network["features"]["subnetwork"]["specaug"] = specaug_layer_only_time(in_layer=["conv_h_act"])
                     network["features"]["subnetwork"]["conv_h_split"]["from"] = "specaug"
