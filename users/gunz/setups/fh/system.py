@@ -1560,7 +1560,7 @@ class FactoredHybridSystem(NnSystem):
                 ]
             },
             returnn_config=log_softmax_returnn_config,
-            lm_configs={crp_corpus: RasrConfigWrapper(obj=crp.language_model_config)},
+            lm_configs={"4gram": RasrConfigWrapper(obj=crp.language_model_config)},
             search_job_args=AdvTreeSearchJobArgs(
                 search_parameters={
                     "beam-pruning": params.beam,
