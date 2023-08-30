@@ -67,6 +67,31 @@ BPE_10K = 10000
 BPE_5K = 5000
 BPE_1K = 1000
 
+# dev-other:
+# Seq-length 'audio_features' Stats:
+#   2864 seqs
+#   Mean: 102995.8959497207  (6.4 sec)
+#   Std dev: 69081.77143805166  (4.3 sec)
+#   Min/max: 17040 / 562480 (1.1 / 35.2 sec)
+# Seq-length 'bpe_labels' Stats:
+#   2864 seqs
+#   Mean: 21.13966480446923
+#   Std dev: 13.536136898032625
+#   Min/max: 2 / 110
+#
+# test-other:
+# Seq-length 'audio_features' Stats:
+#   2939 seqs
+#   Mean: 104686.32936372912  (6.5 sec)
+#   Std dev: 70821.55181403323  (4.4 sec)
+#   Min/max: 20000 / 552160  (1.2 / 34.5 sec)
+# Seq-length 'bpe_labels' Stats:
+#   2939 seqs
+#   Mean: 21.22796869683565
+#   Std dev: 14.559673655773087
+#   Min/max: 2 / 137
+
+
 # --------------------------- LM --------------------------- #
 
 lstm_10k_lm_opts = {
@@ -1377,4 +1402,23 @@ def baseline():
             },
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
             selected_datasets=["dev-other"],
+        )
+
+    # ------------------- Chunk size 1 ------------------- #
+
+    for mask_eoc in [True, False]:
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[1],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4],
+            decay_pt_factors=[0.1, 1 / 4, 1 / 3],
+            gpu_mem=11,
+            total_epochs=[200],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            decoder_mask_eoc=mask_eoc,
         )
