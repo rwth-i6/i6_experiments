@@ -511,7 +511,7 @@ def run_single(
                 label_info=s.label_info,
                 out_joint_score_layer="output",
                 log_softmax=True,
-                prepare_for_fast_bw_training=True,
+                prepare_for_train=True,
             )
             returnn_config_ft = baum_welch.augment_for_fast_bw(
                 crp=s.crp[s.crp_names["train"]],
