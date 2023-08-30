@@ -498,7 +498,7 @@ def run_single(
     fine_tune = alignment_name == "scratch"
     if fine_tune:
         fine_tune_epochs = 450
-        fine_tune_keep_epochs = [23, 225, 400, 450]
+        fine_tune_keep_epochs = [15, 23, 225, 400, 450]
         orig_name = name
 
         bw_scales = [
