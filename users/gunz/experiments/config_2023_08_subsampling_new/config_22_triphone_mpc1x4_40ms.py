@@ -427,6 +427,7 @@ def run_single(
                 search_parameters=cfg,
                 num_encoder_output=conf_model_dim,
                 rerun_after_opt_lm=False,
+                opt_lm_am=False,
                 calculate_stats=True,
                 pre_path="decoding-perf-eval",
                 name_override=f"best/altas{cfg.altas}-beam{cfg.beam}",
