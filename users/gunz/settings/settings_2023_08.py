@@ -65,6 +65,8 @@ def check_engine_limits(current_rqmt, task):
         "AdvancedTreeSearchLmImageAndGlobalCacheJob",
     }
     CPU_SLOW_JOBLIST = [
+        "BuildGlobalCacheJob",
+        "CreateLmImageJob",
         "ExtractSearchStatisticsJob",
         "Hub5ScoreJob",
         "JoinRightContextPriorsJob",
