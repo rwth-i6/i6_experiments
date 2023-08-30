@@ -406,16 +406,6 @@ def run_single(
             "activation": "log_softmax",
         }
 
-        s.set_mono_priors_returnn_rasr(
-            key="fh",
-            epoch=keep_epochs[-2],
-            train_corpus_key=s.crp_names["train"],
-            dev_corpus_key=s.crp_names["cvtrain"],
-            smoothen=True,
-            returnn_config=returnn_config,
-            output_layer_name="output",
-        )
-
         monophone_li = dataclasses.replace(s.label_info, state_tying=RasrStateTying.monophone)
         tying_cfg = rasr.RasrConfig()
         tying_cfg.type = "monophone-dense"
@@ -440,6 +430,7 @@ def run_single(
                 crp_corpus="dev-other",
                 lm_gc_simple_hash=True,
                 log_softmax_returnn_config=nn_precomputed_returnn_config,
+                encoder_output_layer="center__output",
                 mem_rqmt=4,
                 n_cart_out=monophone_li.get_n_of_dense_classes(),
                 params=cfg,
