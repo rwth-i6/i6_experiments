@@ -107,6 +107,42 @@ trafo_lm_opts_map = {
     BPE_5K: trafo_5k_lm_opts,
 }
 
+# train:
+# Seq-length 'audio_features' Stats:
+#   92973 seqs
+#   Mean: 131396.26378626248  (8.2 sec)
+#   Std dev: 70640.3150616384
+#   Min/max: 4480 / 360977  (0.28 sec / 22.56 sec)
+# Seq-length 'bpe_labels' Stats:
+#   92973 seqs
+#   Mean: 39.46015509879227
+#   Std dev: 23.121978685238307
+#   Min/max: 2 / 153
+#
+# dev:
+# Seq-length 'audio_features' Stats:
+#   507 seqs
+#   Mean: 181567.81065088772 (11 sec)
+#   Std dev: 90829.89353459886
+#   Min/max: 7520 / 638720  (0.47 sec / 39.92 sec)
+# Seq-length 'bpe_labels' Stats:
+#   507 seqs
+#   Mean: 58.13412228796851
+#   Std dev: 33.32746140640928
+#   Min/max: 2 / 211
+#
+# test:
+# Seq-length 'audio_features' Stats:
+#   1155 seqs
+#   Mean: 130516.24675324683 (8 sec)
+#   Std dev: 69077.22250260337  (4 sec)
+#   Min/max: 5600 / 520768 (0.35 sec / 32.55 sec)
+# Seq-length 'bpe_labels' Stats:
+#   1155 seqs
+#   Mean: 38.384415584415635
+#   Std dev: 22.381681584409716
+#   Min/max: 2 / 179
+
 
 # ----------------------------------------------------------- #
 
@@ -1199,8 +1235,8 @@ def run_chunkwise_train(
                                 exp_name += (
                                     f"_memSlice{conf_mem_opts['mem_slice_start']}-{conf_mem_opts['mem_slice_size']}"
                                 )
-                            if conf_mem_opts.get("emformer_like_mem_size", None):
-                                exp_name += f"_emfMemSize{conf_mem_opts['emformer_like_mem_size']}"
+                            if conf_mem_opts.get("use_emformer_mem", False):
+                                exp_name += f"_emfMem"
                             train_args["recursion_limit"] = 4000
 
                         if with_ctc:
@@ -1588,38 +1624,36 @@ def baseline():
         )
 
     # TODO: with mem
-    for emformer_mem_size in [0]:
-        for left_context, center_context, right_context, mem_size in [
-            (0, 20, 5, 1),
-            (0, 10, 5, 1),
-            (0, 20, 5, 2),
-        ]:
-            run_chunkwise_train(
-                enc_stream_type="chunked",
-                run_all_for_best_last_avg=True,
-                enable_check_align=False,
-                chunk_sizes=[left_context + center_context + right_context],
-                chunk_step_factors=[center_context / (left_context + center_context + right_context)],
-                start_lrs=[2e-4],
-                decay_pt_factors=[1 / 3],
-                gpu_mem=24,
-                total_epochs=[120],
-                batch_size=15_000,
-                accum_grad=2,
-                time_rqmt=120,
-                end_slice_start=left_context,
-                end_slice_size=center_context,
-                window_left_padding=left_context * 6,
-                conf_mem_opts={
-                    "self_att_version": 1,
-                    "mem_size": mem_size,
-                    "use_cached_prev_kv": True,
-                    "mem_slice_start": left_context + emformer_mem_size,
-                    "mem_slice_size": center_context,
-                    "emformer_like_mem_size": emformer_mem_size,
-                },
-                suffix=f"_L{left_context}_C{center_context}_R{right_context}",
-            )
+    for left_context, center_context, right_context, mem_size in [
+        (0, 20, 5, 1),
+        (0, 10, 5, 1),
+        (0, 20, 5, 2),
+    ]:
+        run_chunkwise_train(
+            enc_stream_type="chunked",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[left_context + center_context + right_context],
+            chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+            start_lrs=[2e-4],
+            decay_pt_factors=[1 / 3],
+            gpu_mem=24,
+            total_epochs=[120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            end_slice_start=left_context,
+            end_slice_size=center_context,
+            window_left_padding=left_context * 6,
+            conf_mem_opts={
+                "self_att_version": 1,
+                "mem_size": mem_size,
+                "use_cached_prev_kv": True,
+                "mem_slice_start": left_context,
+                "mem_slice_size": center_context,
+            },
+            suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+        )
 
     for left_context, center_context, right_context, conv_cache_size, mem_size in [
         (0, 20, 5, 1, 1),
@@ -1704,6 +1738,38 @@ def baseline():
             },
             suffix=f"_L{left_context}_C{center_context}_R{right_context}",
         )
+
+    # TODO: emformer memory
+    # for left_context, center_context, right_context, conv_cache_size, mem_size, emformer_mem_size in [
+    #     (0, 20, 5, 1, 2),
+    # ]:
+    #     run_chunkwise_train(
+    #         enc_stream_type="chunked",
+    #         run_all_for_best_last_avg=True,
+    #         enable_check_align=False,
+    #         chunk_sizes=[left_context + center_context + right_context],
+    #         chunk_step_factors=[center_context / (left_context + center_context + right_context)],
+    #         start_lrs=[2e-4],
+    #         decay_pt_factors=[1 / 3],
+    #         gpu_mem=24,
+    #         total_epochs=[120],
+    #         batch_size=15_000,
+    #         accum_grad=2,
+    #         time_rqmt=120,
+    #         end_slice_start=left_context,
+    #         end_slice_size=center_context,
+    #         window_left_padding=left_context * 6,
+    #         conf_mem_opts={
+    #             "self_att_version": 1,
+    #             "mem_size": mem_size,
+    #             "use_cached_prev_kv": True,
+    #             "conv_cache_size": conv_cache_size,
+    #             "mem_slice_start": left_context,
+    #             "mem_slice_size": center_context,
+    #             "emformer_like_mem_size": emformer_mem_size,
+    #         },
+    #         suffix=f"_L{left_context}_C{center_context}_R{right_context}",
+    #     )
 
     # TODO: use smaller chunk size only in decoding
 
@@ -1794,3 +1860,20 @@ def baseline():
     #     full_sum_approx=True,
     #     decoder_mask_eoc=True,
     # )
+
+    for mask_eoc in [True, False]:
+        run_chunkwise_train(
+            enc_stream_type="global",
+            run_all_for_best_last_avg=True,
+            enable_check_align=False,
+            chunk_sizes=[1],
+            chunk_step_factors=[1],
+            start_lrs=[2e-4, 2.5e-4],
+            decay_pt_factors=[0.1, 1 / 4],
+            gpu_mem=11,
+            total_epochs=[80, 120],
+            batch_size=15_000,
+            accum_grad=2,
+            time_rqmt=120,
+            decoder_mask_eoc=mask_eoc,
+        )
